@@ -154,11 +154,6 @@ export default function EditUserProfile({ loaderData }: Route.ComponentProps) {
 					</Link>
 				</div>
 				<div>
-					<Link to="connections">
-						<Icon name="link-2">Manage connections</Icon>
-					</Link>
-				</div>
-				<div>
 					<Link to="passkeys">
 						<Icon name="passkey">Manage passkeys</Icon>
 					</Link>
