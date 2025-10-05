@@ -95,6 +95,13 @@ export function UserDropdown() {
 							</Icon>
 						</Link>
 					</DropdownMenuItem>
+					<DropdownMenuItem asChild>
+						<Link prefetch="intent" to="/youtube/playlists">
+							<Icon className="text-body-md" name="file-text">
+								YouTube Playlists
+							</Icon>
+						</Link>
+					</DropdownMenuItem>
 					<Form action="/logout" method="POST" ref={formRef}>
 						<DropdownMenuItem asChild>
 							<button type="submit" className="w-full">
