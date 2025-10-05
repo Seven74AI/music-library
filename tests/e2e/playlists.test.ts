@@ -118,7 +118,7 @@ test.describe('Playlists', () => {
 		await expect(page).toHaveURL(`/playlists/${playlist.id}`)
 		await expect(page.getByRole('heading', { name: 'Updated Title' })).toBeVisible()
 		// Look for the description paragraph with the updated text
-		await expect(page.locator('p').filter({ hasText: 'Updated description' }).first()).toBeVisible()
+		await expect(page.getByRole('paragraph').filter({ hasText: 'Updated description' }).first()).toBeVisible()
 		
 		// Cleanup
 		await prisma.userPlaylist.delete({ where: { id: playlist.id } })

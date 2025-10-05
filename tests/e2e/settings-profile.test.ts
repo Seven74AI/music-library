@@ -70,6 +70,7 @@ test('Users can update their profile photo', async ({
 	await expect(page).toHaveURL(`/settings/profile/photo`)
 
 	// The file input is hidden, so we need to use a different approach
+	// eslint-disable-next-line playwright/no-raw-locators
 	await page.locator('input[type="file"]').setInputFiles('./tests/fixtures/images/user/kody.png')
 
 	await page.getByRole('button', { name: /save/i }).click()

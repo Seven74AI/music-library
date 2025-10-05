@@ -50,6 +50,7 @@ model User {
   connections Connection[]
   passkey     Passkey[]
   playlists   UserPlaylist[]
+  youtubePlaylists YouTubePlaylist[]
 }
 
 model Note {
@@ -181,6 +182,7 @@ model Connection {
   id           String @id @default(cuid())
   providerName String
   providerId   String
+  tokens       String? // JSON string to store OAuth tokens
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -272,4 +274,31 @@ model UserPlaylistTrack {
   @@unique([playlistId, trackId])
   // Index for ordering tracks in playlist
   @@index([playlistId, position])
+}
+
+model YouTubePlaylist {
+  id          String @id @default(cuid())
+  youtubeId   String @unique // YouTube playlist ID
+  title       String
+  description String?
+  thumbnailUrl String?
+  channelId   String
+  channelTitle String
+  publishedAt DateTime
+  itemCount   Int
+  
+  // Sync tracking
+  lastSyncedAt DateTime?
+  isActive     Boolean @default(true) // Whether user wants to keep syncing this playlist
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  ownerId String
+
+  // Index for ordering by user
+  @@index([ownerId])
+  @@index([ownerId, updatedAt])
+  @@index([youtubeId])
 }
