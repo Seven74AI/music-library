@@ -1,22 +1,21 @@
 import { Form } from 'react-router'
 import { z } from 'zod'
-import { Icon } from '#app/components/ui/icon.tsx'
 import { StatusButton } from '#app/components/ui/status-button.tsx'
 import { useIsPending } from './misc.tsx'
 
-export const GITHUB_PROVIDER_NAME = 'github'
+// No external providers configured
 // to add another provider, set their name here and add it to the providerNames below
 
-export const providerNames = [GITHUB_PROVIDER_NAME] as const
+export const providerNames = ['placeholder'] as const
 export const ProviderNameSchema = z.enum(providerNames)
 export type ProviderName = z.infer<typeof ProviderNameSchema>
 
 export const providerLabels: Record<ProviderName, string> = {
-	[GITHUB_PROVIDER_NAME]: 'GitHub',
+	placeholder: 'Placeholder',
 } as const
 
 export const providerIcons: Record<ProviderName, React.ReactNode> = {
-	[GITHUB_PROVIDER_NAME]: <Icon name="github-logo" />,
+	placeholder: <span>🔗</span>,
 } as const
 
 export function ProviderConnectionForm({

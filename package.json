@@ -99,7 +99,6 @@
     "react-dom": "^19.1.0",
     "react-router": "^7.8.1",
     "remix-auth": "^4.2.0",
-    "remix-auth-github": "^3.0.2",
     "remix-utils": "^8.5.0",
     "set-cookie-parser": "^2.7.1",
     "sharp": "^0.34.2",
