@@ -64,7 +64,7 @@ test.describe('Music Library', () => {
 		await login()
 		
 		// Create a test track
-		const track = await prisma.track.create({
+		const ignoredTrack = await prisma.track.create({
 			data: {
 				title: 'Test Track',
 				artist: 'Test Artist',

@@ -64,10 +64,9 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const ignoredDirname = path.dirname(__filename);
+// const __filename = fileURLToPath(import.meta.url);
+// const ignoredDirname = path.dirname(__filename);
 
 // AI-powered library detection using OpenAI, Anthropic, or Google APIs
 async function analyzeFileWithAI(filePath) {
@@ -292,7 +291,7 @@ Return only the JSON array, no other text.`;
     
     const libraries = JSON.parse(cleanedResponse);
     return Array.isArray(libraries) ? libraries : [];
-	} catch {
+  } catch {
     console.error('Failed to parse Anthropic response:', aiResponse);
     return [];
   }
@@ -456,184 +455,12 @@ function convertToLibraryName(importPath) {
     .join(' ');
 }
 
-// Fallback to pattern-based analysis if AI is not available
-function ignoredAnalyzeFileWithPatterns(filePath) {
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    const foundLibraries = new Set();
-    
-    // Extract imports
-    const imports = extractImports(content);
-    const potentialLibraries = mapImportsToLibraries(imports);
-    const patternLibraries = analyzeCodePatterns(content);
-    
-    [...potentialLibraries, ...patternLibraries].forEach(lib => {
-      if (lib) foundLibraries.add(lib);
-    });
-    
-    return Array.from(foundLibraries);
-  } catch (error) {
-    console.error(`Error reading file ${filePath}:`, error.message);
-    return [];
-  }
-}
-
 // Main analysis function - uses enhanced analysis
 async function analyzeFile(filePath) {
   console.log('Using enhanced analysis...');
   return await analyzeFileWithAI(filePath);
 }
 
-function extractImports(content) {
-  const imports = new Set();
-  
-  // Static imports: import ... from 'package'
-  const staticImportRegex = /import\s+.*?\s+from\s+['"`]([^'"`]+)['"`]/g;
-  let match;
-  while ((match = staticImportRegex.exec(content)) !== null) {
-    imports.add(match[1]);
-  }
-  
-  // Dynamic imports: import('package')
-  const dynamicImportRegex = /import\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
-  while ((match = dynamicImportRegex.exec(content)) !== null) {
-    imports.add(match[1]);
-  }
-  
-  // CommonJS requires: require('package')
-  const requireRegex = /require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
-  while ((match = requireRegex.exec(content)) !== null) {
-    imports.add(match[1]);
-  }
-  
-  // Side-effect imports: import 'package'
-  const sideEffectRegex = /import\s+['"`]([^'"`]+)['"`]/g;
-  while ((match = sideEffectRegex.exec(content)) !== null) {
-    imports.add(match[1]);
-  }
-  
-  return Array.from(imports);
-}
-
-function mapImportsToLibraries(imports) {
-  const libraries = [];
-  
-  for (const importPath of imports) {
-    // Skip relative imports and internal modules
-    if (importPath.startsWith('.') || importPath.startsWith('#') || importPath.startsWith('@/')) {
-      continue;
-    }
-    
-    // Skip Node.js built-in modules
-    if (importPath.startsWith('node:')) {
-      continue;
-    }
-    
-    // Extract package name (first part before /)
-    const packageName = importPath.split('/')[0];
-    
-    // Convert to library name dynamically
-    const libraryName = convertPackageNameToLibraryName(packageName);
-    
-    if (libraryName) {
-      libraries.push(libraryName);
-    }
-  }
-  
-  return libraries;
-}
-
-function convertPackageNameToLibraryName(packageName) {
-  // Handle scoped packages (@scope/package)
-  if (packageName.startsWith('@')) {
-    const scope = packageName.split('/')[0].substring(1); // Remove @
-    const packageName = packageName.split('/')[1];
-    
-    // Convert scope to proper case
-    const scopeFormatted = scope
-      .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-    
-    // Convert package name to proper case
-    const packageFormatted = packageName
-      .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-    
-    return `${scopeFormatted} ${packageFormatted}`;
-  }
-  
-  // Handle regular packages - convert kebab-case to Title Case
-  return packageName
-    .split('-')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-function analyzeCodePatterns(content) {
-  const libraries = [];
-  
-  // Dynamic pattern detection based on actual code patterns
-  const patterns = [
-    // Web APIs
-    { pattern: /fetch\s*\(|Response\s*\(|new\s+Response/, name: 'Fetch API' },
-    { pattern: /ReadableStream|TransformStream|WritableStream/, name: 'Web Streams API' },
-    
-    // HTTP patterns
-    { pattern: /Cache-Control|Content-Type|Content-Length|headers\.set|headers\.get/, name: 'HTTP Headers' },
-    
-    // Storage patterns
-    { pattern: /s3|bucket|objectKey|signedUrl|presigned|S3/i, name: 'AWS S3' },
-    
-    // Security patterns
-    { pattern: /crypto|createHash|createHmac|sha256|md5/i, name: 'Crypto' },
-    { pattern: /hmac|HMAC|signature|sign|verify/i, name: 'HMAC' },
-    
-    // Authentication patterns
-    { pattern: /auth|login|logout|session|token|credential/i, name: 'Authentication' },
-    
-    // File patterns
-    { pattern: /multipart|form-data|file.*upload/i, name: 'File Upload' },
-    
-    // Media patterns
-    { pattern: /audio\/|video\/|\.mp3|\.wav|\.m4a|\.mp4/i, name: 'MIME Types' },
-    
-    // Database patterns
-    { pattern: /prisma|mongoose|sequelize|typeorm/i, name: 'Database' },
-    
-    // Validation patterns
-    { pattern: /zod|joi|yup|schema|parse/i, name: 'Validation' },
-    
-    // UI patterns
-    { pattern: /react|vue|angular|svelte/i, name: 'Frontend Framework' },
-    
-    // Testing patterns
-    { pattern: /jest|vitest|playwright|cypress|test|spec/i, name: 'Testing' },
-    
-    // Build patterns
-    { pattern: /vite|webpack|rollup|build|bundle/i, name: 'Build Tools' },
-    
-    // Configuration patterns (for config files)
-    { pattern: /fly\.toml|fly\.io|deployment/i, name: 'Fly.io' },
-    { pattern: /docker|container|image/i, name: 'Docker' },
-    { pattern: /nginx|proxy|server/i, name: 'Nginx' },
-    { pattern: /redis|cache|session/i, name: 'Redis' },
-    { pattern: /postgres|mysql|database/i, name: 'Database' },
-    { pattern: /tailwind|css|styling/i, name: 'Tailwind CSS' },
-    { pattern: /typescript|tsconfig/i, name: 'TypeScript' },
-    { pattern: /eslint|lint/i, name: 'ESLint' },
-    { pattern: /prettier|format/i, name: 'Prettier' },
-  ];
-  
-  for (const { pattern, name } of patterns) {
-    if (pattern.test(content)) {
-      libraries.push(name);
-    }
-  }
-  
-  return libraries;
-}
 
 function generatePrompt(libraries, fileName) {
   // Sort libraries alphabetically for consistency
@@ -712,7 +539,7 @@ function getDynamicFocusTopics(library, fileName) {
     }
     
     return focusTopics.join(', ');
-	} catch {
+  } catch {
     return 'general usage';
   }
 }

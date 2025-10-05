@@ -69,9 +69,8 @@ test('Users can update their profile photo', async ({
 
 	await expect(page).toHaveURL(`/settings/profile/photo`)
 
-	await page
-		.getByRole('button', { name: /change/i })
-		.setInputFiles('./tests/fixtures/images/user/kody.png')
+	// The file input is hidden, so we need to use a different approach
+	await page.locator('input[type="file"]').setInputFiles('./tests/fixtures/images/user/kody.png')
 
 	await page.getByRole('button', { name: /save/i }).click()
 
