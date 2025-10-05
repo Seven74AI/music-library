@@ -1,6 +1,27 @@
+// @context7: Prisma, React, SQLite
+// Before answering my question, MANDATORY use Context7 to fetch documentation for:
+//
+// - Prisma
+// - React
+// - SQLite
+// - resolve-library-id: Prisma
+// - get-library-docs: [resolved-id] (focus: general usage)
+// - resolve-library-id: React
+// - get-library-docs: [resolved-id] (focus: general usage)
+// - resolve-library-id: SQLite
+// - get-library-docs: [resolved-id] (focus: general usage)
+//
+// Context7 Instructions:
+// - resolve-library-id: Prisma
+// - get-library-docs: [resolved-id] (focus: general usage)
+// - resolve-library-id: React
+// - get-library-docs: [resolved-id] (focus: general usage)
+// - resolve-library-id: SQLite
+// - get-library-docs: [resolved-id] (focus: general usage)
+//
+// ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
-// @context7: epic-stack, prisma
 
 generator client {
   provider        = "prisma-client-js"
@@ -184,4 +205,32 @@ model Passkey {
   transports     String? // Stored as comma-separated values
 
   @@index(userId)
+}
+
+model Track {
+  id     String @id @default(cuid())
+  title  String
+  artist String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  audioFile TrackAudioFile?
+
+  // Index for ordering
+  @@index([updatedAt])
+}
+
+model TrackAudioFile {
+  id        String  @id @default(cuid())
+  objectKey String
+  fileName  String?
+  fileSize  Int?
+  mimeType  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  track   Track  @relation(fields: [trackId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  trackId String @unique
 }

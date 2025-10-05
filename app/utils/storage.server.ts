@@ -1,3 +1,42 @@
+// @context7: @mjackson/form-data-parser, @paralleldrive/cuid2, AWS S3, Fetch API, TypeScript, crypto
+/* 
+    Before answering my question, MANDATORY use Context7 to fetch documentation for:
+
+    - @mjackson/form-data-parser
+    - @paralleldrive/cuid2
+    - AWS S3
+    - Fetch API
+    - TypeScript
+    - crypto
+    - resolve-library-id: @mjackson/form-data-parser
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: @paralleldrive/cuid2
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: AWS S3
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: Fetch API
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: TypeScript
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: crypto
+    - get-library-docs: [resolved-id] (focus: general usage)
+
+    Context7 Instructions:
+    - resolve-library-id: @mjackson/form-data-parser
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: @paralleldrive/cuid2
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: AWS S3
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: Fetch API
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: TypeScript
+    - get-library-docs: [resolved-id] (focus: general usage)
+    - resolve-library-id: crypto
+    - get-library-docs: [resolved-id] (focus: general usage)
+
+    ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
+*/
 import { createHash, createHmac } from 'crypto'
 import { type FileUpload } from '@mjackson/form-data-parser'
 import { createId } from '@paralleldrive/cuid2'
@@ -46,6 +85,17 @@ export async function uploadNoteImage(
 	const fileExtension = file.name.split('.').pop() || ''
 	const timestamp = Date.now()
 	const key = `users/${userId}/notes/${noteId}/images/${timestamp}-${fileId}.${fileExtension}`
+	return uploadToStorage(file, key)
+}
+
+export async function uploadTrackAudio(
+	trackId: string,
+	file: File | FileUpload,
+) {
+	const fileId = createId()
+	const fileExtension = file.name.split('.').pop() || ''
+	const timestamp = Date.now()
+	const key = `tracks/${trackId}/audio/${timestamp}-${fileId}.${fileExtension}`
 	return uploadToStorage(file, key)
 }
 

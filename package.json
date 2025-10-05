@@ -26,7 +26,8 @@
     "test:e2e:run": "cross-env CI=true playwright test",
     "test:e2e:install": "npx playwright install --with-deps chromium",
     "typecheck": "react-router typegen && tsc",
-    "validate": "run-p \"test -- --run\" lint typecheck test:e2e:run"
+    "validate": "run-p \"test -- --run\" lint typecheck test:e2e:run",
+    "add-headers": "node scripts/add-context7-headers.js"
   },
   "prettier": "@epic-web/config/prettier",
   "eslintIgnore": [
