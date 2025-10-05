@@ -1,13 +1,11 @@
 import { faker } from '@faker-js/faker'
 import { prisma } from '#app/utils/db.server.ts'
-import { MOCK_CODE_GITHUB } from '#app/utils/providers/constants'
 import {
 	createPassword,
 	createUser,
 	getNoteImages,
 	getUserImages,
 } from '#tests/db-utils.ts'
-import { insertGitHubUser } from '#tests/mocks/github.ts'
 
 async function seed() {
 	console.log('🌱 Seeding...')
@@ -106,8 +104,6 @@ async function seed() {
 		},
 	}
 
-	const githubUser = await insertGitHubUser(MOCK_CODE_GITHUB)
-
 	const kody = await prisma.user.create({
 		select: { id: true },
 		data: {
@@ -115,12 +111,6 @@ async function seed() {
 			username: 'kody',
 			name: 'Kody',
 			password: { create: createPassword('kodylovesyou') },
-			connections: {
-				create: {
-					providerName: 'github',
-					providerId: String(githubUser.profile.id),
-				},
-			},
 			roles: { connect: [{ name: 'admin' }, { name: 'user' }] },
 		},
 	})
@@ -242,7 +232,82 @@ async function seed() {
 		}
 	}
 
-	console.timeEnd(`🐨 Created admin user "kody"`)
+	console.time(`👑 Created additional test users`)
+
+	// Create admin user for testing
+	const adminUser = await prisma.user.create({
+		select: { id: true },
+		data: {
+			email: 'admin@test.com',
+			username: 'admin',
+			name: 'Admin User',
+			password: { create: createPassword('admin123') },
+			roles: { connect: [{ name: 'admin' }, { name: 'user' }] },
+		},
+	})
+
+	// Create normal user for testing
+	const normalUser = await prisma.user.create({
+		select: { id: true },
+		data: {
+			email: 'user@test.com',
+			username: 'testuser',
+			name: 'Test User',
+			password: { create: createPassword('user123') },
+			roles: { connect: { name: 'user' } },
+		},
+	})
+
+	// Create some notes for the test users
+	const adminNotes = [
+		{
+			title: 'Admin Test Note',
+			content: 'This is a test note created by the admin user for testing purposes.',
+		},
+		{
+			title: 'Admin Configuration',
+			content: 'Admin configuration notes and settings for the application.',
+		},
+	]
+
+	const userNotes = [
+		{
+			title: 'My First Note',
+			content: 'This is my first note in the application. I can create and manage my notes here.',
+		},
+		{
+			title: 'Personal Thoughts',
+			content: 'This is where I can write down my personal thoughts and ideas.',
+		},
+		{
+			title: 'To-Do List',
+			content: 'Things I need to do:\n- Learn more about the app\n- Create more notes\n- Explore features',
+		},
+	]
+
+	// Create notes for admin user
+	for (const noteData of adminNotes) {
+		await prisma.note.create({
+			data: {
+				title: noteData.title,
+				content: noteData.content,
+				ownerId: adminUser.id,
+			},
+		})
+	}
+
+	// Create notes for normal user
+	for (const noteData of userNotes) {
+		await prisma.note.create({
+			data: {
+				title: noteData.title,
+				content: noteData.content,
+				ownerId: normalUser.id,
+			},
+		})
+	}
+
+	console.timeEnd(`👑 Created additional test users`)
 
 	console.timeEnd(`🌱 Database has been seeded`)
 }
