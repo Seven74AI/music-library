@@ -96,6 +96,13 @@ export class YouTubeAPIError extends Error {
 /**
  * Search YouTube videos with enhanced error handling
  */
+/**
+ * Searches for YouTube videos based on a query string
+ * @param query - The search query string
+ * @param maxResults - Maximum number of results to return (default: 10)
+ * @returns Promise resolving to array of video data
+ * @throws YouTubeAPIError when API key is required but not configured
+ */
 export async function searchYouTubeVideos(query: string, maxResults = 10): Promise<{
   id: string
   title: string
@@ -106,7 +113,9 @@ export async function searchYouTubeVideos(query: string, maxResults = 10): Promi
   publishedAt: string
 }[]> {
   const apiKey = process.env.YOUTUBE_API_KEY
-  if (!apiKey && !process.env.MOCKS) {
+  const isApiKeyRequired = !process.env.MOCKS
+  
+  if (isApiKeyRequired && !apiKey) {
     throw new YouTubeAPIError('YouTube API key is not configured', 'NO_API_KEY')
   }
 
@@ -178,7 +187,10 @@ export async function searchYouTubeVideos(query: string, maxResults = 10): Promi
 }
 
 /**
- * Get YouTube video details by ID with enhanced error handling
+ * Gets detailed information for a specific YouTube video by ID
+ * @param videoId - The YouTube video ID to fetch details for
+ * @returns Promise resolving to video details
+ * @throws YouTubeAPIError when API key is required but not configured
  */
 export async function getYouTubeVideoDetails(videoId: string): Promise<{
   id: string
@@ -190,7 +202,9 @@ export async function getYouTubeVideoDetails(videoId: string): Promise<{
   publishedAt: string
 }> {
   const apiKey = process.env.YOUTUBE_API_KEY
-  if (!apiKey && !process.env.MOCKS) {
+  const isApiKeyRequired = !process.env.MOCKS
+  
+  if (isApiKeyRequired && !apiKey) {
     throw new YouTubeAPIError('YouTube API key is not configured', 'NO_API_KEY')
   }
 

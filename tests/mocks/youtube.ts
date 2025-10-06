@@ -1,5 +1,30 @@
 import { HttpResponse, http, type HttpHandler } from 'msw'
 
+// Constants
+const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
+const API_KEY_ERROR_MESSAGE = 'API key not valid. Please pass a valid API key.'
+
+/**
+ * Creates a YouTube API key validation error response for MSW mocks
+ * @returns HttpResponse with 400 status and API key error
+ */
+const createApiKeyError = () => HttpResponse.json(
+  {
+    error: {
+      code: 400,
+      message: API_KEY_ERROR_MESSAGE,
+      errors: [
+        {
+          message: API_KEY_ERROR_MESSAGE,
+          domain: 'global',
+          reason: 'badRequest',
+        },
+      ],
+    },
+  },
+  { status: 400 }
+)
+
 // Mock YouTube video data for testing
 const mockYouTubeVideo = {
   id: 'dQw4w9WgXcQ',
@@ -65,56 +90,26 @@ const mockSearchResults = {
 
 export const handlers: Array<HttpHandler> = [
   // Mock YouTube API search endpoint
-  http.get('https://www.googleapis.com/youtube/v3/search', ({ request }) => {
+  http.get(`${YOUTUBE_API_BASE}/search`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
     
     // Accept any API key when mocks are enabled (including 'mock-key')
     if (!apiKey) {
-      return HttpResponse.json(
-        {
-          error: {
-            code: 400,
-            message: 'API key not valid. Please pass a valid API key.',
-            errors: [
-              {
-                message: 'API key not valid. Please pass a valid API key.',
-                domain: 'global',
-                reason: 'badRequest',
-              },
-            ],
-          },
-        },
-        { status: 400 }
-      )
+      return createApiKeyError()
     }
 
     return HttpResponse.json(mockSearchResults)
   }),
 
   // Mock YouTube API videos endpoint (for getting video details)
-  http.get('https://www.googleapis.com/youtube/v3/videos', ({ request }) => {
+  http.get(`${YOUTUBE_API_BASE}/videos`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
     const videoIds = url.searchParams.get('id')
     
     if (!apiKey) {
-      return HttpResponse.json(
-        {
-          error: {
-            code: 400,
-            message: 'API key not valid. Please pass a valid API key.',
-            errors: [
-              {
-                message: 'API key not valid. Please pass a valid API key.',
-                domain: 'global',
-                reason: 'badRequest',
-              },
-            ],
-          },
-        },
-        { status: 400 }
-      )
+      return createApiKeyError()
     }
 
     // Return mock video data for the requested video ID
@@ -131,27 +126,12 @@ export const handlers: Array<HttpHandler> = [
   }),
 
   // Mock YouTube API playlists endpoint
-  http.get('https://www.googleapis.com/youtube/v3/playlists', ({ request }) => {
+  http.get(`${YOUTUBE_API_BASE}/playlists`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
     
     if (!apiKey) {
-      return HttpResponse.json(
-        {
-          error: {
-            code: 400,
-            message: 'API key not valid. Please pass a valid API key.',
-            errors: [
-              {
-                message: 'API key not valid. Please pass a valid API key.',
-                domain: 'global',
-                reason: 'badRequest',
-              },
-            ],
-          },
-        },
-        { status: 400 }
-      )
+      return createApiKeyError()
     }
 
     return HttpResponse.json({
@@ -181,27 +161,12 @@ export const handlers: Array<HttpHandler> = [
   }),
 
   // Mock YouTube API playlistItems endpoint
-  http.get('https://www.googleapis.com/youtube/v3/playlistItems', ({ request }) => {
+  http.get(`${YOUTUBE_API_BASE}/playlistItems`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
     
     if (!apiKey) {
-      return HttpResponse.json(
-        {
-          error: {
-            code: 400,
-            message: 'API key not valid. Please pass a valid API key.',
-            errors: [
-              {
-                message: 'API key not valid. Please pass a valid API key.',
-                domain: 'global',
-                reason: 'badRequest',
-              },
-            ],
-          },
-        },
-        { status: 400 }
-      )
+      return createApiKeyError()
     }
 
     return HttpResponse.json({
