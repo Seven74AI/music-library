@@ -106,7 +106,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 				<div className="flex gap-2">
 					{userTracks.length > 0 && (
 						<NavLink
-							to="import"
+							to="/music/services/import"
 							className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 hover:bg-accent"
 						>
 							<Icon name="download" className="h-4 w-4" />
@@ -127,7 +127,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 					<div className="flex gap-2">
 						<AddTrackModal />
 						<NavLink
-							to="import"
+							to="/music/services/import"
 							className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 hover:bg-accent"
 						>
 							<Icon name="download" className="h-4 w-4" />

@@ -106,13 +106,13 @@ export async function searchYouTubeVideos(query: string, maxResults = 10): Promi
   publishedAt: string
 }[]> {
   const apiKey = process.env.YOUTUBE_API_KEY
-  if (!apiKey) {
+  if (!apiKey && !process.env.MOCKS) {
     throw new YouTubeAPIError('YouTube API key is not configured', 'NO_API_KEY')
   }
 
   const youtube = google.youtube({
     version: 'v3',
-    auth: apiKey,
+    auth: apiKey || 'mock-key', // Use a mock key when mocks are enabled
   })
 
   try {
@@ -190,13 +190,13 @@ export async function getYouTubeVideoDetails(videoId: string): Promise<{
   publishedAt: string
 }> {
   const apiKey = process.env.YOUTUBE_API_KEY
-  if (!apiKey) {
+  if (!apiKey && !process.env.MOCKS) {
     throw new YouTubeAPIError('YouTube API key is not configured', 'NO_API_KEY')
   }
 
   const youtube = google.youtube({
     version: 'v3',
-    auth: apiKey,
+    auth: apiKey || 'mock-key', // Use a mock key when mocks are enabled
   })
 
   try {

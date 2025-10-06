@@ -3,11 +3,13 @@ import { setupServer } from 'msw/node'
 import { handlers as pwnedPasswordApiHandlers } from './pwned-passwords.ts'
 import { handlers as resendHandlers } from './resend.ts'
 import { handlers as tigrisHandlers } from './tigris.ts'
+import { handlers as youtubeHandlers } from './youtube.ts'
 
 export const server = setupServer(
 	...resendHandlers,
 	...tigrisHandlers,
 	...pwnedPasswordApiHandlers,
+	...youtubeHandlers,
 )
 
 server.listen({

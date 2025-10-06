@@ -36,6 +36,18 @@ export async function setup() {
 			},
 		},
 	)
+
+	// Seed services manually for tests
+	await execaCommand(
+		'npx prisma db seed',
+		{
+			stdio: 'inherit',
+			env: {
+				...process.env,
+				DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
+			},
+		},
+	)
 }
 
 // Playwright global setup function

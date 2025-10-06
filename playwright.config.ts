@@ -38,6 +38,7 @@ export default defineConfig({
 		env: {
 			PORT,
 			NODE_ENV: 'test',
+			MOCKS: 'true',
 		},
 	},
 })

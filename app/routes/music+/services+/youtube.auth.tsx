@@ -1,0 +1,118 @@
+import { redirect, type LoaderFunctionArgs } from 'react-router'
+import { Button } from '#app/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
+import { Icon } from '#app/components/ui/icon'
+import { requireUserId } from '#app/utils/auth.server'
+import { createYouTubePlaylistService } from '#app/utils/youtube-playlist.server'
+
+export async function loader({ request }: LoaderFunctionArgs) {
+	const userId = await requireUserId(request)
+	const youtubePlaylistService = createYouTubePlaylistService()
+	
+	// Check if user already has tokens
+	const storedTokens = await youtubePlaylistService.getStoredTokens(userId)
+	
+	if (storedTokens) {
+		// User is already connected, redirect to YouTube service page
+		return redirect('/music/services/youtube')
+	}
+
+	return {}
+}
+
+export default function YouTubeAuthPage() {
+	return (
+		<div className="container mx-auto py-8">
+			<div className="mb-8">
+				<div className="flex items-center gap-4 mb-4">
+					<Button asChild variant="outline">
+						<a href="/music/services/youtube">
+							<Icon name="arrow-left" className="mr-2" />
+							Back to YouTube Service
+						</a>
+					</Button>
+				</div>
+				<div className="flex items-center gap-4">
+					<img 
+						src="/logos/youtube.svg" 
+						alt="YouTube logo"
+						className="w-8 h-8"
+					/>
+					<div>
+						<h1 className="text-3xl font-bold">Connect YouTube Account</h1>
+						<p className="text-muted-foreground mt-1">
+							Connect your YouTube account to sync and manage your playlists
+						</p>
+					</div>
+				</div>
+			</div>
+
+			<div className="max-w-2xl mx-auto">
+				<Card>
+					<CardHeader>
+						<CardTitle className="flex items-center gap-2">
+							<Icon name="link-2" className="h-5 w-5" />
+							YouTube Integration
+						</CardTitle>
+						<CardDescription>
+							Connect your YouTube account to access your playlists and sync them with your music library.
+						</CardDescription>
+					</CardHeader>
+					<CardContent className="space-y-6">
+						<div className="space-y-4">
+							<h3 className="font-semibold">What you'll be able to do:</h3>
+							<ul className="space-y-2 text-sm text-muted-foreground">
+								<li className="flex items-center gap-2">
+									<Icon name="check" className="h-4 w-4 text-green-600" />
+									Sync your YouTube playlists automatically
+								</li>
+								<li className="flex items-center gap-2">
+									<Icon name="check" className="h-4 w-4 text-green-600" />
+									Import tracks from your YouTube playlists
+								</li>
+								<li className="flex items-center gap-2">
+									<Icon name="check" className="h-4 w-4 text-green-600" />
+									Manage your YouTube playlist sync settings
+								</li>
+								<li className="flex items-center gap-2">
+									<Icon name="check" className="h-4 w-4 text-green-600" />
+									Keep your playlists up to date automatically
+								</li>
+							</ul>
+						</div>
+
+						<div className="space-y-4">
+							<h3 className="font-semibold">Privacy & Security:</h3>
+							<ul className="space-y-2 text-sm text-muted-foreground">
+								<li className="flex items-center gap-2">
+									<Icon name="lock-closed" className="h-4 w-4 text-blue-600" />
+									We only request read-only access to your playlists
+								</li>
+								<li className="flex items-center gap-2">
+									<Icon name="lock-closed" className="h-4 w-4 text-blue-600" />
+									Your YouTube account credentials are never stored
+								</li>
+								<li className="flex items-center gap-2">
+									<Icon name="lock-closed" className="h-4 w-4 text-blue-600" />
+									You can disconnect your account at any time
+								</li>
+							</ul>
+						</div>
+
+						<div className="pt-4 border-t">
+							<Button asChild size="lg" className="w-full">
+								<a href="/youtube/auth">
+									<Icon name="link-2" className="h-5 w-5 mr-2" />
+									Connect YouTube Account
+								</a>
+							</Button>
+							<p className="text-xs text-muted-foreground text-center mt-2">
+								You'll be redirected to YouTube to authorize the connection
+							</p>
+						</div>
+					</CardContent>
+				</Card>
+			</div>
+		</div>
+	)
+}

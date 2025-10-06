@@ -57,7 +57,7 @@ const youtubeImportHandler: ServiceImportHandler = {
   },
 
   getImportUrl(serviceName: string, videoId: string): string {
-    return `/library/import/${serviceName}/${videoId}`
+    return `/music/services/import/${serviceName}/${videoId}`
   }
 }
 

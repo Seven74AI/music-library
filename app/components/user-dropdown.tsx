@@ -82,30 +82,30 @@ export function UserDropdown() {
 						</Link>
 					</DropdownMenuItem>
 					<DropdownMenuItem asChild>
-						<Link prefetch="intent" to="/library">
+						<Link prefetch="intent" to="/music">
 							<Icon className="text-body-md" name="file-text">
-								Music Library
+								Music Hub
 							</Icon>
 						</Link>
 					</DropdownMenuItem>
 					<DropdownMenuItem asChild>
-						<Link prefetch="intent" to="/library/import">
-							<Icon className="text-body-md" name="download">
-								Import Tracks
+						<Link prefetch="intent" to="/library">
+							<Icon className="text-body-md" name="file-text">
+								My Library
 							</Icon>
 						</Link>
 					</DropdownMenuItem>
 					<DropdownMenuItem asChild>
 						<Link prefetch="intent" to="/playlists">
 							<Icon className="text-body-md" name="file-text">
-								Playlists
+								My Playlists
 							</Icon>
 						</Link>
 					</DropdownMenuItem>
 					<DropdownMenuItem asChild>
-						<Link prefetch="intent" to="/youtube/playlists">
-							<Icon className="text-body-md" name="file-text">
-								YouTube Playlists
+						<Link prefetch="intent" to="/music/services">
+							<Icon className="text-body-md" name="link-2">
+								Connected Services
 							</Icon>
 						</Link>
 					</DropdownMenuItem>

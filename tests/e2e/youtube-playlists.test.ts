@@ -4,6 +4,22 @@ import { test, expect } from '#tests/playwright-utils'
 test.describe('YouTube Playlists', () => {
   test('should display YouTube playlists page', async ({ page, login }) => {
     const user = await login()
+    
+    // Create YouTube connection first
+    await prisma.connection.create({
+      data: {
+        providerName: 'youtube',
+        providerId: 'test-youtube-user-id',
+        userId: user.id,
+        tokens: JSON.stringify({
+          youtubeUserId: 'test-user-id',
+          accessToken: 'test-access-token',
+          refreshToken: 'test-refresh-token',
+          expiryDate: Date.now() + 3600000, // 1 hour from now
+        }),
+      },
+    })
+    
     await prisma.youTubePlaylist.create({
       data: {
         youtubeId: 'PLtest123',
@@ -18,24 +34,40 @@ test.describe('YouTube Playlists', () => {
       },
     })
 
-    await page.goto('/youtube/playlists')
-    await expect(page).toHaveURL('/youtube/playlists')
+    await page.goto('/music/services/youtube/playlists')
+    await expect(page).toHaveURL('/music/services/youtube/playlists')
     await expect(page.getByRole('heading', { name: /youtube playlists/i })).toBeVisible()
   })
 
   test('should show empty state when no playlists', async ({ page, login }) => {
     const ignoredUser = await login()
 
-    await page.goto('/youtube/playlists')
-    await expect(page).toHaveURL('/youtube/playlists')
+    await page.goto('/music/services/youtube/playlists')
+    await expect(page).toHaveURL('/music/services/youtube/playlists')
 
     // Should show empty state
-    await expect(page.getByText(/no youtube playlists/i)).toBeVisible()
-    await expect(page.getByRole('button', { name: /connect youtube account/i })).toBeVisible()
+    await expect(page.getByText(/not connected to youtube/i)).toBeVisible()
+    await expect(page.getByRole('link', { name: /connect youtube account/i })).toBeVisible()
   })
 
   test('should display playlist cards with correct information', async ({ page, login }) => {
     const user = await login()
+    
+    // Create YouTube connection first
+    await prisma.connection.create({
+      data: {
+        providerName: 'youtube',
+        providerId: 'test-youtube-user-id',
+        userId: user.id,
+        tokens: JSON.stringify({
+          youtubeUserId: 'test-user-id',
+          accessToken: 'test-access-token',
+          refreshToken: 'test-refresh-token',
+          expiryDate: Date.now() + 3600000, // 1 hour from now
+        }),
+      },
+    })
+    
     await prisma.youTubePlaylist.create({
       data: {
         youtubeId: 'PLtest456',
@@ -52,19 +84,35 @@ test.describe('YouTube Playlists', () => {
       },
     })
 
-    await page.goto('/youtube/playlists')
-    await expect(page).toHaveURL('/youtube/playlists')
+    await page.goto('/music/services/youtube/playlists')
+    await expect(page).toHaveURL('/music/services/youtube/playlists')
 
     // Should display playlist information
     await expect(page.getByText('My Awesome Playlist')).toBeVisible()
     await expect(page.getByText('This is a test playlist description')).toBeVisible()
     await expect(page.getByText('Test Channel')).toBeVisible()
-    await expect(page.getByText('25 videos')).toBeVisible()
+    await expect(page.getByText('25 tracks')).toBeVisible()
     await expect(page.getByText('Active').first()).toBeVisible()
   })
 
   test('should allow removing playlists', async ({ page, login }) => {
     const user = await login()
+    
+    // Create YouTube connection first
+    await prisma.connection.create({
+      data: {
+        providerName: 'youtube',
+        providerId: 'test-youtube-user-id',
+        userId: user.id,
+        tokens: JSON.stringify({
+          youtubeUserId: 'test-user-id',
+          accessToken: 'test-access-token',
+          refreshToken: 'test-refresh-token',
+          expiryDate: Date.now() + 3600000, // 1 hour from now
+        }),
+      },
+    })
+    
     const ignoredPlaylist = await prisma.youTubePlaylist.create({
       data: {
         youtubeId: 'PLtest789',
@@ -79,8 +127,8 @@ test.describe('YouTube Playlists', () => {
       },
     })
 
-    await page.goto('/youtube/playlists')
-    await expect(page).toHaveURL('/youtube/playlists')
+    await page.goto('/music/services/youtube/playlists')
+    await expect(page).toHaveURL('/music/services/youtube/playlists')
 
     // Should display playlist
     await expect(page.getByRole('heading', { name: 'Test Playlist' })).toBeVisible()

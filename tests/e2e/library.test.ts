@@ -103,10 +103,10 @@ test.describe('Music Library', () => {
 	test('can preview track before importing from YouTube', async ({ page, login }) => {
 		await login()
 
-		await page.goto('/library/import')
+		await page.goto('/music/services/import')
 		
 		// Click on YouTube service
-		await page.getByText('Import from YouTube').click()
+		await page.getByRole('link', { name: /import from youtube/i }).click()
 		
 		// Should be on YouTube import page
 		await expect(page.getByRole('heading', { name: /import from youtube/i })).toBeVisible()
@@ -119,7 +119,7 @@ test.describe('Music Library', () => {
 		await page.getByRole('button', { name: /preview track/i }).click()
 		
 		// Should stay on the same page and show preview
-		await expect(page).toHaveURL(/\/library\/import\/youtube$/)
+		await expect(page).toHaveURL(/\/music\/services\/import\/youtube$/)
 		
 		// Should show track preview with details
 		await expect(page.getByRole('heading', { name: /preview track/i })).toBeVisible()
@@ -136,10 +136,10 @@ test.describe('Music Library', () => {
 	test('can cancel track preview and return to import form', async ({ page, login }) => {
 		await login()
 
-		await page.goto('/library/import')
+		await page.goto('/music/services/import')
 		
 		// Click on YouTube service
-		await page.getByText('Import from YouTube').click()
+		await page.getByRole('link', { name: /import from youtube/i }).click()
 		
 		// Enter a YouTube URL
 		const youtubeUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
@@ -155,17 +155,17 @@ test.describe('Music Library', () => {
 		await page.getByRole('button', { name: /cancel/i }).click()
 		
 		// Should return to import form (same page, but form should be visible again)
-		await expect(page).toHaveURL(/\/library\/import\/youtube$/)
+		await expect(page).toHaveURL(/\/music\/services\/import\/youtube$/)
 		await expect(page.getByRole('textbox', { name: /youtube url/i })).toBeVisible()
 	})
 
 	test('can import track after preview', async ({ page, login }) => {
 		await login()
 
-		await page.goto('/library/import')
+		await page.goto('/music/services/import')
 		
 		// Click on YouTube service
-		await page.getByText('Import from YouTube').click()
+		await page.getByRole('link', { name: /import from youtube/i }).click()
 		
 		// Enter a YouTube URL
 		const youtubeUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
@@ -190,10 +190,10 @@ test.describe('Music Library', () => {
 	test('shows error when YouTube URL is invalid', async ({ page, login }) => {
 		await login()
 
-		await page.goto('/library/import')
+		await page.goto('/music/services/import')
 		
 		// Click on YouTube service
-		await page.getByText('Import from YouTube').click()
+		await page.getByRole('link', { name: /import from youtube/i }).click()
 		
 		// Enter an invalid URL
 		await page.getByRole('textbox', { name: /youtube url/i }).fill('https://invalid-url.com')
@@ -210,8 +210,9 @@ test.describe('Music Library', () => {
 		await login()
 
 		// First, import a track
-		await page.goto('/library/import')
-		await page.getByText('Import from YouTube').click()
+		await page.goto('/music/services/import')
+		// Wait for the page to load and find the YouTube service card
+		await page.getByRole('link', { name: /import from youtube/i }).click()
 		
 		const youtubeUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
 		await page.getByRole('textbox', { name: /youtube url/i }).fill(youtubeUrl)
@@ -222,13 +223,13 @@ test.describe('Music Library', () => {
 		await expect(page).toHaveURL('/library')
 		
 		// Now try to preview the same track again
-		await page.goto('/library/import')
-		await page.getByText('Import from YouTube').click()
+		await page.goto('/music/services/import')
+		await page.getByRole('link', { name: /import from youtube/i }).click()
 		await page.getByRole('textbox', { name: /youtube url/i }).fill(youtubeUrl)
 		await page.getByRole('button', { name: /preview track/i }).click()
 		
 		// Should show preview with "already exists" message
-		await expect(page).toHaveURL(/\/library\/import\/youtube$/)
+		await expect(page).toHaveURL(/\/music\/services\/import\/youtube$/)
 		await expect(page.getByText('Track Already in Library')).toBeVisible()
 		await expect(page.getByText('This track is already in your library')).toBeVisible()
 		
