@@ -38,6 +38,8 @@ jobs:
 
       - name: 🔬 Lint
         run: npm run lint
+        env:
+          MOCKS: true
 
   typecheck:
     name: ʦ TypeScript
@@ -65,6 +67,8 @@ jobs:
 
       - name: 🔎 Type check
         run: npm run typecheck --if-present
+        env:
+          MOCKS: true
 
   vitest:
     name: ⚡ Vitest
@@ -89,6 +93,8 @@ jobs:
 
       - name: ⚡ Run vitest
         run: npm run test -- --coverage
+        env:
+          MOCKS: true
 
   playwright:
     name: 🎭 Playwright
@@ -134,6 +140,8 @@ jobs:
 
       - name: 🎭 Playwright tests
         run: npx playwright test
+        env:
+          MOCKS: true
 
       - name: 📊 Upload report
         uses: actions/upload-artifact@v4
