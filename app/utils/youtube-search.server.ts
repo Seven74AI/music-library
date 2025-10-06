@@ -1,6 +1,13 @@
 import { google } from 'googleapis'
 import { z } from 'zod'
 
+// YouTube API constants
+const YOUTUBE_API_LIMITS = {
+  MAX_SEARCH_RESULTS: 50,
+  MIN_SEARCH_RESULTS: 1,
+  DEFAULT_SEARCH_RESULTS: 10,
+} as const
+
 // YouTube API response schemas
 const YouTubeSearchResultSchema = z.object({
   id: z.object({
@@ -101,9 +108,9 @@ export class YouTubeAPIError extends Error {
  * @param query - The search query string
  * @param maxResults - Maximum number of results to return (default: 10)
  * @returns Promise resolving to array of video data
- * @throws YouTubeAPIError when API key is required but not configured
+ * @throws YouTubeAPIError when API key is required but not configured, or when parameters are invalid
  */
-export async function searchYouTubeVideos(query: string, maxResults = 10): Promise<{
+export async function searchYouTubeVideos(query: string, maxResults = YOUTUBE_API_LIMITS.DEFAULT_SEARCH_RESULTS): Promise<{
   id: string
   title: string
   artist: string
@@ -112,6 +119,18 @@ export async function searchYouTubeVideos(query: string, maxResults = 10): Promi
   serviceUrl: string
   publishedAt: string
 }[]> {
+  // Input validation
+  if (!query || typeof query !== 'string' || query.trim().length === 0) {
+    throw new YouTubeAPIError('Query parameter is required and must be a non-empty string', 'INVALID_QUERY')
+  }
+  
+  if (maxResults < YOUTUBE_API_LIMITS.MIN_SEARCH_RESULTS || maxResults > YOUTUBE_API_LIMITS.MAX_SEARCH_RESULTS) {
+    throw new YouTubeAPIError(
+      `maxResults must be between ${YOUTUBE_API_LIMITS.MIN_SEARCH_RESULTS} and ${YOUTUBE_API_LIMITS.MAX_SEARCH_RESULTS}`,
+      'INVALID_MAX_RESULTS'
+    )
+  }
+
   const apiKey = process.env.YOUTUBE_API_KEY
   const isApiKeyRequired = !process.env.MOCKS
   
@@ -190,7 +209,7 @@ export async function searchYouTubeVideos(query: string, maxResults = 10): Promi
  * Gets detailed information for a specific YouTube video by ID
  * @param videoId - The YouTube video ID to fetch details for
  * @returns Promise resolving to video details
- * @throws YouTubeAPIError when API key is required but not configured
+ * @throws YouTubeAPIError when API key is required but not configured, or when videoId is invalid
  */
 export async function getYouTubeVideoDetails(videoId: string): Promise<{
   id: string
@@ -201,6 +220,11 @@ export async function getYouTubeVideoDetails(videoId: string): Promise<{
   serviceUrl: string
   publishedAt: string
 }> {
+  // Input validation
+  if (!videoId || typeof videoId !== 'string' || videoId.trim().length === 0) {
+    throw new YouTubeAPIError('Video ID is required and must be a non-empty string', 'INVALID_VIDEO_ID')
+  }
+
   const apiKey = process.env.YOUTUBE_API_KEY
   const isApiKeyRequired = !process.env.MOCKS
   

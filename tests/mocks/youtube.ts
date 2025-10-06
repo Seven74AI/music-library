@@ -1,29 +1,46 @@
 import { HttpResponse, http, type HttpHandler } from 'msw'
 
 // Constants
-const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
-const API_KEY_ERROR_MESSAGE = 'API key not valid. Please pass a valid API key.'
+const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3'
+const YOUTUBE_API_KEY_ERROR_MESSAGE = 'API key not valid. Please pass a valid API key.'
+
+// Type definitions for error responses
+interface YouTubeErrorResponse {
+  error: {
+    code: number
+    message: string
+    errors: Array<{
+      message: string
+      domain: string
+      reason: string
+    }>
+  }
+}
+
+/**
+ * Creates a configurable YouTube API error response for MSW mocks
+ * @param code - HTTP status code
+ * @param message - Error message
+ * @param reason - Error reason (default: 'badRequest')
+ * @returns HttpResponse with specified error details
+ */
+const createYouTubeError = (code: number, message: string, reason = 'badRequest'): HttpResponse<YouTubeErrorResponse> => 
+  HttpResponse.json(
+    {
+      error: {
+        code,
+        message,
+        errors: [{ message, domain: 'global', reason }],
+      },
+    } satisfies YouTubeErrorResponse,
+    { status: code }
+  )
 
 /**
  * Creates a YouTube API key validation error response for MSW mocks
  * @returns HttpResponse with 400 status and API key error
  */
-const createApiKeyError = () => HttpResponse.json(
-  {
-    error: {
-      code: 400,
-      message: API_KEY_ERROR_MESSAGE,
-      errors: [
-        {
-          message: API_KEY_ERROR_MESSAGE,
-          domain: 'global',
-          reason: 'badRequest',
-        },
-      ],
-    },
-  },
-  { status: 400 }
-)
+const createApiKeyError = () => createYouTubeError(400, YOUTUBE_API_KEY_ERROR_MESSAGE)
 
 // Mock YouTube video data for testing
 const mockYouTubeVideo = {
@@ -90,7 +107,7 @@ const mockSearchResults = {
 
 export const handlers: Array<HttpHandler> = [
   // Mock YouTube API search endpoint
-  http.get(`${YOUTUBE_API_BASE}/search`, ({ request }) => {
+  http.get(`${YOUTUBE_API_BASE_URL}/search`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
     
@@ -103,7 +120,7 @@ export const handlers: Array<HttpHandler> = [
   }),
 
   // Mock YouTube API videos endpoint (for getting video details)
-  http.get(`${YOUTUBE_API_BASE}/videos`, ({ request }) => {
+  http.get(`${YOUTUBE_API_BASE_URL}/videos`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
     const videoIds = url.searchParams.get('id')
@@ -126,7 +143,7 @@ export const handlers: Array<HttpHandler> = [
   }),
 
   // Mock YouTube API playlists endpoint
-  http.get(`${YOUTUBE_API_BASE}/playlists`, ({ request }) => {
+  http.get(`${YOUTUBE_API_BASE_URL}/playlists`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
     
@@ -161,7 +178,7 @@ export const handlers: Array<HttpHandler> = [
   }),
 
   // Mock YouTube API playlistItems endpoint
-  http.get(`${YOUTUBE_API_BASE}/playlistItems`, ({ request }) => {
+  http.get(`${YOUTUBE_API_BASE_URL}/playlistItems`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
     

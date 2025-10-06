@@ -9,6 +9,13 @@ const TEST_REFRESH_TOKEN = 'test-refresh-token'
 // const TEST_VIDEO_ID = 'dQw4w9WgXcQ' // Reserved for future use
 const TEST_PLAYLIST_ID = 'PLtest123'
 
+// Test data constants
+const TEST_CHANNEL_ID = 'UCtest123'
+const TEST_CHANNEL_TITLE = 'Test Channel'
+const DEFAULT_PLAYLIST_TITLE = 'Test Playlist'
+const DEFAULT_PLAYLIST_DESCRIPTION = 'A test playlist'
+const DEFAULT_ITEM_COUNT = 10
+
 // Type definitions for test data
 interface TestYouTubeConnection {
   providerName: 'youtube'
@@ -56,12 +63,12 @@ const createTestYouTubeConnection = (userId: string): TestYouTubeConnection => (
  */
 const createTestPlaylist = (userId: string, overrides: Partial<TestYouTubePlaylist> = {}): TestYouTubePlaylist => ({
   youtubeId: TEST_PLAYLIST_ID,
-  title: 'Test Playlist',
-  description: 'A test playlist',
-  channelId: 'UCtest123',
-  channelTitle: 'Test Channel',
+  title: DEFAULT_PLAYLIST_TITLE,
+  description: DEFAULT_PLAYLIST_DESCRIPTION,
+  channelId: TEST_CHANNEL_ID,
+  channelTitle: TEST_CHANNEL_TITLE,
   publishedAt: new Date(),
-  itemCount: 10,
+  itemCount: DEFAULT_ITEM_COUNT,
   ownerId: userId,
   isActive: true,
   ...overrides,
