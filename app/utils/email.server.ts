@@ -2,6 +2,8 @@ import { render } from '@react-email/components'
 import { type ReactElement } from 'react'
 import { z } from 'zod'
 
+export const noReplyEmail = 'no-reply@music-library.sevend.io'
+
 const resendErrorSchema = z.union([
 	z.object({
 		name: z.string(),
@@ -31,7 +33,7 @@ export async function sendEmail({
 	| { html: string; text: string; react?: never }
 	| { react: ReactElement; html?: never; text?: never }
 )) {
-	const from = 'hello@epicstack.dev'
+	const from = noReplyEmail
 
 	const email = {
 		from,
