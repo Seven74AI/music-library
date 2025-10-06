@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { toast as showToast } from 'sonner'
+import { ToastAction } from '#app/components/ui/toast.tsx'
+import { toast as showToast } from '#app/components/ui/use-toast.ts'
 import { type Toast } from '#app/utils/toast.server.ts'
 
 export function useToast(toast?: Toast | null) {
@@ -17,8 +18,9 @@ export function useToast(toast?: Toast | null) {
 			// Use requestAnimationFrame instead of setTimeout to ensure proper timing
 			requestAnimationFrame(() => {
 				const toastOptions: any = {
-					id: toast.id,
+					title: toast.title,
 					description: toast.description,
+					variant: toast.type === 'error' ? 'destructive' : 'default',
 				}
 
 				// Durée personnalisée
@@ -28,20 +30,24 @@ export function useToast(toast?: Toast | null) {
 
 				// Action personnalisée
 				if (toast.action) {
-					toastOptions.action = {
-						label: toast.action.label,
-						onClick: () => {
-							if (toast.action?.href) {
-								void navigate(toast.action.href)
-							} else if (toast.action?.onClick) {
-								// Appeler une fonction personnalisée
-								;(window as any)[toast.action.onClick]?.()
-							}
-						}
-					}
+					toastOptions.action = (
+						<ToastAction
+							altText={toast.action.label}
+							onClick={() => {
+								if (toast.action?.href) {
+									void navigate(toast.action.href)
+								} else if (toast.action?.onClick) {
+									// Appeler une fonction personnalisée
+									;(window as any)[toast.action.onClick]?.()
+								}
+							}}
+						>
+							{toast.action.label}
+						</ToastAction>
+					)
 				}
 
-				showToast[toast.type](toast.title, toastOptions)
+				showToast(toastOptions)
 			})
 		}
 	}, [toast, navigate, mounted])
