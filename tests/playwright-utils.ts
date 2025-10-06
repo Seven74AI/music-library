@@ -65,7 +65,7 @@ export const test = base.extend<{
 	) => Promise<null | Response>
 	insertNewUser(options?: GetOrInsertUserOptions): Promise<User>
 	login(options?: GetOrInsertUserOptions): Promise<User>
-	insertNewTrack(options?: { title?: string; artist?: string }): Promise<{ id: string; title: string; artist: string }>
+	insertNewTrack(options?: { title?: string; artist?: string }, userId?: string): Promise<{ id: string; title: string; artist: string }>
 }>({
 	navigate: async ({ page }, use) => {
 		await use((...args) => {
@@ -126,7 +126,8 @@ export const test = base.extend<{
 	},
 	insertNewTrack: async ({}, use) => {
 		let trackId: string | undefined = undefined
-		await use(async (options) => {
+		let userTrackId: string | undefined = undefined
+		await use(async (options?: { title?: string; artist?: string }, userId?: string) => {
 			const track = await prisma.track.create({
 				data: {
 					title: options?.title || 'Test Track',
@@ -134,9 +135,30 @@ export const test = base.extend<{
 				},
 			})
 			trackId = track.id
+			
+			// Add track to user's library if userId is provided
+			if (userId) {
+				const userTrack = await prisma.userTrack.create({
+					data: {
+						userId: userId,
+						trackId: track.id,
+					},
+				})
+				userTrackId = userTrack.id
+			}
+			
 			return track
 		})
 		// Enhanced cleanup with better error handling
+		if (userTrackId) {
+			try {
+				console.log(`🧹 Cleaning up user track ${userTrackId}`)
+				await prisma.userTrack.delete({ where: { id: userTrackId } })
+				console.log(`✅ Successfully cleaned up user track ${userTrackId}`)
+			} catch (error) {
+				console.warn(`❌ Failed to cleanup user track ${userTrackId}:`, error)
+			}
+		}
 		if (trackId) {
 			try {
 				console.log(`🧹 Cleaning up track ${trackId}`)

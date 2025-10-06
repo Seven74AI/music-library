@@ -309,7 +309,42 @@ async function seed() {
 
 	console.timeEnd(`👑 Created additional test users`)
 
+	// Seed services
+	await seedServices()
+
 	console.timeEnd(`🌱 Database has been seeded`)
+}
+
+async function seedServices() {
+	console.time(`🎵 Seeding services`)
+	
+	const services = [
+		{
+			name: 'youtube',
+			displayName: 'YouTube',
+			baseUrl: 'https://youtube.com',
+			logoUrl: '/logos/youtube.svg',
+			isActive: true,
+		},
+		// Future services can be added here
+		// {
+		//   name: 'spotify',
+		//   displayName: 'Spotify',
+		//   baseUrl: 'https://spotify.com',
+		//   logoUrl: '/logos/spotify.svg',
+		//   isActive: true,
+		// },
+	]
+
+	for (const serviceData of services) {
+		await prisma.service.upsert({
+			where: { name: serviceData.name },
+			update: serviceData,
+			create: serviceData,
+		})
+	}
+
+	console.timeEnd(`🎵 Seeding services`)
 }
 
 seed()

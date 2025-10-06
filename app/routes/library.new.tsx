@@ -75,7 +75,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-	await requireUserId(request)
+	const userId =await requireUserId(request)
 	
 	try {
 		const formData = await request.formData()
@@ -105,6 +105,7 @@ export async function action({ request }: Route.ActionArgs) {
 
 		const { id: trackId, title, artist, audioFile } = submission.value
 
+		// Create the track
 		await prisma.track.create({
 			data: {
 				id: trackId,
@@ -116,10 +117,24 @@ export async function action({ request }: Route.ActionArgs) {
 			},
 		})
 
+		// Add to user's library
+		await prisma.userTrack.create({
+			data: {
+				id: createId(),
+				userId: userId,
+				trackId: trackId,
+			},
+		})
+
 		return redirectWithToast(`/library/${trackId}`, {
 			title: 'Track Added!',
 			description: `"${title}" by ${artist} has been added to your library.`,
 			type: 'success',
+			duration: 8000,
+			action: {
+				label: 'Add Another',
+				href: '/library/new'
+			}
 		})
 	} catch (error) {
 		console.error('Error creating track:', error)

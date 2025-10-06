@@ -105,9 +105,12 @@ export default function NoteRoute({
 
 	// Focus the section when the note ID changes
 	useEffect(() => {
-		if (sectionRef.current) {
-			sectionRef.current.focus()
-		}
+		// Use requestAnimationFrame to ensure this runs after hydration
+		requestAnimationFrame(() => {
+			if (sectionRef.current) {
+				sectionRef.current.focus()
+			}
+		})
 	}, [loaderData.note.id])
 
 	return (

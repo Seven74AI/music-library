@@ -2,7 +2,6 @@ import { useForm, getFormProps } from '@conform-to/react'
 import { parseWithZod } from '@conform-to/zod'
 import { invariantResponse } from '@epic-web/invariant'
 import { data, redirect, useFetcher, useFetchers } from 'react-router'
-import { ServerOnly } from 'remix-utils/server-only'
 import { z } from 'zod'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { useHints, useOptionalHints } from '#app/utils/client-hints.tsx'
@@ -79,11 +78,8 @@ export function ThemeSwitch({
 			{...getFormProps(form)}
 			action="/resources/theme-switch"
 		>
-			<ServerOnly>
-				{() => (
-					<input type="hidden" name="redirectTo" value={requestInfo.path} />
-				)}
-			</ServerOnly>
+			{/* Use a regular input instead of ServerOnly to prevent hydration mismatch */}
+			<input type="hidden" name="redirectTo" value={requestInfo.path} />
 			<input type="hidden" name="theme" value={nextMode} />
 			<div className="flex gap-2">
 				<button

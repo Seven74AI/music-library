@@ -51,6 +51,7 @@ model User {
   passkey     Passkey[]
   playlists   UserPlaylist[]
   youtubePlaylists YouTubePlaylist[]
+  userTracks  UserTrack[]
 }
 
 model Note {
@@ -215,14 +216,30 @@ model Track {
   title  String
   artist String
 
+  // External service integration
+  serviceId         String? // Reference to Service
+  serviceProviderId String? // External service's track ID (e.g., YouTube video ID)
+  serviceUrl        String? // Direct link to track on external service
+
+  // Metadata from external services
+  duration     Int?     // Duration in seconds
+  thumbnailUrl String?  // Track artwork
+  album        String?  // Album name
+  releaseDate  DateTime? // Release date
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Relations
+  service Service? @relation(fields: [serviceId], references: [id])
   audioFile TrackAudioFile?
   playlists UserPlaylistTrack[]
+  userTracks UserTrack[] // User's personal library
 
-  // Index for ordering
+  // Indexes
+  @@index([serviceId, serviceProviderId]) // For external service lookups
   @@index([updatedAt])
+  @@unique([serviceId, serviceProviderId]) // Prevent duplicate external tracks
 }
 
 model TrackAudioFile {
@@ -301,4 +318,42 @@ model YouTubePlaylist {
   @@index([ownerId])
   @@index([ownerId, updatedAt])
   @@index([youtubeId])
+}
+
+model Service {
+  id   String @id @default(cuid())
+  name String @unique // 'youtube', 'spotify', 'apple_music', etc.
+  
+  // Service metadata
+  displayName String // 'YouTube', 'Spotify', 'Apple Music'
+  baseUrl     String // 'https://youtube.com', 'https://spotify.com'
+  logoUrl     String? // Service logo
+  isActive    Boolean @default(true) // Whether service is available
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  tracks Track[]
+  
+  @@index([name])
+}
+
+model UserTrack {
+  id     String @id @default(cuid())
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  
+  track   Track @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  trackId String
+  
+  
+  // Ensure unique track per user
+  @@unique([userId, trackId])
+  @@index([userId, createdAt]) // For user's library ordering
 }
