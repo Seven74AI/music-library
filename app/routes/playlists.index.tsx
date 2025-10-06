@@ -41,19 +41,6 @@ import { type Route } from './+types/playlists.index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
 	const userId = await requireUserId(request)
-	const user = await prisma.user.findUnique({
-		where: { id: userId },
-		select: {
-			id: true,
-			name: true,
-			username: true,
-			image: { select: { objectKey: true } },
-		},
-	})
-
-	if (!user) {
-		throw new Response('User not found', { status: 404 })
-	}
 
 	const playlists = await prisma.userPlaylist.findMany({
 		where: { ownerId: userId },
@@ -81,7 +68,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 		orderBy: { updatedAt: 'desc' },
 	})
 
-	return data({ user, playlists })
+	return data({ playlists })
 }
 
 export default function PlaylistsIndexRoute({ loaderData }: Route.ComponentProps) {

@@ -42,19 +42,6 @@ import { type Route } from './+types/library.index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
 	const userId = await requireUserId(request)
-	const user = await prisma.user.findUnique({
-		where: { id: userId },
-		select: {
-			id: true,
-			name: true,
-			username: true,
-			image: { select: { objectKey: true } },
-		},
-	})
-
-	if (!user) {
-		throw new Response('User not found', { status: 404 })
-	}
 
 	// Get user's tracks (not all tracks)
 	const userTracks = await prisma.userTrack.findMany({
@@ -93,7 +80,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 		orderBy: { createdAt: 'desc' },
 	})
 
-	return data({ user, userTracks })
+	return data({ userTracks })
 }
 
 export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) {

@@ -93,7 +93,7 @@ test.describe('YouTube Playlists', () => {
   })
 
   test('should show empty state when no playlists', async ({ page, login }) => {
-    const ignoredUser = await login()
+    await login()
 
     await page.goto('/music/services/youtube/playlists')
     await expect(page).toHaveURL('/music/services/youtube/playlists')
@@ -141,7 +141,7 @@ test.describe('YouTube Playlists', () => {
       data: createTestYouTubeConnection(user.id),
     })
     
-    const ignoredPlaylist = await prisma.youTubePlaylist.create({
+    await prisma.youTubePlaylist.create({
       data: createTestPlaylist(user.id, {
         youtubeId: 'PLtest789',
       }),

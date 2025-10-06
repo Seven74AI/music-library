@@ -10,20 +10,6 @@ import { createYouTubePlaylistService } from '#app/utils/youtube-playlist.server
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	
-	// Get user info
-	const user = await prisma.user.findUnique({
-		where: { id: userId },
-		select: {
-			id: true,
-			name: true,
-			username: true,
-			image: { select: { objectKey: true } },
-		},
-	})
-
-	if (!user) {
-		throw new Response('User not found', { status: 404 })
-	}
 
 	// Get user's library stats
 	const userTracks = await prisma.userTrack.findMany({
@@ -107,7 +93,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	}
 
 	return data({
-		user,
 		stats: {
 			totalTracks: userTracks.length,
 			totalPlaylists: userPlaylists.length,
