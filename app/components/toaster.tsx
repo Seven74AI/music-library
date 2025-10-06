@@ -23,12 +23,12 @@ export function useToast(toast?: Toast | null) {
 					variant: toast.type === 'error' ? 'destructive' : 'default',
 				}
 
-				// Durée personnalisée
+				// Custom duration
 				if (toast.duration) {
 					toastOptions.duration = toast.duration
 				}
 
-				// Action personnalisée
+				// Custom action
 				if (toast.action) {
 					toastOptions.action = (
 						<ToastAction
@@ -37,7 +37,7 @@ export function useToast(toast?: Toast | null) {
 								if (toast.action?.href) {
 									void navigate(toast.action.href)
 								} else if (toast.action?.onClick) {
-									// Appeler une fonction personnalisée
+									// Call a custom function
 									;(window as any)[toast.action.onClick]?.()
 								}
 							}}

@@ -1,4 +1,5 @@
 import { redirect } from 'react-router'
+import { prisma } from './db.server.ts'
 import { extractYouTubeVideoId } from './track-validation.server.ts'
 import { getYouTubeVideoDetails, YouTubeAPIError } from './youtube-search.server.ts'
 
@@ -117,13 +118,13 @@ export async function importTrackDirectly(serviceName: string, videoId: string, 
     const videoDetails = await handler.getVideoDetails(videoId)
     
     // Get the service
-    const { prisma } = await import('./db.server.ts')
     const service = await prisma.service.findUnique({
       where: { name: serviceName }
     })
     
     if (!service) {
-      return { success: false, error: 'Service not found' }
+      console.error(`Service not found in importTrackDirectly: ${serviceName}`)
+      return { success: false, error: `Service not found: ${serviceName}` }
     }
     
     // Check if track already exists globally

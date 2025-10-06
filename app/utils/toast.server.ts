@@ -10,12 +10,12 @@ const ToastSchema = z.object({
 	id: z.string().default(() => cuid()),
 	title: z.string().optional(),
 	type: z.enum(['message', 'success', 'error']).default('message'),
-	// Options personnalisées
+	// Custom options
 	duration: z.number().optional(),
 	action: z.object({
 		label: z.string(),
 		href: z.string().optional(),
-		onClick: z.string().optional(), // Nom de fonction à appeler
+		onClick: z.string().optional(), // Function name to call
 	}).optional(),
 })
 
