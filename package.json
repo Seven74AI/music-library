@@ -14,7 +14,7 @@
     "dev": "cross-env NODE_ENV=development MOCKS=true node ./server/dev-server.js",
     "dev:no-mocks": "cross-env NODE_ENV=development node ./server/dev-server.js",
     "format": "prettier --write .",
-    "lint": "eslint .",
+    "lint": "node --max-old-space-size=4096 ./node_modules/.bin/eslint .",
     "setup": "npm run build && prisma migrate deploy && prisma generate --sql && playwright install",
     "start": "cross-env NODE_ENV=production node .",
     "start:mocks": "cross-env NODE_ENV=production MOCKS=true tsx .",
@@ -26,7 +26,7 @@
     "test:e2e:run": "cross-env CI=true playwright test",
     "test:e2e:install": "npx playwright install --with-deps chromium",
     "typecheck": "react-router typegen && tsc",
-    "validate": "run-p \"test -- --run\" lint typecheck test:e2e:run",
+    "validate": "run-p \"test -- --run\" \"lint\" typecheck test:e2e:run",
     "add-headers": "node scripts/add-context7-headers.js",
     "stop": "pkill -f \"npm run dev\""
   },
