@@ -294,7 +294,7 @@ export class YouTubePlaylistService {
 
     try {
       const youtubeService = createYouTubeService()
-      const youtubePlaylist = await youtubeService.getPlaylist(playlist.youtubeId, accessToken)
+      const youtubePlaylist = await youtubeService.getPlaylist(playlist.youtubeId, accessToken!)
       
       const updatedData = transformYouTubePlaylist(youtubePlaylist, userId)
       

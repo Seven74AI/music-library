@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { type FullConfig } from '@playwright/test'
 import { execaCommand } from 'execa'
 import fsExtra from 'fs-extra'
 import 'dotenv/config'
@@ -35,4 +36,11 @@ export async function setup() {
 			},
 		},
 	)
+}
+
+// Playwright global setup function
+export default async function globalSetup(_config: FullConfig) {
+	console.log('🔧 Setting up test database...')
+	await setup()
+	console.log('✅ Test database setup complete')
 }

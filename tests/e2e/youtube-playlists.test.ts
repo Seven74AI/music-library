@@ -38,7 +38,7 @@ test.describe('YouTube Playlists', () => {
     const user = await login()
     await prisma.youTubePlaylist.create({
       data: {
-        youtubeId: 'PLtest123',
+        youtubeId: 'PLtest456',
         title: 'My Awesome Playlist',
         description: 'This is a test playlist description',
         thumbnailUrl: 'https://example.com/thumbnail.jpg',
@@ -67,7 +67,7 @@ test.describe('YouTube Playlists', () => {
     const user = await login()
     const ignoredPlaylist = await prisma.youTubePlaylist.create({
       data: {
-        youtubeId: 'PLtest123',
+        youtubeId: 'PLtest789',
         title: 'Test Playlist',
         description: 'A test playlist',
         channelId: 'UCtest123',

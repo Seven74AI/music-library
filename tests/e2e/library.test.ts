@@ -1,4 +1,3 @@
-import { prisma } from '#app/utils/db.server.ts'
 import { test, expect } from '#tests/playwright-utils.ts'
 
 test.describe('Music Library', () => {
@@ -60,16 +59,11 @@ test.describe('Music Library', () => {
 		await expect(fileInput).toBeVisible()
 	})
 
-	test('shows tracks in library', async ({ page, login }) => {
+	test('shows tracks in library', async ({ page, login, insertNewTrack }) => {
 		await login()
 		
-		// Create a test track
-		const ignoredTrack = await prisma.track.create({
-			data: {
-				title: 'Test Track',
-				artist: 'Test Artist',
-			},
-		})
+		// Create a test track using the fixture (will be cleaned up automatically)
+		await insertNewTrack()
 
 		await page.goto('/library')
 		
@@ -78,16 +72,11 @@ test.describe('Music Library', () => {
 		await expect(page.getByRole('paragraph').filter({ hasText: 'Test Artist' }).first()).toBeVisible()
 	})
 
-	test('can view individual track', async ({ page, login }) => {
+	test('can view individual track', async ({ page, login, insertNewTrack }) => {
 		await login()
 		
-		// Create a test track
-		const track = await prisma.track.create({
-			data: {
-				title: 'Test Track',
-				artist: 'Test Artist',
-			},
-		})
+		// Create a test track using the fixture (will be cleaned up automatically)
+		const track = await insertNewTrack()
 
 		await page.goto(`/library/${track.id}`)
 		

@@ -65,6 +65,7 @@ export const test = base.extend<{
 	) => Promise<null | Response>
 	insertNewUser(options?: GetOrInsertUserOptions): Promise<User>
 	login(options?: GetOrInsertUserOptions): Promise<User>
+	insertNewTrack(options?: { title?: string; artist?: string }): Promise<{ id: string; title: string; artist: string }>
 }>({
 	navigate: async ({ page }, use) => {
 		await use((...args) => {
@@ -78,7 +79,14 @@ export const test = base.extend<{
 			userId = user.id
 			return user
 		})
-		await prisma.user.delete({ where: { id: userId } }).catch(() => {})
+		// Enhanced cleanup with better error handling
+		if (userId) {
+			try {
+				await prisma.user.delete({ where: { id: userId } })
+			} catch (error) {
+				console.warn(`Failed to cleanup user ${userId}:`, error)
+			}
+		}
 	},
 	login: async ({ page }, use) => {
 		let userId: string | undefined = undefined
@@ -107,7 +115,39 @@ export const test = base.extend<{
 			await page.context().addCookies([newConfig])
 			return user
 		})
-		await prisma.user.deleteMany({ where: { id: userId } })
+		// Enhanced cleanup with better error handling
+		if (userId) {
+			try {
+				await prisma.user.deleteMany({ where: { id: userId } })
+			} catch (error) {
+				console.warn(`Failed to cleanup user ${userId}:`, error)
+			}
+		}
+	},
+	insertNewTrack: async ({}, use) => {
+		let trackId: string | undefined = undefined
+		await use(async (options) => {
+			const track = await prisma.track.create({
+				data: {
+					title: options?.title || 'Test Track',
+					artist: options?.artist || 'Test Artist',
+				},
+			})
+			trackId = track.id
+			return track
+		})
+		// Enhanced cleanup with better error handling
+		if (trackId) {
+			try {
+				console.log(`🧹 Cleaning up track ${trackId}`)
+				await prisma.track.delete({ where: { id: trackId } })
+				console.log(`✅ Successfully cleaned up track ${trackId}`)
+			} catch (error) {
+				console.warn(`❌ Failed to cleanup track ${trackId}:`, error)
+			}
+		} else {
+			console.log(`⚠️ No track ID to cleanup`)
+		}
 	},
 })
 export const { expect } = test

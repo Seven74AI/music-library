@@ -71,10 +71,7 @@ export class YouTubeService {
   private youtube: any
 
   constructor(apiKey?: string) {
-    if (!apiKey) {
-      throw new Error('YouTube API key is required')
-    }
-    
+    // API key is optional - some operations use OAuth instead
     this.youtube = google.youtube({
       version: 'v3',
       auth: apiKey,
@@ -152,17 +149,15 @@ export class YouTubeService {
 
   /**
    * Get a specific playlist by ID
+   * Requires accessToken for user's own playlists
    */
-  async getPlaylist(playlistId: string, accessToken?: string): Promise<YouTubePlaylist> {
-    let auth: any = undefined
-    if (accessToken) {
-      auth = new google.auth.OAuth2()
-      auth.setCredentials({ access_token: accessToken })
-    }
+  async getPlaylist(playlistId: string, accessToken: string): Promise<YouTubePlaylist> {
+    const oauth2Client = new google.auth.OAuth2()
+    oauth2Client.setCredentials({ access_token: accessToken })
 
     const youtube = google.youtube({
       version: 'v3',
-      auth: auth || (process.env.YOUTUBE_API_KEY ? process.env.YOUTUBE_API_KEY : undefined),
+      auth: oauth2Client,
     })
 
     try {
@@ -185,17 +180,15 @@ export class YouTubeService {
 
   /**
    * Get playlist items (videos) for a specific playlist
+   * Requires accessToken for user's own playlists
    */
-  async getPlaylistItems(playlistId: string, accessToken?: string, maxResults = 50): Promise<any[]> {
-    let auth: any = undefined
-    if (accessToken) {
-      auth = new google.auth.OAuth2()
-      auth.setCredentials({ access_token: accessToken })
-    }
+  async getPlaylistItems(playlistId: string, accessToken: string, maxResults = 50): Promise<any[]> {
+    const oauth2Client = new google.auth.OAuth2()
+    oauth2Client.setCredentials({ access_token: accessToken })
 
     const youtube = google.youtube({
       version: 'v3',
-      auth: auth || (process.env.YOUTUBE_API_KEY ? process.env.YOUTUBE_API_KEY : undefined),
+      auth: oauth2Client,
     })
 
     try {
@@ -215,12 +208,10 @@ export class YouTubeService {
 
 /**
  * Create a YouTube service instance
+ * API key is optional - OAuth operations don't need it
  */
 export function createYouTubeService(): YouTubeService {
   const apiKey = process.env.YOUTUBE_API_KEY
-  if (!apiKey) {
-    throw new Error('YOUTUBE_API_KEY environment variable is required')
-  }
   return new YouTubeService(apiKey)
 }
 

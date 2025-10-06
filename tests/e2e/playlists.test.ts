@@ -152,16 +152,11 @@ test.describe('Playlists', () => {
 		await expect(page.getByText('Playlist not found')).toBeVisible()
 	})
 
-	test('shows tracks in playlist when tracks are added', async ({ page, login }) => {
+	test('shows tracks in playlist when tracks are added', async ({ page, login, insertNewTrack }) => {
 		const user = await login()
 		
-		// Create a test track
-		const track = await prisma.track.create({
-			data: {
-				title: 'Test Track',
-				artist: 'Test Artist',
-			},
-		})
+		// Create a test track using the fixture (will be cleaned up automatically)
+		const track = await insertNewTrack()
 		
 		// Create a test playlist
 		const playlist = await prisma.userPlaylist.create({
@@ -188,10 +183,9 @@ test.describe('Playlists', () => {
 		await expect(page.getByText('Test Track')).toBeVisible()
 		await expect(page.getByText('Test Artist')).toBeVisible()
 		
-		// Cleanup
+		// Cleanup playlist-related data (track cleanup is handled by fixture)
 		await prisma.userPlaylistTrack.delete({ where: { id: playlistTrack.id } })
 		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
-		await prisma.track.delete({ where: { id: track.id } })
 	})
 
 	test('shows empty state when playlist has no tracks', async ({ page, login }) => {
