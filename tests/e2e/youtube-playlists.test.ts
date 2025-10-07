@@ -3,16 +3,23 @@ import { test, expect } from '#tests/playwright-utils'
 
 // Test constants
 const ONE_HOUR_MS = 60 * 60 * 1000
+const YOUTUBE_SERVICE_ID = 'clnf2zvli0000pcou3zzzzome' // Fixed Service ID from migration
+
+// Test data constants
 const TEST_YOUTUBE_USER_ID = 'test-youtube-user-id'
 const TEST_ACCESS_TOKEN = 'test-access-token'
 const TEST_REFRESH_TOKEN = 'test-refresh-token'
 
-// Test data constants (for future use)
-// const TEST_PLAYLIST_IDS = {
-//   FIRST: 'PLtest123',
-//   SECOND: 'PLtest456',
-//   THIRD: 'PLtest999',
-// } as const
+const TEST_PLAYLIST_IDS = {
+  FIRST: 'PLtest123',
+  SECOND: 'PLtest456',
+  THIRD: 'PLtest999',
+} as const
+
+const TEST_CHANNEL_DATA = {
+  ID: 'test-channel-id',
+  TITLE: 'Test Channel',
+} as const
 
 // Type definitions for test data
 interface TestYouTubeConnection {
@@ -40,39 +47,77 @@ const createTestYouTubeConnection = (userId: string): TestYouTubeConnection => (
   }),
 })
 
+/**
+ * Creates test service playlist data for database seeding
+ * 
+ * @param userId - The user ID to associate with the playlist
+ * @param externalId - The external playlist ID
+ * @param title - The playlist title
+ * @param description - The playlist description
+ * @param itemCount - The number of items in the playlist
+ * @returns Test service playlist data object
+ */
+const createTestServicePlaylist = (
+  userId: string,
+  externalId: string,
+  title: string,
+  description: string,
+  itemCount: number = 5
+) => ({
+  serviceId: YOUTUBE_SERVICE_ID,
+  externalId,
+  title,
+  description,
+  channelId: TEST_CHANNEL_DATA.ID,
+  channelTitle: TEST_CHANNEL_DATA.TITLE,
+  publishedAt: new Date(),
+  itemCount,
+  ownerId: userId,
+  isActive: true,
+  lastSyncedAt: new Date(),
+})
+
 // Note: Server-side mocks are now handled in app/utils/youtube.server.ts
 // when MOCKS=true environment variable is set
 
+/**
+ * YouTube Service Integration Tests
+ * 
+ * Tests the complete YouTube service integration flow including:
+ * - Playlist discovery and display
+ * - Playlist synchronization
+ * - Playlist management (view, remove)
+ * - Error handling and edge cases
+ */
 test.describe('YouTube Service Integration', () => {
   // Optimized configuration for the test group
   test.describe.configure({ timeout: 30 * 1000 }) // Longer timeout for the group
+  
+  /**
+   * Clean up test data before each test to ensure isolation
+   * ServicePlaylistTrack will be auto-deleted via CASCADE
+   */
   test.beforeEach(async () => {
-    // Cleanup - ServicePlaylistTrack will be auto-deleted via CASCADE
-    await Promise.all([
-      prisma.connection.deleteMany({
-        where: { providerName: 'youtube' },
-      }),
-      prisma.servicePlaylist.deleteMany({
-        where: {
-          service: { name: 'youtube' }
-        }
-      })
-    ])
+    try {
+      await Promise.all([
+        prisma.connection.deleteMany({
+          where: { providerName: 'youtube' },
+        }),
+        prisma.servicePlaylist.deleteMany({
+          where: {
+            serviceId: YOUTUBE_SERVICE_ID
+          }
+        })
+      ])
+    } catch (error) {
+      console.error('Error during test cleanup:', error)
+      // Don't fail the test due to cleanup errors, but log them
+    }
   })
 
   test('should display YouTube playlists discovery page without connection', async ({ page, login }) => {
+    // Test that the discovery page shows connection prompt when user is not connected
     await login()
-    
-    // Create YouTube service
-    await prisma.service.upsert({
-      where: { name: 'youtube' },
-      update: {},
-      create: {
-        name: 'youtube',
-        displayName: 'YouTube',
-        baseUrl: 'https://youtube.com',
-      },
-    })
 
     await page.goto('/music/services/youtube/playlists')
     await expect(page).toHaveURL('/music/services/youtube/playlists')
@@ -83,18 +128,8 @@ test.describe('YouTube Service Integration', () => {
   })
 
   test('should display YouTube playlists discovery page with mocked API', async ({ page, login }) => {
+    // Test that the discovery page shows playlists when user is connected and API is mocked
     const user = await login()
-    
-    // Create YouTube service
-    await prisma.service.upsert({
-      where: { name: 'youtube' },
-      update: {},
-      create: {
-        name: 'youtube',
-        displayName: 'YouTube',
-        baseUrl: 'https://youtube.com',
-      },
-    })
 
     // Create YouTube connection
     await prisma.connection.create({
@@ -116,18 +151,8 @@ test.describe('YouTube Service Integration', () => {
   })
 
   test('should add playlist to sync from discovery page', async ({ page, login }) => {
+    // Test that users can add playlists to sync from the discovery page
     const user = await login()
-    
-    // Create YouTube service
-    await prisma.service.upsert({
-      where: { name: 'youtube' },
-      update: {},
-      create: {
-        name: 'youtube',
-        displayName: 'YouTube',
-        baseUrl: 'https://youtube.com',
-      },
-    })
 
     // Create YouTube connection
     await prisma.connection.create({
@@ -147,41 +172,27 @@ test.describe('YouTube Service Integration', () => {
   })
 
   test('should display synced playlists page', async ({ page, login }) => {
+    // Test that the synced playlists page displays user's synced playlists correctly
     const user = await login()
-    
-    // Create YouTube service
-    const service = await prisma.service.upsert({
-      where: { name: 'youtube' },
-      update: {},
-      create: {
-        name: 'youtube',
-        displayName: 'YouTube',
-        baseUrl: 'https://youtube.com',
-      },
-    })
 
-    // Create a synced playlist
+    // Create a synced playlist using reusable test data
+    const playlistData = createTestServicePlaylist(
+      user.id,
+      TEST_PLAYLIST_IDS.SECOND,
+      'My Synced Playlist',
+      'A synced playlist',
+      10
+    )
+
     await prisma.servicePlaylist.upsert({
       where: {
         serviceId_externalId: {
-          serviceId: service.id,
-          externalId: 'PLtest456'
+          serviceId: YOUTUBE_SERVICE_ID,
+          externalId: TEST_PLAYLIST_IDS.SECOND
         }
       },
       update: {},
-      create: {
-        serviceId: service.id,
-        externalId: 'PLtest456',
-        title: 'My Synced Playlist',
-        description: 'A synced playlist',
-        channelId: 'test-channel-id',
-        channelTitle: 'Test Channel',
-        publishedAt: new Date(),
-        itemCount: 10,
-        ownerId: user.id,
-        isActive: true,
-        lastSyncedAt: new Date(),
-      },
+      create: playlistData,
     })
 
     await page.goto('/music/services/youtube/synced-playlists')
@@ -194,39 +205,25 @@ test.describe('YouTube Service Integration', () => {
   })
 
   test('should navigate to playlist details', async ({ page, login }) => {
+    // Test that users can navigate to individual playlist details from the synced playlists page
     const user = await login()
-    
-    // Create YouTube service
-    await prisma.service.upsert({
-      where: { name: 'youtube' },
-      update: {},
-      create: {
-        name: 'youtube',
-        displayName: 'YouTube',
-        baseUrl: 'https://youtube.com',
-      },
-    })
 
     // Create YouTube connection
     await prisma.connection.create({
       data: createTestYouTubeConnection(user.id),
     })
 
-    // Create a synced playlist
+    // Create a synced playlist using reusable test data
+    const playlistData = createTestServicePlaylist(
+      user.id,
+      TEST_PLAYLIST_IDS.SECOND,
+      'Test Playlist',
+      'A test playlist',
+      5
+    )
+
     const playlist = await prisma.servicePlaylist.create({
-      data: {
-        service: { connect: { name: 'youtube' } },
-        owner: { connect: { id: user.id } },
-        externalId: 'PLtest456',
-        title: 'Test Playlist',
-        description: 'A test playlist',
-        channelId: 'test-channel-id',
-        channelTitle: 'Test Channel',
-        publishedAt: new Date(),
-        itemCount: 5,
-        isActive: true,
-        lastSyncedAt: new Date(),
-      },
+      data: playlistData,
     })
 
     await page.goto('/music/services/youtube/synced-playlists')
@@ -243,41 +240,27 @@ test.describe('YouTube Service Integration', () => {
   })
 
   test('should remove synced playlist', async ({ page, login }) => {
+    // Test that users can remove playlists from sync with confirmation dialog
     const user = await login()
-    
-    // Create YouTube service
-    const service = await prisma.service.upsert({
-      where: { name: 'youtube' },
-      update: {},
-      create: {
-        name: 'youtube',
-        displayName: 'YouTube',
-        baseUrl: 'https://youtube.com',
-      },
-    })
 
-    // Create a synced playlist
+    // Create a synced playlist using reusable test data
+    const playlistData = createTestServicePlaylist(
+      user.id,
+      TEST_PLAYLIST_IDS.THIRD,
+      'Playlist to Remove',
+      'This playlist will be removed',
+      3
+    )
+
     await prisma.servicePlaylist.upsert({
       where: {
         serviceId_externalId: {
-          serviceId: service.id,
-          externalId: 'PLtest999'
+          serviceId: YOUTUBE_SERVICE_ID,
+          externalId: TEST_PLAYLIST_IDS.THIRD
         }
       },
       update: {},
-      create: {
-        serviceId: service.id,
-        externalId: 'PLtest999',
-        title: 'Playlist to Remove',
-        description: 'This playlist will be removed',
-        channelId: 'test-channel-id',
-        channelTitle: 'Test Channel',
-        publishedAt: new Date(),
-        itemCount: 3,
-        ownerId: user.id,
-        isActive: true,
-        lastSyncedAt: new Date(),
-      },
+      create: playlistData,
     })
 
     await page.goto('/music/services/youtube/synced-playlists')

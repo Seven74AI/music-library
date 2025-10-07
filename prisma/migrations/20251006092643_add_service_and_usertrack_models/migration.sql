@@ -60,3 +60,8 @@ CREATE INDEX "UserTrack_userId_createdAt_idx" ON "UserTrack"("userId", "createdA
 
 -- CreateIndex
 CREATE UNIQUE INDEX "UserTrack_userId_trackId_key" ON "UserTrack"("userId", "trackId");
+
+-- Seed Services (same data as in seed.ts)
+-- Using CURRENT_TIMESTAMP for consistency across environments
+INSERT INTO Service (id, name, displayName, baseUrl, logoUrl, isActive, createdAt, updatedAt) 
+VALUES('clnf2zvli0000pcou3zzzzome','youtube','YouTube','https://youtube.com','/logos/youtube.svg',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);

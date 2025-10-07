@@ -11,6 +11,22 @@ async function seed() {
 	console.log('🌱 Seeding...')
 	console.time(`🌱 Database has been seeded`)
 
+	// Seed Services first (required for other entities)
+	console.time(`🎵 Seeded services`)
+	await prisma.service.upsert({
+		where: { id: 'clnf2zvli0000pcou3zzzzome' },
+		update: {},
+		create: {
+			id: 'clnf2zvli0000pcou3zzzzome',
+			name: 'youtube',
+			displayName: 'YouTube',
+			baseUrl: 'https://youtube.com',
+			logoUrl: '/logos/youtube.svg',
+			isActive: true,
+		},
+	})
+	console.timeEnd(`🎵 Seeded services`)
+
 	const totalUsers = 5
 	console.time(`👤 Created ${totalUsers} users...`)
 	const noteImages = await getNoteImages()
@@ -324,43 +340,9 @@ async function seed() {
 
 	console.timeEnd(`👑 Created additional test users`)
 
-	// Seed services
-	await seedServices()
-
 	console.timeEnd(`🌱 Database has been seeded`)
 }
 
-async function seedServices() {
-	console.time(`🎵 Seeding services`)
-	
-	const services = [
-		{
-			name: 'youtube',
-			displayName: 'YouTube',
-			baseUrl: 'https://youtube.com',
-			logoUrl: '/logos/youtube.svg',
-			isActive: true,
-		},
-		// Future services can be added here
-		// {
-		//   name: 'spotify',
-		//   displayName: 'Spotify',
-		//   baseUrl: 'https://spotify.com',
-		//   logoUrl: '/logos/spotify.svg',
-		//   isActive: true,
-		// },
-	]
-
-	for (const serviceData of services) {
-		await prisma.service.upsert({
-			where: { name: serviceData.name },
-			update: serviceData,
-			create: serviceData,
-		})
-	}
-
-	console.timeEnd(`🎵 Seeding services`)
-}
 
 seed()
 	.catch((e) => {
