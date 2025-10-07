@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/
 import { Icon } from '#app/components/ui/icon'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
-import { createYouTubePlaylistService } from '#app/utils/youtube-playlist.server'
+import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
@@ -58,35 +58,43 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	let youtubeStats = null
 	let youtubePlaylists: Array<{
 		id: string
-		youtubeId: string
+		externalId: string
 		title: string
 		description: string | null
 		thumbnailUrl: string | null
-		channelId: string
-		channelTitle: string
-		publishedAt: Date
+		channelId: string | null
+		channelTitle: string | null
+		publishedAt: Date | null
 		itemCount: number
 		lastSyncedAt: Date | null
 		isActive: boolean
 		createdAt: Date
 		updatedAt: Date
 		ownerId: string
+		serviceId: string
 	}> = []
 	let hasYouTubeConnection = false
 
 	if (youtubeService) {
-		const youtubePlaylistService = createYouTubePlaylistService()
+		const servicePlaylistService = createServicePlaylistService()
 		
 		try {
-			const [playlists, syncStatus, storedTokens] = await Promise.all([
-				youtubePlaylistService.getUserPlaylists(userId),
-				youtubePlaylistService.getSyncStatus(userId),
-				youtubePlaylistService.getStoredTokens(userId)
+			const [syncedPlaylists, storedTokens] = await Promise.all([
+				servicePlaylistService.getSyncedPlaylists('youtube', userId),
+				prisma.connection.findFirst({
+					where: {
+						providerName: 'youtube',
+						userId: userId,
+					},
+				})
 			])
 			
 			hasYouTubeConnection = !!storedTokens
-			youtubeStats = syncStatus
-			youtubePlaylists = playlists.slice(0, 3) // Recent playlists for preview
+			youtubeStats = {
+				totalPlaylists: syncedPlaylists.length,
+				lastSync: syncedPlaylists.length > 0 ? syncedPlaylists[0]?.updatedAt : null
+			}
+			youtubePlaylists = syncedPlaylists.slice(0, 3) // Recent playlists for preview
 		} catch (error) {
 			console.error('Error fetching YouTube data:', error)
 		}

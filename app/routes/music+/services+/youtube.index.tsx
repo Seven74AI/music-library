@@ -1,24 +1,29 @@
+import { type ServicePlaylist } from '@prisma/client'
 import { formatDistanceToNow } from 'date-fns'
-import { data, Link, Form, useActionData, useLoaderData, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+import { data, Link, useActionData, useLoaderData, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
 import { requireUserId } from '#app/utils/auth.server'
-import { createYouTubePlaylistService } from '#app/utils/youtube-playlist.server'
+import { prisma } from '#app/utils/db.server'
+import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
-	const youtubePlaylistService = createYouTubePlaylistService()
+	const servicePlaylistService = createServicePlaylistService()
 	
-	const [playlists, syncStatus, hasConnection] = await Promise.all([
-		youtubePlaylistService.getUserPlaylists(userId),
-		youtubePlaylistService.getSyncStatus(userId),
-		youtubePlaylistService.getStoredTokens(userId).then(tokens => !!tokens),
+	const [syncedPlaylists, hasConnection] = await Promise.all([
+		servicePlaylistService.getSyncedPlaylists('youtube', userId),
+		prisma.connection.findFirst({
+			where: {
+				providerName: 'youtube',
+				userId: userId,
+			},
+		}).then(tokens => !!tokens),
 	])
 
 	return data({
-		playlists,
-		syncStatus,
+		syncedPlaylists,
 		hasConnection,
 	})
 }
@@ -33,29 +38,27 @@ export async function action({ request }: ActionFunctionArgs) {
 		return data({ status: 'error', message: 'Invalid form data' }, { status: 400 })
 	}
 
-	const youtubePlaylistService = createYouTubePlaylistService()
+	const servicePlaylistService = createServicePlaylistService()
 
 	try {
 		switch (intent) {
-			case 'sync': {
-				// Check if user already has YouTube tokens
-				const playlistService = createYouTubePlaylistService()
-				const storedTokens = await playlistService.getStoredTokens(userId)
-				
-				if (storedTokens) {
-					// User has tokens, sync directly
-					try {
-						const result = await playlistService.syncUserPlaylists(userId)
-						return data({ status: 'success', ...result })
-					} catch {
-						// If sync fails, redirect to re-authenticate
-						return data({ status: 'error', message: 'Authentication expired. Please reconnect your YouTube account.' }, { status: 401 })
-					}
-				} else {
-					// No tokens, redirect to YouTube OAuth
-					return data({ status: 'error', message: 'Please connect your YouTube account first.' }, { status: 401 })
-				}
+		case 'sync': {
+			// Check if user already has YouTube tokens
+			const storedTokens = await prisma.connection.findFirst({
+			where: {
+				providerName: 'youtube',
+				userId: userId,
+			},
+		})
+			
+			if (storedTokens) {
+				// User has tokens, redirect to playlists page to sync
+				return data({ status: 'success', message: 'Redirecting to playlist management...' })
+			} else {
+				// No tokens, redirect to YouTube OAuth
+				return data({ status: 'error', message: 'Please connect your YouTube account first.' }, { status: 401 })
 			}
+		}
 			
 			case 'remove': {
 				const playlistId = formData.get('playlistId')
@@ -63,7 +66,7 @@ export async function action({ request }: ActionFunctionArgs) {
 					return data({ status: 'error', message: 'Playlist ID is required' }, { status: 400 })
 				}
 				
-				const result = await youtubePlaylistService.removePlaylist(playlistId, userId)
+				const result = await servicePlaylistService.removePlaylistFromSync(playlistId, userId)
 				return data({ status: 'success', ...result })
 			}
 			
@@ -79,7 +82,7 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function YouTubeServicePage() {
-	const { playlists, syncStatus, hasConnection } = useLoaderData<typeof loader>()
+	const { syncedPlaylists, hasConnection } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
 	return (
@@ -139,46 +142,34 @@ export default function YouTubeServicePage() {
 				</CardContent>
 			</Card>
 
-			{/* Sync Status */}
-			{hasConnection && (
-				<Card className="mb-6">
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2">
-							<Icon name="update" className="h-5 w-5" />
-							Sync Status
-						</CardTitle>
-						<CardDescription>
-							Your YouTube playlists sync information
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-							<div>
-								<p className="text-sm text-muted-foreground">Total Playlists</p>
-								<p className="text-2xl font-bold">{syncStatus.totalPlaylists}</p>
-							</div>
-							<div>
-								<p className="text-sm text-muted-foreground">Last Sync</p>
-								<p className="text-lg">
-									{syncStatus.lastSync 
-										? formatDistanceToNow(syncStatus.lastSync, { addSuffix: true })
-										: 'Never'
-									}
-								</p>
-							</div>
-							<div className="flex items-end">
-								<Form method="post">
-									<input type="hidden" name="intent" value="sync" />
-									<Button type="submit">
-										<Icon name="update" className="h-4 w-4 mr-2" />
-										Sync Playlists
-									</Button>
-								</Form>
-							</div>
-						</div>
-					</CardContent>
-				</Card>
-			)}
+			{/* Quick Actions */}
+			<div className="mb-6">
+				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
+				<div className="flex flex-wrap gap-4">
+					<Button asChild>
+						<Link to="/music/services/import/youtube">
+							<Icon name="download" className="h-4 w-4 mr-2" />
+							Import YouTube Tracks
+						</Link>
+					</Button>
+					{hasConnection && (
+						<Button asChild variant="outline">
+							<Link to="/music/services/youtube/playlists">
+								<Icon name="file-text" className="h-4 w-4 mr-2" />
+								Discover & Sync Playlists
+							</Link>
+						</Button>
+					)}
+					{hasConnection && (
+						<Button asChild variant="outline">
+							<Link to="/music/services/youtube/synced-playlists">
+								<Icon name="file-text" className="h-4 w-4 mr-2" />
+								Manage Synced Playlists
+							</Link>
+						</Button>
+					)}
+				</div>
+			</div>
 
 			{/* Action Messages */}
 			{actionData?.status === 'error' && (
@@ -219,32 +210,24 @@ export default function YouTubeServicePage() {
 							</Link>
 						</Button>
 					)}
-					{hasConnection && (
-						<Button asChild variant="outline">
-							<Link to="/music/services/youtube/auth">
-								<Icon name="lock-closed" className="h-4 w-4 mr-2" />
-								Account Settings
-							</Link>
-						</Button>
-					)}
 				</div>
 			</div>
 
-			{/* Playlists Preview */}
-			{hasConnection && playlists.length > 0 && (
+			{/* Synced Playlists Preview */}
+			{hasConnection && syncedPlaylists.length > 0 && (
 				<Card>
 					<CardHeader>
 						<CardTitle className="flex items-center gap-2">
 							<Icon name="file-text" className="h-5 w-5" />
-							Your YouTube Playlists
+							Your Synced YouTube Playlists
 						</CardTitle>
 						<CardDescription>
-							Your synced YouTube playlists (showing first 5)
+							Your synchronized YouTube playlists (showing first 5)
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
 						<div className="space-y-4">
-							{playlists.slice(0, 5).map((playlist: any) => (
+							{syncedPlaylists.slice(0, 5).map((playlist: ServicePlaylist) => (
 								<div key={playlist.id} className="flex items-center justify-between p-4 border rounded-lg">
 									<div className="flex items-center gap-4">
 										{playlist.thumbnailUrl ? (
@@ -263,24 +246,33 @@ export default function YouTubeServicePage() {
 											<p className="text-sm text-muted-foreground">
 												{playlist.itemCount} tracks • {playlist.channelTitle}
 											</p>
+											<p className="text-xs text-muted-foreground">
+												Last synced: {formatDistanceToNow(playlist.updatedAt, { addSuffix: true })}
+											</p>
 										</div>
 									</div>
 									<div className="flex items-center gap-2">
+										<Button asChild variant="outline" size="sm">
+											<Link to={`/music/services/youtube/${playlist.id}`} aria-label={`View details for ${playlist.title || 'Unknown Playlist'}`}>
+												<Icon name="eye-open" className="h-4 w-4" />
+											</Link>
+										</Button>
 										<Button
 											variant="outline"
 											size="sm"
-											onClick={() => window.open(`https://youtube.com/playlist?list=${playlist.youtubeId}`, '_blank')}
+											onClick={() => window.open(`https://youtube.com/playlist?list=${playlist.externalId}`, '_blank')}
+											aria-label={`Open ${playlist.title || 'Unknown Playlist'} on YouTube`}
 										>
 											<Icon name="link-2" className="h-4 w-4" />
 										</Button>
 									</div>
 								</div>
 							))}
-							{playlists.length > 5 && (
+							{syncedPlaylists.length > 5 && (
 								<div className="pt-4 border-t">
 									<Button asChild variant="outline" className="w-full">
-										<Link to="/music/services/youtube/playlists">
-											View All {playlists.length} Playlists
+										<Link to="/music/services/youtube/synced-playlists">
+											View All {syncedPlaylists.length} Synced Playlists
 										</Link>
 									</Button>
 								</div>
@@ -290,22 +282,21 @@ export default function YouTubeServicePage() {
 				</Card>
 			)}
 
-			{/* No Playlists State */}
-			{hasConnection && playlists.length === 0 && (
+			{/* No Synced Playlists State */}
+			{hasConnection && syncedPlaylists.length === 0 && (
 				<Card>
 					<CardContent className="text-center py-8">
 						<Icon name="file-text" className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-						<h3 className="text-lg font-semibold mb-2">No YouTube Playlists</h3>
+						<h3 className="text-lg font-semibold mb-2">No Synced YouTube Playlists</h3>
 						<p className="text-muted-foreground mb-4">
-							You don't have any YouTube playlists synced yet.
+							You haven't synchronized any YouTube playlists yet.
 						</p>
-						<Form method="post">
-							<input type="hidden" name="intent" value="sync" />
-							<Button type="submit">
-								<Icon name="update" className="h-4 w-4 mr-2" />
-								Sync Your Playlists
-							</Button>
-						</Form>
+						<Button asChild>
+							<Link to="/music/services/youtube/playlists">
+								<Icon name="file-text" className="h-4 w-4 mr-2" />
+								Discover & Sync Playlists
+							</Link>
+						</Button>
 					</CardContent>
 				</Card>
 			)}

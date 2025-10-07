@@ -1,79 +1,31 @@
 import { google } from 'googleapis'
-import { z } from 'zod'
-
-// YouTube Data API v3 types
-export const YouTubePlaylistSchema = z.object({
-  id: z.string(),
-  snippet: z.object({
-    publishedAt: z.string(),
-    channelId: z.string(),
-    title: z.string(),
-    description: z.string().optional(),
-    thumbnails: z.object({
-      default: z.object({
-        url: z.string(),
-        width: z.number(),
-        height: z.number(),
-      }).optional(),
-      medium: z.object({
-        url: z.string(),
-        width: z.number(),
-        height: z.number(),
-      }).optional(),
-      high: z.object({
-        url: z.string(),
-        width: z.number(),
-        height: z.number(),
-      }).optional(),
-      maxres: z.object({
-        url: z.string(),
-        width: z.number(),
-        height: z.number(),
-      }).optional(),
-      standard: z.object({
-        url: z.string(),
-        width: z.number(),
-        height: z.number(),
-      }).optional(),
-    }),
-    channelTitle: z.string(),
-    defaultLanguage: z.string().optional(),
-    localized: z.object({
-      title: z.string(),
-      description: z.string(),
-    }).optional(),
-  }),
-  contentDetails: z.object({
-    itemCount: z.number(),
-  }),
-  status: z.object({
-    privacyStatus: z.string(),
-  }).optional(),
-})
-
-export type YouTubePlaylist = z.infer<typeof YouTubePlaylistSchema>
-
-export const YouTubePlaylistListResponseSchema = z.object({
-  kind: z.string(),
-  etag: z.string(),
-  nextPageToken: z.string().optional(),
-  prevPageToken: z.string().optional(),
-  pageInfo: z.object({
-    totalResults: z.number(),
-    resultsPerPage: z.number(),
-  }),
-  items: z.array(YouTubePlaylistSchema),
-})
-
-export type YouTubePlaylistListResponse = z.infer<typeof YouTubePlaylistListResponseSchema>
+import { 
+  YOUTUBE_CONSTANTS, 
+  MOCK_DATA, 
+  MockManager,
+  createMockPlaylistItem,
+  createMockPlaylistData
+} from '#app/config/youtube'
+import { 
+  YouTubePlaylistSchema, 
+  YouTubePlaylistListResponseSchema,
+  type YouTubePlaylist,
+  type YouTubePlaylistListResponse
+} from '#app/types/youtube'
+import { 
+  YouTubeAPIError, 
+  YouTubeNotFoundError,
+  YOUTUBE_ERROR_CODES 
+} from '#app/utils/youtube-errors'
 
 export class YouTubeService {
   private youtube: any
+  public readonly name = 'youtube'
 
   constructor(apiKey?: string) {
     // API key is optional - some operations use OAuth instead
     this.youtube = google.youtube({
-      version: 'v3',
+      version: YOUTUBE_CONSTANTS.API_VERSION,
       auth: apiKey,
     })
   }
@@ -86,7 +38,7 @@ export class YouTubeService {
     oauth2Client.setCredentials({ access_token: accessToken })
 
     const youtube = google.youtube({
-      version: 'v3',
+      version: YOUTUBE_CONSTANTS.API_VERSION,
       auth: oauth2Client,
     })
 
@@ -123,11 +75,42 @@ export class YouTubeService {
    * Get user's YouTube playlists
    */
   async getUserPlaylists(accessToken: string, maxResults = 25, pageToken?: string): Promise<YouTubePlaylistListResponse> {
+    // Return mock data when MOCKS=true for testing
+    if (MockManager.isEnabled()) {
+      MockManager.log('Using mock YouTube playlists data')
+      return {
+        kind: 'youtube#playlistListResponse',
+        etag: 'mockEtag123',
+        pageInfo: {
+          totalResults: 2,
+          resultsPerPage: 25
+        },
+        items: [
+          createMockPlaylistData('PLtest123', {
+            title: MOCK_DATA.PLAYLIST_TITLE,
+            description: MOCK_DATA.PLAYLIST_DESCRIPTION,
+            channelTitle: 'Test Channel',
+            channelId: 'UCtest123',
+            itemCount: 5,
+            thumbnailSuffix: '1'
+          }),
+          createMockPlaylistData('PLtest456', {
+            title: 'Another Test Playlist',
+            description: 'Another test playlist',
+            channelTitle: 'Another Channel',
+            channelId: 'UCtest456',
+            itemCount: 10,
+            thumbnailSuffix: '2'
+          })
+        ]
+      }
+    }
+
     const oauth2Client = new google.auth.OAuth2()
     oauth2Client.setCredentials({ access_token: accessToken })
 
     const youtube = google.youtube({
-      version: 'v3',
+      version: YOUTUBE_CONSTANTS.API_VERSION,
       auth: oauth2Client,
     })
 
@@ -140,10 +123,10 @@ export class YouTubeService {
       })
 
       const validatedResponse = YouTubePlaylistListResponseSchema.parse(response.data)
-      return validatedResponse
+      return validatedResponse as YouTubePlaylistListResponse
     } catch (error) {
       console.error('Error fetching YouTube playlists:', error)
-      throw new Error('Failed to fetch YouTube playlists')
+      throw new YouTubeAPIError('Failed to fetch YouTube playlists', YOUTUBE_ERROR_CODES.API_ERROR, 500)
     }
   }
 
@@ -152,11 +135,24 @@ export class YouTubeService {
    * Requires accessToken for user's own playlists
    */
   async getPlaylist(playlistId: string, accessToken: string): Promise<YouTubePlaylist> {
+    // Return mock data when MOCKS=true for testing
+    if (MockManager.isEnabled()) {
+      MockManager.log(`Using mock YouTube playlist data for: ${playlistId}`)
+      return createMockPlaylistData(playlistId, {
+        title: playlistId === 'PLtest123' ? MOCK_DATA.PLAYLIST_TITLE : 'Another Test Playlist',
+        description: playlistId === 'PLtest123' ? MOCK_DATA.PLAYLIST_DESCRIPTION : 'Another test playlist',
+        channelTitle: 'Test Channel',
+        channelId: 'UCtest123',
+        itemCount: playlistId === 'PLtest123' ? 5 : 10,
+        thumbnailSuffix: '1'
+      })
+    }
+
     const oauth2Client = new google.auth.OAuth2()
     oauth2Client.setCredentials({ access_token: accessToken })
 
     const youtube = google.youtube({
-      version: 'v3',
+      version: YOUTUBE_CONSTANTS.API_VERSION,
       auth: oauth2Client,
     })
 
@@ -167,14 +163,17 @@ export class YouTubeService {
       })
 
       if (!response.data.items || response.data.items.length === 0) {
-        throw new Error('Playlist not found')
+        throw new YouTubeNotFoundError('Playlist')
       }
 
       const validatedPlaylist = YouTubePlaylistSchema.parse(response.data.items[0])
-      return validatedPlaylist
+      return validatedPlaylist as YouTubePlaylist
     } catch (error) {
       console.error('Error fetching YouTube playlist:', error)
-      throw new Error('Failed to fetch YouTube playlist')
+      if (error instanceof YouTubeNotFoundError) {
+        throw error
+      }
+      throw new YouTubeAPIError('Failed to fetch YouTube playlist', YOUTUBE_ERROR_CODES.API_ERROR, 500)
     }
   }
 
@@ -183,11 +182,20 @@ export class YouTubeService {
    * Requires accessToken for user's own playlists
    */
   async getPlaylistItems(playlistId: string, accessToken: string, maxResults = 50): Promise<any[]> {
+    // Return mock data when MOCKS=true for testing
+    if (MockManager.isEnabled()) {
+      MockManager.log(`Using mock YouTube playlist items data for: ${playlistId}`)
+      const itemCount = playlistId === 'PLtest123' ? 5 : 10
+      return Array.from({ length: itemCount }, (_, index) => 
+        createMockPlaylistItem(playlistId, index)
+      )
+    }
+
     const oauth2Client = new google.auth.OAuth2()
     oauth2Client.setCredentials({ access_token: accessToken })
 
     const youtube = google.youtube({
-      version: 'v3',
+      version: YOUTUBE_CONSTANTS.API_VERSION,
       auth: oauth2Client,
     })
 
@@ -201,7 +209,7 @@ export class YouTubeService {
       return response.data.items || []
     } catch (error) {
       console.error('Error fetching playlist items:', error)
-      throw new Error('Failed to fetch playlist items')
+      throw new YouTubeAPIError('Failed to fetch playlist items', YOUTUBE_ERROR_CODES.API_ERROR, 500)
     }
   }
 }

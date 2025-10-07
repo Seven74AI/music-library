@@ -7,8 +7,18 @@ const databaseFile = `./tests/prisma/data.${process.env.VITEST_POOL_ID || 0}.db`
 const databasePath = path.join(process.cwd(), databaseFile)
 process.env.DATABASE_URL = `file:${databasePath}`
 
+// Cache to avoid unnecessary copies
+let lastBaseDbModified: number | null = null
+
 beforeEach(async () => {
-	await fsExtra.copyFile(BASE_DATABASE_PATH, databasePath)
+	const baseDbStats = await fsExtra.stat(BASE_DATABASE_PATH)
+	const currentModified = baseDbStats.mtime.getTime()
+	
+	// Only copy if the database has changed
+	if (lastBaseDbModified !== currentModified) {
+		await fsExtra.copyFile(BASE_DATABASE_PATH, databasePath)
+		lastBaseDbModified = currentModified
+	}
 })
 
 afterAll(async () => {

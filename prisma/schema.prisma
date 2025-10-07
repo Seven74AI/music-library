@@ -50,8 +50,8 @@ model User {
   connections Connection[]
   passkey     Passkey[]
   playlists   UserPlaylist[]
-  youtubePlaylists YouTubePlaylist[]
   userTracks  UserTrack[]
+  servicePlaylists ServicePlaylist[]
 }
 
 model Note {
@@ -235,6 +235,7 @@ model Track {
   audioFile TrackAudioFile?
   playlists UserPlaylistTrack[]
   userTracks UserTrack[] // User's personal library
+  servicePlaylistTracks ServicePlaylistTrack[]
 
   // Indexes
   @@index([serviceId, serviceProviderId]) // For external service lookups
@@ -293,32 +294,6 @@ model UserPlaylistTrack {
   @@index([playlistId, position])
 }
 
-model YouTubePlaylist {
-  id          String @id @default(cuid())
-  youtubeId   String @unique // YouTube playlist ID
-  title       String
-  description String?
-  thumbnailUrl String?
-  channelId   String
-  channelTitle String
-  publishedAt DateTime
-  itemCount   Int
-  
-  // Sync tracking
-  lastSyncedAt DateTime?
-  isActive     Boolean @default(true) // Whether user wants to keep syncing this playlist
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  ownerId String
-
-  // Index for ordering by user
-  @@index([ownerId])
-  @@index([ownerId, updatedAt])
-  @@index([youtubeId])
-}
 
 model Service {
   id   String @id @default(cuid())
@@ -335,25 +310,79 @@ model Service {
   
   // Relations
   tracks Track[]
+  playlists ServicePlaylist[]
   
   @@index([name])
 }
 
 model UserTrack {
   id     String @id @default(cuid())
+  userId String
+  trackId  String
+  
+  // Soft delete
+  isActive Boolean @default(true)
+  deletedAt DateTime?
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
   // Relations
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
-  
   track   Track @relation(fields: [trackId], references: [id], onDelete: Cascade)
-  trackId String
-  
   
   // Ensure unique track per user
   @@unique([userId, trackId])
-  @@index([userId, createdAt]) // For user's library ordering
+  @@index([userId])
+  @@index([trackId])
+  @@index([userId, isActive]) // For efficient filtering
+}
+
+model ServicePlaylist {
+  id          String @id @default(cuid())
+  serviceId   String
+  externalId  String // YouTube playlist ID, Spotify playlist ID, etc.
+  title       String
+  description String?
+  thumbnailUrl String?
+  channelId   String? // YouTube channel, Spotify artist, etc.
+  channelTitle String? // YouTube channel name, Spotify artist name, etc.
+  publishedAt DateTime?
+  itemCount   Int
+  
+  // Sync tracking
+  lastSyncedAt DateTime?
+  isActive     Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  service   Service @relation(fields: [serviceId], references: [id])
+  owner     User    @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  ownerId   String
+  
+  tracks ServicePlaylistTrack[]
+  
+  @@unique([serviceId, externalId]) // Unique per service
+  @@index([ownerId])
+  @@index([ownerId, updatedAt])
+  @@index([serviceId, externalId])
+}
+
+model ServicePlaylistTrack {
+  id          String @id @default(cuid())
+  playlistId  String // Reference to ServicePlaylist
+  trackId     String // Reference to Track
+  position    Int    // Position in playlist
+  
+  playlist    ServicePlaylist @relation(fields: [playlistId], references: [id])
+  track       Track @relation(fields: [trackId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([playlistId, trackId])
+  @@index([playlistId])
+  @@index([trackId])
 }

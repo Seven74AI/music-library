@@ -1,7 +1,8 @@
 import { redirect } from 'react-router'
 import { prisma } from './db.server.ts'
 import { extractYouTubeVideoId } from './track-validation.server.ts'
-import { getYouTubeVideoDetails, YouTubeAPIError } from './youtube-search.server.ts'
+import { YouTubeAPIError } from './youtube-errors'
+import { getYouTubeVideoDetails } from './youtube-search.server.ts'
 
 // Generic service API error
 export class ServiceAPIError extends Error {
@@ -37,8 +38,11 @@ const youtubeImportHandler: ServiceImportHandler = {
   },
 
   async getVideoDetails(videoId: string) {
+    console.log(`youtubeImportHandler.getVideoDetails called with: ${videoId}`)
     try {
+      console.log(`About to call getYouTubeVideoDetails`)
       const details = await getYouTubeVideoDetails(videoId)
+      console.log(`getYouTubeVideoDetails returned:`, details)
       return {
         id: details.id,
         title: details.title,
@@ -49,6 +53,7 @@ const youtubeImportHandler: ServiceImportHandler = {
         publishedAt: details.publishedAt,
       }
     } catch (error) {
+      console.error('YouTube import error:', error)
       if (error instanceof YouTubeAPIError) {
         throw new ServiceAPIError(error.message, error.code, error.statusCode)
       }

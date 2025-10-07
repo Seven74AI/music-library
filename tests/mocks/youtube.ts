@@ -1,7 +1,7 @@
 import { HttpResponse, http, type HttpHandler } from 'msw'
 
 // Constants
-const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3'
+const YOUTUBE_API_BASE_URL = 'https://youtube.googleapis.com/youtube/v3'
 const YOUTUBE_API_KEY_ERROR_MESSAGE = 'API key not valid. Please pass a valid API key.'
 
 // Type definitions for error responses
@@ -106,6 +106,14 @@ const mockSearchResults = {
 }
 
 export const handlers: Array<HttpHandler> = [
+  // Generic YouTube API mock to catch all requests
+  http.get('https://youtube.googleapis.com/youtube/v3/*', ({ request }) => {
+    console.log('🎭 MSW: Generic YouTube API request intercepted:', request.url)
+    console.log('🎭 MSW: Request method:', request.method)
+    console.log('🎭 MSW: Request headers:', Object.fromEntries(request.headers.entries()))
+    return HttpResponse.json({ error: 'Generic mock - not implemented' }, { status: 500 })
+  }),
+
   // Mock YouTube API search endpoint
   http.get(`${YOUTUBE_API_BASE_URL}/search`, ({ request }) => {
     const url = new URL(request.url)
@@ -142,11 +150,90 @@ export const handlers: Array<HttpHandler> = [
     })
   }),
 
-  // Mock YouTube API playlists endpoint
+  // Mock YouTube API playlists endpoint (OAuth and API key)
   http.get(`${YOUTUBE_API_BASE_URL}/playlists`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
+    const mine = url.searchParams.get('mine')
     
+    console.log('🎭 MSW: Received playlists request:', {
+      url: request.url,
+      apiKey: apiKey ? 'present' : 'missing',
+      mine: mine || 'missing'
+    })
+    
+    // For OAuth requests (mine=true), don't require API key
+    if (mine === 'true') {
+      console.log('🎭 MSW: Mocking OAuth playlists request')
+      return HttpResponse.json({
+        kind: 'youtube#playlistListResponse',
+        etag: 'mockEtag123',
+        pageInfo: {
+          totalResults: 2,
+          resultsPerPage: 25
+        },
+        items: [
+          {
+            kind: 'youtube#playlist',
+            etag: 'itemEtag1',
+            id: 'PLtest123',
+            snippet: {
+              publishedAt: '2023-01-01T12:00:00Z',
+              channelId: 'UCtest123',
+              title: 'My Test Playlist',
+              description: 'A test playlist for testing',
+              thumbnails: {
+                default: { 
+                  url: 'https://example.com/thumb1.jpg',
+                  width: 120,
+                  height: 90
+                },
+                medium: { 
+                  url: 'https://example.com/thumb1-medium.jpg',
+                  width: 320,
+                  height: 180
+                },
+                high: { 
+                  url: 'https://example.com/thumb1-high.jpg',
+                  width: 480,
+                  height: 360
+                }
+              },
+              channelTitle: 'Test Channel',
+              privacyStatus: 'public'
+            },
+            contentDetails: {
+              itemCount: 5
+            }
+          },
+          {
+            kind: 'youtube#playlist',
+            etag: 'itemEtag2',
+            id: 'PLtest456',
+            snippet: {
+              publishedAt: '2023-01-02T12:00:00Z',
+              channelId: 'UCtest456',
+              title: 'Another Test Playlist',
+              description: 'Another test playlist',
+              thumbnails: {
+                default: { 
+                  url: 'https://example.com/thumb2.jpg',
+                  width: 120,
+                  height: 90
+                }
+              },
+              channelTitle: 'Another Channel',
+              privacyStatus: 'public'
+            },
+            contentDetails: {
+              itemCount: 10
+            }
+          }
+        ]
+      })
+    }
+    
+    // For API key requests, require API key
     if (!apiKey) {
       return createApiKeyError()
     }
@@ -177,13 +264,84 @@ export const handlers: Array<HttpHandler> = [
     })
   }),
 
-  // Mock YouTube API playlistItems endpoint
+  // Mock YouTube API playlistItems endpoint (OAuth and API key)
   http.get(`${YOUTUBE_API_BASE_URL}/playlistItems`, ({ request }) => {
     const url = new URL(request.url)
     const apiKey = url.searchParams.get('key')
     
+    // For OAuth requests, don't require API key
     if (!apiKey) {
-      return createApiKeyError()
+      console.log('🎭 MSW: Mocking OAuth playlistItems request')
+      return HttpResponse.json({
+        kind: 'youtube#playlistItemListResponse',
+        etag: 'mockEtag789',
+        pageInfo: {
+          totalResults: 2,
+          resultsPerPage: 25
+        },
+        items: [
+          {
+            kind: 'youtube#playlistItem',
+            etag: 'itemEtag1',
+            id: 'PLI123',
+            snippet: {
+              publishedAt: '2023-01-01T12:00:00Z',
+              channelId: 'UCtest123',
+              title: 'Test Video 1',
+              description: 'First test video',
+              thumbnails: {
+                default: {
+                  url: 'https://example.com/video1-thumb.jpg',
+                  width: 120,
+                  height: 90
+                }
+              },
+              channelTitle: 'Test Channel',
+              videoOwnerChannelTitle: 'Test Channel',
+              playlistId: 'PLtest123',
+              position: 0,
+              resourceId: {
+                kind: 'youtube#video',
+                videoId: 'dQw4w9WgXcQ'
+              }
+            },
+            contentDetails: {
+              videoId: 'dQw4w9WgXcQ',
+              videoPublishedAt: '2023-01-01T12:00:00Z'
+            }
+          },
+          {
+            kind: 'youtube#playlistItem',
+            etag: 'itemEtag2',
+            id: 'PLI456',
+            snippet: {
+              publishedAt: '2023-01-02T12:00:00Z',
+              channelId: 'UCtest123',
+              title: 'Test Video 2',
+              description: 'Second test video',
+              thumbnails: {
+                default: {
+                  url: 'https://example.com/video2-thumb.jpg',
+                  width: 120,
+                  height: 90
+                }
+              },
+              channelTitle: 'Test Channel',
+              videoOwnerChannelTitle: 'Test Channel',
+              playlistId: 'PLtest123',
+              position: 1,
+              resourceId: {
+                kind: 'youtube#video',
+                videoId: 'dQw4w9WgXcR'
+              }
+            },
+            contentDetails: {
+              videoId: 'dQw4w9WgXcR',
+              videoPublishedAt: '2023-01-02T12:00:00Z'
+            }
+          }
+        ]
+      })
     }
 
     return HttpResponse.json({

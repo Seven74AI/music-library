@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/
 import { Icon } from '#app/components/ui/icon'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
-import { createYouTubePlaylistService } from '#app/utils/youtube-playlist.server'
+import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 import { type Route } from './+types/index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -21,16 +21,24 @@ export async function loader({ request }: Route.LoaderArgs) {
 	const youtubeService = services.find(s => s.name === 'youtube')
 	
 	if (youtubeService) {
-		const youtubePlaylistService = createYouTubePlaylistService()
+		const servicePlaylistService = createServicePlaylistService()
 		try {
-			const [storedTokens, syncStatus] = await Promise.all([
-				youtubePlaylistService.getStoredTokens(userId),
-				youtubePlaylistService.getSyncStatus(userId)
+			const [storedTokens, syncedPlaylists] = await Promise.all([
+				prisma.connection.findFirst({
+					where: {
+						providerName: 'youtube',
+						userId: userId,
+					},
+				}),
+				servicePlaylistService.getSyncedPlaylists('youtube', userId)
 			])
 			
 			youtubeConnectionStatus = {
 				connected: !!storedTokens,
-				syncStatus
+				syncStatus: {
+					totalPlaylists: syncedPlaylists.length,
+					lastSync: syncedPlaylists.length > 0 ? syncedPlaylists[0]?.updatedAt : null
+				}
 			}
 		} catch (error) {
 			console.error('Error fetching YouTube status:', error)
@@ -171,7 +179,7 @@ function ServiceCard({
 	connectionStatus 
 }: { 
 	service: { id: string; name: string; displayName: string; logoUrl?: string | null; baseUrl: string }
-	connectionStatus: { connected: boolean; syncStatus: any } | null
+	connectionStatus: { connected: boolean; syncStatus: { totalPlaylists: number; lastSync: Date | null | undefined } | null } | null
 }) {
 	const isConnected = connectionStatus?.connected || false
 	const syncStatus = connectionStatus?.syncStatus

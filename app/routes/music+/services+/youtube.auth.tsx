@@ -3,14 +3,17 @@ import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
 import { requireUserId } from '#app/utils/auth.server'
-import { createYouTubePlaylistService } from '#app/utils/youtube-playlist.server'
+import { prisma } from '#app/utils/db.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
-	const youtubePlaylistService = createYouTubePlaylistService()
-	
 	// Check if user already has tokens
-	const storedTokens = await youtubePlaylistService.getStoredTokens(userId)
+	const storedTokens = await prisma.connection.findFirst({
+		where: {
+			providerName: 'youtube',
+			userId: userId,
+		},
+	})
 	
 	if (storedTokens) {
 		// User is already connected, redirect to YouTube service page

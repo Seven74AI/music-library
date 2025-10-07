@@ -59,6 +59,78 @@ async function getOrInsertUser({
 
 export type AppPages = keyof Register['pages']
 
+/**
+ * Helper function to clean up all user-related data in the correct order
+ * to avoid foreign key constraint violations.
+ * 
+ * @param userIds - Array of user IDs to clean up
+ * @returns Promise that resolves when cleanup is complete
+ * 
+ * @remarks
+ * This function handles the complex foreign key relationships in the database:
+ * - ServicePlaylist is automatically deleted due to CASCADE delete
+ * - ServicePlaylistTrack must be deleted explicitly because it has RESTRICT constraints
+ * - User-related data is deleted in parallel for better performance
+ * - Roles are preserved as they are global entities shared across users
+ * 
+ * @example
+ * ```typescript
+ * await cleanupUserData(['user1', 'user2'])
+ * ```
+ */
+async function cleanupUserData(userIds: string[]): Promise<void> {
+	if (userIds.length === 0) return
+	
+	// Helper to create consistent where clauses
+	const whereUserId = { userId: { in: userIds } }
+	const whereOwnerId = { ownerId: { in: userIds } }
+	const whereUserIds = { id: { in: userIds } }
+	
+	try {
+		// Delete service playlist tracks first (references ServicePlaylist with RESTRICT)
+		await prisma.servicePlaylistTrack.deleteMany({ 
+			where: { 
+				playlist: whereOwnerId
+			} 
+		})
+		
+		// Delete user tracks (references User)
+		await prisma.userTrack.deleteMany({ where: whereUserId })
+		
+		// Delete user playlists and their tracks (references User)
+		await prisma.userPlaylistTrack.deleteMany({
+			where: {
+				playlist: whereOwnerId
+			}
+		})
+		await prisma.userPlaylist.deleteMany({ where: whereOwnerId })
+		
+		// Delete notes and their images (references User)
+		await prisma.noteImage.deleteMany({
+			where: {
+				note: whereOwnerId
+			}
+		})
+		await prisma.note.deleteMany({ where: whereOwnerId })
+		
+		// Delete user-related data (references User) - can be done in parallel
+		await Promise.all([
+			prisma.session.deleteMany({ where: whereUserId }),
+			prisma.connection.deleteMany({ where: whereUserId }),
+			prisma.passkey.deleteMany({ where: whereUserId }),
+			prisma.userImage.deleteMany({ where: whereUserId }),
+			prisma.password.deleteMany({ where: whereUserId }),
+		])
+		
+		// Finally delete the users (ServicePlaylist will be auto-deleted via CASCADE)
+		await prisma.user.deleteMany({ where: whereUserIds })
+	} catch (error) {
+		console.warn(`Failed to cleanup users [${userIds.length} users]:`, error)
+		// In test environment, we might want to re-throw to fail the test
+		// but for now we'll just log to avoid breaking tests
+	}
+}
+
 export const test = base.extend<{
 	navigate: <Path extends AppPages>(
 		...args: Parameters<typeof href<Path>>
@@ -73,26 +145,20 @@ export const test = base.extend<{
 		})
 	},
 	insertNewUser: async ({}, use) => {
-		let userId: string | undefined = undefined
+		const userIds: string[] = []
 		await use(async (options) => {
 			const user = await getOrInsertUser(options)
-			userId = user.id
+			userIds.push(user.id)
 			return user
 		})
-		// Enhanced cleanup with better error handling
-		if (userId) {
-			try {
-				await prisma.user.delete({ where: { id: userId } })
-			} catch (error) {
-				console.warn(`Failed to cleanup user ${userId}:`, error)
-			}
-		}
+		// Use helper function for proper cleanup order
+		await cleanupUserData(userIds)
 	},
 	login: async ({ page }, use) => {
-		let userId: string | undefined = undefined
+		const userIds: string[] = []
 		await use(async (options) => {
 			const user = await getOrInsertUser(options)
-			userId = user.id
+			userIds.push(user.id)
 			const session = await prisma.session.create({
 				data: {
 					expirationDate: getSessionExpirationDate(),
@@ -115,18 +181,12 @@ export const test = base.extend<{
 			await page.context().addCookies([newConfig])
 			return user
 		})
-		// Enhanced cleanup with better error handling
-		if (userId) {
-			try {
-				await prisma.user.deleteMany({ where: { id: userId } })
-			} catch (error) {
-				console.warn(`Failed to cleanup user ${userId}:`, error)
-			}
-		}
+		// Use helper function for proper cleanup order
+		await cleanupUserData(userIds)
 	},
 	insertNewTrack: async ({}, use) => {
-		let trackId: string | undefined = undefined
-		let userTrackId: string | undefined = undefined
+		const trackIds: string[] = []
+		const userTrackIds: string[] = []
 		await use(async (options?: { title?: string; artist?: string }, userId?: string) => {
 			const track = await prisma.track.create({
 				data: {
@@ -134,7 +194,7 @@ export const test = base.extend<{
 					artist: options?.artist || 'Test Artist',
 				},
 			})
-			trackId = track.id
+			trackIds.push(track.id)
 			
 			// Add track to user's library if userId is provided
 			if (userId) {
@@ -144,31 +204,25 @@ export const test = base.extend<{
 						trackId: track.id,
 					},
 				})
-				userTrackId = userTrack.id
+				userTrackIds.push(userTrack.id)
 			}
 			
 			return track
 		})
-		// Enhanced cleanup with better error handling
-		if (userTrackId) {
+		// Optimized cleanup - batch deletion
+		if (userTrackIds.length > 0) {
 			try {
-				console.log(`🧹 Cleaning up user track ${userTrackId}`)
-				await prisma.userTrack.delete({ where: { id: userTrackId } })
-				console.log(`✅ Successfully cleaned up user track ${userTrackId}`)
+				await prisma.userTrack.deleteMany({ where: { id: { in: userTrackIds } } })
 			} catch (error) {
-				console.warn(`❌ Failed to cleanup user track ${userTrackId}:`, error)
+				console.warn(`Failed to cleanup user tracks:`, error)
 			}
 		}
-		if (trackId) {
+		if (trackIds.length > 0) {
 			try {
-				console.log(`🧹 Cleaning up track ${trackId}`)
-				await prisma.track.delete({ where: { id: trackId } })
-				console.log(`✅ Successfully cleaned up track ${trackId}`)
+				await prisma.track.deleteMany({ where: { id: { in: trackIds } } })
 			} catch (error) {
-				console.warn(`❌ Failed to cleanup track ${trackId}:`, error)
+				console.warn(`Failed to cleanup tracks:`, error)
 			}
-		} else {
-			console.log(`⚠️ No track ID to cleanup`)
 		}
 	},
 })

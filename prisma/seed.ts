@@ -104,9 +104,11 @@ async function seed() {
 		},
 	}
 
-	const kody = await prisma.user.create({
+	const kody = await prisma.user.upsert({
+		where: { username: 'kody' },
 		select: { id: true },
-		data: {
+		update: {},
+		create: {
 			email: 'kody@kcd.dev',
 			username: 'kody',
 			name: 'Kody',
@@ -115,8 +117,12 @@ async function seed() {
 		},
 	})
 
-	await prisma.userImage.create({
-		data: {
+	await prisma.userImage.upsert({
+		where: { userId: kody.id },
+		update: {
+			objectKey: kodyImages.kodyUser.objectKey,
+		},
+		create: {
 			userId: kody.id,
 			objectKey: kodyImages.kodyUser.objectKey,
 		},
@@ -211,9 +217,14 @@ async function seed() {
 	]
 
 	for (const noteData of kodyNotes) {
-		const note = await prisma.note.create({
+		const note = await prisma.note.upsert({
+			where: { id: noteData.id },
 			select: { id: true },
-			data: {
+			update: {
+				title: noteData.title,
+				content: noteData.content,
+			},
+			create: {
 				id: noteData.id,
 				title: noteData.title,
 				content: noteData.content,
@@ -235,9 +246,11 @@ async function seed() {
 	console.time(`👑 Created additional test users`)
 
 	// Create admin user for testing
-	const adminUser = await prisma.user.create({
+	const adminUser = await prisma.user.upsert({
+		where: { username: 'admin' },
 		select: { id: true },
-		data: {
+		update: {},
+		create: {
 			email: 'admin@test.com',
 			username: 'admin',
 			name: 'Admin User',
@@ -247,9 +260,11 @@ async function seed() {
 	})
 
 	// Create normal user for testing
-	const normalUser = await prisma.user.create({
+	const normalUser = await prisma.user.upsert({
+		where: { username: 'testuser' },
 		select: { id: true },
-		data: {
+		update: {},
+		create: {
 			email: 'user@test.com',
 			username: 'testuser',
 			name: 'Test User',

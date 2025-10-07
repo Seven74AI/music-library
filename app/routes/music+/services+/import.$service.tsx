@@ -58,8 +58,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			}
 			
 			// Fetch video details and return them directly
+			console.log('Getting service import handler for:', serviceName)
 			const handler = getServiceImportHandler(serviceName)
+			console.log('Handler obtained, calling getVideoDetails with:', extractedVideoId)
 			const videoDetails = await handler.getVideoDetails(extractedVideoId)
+			console.log('Video details obtained:', videoDetails)
 			
 			// Check if track already exists for this user
 			const { prisma } = await import('#app/utils/db.server.ts')
