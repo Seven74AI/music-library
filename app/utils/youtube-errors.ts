@@ -1,9 +1,15 @@
 /**
  * Standardized YouTube error classes
  * Centralized error handling for YouTube-related operations
+ * 
+ * This module provides a hierarchy of error classes for different types
+ * of YouTube API and service-related errors with proper error codes and status codes.
  */
 
-// Base YouTube error class
+/**
+ * Base YouTube error class
+ * All YouTube-related errors extend this class
+ */
 export class YouTubeError extends Error {
   constructor(
     message: string,
@@ -15,7 +21,10 @@ export class YouTubeError extends Error {
   }
 }
 
-// Specific YouTube error classes
+/**
+ * YouTube API error class
+ * Used for general API-related errors
+ */
 export class YouTubeAPIError extends YouTubeError {
   constructor(message: string, code?: string, statusCode?: number) {
     super(message, code || 'API_ERROR', statusCode)
@@ -23,6 +32,10 @@ export class YouTubeAPIError extends YouTubeError {
   }
 }
 
+/**
+ * YouTube validation error class
+ * Used for input validation errors
+ */
 export class YouTubeValidationError extends YouTubeError {
   constructor(message: string, _field?: string) {
     super(message, 'VALIDATION_ERROR')

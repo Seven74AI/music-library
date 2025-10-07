@@ -69,7 +69,7 @@ export type AppPages = keyof Register['pages']
  * @remarks
  * This function handles the complex foreign key relationships in the database:
  * - ServicePlaylist is automatically deleted due to CASCADE delete
- * - ServicePlaylistTrack must be deleted explicitly because it has RESTRICT constraints
+ * - ServicePlaylistTrack is automatically deleted when ServicePlaylist is deleted (CASCADE)
  * - User-related data is deleted in parallel for better performance
  * - Roles are preserved as they are global entities shared across users
  * 
@@ -87,13 +87,6 @@ async function cleanupUserData(userIds: string[]): Promise<void> {
 	const whereUserIds = { id: { in: userIds } }
 	
 	try {
-		// Delete service playlist tracks first (references ServicePlaylist with RESTRICT)
-		await prisma.servicePlaylistTrack.deleteMany({ 
-			where: { 
-				playlist: whereOwnerId
-			} 
-		})
-		
 		// Delete user tracks (references User)
 		await prisma.userTrack.deleteMany({ where: whereUserId })
 		

@@ -1,14 +1,29 @@
 import { formatDistanceToNow } from 'date-fns'
 import { data, Form, useActionData, useLoaderData, Link, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { 
+  YOUTUBE_PLAYLIST_DETAIL_INTENTS,
+  YOUTUBE_PAGE_TYPES,
+  validatePlaylistDetailIntent,
+  getIntentErrorMessage
+} from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 
+/**
+ * Loader function for YouTube playlist detail page
+ * Fetches playlist details and tracks with user library status
+ * 
+ * @param request - The incoming request
+ * @param params - Route parameters containing playlist ID
+ * @returns Promise resolving to playlist and tracks data
+ */
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
-	const playlistId = params.playlistId
+	const playlistId = params.id
 	
 	if (!playlistId) {
 		throw new Response('Playlist ID is required', { status: 400 })
@@ -33,14 +48,22 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 }
 
+/**
+ * Action function for YouTube playlist detail page
+ * Handles track library management and playlist operations
+ * 
+ * @param request - The incoming request with form data
+ * @param params - Route parameters containing playlist ID
+ * @returns Promise resolving to action result
+ */
 export async function action({ request, params }: ActionFunctionArgs) {
 	const userId = await requireUserId(request)
 	const formData = await request.formData()
 	
 	const intent = formData.get('intent')
 	
-	if (typeof intent !== 'string' || !['add-to-library', 'remove-from-library', 'refresh', 'remove'].includes(intent)) {
-		return data({ status: 'error', message: 'Invalid intent. Must be add-to-library, remove-from-library, refresh, or remove' }, { status: 400 })
+	if (!validatePlaylistDetailIntent(intent)) {
+		return data({ status: 'error', message: getIntentErrorMessage(YOUTUBE_PAGE_TYPES.DETAIL) }, { status: 400 })
 	}
 
 	const servicePlaylistService = createServicePlaylistService()
@@ -67,13 +90,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				return data({ status: 'success', message: 'Track removed from your library' })
 			}
 			
-			case 'resync': {
-				const result = await servicePlaylistService.resyncPlaylist(params.playlistId!, userId)
+			case YOUTUBE_PLAYLIST_DETAIL_INTENTS.REFRESH: {
+				const result = await servicePlaylistService.resyncPlaylist(params.id!, userId)
 				return data({ status: 'success', ...result })
 			}
 			
 			case 'remove': {
-				const result = await servicePlaylistService.removePlaylistFromSync(params.playlistId!, userId)
+				const result = await servicePlaylistService.removePlaylistFromSync(params.id!, userId)
 				return data({ status: 'success', ...result })
 			}
 			
@@ -202,7 +225,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 								</Button>
 								
 								<Form method="post" className="w-full">
-									<input type="hidden" name="intent" value="resync" />
+									<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DETAIL_INTENTS.REFRESH} />
 									<Button type="submit" variant="outline" className="w-full" aria-label={`Re-sync ${playlist.title || 'Unknown Playlist'}`}>
 										<Icon name="update" className="h-4 w-4 mr-2" />
 										Re-sync Playlist
@@ -251,6 +274,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 									<Button
 										variant="outline"
 										onClick={() => window.open(`https://youtube.com/playlist?list=${playlist.externalId}`, '_blank')}
+										aria-label={`View ${playlist.title || 'Unknown Playlist'} on YouTube`}
 									>
 										<Icon name="link-2" className="h-4 w-4 mr-2" />
 										View on YouTube
@@ -295,7 +319,8 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 												<Button
 													variant="outline"
 													size="sm"
-              onClick={() => track.serviceUrl && window.open(track.serviceUrl, '_blank')}
+													onClick={() => track.serviceUrl && window.open(track.serviceUrl, '_blank')}
+													aria-label={`Open ${track.title} on YouTube`}
 												>
 													<Icon name="link-2" className="h-4 w-4" />
 												</Button>
@@ -308,6 +333,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 															type="submit"
 															variant="destructive"
 															size="sm"
+															aria-label={`Remove ${track.title} from library`}
 														>
 															<Icon name="trash" className="h-4 w-4 mr-2" />
 															Remove from Library
@@ -320,6 +346,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 														<Button
 															type="submit"
 															size="sm"
+															aria-label={`Add ${track.title} to library`}
 														>
 															<Icon name="plus" className="h-4 w-4 mr-2" />
 															Add to Library

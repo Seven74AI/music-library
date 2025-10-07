@@ -11,7 +11,7 @@
     "build": "run-s build:*",
     "build:remix": "react-router build",
     "build:server": "tsx ./other/build-server.ts",
-    "dev": "cross-env NODE_ENV=development MOCKS=true node ./server/dev-server.js",
+    "dev": "cross-env NODE_ENV=development node ./server/dev-server.js",
     "dev:no-mocks": "cross-env NODE_ENV=development node ./server/dev-server.js",
     "format": "prettier --write .",
     "lint": "node --max-old-space-size=4096 ./node_modules/.bin/eslint .",

@@ -376,7 +376,7 @@ model ServicePlaylistTrack {
   trackId     String // Reference to Track
   position    Int    // Position in playlist
   
-  playlist    ServicePlaylist @relation(fields: [playlistId], references: [id])
+  playlist    ServicePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
   track       Track @relation(fields: [trackId], references: [id])
   
   createdAt   DateTime @default(now())

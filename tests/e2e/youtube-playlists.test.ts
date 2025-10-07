@@ -24,8 +24,9 @@ interface TestYouTubeConnection {
 
 /**
  * Creates test YouTube connection data for database seeding
+ * 
  * @param userId - The user ID to associate with the connection
- * @returns Test connection data object
+ * @returns Test connection data object with mock tokens
  */
 const createTestYouTubeConnection = (userId: string): TestYouTubeConnection => ({
   providerName: 'youtube',
@@ -33,9 +34,9 @@ const createTestYouTubeConnection = (userId: string): TestYouTubeConnection => (
   userId,
   tokens: JSON.stringify({
     youtubeUserId: 'test-user-id',
-    accessToken: TEST_ACCESS_TOKEN,
-    refreshToken: TEST_REFRESH_TOKEN,
-    expiryDate: Date.now() + ONE_HOUR_MS,
+    access_token: TEST_ACCESS_TOKEN,
+    refresh_token: TEST_REFRESH_TOKEN,
+    expiry_date: Date.now() + ONE_HOUR_MS,
   }),
 })
 
@@ -46,17 +47,10 @@ test.describe('YouTube Service Integration', () => {
   // Optimized configuration for the test group
   test.describe.configure({ timeout: 30 * 1000 }) // Longer timeout for the group
   test.beforeEach(async () => {
-    // Optimized cleanup - batch deletion
+    // Cleanup - ServicePlaylistTrack will be auto-deleted via CASCADE
     await Promise.all([
       prisma.connection.deleteMany({
         where: { providerName: 'youtube' },
-      }),
-      prisma.servicePlaylistTrack.deleteMany({
-        where: {
-          playlist: {
-            service: { name: 'youtube' }
-          }
-        }
       }),
       prisma.servicePlaylist.deleteMany({
         where: {
@@ -111,7 +105,7 @@ test.describe('YouTube Service Integration', () => {
     await expect(page).toHaveURL('/music/services/youtube/playlists')
     
     // Should display mocked playlists from server-side mocks
-    await expect(page.getByRole('heading', { name: 'My Test Playlist' })).toBeVisible()
+    await expect(page.getByText('My Test Playlist')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Another Test Playlist' })).toBeVisible()
     
     // Should show sync status and actions
@@ -136,15 +130,8 @@ test.describe('YouTube Service Integration', () => {
     })
 
     // Create YouTube connection
-    await prisma.connection.upsert({
-      where: {
-        providerName_providerId: {
-          providerName: 'youtube',
-          providerId: TEST_YOUTUBE_USER_ID,
-        },
-      },
-      update: {},
-      create: createTestYouTubeConnection(user.id),
+    await prisma.connection.create({
+      data: createTestYouTubeConnection(user.id),
     })
 
     await page.goto('/music/services/youtube/playlists')
@@ -210,7 +197,7 @@ test.describe('YouTube Service Integration', () => {
     const user = await login()
     
     // Create YouTube service
-    const service = await prisma.service.upsert({
+    await prisma.service.upsert({
       where: { name: 'youtube' },
       update: {},
       create: {
@@ -220,17 +207,16 @@ test.describe('YouTube Service Integration', () => {
       },
     })
 
+    // Create YouTube connection
+    await prisma.connection.create({
+      data: createTestYouTubeConnection(user.id),
+    })
+
     // Create a synced playlist
-    const playlist = await prisma.servicePlaylist.upsert({
-      where: {
-        serviceId_externalId: {
-          serviceId: service.id,
-          externalId: 'PLtest456'
-        }
-      },
-      update: {},
-      create: {
-        serviceId: service.id,
+    const playlist = await prisma.servicePlaylist.create({
+      data: {
+        service: { connect: { name: 'youtube' } },
+        owner: { connect: { id: user.id } },
         externalId: 'PLtest456',
         title: 'Test Playlist',
         description: 'A test playlist',
@@ -238,7 +224,6 @@ test.describe('YouTube Service Integration', () => {
         channelTitle: 'Test Channel',
         publishedAt: new Date(),
         itemCount: 5,
-        ownerId: user.id,
         isActive: true,
         lastSyncedAt: new Date(),
       },
@@ -246,11 +231,14 @@ test.describe('YouTube Service Integration', () => {
 
     await page.goto('/music/services/youtube/synced-playlists')
     
+    // First check if the playlist is visible
+    await expect(page.getByRole('heading', { name: 'Test Playlist' })).toBeVisible()
+    
     // Click view details button using aria-label
     await page.getByRole('link', { name: /view details for test playlist/i }).click()
     
     // Should navigate to playlist details
-    await expect(page).toHaveURL(`/music/services/youtube/${playlist.id}`)
+    await expect(page).toHaveURL(`/music/services/youtube/playlist/${playlist.id}`)
     await expect(page.getByRole('heading', { name: 'Test Playlist', level: 1 })).toBeVisible()
   })
 

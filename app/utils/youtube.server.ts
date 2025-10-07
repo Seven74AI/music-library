@@ -76,7 +76,7 @@ export class YouTubeService {
    */
   async getUserPlaylists(accessToken: string, maxResults = 25, pageToken?: string): Promise<YouTubePlaylistListResponse> {
     // Return mock data when MOCKS=true for testing
-    if (MockManager.isEnabled()) {
+    if (MockManager.isYouTubeEnabled()) {
       MockManager.log('Using mock YouTube playlists data')
       return {
         kind: 'youtube#playlistListResponse',
@@ -136,7 +136,7 @@ export class YouTubeService {
    */
   async getPlaylist(playlistId: string, accessToken: string): Promise<YouTubePlaylist> {
     // Return mock data when MOCKS=true for testing
-    if (MockManager.isEnabled()) {
+    if (MockManager.isYouTubeEnabled()) {
       MockManager.log(`Using mock YouTube playlist data for: ${playlistId}`)
       return createMockPlaylistData(playlistId, {
         title: playlistId === 'PLtest123' ? MOCK_DATA.PLAYLIST_TITLE : 'Another Test Playlist',
@@ -183,7 +183,7 @@ export class YouTubeService {
    */
   async getPlaylistItems(playlistId: string, accessToken: string, maxResults = 50): Promise<any[]> {
     // Return mock data when MOCKS=true for testing
-    if (MockManager.isEnabled()) {
+    if (MockManager.isYouTubeEnabled()) {
       MockManager.log(`Using mock YouTube playlist items data for: ${playlistId}`)
       const itemCount = playlistId === 'PLtest123' ? 5 : 10
       return Array.from({ length: itemCount }, (_, index) => 

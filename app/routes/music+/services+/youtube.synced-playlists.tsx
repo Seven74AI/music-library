@@ -1,12 +1,26 @@
 import { type ServicePlaylist } from '@prisma/client'
 import { formatDistanceToNow } from 'date-fns'
 import { data, Form, useActionData, useLoaderData, Link, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { 
+  YOUTUBE_SYNCED_PLAYLISTS_INTENTS,
+  YOUTUBE_PAGE_TYPES,
+  validateSyncedPlaylistsIntent,
+  getIntentErrorMessage
+} from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 
+/**
+ * Loader function for YouTube synced playlists page
+ * Fetches user's synced YouTube playlists
+ * 
+ * @param request - The incoming request
+ * @returns Promise resolving to synced playlists data
+ */
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	const servicePlaylistService = createServicePlaylistService()
@@ -26,21 +40,28 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	}
 }
 
+/**
+ * Action function for YouTube synced playlists page
+ * Handles playlist resync and removal operations
+ * 
+ * @param request - The incoming request with form data
+ * @returns Promise resolving to action result
+ */
 export async function action({ request }: ActionFunctionArgs) {
 	const userId = await requireUserId(request)
 	const formData = await request.formData()
 	
 	const intent = formData.get('intent')
 	
-	if (typeof intent !== 'string' || !['resync', 'remove'].includes(intent)) {
-		return data({ status: 'error', message: 'Invalid intent. Must be resync or remove' }, { status: 400 })
+	if (!validateSyncedPlaylistsIntent(intent)) {
+		return data({ status: 'error', message: getIntentErrorMessage(YOUTUBE_PAGE_TYPES.SYNCED) }, { status: 400 })
 	}
 
 	const servicePlaylistService = createServicePlaylistService()
 
 	try {
 		switch (intent) {
-			case 'resync': {
+			case YOUTUBE_SYNCED_PLAYLISTS_INTENTS.RESYNC: {
 				const playlistId = formData.get('playlistId')
 				if (typeof playlistId !== 'string' || playlistId.length === 0) {
 					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
@@ -50,7 +71,7 @@ export async function action({ request }: ActionFunctionArgs) {
 				return data({ status: 'success', ...result })
 			}
 			
-			case 'remove': {
+			case YOUTUBE_SYNCED_PLAYLISTS_INTENTS.REMOVE: {
 				const playlistId = formData.get('playlistId')
 				if (typeof playlistId !== 'string' || playlistId.length === 0) {
 					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
@@ -187,7 +208,7 @@ export default function YouTubeSyncedPlaylistsPage() {
 												size="sm"
 												asChild
 											>
-												<Link to={`/music/services/youtube/${playlist.id}`} aria-label={`View details for ${playlist.title || 'Unknown Playlist'}`}>
+												<Link to={`/music/services/youtube/playlist/${playlist.id}`} aria-label={`View details for ${playlist.title || 'Unknown Playlist'}`}>
 													<Icon name="eye-open" className="h-4 w-4" />
 												</Link>
 											</Button>
@@ -202,7 +223,7 @@ export default function YouTubeSyncedPlaylistsPage() {
 											</Button>
 											
 											<Form method="post" className="inline">
-												<input type="hidden" name="intent" value="resync" />
+												<input type="hidden" name="intent" value={YOUTUBE_SYNCED_PLAYLISTS_INTENTS.RESYNC} />
 												<input type="hidden" name="playlistId" value={playlist.id} />
 												<Button
 													type="submit"
@@ -215,7 +236,7 @@ export default function YouTubeSyncedPlaylistsPage() {
 											</Form>
 											
 											<Form method="post" className="inline">
-												<input type="hidden" name="intent" value="remove" />
+												<input type="hidden" name="intent" value={YOUTUBE_SYNCED_PLAYLISTS_INTENTS.REMOVE} />
 												<input type="hidden" name="playlistId" value={playlist.id} />
 												<Button
 													type="submit"

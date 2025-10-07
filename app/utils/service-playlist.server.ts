@@ -7,9 +7,17 @@ import {
 } from './youtube-errors'
 import { getBestThumbnailUrl, buildYouTubeUrl } from './youtube-utils'
 
+/**
+ * Service class for managing service playlists (YouTube, Spotify, etc.)
+ * Handles playlist synchronization, track management, and user library operations
+ */
 export class ServicePlaylistService {
   /**
    * Get service by name with error handling
+   * 
+   * @param serviceName - The name of the service to retrieve
+   * @returns Promise resolving to the service record
+   * @throws ServiceNotFoundError if service doesn't exist
    */
   private async getServiceByName(serviceName: string) {
     const service = await prisma.service.findUnique({
@@ -25,6 +33,11 @@ export class ServicePlaylistService {
 
   /**
    * Get user connection for service with error handling
+   * 
+   * @param serviceName - The name of the service
+   * @param userId - The user ID
+   * @returns Promise resolving to the connection record
+   * @throws NoTokensError if no connection or tokens found
    */
   private async getUserConnection(serviceName: string, userId: string) {
     const connection = await prisma.connection.findFirst({
@@ -43,6 +56,10 @@ export class ServicePlaylistService {
 
   /**
    * Parse and validate connection tokens
+   * 
+   * @param connection - The connection object containing tokens
+   * @returns Object containing the access token
+   * @throws Error if tokens are invalid or missing
    */
   private parseConnectionTokens(connection: { tokens: string | null }): { accessToken: string } {
     if (!connection.tokens) {
@@ -50,13 +67,25 @@ export class ServicePlaylistService {
     }
     
     try {
-      const tokenData = JSON.parse(connection.tokens) as { accessToken: string }
-      if (!tokenData.accessToken) {
-        throw new Error('Access token is missing')
+      const tokenData = JSON.parse(connection.tokens) as { 
+        access_token: string
+        refresh_token?: string
+        expiry_date?: number
       }
-      return tokenData
-    } catch {
-      throw new Error('Invalid token format')
+      
+      if (!tokenData.access_token) {
+        throw new Error('Access token is missing from stored tokens')
+      }
+      
+      return { accessToken: tokenData.access_token }
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error('Invalid JSON format in stored tokens')
+      }
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error('Failed to parse connection tokens')
     }
   }
 
@@ -487,8 +516,10 @@ export class ServicePlaylistService {
 }
 
 /**
- * Create service playlist service instance
+ * Factory function to create a ServicePlaylistService instance
+ * 
+ * @returns ServicePlaylistService instance
  */
 export function createServicePlaylistService(): ServicePlaylistService {
-  return new ServicePlaylistService()
+	return new ServicePlaylistService()
 }

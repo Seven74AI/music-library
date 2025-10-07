@@ -1,10 +1,19 @@
-import { redirect, type LoaderFunctionArgs } from 'react-router'
+import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs, Form } from 'react-router'
+
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
+import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
 
+/**
+ * Loader function for YouTube authentication page
+ * Checks if user is already connected and redirects if so
+ * 
+ * @param request - The incoming request
+ * @returns Promise resolving to redirect or empty data
+ */
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	// Check if user already has tokens
@@ -21,6 +30,28 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	}
 
 	return {}
+}
+
+/**
+ * Action function for YouTube authentication page
+ * Generates OAuth URL and redirects to YouTube
+ * 
+ * @param request - The incoming request
+ * @returns Promise resolving to redirect to YouTube OAuth
+ */
+export async function action({ request }: ActionFunctionArgs) {
+	const userId = await requireUserId(request)
+	
+	try {
+		const youtubeOAuthService = createYouTubeOAuthService()
+		const authUrl = youtubeOAuthService.getAuthUrl(userId)
+		
+		// Redirect to YouTube OAuth
+		return redirect(authUrl)
+	} catch (error) {
+		console.error('Error generating YouTube OAuth URL:', error)
+		return redirect('/music/services/youtube/auth?error=oauth_error')
+	}
 }
 
 export default function YouTubeAuthPage() {
@@ -103,12 +134,12 @@ export default function YouTubeAuthPage() {
 						</div>
 
 						<div className="pt-4 border-t">
-							<Button asChild size="lg" className="w-full">
-								<a href="/youtube/auth">
+							<Form method="post">
+								<Button type="submit" size="lg" className="w-full">
 									<Icon name="link-2" className="h-5 w-5 mr-2" />
 									Connect YouTube Account
-								</a>
-							</Button>
+								</Button>
+							</Form>
 							<p className="text-xs text-muted-foreground text-center mt-2">
 								You'll be redirected to YouTube to authorize the connection
 							</p>

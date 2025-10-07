@@ -32,6 +32,10 @@ export const MOCK_DATA = {
 
 /**
  * Generate mock video data for testing
+ * 
+ * @param videoId - The video ID to use in mock data
+ * @param options - Optional parameters to customize mock data
+ * @returns Mock video data object
  */
 export function createMockVideoData(videoId: string, options?: {
   title?: string
@@ -78,6 +82,10 @@ export function createMockVideoData(videoId: string, options?: {
 
 /**
  * Generate mock playlist data for testing
+ * 
+ * @param playlistId - The playlist ID to use in mock data
+ * @param options - Optional parameters to customize mock data
+ * @returns Mock playlist data object
  */
 export function createMockPlaylistData(playlistId: string, options?: {
   title?: string
@@ -195,16 +203,77 @@ export function createMockPlaylistItem(playlistId: string, index: number, option
  */
 export class MockManager {
   /**
+   * Get environment information for mock decisions
+   * 
+   * @returns Object containing environment flags and explicit mock settings
+   */
+  private static getEnvironmentInfo() {
+    return {
+      isCI: process.env.CI === 'true',
+      isProduction: process.env.NODE_ENV === 'production',
+      isDevelopment: process.env.NODE_ENV === 'development',
+      isTest: process.env.NODE_ENV === 'test',
+      explicitMocks: process.env.MOCKS,
+    }
+  }
+
+  /**
    * Check if mocks are enabled
+   * 
+   * Mock Strategy:
+   * - Production: Real APIs (no mocks)
+   * - Development: Mock everything EXCEPT YouTube (real YouTube API)
+   * - Test/CI: Mock everything
+   * 
+   * @returns True if mocks should be enabled
    */
   static isEnabled(): boolean {
-    const isEnabled = process.env.MOCKS === 'true'
-    console.log(`MockManager.isEnabled(): ${isEnabled}, MOCKS env: ${process.env.MOCKS}`)
-    return isEnabled
+    const env = this.getEnvironmentInfo()
+    
+    // Explicit override
+    if (env.explicitMocks === 'true') return true
+    if (env.explicitMocks === 'false') return false
+    
+    // Production: No mocks (real APIs)
+    if (env.isProduction) return false
+    
+    // Test/CI: Mock everything
+    if (env.isTest || env.isCI) return true
+    
+    // Development: Mock everything (default behavior)
+    const shouldUseMocks = env.isDevelopment
+    
+    console.log(`MockManager.isEnabled(): ${shouldUseMocks}, NODE_ENV: ${process.env.NODE_ENV}, CI: ${process.env.CI}, MOCKS: ${process.env.MOCKS}`)
+    return shouldUseMocks
+  }
+
+  /**
+   * Check if YouTube mocks are enabled
+   * Special case: YouTube uses real API in development
+   * 
+   * @returns True if YouTube mocks should be enabled
+   */
+  static isYouTubeEnabled(): boolean {
+    const env = this.getEnvironmentInfo()
+    
+    // Explicit override
+    if (env.explicitMocks === 'true') return true
+    if (env.explicitMocks === 'false') return false
+    
+    // Production: No mocks (real YouTube API)
+    if (env.isProduction) return false
+    
+    // Test/CI: Mock YouTube
+    if (env.isTest || env.isCI) return true
+    
+    // Development: Real YouTube API (no mocks)
+    return false
   }
 
   /**
    * Log mock activity (only in test environment)
+   * 
+   * @param message - The message to log
    */
   static log(message: string): void {
     if (this.isEnabled()) {
@@ -214,9 +283,11 @@ export class MockManager {
 
   /**
    * Get API key (mock or real)
+   * 
+   * @returns API key string or undefined
    */
   static getApiKey(): string | undefined {
-    if (this.isEnabled()) {
+    if (this.isYouTubeEnabled()) {
       return YOUTUBE_CONSTANTS.MOCK_API_KEY
     }
     return process.env.YOUTUBE_API_KEY
@@ -224,8 +295,10 @@ export class MockManager {
 
   /**
    * Check if API key is required
+   * 
+   * @returns True if API key is required (not using mocks)
    */
   static isApiKeyRequired(): boolean {
-    return !this.isEnabled()
+    return !this.isYouTubeEnabled()
   }
 }

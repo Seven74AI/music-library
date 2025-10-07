@@ -8,6 +8,13 @@ import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 
+/**
+ * Loader function for YouTube service overview page
+ * Fetches synced playlists and connection status
+ * 
+ * @param request - The incoming request
+ * @returns Promise resolving to synced playlists and connection status
+ */
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	const servicePlaylistService = createServicePlaylistService()
@@ -28,6 +35,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	})
 }
 
+/**
+ * Action function for YouTube service overview page
+ * Handles sync and remove playlist operations
+ * 
+ * @param request - The incoming request with form data
+ * @returns Promise resolving to action result
+ */
 export async function action({ request }: ActionFunctionArgs) {
 	const userId = await requireUserId(request)
 	const formData = await request.formData()
@@ -192,27 +206,6 @@ export default function YouTubeServicePage() {
 				</div>
 			)}
 
-			{/* Quick Actions */}
-			<div className="mb-6">
-				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
-				<div className="flex flex-wrap gap-4">
-					<Button asChild>
-						<Link to="/music/services/import/youtube">
-							<Icon name="download" className="h-4 w-4 mr-2" />
-							Import YouTube Tracks
-						</Link>
-					</Button>
-					{hasConnection && (
-						<Button asChild variant="outline">
-							<Link to="/music/services/youtube/playlists">
-								<Icon name="file-text" className="h-4 w-4 mr-2" />
-								Manage Playlists
-							</Link>
-						</Button>
-					)}
-				</div>
-			</div>
-
 			{/* Synced Playlists Preview */}
 			{hasConnection && syncedPlaylists.length > 0 && (
 				<Card>
@@ -253,7 +246,7 @@ export default function YouTubeServicePage() {
 									</div>
 									<div className="flex items-center gap-2">
 										<Button asChild variant="outline" size="sm">
-											<Link to={`/music/services/youtube/${playlist.id}`} aria-label={`View details for ${playlist.title || 'Unknown Playlist'}`}>
+											<Link to={`/music/services/youtube/playlist/${playlist.id}`} aria-label={`View details for ${playlist.title || 'Unknown Playlist'}`}>
 												<Icon name="eye-open" className="h-4 w-4" />
 											</Link>
 										</Button>

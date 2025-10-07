@@ -76,7 +76,7 @@ export async function searchYouTubeVideos(query: string, maxResults = YOUTUBE_AP
     
     // Return mock video details when MOCKS=true for testing
     let videoDetails
-    if (MockManager.isEnabled()) {
+    if (MockManager.isYouTubeEnabled()) {
       MockManager.log(`Using mock YouTube video details for search: ${videoIds.join(', ')}`)
       const mockVideoDetails = {
         kind: 'youtube#videoListResponse',
@@ -135,7 +135,7 @@ export async function searchYouTubeVideos(query: string, maxResults = YOUTUBE_AP
 export async function getYouTubeVideoDetails(videoId: string): Promise<VideoData> {
   console.log(`getYouTubeVideoDetails called with: ${videoId}`)
   console.log(`MOCKS env var: ${process.env.MOCKS}`)
-  console.log(`MockManager.isEnabled(): ${MockManager.isEnabled()}`)
+  console.log(`MockManager.isYouTubeEnabled(): ${MockManager.isYouTubeEnabled()}`)
   
   // Input validation
   if (!videoId || typeof videoId !== 'string' || videoId.trim().length === 0) {
@@ -154,7 +154,7 @@ export async function getYouTubeVideoDetails(videoId: string): Promise<VideoData
   })
 
   // Return mock data when MOCKS=true for testing
-  if (MockManager.isEnabled()) {
+  if (MockManager.isYouTubeEnabled()) {
     MockManager.log(`Using mock YouTube video details for: ${videoId}`)
     const mockVideoData = {
       kind: 'youtube#videoListResponse',

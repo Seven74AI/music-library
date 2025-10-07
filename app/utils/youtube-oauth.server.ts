@@ -16,10 +16,19 @@ export const YouTubeOAuthConfigSchema = z.object({
 
 export type YouTubeOAuthConfig = z.infer<typeof YouTubeOAuthConfigSchema>
 
+/**
+ * Service class for handling YouTube OAuth authentication
+ * Manages OAuth flow, token exchange, and user authorization
+ */
 export class YouTubeOAuthService {
   private oauth2Client: any
   private config: YouTubeOAuthConfig
 
+  /**
+   * Creates a new YouTubeOAuthService instance
+   * 
+   * @param config - OAuth configuration object
+   */
   constructor(config: YouTubeOAuthConfig) {
     this.config = config
     this.oauth2Client = new google.auth.OAuth2(
@@ -31,6 +40,9 @@ export class YouTubeOAuthService {
 
   /**
    * Generate the authorization URL for YouTube OAuth
+   * 
+   * @param state - Optional state parameter for OAuth flow
+   * @returns The authorization URL
    */
   getAuthUrl(state?: string): string {
     return this.oauth2Client.generateAuthUrl({
@@ -43,6 +55,9 @@ export class YouTubeOAuthService {
 
   /**
    * Exchange authorization code for tokens
+   * 
+   * @param code - The authorization code from OAuth callback
+   * @returns Promise resolving to token data
    */
   async getTokens(code: string): Promise<{
     access_token: string
@@ -98,7 +113,11 @@ export class YouTubeOAuthService {
 }
 
 /**
- * Create YouTube OAuth service instance
+ * Factory function to create a YouTubeOAuthService instance
+ * Validates required environment variables
+ * 
+ * @returns YouTubeOAuthService instance
+ * @throws Error if required environment variables are missing
  */
 export function createYouTubeOAuthService(): YouTubeOAuthService {
   if (!process.env.GOOGLE_CLIENT_ID) {
@@ -111,7 +130,7 @@ export function createYouTubeOAuthService(): YouTubeOAuthService {
   const config = YouTubeOAuthConfigSchema.parse({
     clientId: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    redirectUri: `${process.env.SITE_URL || 'http://localhost:3000'}/youtube/callback`,
+    redirectUri: `${process.env.SITE_URL || 'http://localhost:3000'}/music/services/youtube/callback`,
   })
 
   return new YouTubeOAuthService(config)

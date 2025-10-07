@@ -1,11 +1,25 @@
 import { data, Form, useActionData, useLoaderData, Link, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
 import { type YouTubePlaylist } from '#app/types/youtube'
+import { 
+  YOUTUBE_PLAYLIST_DISCOVERY_INTENTS,
+  YOUTUBE_PAGE_TYPES,
+  validatePlaylistDiscoveryIntent,
+  getIntentErrorMessage
+} from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 
+/**
+ * Loader function for YouTube playlists discovery page
+ * Fetches user's YouTube playlists with sync status
+ * 
+ * @param request - The incoming request
+ * @returns Promise resolving to playlists data and connection status
+ */
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	const servicePlaylistService = createServicePlaylistService()
@@ -29,23 +43,31 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	}
 }
 
-// Validation helpers
-function validateIntent(intent: unknown): intent is string {
-	return typeof intent === 'string' && ['add-to-sync', 'remove-from-sync'].includes(intent)
-}
-
+/**
+ * Validation helper for playlist ID
+ * 
+ * @param playlistId - The playlist ID to validate
+ * @returns True if the playlist ID is a valid non-empty string
+ */
 function validatePlaylistId(playlistId: unknown): playlistId is string {
 	return typeof playlistId === 'string' && playlistId.length > 0
 }
 
+/**
+ * Action function for YouTube playlists discovery page
+ * Handles adding/removing playlists from sync
+ * 
+ * @param request - The incoming request with form data
+ * @returns Promise resolving to action result
+ */
 export async function action({ request }: ActionFunctionArgs) {
 	const userId = await requireUserId(request)
 	const formData = await request.formData()
 	
 	const intent = formData.get('intent')
 	
-	if (!validateIntent(intent)) {
-		return data({ status: 'error', message: 'Invalid intent. Must be add-to-sync or remove-from-sync' }, { status: 400 })
+	if (!validatePlaylistDiscoveryIntent(intent)) {
+		return data({ status: 'error', message: getIntentErrorMessage(YOUTUBE_PAGE_TYPES.DISCOVERY) }, { status: 400 })
 	}
 
 	const servicePlaylistService = createServicePlaylistService()
@@ -248,7 +270,7 @@ export default function YouTubePlaylistsPage() {
 													
 													{playlist.isSynced ? (
 														<Form method="post" className="inline">
-															<input type="hidden" name="intent" value="remove-from-sync" />
+															<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.REMOVE_FROM_SYNC} />
 															<input type="hidden" name="playlistId" value={playlist.id} />
 															<Button
 																type="submit"
@@ -262,7 +284,7 @@ export default function YouTubePlaylistsPage() {
 														</Form>
 													) : (
 														<Form method="post" className="inline">
-															<input type="hidden" name="intent" value="add-to-sync" />
+															<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.ADD_TO_SYNC} />
 															<input type="hidden" name="playlistId" value={playlist.id} />
 															<Button
 																type="submit"
@@ -297,6 +319,7 @@ export default function YouTubePlaylistsPage() {
 						<Button 
 							size="lg"
 							onClick={() => window.open('https://youtube.com/playlist?list=LL', '_blank')}
+							aria-label="Go to YouTube to create playlists"
 						>
 							<Icon name="link-2" className="h-5 w-5 mr-2" />
 							Go to YouTube
