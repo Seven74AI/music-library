@@ -2,9 +2,11 @@ import { data, Link } from 'react-router'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 import { type Route } from './+types/index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -18,23 +20,18 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 	// Get YouTube connection status
 	let youtubeConnectionStatus = null
-	const youtubeService = services.find(s => s.name === 'youtube')
+	const youtubeService = services.find(s => s.name === YOUTUBE_SERVICE.NAME)
 	
 	if (youtubeService) {
 		const servicePlaylistService = createServicePlaylistService()
 		try {
-			const [storedTokens, syncedPlaylists] = await Promise.all([
-				prisma.connection.findFirst({
-					where: {
-						providerName: 'youtube',
-						userId: userId,
-					},
-				}),
-				servicePlaylistService.getSyncedPlaylists('youtube', userId)
+			const [hasValidOAuth, syncedPlaylists] = await Promise.all([
+				hasValidYouTubeOAuth(userId),
+				servicePlaylistService.getSyncedPlaylists(YOUTUBE_SERVICE.NAME, userId)
 			])
 			
 			youtubeConnectionStatus = {
-				connected: !!storedTokens,
+				connected: hasValidOAuth,
 				syncStatus: {
 					totalPlaylists: syncedPlaylists.length,
 					lastSync: syncedPlaylists.length > 0 ? syncedPlaylists[0]?.updatedAt : null
@@ -77,7 +74,7 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 						<ServiceCard 
 							key={service.id} 
 							service={service} 
-							connectionStatus={service.name === 'youtube' ? youtubeConnectionStatus : null}
+							connectionStatus={service.name === YOUTUBE_SERVICE.NAME ? youtubeConnectionStatus : null}
 						/>
 					))}
 				</div>

@@ -4,7 +4,7 @@ import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
 import { requireUserId } from '#app/utils/auth.server'
-import { prisma } from '#app/utils/db.server'
+import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
 
 /**
@@ -16,15 +16,10 @@ import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
  */
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
-	// Check if user already has tokens
-	const storedTokens = await prisma.connection.findFirst({
-		where: {
-			providerName: 'youtube',
-			userId: userId,
-		},
-	})
+	// Check if user already has valid OAuth
+	const hasValidOAuth = await hasValidYouTubeOAuth(userId)
 	
-	if (storedTokens) {
+	if (hasValidOAuth) {
 		// User is already connected, redirect to YouTube service page
 		return redirect('/music/services/youtube')
 	}

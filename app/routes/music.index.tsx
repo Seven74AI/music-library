@@ -3,9 +3,11 @@ import { data, Link, useLoaderData, type LoaderFunctionArgs } from 'react-router
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
@@ -52,7 +54,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	// Get YouTube service info
 	const youtubeService = await prisma.service.findUnique({
-		where: { name: 'youtube' }
+		where: { name: YOUTUBE_SERVICE.NAME }
 	})
 
 	let youtubeStats = null
@@ -79,17 +81,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		const servicePlaylistService = createServicePlaylistService()
 		
 		try {
-			const [syncedPlaylists, storedTokens] = await Promise.all([
-				servicePlaylistService.getSyncedPlaylists('youtube', userId),
-				prisma.connection.findFirst({
-					where: {
-						providerName: 'youtube',
-						userId: userId,
-					},
-				})
+			const [syncedPlaylists, hasValidOAuth] = await Promise.all([
+				servicePlaylistService.getSyncedPlaylists(YOUTUBE_SERVICE.NAME, userId),
+				hasValidYouTubeOAuth(userId)
 			])
 			
-			hasYouTubeConnection = !!storedTokens
+			hasYouTubeConnection = hasValidOAuth
 			youtubeStats = {
 				totalPlaylists: syncedPlaylists.length,
 				lastSync: syncedPlaylists.length > 0 ? syncedPlaylists[0]?.updatedAt : null

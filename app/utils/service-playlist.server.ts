@@ -1,3 +1,5 @@
+import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { type YouTubePlaylist, type YouTubePlaylistListResponse } from '#app/types/youtube'
 import { prisma } from '#app/utils/db.server'
 import { createMusicService } from './service-factory.server'
 import { 
@@ -5,7 +7,15 @@ import {
   PlaylistNotFoundError, 
   NoTokensError 
 } from './youtube-errors'
+import { validateYouTubeOAuth } from './youtube-oauth-validation.server'
 import { getBestThumbnailUrl, buildYouTubeUrl } from './youtube-utils'
+
+/**
+ * Type for playlists with sync status
+ */
+interface PlaylistWithSyncStatus extends YouTubePlaylist {
+  playlistInternalId: string | null
+}
 
 /**
  * Service class for managing service playlists (YouTube, Spotify, etc.)
@@ -92,19 +102,26 @@ export class ServicePlaylistService {
   /**
    * Get all playlists for a service with sync status
    */
-  async getAllPlaylistsWithSyncStatus(serviceName: string, userId: string) {
+  async getAllPlaylistsWithSyncStatus(serviceName: string, userId: string): Promise<{
+    playlists: PlaylistWithSyncStatus[]
+    hasConnection: boolean
+    service: {
+      id: string
+      name: string
+      displayName: string
+      baseUrl: string
+      isActive: boolean
+      createdAt: Date
+      updatedAt: Date
+    }
+  }> {
     try {
       const service = await this.getServiceByName(serviceName)
 
-      // Get stored tokens for the service
-      const connection = await prisma.connection.findFirst({
-        where: {
-          providerName: serviceName,
-          userId: userId,
-        },
-      })
-
-      if (!connection || !connection.tokens) {
+      // Validate YouTube OAuth connection and tokens
+      const validation = await validateYouTubeOAuth(userId)
+      
+      if (!validation) {
         return {
           playlists: [],
           hasConnection: false,
@@ -114,21 +131,20 @@ export class ServicePlaylistService {
 
       // Get all playlists from the service API
       // For YouTube, we need the original structure for the discovery page
-      let allPlaylists: any[] = []
+      let allPlaylists: YouTubePlaylist[] = []
       
-      if (serviceName === 'youtube') {
+      if (serviceName === YOUTUBE_SERVICE.NAME) {
         // Use YouTube service directly to get original structure
         const { createYouTubeService } = await import('./youtube.server')
         const youtubeService = createYouTubeService()
-        const tokenData = this.parseConnectionTokens(connection)
-        const response = await youtubeService.getUserPlaylists(tokenData.accessToken)
+        const response: YouTubePlaylistListResponse = await youtubeService.getUserPlaylists(validation.tokenData.accessToken)
         allPlaylists = response.items || []
       } else {
         // For other services, use the common interface
         const musicService = createMusicService(serviceName)
-        const tokenData = this.parseConnectionTokens(connection)
-        const playlistsResponse = await musicService.getUserPlaylists(tokenData.accessToken)
-        allPlaylists = playlistsResponse.items || []
+        const playlistsResponse = await musicService.getUserPlaylists(validation.tokenData.accessToken)
+        // Cast to YouTubePlaylist[] for now - in the future, we should create a generic Playlist type
+        allPlaylists = playlistsResponse.items as unknown as YouTubePlaylist[] || []
       }
 
       // Get already synced playlists
@@ -139,16 +155,20 @@ export class ServicePlaylistService {
           isActive: true
         },
         select: {
-          externalId: true
+          externalId: true,
+          id: true
         }
       })
 
-      const syncedPlaylistIds = new Set(syncedPlaylists.map(p => p.externalId))
+      const syncedPlaylistMap = new Map<string, string>(
+        syncedPlaylists.map(p => [p.externalId, p.id])
+      )
 
-      // Combine API playlists with sync status
-      const playlistsWithStatus = allPlaylists.map((playlist: any) => ({
+      // Combine API playlists with sync status and internal id
+      const playlistsWithStatus: PlaylistWithSyncStatus[] = allPlaylists.map((playlist) => ({
         ...playlist,
-        isSynced: syncedPlaylistIds.has(playlist.id)
+        isSynced: syncedPlaylistMap.has(playlist.id),
+        playlistInternalId: syncedPlaylistMap.get(playlist.id) || null,
       }))
 
       return {
@@ -299,7 +319,7 @@ export class ServicePlaylistService {
    */
   async removePlaylistFromSync(playlistId: string, userId: string) {
     try {
-      const playlist = await prisma.servicePlaylist.findFirst({
+      let playlist = await prisma.servicePlaylist.findFirst({
         where: {
           id: playlistId,
           ownerId: userId,
@@ -310,17 +330,10 @@ export class ServicePlaylistService {
         throw new PlaylistNotFoundError(playlistId)
       }
 
-      // Delete synchronised playlist entries
-      await prisma.servicePlaylistTrack.deleteMany({
-        where: {
-          playlistId: playlistId
-        }
-      })
-
       // Delete the playlist
       await prisma.servicePlaylist.delete({
         where: {
-          id: playlistId
+          id: playlist.id
         }
       })
 

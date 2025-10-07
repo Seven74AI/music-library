@@ -3,7 +3,6 @@ import { data, Form, useActionData, useLoaderData, Link, type LoaderFunctionArgs
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
-import { type YouTubePlaylist } from '#app/types/youtube'
 import { 
   YOUTUBE_PLAYLIST_DISCOVERY_INTENTS,
   YOUTUBE_PAGE_TYPES,
@@ -28,7 +27,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		const result = await servicePlaylistService.getAllPlaylistsWithSyncStatus('youtube', userId)
 		
 		return data({
-			playlists: result.playlists as YouTubePlaylist[],
+			playlists: result.playlists,
 			hasConnection: result.hasConnection,
 			service: result.service,
 		})
@@ -36,7 +35,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		console.error('Error loading YouTube playlists:', error)
 		// Return empty state instead of throwing to prevent page crash
 		return data({
-			playlists: [] as YouTubePlaylist[],
+			playlists: [],
 			hasConnection: false,
 			service: null,
 		})
@@ -74,7 +73,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	try {
 		switch (intent) {
-			case 'add-to-sync': {
+			case YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.ADD_TO_SYNC: {
 				const playlistId = formData.get('playlistId')
 				if (!validatePlaylistId(playlistId)) {
 					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
@@ -84,7 +83,7 @@ export async function action({ request }: ActionFunctionArgs) {
 				return data({ status: 'success', ...result })
 			}
 			
-			case 'remove-from-sync': {
+			case YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.REMOVE_FROM_SYNC: {
 				const playlistId = formData.get('playlistId')
 				if (!validatePlaylistId(playlistId)) {
 					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
@@ -110,8 +109,8 @@ export default function YouTubePlaylistsPage() {
 	const { playlists, hasConnection } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	
-	// Type-safe access to playlists
-	const typedPlaylists = playlists as YouTubePlaylist[]
+	// No need for type assertion since loader is now properly typed
+	const typedPlaylists = playlists
 
 	return (
 		<div className="container mx-auto py-8">
@@ -268,20 +267,31 @@ export default function YouTubePlaylistsPage() {
 														<Icon name="link-2" className="h-4 w-4" />
 													</Button>
 													
-													{playlist.isSynced ? (
-														<Form method="post" className="inline">
-															<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.REMOVE_FROM_SYNC} />
-															<input type="hidden" name="playlistId" value={playlist.id} />
+													{playlist.isSynced && playlist.playlistInternalId ? (
+														<>
 															<Button
-																type="submit"
 																variant="outline"
 																size="sm"
-																className="text-destructive hover:text-destructive"
-																aria-label={`Remove ${playlist.snippet?.title || 'Unknown Playlist'} from sync`}
+																asChild
 															>
-																<Icon name="trash" className="h-4 w-4" />
+																<Link to={`/music/services/youtube/playlist/${playlist.playlistInternalId}`} aria-label={`View details for ${playlist.snippet?.title || 'Unknown Playlist'}`}>
+																	<Icon name="eye-open" className="h-4 w-4" />
+																</Link>
 															</Button>
-														</Form>
+															<Form method="post" className="inline">
+																<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.REMOVE_FROM_SYNC} />
+																<input type="hidden" name="playlistId" value={playlist.playlistInternalId} />
+																<Button
+																	type="submit"
+																	variant="outline"
+																	size="sm"
+																	className="text-destructive hover:text-destructive"
+																	aria-label={`Remove ${playlist.snippet?.title || 'Unknown Playlist'} from sync`}
+																>
+																	<Icon name="trash" className="h-4 w-4" />
+																</Button>
+															</Form>
+														</>
 													) : (
 														<Form method="post" className="inline">
 															<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.ADD_TO_SYNC} />

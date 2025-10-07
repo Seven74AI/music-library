@@ -56,6 +56,7 @@ export interface YouTubePlaylist {
   }
   // Added by our service
   isSynced?: boolean
+  playlistInternalId?: string | null
 }
 
 export interface YouTubePlaylistListResponse {
@@ -210,6 +211,37 @@ export const YouTubeVideoDetailsResponseSchema = z.object({
   items: z.array(YouTubeVideoDetailsSchema),
 })
 
+// OAuth-related types
+export interface YouTubeTokenData {
+  access_token: string
+  refresh_token?: string
+  expiry_date?: number
+}
+
+export interface ValidatedOAuthConnection {
+  connection: {
+    id: string
+    userId: string
+    providerName: string
+    providerId: string
+    tokens: string | null
+    createdAt: Date
+    updatedAt: Date
+  }
+  tokenData: {
+    accessToken: string
+    refreshToken?: string
+    expiryDate?: number
+  }
+}
+
+// OAuth validation schemas
+export const YouTubeTokenDataSchema = z.object({
+  access_token: z.string(),
+  refresh_token: z.string().optional(),
+  expiry_date: z.number().optional(),
+})
+
 // Type exports from schemas (using type aliases to avoid conflicts)
 export type YouTubePlaylistType = z.infer<typeof YouTubePlaylistSchema>
 export type YouTubePlaylistListResponseType = z.infer<typeof YouTubePlaylistListResponseSchema>
@@ -217,3 +249,4 @@ export type YouTubeSearchResultType = z.infer<typeof YouTubeSearchResultSchema>
 export type YouTubeSearchResponseType = z.infer<typeof YouTubeSearchResponseSchema>
 export type YouTubeVideoDetailsType = z.infer<typeof YouTubeVideoDetailsSchema>
 export type YouTubeVideoDetailsResponseType = z.infer<typeof YouTubeVideoDetailsResponseSchema>
+export type YouTubeTokenDataType = z.infer<typeof YouTubeTokenDataSchema>

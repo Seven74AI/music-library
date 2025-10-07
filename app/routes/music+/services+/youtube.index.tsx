@@ -4,9 +4,10 @@ import { data, Link, useActionData, useLoaderData, type LoaderFunctionArgs, type
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { requireUserId } from '#app/utils/auth.server'
-import { prisma } from '#app/utils/db.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 
 /**
  * Loader function for YouTube service overview page
@@ -20,13 +21,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const servicePlaylistService = createServicePlaylistService()
 	
 	const [syncedPlaylists, hasConnection] = await Promise.all([
-		servicePlaylistService.getSyncedPlaylists('youtube', userId),
-		prisma.connection.findFirst({
-			where: {
-				providerName: 'youtube',
-				userId: userId,
-			},
-		}).then(tokens => !!tokens),
+		servicePlaylistService.getSyncedPlaylists(YOUTUBE_SERVICE.NAME, userId),
+		hasValidYouTubeOAuth(userId),
 	])
 
 	return data({
@@ -57,19 +53,14 @@ export async function action({ request }: ActionFunctionArgs) {
 	try {
 		switch (intent) {
 		case 'sync': {
-			// Check if user already has YouTube tokens
-			const storedTokens = await prisma.connection.findFirst({
-			where: {
-				providerName: 'youtube',
-				userId: userId,
-			},
-		})
+			// Check if user already has valid YouTube OAuth
+			const hasValidOAuth = await hasValidYouTubeOAuth(userId)
 			
-			if (storedTokens) {
-				// User has tokens, redirect to playlists page to sync
+			if (hasValidOAuth) {
+				// User has valid OAuth, redirect to playlists page to sync
 				return data({ status: 'success', message: 'Redirecting to playlist management...' })
 			} else {
-				// No tokens, redirect to YouTube OAuth
+				// No valid OAuth, redirect to YouTube OAuth
 				return data({ status: 'error', message: 'Please connect your YouTube account first.' }, { status: 401 })
 			}
 		}
