@@ -2,6 +2,7 @@ import { type ServicePlaylist } from '@prisma/client'
 import { formatDistanceToNow } from 'date-fns'
 import { data, Link, useActionData, useLoaderData, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
 
+import { ServiceDisconnectButton } from '#app/components/service-disconnect-button'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
@@ -166,14 +167,21 @@ export default function YouTubeServicePage() {
 								{hasConnection ? 'Connected to YouTube' : 'Not connected to YouTube'}
 							</span>
 						</div>
-						{!hasConnection && (
-							<Button asChild>
-								<Link to="/music/services/youtube/auth">
-									<Icon name="link-2" className="h-4 w-4 mr-2" />
-									Connect YouTube
-								</Link>
-							</Button>
-						)}
+						<div className="flex items-center gap-2">
+							{!hasConnection ? (
+								<Button asChild>
+									<Link to="/music/services/youtube/auth">
+										<Icon name="link-2" className="h-4 w-4 mr-2" />
+										Connect YouTube
+									</Link>
+								</Button>
+							) : (
+								<ServiceDisconnectButton 
+									serviceName="YouTube"
+									disconnectUrl="/music/services/youtube/disconnect"
+								/>
+							)}
+						</div>
 					</div>
 				</CardContent>
 			</Card>
@@ -198,6 +206,7 @@ export default function YouTubeServicePage() {
 					<p className="text-sm text-green-700 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
 				</div>
 			)}
+
 
 			{/* Synced Playlists Preview */}
 			{hasConnection && syncedPlaylists.length > 0 && (

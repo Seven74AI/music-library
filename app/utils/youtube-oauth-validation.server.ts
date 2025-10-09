@@ -133,6 +133,27 @@ export async function refreshYouTubeTokens(userId: string): Promise<YouTubeToken
 }
 
 /**
+ * Disconnect YouTube OAuth connection for a user
+ * 
+ * @param userId - The user ID to disconnect
+ * @returns Promise resolving to boolean indicating if disconnect was successful
+ */
+export async function disconnectYouTube(userId: string): Promise<boolean> {
+  try {
+    const result = await prisma.connection.deleteMany({
+      where: {
+        providerName: YOUTUBE_SERVICE.NAME,
+        userId: userId,
+      },
+    })
+    return result.count > 0
+  } catch (error) {
+    console.error('Error disconnecting YouTube:', error)
+    return false
+  }
+}
+
+/**
  * Check if user has valid YouTube OAuth connection
  * 
  * @param userId - The user ID to check

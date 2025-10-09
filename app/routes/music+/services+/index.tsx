@@ -1,4 +1,5 @@
 import { data, Link } from 'react-router'
+import { ServiceDisconnectButton } from '#app/components/service-disconnect-button'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
@@ -226,6 +227,12 @@ function ServiceCard({
 									<Icon name="download" className="h-4 w-4" />
 								</Link>
 							</Button>
+							{service.name === YOUTUBE_SERVICE.NAME && (
+								<ServiceDisconnectButton 
+									serviceName="YouTube"
+									disconnectUrl="/music/services/youtube/disconnect"
+								/>
+							)}
 						</>
 					) : (
 						<Button asChild className="w-full">
