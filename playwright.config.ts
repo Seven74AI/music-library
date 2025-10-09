@@ -46,7 +46,7 @@ export default defineConfig({
 	],
 
 	webServer: {
-		command: process.env.CI ? 'npm run start:mocks' : 'npm run dev',
+		command: process.env.CI ? 'npm run start:mocks' : 'npm run dev YOUTUBE_MOCKS=true',
 		port: Number(PORT),
 		reuseExistingServer: true,
 		stdout: 'pipe',

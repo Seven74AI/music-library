@@ -94,13 +94,13 @@ This document outlines a systematic testing plan for all routes and actions in t
   - [ ] Filter options
   - [ ] Pagination
 
-#### 3.2 Add New Track (`/library/new`)
+#### 3.2 Import Track from Services (`/music/services/youtube/import`)
 - **Actions to test**:
-  - [ ] Upload audio file
-  - [ ] Fill track metadata
-  - [ ] Submit form successfully
-  - [ ] Error handling for invalid files
-  - [ ] File size validation
+  - [ ] Enter YouTube URL
+  - [ ] Preview track details
+  - [ ] Import track successfully
+  - [ ] Error handling for invalid URLs
+  - [ ] Handle already existing tracks
 
 #### 3.3 Track Detail (`/library/{trackId}`)
 - **Actions to test**:
