@@ -149,23 +149,16 @@ test.describe('YouTube Service Integration', () => {
     await page.goto('/music/services/youtube/playlists')
     await expect(page).toHaveURL('/music/services/youtube/playlists')
     
-    // Check if we're in mock mode or real API mode
-    const isMockMode = process.env.YOUTUBE_MOCKS === 'true' || (process.env.YOUTUBE_MOCKS !== 'false' && process.env.MOCKS === 'true')
+    // Since we're creating a connection and using mocks, we should see mocked playlists
+    // Should display mocked playlists from server-side mocks
+    await expect(page.getByText('Test Playlist 1')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Test Playlist 2' })).toBeVisible()
     
-    if (isMockMode) {
-      // Should display mocked playlists from server-side mocks
-      await expect(page.getByText('Test Playlist 1')).toBeVisible()
-      await expect(page.getByRole('heading', { name: 'Test Playlist 2' })).toBeVisible()
-      
-      // Should show sync status and actions
-      await expect(page.getByText('Test Channel')).toBeVisible()
-      await expect(page.getByText('Another Channel')).toBeVisible()
-      await expect(page.getByText('5 tracks')).toBeVisible()
-      await expect(page.getByText('3 tracks')).toBeVisible()
-    } else {
-      // In real API mode, just verify the page loads and shows appropriate message
-      await expect(page.getByRole('heading', { name: 'Not Connected to YouTube' })).toBeVisible()
-    }
+    // Should show sync status and actions
+    await expect(page.getByText('Test Channel')).toBeVisible()
+    await expect(page.getByText('Another Channel')).toBeVisible()
+    await expect(page.getByText('5 tracks')).toBeVisible()
+    await expect(page.getByText('3 tracks')).toBeVisible()
   })
 
   // Removed: 'should add playlist to sync from discovery page' - too complex to mock properly
