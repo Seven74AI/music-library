@@ -26,7 +26,7 @@ export interface TrackWithUserStatus {
   artist: string
   album: string | null
   duration: number | null
-  serviceProviderId: string | null
+  externalId: string | null
   serviceId: string | null
   serviceUrl: string | null
   thumbnailUrl: string | null

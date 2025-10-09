@@ -1,6 +1,7 @@
 import { type Prisma } from '@prisma/client'
 import { redirect } from 'react-router'
 
+import { enqueueTrack } from './audio-queue.server'
 import { prisma } from './db.server'
 import { extractYouTubeVideoId } from './track-validation.server'
 import { YouTubeAPIError } from './youtube-errors'
@@ -133,9 +134,9 @@ export async function importTrackDirectly(serviceName: string, videoId: string, 
     // Check if track already exists globally
     let track = await prisma.track.findUnique({
       where: {
-        serviceId_serviceProviderId: {
+        serviceId_externalId: {
           serviceId: service.id,
-          serviceProviderId: videoId
+          externalId: videoId
         }
       }
     })
@@ -150,7 +151,7 @@ export async function importTrackDirectly(serviceName: string, videoId: string, 
         artist: videoDetails.artist,
         album: null,
         duration: videoDetails.duration,
-        serviceProviderId: videoId,
+        externalId: videoId,
         service: { connect: { id: service.id } },
         serviceUrl: videoDetails.serviceUrl,
         thumbnailUrl: videoDetails.thumbnailUrl,
@@ -163,6 +164,13 @@ export async function importTrackDirectly(serviceName: string, videoId: string, 
           ...trackData,
         }
       })
+
+      // Auto-enqueue for archiving
+      try {
+        await enqueueTrack(track.id, false)
+      } catch (error) {
+        console.warn(`Failed to enqueue track ${track.id} for archiving:`, error)
+      }
     }
     
     // Check if user already has this track

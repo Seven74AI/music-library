@@ -5,12 +5,33 @@ import { useFormAction, useNavigation } from 'react-router'
 import { useSpinDelay } from 'spin-delay'
 import { twMerge } from 'tailwind-merge'
 
+/**
+ * Get user image source URL
+ * @param objectKey - Optional object key for the image
+ * @returns Image source URL or default user image
+ */
 export function getUserImgSrc(objectKey?: string | null) {
 	return objectKey
 		? `/resources/images?objectKey=${encodeURIComponent(objectKey)}`
 		: '/img/user.png'
 }
 
+/**
+ * Get audio source URL for playback
+ * @param objectKey - Optional object key for the audio file
+ * @returns Audio source URL or null if no object key provided
+ */
+export function getAudioSrc(objectKey?: string | null) {
+	return objectKey
+		? `/resources/audio?objectKey=${encodeURIComponent(objectKey)}`
+		: null
+}
+
+/**
+ * Get optimized image source URL with custom formatting
+ * @param params - Image source parameters
+ * @returns Optimized image source URL
+ */
 export function getImgSrc({
 	height,
 	optimizerEndpoint,
@@ -39,6 +60,11 @@ export function getImgSrc({
 	return defaultGetSrc({ height, optimizerEndpoint, src, width, fit, format })
 }
 
+/**
+ * Extract error message from unknown error type
+ * @param error - Error object of unknown type
+ * @returns Error message string
+ */
 export function getErrorMessage(error: unknown) {
 	if (typeof error === 'string') return error
 	if (
@@ -53,10 +79,20 @@ export function getErrorMessage(error: unknown) {
 	return 'Unknown Error'
 }
 
+/**
+ * Combine class names using clsx and tailwind-merge
+ * @param inputs - Class value inputs
+ * @returns Merged class string
+ */
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
 }
 
+/**
+ * Get domain URL from request headers
+ * @param request - HTTP request object
+ * @returns Domain URL string
+ */
 export function getDomainUrl(request: Request) {
 	const host =
 		request.headers.get('X-Forwarded-Host') ??
@@ -66,6 +102,11 @@ export function getDomainUrl(request: Request) {
 	return `${protocol}://${host}`
 }
 
+/**
+ * Get referrer route from request headers
+ * @param request - HTTP request object
+ * @returns Referrer route string
+ */
 export function getReferrerRoute(request: Request) {
 	// spelling errors and whatever makes this annoyingly inconsistent
 	// in my own testing, `referer` returned the right value, but 🤷‍♂️
@@ -268,21 +309,34 @@ export function useDebounce<
 	)
 }
 
-export async function downloadFile(url: string, retries: number = 0) {
+export async function downloadFile(url: string, retries: number = 0): Promise<File> {
 	const MAX_RETRIES = 3
+	
+	// Validate input
+	if (!url || typeof url !== 'string') {
+		throw new Error('Invalid url: must be a non-empty string')
+	}
+	
+	if (typeof retries !== 'number' || retries < 0) {
+		throw new Error('Invalid retries: must be a non-negative number')
+	}
+	
 	try {
 		const response = await fetch(url)
 		if (!response.ok) {
-			throw new Error(`Failed to fetch image with status ${response.status}`)
+			throw new Error(`Failed to fetch file with status ${response.status}`)
 		}
-		const contentType = response.headers.get('content-type') ?? 'image/jpg'
+		const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
 		const arrayBuffer = await response.arrayBuffer()
 		const file = new File([arrayBuffer], 'downloaded-file', {
 			type: contentType,
 		})
 		return file
-	} catch (e) {
-		if (retries > MAX_RETRIES) throw e
+	} catch (error) {
+		if (retries >= MAX_RETRIES) {
+			const errorMessage = error instanceof Error ? error.message : String(error)
+			throw new Error(`Failed to download file after ${MAX_RETRIES} retries: ${errorMessage}`)
+		}
 		return downloadFile(url, retries + 1)
 	}
 }

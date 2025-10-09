@@ -1,6 +1,7 @@
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { type YouTubeTokenData, type ValidatedOAuthConnection } from '#app/types/youtube'
 import { prisma } from '#app/utils/db.server'
+import { shouldMockYouTube } from '#app/utils/youtube-mock-utils'
 import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
 
 /**
@@ -12,7 +13,7 @@ import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
  */
 export async function validateYouTubeOAuth(userId: string): Promise<ValidatedOAuthConnection | null> {
   try {
-    // Get YouTube connection
+    // Get YouTube connection (same logic for both mock and real scenarios)
     const connection = await prisma.connection.findFirst({
       where: {
         providerName: YOUTUBE_SERVICE.NAME,
@@ -24,9 +25,18 @@ export async function validateYouTubeOAuth(userId: string): Promise<ValidatedOAu
       return null
     }
 
+    const tokenObj = JSON.parse(connection.tokens) as YouTubeTokenData
+
+    // If mocking is enabled, skip all validation and return the connection
+    if (shouldMockYouTube()) {
+      return {
+        connection,
+        tokenData: tokenObj
+      }
+    }
+
     // Validate token format and check expiration
     try {
-      const tokenObj = JSON.parse(connection.tokens) as YouTubeTokenData
       
       if (!tokenObj.access_token) {
         return null

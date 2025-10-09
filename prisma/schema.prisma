@@ -183,7 +183,7 @@ model Track {
 
   // External service integration
   serviceId         String? // Reference to Service
-  serviceProviderId String? // External service's track ID (e.g., YouTube video ID)
+  externalId        String? // External service's track ID (e.g., YouTube video ID)
   serviceUrl        String? // Direct link to track on external service
 
   // Metadata from external services
@@ -203,24 +203,37 @@ model Track {
   servicePlaylistTracks ServicePlaylistTrack[]
 
   // Indexes
-  @@index([serviceId, serviceProviderId]) // For external service lookups
+  @@index([serviceId, externalId]) // For external service lookups
   @@index([updatedAt])
   @@index([createdAt]) // For ordering performance
-  @@unique([serviceId, serviceProviderId]) // Prevent duplicate external tracks
+  @@unique([serviceId, externalId]) // Prevent duplicate external tracks
 }
 
 model TrackAudioFile {
   id        String  @id @default(cuid())
-  objectKey String
+  objectKey String?
   fileName  String?
   fileSize  Int?
   mimeType  String?
+
+  // Archive status tracking
+  status       String   @default("pending") // 'pending', 'processing', 'completed', 'failed'
+  priority     Boolean  @default(false)     // Admin-triggered priority archiving
+  errorHistory String?  // JSON array of error entries
+  retryCount   Int      @default(0)         // Number of retry attempts (0-3)
+  downloadedAt DateTime? // When archiving completed
+  lastAttemptAt DateTime? // Last processing attempt
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   track   Track  @relation(fields: [trackId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   trackId String @unique
+
+  // Indexes for queue queries
+  @@index([status])
+  @@index([status, priority, createdAt]) // For queue ordering (priority first, then FIFO)
+  @@index([status, lastAttemptAt]) // For retry logic
 }
 
 model UserPlaylist {
@@ -352,4 +365,16 @@ model ServicePlaylistTrack {
   @@unique([playlistId, trackId])
   @@index([playlistId])
   @@index([trackId])
+}
+
+model WorkerState {
+  id                String    @id @default("singleton") // Primary key, always 'singleton' (only 1 record)
+  status            String    @default("running") // 'running', 'paused', 'long_break'
+  lastStateChange   DateTime  @updatedAt // When state last changed
+  lastQueueRun      DateTime? // Last time queue was processed
+  nextLongBreakAt   DateTime? // When next automatic long break starts
+  currentlyProcessing Int     @default(0) // Count of active downloads (0-2)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

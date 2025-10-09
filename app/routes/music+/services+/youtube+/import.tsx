@@ -93,7 +93,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			const existingTrack = await prisma.track.findFirst({
 				where: {
 					serviceId: service.id,
-					serviceProviderId: extractedVideoId,
+					externalId: extractedVideoId,
 					userTracks: {
 						some: {
 							userId: userId

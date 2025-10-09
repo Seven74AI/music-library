@@ -280,7 +280,7 @@ export function createFakerTrackData(
     artist,
     album: null,
     duration,
-    serviceProviderId: videoId,
+    externalId: videoId,
     service: { connect: { id: serviceId } },
     serviceUrl: `https://youtube.com/watch?v=${videoId}`,
     thumbnailUrl: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
@@ -620,6 +620,13 @@ export interface TestScenarioOptions {
 
 /**
  * Creates a complete test scenario with user, playlists, and API mocks
+ * 
+ * @deprecated Use Playwright fixtures instead (insertNewPlaylist, insertYouTubeConnection)
+ * This function creates MSW handlers that are not needed for E2E tests.
+ * Server-side mocks (youtube.server.ts) handle API mocking automatically.
+ * 
+ * For E2E tests: Use fixtures
+ * For unit tests: Use the individual mock generators directly
  * 
  * @param options - Configuration options for the test scenario
  * @returns Complete test scenario with user, playlists, and MSW handlers

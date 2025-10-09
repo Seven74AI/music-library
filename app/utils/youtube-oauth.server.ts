@@ -1,5 +1,6 @@
 import { google } from 'googleapis'
 import { z } from 'zod'
+import { shouldMockYouTube } from './youtube-mock-utils'
 
 // YouTube OAuth scopes
 export const YOUTUBE_SCOPES = [
@@ -45,6 +46,14 @@ export class YouTubeOAuthService {
    * @returns The authorization URL
    */
   getAuthUrl(state?: string): string {
+    // If YouTube mocking is enabled, return a mock callback URL
+    if (shouldMockYouTube()) {
+      const mockCallbackUrl = new URL(this.config.redirectUri)
+      mockCallbackUrl.searchParams.set('code', 'mock-auth-code')
+      mockCallbackUrl.searchParams.set('state', state || 'mock-state')
+      return mockCallbackUrl.toString()
+    }
+    
     return this.oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: YOUTUBE_SCOPES,
@@ -64,6 +73,15 @@ export class YouTubeOAuthService {
     refresh_token?: string
     expiry_date?: number
   }> {
+    // If YouTube mocking is enabled, return mock tokens
+    if (shouldMockYouTube()) {
+      return {
+        access_token: 'mock-access-token',
+        refresh_token: 'mock-refresh-token',
+        expiry_date: Date.now() + 3600000, // 1 hour from now
+      }
+    }
+    
     try {
       const { tokens } = await this.oauth2Client.getToken(code)
       return tokens
@@ -80,6 +98,14 @@ export class YouTubeOAuthService {
     access_token: string
     expiry_date?: number
   }> {
+    // If YouTube mocking is enabled, return mock refreshed tokens
+    if (shouldMockYouTube()) {
+      return {
+        access_token: 'mock-refreshed-access-token',
+        expiry_date: Date.now() + 3600000, // 1 hour from now
+      }
+    }
+    
     try {
       this.oauth2Client.setCredentials({
         refresh_token: refreshToken,

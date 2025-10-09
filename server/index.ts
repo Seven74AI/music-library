@@ -10,6 +10,7 @@ import rateLimit from 'express-rate-limit'
 import getPort, { portNumbers } from 'get-port'
 import morgan from 'morgan'
 import { type ServerBuild } from 'react-router'
+import { startAudioWorker, stopAudioWorker } from '#app/utils/audio-worker.server'
 
 const MODE = process.env.NODE_ENV ?? 'development'
 const IS_PROD = MODE === 'production'
@@ -227,7 +228,7 @@ if (!portAvailable && !IS_DEV) {
 	process.exit(1)
 }
 
-const server = app.listen(portToUse, () => {
+const server = app.listen(portToUse, async () => {
 	if (!portAvailable) {
 		console.warn(
 			styleText(
@@ -237,6 +238,15 @@ const server = app.listen(portToUse, () => {
 		)
 	}
 	console.log(`🚀  We have liftoff!`)
+	
+	// Initialize audio worker
+	try {
+		await startAudioWorker()
+		console.log('🎵 Audio archive worker initialized')
+	} catch (error) {
+		console.error('Failed to initialize audio worker:', error)
+	}
+	
 	const localUrl = `http://localhost:${portToUse}`
 	let lanUrl: string | null = null
 	const localIp = ipAddress() ?? 'Unknown'
@@ -257,6 +267,14 @@ ${styleText('bold', 'Press Ctrl+C to stop')}
 })
 
 closeWithGrace(async ({ err }) => {
+	// Stop audio worker gracefully
+	try {
+		await stopAudioWorker()
+		console.log('🎵 Audio worker stopped')
+	} catch (error) {
+		console.error('Error stopping audio worker:', error)
+	}
+	
 	await new Promise((resolve, reject) => {
 		server.close((e) => (e ? reject(e) : resolve('ok')))
 	})

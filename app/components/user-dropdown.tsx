@@ -2,7 +2,7 @@ import { Img } from 'openimg/react'
 import { useRef } from 'react'
 import { Link, Form } from 'react-router'
 import { getUserImgSrc } from '#app/utils/misc.tsx'
-import { useUser } from '#app/utils/user.ts'
+import { useUser, userHasRole  } from '#app/utils/user.ts'
 import { Button } from './ui/button'
 import {
 	DropdownMenu,
@@ -16,6 +16,7 @@ import { Icon } from './ui/icon'
 export function UserDropdown() {
 	const user = useUser()
 	const formRef = useRef<HTMLFormElement>(null)
+	const isAdmin = userHasRole(user, 'admin')
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -78,6 +79,15 @@ export function UserDropdown() {
 							</Icon>
 						</Link>
 					</DropdownMenuItem>
+					{isAdmin && (
+						<DropdownMenuItem asChild>
+							<Link prefetch="intent" to="/admin/audio-queue">
+								<Icon className="text-body-md" name="file-text">
+									Audio Queue Admin
+								</Icon>
+							</Link>
+						</DropdownMenuItem>
+					)}
 					<Form action="/logout" method="POST" ref={formRef}>
 						<DropdownMenuItem asChild>
 							<button type="submit" className="w-full">

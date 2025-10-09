@@ -2,7 +2,7 @@ import { promises as fs, constants } from 'node:fs'
 import { invariantResponse } from '@epic-web/invariant'
 import { getImgResponse } from 'openimg/node'
 import { getDomainUrl } from '#app/utils/misc.tsx'
-import { getSignedGetRequestInfo } from '#app/utils/storage.server.ts'
+import { getFileUrl } from '#app/utils/storage.server.ts'
 import { type Route } from './+types/images'
 
 let cacheDir: string | null = null
@@ -33,6 +33,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 	headers.set('Cache-Control', 'public, max-age=31536000, immutable')
 
 	const objectKey = searchParams.get('objectKey')
+	
+	// Validate objectKey if provided
+	if (objectKey && (typeof objectKey !== 'string' || objectKey.trim().length === 0)) {
+		throw new Response('Invalid objectKey parameter', { status: 400 })
+	}
 
 	return getImgResponse(request, {
 		headers,
@@ -41,14 +46,19 @@ export async function loader({ request }: Route.LoaderArgs) {
 			process.env.AWS_ENDPOINT_URL_S3,
 		].filter(Boolean),
 		cacheFolder: await getCacheDir(),
-		getImgSource: () => {
+		getImgSource: async () => {
 			if (objectKey) {
-				const { url: signedUrl, headers: signedHeaders } =
-					getSignedGetRequestInfo(objectKey)
-				return {
-					type: 'fetch',
-					url: signedUrl,
-					headers: signedHeaders,
+				try {
+					const { url: signedUrl, headers: signedHeaders } =
+						await getFileUrl(objectKey, 3600)
+					return {
+						type: 'fetch',
+						url: signedUrl,
+						headers: signedHeaders,
+					}
+				} catch (error) {
+					console.error('Error generating signed URL for image:', error)
+					throw new Response('Failed to generate image URL', { status: 500 })
 				}
 			}
 

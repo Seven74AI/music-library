@@ -73,7 +73,27 @@ test('Users can update their profile photo', async ({
 	// eslint-disable-next-line playwright/no-raw-locators
 	await page.locator('input[type="file"]').setInputFiles('./tests/fixtures/images/user/kody.png')
 
-	await page.getByRole('button', { name: /save/i }).click()
+	// Wait for the file to be selected and the form to be ready
+	await page.waitForTimeout(1000)
+
+	// Check if the save button is visible and enabled
+	const saveButton = page.getByRole('button', { name: /save/i })
+	await expect(saveButton).toBeVisible()
+	await expect(saveButton).toBeEnabled()
+
+	// Listen for form submission - the form redirects to /settings/profile after successful upload
+	const formSubmissionPromise = page.waitForURL('**/settings/profile', { timeout: 10000 })
+
+	await saveButton.click()
+
+	// Wait for the form submission to complete and redirect
+	try {
+		await formSubmissionPromise
+		console.log('Form submission completed and redirected')
+	} catch (error) {
+		console.error('Form submission failed or timed out:', error)
+		throw error
+	}
 
 	await expect(
 		page,

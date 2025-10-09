@@ -2,6 +2,7 @@ import { data, NavLink, Form } from 'react-router'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
+import { downloadTrack } from '#app/utils/download.ts'
 import { formatDuration } from '#app/utils/format-duration.ts'
 import { type Route } from './+types/library.index.ts'
 
@@ -37,9 +38,16 @@ export async function loader({ request }: Route.LoaderArgs) {
 					audioFile: {
 						select: {
 							id: true,
+							objectKey: true,
 							fileName: true,
 							fileSize: true,
 							mimeType: true,
+							status: true,
+							priority: true,
+							errorHistory: true,
+							retryCount: true,
+							downloadedAt: true,
+							lastAttemptAt: true,
 						},
 					},
 				},
@@ -106,6 +114,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Artist</th>
 								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Source</th>
 								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Duration</th>
+								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Status</th>
 								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Added</th>
 								<th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground">Actions</th>
 							</tr>
@@ -172,25 +181,60 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 											)}
 										</td>
 										<td className="p-4 align-middle">
+											{track.audioFile ? (
+												<div className="flex items-center gap-2">
+													<span className={`text-xs px-2 py-1 rounded ${
+														track.audioFile.status === 'completed' ? 'bg-green-100 text-green-800' :
+														track.audioFile.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+														track.audioFile.status === 'failed' ? 'bg-red-100 text-red-800' :
+														'bg-yellow-100 text-yellow-800'
+													}`}>
+														{track.audioFile.status === 'completed' ? 'Ready' :
+														 track.audioFile.status === 'processing' ? 'Processing' :
+														 track.audioFile.status === 'failed' ? 'Failed' :
+														 'Pending'}
+													</span>
+													{track.audioFile.priority && (
+														<span className="text-xs px-2 py-1 rounded bg-purple-100 text-purple-800">
+															Priority
+														</span>
+													)}
+												</div>
+											) : (
+												<span className="text-sm text-muted-foreground">Not Archived</span>
+											)}
+										</td>
+										<td className="p-4 align-middle">
 											<span className="text-sm text-muted-foreground">
 												{new Date(userTrack.createdAt).toLocaleDateString()}
 											</span>
 										</td>
 										<td className="p-4 align-middle text-right">
-											<Form method="post" action={`/library/${track.id}/remove`}>
-												<button
-													type="submit"
-													className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
-													onClick={(e) => {
-														if (!confirm(`Remove "${track.title}" from your library?`)) {
-															e.preventDefault()
-														}
-													}}
-													title="Remove from library"
-												>
-													<Icon name="trash" className="h-4 w-4" />
-												</button>
-											</Form>
+											<div className="flex items-center gap-1 justify-end">
+												{track.audioFile?.objectKey && (
+													<button
+														onClick={() => downloadTrack(track.id, `${track.title}.mp3`)}
+														className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+														title="Download audio file"
+													>
+														<Icon name="download" className="h-4 w-4" />
+													</button>
+												)}
+												<Form method="post" action={`/library/${track.id}/remove`}>
+													<button
+														type="submit"
+														className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+														onClick={(e) => {
+															if (!confirm(`Remove "${track.title}" from your library?`)) {
+																e.preventDefault()
+															}
+														}}
+														title="Remove from library"
+													>
+														<Icon name="trash" className="h-4 w-4" />
+													</button>
+												</Form>
+											</div>
 										</td>
 									</tr>
 								)

@@ -20,6 +20,7 @@ import { prisma } from '#app/utils/db.server'
 import { 
   validateYouTubeOAuth
 } from '#app/utils/youtube-oauth-validation.server'
+import { enqueueTrack } from './audio-queue.server'
 import { createYouTubeService } from './youtube.server'
 
 interface PlaylistWithSyncStatus extends YouTubePlaylist {
@@ -29,7 +30,7 @@ interface PlaylistWithSyncStatus extends YouTubePlaylist {
 
 interface TrackDataBatch {
   serviceId: string
-  serviceProviderId: string
+  externalId: string
   trackData: ReturnType<typeof transformYouTubePlaylistItemToTrack>
   position: number
 }
@@ -114,7 +115,7 @@ export class ServicePlaylistService {
           const trackData = transformYouTubePlaylistItemToTrack(item, serviceId)
           trackDataBatch.push({
             serviceId,
-            serviceProviderId: item.snippet?.resourceId?.videoId || '',
+            externalId: item.snippet?.resourceId?.videoId || '',
             trackData,
             position: batchStart + i + 1
           })
@@ -124,12 +125,12 @@ export class ServicePlaylistService {
       }
       
       // Batch upsert tracks
-      const trackPromises = trackDataBatch.map(async ({ serviceId, serviceProviderId, trackData }) => {
+      const trackPromises = trackDataBatch.map(async ({ serviceId, externalId, trackData }) => {
         return tx.track.upsert({
           where: {
-            serviceId_serviceProviderId: {
+            serviceId_externalId: {
               serviceId,
-              serviceProviderId
+              externalId
             }
           },
           update: {
@@ -141,6 +142,25 @@ export class ServicePlaylistService {
       })
       
       const tracks = await Promise.all(trackPromises)
+      
+      // Auto-enqueue newly created tracks for archiving
+      const enqueuePromises = tracks.map(async (track, index) => {
+        const trackData = trackDataBatch[index]
+        if (!trackData) return
+        
+        // Check if this was a create operation (new track)
+        // We can detect this by checking if the track was just created
+        try {
+          await enqueueTrack(track.id, false)
+        } catch (error) {
+          console.warn(`Failed to enqueue track ${track.id} for archiving:`, error)
+        }
+      })
+      
+      // Don't await enqueue operations to avoid slowing down playlist sync
+      Promise.all(enqueuePromises).catch(error => {
+        console.warn('Some tracks failed to enqueue for archiving:', error)
+      })
       
       // Batch upsert playlist tracks
       const playlistTrackPromises = tracks.map((track, index) => {
@@ -429,6 +449,13 @@ export class ServicePlaylistService {
                 name: true,
                 displayName: true,
                 logoUrl: true
+              }
+            },
+            audioFile: {
+              select: {
+                objectKey: true,
+                status: true,
+                priority: true,
               }
             }
           }

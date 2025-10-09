@@ -82,6 +82,7 @@ export async function action({ request }: Route.ActionArgs) {
 	})
 
 	if (submission.status !== 'success') {
+		console.error('Form submission failed:', submission.reply())
 		return data(
 			{ result: submission.reply() },
 			{ status: submission.status === 'error' ? 400 : 200 },
@@ -95,6 +96,16 @@ export async function action({ request }: Route.ActionArgs) {
 		return redirect('/settings/profile')
 	}
 
+	// Ensure user exists before attempting to update
+	const existingUser = await prisma.user.findUnique({
+		where: { id: userId },
+		select: { id: true },
+	})
+
+	if (!existingUser) {
+		throw new Response('User not found', { status: 404 })
+	}
+
 	await prisma.$transaction(async ($prisma) => {
 		await $prisma.userImage.deleteMany({ where: { userId } })
 		await $prisma.user.update({
@@ -103,6 +114,7 @@ export async function action({ request }: Route.ActionArgs) {
 		})
 	})
 
+	console.log('Profile photo upload successful, redirecting...')
 	return redirect('/settings/profile')
 }
 

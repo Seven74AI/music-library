@@ -59,7 +59,7 @@ export async function action({ request }: Route.ActionArgs) {
 			expectedRPID: config.rpID,
 			credential: {
 				id: authResponse.id,
-				publicKey: passkey.publicKey,
+				publicKey: new Uint8Array(passkey.publicKey),
 				counter: Number(passkey.counter),
 			},
 		})

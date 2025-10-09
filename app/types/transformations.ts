@@ -45,7 +45,7 @@ export function transformYouTubePlaylistItemToTrack(
     artist: item.snippet?.videoOwnerChannelTitle || item.snippet?.channelTitle || 'Unknown Artist',
     album: null, // YouTube doesn't provide album info
     duration: null, // Duration is not available in playlist items, need to fetch from video details
-    serviceProviderId: item.snippet?.resourceId?.videoId || '',
+    externalId: item.snippet?.resourceId?.videoId || '',
     service: { connect: { id: serviceId } },
     serviceUrl: item.snippet?.resourceId?.videoId ? `https://youtube.com/watch?v=${item.snippet.resourceId.videoId}` : null,
     thumbnailUrl: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || null,
@@ -105,7 +105,7 @@ export function transformYouTubeVideoToTrack(
     artist: video.snippet?.channelTitle || 'Unknown Artist',
     album: null, // YouTube doesn't provide album info
     duration,
-    serviceProviderId: video.id || '',
+    externalId: video.id || '',
     service: { connect: { id: serviceId } },
     serviceUrl: video.id ? `https://youtube.com/watch?v=${video.id}` : null,
     thumbnailUrl: video.snippet?.thumbnails?.medium?.url || video.snippet?.thumbnails?.default?.url || null,

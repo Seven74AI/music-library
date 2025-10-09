@@ -1,0 +1,372 @@
+import { readFile, unlink } from 'fs/promises'
+import { execa } from 'execa'
+import { prisma } from '#app/utils/db.server'
+import { uploadAudioFile } from '#app/utils/storage.server'
+
+// Constants
+const SLEEP_INTERVAL_MIN = 2 // Minimum sleep interval
+const SLEEP_INTERVAL_MAX = 5 // Maximum sleep interval
+
+// Error codes for standardized error handling
+export const ERROR_CODES = {
+  VIDEO_UNAVAILABLE: 'VIDEO_UNAVAILABLE',
+  RATE_LIMITED: 'RATE_LIMITED',
+  NETWORK_ERROR: 'NETWORK_ERROR',
+  CONVERSION_FAILED: 'CONVERSION_FAILED',
+  YOUTUBE_ERROR: 'YOUTUBE_ERROR',
+  STORAGE_ERROR: 'STORAGE_ERROR',
+  UNKNOWN_ERROR: 'UNKNOWN_ERROR',
+} as const
+
+export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES]
+
+// Error history entry type
+export type ErrorHistoryEntry = {
+  code: ErrorCode
+  message: string
+  attemptAt: string // ISO timestamp
+  retryCount: number // Which retry attempt this was (0-3)
+}
+
+/**
+ * Download audio from YouTube using yt-dlp
+ */
+export async function downloadTrackAudio(track: { externalId: string; title: string }): Promise<string> {
+  // Validate input
+  if (!track || typeof track !== 'object') {
+    throw new Error('Invalid track: must be an object')
+  }
+  
+  if (!track.externalId || typeof track.externalId !== 'string') {
+    throw new Error('Track has no valid externalId')
+  }
+  
+  if (!track.title || typeof track.title !== 'string') {
+    throw new Error('Track has no valid title')
+  }
+
+  const youtubeUrl = `https://www.youtube.com/watch?v=${track.externalId}`
+  const outputPath = `/tmp/${track.externalId}.mp3`
+  
+  // Generate random sleep interval
+  const sleepInterval = Math.floor(Math.random() * (SLEEP_INTERVAL_MAX - SLEEP_INTERVAL_MIN + 1)) + SLEEP_INTERVAL_MIN
+  console.log(`Downloading ${track.title} with sleep interval: ${sleepInterval} seconds`)
+
+  try {
+    await execa('yt-dlp', [
+      '-x', // Extract audio only
+      '--audio-format', 'mp3',
+      '--audio-quality', '0', // Best quality
+      '-f', 'bestaudio',
+      '--no-playlist',
+      '--quiet',
+      '--no-warnings',
+      '--newline',
+      '--sleep-interval', String(sleepInterval),
+      '--embed-thumbnail',
+      '--add-metadata',
+      '--retries', '3',
+      '--fragment-retries', '3',
+      '-o', outputPath,
+      youtubeUrl,
+    ])
+
+    // Check if file was created
+    try {
+      await readFile(outputPath)
+      return outputPath
+    } catch {
+      throw new Error(`Download completed but file not found: ${outputPath}`)
+    }
+  } catch (error) {
+    // Parse error message to determine error code
+    let errorMessage = error instanceof Error ? error.message : String(error)
+    let errorCode: ErrorCode = ERROR_CODES.UNKNOWN_ERROR
+    
+    // Extract more detailed error information from execa errors
+    if (error && typeof error === 'object' && 'stderr' in error) {
+      const execaError = error as any
+      if (execaError.stderr) {
+        errorMessage = execaError.stderr
+      } else if (execaError.stdout) {
+        errorMessage = execaError.stdout
+      }
+    }
+    
+    // Categorize errors based on content
+    if (errorMessage.includes('Video unavailable') || errorMessage.includes('Private video') || errorMessage.includes('This video is not available')) {
+      errorCode = ERROR_CODES.VIDEO_UNAVAILABLE
+    } else if (errorMessage.includes('rate limit') || errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
+      errorCode = ERROR_CODES.RATE_LIMITED
+    } else if (errorMessage.includes('network') || errorMessage.includes('timeout') || errorMessage.includes('connection') || errorMessage.includes('ConnectionError')) {
+      errorCode = ERROR_CODES.NETWORK_ERROR
+    } else if (errorMessage.includes('ffmpeg') || errorMessage.includes('conversion') || errorMessage.includes('Audio conversion failed')) {
+      errorCode = ERROR_CODES.CONVERSION_FAILED
+    } else if (errorMessage.includes('youtube') || errorMessage.includes('yt-dlp') || errorMessage.includes('invalid floating-point value')) {
+      errorCode = ERROR_CODES.YOUTUBE_ERROR
+    } else if (errorMessage.includes('Storage') || errorMessage.includes('upload') || errorMessage.includes('bucket')) {
+      errorCode = ERROR_CODES.STORAGE_ERROR
+    }
+
+    // Clean up the error message for better readability
+    const cleanMessage = errorMessage
+      .replace(/Usage: yt-dlp.*?$/s, '') // Remove usage info
+      .replace(/yt-dlp: error: /g, '') // Remove yt-dlp prefix
+      .replace(/\n+/g, ' ') // Replace newlines with spaces
+      .trim()
+
+    throw new Error(`${errorCode}: ${cleanMessage}`)
+  }
+}
+
+// Constants
+const METADATA_MAX_LENGTH = 100
+const METADATA_SAFE_CHARS_REGEX = /[^\w\s\-\.]/g
+const NON_ASCII_REGEX = /[^\x20-\x7E]/g
+
+/**
+ * Sanitize metadata values for HTTP headers (remove invalid characters)
+ */
+function sanitizeForHeader(value: string): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  
+  return value
+    .replace(NON_ASCII_REGEX, '') // Remove non-ASCII characters
+    .replace(METADATA_SAFE_CHARS_REGEX, '') // Keep only word chars, spaces, hyphens, and dots
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim()
+    .substring(0, METADATA_MAX_LENGTH) // Limit length
+}
+
+/**
+ * Generate standardized metadata for audio files
+ */
+function generateAudioMetadata(
+  track: { id: string; title: string; artist: string; externalId: string },
+  serviceName: string
+): Record<string, string> {
+  return {
+    'track-id': track.id,
+    'service': serviceName,
+    'external-id': track.externalId,
+    'title': sanitizeForHeader(track.title),
+    'artist': sanitizeForHeader(track.artist),
+  }
+}
+
+/**
+ * Upload audio file to Tigris storage with metadata
+ */
+export async function uploadAudioToStorage(
+  filePath: string,
+  track: { id: string; title: string; artist: string; externalId: string },
+  serviceName: string
+): Promise<{ objectKey: string; fileName: string; fileSize: number }> {
+  // Validate inputs
+  if (!filePath || typeof filePath !== 'string') {
+    throw new Error('Invalid filePath: must be a non-empty string')
+  }
+  
+  if (!track || typeof track !== 'object') {
+    throw new Error('Invalid track: must be an object')
+  }
+  
+  if (!serviceName || typeof serviceName !== 'string') {
+    throw new Error('Invalid serviceName: must be a non-empty string')
+  }
+
+  try {
+    const fileBuffer = await readFile(filePath)
+    const objectKey = `audio/${serviceName}/${track.id}.mp3`
+    const fileName = `${track.title}.mp3`
+    const metadata = generateAudioMetadata(track, serviceName)
+
+    await uploadAudioFile(fileBuffer, objectKey, metadata)
+
+    return {
+      objectKey,
+      fileName,
+      fileSize: fileBuffer.length,
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    throw new Error(`${ERROR_CODES.STORAGE_ERROR}: ${errorMessage}`)
+  }
+}
+
+/**
+ * Add error to error history
+ */
+export function addToErrorHistory(
+  currentErrorHistory: string | null,
+  errorCode: ErrorCode,
+  errorMessage: string,
+  retryCount: number
+): string {
+  const errorHistory: ErrorHistoryEntry[] = currentErrorHistory 
+    ? (JSON.parse(currentErrorHistory) as ErrorHistoryEntry[])
+    : []
+
+  const newEntry: ErrorHistoryEntry = {
+    code: errorCode,
+    message: errorMessage,
+    attemptAt: new Date().toISOString(),
+    retryCount,
+  }
+
+  errorHistory.push(newEntry)
+  return JSON.stringify(errorHistory)
+}
+
+/**
+ * Get current error from error history
+ */
+export function getCurrentError(errorHistory: string | null): ErrorHistoryEntry | null {
+  if (!errorHistory) return null
+  
+  try {
+    const errors: ErrorHistoryEntry[] = JSON.parse(errorHistory) as ErrorHistoryEntry[]
+    return errors[errors.length - 1] || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Main function to archive a track's audio
+ */
+export async function archiveTrackAudio(trackId: string): Promise<void> {
+  // Validate input
+  if (!trackId || typeof trackId !== 'string' || trackId.trim().length === 0) {
+    throw new Error('Invalid trackId: must be a non-empty string')
+  }
+
+  const track = await prisma.track.findUnique({
+    where: { id: trackId },
+    include: {
+      service: true,
+      audioFile: true,
+    },
+  })
+
+  if (!track) {
+    throw new Error(`Track not found: ${trackId}`)
+  }
+
+  if (!track.externalId) {
+    throw new Error(`Track has no externalId: ${trackId}`)
+  }
+
+  if (!track.service) {
+    throw new Error(`Track has no service: ${trackId}`)
+  }
+
+  // Update status to processing
+  await prisma.trackAudioFile.update({
+    where: { trackId },
+    data: {
+      status: 'processing',
+      lastAttemptAt: new Date(),
+    },
+  })
+
+  // Update worker state processing count
+  await prisma.workerState.update({
+    where: { id: 'singleton' },
+    data: {
+      currentlyProcessing: { increment: 1 },
+    },
+  })
+
+  let tempFilePath: string | null = null
+
+  try {
+    // Download audio
+    tempFilePath = await downloadTrackAudio({ externalId: track.externalId, title: track.title })
+    
+    // Upload to storage
+    const uploadResult = await uploadAudioToStorage(
+      tempFilePath,
+      { id: track.id, title: track.title, artist: track.artist, externalId: track.externalId },
+      track.service.name
+    )
+
+    // Update database with success
+    await prisma.trackAudioFile.update({
+      where: { trackId },
+      data: {
+        status: 'completed',
+        objectKey: uploadResult.objectKey,
+        fileName: uploadResult.fileName,
+        fileSize: uploadResult.fileSize,
+        mimeType: 'audio/mpeg',
+        downloadedAt: new Date(),
+        lastAttemptAt: new Date(),
+        // Clear error history on success
+        errorHistory: null,
+        retryCount: 0,
+      },
+    })
+
+    console.log(`Successfully archived track ${trackId}: ${uploadResult.fileName}`)
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorCode = errorMessage.split(':')[0] as ErrorCode
+    const cleanErrorMessage = errorMessage.includes(':') ? errorMessage.split(':').slice(1).join(':').trim() : errorMessage
+
+    // Get current audio file to update retry count
+    const audioFile = await prisma.trackAudioFile.findUnique({
+      where: { trackId },
+    })
+
+    if (!audioFile) {
+      throw new Error(`AudioFile not found for track: ${trackId}`)
+    }
+
+    const newRetryCount = audioFile.retryCount + 1
+    const errorHistory = addToErrorHistory(
+      audioFile.errorHistory,
+      errorCode,
+      cleanErrorMessage,
+      newRetryCount
+    )
+
+    // Determine if this should be marked as failed (max retries reached)
+    const shouldFail = newRetryCount >= 3
+
+    await prisma.trackAudioFile.update({
+      where: { trackId },
+      data: {
+        status: shouldFail ? 'failed' : 'pending',
+        errorHistory,
+        retryCount: newRetryCount,
+        lastAttemptAt: new Date(),
+      },
+    })
+
+    console.error(`Failed to archive track ${trackId} (attempt ${newRetryCount}): ${errorMessage}`)
+    
+    if (shouldFail) {
+      console.error(`Track ${trackId} marked as permanently failed after ${newRetryCount} attempts`)
+    }
+  } finally {
+    // Clean up temp file
+    if (tempFilePath) {
+      try {
+        await unlink(tempFilePath)
+      } catch (error) {
+        console.warn(`Failed to delete temp file ${tempFilePath}:`, error)
+      }
+    }
+
+    // Update worker state processing count
+    await prisma.workerState.update({
+      where: { id: 'singleton' },
+      data: {
+        currentlyProcessing: { decrement: 1 },
+      },
+    })
+  }
+}

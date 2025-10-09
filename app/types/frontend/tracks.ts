@@ -47,7 +47,7 @@ export function isTrackWithUserStatus(obj: unknown): obj is TrackWithUserStatus 
     isString(obj.artist) &&
     isStringOrNull(obj.album) &&
     isNumberOrNull(obj.duration) &&
-    isStringOrNull(obj.serviceProviderId) &&
+    isStringOrNull(obj.externalId) &&
     isStringOrNull(obj.serviceId) &&
     isStringOrNull(obj.serviceUrl) &&
     isStringOrNull(obj.thumbnailUrl) &&

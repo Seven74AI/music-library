@@ -123,6 +123,12 @@ export const test = base.extend<{
 	insertNewUser(options?: GetOrInsertUserOptions): Promise<User>
 	login(options?: GetOrInsertUserOptions): Promise<User>
 	insertNewTrack(options?: { title?: string; artist?: string }, userId?: string): Promise<{ id: string; title: string; artist: string }>
+	insertNewPlaylist(options?: {
+		title?: string
+		description?: string
+		externalId?: string
+		itemCount?: number
+	}, userId?: string): Promise<{ id: string; title: string; externalId: string }>
 }>({
 	navigate: async ({ page }, use) => {
 		await use((...args) => {
@@ -207,6 +213,41 @@ export const test = base.extend<{
 				await prisma.track.deleteMany({ where: { id: { in: trackIds } } })
 			} catch (error) {
 				console.warn(`Failed to cleanup tracks:`, error)
+			}
+		}
+	},
+	insertNewPlaylist: async ({}, use) => {
+		const playlistIds: string[] = []
+		await use(async (options, userId) => {
+			// Use YOUTUBE_SERVICE_ID from config
+			const { YOUTUBE_SERVICE_ID } = await import('#app/config/youtube')
+			
+			const playlist = await prisma.servicePlaylist.create({
+				data: {
+					serviceId: YOUTUBE_SERVICE_ID,
+					externalId: options?.externalId || `PLtest${Date.now()}`,
+					title: options?.title || 'Test Playlist',
+					description: options?.description || 'Test description',
+					channelId: 'test-channel-id',
+					channelTitle: 'Test Channel',
+					publishedAt: new Date(),
+					itemCount: options?.itemCount || 0,
+					ownerId: userId || 'test-user',
+					isActive: true,
+					lastSyncedAt: new Date(),
+				},
+			})
+			playlistIds.push(playlist.id)
+			return playlist
+		})
+		// Cleanup - ServicePlaylistTrack will CASCADE delete
+		if (playlistIds.length > 0) {
+			try {
+				await prisma.servicePlaylist.deleteMany({ 
+					where: { id: { in: playlistIds } } 
+				})
+			} catch (error) {
+				console.warn(`Failed to cleanup playlists:`, error)
 			}
 		}
 	},
