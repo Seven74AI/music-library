@@ -10,6 +10,7 @@ import {
   type ActionFunctionArgs,
 } from 'react-router'
 
+import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
@@ -24,6 +25,10 @@ import {
 import { requireUserId } from '#app/utils/auth.server'
 import { handleLoaderError } from '#app/utils/error-handlers.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+
+export const handle: BreadcrumbHandle = {
+	breadcrumb: <Icon name="file-text">Synced Playlists</Icon>,
+}
 
 /**
  * Loader function for YouTube synced playlists page

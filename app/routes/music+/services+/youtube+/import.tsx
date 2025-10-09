@@ -9,6 +9,7 @@ import {
   type LoaderFunctionArgs,
   type ActionFunctionArgs,
 } from 'react-router'
+import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { PreviewCard } from '#app/components/preview-card'
 import { Button } from '#app/components/ui/button'
 import { Icon } from '#app/components/ui/icon'
@@ -18,8 +19,13 @@ import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { formatDuration } from '#app/utils/format-duration'
+
 import { getServiceImportHandler, importTrackDirectly } from '#app/utils/service-import.server'
 import { redirectWithToast } from '#app/utils/toast.server'
+
+export const handle: BreadcrumbHandle = {
+	breadcrumb: <Icon name="download">Import</Icon>,
+}
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	await requireUserId(request)

@@ -1,6 +1,6 @@
 import { formatDistanceToNow } from 'date-fns'
 import { data, Form, useActionData, useLoaderData, Link, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
-
+import  { type BreadcrumbHandle } from '#app/components/breadcrumbs'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
@@ -11,15 +11,22 @@ import {
   isErrorActionResult,
   isSuccessActionResult
 } from '#app/types/frontend'
+
 import { 
   YOUTUBE_PLAYLIST_DETAIL_INTENTS,
   YOUTUBE_PAGE_TYPES,
   validatePlaylistDetailIntent,
   getIntentErrorMessage
 } from '#app/types/youtube-intents'
+
 import { requireUserId } from '#app/utils/auth.server'
+import { getPlaylistTitle } from '#app/utils/breadcrumb-utils'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 import { redirectWithToast } from '#app/utils/toast.server.ts'
+
+export const handle: BreadcrumbHandle = {
+	breadcrumb: ({ data }) => getPlaylistTitle(data),
+}
 
 /**
  * Loader function for YouTube playlist detail page

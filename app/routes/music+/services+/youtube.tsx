@@ -1,16 +1,15 @@
 import { Outlet } from 'react-router'
-import { Breadcrumbs, type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
+import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 
 export const handle: BreadcrumbHandle = {
-	breadcrumb: <Icon name="file-text">Library</Icon>,
+	breadcrumb: <Icon name="link-2">YouTube</Icon>,
 }
 
-export default function LibraryLayout() {
+export default function YouTubeLayout() {
 	return (
 		<main className="container flex min-h-[400px] flex-1 px-0 pb-12 md:px-8">
 			<div className="w-full">
-				<Breadcrumbs />
 				<Outlet />
 			</div>
 		</main>

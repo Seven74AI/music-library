@@ -1,39 +1,7 @@
-// @context7: Prisma, React, React Router, Tailwind CSS, TypeScript
-/* 
-    Before answering my question, MANDATORY use Context7 to fetch documentation for:
-
-    - Prisma
-    - React
-    - React Router
-    - Tailwind CSS
-    - TypeScript
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    Context7 Instructions:
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
-*/
 import { data, redirect, Form, useActionData, useNavigation } from 'react-router'
+import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { Button } from '#app/components/ui/button.tsx'
+import { Icon } from '#app/components/ui/icon.tsx'
 import { Input } from '#app/components/ui/input.tsx'
 import { Label } from '#app/components/ui/label.tsx'
 import { Textarea } from '#app/components/ui/textarea.tsx'
@@ -41,6 +9,9 @@ import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { type Route } from './+types/playlists.new.ts'
 
+export const handle: BreadcrumbHandle = {
+	breadcrumb: <Icon name="plus">New Playlist</Icon>,
+}
 
 export async function action({ request }: Route.ActionArgs) {
 	const userId = await requireUserId(request)
