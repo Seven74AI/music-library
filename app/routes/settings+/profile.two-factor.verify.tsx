@@ -87,6 +87,7 @@ export async function action({ request }: Route.ActionArgs) {
 					})
 					return z.NEVER
 				}
+				return null
 			}),
 		async: true,
 	})
@@ -117,6 +118,9 @@ export async function action({ request }: Route.ActionArgs) {
 				title: 'Enabled',
 				description: 'Two-factor authentication has been enabled.',
 			})
+		}
+		default: {
+			return data({ result: submission.reply() }, { status: 400 })
 		}
 	}
 }

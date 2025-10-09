@@ -86,14 +86,20 @@ function bufferReplacer(_key: string, value: unknown) {
 	return value
 }
 
+interface BufferLike {
+	__isBuffer: unknown
+	data: string
+}
+
 function bufferReviver(_key: string, value: unknown) {
 	if (
 		value &&
 		typeof value === 'object' &&
 		'__isBuffer' in value &&
-		(value as any).data
+		'data' in value &&
+		typeof (value as BufferLike).data === 'string'
 	) {
-		return Buffer.from((value as any).data, 'base64')
+		return Buffer.from((value as BufferLike).data, 'base64')
 	}
 	return value
 }

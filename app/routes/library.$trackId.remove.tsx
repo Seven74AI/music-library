@@ -53,11 +53,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 			title: 'Track Removed',
 			description: `"${userTrack.track.title}" by ${userTrack.track.artist} has been removed from your library.`,
 			type: 'success',
-			duration: 6000,
-			action: {
-				label: 'Add Another',
-				href: '/library/import'
-			}
 		})
 	} catch (error) {
 		console.error('Error removing track:', error)

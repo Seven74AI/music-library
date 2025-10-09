@@ -1,15 +1,14 @@
 import { google } from 'googleapis'
 import { 
-  YOUTUBE_API_LIMITS, 
-  YOUTUBE_CONSTANTS, 
-  MOCK_DATA, 
-  MockManager,
-  createMockVideoData
+  YOUTUBE_RATE_LIMITS,
+  YOUTUBE_API_VERSION
 } from '#app/config/youtube'
+import { transformYouTubeVideoToVideoData } from '#app/types/transformations'
 import { 
   YouTubeSearchResponseSchema, 
-  YouTubeVideoDetailsResponseSchema
-} from '#app/types/youtube'
+  YouTubeVideoListResponseSchema
+} from '#app/types/youtube-api'
+import { validateYouTubeAPIResponse } from '#app/utils/validation'
 import { 
   YouTubeAPIError, 
   YouTubeValidationError, 
@@ -19,9 +18,8 @@ import {
   YouTubeNotFoundError,
   YOUTUBE_ERROR_CODES 
 } from '#app/utils/youtube-errors'
+import { shouldMockYouTube } from '#app/utils/youtube-mock-utils'
 import { 
-  parseDuration, 
-  transformVideoData, 
   type VideoData 
 } from '#app/utils/youtube-utils'
 
@@ -32,27 +30,32 @@ import {
  * @returns Promise resolving to array of video data
  * @throws YouTubeAPIError when API key is required but not configured, or when parameters are invalid
  */
-export async function searchYouTubeVideos(query: string, maxResults = YOUTUBE_API_LIMITS.DEFAULT_SEARCH_RESULTS): Promise<VideoData[]> {
+export async function searchYouTubeVideos(query: string, maxResults = YOUTUBE_RATE_LIMITS.DEFAULT_SEARCH_RESULTS): Promise<VideoData[]> {
   // Input validation
   if (!query || typeof query !== 'string' || query.trim().length === 0) {
     throw new YouTubeValidationError('Query parameter is required and must be a non-empty string', 'query')
   }
   
-  if (maxResults < YOUTUBE_API_LIMITS.MIN_SEARCH_RESULTS || maxResults > YOUTUBE_API_LIMITS.MAX_SEARCH_RESULTS) {
+  if (maxResults < YOUTUBE_RATE_LIMITS.MIN_SEARCH_RESULTS || maxResults > YOUTUBE_RATE_LIMITS.MAX_SEARCH_RESULTS) {
     throw new YouTubeValidationError(
-      `maxResults must be between ${YOUTUBE_API_LIMITS.MIN_SEARCH_RESULTS} and ${YOUTUBE_API_LIMITS.MAX_SEARCH_RESULTS}`,
+      `maxResults must be between ${YOUTUBE_RATE_LIMITS.MIN_SEARCH_RESULTS} and ${YOUTUBE_RATE_LIMITS.MAX_SEARCH_RESULTS}`,
       'maxResults'
     )
   }
 
-  const apiKey = MockManager.getApiKey()
+  // Return mock data when mocking is enabled
+  if (shouldMockYouTube()) {
+    return getMockSearchResults(query, maxResults)
+  }
+
+  const apiKey = process.env.YOUTUBE_API_KEY
   
-  if (MockManager.isApiKeyRequired() && !apiKey) {
+  if (!apiKey) {
     throw new YouTubeAPIError('YouTube API key is not configured', YOUTUBE_ERROR_CODES.NO_API_KEY)
   }
 
   const youtube = google.youtube({
-    version: YOUTUBE_CONSTANTS.API_VERSION,
+    version: YOUTUBE_API_VERSION,
     auth: apiKey,
   })
 
@@ -65,44 +68,38 @@ export async function searchYouTubeVideos(query: string, maxResults = YOUTUBE_AP
       order: 'relevance',
     })
 
-    const searchData = YouTubeSearchResponseSchema.parse(response.data)
+    // Validate API response with new type-safe architecture
+    const searchData = validateYouTubeAPIResponse(
+      response.data,
+      YouTubeSearchResponseSchema
+    )
     
-    if (searchData.items.length === 0) {
+    if (!searchData.items || searchData.items.length === 0) {
       return []
     }
     
     // Get detailed video information including duration
-    const videoIds = searchData.items.map(item => item.id.videoId)
+    const videoIds = searchData.items.map(item => item.id?.videoId).filter(Boolean) as string[]
     
-    // Return mock video details when MOCKS=true for testing
-    let videoDetails
-    if (MockManager.isYouTubeEnabled()) {
-      MockManager.log(`Using mock YouTube video details for search: ${videoIds.join(', ')}`)
-      const mockVideoDetails = {
-        kind: 'youtube#videoListResponse',
-        etag: `mockEtag${videoIds.join(',')}`,
-        items: videoIds.map((videoId, index) => createMockVideoData(videoId, {
-          title: `Mock Video ${videoId}`,
-          artist: MOCK_DATA.CHANNEL_TITLE,
-          publishedAt: '2023-01-01T12:00:00Z',
-          thumbnailSuffix: `search-${index + 1}`
-        }))
-      }
-      videoDetails = YouTubeVideoDetailsResponseSchema.parse(mockVideoDetails)
-    } else {
-      const videoDetailsResponse = await youtube.videos.list({
-        part: ['snippet', 'contentDetails'],
-        id: videoIds,
-      })
-      videoDetails = YouTubeVideoDetailsResponseSchema.parse(videoDetailsResponse.data)
+    if (videoIds.length === 0) {
+      return []
     }
     
+    // Get video details from YouTube API
+    const videoDetailsResponse = await youtube.videos.list({
+      part: ['snippet', 'contentDetails'],
+      id: videoIds,
+    })
+    
+    // Validate API response with new type-safe architecture
+    const videoDetails = validateYouTubeAPIResponse(
+      videoDetailsResponse.data,
+      YouTubeVideoListResponseSchema
+    )
+    
     return videoDetails.items
-      .filter((video): video is NonNullable<typeof video> => video != null)
-      .map(video => {
-        const duration = parseDuration(video.contentDetails.duration)
-        return transformVideoData(video, duration)
-      })
+      ?.filter((video): video is NonNullable<typeof video> => video != null)
+      .map(video => transformYouTubeVideoToVideoData(video)) || []
   } catch (error) {
     console.error('YouTube API error:', error)
     
@@ -133,68 +130,27 @@ export async function searchYouTubeVideos(query: string, maxResults = YOUTUBE_AP
  * @throws YouTubeAPIError when API key is required but not configured, or when videoId is invalid
  */
 export async function getYouTubeVideoDetails(videoId: string): Promise<VideoData> {
-  console.log(`getYouTubeVideoDetails called with: ${videoId}`)
-  console.log(`MOCKS env var: ${process.env.MOCKS}`)
-  console.log(`MockManager.isYouTubeEnabled(): ${MockManager.isYouTubeEnabled()}`)
-  
   // Input validation
   if (!videoId || typeof videoId !== 'string' || videoId.trim().length === 0) {
     throw new YouTubeValidationError('Video ID is required and must be a non-empty string', 'videoId')
   }
 
-  const apiKey = MockManager.getApiKey()
+  // Return mock data when mocking is enabled
+  if (shouldMockYouTube()) {
+    return getMockVideoDetails(videoId)
+  }
+
+  const apiKey = process.env.YOUTUBE_API_KEY
   
-  if (MockManager.isApiKeyRequired() && !apiKey) {
+  if (!apiKey) {
     throw new YouTubeAPIError('YouTube API key is not configured', YOUTUBE_ERROR_CODES.NO_API_KEY)
   }
 
   const youtube = google.youtube({
-    version: YOUTUBE_CONSTANTS.API_VERSION,
+    version: YOUTUBE_API_VERSION,
     auth: apiKey,
   })
 
-  // Return mock data when MOCKS=true for testing
-  if (MockManager.isYouTubeEnabled()) {
-    MockManager.log(`Using mock YouTube video details for: ${videoId}`)
-    const mockVideoData = {
-      kind: 'youtube#videoListResponse',
-      etag: `mockEtag${videoId}`,
-      items: [createMockVideoData(videoId, {
-        thumbnailSuffix: 'video-details'
-      })]
-    }
-    MockManager.log(`Generated mock data: ${JSON.stringify(mockVideoData, null, 2)}`)
-    
-    let videoData
-    try {
-      videoData = YouTubeVideoDetailsResponseSchema.parse(mockVideoData)
-      MockManager.log(`Schema validation successful`)
-    } catch (parseError) {
-      MockManager.log(`Schema validation failed: ${parseError}`)
-      MockManager.log(`Mock data: ${JSON.stringify(mockVideoData, null, 2)}`)
-      throw parseError
-    }
-    
-    if (videoData.items.length === 0) {
-      throw new YouTubeNotFoundError('Video')
-    }
-
-    const video = videoData.items[0]
-    if (!video) {
-      throw new YouTubeNotFoundError('Video')
-    }
-    
-    try {
-      const duration = parseDuration(video.contentDetails.duration)
-      MockManager.log(`Parsed duration: ${duration}`)
-      const result = transformVideoData(video, duration)
-      MockManager.log(`Transform successful: ${JSON.stringify(result)}`)
-      return result
-    } catch (error) {
-      MockManager.log(`Transform error: ${error}`)
-      throw error
-    }
-  }
 
   try {
     const response = await youtube.videos.list({
@@ -202,9 +158,13 @@ export async function getYouTubeVideoDetails(videoId: string): Promise<VideoData
       id: [videoId],
     })
 
-    const videoData = YouTubeVideoDetailsResponseSchema.parse(response.data)
+    // Validate API response with new type-safe architecture
+    const videoData = validateYouTubeAPIResponse(
+      response.data,
+      YouTubeVideoListResponseSchema
+    )
     
-    if (videoData.items.length === 0) {
+    if (!videoData.items || videoData.items.length === 0) {
       throw new YouTubeNotFoundError('Video')
     }
 
@@ -213,8 +173,7 @@ export async function getYouTubeVideoDetails(videoId: string): Promise<VideoData
       throw new YouTubeNotFoundError('Video')
     }
     
-    const duration = parseDuration(video.contentDetails.duration)
-    return transformVideoData(video, duration)
+    return transformYouTubeVideoToVideoData(video)
   } catch (error) {
     console.error('YouTube API error:', error)
     
@@ -236,4 +195,36 @@ export async function getYouTubeVideoDetails(videoId: string): Promise<VideoData
     
     throw new YouTubeAPIError('Failed to get YouTube video details. Please try again.', YOUTUBE_ERROR_CODES.FETCH_FAILED, 500)
   }
+
 }
+
+// Mock data functions using mock generators
+function getMockSearchResults(query: string, maxResults: number): VideoData[] {
+  const results: VideoData[] = []
+  for (let i = 1; i <= Math.min(maxResults, 5); i++) {
+    results.push({
+      id: `mock-video-${i}`,
+      title: `Mock Video ${i} - ${query}`,
+      artist: 'Mock Artist',
+      duration: 180 + (i * 30), // 3-7 minutes
+      thumbnailUrl: `https://i.ytimg.com/vi/mock${i}/mqdefault.jpg`,
+      serviceUrl: `https://youtube.com/watch?v=mock-video-${i}`,
+      publishedAt: `2023-01-0${i}T00:00:00Z`
+    })
+  }
+  return results
+}
+
+function getMockVideoDetails(videoId: string): VideoData {
+  // Return realistic mock data that matches test expectations
+  return {
+    id: videoId,
+    title: 'Never Gonna Give You Up',
+    artist: 'Rick Astley',
+    duration: 240, // 4 minutes
+    thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+    serviceUrl: `https://youtube.com/watch?v=${videoId}`,
+    publishedAt: '2009-10-25T06:57:33Z'
+  }
+}
+

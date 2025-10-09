@@ -37,8 +37,11 @@ export function useToast(toast?: Toast | null) {
 								if (toast.action?.href) {
 									void navigate(toast.action.href)
 								} else if (toast.action?.onClick) {
-									// Call a custom function
-									;(window as any)[toast.action.onClick]?.()
+									// Call a custom function - safely typed
+									const globalFunction = (window as typeof window & Record<string, unknown>)[toast.action.onClick]
+									if (typeof globalFunction === 'function') {
+										globalFunction()
+									}
 								}
 							}}
 						>

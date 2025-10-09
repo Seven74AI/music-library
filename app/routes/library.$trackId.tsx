@@ -37,6 +37,7 @@ import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
+import { formatDuration } from '#app/utils/format-duration.ts'
 import { type Route } from './+types/library.$trackId.ts'
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -59,6 +60,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 					mimeType: true,
 				},
 			},
+			duration: true,
 		},
 	})
 
@@ -98,6 +100,19 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
 									<div>
 										<span className="text-sm font-medium text-muted-foreground">Artist:</span>
 										<p className="text-base">{track.artist}</p>
+									</div>
+									<div>
+										<span className="text-sm font-medium text-muted-foreground">Duration:</span>
+										<p className="text-base">
+											{track.duration ? (
+												formatDuration(track.duration)
+											) : (
+												<span className="text-muted-foreground flex items-center gap-1">
+													<Icon name="clock" className="h-4 w-4" />
+													Unknown
+												</span>
+											)}
+										</p>
 									</div>
 									<div>
 										<span className="text-sm font-medium text-muted-foreground">Added:</span>

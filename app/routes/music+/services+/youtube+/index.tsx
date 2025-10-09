@@ -1,10 +1,12 @@
 import { type ServicePlaylist } from '@prisma/client'
 import { formatDistanceToNow } from 'date-fns'
 import { data, Link, useActionData, useLoaderData, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { isErrorActionResult, isSuccessActionResult } from '#app/types/frontend'
 import { requireUserId } from '#app/utils/auth.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
@@ -19,7 +21,7 @@ import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	const servicePlaylistService = createServicePlaylistService()
-	
+
 	const [syncedPlaylists, hasConnection] = await Promise.all([
 		servicePlaylistService.getSyncedPlaylists(YOUTUBE_SERVICE.NAME, userId),
 		hasValidYouTubeOAuth(userId),
@@ -41,9 +43,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export async function action({ request }: ActionFunctionArgs) {
 	const userId = await requireUserId(request)
 	const formData = await request.formData()
-	
+
 	const intent = formData.get('intent')
-	
+
 	if (typeof intent !== 'string') {
 		return data({ status: 'error', message: 'Invalid form data' }, { status: 400 })
 	}
@@ -52,29 +54,29 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	try {
 		switch (intent) {
-		case 'sync': {
-			// Check if user already has valid YouTube OAuth
-			const hasValidOAuth = await hasValidYouTubeOAuth(userId)
-			
-			if (hasValidOAuth) {
-				// User has valid OAuth, redirect to playlists page to sync
-				return data({ status: 'success', message: 'Redirecting to playlist management...' })
-			} else {
-				// No valid OAuth, redirect to YouTube OAuth
-				return data({ status: 'error', message: 'Please connect your YouTube account first.' }, { status: 401 })
+			case 'sync': {
+				// Check if user already has valid YouTube OAuth
+				const hasValidOAuth = await hasValidYouTubeOAuth(userId)
+
+				if (hasValidOAuth) {
+					// User has valid OAuth, redirect to playlists page to sync
+					return data({ status: 'success', message: 'Redirecting to playlist management...' })
+				} else {
+					// No valid OAuth, redirect to YouTube OAuth
+					return data({ status: 'error', message: 'Please connect your YouTube account first.' }, { status: 401 })
+				}
 			}
-		}
-			
+
 			case 'remove': {
 				const playlistId = formData.get('playlistId')
 				if (typeof playlistId !== 'string') {
 					return data({ status: 'error', message: 'Playlist ID is required' }, { status: 400 })
 				}
-				
-				const result = await servicePlaylistService.removePlaylistFromSync(playlistId, userId)
+
+				const result = await servicePlaylistService.removePlaylistFromSync(YOUTUBE_SERVICE.NAME, playlistId, userId)
 				return data({ status: 'success', ...result })
 			}
-			
+
 			default:
 				return data({ status: 'error', message: 'Invalid action' })
 		}
@@ -102,8 +104,8 @@ export default function YouTubeServicePage() {
 					</Button>
 				</div>
 				<div className="flex items-center gap-4">
-					<img 
-						src="/logos/youtube.svg" 
+					<img
+						src="/logos/youtube.svg"
 						alt="YouTube logo"
 						className="w-8 h-8"
 					/>
@@ -113,6 +115,35 @@ export default function YouTubeServicePage() {
 							Manage your YouTube playlists and sync settings
 						</p>
 					</div>
+				</div>
+			</div>
+
+			{/* Quick Actions */}
+			<div className="mb-6">
+				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
+				<div className="flex flex-wrap gap-4">
+					<Button asChild>
+						<Link to="/music/services/youtube/import">
+							<Icon name="download" className="h-4 w-4 mr-2" />
+							Import YouTube Tracks
+						</Link>
+					</Button>
+					{hasConnection && (
+						<Button asChild variant="outline">
+							<Link to="/music/services/youtube/playlists">
+								<Icon name="file-text" className="h-4 w-4 mr-2" />
+								Discover & Sync Playlists
+							</Link>
+						</Button>
+					)}
+					{hasConnection && (
+						<Button asChild variant="outline">
+							<Link to="/music/services/youtube/synced-playlists">
+								<Icon name="file-text" className="h-4 w-4 mr-2" />
+								Manage Synced Playlists
+							</Link>
+						</Button>
+					)}
 				</div>
 			</div>
 
@@ -147,35 +178,6 @@ export default function YouTubeServicePage() {
 				</CardContent>
 			</Card>
 
-			{/* Quick Actions */}
-			<div className="mb-6">
-				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
-				<div className="flex flex-wrap gap-4">
-					<Button asChild>
-						<Link to="/music/services/import/youtube">
-							<Icon name="download" className="h-4 w-4 mr-2" />
-							Import YouTube Tracks
-						</Link>
-					</Button>
-					{hasConnection && (
-						<Button asChild variant="outline">
-							<Link to="/music/services/youtube/playlists">
-								<Icon name="file-text" className="h-4 w-4 mr-2" />
-								Discover & Sync Playlists
-							</Link>
-						</Button>
-					)}
-					{hasConnection && (
-						<Button asChild variant="outline">
-							<Link to="/music/services/youtube/synced-playlists">
-								<Icon name="file-text" className="h-4 w-4 mr-2" />
-								Manage Synced Playlists
-							</Link>
-						</Button>
-					)}
-				</div>
-			</div>
-
 			{/* Action Messages */}
 			{actionData?.status === 'error' && (
 				<div className="mb-6 rounded-md bg-destructive/15 p-4">
@@ -183,7 +185,7 @@ export default function YouTubeServicePage() {
 						<Icon name="question-mark-circled" className="h-4 w-4 text-destructive" />
 						<p className="text-sm text-destructive font-medium">Error</p>
 					</div>
-					<p className="text-sm text-destructive mt-1">{actionData.message}</p>
+					<p className="text-sm text-destructive mt-1">{isErrorActionResult(actionData) ? actionData.message : 'An error occurred'}</p>
 				</div>
 			)}
 
@@ -193,7 +195,7 @@ export default function YouTubeServicePage() {
 						<Icon name="check-circled" className="h-4 w-4 text-green-600" />
 						<p className="text-sm text-green-800 font-medium">Success</p>
 					</div>
-					<p className="text-sm text-green-700 mt-1">{actionData.message}</p>
+					<p className="text-sm text-green-700 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
 				</div>
 			)}
 
@@ -215,8 +217,8 @@ export default function YouTubeServicePage() {
 								<div key={playlist.id} className="flex items-center justify-between p-4 border rounded-lg">
 									<div className="flex items-center gap-4">
 										{playlist.thumbnailUrl ? (
-											<img 
-												src={playlist.thumbnailUrl} 
+											<img
+												src={playlist.thumbnailUrl}
 												alt={playlist.title}
 												className="w-12 h-12 rounded object-cover"
 											/>

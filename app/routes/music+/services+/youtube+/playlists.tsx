@@ -1,15 +1,26 @@
-import { data, Form, useActionData, useLoaderData, Link, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+import {
+  data,
+  Form,
+  useActionData,
+  useLoaderData,
+  Link,
+  type LoaderFunctionArgs,
+  type ActionFunctionArgs,
+} from 'react-router'
 
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { isErrorActionResult, isSuccessActionResult, isYouTubePlaylistDisplay } from '#app/types/frontend'
 import { 
   YOUTUBE_PLAYLIST_DISCOVERY_INTENTS,
   YOUTUBE_PAGE_TYPES,
   validatePlaylistDiscoveryIntent,
-  getIntentErrorMessage
+  getIntentErrorMessage,
 } from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
+import { handleLoaderError } from '#app/utils/error-handlers.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 
 /**
@@ -32,13 +43,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			service: result.service,
 		})
 	} catch (error) {
-		console.error('Error loading YouTube playlists:', error)
-		// Return empty state instead of throwing to prevent page crash
-		return data({
+		return handleLoaderError(error, {
 			playlists: [],
 			hasConnection: false,
 			service: null,
-		})
+		}, 'YouTube playlists')
 	}
 }
 
@@ -89,7 +98,8 @@ export async function action({ request }: ActionFunctionArgs) {
 					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
 				}
 				
-				const result = await servicePlaylistService.removePlaylistFromSync(playlistId, userId)
+				const result = await servicePlaylistService.removePlaylistFromSync(YOUTUBE_SERVICE.NAME, playlistId, userId)
+				console.error('playlistId', playlistId)
 				return data({ status: 'success', ...result })
 			}
 			
@@ -106,10 +116,19 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function YouTubePlaylistsPage() {
-	const { playlists, hasConnection } = useLoaderData<typeof loader>()
+	const loaderData = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
-	
-	// No need for type assertion since loader is now properly typed
+
+	// Validate loader data with type guards
+	if (!Array.isArray(loaderData.playlists) || !loaderData.playlists.every(isYouTubePlaylistDisplay)) {
+		throw new Error('Invalid playlists data received from server')
+	}
+
+	if (typeof loaderData.hasConnection !== 'boolean') {
+		throw new Error('Invalid hasConnection data received from server')
+	}
+
+	const { playlists, hasConnection } = loaderData
 	const typedPlaylists = playlists
 
 	return (
@@ -176,7 +195,7 @@ export default function YouTubePlaylistsPage() {
 						<Icon name="question-mark-circled" className="h-4 w-4 text-destructive" />
 						<p className="text-sm text-destructive font-medium">Error</p>
 					</div>
-					<p className="text-sm text-destructive mt-1">{actionData.message}</p>
+					<p className="text-sm text-destructive mt-1">{isErrorActionResult(actionData) ? actionData.message : 'An error occurred'}</p>
 				</div>
 			)}
 
@@ -186,7 +205,7 @@ export default function YouTubePlaylistsPage() {
 						<Icon name="check-circled" className="h-4 w-4 text-green-600" />
 						<p className="text-sm text-green-800 font-medium">Success</p>
 					</div>
-					<p className="text-sm text-green-700 mt-1">{actionData.message}</p>
+					<p className="text-sm text-green-700 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Playlist synced successfully'}</p>
 				</div>
 			)}
 

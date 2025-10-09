@@ -1,45 +1,52 @@
-import { data, Form, Link, useNavigation, redirect, useLoaderData, useActionData, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
-import { PreviewCard } from '#app/components/preview-card.tsx'
-import { Button } from '#app/components/ui/button.tsx'
-import { Icon } from '#app/components/ui/icon.tsx'
-import { Input } from '#app/components/ui/input.tsx'
-import { Label } from '#app/components/ui/label.tsx'
-import { requireUserId } from '#app/utils/auth.server.ts'
-import { prisma } from '#app/utils/db.server.ts'
-import { formatDuration } from '#app/utils/format-duration.ts'
-import { getServiceImportHandler, importTrackDirectly } from '#app/utils/service-import.server.ts'
-import { redirectWithToast } from '#app/utils/toast.server.ts'
+import {
+  data,
+  Form,
+  Link,
+  useNavigation,
+  redirect,
+  useLoaderData,
+  useActionData,
+  type LoaderFunctionArgs,
+  type ActionFunctionArgs,
+} from 'react-router'
+import { PreviewCard } from '#app/components/preview-card'
+import { Button } from '#app/components/ui/button'
+import { Icon } from '#app/components/ui/icon'
+import { Input } from '#app/components/ui/input'
+import { Label } from '#app/components/ui/label'
+import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { requireUserId } from '#app/utils/auth.server'
+import { prisma } from '#app/utils/db.server'
+import { formatDuration } from '#app/utils/format-duration'
+import { getServiceImportHandler, importTrackDirectly } from '#app/utils/service-import.server'
+import { redirectWithToast } from '#app/utils/toast.server'
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request }: LoaderFunctionArgs) {
 	await requireUserId(request)
 	
 	const service = await prisma.service.findUnique({
-		where: { name: params.service }
+		where: { name: YOUTUBE_SERVICE.NAME }
 	})
 	
 	if (!service) {
-		throw new Response('Service not found', { status: 404 })
+		throw new Response('YouTube service not found', { status: 404 })
 	}
 	
 	return data({ service })
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request }: ActionFunctionArgs) {
 	const userId = await requireUserId(request)
 	
 	const formData = await request.formData()
 	const url = formData.get('url') as string
 	const videoId = formData.get('videoId') as string
 	const action = formData.get('action') as string
-	const serviceName = params.service
-	
-	if (!serviceName) {
-		return data({ error: 'Service name is required' }, { status: 400 })
-	}
+	const serviceName = YOUTUBE_SERVICE.NAME
 	
 	// Handle cancel request
 	if (action === 'cancel') {
-		return redirect(`/music/services/import/${serviceName}`)
+		return redirect(`/music/services/youtube/import`)
 	}
 
 	// Handle preview request
@@ -144,16 +151,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			}
 			
 			// Success - redirect to library with success toast
-			return redirectWithToast('/library', {
-				title: 'Track Imported!',
-				description: `"${result.track.title}" by ${result.track.artist} has been added to your library.`,
-				type: 'success',
-				duration: 10000,
-				action: {
-					label: 'View Track',
-					href: `/library/${result.track.id}`
-				}
-			})
+			if (result.track) {
+				return redirectWithToast('/library', {
+					title: 'Track Imported!',
+					description: `"${result.track.title}" by ${result.track.artist} has been added to your library.`,
+					type: 'success',
+					duration: 10000,
+					action: {
+						label: 'View Track',
+						href: `/library/${result.track.id}`
+					}
+				})
+			} else {
+				return redirectWithToast('/library', {
+					title: 'Track Imported!',
+					description: 'Track has been added to your library.',
+					type: 'success',
+					duration: 10000
+				})
+			}
 			
 		} catch (error) {
 			console.error(`${serviceName} import error:`, error)
@@ -167,7 +183,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	return data({ error: 'Invalid action' }, { status: 400 })
 }
 
-export default function ImportFromServicePage() {
+export default function YouTubeImportPage() {
 	const { service } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
@@ -203,7 +219,7 @@ export default function ImportFromServicePage() {
 		type: 'submit' as const,
 		label: isSubmitting ? 'Adding to Library...' : 'Add to Library',
 		icon: isSubmitting ? 'update' as const : 'plus' as const,
-		formAction: `/music/services/import/${service.name}`,
+		formAction: `/music/services/youtube/import`,
 		formData: { 
 			action: 'import',
 			videoId: hasPreview ? actionData.previewData.videoId : ''
@@ -226,7 +242,7 @@ export default function ImportFromServicePage() {
 					<h2 className="text-h2">Import from {service.displayName}</h2>
 				</div>
 				<Button asChild variant="outline">
-					<Link to="/music/services/import">
+					<Link to="/music/services/youtube">
 						<Icon name="arrow-left" className="mr-2" />
 						Back to Import
 					</Link>
@@ -240,7 +256,7 @@ export default function ImportFromServicePage() {
 			{!hasPreview ? (
 				// Show URL input form
 				<div className="rounded-lg border bg-card p-6">
-					<Form method="post" action={`/music/services/import/${service.name}`} className="space-y-4">
+					<Form method="post" action={`/music/services/youtube/import`} className="space-y-4">
 						<input type="hidden" name="action" value="preview" />
 						<div className="space-y-2">
 							<Label htmlFor="url">{service.displayName} URL</Label>
@@ -311,7 +327,7 @@ export default function ImportFromServicePage() {
 							label: 'Cancel',
 							icon: 'cross-1',
 							variant: 'outline',
-							formAction: `/music/services/import/${service.name}`,
+							formAction: `/music/services/youtube/import`,
 							formData: { action: 'cancel' }
 						}}
 						primaryAction={primaryAction}

@@ -4,6 +4,13 @@ import { data, Form, useActionData, useLoaderData, Link, type LoaderFunctionArgs
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { 
+  isPlaylistWithTracks,
+  isTrackWithUserStatus,
+  isErrorActionResult,
+  isSuccessActionResult
+} from '#app/types/frontend'
 import { 
   YOUTUBE_PLAYLIST_DETAIL_INTENTS,
   YOUTUBE_PAGE_TYPES,
@@ -12,6 +19,7 @@ import {
 } from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { redirectWithToast } from '#app/utils/toast.server.ts'
 
 /**
  * Loader function for YouTube playlist detail page
@@ -76,7 +84,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 					return data({ status: 'error', message: 'Valid track ID is required' }, { status: 400 })
 				}
 				
-				await servicePlaylistService.addTrackToUserLibrary(trackId, userId)
+				await servicePlaylistService.addTrackToUserLibrary(userId, trackId)
 				return data({ status: 'success', message: 'Track added to your library' })
 			}
 			
@@ -86,7 +94,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 					return data({ status: 'error', message: 'Valid track ID is required' }, { status: 400 })
 				}
 				
-				await servicePlaylistService.removeTrackFromUserLibrary(trackId, userId)
+				await servicePlaylistService.removeTrackFromUserLibrary(userId, trackId)
 				return data({ status: 'success', message: 'Track removed from your library' })
 			}
 			
@@ -96,8 +104,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			}
 			
 			case 'remove': {
-				const result = await servicePlaylistService.removePlaylistFromSync(params.id!, userId)
-				return data({ status: 'success', ...result })
+				const result = await servicePlaylistService.removePlaylistFromSync(YOUTUBE_SERVICE.NAME, params.id!, userId)
+				if (result.success) {
+					return redirectWithToast(
+						'/music/services/youtube/playlists',
+						{
+							title: 'Playlist Removed',
+							description: 'Playlist removed from sync successfully',
+							type: 'success',
+						}
+					)
+				}
+
+				return data({ status: 'error', ...result })
 			}
 			
 			default:
@@ -113,8 +132,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function YouTubeSyncedPlaylistDetailPage() {
-	const { playlist, tracks } = useLoaderData<typeof loader>()
+	const loaderData = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+
+	// Validate loader data with type guards
+	if (!isPlaylistWithTracks(loaderData.playlist)) {
+		throw new Error('Invalid playlist data received from server')
+	}
+
+	if (!Array.isArray(loaderData.tracks) || !loaderData.tracks.every(isTrackWithUserStatus)) {
+		throw new Error('Invalid tracks data received from server')
+	}
+
+	const { playlist, tracks } = loaderData
 
 	return (
 		<div className="container mx-auto py-8">
@@ -149,7 +179,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 						<Icon name="question-mark-circled" className="h-4 w-4 text-destructive" />
 						<p className="text-sm text-destructive font-medium">Error</p>
 					</div>
-					<p className="text-sm text-destructive mt-1">{actionData.message}</p>
+					<p className="text-sm text-destructive mt-1">{isErrorActionResult(actionData) ? actionData.message : 'An error occurred'}</p>
 				</div>
 			)}
 
@@ -159,7 +189,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 						<Icon name="check-circled" className="h-4 w-4 text-green-600" />
 						<p className="text-sm text-green-800 font-medium">Success</p>
 					</div>
-					<p className="text-sm text-green-700 mt-1">{actionData.message}</p>
+					<p className="text-sm text-green-700 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
 				</div>
 			)}
 

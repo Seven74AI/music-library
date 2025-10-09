@@ -1,19 +1,29 @@
+// Prisma types used in transformations
 import { YOUTUBE_SERVICE } from '#app/constants/services'
-import { type YouTubePlaylist, type YouTubePlaylistListResponse } from '#app/types/youtube'
-import { prisma } from '#app/utils/db.server'
-import { createMusicService } from './service-factory.server'
 import { 
-  ServiceNotFoundError, 
-  PlaylistNotFoundError, 
-  NoTokensError 
-} from './youtube-errors'
-import { validateYouTubeOAuth } from './youtube-oauth-validation.server'
-import { getBestThumbnailUrl, buildYouTubeUrl } from './youtube-utils'
+  type PlaylistWithTracks,
+  type TrackWithUserStatus
+} from '#app/types/frontend'
+import { 
+  transformYouTubePlaylistToServicePlaylist,
+  transformYouTubePlaylistItemToTrack
+} from '#app/types/transformations'
+import { 
+  type ValidatedOAuthConnection,
+  type YouTubeTokenData
+} from '#app/types/youtube'
+import { 
+  type YouTubePlaylist,
+  type YouTubePlaylistItem as NewYouTubePlaylistItem
+} from '#app/types/youtube-api'
+import { prisma } from '#app/utils/db.server'
+import { 
+  validateYouTubeOAuth
+} from '#app/utils/youtube-oauth-validation.server'
+import { createYouTubeService } from './youtube.server'
 
-/**
- * Type for playlists with sync status
- */
 interface PlaylistWithSyncStatus extends YouTubePlaylist {
+  isSynced: boolean
   playlistInternalId: string | null
 }
 
@@ -53,8 +63,8 @@ export class ServicePlaylistService {
     const connection = await prisma.connection.findFirst({
       where: {
         providerName: serviceName,
-        userId: userId,
-      },
+        userId: userId
+      }
     })
 
     if (!connection || !connection.tokens) {
@@ -65,36 +75,29 @@ export class ServicePlaylistService {
   }
 
   /**
-   * Parse and validate connection tokens
+   * Parse connection tokens with error handling
    * 
-   * @param connection - The connection object containing tokens
-   * @returns Object containing the access token
-   * @throws Error if tokens are invalid or missing
+   * @param connection - The connection record with tokens
+   * @returns Parsed token data
+   * @throws Error if tokens cannot be parsed
    */
-  private parseConnectionTokens(connection: { tokens: string | null }): { accessToken: string } {
+  private parseConnectionTokens(connection: { tokens: string | null }): { access_token: string } {
     if (!connection.tokens) {
-      throw new Error('No tokens available')
+      throw new Error('No tokens found in connection')
     }
-    
+
     try {
-      const tokenData = JSON.parse(connection.tokens) as { 
-        access_token: string
-        refresh_token?: string
-        expiry_date?: number
-      }
+      const tokenData = JSON.parse(connection.tokens) as YouTubeTokenData
       
       if (!tokenData.access_token) {
-        throw new Error('Access token is missing from stored tokens')
+        throw new Error('No access token found in connection tokens')
       }
-      
-      return { accessToken: tokenData.access_token }
+
+      return {
+        access_token: tokenData.access_token
+      }
     } catch (error) {
-      if (error instanceof SyntaxError) {
-        throw new Error('Invalid JSON format in stored tokens')
-      }
-      if (error instanceof Error) {
-        throw error
-      }
+      console.error('Error parsing connection tokens:', error)
       throw new Error('Failed to parse connection tokens')
     }
   }
@@ -119,7 +122,7 @@ export class ServicePlaylistService {
       const service = await this.getServiceByName(serviceName)
 
       // Validate YouTube OAuth connection and tokens
-      const validation = await validateYouTubeOAuth(userId)
+      const validation: ValidatedOAuthConnection | null = await validateYouTubeOAuth(userId)
       
       if (!validation) {
         return {
@@ -130,22 +133,17 @@ export class ServicePlaylistService {
       }
 
       // Get all playlists from the service API
-      // For YouTube, we need the original structure for the discovery page
-      let allPlaylists: YouTubePlaylist[] = []
-      
-      if (serviceName === YOUTUBE_SERVICE.NAME) {
-        // Use YouTube service directly to get original structure
-        const { createYouTubeService } = await import('./youtube.server')
-        const youtubeService = createYouTubeService()
-        const response: YouTubePlaylistListResponse = await youtubeService.getUserPlaylists(validation.tokenData.accessToken)
-        allPlaylists = response.items || []
-      } else {
-        // For other services, use the common interface
-        const musicService = createMusicService(serviceName)
-        const playlistsResponse = await musicService.getUserPlaylists(validation.tokenData.accessToken)
-        // Cast to YouTubePlaylist[] for now - in the future, we should create a generic Playlist type
-        allPlaylists = playlistsResponse.items as unknown as YouTubePlaylist[] || []
+      // For now, we only support YouTube - other services will be added later
+      if (serviceName !== YOUTUBE_SERVICE.NAME) {
+        throw new Error(`Service ${serviceName} is not yet supported`)
       }
+      
+      // Use YouTube service directly
+      const youtubeService = createYouTubeService()
+      const playlistsResponse = await youtubeService.getUserPlaylists(validation.tokenData.access_token)
+      
+      // getUserPlaylists already validates and returns YouTubePlaylistListResponse
+      const allPlaylists = playlistsResponse.items || []
 
       // Get already synced playlists
       const syncedPlaylists = await prisma.servicePlaylist.findMany({
@@ -160,28 +158,28 @@ export class ServicePlaylistService {
         }
       })
 
-      const syncedPlaylistMap = new Map<string, string>(
-        syncedPlaylists.map(p => [p.externalId, p.id])
-      )
+      const syncedPlaylistIds = new Set(syncedPlaylists.map(p => p.externalId))
+      const syncedPlaylistInternalIds = new Map(syncedPlaylists.map(p => [p.externalId, p.id]))
 
-      // Combine API playlists with sync status and internal id
-      const playlistsWithStatus: PlaylistWithSyncStatus[] = allPlaylists.map((playlist) => ({
+      // Combine API playlists with sync status
+      const playlistsWithSyncStatus: PlaylistWithSyncStatus[] = allPlaylists.map(playlist => ({
         ...playlist,
-        isSynced: syncedPlaylistMap.has(playlist.id),
-        playlistInternalId: syncedPlaylistMap.get(playlist.id) || null,
+        isSynced: syncedPlaylistIds.has(playlist.id || ''),
+        playlistInternalId: syncedPlaylistInternalIds.get(playlist.id || '') || null
       }))
 
       return {
-        playlists: playlistsWithStatus,
+        playlists: playlistsWithSyncStatus,
         hasConnection: true,
         service
       }
     } catch (error) {
-      console.error('Error getting playlists with sync status:', error)
-      if (error instanceof ServiceNotFoundError || error instanceof NoTokensError) {
-        throw error
+      console.error(`Error fetching playlists for ${serviceName}:`, error)
+      return {
+        playlists: [],
+        hasConnection: false,
+        service: await this.getServiceByName(serviceName)
       }
-      throw new Error(`Failed to get playlists for service ${serviceName}`)
     }
   }
 
@@ -189,285 +187,302 @@ export class ServicePlaylistService {
    * Add playlist to sync (includes fetching tracks)
    */
   async addPlaylistToSync(serviceName: string, externalPlaylistId: string, userId: string) {
-    try {
-      const service = await this.getServiceByName(serviceName)
-      const connection = await this.getUserConnection(serviceName, userId)
-      const tokenData = this.parseConnectionTokens(connection)
-      const musicService = createMusicService(serviceName)
+    const service = await this.getServiceByName(serviceName)
+    const connection = await this.getUserConnection(serviceName, userId)
+    const tokenData = this.parseConnectionTokens(connection)
 
-      // Get playlist details from API
-      const playlistData = await musicService.getPlaylist(externalPlaylistId, tokenData.accessToken)
-      
-      // Get playlist items (tracks)
-      const playlistItems = await musicService.getPlaylistItems(externalPlaylistId, tokenData.accessToken)
+    // For now, we only support YouTube - other services will be added later
+    if (serviceName !== YOUTUBE_SERVICE.NAME) {
+      throw new Error(`Service ${serviceName} is not yet supported`)
+    }
 
-      // Create or update playlist in database
-      const playlist = await prisma.servicePlaylist.upsert({
-        where: {
-          serviceId_externalId: {
-            serviceId: service.id,
-            externalId: externalPlaylistId
-          }
-        },
-        update: {
-          title: playlistData.snippet.title,
-          description: playlistData.snippet.description || null,
-          thumbnailUrl: getBestThumbnailUrl(playlistData.snippet.thumbnails),
-          channelId: playlistData.snippet.channelId,
-          channelTitle: playlistData.snippet.channelTitle,
-          publishedAt: new Date(playlistData.snippet.publishedAt),
-          itemCount: playlistData.contentDetails.itemCount,
-          lastSyncedAt: new Date(),
-          isActive: true
-        },
-        create: {
+    // Get playlist details and items using YouTube service directly
+    const youtubeService = createYouTubeService()
+    const [youtubePlaylist, playlistItems] = await Promise.all([
+      youtubeService.getPlaylist(externalPlaylistId, tokenData.access_token),
+      youtubeService.getPlaylistItems(externalPlaylistId, tokenData.access_token)
+    ])
+
+    // getPlaylist and getPlaylistItems already validate and return validated data
+    // Transform playlist data using new type-safe architecture
+    const playlistData = transformYouTubePlaylistToServicePlaylist(
+      youtubePlaylist,
+      service.id,
+      userId
+    )
+
+    // Create or update playlist in database (Prisma handles validation)
+    const playlist = await prisma.servicePlaylist.upsert({
+      where: {
+        serviceId_externalId: {
           serviceId: service.id,
-          externalId: externalPlaylistId,
-          title: playlistData.snippet.title,
-          description: playlistData.snippet.description || null,
-          thumbnailUrl: getBestThumbnailUrl(playlistData.snippet.thumbnails),
-          channelId: playlistData.snippet.channelId,
-          channelTitle: playlistData.snippet.channelTitle,
-          publishedAt: new Date(playlistData.snippet.publishedAt),
-          itemCount: playlistData.contentDetails.itemCount,
-          ownerId: userId,
-          lastSyncedAt: new Date(),
-          isActive: true
+          externalId: externalPlaylistId
         }
-      })
+      },
+      update: {
+        ...playlistData,
+        lastSyncedAt: new Date(),
+        isActive: true
+      },
+      create: {
+        ...playlistData,
+        lastSyncedAt: new Date(),
+        isActive: true
+      }
+    })
 
-      // Process tracks in a transaction for better performance and consistency
-      const tracksAdded = await prisma.$transaction(async (tx) => {
-        let processedTracks = 0
+    // Process tracks in a transaction for better performance and consistency
+    const tracksAdded = await prisma.$transaction(async (tx) => {
+      let processedTracks = 0
+      
+      for (let i = 0; i < playlistItems.length; i++) {
+        const item = playlistItems[i] as NewYouTubePlaylistItem
         
-        for (let i = 0; i < playlistItems.length; i++) {
-          const item = playlistItems[i]
+        if (!item) continue
+        
+        try {
+          // Transform track data using new type-safe architecture
+          const trackData = transformYouTubePlaylistItemToTrack(item, service.id)
           
-          if (!item) continue
-          
-          try {
-            // Create or update track
-            const track = await tx.track.upsert({
-              where: {
-                serviceId_serviceProviderId: {
-                  serviceId: service.id,
-                  serviceProviderId: item.contentDetails.videoId
-                }
-              },
-              update: {
-                title: item.snippet.title,
-                artist: item.snippet.videoOwnerChannelTitle || item.snippet.channelTitle,
-                thumbnailUrl: getBestThumbnailUrl(item.snippet.thumbnails),
-                serviceUrl: buildYouTubeUrl(item.contentDetails.videoId),
-                updatedAt: new Date()
-              },
-              create: {
+          // Create or update track using duration from playlist item if available (Prisma handles validation)
+          const track = await tx.track.upsert({
+            where: {
+              serviceId_serviceProviderId: {
                 serviceId: service.id,
-                serviceProviderId: item.contentDetails.videoId,
-                title: item.snippet.title,
-                artist: item.snippet.videoOwnerChannelTitle || item.snippet.channelTitle,
-                thumbnailUrl: getBestThumbnailUrl(item.snippet.thumbnails),
-                serviceUrl: `https://youtube.com/watch?v=${item.contentDetails.videoId}`
+                serviceProviderId: item.snippet?.resourceId?.videoId || ''
               }
-            })
+            },
+            update: {
+              ...trackData,
+              updatedAt: new Date()
+            },
+            create: trackData
+          })
 
-            // Create or update synchronised playlist entry
-            await tx.servicePlaylistTrack.upsert({
-              where: {
-                playlistId_trackId: {
-                  playlistId: playlist.id,
-                  trackId: track.id
-                }
-              },
-              update: {
-                position: i + 1
-              },
-              create: {
+          // Create or update synchronised playlist entry
+          await tx.servicePlaylistTrack.upsert({
+            where: {
+              playlistId_trackId: {
                 playlistId: playlist.id,
-                trackId: track.id,
-                position: i + 1
+                trackId: track.id
               }
-            })
+            },
+            update: {
+              position: i + 1
+            },
+            create: {
+              playlistId: playlist.id,
+              trackId: track.id,
+              position: i + 1
+            }
+          })
 
-            processedTracks++
-          } catch (error) {
-            console.error(`Error processing track ${item.contentDetails.videoId}:`, error)
-            // Continue with other tracks
-          }
+          processedTracks++
+        } catch (error) {
+          console.error(`Error processing track ${item.snippet?.resourceId?.videoId || 'unknown'}:`, error)
+          // Continue processing other tracks
         }
-        
-        return processedTracks
-      })
+      }
+      
+      return processedTracks
+    })
 
-      return {
-        success: true,
-        playlist,
-        tracksAdded,
-        message: `Successfully synced playlist with ${tracksAdded} tracks`
-      }
-    } catch (error) {
-      console.error('Error adding playlist to sync:', error)
-      if (error instanceof ServiceNotFoundError || error instanceof NoTokensError) {
-        throw error
-      }
-      throw new Error(`Failed to add playlist ${externalPlaylistId} to sync`)
+    return {
+      success: true,
+      playlistId: playlist.id,
+      tracksAdded,
+      totalTracks: playlistItems.length
     }
   }
 
   /**
-   * Remove playlist from sync (hard delete)
+   * Get synced playlists for a user
    */
-  async removePlaylistFromSync(playlistId: string, userId: string) {
-    try {
-      let playlist = await prisma.servicePlaylist.findFirst({
-        where: {
-          id: playlistId,
-          ownerId: userId,
-        },
-      })
-
-      if (!playlist) {
-        throw new PlaylistNotFoundError(playlistId)
+  async getSyncedPlaylists(serviceName: string, userId: string) {
+    const service = await this.getServiceByName(serviceName)
+    
+    return await prisma.servicePlaylist.findMany({
+      where: {
+        serviceId: service.id,
+        ownerId: userId,
+        isActive: true
+      },
+      orderBy: {
+        updatedAt: 'desc'
       }
+    })
+  }
 
-      // Delete the playlist
-      await prisma.servicePlaylist.delete({
+  /**
+   * Remove playlist from sync
+   */
+  async removePlaylistFromSync(serviceName: string, id: string, userId: string) {
+    // For now, we only support YouTube - other services will be added later
+    if (serviceName !== YOUTUBE_SERVICE.NAME) {
+      throw new Error(`Service ${serviceName} is not yet supported`)
+    }
+
+    const service = await this.getServiceByName(serviceName)
+    
+    try {
+      const result = await prisma.servicePlaylist.deleteMany({
         where: {
-          id: playlist.id
+          serviceId: service.id,
+          id,
+          ownerId: userId
         }
       })
 
+      console.log('result', result, result.count > 0)
+
       return {
-        success: true,
-        message: 'Playlist removed from sync successfully'
+        success: result.count > 0,
+        message: result.count > 0 
+          ? 'Playlist removed from sync successfully' 
+          : 'Playlist not found or already removed'
       }
     } catch (error) {
       console.error('Error removing playlist from sync:', error)
-      if (error instanceof PlaylistNotFoundError) {
-        throw error
+      return {
+        success: false,
+        message: 'Failed to remove playlist from sync'
       }
-      throw new Error(`Failed to remove playlist ${playlistId} from sync`)
     }
   }
 
   /**
-   * Get synced playlists for a service
+   * Get playlist tracks with details
    */
-  async getSyncedPlaylists(serviceName: string, userId: string) {
-    try {
-      const service = await this.getServiceByName(serviceName)
-
-      const playlists = await prisma.servicePlaylist.findMany({
-        where: {
-          serviceId: service.id,
-          ownerId: userId,
-          isActive: true
-        },
-        orderBy: {
-          updatedAt: 'desc'
-        }
-      })
-
-      return playlists
-    } catch (error) {
-      console.error('Error getting synced playlists:', error)
-      if (error instanceof ServiceNotFoundError) {
-        throw error
+  async getPlaylistTracks(serviceName: string, playlistId: string, userId: string) {
+    const service = await this.getServiceByName(serviceName)
+    
+    // Verify playlist belongs to user
+    const playlist = await prisma.servicePlaylist.findFirst({
+      where: {
+        id: playlistId,
+        serviceId: service.id,
+        ownerId: userId,
+        isActive: true
       }
-      throw new Error(`Failed to get synced playlists for service ${serviceName}`)
+    })
+
+    if (!playlist) {
+      throw new Error('Playlist not found or access denied')
     }
-  }
 
-  /**
-   * Get playlist tracks with user library status
-   */
-  async getPlaylistTracksWithUserStatus(playlistId: string, userId: string) {
-    try {
-      const playlist = await prisma.servicePlaylist.findFirst({
-        where: {
-          id: playlistId,
-          ownerId: userId,
-        },
-        include: {
-          service: true
-        }
-      })
-
-      if (!playlist) {
-        throw new PlaylistNotFoundError(playlistId)
-      }
-
-      const servicePlaylistTracks = await prisma.servicePlaylistTrack.findMany({
-        where: { playlistId },
-        include: {
-          track: {
-            include: {
-              userTracks: {
-                where: { userId }
+    // Get tracks with their details
+    const playlistTracks = await prisma.servicePlaylistTrack.findMany({
+      where: {
+        playlistId: playlist.id
+      },
+      include: {
+        track: {
+          include: {
+            service: {
+              select: {
+                name: true,
+                displayName: true,
+                logoUrl: true
               }
             }
           }
-        },
-        orderBy: { position: 'asc' }
-      })
-
-      // Transform to include user library status
-      const tracksWithStatus = servicePlaylistTracks.map(st => ({
-        ...st.track,
-        position: st.position,
-        isInUserLibrary: st.track.userTracks.length > 0 && st.track.userTracks[0]?.isActive === true,
-        userTrack: st.track.userTracks[0] || null
-      }))
-
-      return {
-        playlist,
-        tracks: tracksWithStatus
-      }
-    } catch (error) {
-      console.error('Error getting playlist tracks with user status:', error)
-      if (error instanceof PlaylistNotFoundError) {
-        throw error
-      }
-      throw new Error(`Failed to get tracks for playlist ${playlistId}`)
-    }
-  }
-
-  /**
-   * Re-sync playlist
-   */
-  async resyncPlaylist(playlistId: string, userId: string) {
-    try {
-      const playlist = await prisma.servicePlaylist.findFirst({
-        where: {
-          id: playlistId,
-          ownerId: userId,
-        },
-        include: {
-          service: true
         }
-      })
-
-      if (!playlist) {
-        throw new PlaylistNotFoundError(playlistId)
+      },
+      orderBy: {
+        position: 'asc'
       }
+    })
 
-      // Use the existing addPlaylistToSync method to re-sync
-      return this.addPlaylistToSync(playlist.service.name, playlist.externalId, userId)
-    } catch (error) {
-      console.error('Error resyncing playlist:', error)
-      if (error instanceof PlaylistNotFoundError) {
-        throw error
-      }
-      throw new Error(`Failed to resync playlist ${playlistId}`)
+    return {
+      playlist,
+      tracks: playlistTracks.map(pt => ({
+        ...pt.track,
+        position: pt.position
+      }))
     }
   }
 
   /**
-   * Add track to user's library
+   * Get playlist tracks with user library status for frontend display
    */
-  async addTrackToUserLibrary(trackId: string, userId: string) {
+  async getPlaylistTracksWithUserStatus(playlistId: string, userId: string): Promise<{
+    playlist: PlaylistWithTracks
+    tracks: TrackWithUserStatus[]
+  }> {
+    // Get playlist with tracks
+    const result = await this.getPlaylistTracks('youtube', playlistId, userId)
+    
+    // Get user's active library tracks for status check
+    const userTracks = await prisma.userTrack.findMany({
+      where: {
+        userId: userId,
+        isActive: true
+      },
+      select: {
+        trackId: true
+      }
+    })
+    
+    const userTrackIds = new Set(userTracks.map(ut => ut.trackId))
+    
+    // Transform to type-safe frontend format
+    const playlist: PlaylistWithTracks = {
+      ...result.playlist,
+      tracks: []
+    }
+    
+    const tracks: TrackWithUserStatus[] = result.tracks.map(track => ({
+      ...track,
+      isInUserLibrary: userTrackIds.has(track.id),
+      service: undefined // Will be populated if needed
+    }))
+    
+    // Update playlist tracks
+    playlist.tracks = tracks
+    
+    return {
+      playlist,
+      tracks
+    }
+  }
+
+  /**
+   * Sync playlist tracks (refresh from service)
+   */
+  /**
+   * Adds a track to the user's library, handling soft-deleted track reactivation
+   * 
+   * This method performs the following operations:
+   * 1. Validates that the track exists in the database
+   * 2. Checks if the user already has this track in their library
+   * 3. If the track was previously soft-deleted, reactivates it
+   * 4. If the track is new to the user, creates a new UserTrack record
+   * 
+   * @param userId - The ID of the user adding the track
+   * @param trackId - The ID of the track to add to the user's library
+   * @returns Promise resolving to success status
+   * @throws {ServiceNotFoundError} If the service is not found
+   * @throws {TrackNotFoundError} If the track is not found
+   * @example
+   * ```typescript
+   * const result = await service.addTrackToUserLibrary('user123', 'track456')
+   * if (result.success) {
+   *   console.log('Track added successfully')
+   * }
+   * ```
+   */
+  async addTrackToUserLibrary(userId: string, trackId: string): Promise<{ success: boolean }> {
     try {
-      // Check if track was previously soft deleted
+      // Check if track exists
+      const track = await prisma.track.findUnique({
+        where: { id: trackId }
+      })
+      
+      if (!track) {
+        return { success: false }
+      }
+      
+      // Check if user already has this track
       const existingUserTrack = await prisma.userTrack.findUnique({
         where: {
           userId_trackId: {
@@ -476,63 +491,228 @@ export class ServicePlaylistService {
           }
         }
       })
-
+      
       if (existingUserTrack) {
-        // Restore soft deleted track
-        return prisma.userTrack.update({
-          where: { id: existingUserTrack.id },
-          data: {
-            isActive: true,
-            deletedAt: null,
-            updatedAt: new Date()
-          }
-        })
-      } else {
-        // Create new user track
-        return prisma.userTrack.create({
-          data: {
-            userId,
-            trackId,
-            isActive: true
-          }
-        })
+        if (existingUserTrack.isActive) {
+          return { success: true } // Already exists and is active
+        } else {
+          // Reactivate soft-deleted track
+          await prisma.userTrack.update({
+            where: {
+              userId_trackId: {
+                userId,
+                trackId
+              }
+            },
+            data: {
+              isActive: true,
+              deletedAt: null
+            }
+          })
+          return { success: true } // Reactivated
+        }
       }
+      
+      // Add track to user's library
+      await prisma.userTrack.create({
+        data: {
+          userId,
+          trackId,
+          isActive: true
+        }
+      })
+      
+      return { success: true }
     } catch (error) {
       console.error('Error adding track to user library:', error)
-      throw new Error(`Failed to add track ${trackId} to user library`)
+      return { success: false }
     }
   }
 
   /**
-   * Remove track from user's library (soft delete)
+   * Removes a track from the user's library using soft delete
+   * 
+   * This method performs a soft delete by setting `isActive: false` and `deletedAt: timestamp`
+   * instead of permanently removing the record. This allows for data recovery and audit trails.
+   * 
+   * @param userId - The ID of the user removing the track
+   * @param trackId - The ID of the track to remove from the user's library
+   * @returns Promise resolving to success status (true if record was updated, false if not found)
+   * @example
+   * ```typescript
+   * const result = await service.removeTrackFromUserLibrary('user123', 'track456')
+   * if (result.success) {
+   *   console.log('Track removed successfully')
+   * } else {
+   *   console.log('Track was not found in user library')
+   * }
+   * ```
    */
-  async removeTrackFromUserLibrary(trackId: string, userId: string) {
+  async removeTrackFromUserLibrary(userId: string, trackId: string): Promise<{ success: boolean }> {
     try {
-      return prisma.userTrack.update({
+      const result = await prisma.userTrack.updateMany({
         where: {
-          userId_trackId: {
-            userId,
-            trackId
-          }
+          userId,
+          trackId,
         },
         data: {
           isActive: false,
-          deletedAt: new Date(),
-          updatedAt: new Date()
+          deletedAt: new Date()
         }
       })
+      
+      return { success: result.count > 0 }
     } catch (error) {
       console.error('Error removing track from user library:', error)
-      throw new Error(`Failed to remove track ${trackId} from user library`)
+      return { success: false }
+    }
+  }
+
+  /**
+   * Resync a playlist (refresh tracks from external service)
+   * 
+   * @param playlistId - The playlist ID to resync
+   * @param userId - The user ID
+   * @returns Promise resolving to sync result
+   */
+  async resyncPlaylist(playlistId: string, userId: string): Promise<{ success: boolean; tracksAdded: number; totalTracks: number }> {
+    try {
+      // Get the playlist
+      const playlist = await prisma.servicePlaylist.findUnique({
+        where: { id: playlistId },
+        include: { service: true }
+      })
+      
+      if (!playlist) {
+        return { success: false, tracksAdded: 0, totalTracks: 0 }
+      }
+      
+      // Use the existing sync method
+      const result = await this.syncPlaylistTracks(playlist.service.name, playlistId, userId)
+      return result
+    } catch (error) {
+      console.error('Error resyncing playlist:', error)
+      return { success: false, tracksAdded: 0, totalTracks: 0 }
+    }
+  }
+
+  async syncPlaylistTracks(serviceName: string, playlistId: string, userId: string) {
+    const service = await this.getServiceByName(serviceName)
+    const connection = await this.getUserConnection(serviceName, userId)
+    const tokenData = this.parseConnectionTokens(connection)
+
+    // Get playlist details
+    const playlist = await prisma.servicePlaylist.findFirst({
+      where: {
+        id: playlistId,
+        serviceId: service.id,
+        ownerId: userId,
+        isActive: true
+      }
+    })
+
+    if (!playlist) {
+      throw new Error('Playlist not found or access denied')
+    }
+
+    // For now, we only support YouTube - other services will be added later
+    if (serviceName !== YOUTUBE_SERVICE.NAME) {
+      throw new Error(`Service ${serviceName} is not yet supported`)
+    }
+
+    // Get fresh playlist items from YouTube service
+    const youtubeService = createYouTubeService()
+    const playlistItems = await youtubeService.getPlaylistItems(playlist.externalId, tokenData.access_token)
+
+    // Update playlist metadata
+    await prisma.servicePlaylist.update({
+      where: { id: playlist.id },
+      data: {
+        itemCount: playlistItems.length,
+        lastSyncedAt: new Date()
+      }
+    })
+
+    // Process tracks in a transaction
+    const tracksAdded = await prisma.$transaction(async (tx) => {
+      let processedTracks = 0
+      
+      for (let i = 0; i < playlistItems.length; i++) {
+        const item = playlistItems[i] as NewYouTubePlaylistItem
+        
+        if (!item) continue
+        
+        try {
+          // Transform track data using new type-safe architecture
+          const trackData = transformYouTubePlaylistItemToTrack(item, service.id)
+          
+          // Create or update track (Prisma handles validation)
+          const track = await tx.track.upsert({
+            where: {
+              serviceId_serviceProviderId: {
+                serviceId: service.id,
+                serviceProviderId: item.snippet?.resourceId?.videoId || 'unknown'
+              }
+            },
+            update: {
+              ...trackData,
+              updatedAt: new Date()
+            },
+            create: trackData
+          })
+
+          // Create or update synchronised playlist entry
+          await tx.servicePlaylistTrack.upsert({
+            where: {
+              playlistId_trackId: {
+                playlistId: playlist.id,
+                trackId: track.id
+              }
+            },
+            update: {
+              position: i + 1
+            },
+            create: {
+              playlistId: playlist.id,
+              trackId: track.id,
+              position: i + 1
+            }
+          })
+
+          processedTracks++
+        } catch (error) {
+          console.error(`Error processing track ${item.snippet?.resourceId?.videoId || 'unknown'}:`, error)
+          // Continue processing other tracks
+        }
+      }
+      
+      return processedTracks
+    })
+
+    return {
+      success: true,
+      tracksAdded,
+      totalTracks: playlistItems.length
     }
   }
 }
 
-/**
- * Factory function to create a ServicePlaylistService instance
- * 
- * @returns ServicePlaylistService instance
- */
+// Error classes
+export class ServiceNotFoundError extends Error {
+  constructor(serviceName: string) {
+    super(`Service not found: ${serviceName}`)
+    this.name = 'ServiceNotFoundError'
+  }
+}
+
+export class NoTokensError extends Error {
+  constructor(serviceName: string) {
+    super(`No valid tokens found for service: ${serviceName}`)
+    this.name = 'NoTokensError'
+  }
+}
+
+// Factory function to create service instance
 export function createServicePlaylistService(): ServicePlaylistService {
-	return new ServicePlaylistService()
+  return new ServicePlaylistService()
 }

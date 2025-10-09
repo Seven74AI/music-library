@@ -123,6 +123,31 @@ export default function MusicDashboard() {
 				</p>
 			</div>
 
+			{/* Quick Actions */}
+			<div className="mb-8">
+				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
+				<div className="flex flex-wrap gap-4">
+					<Button asChild>
+						<Link to="/music/services/youtube/import">
+							<Icon name="download" className="h-4 w-4 mr-2" />
+							Import Tracks
+						</Link>
+					</Button>
+					<Button asChild variant="outline">
+						<Link to="/playlists/new">
+							<Icon name="plus" className="h-4 w-4 mr-2" />
+							Create Playlist
+						</Link>
+					</Button>
+					<Button asChild variant="outline">
+						<Link to="/music/services/youtube">
+							<Icon name="link-2" className="h-4 w-4 mr-2" />
+							Manage YouTube
+						</Link>
+					</Button>
+				</div>
+			</div>
+
 			{/* Quick Stats */}
 			<div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
 				<Card>
@@ -173,31 +198,6 @@ export default function MusicDashboard() {
 				</Card>
 			</div>
 
-			{/* Quick Actions */}
-			<div className="mb-8">
-				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
-				<div className="flex flex-wrap gap-4">
-					<Button asChild>
-						<Link to="/music/services/import">
-							<Icon name="download" className="h-4 w-4 mr-2" />
-							Import Tracks
-						</Link>
-					</Button>
-					<Button asChild variant="outline">
-						<Link to="/playlists/new">
-							<Icon name="plus" className="h-4 w-4 mr-2" />
-							Create Playlist
-						</Link>
-					</Button>
-					<Button asChild variant="outline">
-						<Link to="/music/services/youtube">
-							<Icon name="link-2" className="h-4 w-4 mr-2" />
-							Manage YouTube
-						</Link>
-					</Button>
-				</div>
-			</div>
-
 			<div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 				{/* Recent Tracks */}
 				<Card>
@@ -216,7 +216,7 @@ export default function MusicDashboard() {
 								<Icon name="file-text" className="h-8 w-8 mx-auto mb-2" />
 								<p>No tracks yet</p>
 								<Button asChild variant="outline" size="sm" className="mt-2">
-									<Link to="/music/services/import">
+									<Link to="/music/services/youtube/import">
 										Import your first track
 									</Link>
 								</Button>

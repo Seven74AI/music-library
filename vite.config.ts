@@ -20,13 +20,14 @@ export default defineConfig((config) => ({
 			external: [/node:.*/, 'fsevents'],
 		},
 
-		assetsInlineLimit: (source: string) => {
+		assetsInlineLimit: (filePath: string, _content: Buffer): boolean | undefined => {
 			if (
-				source.endsWith('favicon.svg') ||
-				source.endsWith('apple-touch-icon.png')
+				filePath.endsWith('favicon.svg') ||
+				filePath.endsWith('apple-touch-icon.png')
 			) {
-				return false
+				return false // Don't inline these assets
 			}
+			return undefined // Use default behavior for other assets
 		},
 
 		sourcemap: true,

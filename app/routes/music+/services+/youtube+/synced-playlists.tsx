@@ -1,17 +1,28 @@
 import { type ServicePlaylist } from '@prisma/client'
 import { formatDistanceToNow } from 'date-fns'
-import { data, Form, useActionData, useLoaderData, Link, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+import {
+  data,
+  Form,
+  useActionData,
+  useLoaderData,
+  Link,
+  type LoaderFunctionArgs,
+  type ActionFunctionArgs,
+} from 'react-router'
 
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { isErrorActionResult, isSuccessActionResult } from '#app/types/frontend'
 import { 
   YOUTUBE_SYNCED_PLAYLISTS_INTENTS,
   YOUTUBE_PAGE_TYPES,
   validateSyncedPlaylistsIntent,
-  getIntentErrorMessage
+  getIntentErrorMessage,
 } from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
+import { handleLoaderError } from '#app/utils/error-handlers.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 
 /**
@@ -32,11 +43,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			playlists,
 		})
 	} catch (error) {
-		console.error('Error loading synced playlists:', error)
-		// Return empty state instead of throwing to prevent page crash
-		return data({
+		return handleLoaderError(error, {
 			playlists: [],
-		})
+		}, 'synced playlists')
 	}
 }
 
@@ -77,7 +86,7 @@ export async function action({ request }: ActionFunctionArgs) {
 					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
 				}
 				
-				const result = await servicePlaylistService.removePlaylistFromSync(playlistId, userId)
+				const result = await servicePlaylistService.removePlaylistFromSync(YOUTUBE_SERVICE.NAME, playlistId, userId)
 				return data({ status: 'success', ...result })
 			}
 			
@@ -140,7 +149,7 @@ export default function YouTubeSyncedPlaylistsPage() {
 						<Icon name="question-mark-circled" className="h-4 w-4 text-destructive" />
 						<p className="text-sm text-destructive font-medium">Error</p>
 					</div>
-					<p className="text-sm text-destructive mt-1">{actionData.message}</p>
+					<p className="text-sm text-destructive mt-1">{isErrorActionResult(actionData) ? actionData.message : 'An error occurred'}</p>
 				</div>
 			)}
 
@@ -150,7 +159,7 @@ export default function YouTubeSyncedPlaylistsPage() {
 						<Icon name="check-circled" className="h-4 w-4 text-green-600" />
 						<p className="text-sm text-green-800 font-medium">Success</p>
 					</div>
-					<p className="text-sm text-green-700 mt-1">{actionData.message}</p>
+					<p className="text-sm text-green-700 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
 				</div>
 			)}
 

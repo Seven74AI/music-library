@@ -88,19 +88,31 @@ export function getConservativeCacheControl(
 					switch (typeof currentValue) {
 						case 'boolean': {
 							if (currentValue) {
-								acc[directive] = true as any
+								// Only assign boolean values to properties that accept them
+								if (directive === 'private' || directive === 'noCache' || directive === 'noStore' || 
+									directive === 'mustRevalidate' || directive === 'proxyRevalidate' || 
+									directive === 'immutable' || directive === 'noTransform' || 
+									directive === 'onlyIfCached' || directive === 'public') {
+									acc[directive] = true as CacheControlValue[typeof directive]
+								}
 							}
-
+							// Don't set anything for false values - leave as undefined
 							break
 						}
 						case 'number': {
 							const accValue = acc[directive] as number | undefined
 
-							if (accValue === undefined) {
-								acc[directive] = currentValue as any
-							} else {
+							if (accValue === undefined && typeof currentValue === 'number') {
+								// Only assign number values to properties that accept them
+								if (directive === 'maxAge' || directive === 'sharedMaxAge') {
+									acc[directive] = currentValue as CacheControlValue[typeof directive]
+								}
+							} else if (typeof currentValue === 'number' && typeof accValue === 'number') {
 								const result = Math.min(accValue, currentValue)
-								acc[directive] = result as any
+								// Only assign number values to properties that accept them
+								if (directive === 'maxAge' || directive === 'sharedMaxAge') {
+									acc[directive] = result as CacheControlValue[typeof directive]
+								}
 							}
 
 							break

@@ -38,11 +38,7 @@ export async function validateYouTubeOAuth(userId: string): Promise<ValidatedOAu
 
       return {
         connection,
-        tokenData: {
-          accessToken: tokenObj.access_token,
-          refreshToken: tokenObj.refresh_token,
-          expiryDate: tokenObj.expiry_date
-        }
+        tokenData: tokenObj
       }
     } catch (error) {
       console.error('Invalid YouTube OAuth token format:', error)

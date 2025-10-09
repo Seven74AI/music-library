@@ -1,8 +1,10 @@
+import { type Prisma } from '@prisma/client'
 import { redirect } from 'react-router'
-import { prisma } from './db.server.ts'
-import { extractYouTubeVideoId } from './track-validation.server.ts'
+
+import { prisma } from './db.server'
+import { extractYouTubeVideoId } from './track-validation.server'
 import { YouTubeAPIError } from './youtube-errors'
-import { getYouTubeVideoDetails } from './youtube-search.server.ts'
+import { getYouTubeVideoDetails } from './youtube-search.server'
 
 // Generic service API error
 export class ServiceAPIError extends Error {
@@ -38,11 +40,8 @@ const youtubeImportHandler: ServiceImportHandler = {
   },
 
   async getVideoDetails(videoId: string) {
-    console.log(`youtubeImportHandler.getVideoDetails called with: ${videoId}`)
     try {
-      console.log(`About to call getYouTubeVideoDetails`)
       const details = await getYouTubeVideoDetails(videoId)
-      console.log(`getYouTubeVideoDetails returned:`, details)
       return {
         id: details.id,
         title: details.title,
@@ -53,7 +52,6 @@ const youtubeImportHandler: ServiceImportHandler = {
         publishedAt: details.publishedAt,
       }
     } catch (error) {
-      console.error('YouTube import error:', error)
       if (error instanceof YouTubeAPIError) {
         throw new ServiceAPIError(error.message, error.code, error.statusCode)
       }
@@ -62,7 +60,7 @@ const youtubeImportHandler: ServiceImportHandler = {
   },
 
   getImportUrl(serviceName: string, videoId: string): string {
-    return `/music/services/import/${serviceName}/${videoId}`
+    return `/music/services/youtube/import?videoId=${videoId}`
   }
 }
 
@@ -111,7 +109,7 @@ export async function processServiceImport(serviceName: string, url: string): Pr
  */
 export async function importTrackDirectly(serviceName: string, videoId: string, userId: string): Promise<{
   success: boolean
-  track?: any
+  track?: Prisma.TrackGetPayload<{}>
   error?: string
   errorType?: string
   trackId?: string
@@ -145,16 +143,24 @@ export async function importTrackDirectly(serviceName: string, videoId: string, 
     // If track doesn't exist, create it
     if (!track) {
       const { createId } = await import('@paralleldrive/cuid2')
+      
+      // Prepare track data (Prisma handles validation)
+      const trackData: Prisma.TrackCreateInput = {
+        title: videoDetails.title,
+        artist: videoDetails.artist,
+        album: null,
+        duration: videoDetails.duration,
+        serviceProviderId: videoId,
+        service: { connect: { id: service.id } },
+        serviceUrl: videoDetails.serviceUrl,
+        thumbnailUrl: videoDetails.thumbnailUrl,
+        releaseDate: null,
+      }
+      
       track = await prisma.track.create({
         data: {
           id: createId(),
-          title: videoDetails.title,
-          artist: videoDetails.artist,
-          serviceId: service.id,
-          serviceProviderId: videoId,
-          serviceUrl: videoDetails.serviceUrl,
-          duration: videoDetails.duration,
-          thumbnailUrl: videoDetails.thumbnailUrl,
+          ...trackData,
         }
       })
     }
@@ -180,11 +186,13 @@ export async function importTrackDirectly(serviceName: string, videoId: string, 
     
     // Add track to user's library
     const { createId } = await import('@paralleldrive/cuid2')
+    
+    // Create user track (Prisma handles validation)
     await prisma.userTrack.create({
       data: {
         id: createId(),
-        userId: userId,
-        trackId: track.id,
+        user: { connect: { id: userId } },
+        track: { connect: { id: track.id } }
       }
     })
     

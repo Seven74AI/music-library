@@ -66,26 +66,12 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 				</p>
 			</div>
 
-			{/* Active Services */}
-			<div className="mb-8">
-				<h2 className="text-xl font-semibold mb-4">Available Services</h2>
-				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-					{services.map((service) => (
-						<ServiceCard 
-							key={service.id} 
-							service={service} 
-							connectionStatus={service.name === YOUTUBE_SERVICE.NAME ? youtubeConnectionStatus : null}
-						/>
-					))}
-				</div>
-			</div>
-
 			{/* Quick Actions */}
 			<div className="mb-8">
 				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
 				<div className="flex flex-wrap gap-4">
 					<Button asChild>
-						<Link to="/music/services/import">
+						<Link to="/music/services/youtube/import">
 							<Icon name="download" className="h-4 w-4 mr-2" />
 							Import Tracks
 						</Link>
@@ -102,6 +88,20 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 							Manage Playlists
 						</Link>
 					</Button>
+				</div>
+			</div>
+
+			{/* Active Services */}
+			<div className="mb-8">
+				<h2 className="text-xl font-semibold mb-4">Available Services</h2>
+				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+					{services.map((service) => (
+						<ServiceCard 
+							key={service.id} 
+							service={service} 
+							connectionStatus={service.name === YOUTUBE_SERVICE.NAME ? youtubeConnectionStatus : null}
+						/>
+					))}
 				</div>
 			</div>
 
@@ -222,7 +222,7 @@ function ServiceCard({
 								</Link>
 							</Button>
 							<Button asChild variant="outline" size="sm">
-								<Link to={`/music/services/import/${service.name}`}>
+								<Link to={`/music/services/youtube/import`}>
 									<Icon name="download" className="h-4 w-4" />
 								</Link>
 							</Button>
