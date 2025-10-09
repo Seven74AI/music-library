@@ -97,15 +97,7 @@ async function cleanupUserData(userIds: string[]): Promise<void> {
 			}
 		})
 		await prisma.userPlaylist.deleteMany({ where: whereOwnerId })
-		
-		// Delete notes and their images (references User)
-		await prisma.noteImage.deleteMany({
-			where: {
-				note: whereOwnerId
-			}
-		})
-		await prisma.note.deleteMany({ where: whereOwnerId })
-		
+
 		// Delete user-related data (references User) - can be done in parallel
 		await Promise.all([
 			prisma.session.deleteMany({ where: whereUserId }),

@@ -1,27 +1,3 @@
-// @context7: React, React Router, Tailwind CSS, TypeScript, openimg
-/* 
-    Before answering my question, MANDATORY use Context7 to fetch documentation for:
-
-    - React
-    - React Router
-    - Tailwind CSS
-    - TypeScript
-    - openimg
-
-    Context7 Instructions:
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: openimg
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
-*/
 import { Img } from 'openimg/react'
 import { useRef } from 'react'
 import { Link, Form } from 'react-router'
@@ -71,13 +47,6 @@ export function UserDropdown() {
 						<Link prefetch="intent" to={`/users/${user.username}`}>
 							<Icon className="text-body-md" name="avatar">
 								Profile
-							</Icon>
-						</Link>
-					</DropdownMenuItem>
-					<DropdownMenuItem asChild>
-						<Link prefetch="intent" to={`/users/${user.username}/notes`}>
-							<Icon className="text-body-md" name="pencil-2">
-								Notes
 							</Icon>
 						</Link>
 					</DropdownMenuItem>

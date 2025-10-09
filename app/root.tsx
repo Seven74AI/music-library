@@ -62,8 +62,8 @@ export const links: Route.LinksFunction = () => {
 
 export const meta: Route.MetaFunction = ({ data }) => {
 	return [
-		{ title: data ? 'Epic Notes' : 'Error | Epic Notes' },
-		{ name: 'description', content: `Your own captain's log` },
+		{ title: data ? 'Music Library' : 'Error | Music Library' },
+		{ name: 'description', content: `Your personal music library` },
 	]
 }
 
@@ -239,7 +239,7 @@ function Logo() {
 				epic
 			</span>
 			<span className="font-bold transition group-hover:translate-x-1">
-				notes
+				music
 			</span>
 		</Link>
 	)

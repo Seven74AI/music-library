@@ -283,7 +283,7 @@ function PasskeyLogin({
 }
 
 export const meta: Route.MetaFunction = () => {
-	return [{ title: 'Login to Epic Notes' }]
+	return [{ title: 'Login to Music Library' }]
 }
 
 export function ErrorBoundary() {

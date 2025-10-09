@@ -44,7 +44,6 @@ model User {
 
   image       UserImage?
   password    Password?
-  notes       Note[]
   roles       Role[]
   sessions    Session[]
   connections Connection[]
@@ -52,40 +51,6 @@ model User {
   playlists   UserPlaylist[]
   userTracks  UserTrack[]
   servicePlaylists ServicePlaylist[]
-}
-
-model Note {
-  id      String @id @default(cuid())
-  title   String
-  content String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  ownerId String
-
-  images NoteImage[]
-
-  // non-unique foreign key
-  @@index([ownerId])
-  // This helps our order by in the user search a LOT
-  @@index([ownerId, updatedAt])
-}
-
-model NoteImage {
-  id        String  @id @default(cuid())
-  altText   String?
-  objectKey String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  note   Note   @relation(fields: [noteId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  noteId String
-
-  // non-unique foreign key
-  @@index([noteId])
 }
 
 model UserImage {
@@ -124,7 +89,7 @@ model Session {
 model Permission {
   id          String @id @default(cuid())
   action      String // e.g. create, read, update, delete
-  entity      String // e.g. note, user, etc.
+  entity      String // e.g. user, etc.
   access      String // e.g. own or any
   description String @default("")
 

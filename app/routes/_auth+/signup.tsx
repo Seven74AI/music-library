@@ -68,7 +68,7 @@ export async function action({ request }: Route.ActionArgs) {
 
 	const response = await sendEmail({
 		to: email,
-		subject: `Welcome to Epic Notes!`,
+		subject: `Welcome to Music Library!`,
 		react: <SignupEmail onboardingUrl={verifyUrl.toString()} otp={otp} />,
 	})
 
@@ -97,7 +97,7 @@ export function SignupEmail({
 		<E.Html lang="en" dir="ltr">
 			<E.Container>
 				<h1>
-					<E.Text>Welcome to Epic Notes!</E.Text>
+					<E.Text>Welcome to Music Library!</E.Text>
 				</h1>
 				<p>
 					<E.Text>
@@ -114,7 +114,7 @@ export function SignupEmail({
 }
 
 export const meta: Route.MetaFunction = () => {
-	return [{ title: 'Sign Up | Epic Notes' }]
+	return [{ title: 'Sign Up | Music Library' }]
 }
 
 export default function SignupRoute({ actionData }: Route.ComponentProps) {

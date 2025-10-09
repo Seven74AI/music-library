@@ -1,4 +1,4 @@
-// Raw SQL query for complex user search with ordering by latest note
+// Raw SQL query for user search
 import { Img } from 'openimg/react'
 import { redirect, Link } from 'react-router'
 import { GeneralErrorBoundary } from '#app/components/error-boundary.tsx'
@@ -32,7 +32,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 	try {
 		const like = `%${searchTerm ?? ''}%`
-		
+
 		// Execute the raw SQL query with proper parameter binding
 		const users = await prisma.$queryRaw<SearchUser[]>`
 			SELECT 
@@ -45,13 +45,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 			LEFT JOIN "UserImage" ON "User".id = "UserImage".userId
 			WHERE "User".username LIKE ${like}
 			OR "User".name LIKE ${like}
-			ORDER BY (
-				SELECT "Note".updatedAt
-				FROM "Note"
-				WHERE "Note".ownerId = "User".id
-				ORDER BY "Note".updatedAt DESC
-				LIMIT 1
-			) DESC
+			ORDER BY "User".createdAt DESC
 			LIMIT 50
 		`
 		return { status: 'idle', users } as const
@@ -76,7 +70,7 @@ export default function UsersRoute({ loaderData }: Route.ComponentProps) {
 
 	return (
 		<div className="container mt-36 mb-48 flex flex-col items-center justify-center gap-6">
-			<h1 className="text-h1">Epic Notes Users</h1>
+			<h1 className="text-h1">Music Library Users</h1>
 			<div className="w-full max-w-[700px]">
 				<SearchBar status={loaderData.status} autoFocus autoSubmit />
 			</div>

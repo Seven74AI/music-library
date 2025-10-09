@@ -249,13 +249,6 @@ This document outlines a systematic testing plan for all routes and actions in t
   - [ ] Public/private content visibility
   - [ ] User statistics
 
-#### 7.2 User Notes (`/users/{username}/notes`)
-- **Actions to test**:
-  - [ ] Display user's notes
-  - [ ] Create new note
-  - [ ] Edit existing notes
-  - [ ] Delete notes
-  - [ ] Image upload in notes
 
 ### 8. Admin Routes (`admin+/`)
 **Base URL**: `/admin`
