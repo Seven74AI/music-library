@@ -7,7 +7,7 @@ export const prisma = remember('prisma', () => {
 	// NOTE: if you change anything in this function you'll need to restart
 	// the dev server to see your changes.
 
-	// Feel free to change this log threshold to something that makes sense for you
+	// Always 20ms threshold as requested
 	const logThreshold = 20
 
 	const client = new PrismaClient({
@@ -19,6 +19,22 @@ export const prisma = remember('prisma', () => {
 	})
 	client.$on('query', async (e) => {
 		if (e.duration < logThreshold) return
+		
+		// Analyze query complexity
+		const hasJoins = e.query.includes('JOIN')
+		const hasSubqueries = e.query.includes('SELECT') && e.query.split('SELECT').length > 2
+		const hasOrderBy = e.query.includes('ORDER BY')
+		const hasGroupBy = e.query.includes('GROUP BY')
+		const hasDistinct = e.query.includes('DISTINCT')
+		
+		const complexity = [
+			hasJoins ? '[JOINS]' : '',
+			hasSubqueries ? '[SUBQUERY]' : '',
+			hasOrderBy ? '[ORDER]' : '',
+			hasGroupBy ? '[GROUP]' : '',
+			hasDistinct ? '[DISTINCT]' : '',
+		].filter(Boolean).join(' ')
+		
 		const color =
 			e.duration < logThreshold * 1.1
 				? 'green'
@@ -30,7 +46,7 @@ export const prisma = remember('prisma', () => {
 							? 'redBright'
 							: 'red'
 		const dur = styleText(color, `${e.duration}ms`)
-		console.info(`prisma:query - ${dur} - ${e.query}`)
+		console.info(`prisma:query - ${dur} - ${e.query} ${complexity}`)
 	})
 	void client.$connect()
 	return client

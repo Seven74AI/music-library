@@ -1,37 +1,3 @@
-// @context7: Prisma, React, React Router, Tailwind CSS, TypeScript
-/* 
-    Before answering my question, MANDATORY use Context7 to fetch documentation for:
-
-    - Prisma
-    - React
-    - React Router
-    - Tailwind CSS
-    - TypeScript
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    Context7 Instructions:
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
-*/
 import { data, NavLink, Form } from 'react-router'
 import { AddTrackModal } from '#app/components/add-track-modal.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
@@ -42,8 +8,11 @@ import { type Route } from './+types/library.index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
 	const userId = await requireUserId(request)
+	const url = new URL(request.url)
+	const cursor = url.searchParams.get('cursor')
+	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20')))
 
-	// Get user's tracks (not all tracks)
+	// Get user's tracks with cursor-based pagination
 	const userTracks = await prisma.userTrack.findMany({
 		where: { userId },
 		select: {
@@ -78,13 +47,26 @@ export async function loader({ request }: Route.LoaderArgs) {
 			},
 		},
 		orderBy: { createdAt: 'desc' },
+		take: limit,
+		cursor: cursor ? { id: cursor } : undefined,
+		skip: cursor ? 1 : undefined,
 	})
 
-	return data({ userTracks })
+	// Get next cursor for pagination
+	const nextCursor = userTracks.length === limit ? userTracks[userTracks.length - 1]?.id : null
+
+	return data({ 
+		userTracks, 
+		pagination: {
+			limit,
+			hasNext: !!nextCursor,
+			nextCursor,
+		}
+	})
 }
 
 export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) {
-	const { userTracks } = loaderData
+	const { userTracks, pagination } = loaderData
 
 	return (
 		<>
@@ -222,6 +204,21 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 							})}
 						</tbody>
 					</table>
+					
+					{/* Pagination */}
+					{pagination.hasNext && (
+						<div className="flex items-center justify-center px-4 py-3 border-t">
+							<div className="flex items-center gap-2">
+								<NavLink
+									to={`?cursor=${pagination.nextCursor}&limit=${pagination.limit}`}
+									className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 hover:bg-accent"
+								>
+									Next
+									<Icon name="arrow-right" className="h-4 w-4" />
+								</NavLink>
+							</div>
+						</div>
+					)}
 				</div>
 			)}
 		</>

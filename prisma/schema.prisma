@@ -240,6 +240,7 @@ model Track {
   // Indexes
   @@index([serviceId, serviceProviderId]) // For external service lookups
   @@index([updatedAt])
+  @@index([createdAt]) // For ordering performance
   @@unique([serviceId, serviceProviderId]) // Prevent duplicate external tracks
 }
 
@@ -336,6 +337,7 @@ model UserTrack {
   @@index([userId])
   @@index([trackId])
   @@index([userId, isActive]) // For efficient filtering
+  @@index([userId, createdAt]) // For library ordering performance
 }
 
 model ServicePlaylist {

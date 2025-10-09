@@ -1,37 +1,3 @@
-// @context7: Prisma, React, React Router, Tailwind CSS, TypeScript
-/* 
-    Before answering my question, MANDATORY use Context7 to fetch documentation for:
-
-    - Prisma
-    - React
-    - React Router
-    - Tailwind CSS
-    - TypeScript
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    Context7 Instructions:
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
-*/
 import { data, NavLink } from 'react-router'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { requireUserId } from '#app/utils/auth.server.ts'
@@ -41,6 +7,9 @@ import { type Route } from './+types/playlists.index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
 	const userId = await requireUserId(request)
+	const url = new URL(request.url)
+	const cursor = url.searchParams.get('cursor')
+	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '12')))
 
 	const playlists = await prisma.userPlaylist.findMany({
 		where: { ownerId: userId },
@@ -66,13 +35,26 @@ export async function loader({ request }: Route.LoaderArgs) {
 			},
 		},
 		orderBy: { updatedAt: 'desc' },
+		take: limit,
+		cursor: cursor ? { id: cursor } : undefined,
+		skip: cursor ? 1 : undefined,
 	})
 
-	return data({ playlists })
+	// Get next cursor for pagination
+	const nextCursor = playlists.length === limit ? playlists[playlists.length - 1]?.id : null
+
+	return data({ 
+		playlists,
+		pagination: {
+			limit,
+			hasNext: !!nextCursor,
+			nextCursor,
+		}
+	})
 }
 
 export default function PlaylistsIndexRoute({ loaderData }: Route.ComponentProps) {
-	const { playlists } = loaderData
+	const { playlists, pagination } = loaderData
 
 	return (
 		<>
@@ -108,44 +90,61 @@ export default function PlaylistsIndexRoute({ loaderData }: Route.ComponentProps
 					</NavLink>
 				</div>
 			) : (
-				<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-					{playlists.map((playlist) => (
-						<NavLink
-							key={playlist.id}
-							to={playlist.id}
-							preventScrollReset
-							prefetch="intent"
-							className={({ isActive }) =>
-								cn(
-									'group relative rounded-lg border bg-card p-4 shadow-sm transition-all hover:shadow-md',
-									isActive && 'ring-2 ring-primary',
-								)
-							}
-						>
-							<div className="flex flex-col gap-2">
-								<div className="flex items-center justify-center mb-2">
-									<Icon name="file-text" className="h-8 w-8 text-muted-foreground" />
-								</div>
-								<div className="text-center">
-									<h3 className="font-medium text-sm line-clamp-2 mb-1">
-										{playlist.title}
-									</h3>
-									{playlist.description && (
-										<p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-											{playlist.description}
+				<>
+					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+						{playlists.map((playlist) => (
+							<NavLink
+								key={playlist.id}
+								to={playlist.id}
+								preventScrollReset
+								prefetch="intent"
+								className={({ isActive }) =>
+									cn(
+										'group relative rounded-lg border bg-card p-4 shadow-sm transition-all hover:shadow-md',
+										isActive && 'ring-2 ring-primary',
+									)
+								}
+							>
+								<div className="flex flex-col gap-2">
+									<div className="flex items-center justify-center mb-2">
+										<Icon name="file-text" className="h-8 w-8 text-muted-foreground" />
+									</div>
+									<div className="text-center">
+										<h3 className="font-medium text-sm line-clamp-2 mb-1">
+											{playlist.title}
+										</h3>
+										{playlist.description && (
+											<p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+												{playlist.description}
+											</p>
+										)}
+										<p className="text-xs text-muted-foreground">
+											{playlist.tracks.length} track{playlist.tracks.length !== 1 ? 's' : ''}
 										</p>
-									)}
-									<p className="text-xs text-muted-foreground">
-										{playlist.tracks.length} track{playlist.tracks.length !== 1 ? 's' : ''}
-									</p>
+									</div>
+									<div className="text-xs text-muted-foreground text-center">
+										{new Date(playlist.createdAt).toLocaleDateString()}
+									</div>
 								</div>
-								<div className="text-xs text-muted-foreground text-center">
-									{new Date(playlist.createdAt).toLocaleDateString()}
-								</div>
+							</NavLink>
+						))}
+					</div>
+					
+					{/* Pagination */}
+					{pagination.hasNext && (
+						<div className="flex items-center justify-center mt-6">
+							<div className="flex items-center gap-2">
+								<NavLink
+									to={`?cursor=${pagination.nextCursor}&limit=${pagination.limit}`}
+									className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 hover:bg-accent"
+								>
+									Next
+									<Icon name="arrow-right" className="h-4 w-4" />
+								</NavLink>
 							</div>
-						</NavLink>
-					))}
-				</div>
+						</div>
+					)}
+				</>
 			)}
 		</>
 	)

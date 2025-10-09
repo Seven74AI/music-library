@@ -27,6 +27,14 @@ interface PlaylistWithSyncStatus extends YouTubePlaylist {
   playlistInternalId: string | null
 }
 
+interface TrackDataBatch {
+  serviceId: string
+  serviceProviderId: string
+  trackData: ReturnType<typeof transformYouTubePlaylistItemToTrack>
+  position: number
+}
+
+
 /**
  * Service class for managing service playlists (YouTube, Spotify, etc.)
  * Handles playlist synchronization, track management, and user library operations
@@ -72,6 +80,95 @@ export class ServicePlaylistService {
     }
 
     return connection
+  }
+
+  /**
+   * Process tracks in batches for better performance
+   * 
+   * @param playlistItems - Array of playlist items to process
+   * @param serviceId - The service ID
+   * @param playlistId - The playlist ID
+   * @param tx - Prisma transaction instance
+   * @returns Number of processed tracks
+   */
+  private async processTracksInBatches(
+    playlistItems: NewYouTubePlaylistItem[],
+    serviceId: string,
+    playlistId: string,
+    tx: any
+  ): Promise<number> {
+    let processedTracks = 0
+    const batchSize = 50
+    
+    for (let batchStart = 0; batchStart < playlistItems.length; batchStart += batchSize) {
+      const batch = playlistItems.slice(batchStart, batchStart + batchSize)
+      
+      // Prepare batch data
+      const trackDataBatch: TrackDataBatch[] = []
+      
+      for (let i = 0; i < batch.length; i++) {
+        const item = batch[i] as NewYouTubePlaylistItem
+        if (!item) continue
+        
+        try {
+          const trackData = transformYouTubePlaylistItemToTrack(item, serviceId)
+          trackDataBatch.push({
+            serviceId,
+            serviceProviderId: item.snippet?.resourceId?.videoId || '',
+            trackData,
+            position: batchStart + i + 1
+          })
+        } catch (error) {
+          console.error(`Error preparing track ${item.snippet?.resourceId?.videoId || 'unknown'}:`, error)
+        }
+      }
+      
+      // Batch upsert tracks
+      const trackPromises = trackDataBatch.map(async ({ serviceId, serviceProviderId, trackData }) => {
+        return tx.track.upsert({
+          where: {
+            serviceId_serviceProviderId: {
+              serviceId,
+              serviceProviderId
+            }
+          },
+          update: {
+            ...trackData,
+            updatedAt: new Date()
+          },
+          create: trackData
+        })
+      })
+      
+      const tracks = await Promise.all(trackPromises)
+      
+      // Batch upsert playlist tracks
+      const playlistTrackPromises = tracks.map((track, index) => {
+        const trackData = trackDataBatch[index]
+        if (!trackData) return null
+        return tx.servicePlaylistTrack.upsert({
+          where: {
+            playlistId_trackId: {
+              playlistId: playlistId,
+              trackId: track.id
+            }
+          },
+          update: {
+            position: trackData.position
+          },
+          create: {
+            playlistId: playlistId,
+            trackId: track.id,
+            position: trackData.position
+          }
+        })
+      }).filter(Boolean)
+      
+      await Promise.all(playlistTrackPromises)
+      processedTracks += tracks.length
+    }
+    
+    return processedTracks
   }
 
   /**
@@ -231,60 +328,9 @@ export class ServicePlaylistService {
       }
     })
 
-    // Process tracks in a transaction for better performance and consistency
+    // Process tracks in batches for better performance
     const tracksAdded = await prisma.$transaction(async (tx) => {
-      let processedTracks = 0
-      
-      for (let i = 0; i < playlistItems.length; i++) {
-        const item = playlistItems[i] as NewYouTubePlaylistItem
-        
-        if (!item) continue
-        
-        try {
-          // Transform track data using new type-safe architecture
-          const trackData = transformYouTubePlaylistItemToTrack(item, service.id)
-          
-          // Create or update track using duration from playlist item if available (Prisma handles validation)
-          const track = await tx.track.upsert({
-            where: {
-              serviceId_serviceProviderId: {
-                serviceId: service.id,
-                serviceProviderId: item.snippet?.resourceId?.videoId || ''
-              }
-            },
-            update: {
-              ...trackData,
-              updatedAt: new Date()
-            },
-            create: trackData
-          })
-
-          // Create or update synchronised playlist entry
-          await tx.servicePlaylistTrack.upsert({
-            where: {
-              playlistId_trackId: {
-                playlistId: playlist.id,
-                trackId: track.id
-              }
-            },
-            update: {
-              position: i + 1
-            },
-            create: {
-              playlistId: playlist.id,
-              trackId: track.id,
-              position: i + 1
-            }
-          })
-
-          processedTracks++
-        } catch (error) {
-          console.error(`Error processing track ${item.snippet?.resourceId?.videoId || 'unknown'}:`, error)
-          // Continue processing other tracks
-        }
-      }
-      
-      return processedTracks
+      return this.processTracksInBatches(playlistItems, service.id, playlist.id, tx)
     })
 
     return {
@@ -633,60 +679,9 @@ export class ServicePlaylistService {
       }
     })
 
-    // Process tracks in a transaction
+    // Process tracks in batches for better performance
     const tracksAdded = await prisma.$transaction(async (tx) => {
-      let processedTracks = 0
-      
-      for (let i = 0; i < playlistItems.length; i++) {
-        const item = playlistItems[i] as NewYouTubePlaylistItem
-        
-        if (!item) continue
-        
-        try {
-          // Transform track data using new type-safe architecture
-          const trackData = transformYouTubePlaylistItemToTrack(item, service.id)
-          
-          // Create or update track (Prisma handles validation)
-          const track = await tx.track.upsert({
-            where: {
-              serviceId_serviceProviderId: {
-                serviceId: service.id,
-                serviceProviderId: item.snippet?.resourceId?.videoId || 'unknown'
-              }
-            },
-            update: {
-              ...trackData,
-              updatedAt: new Date()
-            },
-            create: trackData
-          })
-
-          // Create or update synchronised playlist entry
-          await tx.servicePlaylistTrack.upsert({
-            where: {
-              playlistId_trackId: {
-                playlistId: playlist.id,
-                trackId: track.id
-              }
-            },
-            update: {
-              position: i + 1
-            },
-            create: {
-              playlistId: playlist.id,
-              trackId: track.id,
-              position: i + 1
-            }
-          })
-
-          processedTracks++
-        } catch (error) {
-          console.error(`Error processing track ${item.snippet?.resourceId?.videoId || 'unknown'}:`, error)
-          // Continue processing other tracks
-        }
-      }
-      
-      return processedTracks
+      return this.processTracksInBatches(playlistItems, service.id, playlist.id, tx)
     })
 
     return {

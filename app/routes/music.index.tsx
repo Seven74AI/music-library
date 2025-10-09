@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from 'date-fns'
-import { data, Link, useLoaderData, type LoaderFunctionArgs } from 'react-router'
+import { data, Link, useLoaderData, Await, type LoaderFunctionArgs } from 'react-router'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
@@ -12,72 +12,54 @@ import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	
-
-	// Get user's library stats
-	const userTracks = await prisma.userTrack.findMany({
-		where: { userId },
-		select: {
-			id: true,
-			createdAt: true,
-			track: {
-				select: {
-					id: true,
-					title: true,
-					artist: true,
-					service: {
-						select: {
-							name: true,
-							displayName: true,
+	// Get counts instead of full data for better performance
+	const [totalTracks, totalPlaylists, recentTracks, recentPlaylists] = await Promise.all([
+		prisma.userTrack.count({ where: { userId } }),
+		prisma.userPlaylist.count({ where: { ownerId: userId } }),
+		prisma.userTrack.findMany({
+			where: { userId },
+			select: {
+				id: true,
+				createdAt: true,
+				track: {
+					select: {
+						id: true,
+						title: true,
+						artist: true,
+						service: {
+							select: {
+								name: true,
+								displayName: true,
+							}
 						}
 					}
 				}
-			}
-		},
-		orderBy: { createdAt: 'desc' },
-		take: 5, // Recent tracks for preview
-	})
-
-	// Get user's playlists stats
-	const userPlaylists = await prisma.userPlaylist.findMany({
-		where: { ownerId: userId },
-		select: {
-			id: true,
-			title: true,
-			updatedAt: true,
-			tracks: {
-				select: { id: true }
-			}
-		},
-		orderBy: { updatedAt: 'desc' },
-		take: 3, // Recent playlists for preview
-	})
+			},
+			orderBy: { createdAt: 'desc' },
+			take: 5, // Recent tracks for preview
+		}),
+		prisma.userPlaylist.findMany({
+			where: { ownerId: userId },
+			select: {
+				id: true,
+				title: true,
+				updatedAt: true,
+				tracks: {
+					select: { id: true }
+				}
+			},
+			orderBy: { updatedAt: 'desc' },
+			take: 3, // Recent playlists for preview
+		})
+	])
 
 	// Get YouTube service info
 	const youtubeService = await prisma.service.findUnique({
 		where: { name: YOUTUBE_SERVICE.NAME }
 	})
 
-	let youtubeStats = null
-	let youtubePlaylists: Array<{
-		id: string
-		externalId: string
-		title: string
-		description: string | null
-		thumbnailUrl: string | null
-		channelId: string | null
-		channelTitle: string | null
-		publishedAt: Date | null
-		itemCount: number
-		lastSyncedAt: Date | null
-		isActive: boolean
-		createdAt: Date
-		updatedAt: Date
-		ownerId: string
-		serviceId: string
-	}> = []
-	let hasYouTubeConnection = false
-
-	if (youtubeService) {
+	// Defer YouTube data loading for better performance
+	const youtubeDataPromise = youtubeService ? (async () => {
 		const servicePlaylistService = createServicePlaylistService()
 		
 		try {
@@ -86,33 +68,41 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				hasValidYouTubeOAuth(userId)
 			])
 			
-			hasYouTubeConnection = hasValidOAuth
-			youtubeStats = {
-				totalPlaylists: syncedPlaylists.length,
-				lastSync: syncedPlaylists.length > 0 ? syncedPlaylists[0]?.updatedAt : null
+			return {
+				hasYouTubeConnection: hasValidOAuth,
+				youtubeStats: {
+					totalPlaylists: syncedPlaylists.length,
+					lastSync: syncedPlaylists.length > 0 ? syncedPlaylists[0]?.updatedAt : null
+				},
+				youtubePlaylists: syncedPlaylists.slice(0, 3) // Recent playlists for preview
 			}
-			youtubePlaylists = syncedPlaylists.slice(0, 3) // Recent playlists for preview
 		} catch (error) {
 			console.error('Error fetching YouTube data:', error)
+			return {
+				hasYouTubeConnection: false,
+				youtubeStats: null,
+				youtubePlaylists: []
+			}
 		}
-	}
+	})() : Promise.resolve({
+		hasYouTubeConnection: false,
+		youtubeStats: null,
+		youtubePlaylists: []
+	})
 
 	return data({
 		stats: {
-			totalTracks: userTracks.length,
-			totalPlaylists: userPlaylists.length,
-			hasYouTubeConnection
+			totalTracks,
+			totalPlaylists,
 		},
-		recentTracks: userTracks,
-		recentPlaylists: userPlaylists,
-		youtubeStats,
-		youtubePlaylists,
-		hasYouTubeConnection
+		recentTracks,
+		recentPlaylists,
+		youtubeData: youtubeDataPromise
 	})
 }
 
 export default function MusicDashboard() {
-	const { stats, recentTracks, recentPlaylists, youtubeStats, youtubePlaylists, hasYouTubeConnection } = useLoaderData<typeof loader>()
+	const { stats, recentTracks, recentPlaylists, youtubeData } = useLoaderData<typeof loader>()
 
 	return (
 		<div className="container mx-auto py-8">
@@ -186,14 +176,20 @@ export default function MusicDashboard() {
 						<Icon name="link-2" className="h-4 w-4 text-muted-foreground" />
 					</CardHeader>
 					<CardContent>
-						<div className="text-2xl font-bold">
-							{hasYouTubeConnection ? 'Connected' : 'Not Connected'}
-						</div>
-						<p className="text-xs text-muted-foreground">
-							<Link to="/music/services/youtube" className="hover:underline">
-								Manage YouTube →
-							</Link>
-						</p>
+						<Await resolve={youtubeData}>
+							{(youtubeData) => (
+								<>
+									<div className="text-2xl font-bold">
+										{youtubeData.hasYouTubeConnection ? 'Connected' : 'Not Connected'}
+									</div>
+									<p className="text-xs text-muted-foreground">
+										<Link to="/music/services/youtube" className="hover:underline">
+											Manage YouTube →
+										</Link>
+									</p>
+								</>
+							)}
+						</Await>
 					</CardContent>
 				</Card>
 			</div>
@@ -298,75 +294,79 @@ export default function MusicDashboard() {
 			</div>
 
 			{/* YouTube Service Status */}
-			{youtubeStats && (
-				<div className="mt-8">
-					<Card>
-						<CardHeader>
-							<CardTitle className="flex items-center gap-2">
-								<Icon name="link-2" className="h-5 w-5" />
-								YouTube Service
-							</CardTitle>
-							<CardDescription>
-								Your YouTube playlists and sync status
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-								<div>
-									<p className="text-sm text-muted-foreground">Synced Playlists</p>
-									<p className="text-2xl font-bold">{youtubeStats.totalPlaylists}</p>
-								</div>
-								<div>
-									<p className="text-sm text-muted-foreground">Last Sync</p>
-									<p className="text-lg">
-										{youtubeStats.lastSync 
-											? formatDistanceToNow(youtubeStats.lastSync, { addSuffix: true })
-											: 'Never'
-										}
-									</p>
-								</div>
-								<div>
-									<p className="text-sm text-muted-foreground">Status</p>
-									<p className="text-lg">
-										{hasYouTubeConnection ? 'Connected' : 'Not Connected'}
-									</p>
-								</div>
-							</div>
-							
-							{youtubePlaylists.length > 0 && (
-								<div className="space-y-2 mb-4">
-									<h4 className="font-medium">Recent YouTube Playlists</h4>
-									{youtubePlaylists.map((playlist: any) => (
-										<div key={playlist.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
-											<div className="flex-1 min-w-0">
-												<p className="font-medium truncate">{playlist.title}</p>
-												<p className="text-sm text-muted-foreground">
-													{playlist.itemCount} tracks
-												</p>
-											</div>
+			<Await resolve={youtubeData}>
+				{(youtubeData) => (
+					youtubeData.youtubeStats && (
+						<div className="mt-8">
+							<Card>
+								<CardHeader>
+									<CardTitle className="flex items-center gap-2">
+										<Icon name="link-2" className="h-5 w-5" />
+										YouTube Service
+									</CardTitle>
+									<CardDescription>
+										Your YouTube playlists and sync status
+									</CardDescription>
+								</CardHeader>
+								<CardContent>
+									<div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+										<div>
+											<p className="text-sm text-muted-foreground">Synced Playlists</p>
+											<p className="text-2xl font-bold">{youtubeData.youtubeStats.totalPlaylists}</p>
 										</div>
-									))}
-								</div>
-							)}
-							
-							<div className="flex gap-2">
-								<Button asChild>
-									<Link to="/music/services/youtube">
-										Manage YouTube
-									</Link>
-								</Button>
-								{!hasYouTubeConnection && (
-									<Button asChild variant="outline">
-										<Link to="/music/services/youtube/auth">
-											Connect YouTube
-										</Link>
-									</Button>
-								)}
-							</div>
-						</CardContent>
-					</Card>
-				</div>
-			)}
+										<div>
+											<p className="text-sm text-muted-foreground">Last Sync</p>
+											<p className="text-lg">
+												{youtubeData.youtubeStats.lastSync 
+													? formatDistanceToNow(youtubeData.youtubeStats.lastSync, { addSuffix: true })
+													: 'Never'
+												}
+											</p>
+										</div>
+										<div>
+											<p className="text-sm text-muted-foreground">Status</p>
+											<p className="text-lg">
+												{youtubeData.hasYouTubeConnection ? 'Connected' : 'Not Connected'}
+											</p>
+										</div>
+									</div>
+									
+									{youtubeData.youtubePlaylists.length > 0 && (
+										<div className="space-y-2 mb-4">
+											<h4 className="font-medium">Recent YouTube Playlists</h4>
+											{youtubeData.youtubePlaylists.map((playlist) => (
+												<div key={playlist.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
+													<div className="flex-1 min-w-0">
+														<p className="font-medium truncate">{playlist.title}</p>
+														<p className="text-sm text-muted-foreground">
+															{playlist.itemCount} tracks
+														</p>
+													</div>
+												</div>
+											))}
+										</div>
+									)}
+									
+									<div className="flex gap-2">
+										<Button asChild>
+											<Link to="/music/services/youtube">
+												Manage YouTube
+											</Link>
+										</Button>
+										{!youtubeData.hasYouTubeConnection && (
+											<Button asChild variant="outline">
+												<Link to="/music/services/youtube/auth">
+													Connect YouTube
+												</Link>
+											</Button>
+										)}
+									</div>
+								</CardContent>
+							</Card>
+						</div>
+					)
+				)}
+			</Await>
 		</div>
 	)
 }
