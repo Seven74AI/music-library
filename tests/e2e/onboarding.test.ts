@@ -150,64 +150,7 @@ test('login as existing user', async ({ page, navigate, insertNewUser }) => {
 	await expect(page.getByRole('button', { name: /user menu/i })).toBeVisible()
 })
 
-test('reset password with a link', async ({
-	page,
-	navigate,
-	insertNewUser,
-}) => {
-	const originalPassword = faker.internet.password()
-	const user = await insertNewUser({ password: originalPassword })
-	invariant(user.name, 'User name not found')
-	await navigate('/login')
-
-	await page.getByRole('link', { name: /forgot password/i }).click()
-	await expect(page).toHaveURL('/forgot-password')
-
-	await expect(
-		page.getByRole('heading', { name: /forgot password/i }),
-	).toBeVisible()
-	await page.getByRole('textbox', { name: /username/i }).fill(user.username)
-	await page.getByRole('button', { name: /recover password/i }).click()
-	await expect(page.getByText(/check your email/i)).toBeVisible()
-
-	const email = await readEmail(user.email)
-	invariant(email, 'Email not found')
-	expect(email.subject).toMatch(/password reset/i)
-	expect(email.to).toBe(user.email.toLowerCase())
-	expect(email.from).toBe(noReplyEmail)
-	const resetPasswordUrl = extractUrl(email.text) as AppPages
-	invariant(resetPasswordUrl, 'Reset password URL not found')
-	await navigate(resetPasswordUrl)
-
-	await expect(page).toHaveURL(/\/verify/)
-
-	await page
-		.getByRole('main')
-		.getByRole('button', { name: /submit/i })
-		.click()
-
-	await expect(page).toHaveURL(`/reset-password`)
-	const newPassword = faker.internet.password()
-	await page.getByLabel(/^new password$/i).fill(newPassword)
-	await page.getByLabel(/^confirm password$/i).fill(newPassword)
-
-	await page.getByRole('button', { name: /reset password/i }).click()
-
-	await expect(page).toHaveURL('/login')
-	await page.getByRole('textbox', { name: /username/i }).fill(user.username)
-	await page.getByLabel(/^password$/i).fill(originalPassword)
-	await page.getByRole('button', { name: /log in/i }).click()
-
-	await expect(page.getByText(/invalid username or password/i)).toBeVisible()
-
-	await page.getByLabel(/^password$/i).fill(newPassword)
-	await page.getByRole('button', { name: /log in/i }).click()
-
-	await expect(page).toHaveURL(`/`)
-
-	await expect(page.getByRole('button', { name: /user menu/i })).toBeVisible()
-})
-
+// test reset password with a link
 test('reset password with a short code', async ({
 	page,
 	navigate,

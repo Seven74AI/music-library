@@ -100,14 +100,26 @@ export async function resetUserPassword({
 	password: string
 }) {
 	const hashedPassword = await getPasswordHash(password)
-	return prisma.user.update({
+	
+	// First, find the user to get their ID
+	const user = await prisma.user.findUnique({
 		where: { username },
-		data: {
-			password: {
-				update: {
-					hash: hashedPassword,
-				},
-			},
+		select: { id: true },
+	})
+	
+	if (!user) {
+		throw new Error('User not found')
+	}
+	
+	// Update the password directly
+	return prisma.password.upsert({
+		where: { userId: user.id },
+		create: {
+			hash: hashedPassword,
+			userId: user.id,
+		},
+		update: {
+			hash: hashedPassword,
 		},
 	})
 }
