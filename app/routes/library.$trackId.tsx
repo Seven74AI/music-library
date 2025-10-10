@@ -36,6 +36,7 @@ import { data, Link } from 'react-router'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '#app/components/ui/tooltip'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { getTrackTitle } from '#app/utils/breadcrumb-utils.ts'
 import { prisma } from '#app/utils/db.server.ts'
@@ -67,7 +68,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 					fileSize: true,
 					mimeType: true,
 					status: true,
-					priority: true,
 					errorHistory: true,
 					retryCount: true,
 					downloadedAt: true,
@@ -141,22 +141,28 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
 									<div>
 										<span className="text-sm font-medium text-muted-foreground">Status:</span>
 										<div className="flex items-center gap-2">
-											<span className={`text-xs px-2 py-1 rounded ${
-												track.audioFile?.status === 'completed' ? 'bg-green-100 text-green-800' :
-												track.audioFile?.status === 'processing' ? 'bg-blue-100 text-blue-800' :
-												track.audioFile?.status === 'failed' ? 'bg-red-100 text-red-800' :
-												track.audioFile?.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-												'bg-gray-100 text-gray-800'
-											}`}>
-												{track.audioFile?.status === 'completed' ? 'Ready for Download' :
-												 track.audioFile?.status === 'processing' ? 'Processing' :
-												 track.audioFile?.status === 'failed' ? 'Failed' :
-												 track.audioFile?.status === 'pending' ? 'Pending' :
-												 'Not Archived'}
-											</span>
-											{track.audioFile?.priority && (
-												<span className="text-xs px-2 py-1 rounded bg-purple-100 text-purple-800">
-													Priority
+											{track.audioFile?.status === 'pending' ? (
+												<Tooltip>
+													<TooltipTrigger asChild>
+														<span className="text-xs px-2 py-1 rounded bg-yellow-100 text-yellow-800">
+															Pending
+														</span>
+													</TooltipTrigger>
+													<TooltipContent>
+														<p>Track is in the processing queue and will be archived soon</p>
+													</TooltipContent>
+												</Tooltip>
+											) : (
+												<span className={`text-xs px-2 py-1 rounded ${
+													track.audioFile?.status === 'completed' ? 'bg-green-100 text-green-800' :
+													track.audioFile?.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+													track.audioFile?.status === 'failed' ? 'bg-red-100 text-red-800' :
+													'bg-gray-100 text-gray-800'
+												}`}>
+													{track.audioFile?.status === 'completed' ? 'Ready for Download' :
+													 track.audioFile?.status === 'processing' ? 'Processing' :
+													 track.audioFile?.status === 'failed' ? 'Failed' :
+													 'Not Archived'}
 												</span>
 											)}
 										</div>
