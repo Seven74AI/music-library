@@ -176,7 +176,7 @@ export default function ForgotPasswordRoute() {
 						to="/login"
 						className="text-body-sm mt-11 text-center font-bold"
 					>
-						Back to Login
+						Back
 					</Link>
 				</div>
 			</div>

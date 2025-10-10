@@ -218,7 +218,9 @@ function App() {
 				</header>
 
 				<div className="flex flex-1 flex-col">
-					<Outlet />
+					<div className="container">
+						<Outlet />
+					</div>
 				</div>
 
 				<div className="container flex justify-between pb-5">

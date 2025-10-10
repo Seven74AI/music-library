@@ -112,13 +112,13 @@ export default function YouTubeSyncedPlaylistsPage() {
 	const actionData = useActionData<typeof action>()
 
 	return (
-		<div className="container mx-auto py-8">
+		<div className="py-8">
 			<div className="mb-8">
 				<div className="flex items-center gap-4 mb-4">
 					<Button asChild variant="outline">
 						<Link to="/music/services/youtube">
 							<Icon name="arrow-left" className="mr-2" />
-							Back to YouTube Service
+							Back
 						</Link>
 					</Button>
 				</div>

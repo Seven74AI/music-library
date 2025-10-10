@@ -51,13 +51,13 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 	const { services, youtubeConnectionStatus } = loaderData
 
 	return (
-		<div className="container mx-auto py-8">
+		<div className="py-8">
 			<div className="mb-8">
 				<div className="flex items-center gap-4 mb-4">
 					<Button asChild variant="outline">
 						<Link to="/music">
 							<Icon name="arrow-left" className="mr-2" />
-							Back to Music Hub
+							Back
 						</Link>
 					</Button>
 				</div>

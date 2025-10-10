@@ -4,6 +4,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '#a
 import { Badge } from '#app/components/ui/badge'
 import { Button } from '#app/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '#app/components/ui/card'
+import { StatusBadge } from '#app/components/ui/status-badge'
 import { getQueueStats, getTracksForAdmin, enqueueTrack } from '#app/utils/audio-queue.server'
 import { 
   pauseWorker, 
@@ -14,6 +15,7 @@ import {
 } from '#app/utils/audio-worker-control.server'
 import { prisma } from '#app/utils/db.server'
 import { downloadTrack } from '#app/utils/download'
+import { validateAction, validateRequiredString, createValidationErrorResponse } from '#app/utils/form-validation'
 import { requireUserWithRole } from '#app/utils/permissions.server'
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -50,14 +52,21 @@ export async function action({ request }: ActionFunctionArgs) {
 	const trackId = formData.get('trackId')?.toString()
 
 	// Validate required parameters
-	if (!intent) {
-		return data({ success: false, message: 'Intent is required' }, { status: 400 })
+	const validIntents = [
+		'pause-worker', 'resume-worker', 'break-long-pause', 'retry-track', 
+		'archive-now', 'toggle-priority', 'delete-audio', 'requeue-track'
+	] as const
+	
+	const intentValidation = validateAction(intent, validIntents)
+	if (!intentValidation.success) {
+		return createValidationErrorResponse(intentValidation.message!)
 	}
 
 	// Helper function to validate trackId for actions that require it
 	const validateTrackId = (actionName: string) => {
-		if (!trackId) {
-			return data({ success: false, message: `Track ID is required for ${actionName}` }, { status: 400 })
+		const trackIdValidation = validateRequiredString(trackId, 'Track ID')
+		if (!trackIdValidation.success) {
+			return createValidationErrorResponse(`Track ID is required for ${actionName}`)
 		}
 		return null
 	}
@@ -192,37 +201,9 @@ export default function AudioQueuePage() {
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === 'submitting'
 
-	const getStatusBadge = (status: string) => {
-		const variants = {
-			pending: 'secondary',
-			processing: 'default',
-			completed: 'default',
-			failed: 'destructive',
-		} as const
-		
-		return (
-			<Badge variant={variants[status as keyof typeof variants] || 'secondary'}>
-				{status.charAt(0).toUpperCase() + status.slice(1)}
-			</Badge>
-		)
-	}
-
-	const getWorkerStatusBadge = (status: string) => {
-		const variants = {
-			running: 'default',
-			paused: 'secondary',
-			long_break: 'outline',
-		} as const
-		
-		return (
-			<Badge variant={variants[status as keyof typeof variants] || 'secondary'}>
-				{status === 'long_break' ? 'Long Break' : status.charAt(0).toUpperCase() + status.slice(1)}
-			</Badge>
-		)
-	}
 
 	return (
-		<div className="container mx-auto py-8">
+		<div className="container py-8">
 			<div className="mb-8">
 				<h1 className="text-3xl font-bold">Audio Archive Queue</h1>
 				<p className="text-muted-foreground mt-2">
@@ -242,7 +223,7 @@ export default function AudioQueuePage() {
 					<div className="flex items-center gap-4 mb-4">
 						<div className="flex items-center gap-2">
 							<span className="font-medium">Status:</span>
-							{getWorkerStatusBadge(workerStatus.status)}
+							<StatusBadge status={workerStatus.status} />
 						</div>
 						<div className="text-sm text-muted-foreground">
 							{workerStatus.message}
@@ -357,7 +338,7 @@ export default function AudioQueuePage() {
 				<CardContent>
 					{/* Filters */}
 					<div className="flex flex-wrap gap-2 mb-4">
-						{['all', 'pending', 'processing', 'completed', 'failed'].map((status) => (
+						{(['all', 'pending', 'processing', 'completed', 'failed'] as const).map((status) => (
 							<a
 								key={status}
 								href={`?status=${status}`}
@@ -392,7 +373,7 @@ export default function AudioQueuePage() {
 													
 													{/* Status and priority */}
 													<div className="flex items-center gap-2">
-														{getStatusBadge(track.status)}
+														<StatusBadge status={track.status} />
 														{track.priority && track.status !== 'completed' && (
 															<Badge variant="outline" className="text-xs">
 																Priority

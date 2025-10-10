@@ -8,7 +8,7 @@ export const handle: BreadcrumbHandle = {
 
 export default function LibraryLayout() {
 	return (
-		<main className="container flex min-h-[400px] flex-1 px-0 pb-12 md:px-8">
+		<main className="container flex min-h-[400px] flex-1 px-0 pb-12">
 			<div className="w-full">
 				<Breadcrumbs />
 				<Outlet />

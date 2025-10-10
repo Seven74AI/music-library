@@ -114,7 +114,13 @@ test.describe('Music Library', () => {
 		// Should redirect to library with success message
 		await expect(page).toHaveURL('/library')
 		await expect(page.getByText('Track Imported!', { exact: true })).toBeVisible()
-		await expect(page.getByRole('link', { name: /never gonna give you up/i })).toBeVisible()
+		
+		// Wait for toast to disappear, then check the accordion item
+		await page.waitForTimeout(2000) // Wait for toast to fade out
+		
+		// With the new accordion interface, tracks are displayed as accordion items
+		// Look specifically for the track title in the accordion header
+		await expect(page.getByRole('button', { name: /never gonna give you up/i })).toBeVisible()
 	})
 
 	test('shows error when YouTube URL is invalid', async ({ page, login }) => {
@@ -128,8 +134,7 @@ test.describe('Music Library', () => {
 		// Click preview button
 		await page.getByRole('button', { name: /preview track/i }).click()
 		
-		// Should show error message
-		await expect(page.getByText(/preview failed/i)).toBeVisible()
+		// Should show error message (using ErrorList component)
 		await expect(page.getByText(/invalid.*url format/i)).toBeVisible()
 	})
 

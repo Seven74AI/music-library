@@ -10,14 +10,15 @@ import {
   type ActionFunctionArgs,
 } from 'react-router'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
+import { Field, ErrorList } from '#app/components/forms'
 import { PreviewCard } from '#app/components/preview-card'
 import { Button } from '#app/components/ui/button'
 import { Icon } from '#app/components/ui/icon'
-import { Input } from '#app/components/ui/input'
-import { Label } from '#app/components/ui/label'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
+import { handleValidationError } from '#app/utils/error-handlers.server'
+import { validateAction, validateRequiredString, createValidationErrorResponse } from '#app/utils/form-validation'
 import { formatDuration } from '#app/utils/format-duration'
 
 import { getServiceImportHandler, importTrackDirectly } from '#app/utils/service-import.server'
@@ -50,6 +51,13 @@ export async function action({ request }: ActionFunctionArgs) {
 	const action = formData.get('action') as string
 	const serviceName = YOUTUBE_SERVICE.NAME
 	
+	// Validate action
+	const validActions = ['cancel', 'preview', 'import'] as const
+	const actionValidation = validateAction(action, validActions)
+	if (!actionValidation.success) {
+		return createValidationErrorResponse(actionValidation.message!)
+	}
+	
 	// Handle cancel request
 	if (action === 'cancel') {
 		return redirect(`/music/services/youtube/import`)
@@ -57,8 +65,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	// Handle preview request
 	if (action === 'preview') {
-		if (!url || url.trim().length === 0) {
-			return data({ error: 'Video URL is required' }, { status: 400 })
+		const urlValidation = validateRequiredString(url, 'Video URL')
+		if (!urlValidation.success) {
+			return createValidationErrorResponse(urlValidation.message!)
 		}
 		
 		try {
@@ -71,11 +80,8 @@ export async function action({ request }: ActionFunctionArgs) {
 			}
 			
 			// Fetch video details and return them directly
-			console.log('Getting service import handler for:', serviceName)
 			const handler = getServiceImportHandler(serviceName)
-			console.log('Handler obtained, calling getVideoDetails with:', extractedVideoId)
 			const videoDetails = await handler.getVideoDetails(extractedVideoId)
-			console.log('Video details obtained:', videoDetails)
 			
 			// Check if track already exists for this user
 			const { prisma } = await import('#app/utils/db.server.ts')
@@ -121,18 +127,18 @@ export async function action({ request }: ActionFunctionArgs) {
 			})
 			
 		} catch (error) {
+			// Log error for debugging but don't expose internal details
 			console.error(`${serviceName || 'unknown'} preview error:`, error)
 			
-			return data({ 
-				error: error instanceof Error ? error.message : 'Failed to fetch track details. Please try again.' 
-			}, { status: 400 })
+			return handleValidationError(error, 'preview')
 		}
 	}
 	
 	// Handle import request
 	if (action === 'import') {
-		if (!videoId) {
-			return data({ error: 'Video ID is required' }, { status: 400 })
+		const videoIdValidation = validateRequiredString(videoId, 'Video ID')
+		if (!videoIdValidation.success) {
+			return createValidationErrorResponse(videoIdValidation.message!)
 		}
 		
 		try {
@@ -178,15 +184,15 @@ export async function action({ request }: ActionFunctionArgs) {
 			}
 			
 		} catch (error) {
+			// Log error for debugging but don't expose internal details
 			console.error(`${serviceName} import error:`, error)
 			
-			return data({ 
-				error: error instanceof Error ? error.message : 'Failed to import track. Please try again.' 
-			}, { status: 400 })
+			return handleValidationError(error, 'import')
 		}
 	}
 	
-	return data({ error: 'Invalid action' }, { status: 400 })
+	// This should never be reached due to validation above
+	throw new Error('Unreachable code')
 }
 
 export default function YouTubeImportPage() {
@@ -199,21 +205,20 @@ export default function YouTubeImportPage() {
 	const hasPreview = actionData && 'previewData' in actionData && actionData.previewData
 	
 	// Computed values for preview card
-	const previewTitle = hasPreview && actionData.previewData.alreadyExists 
-		? "Track Already in Library" 
-		: "Preview Track"
-	
-	const previewDescription = hasPreview && actionData.previewData.alreadyExists
-		? "This track is already in your library. You can view it or continue browsing."
-		: "Review the track details before adding it to your library"
-	
-	const previewIcon = hasPreview && actionData.previewData.alreadyExists 
-		? "check-circled" 
-		: "magnifying-glass"
-	
-	const previewIconColor = hasPreview && actionData.previewData.alreadyExists 
-		? "text-green-600" 
-		: "text-muted-foreground"
+	const previewConfig = {
+		title: hasPreview && actionData.previewData.alreadyExists 
+			? "Track Already in Library" 
+			: "Preview Track",
+		description: hasPreview && actionData.previewData.alreadyExists
+			? "This track is already in your library. You can view it or continue browsing."
+			: "Review the track details before adding it to your library",
+		icon: hasPreview && actionData.previewData.alreadyExists 
+			? "check-circled" as const
+			: "magnifying-glass" as const,
+		iconColor: hasPreview && actionData.previewData.alreadyExists 
+			? "text-green-600" 
+			: "text-muted-foreground"
+	}
 	
 	// Computed primary action
 	const primaryAction = hasPreview && actionData.previewData.alreadyExists ? {
@@ -250,7 +255,7 @@ export default function YouTubeImportPage() {
 				<Button asChild variant="outline">
 					<Link to="/music/services/youtube">
 						<Icon name="arrow-left" className="mr-2" />
-						Back to Import
+						Back
 					</Link>
 				</Button>
 			</div>
@@ -264,45 +269,40 @@ export default function YouTubeImportPage() {
 				<div className="rounded-lg border bg-card p-6">
 					<Form method="post" action={`/music/services/youtube/import`} className="space-y-4">
 						<input type="hidden" name="action" value="preview" />
-						<div className="space-y-2">
-							<Label htmlFor="url">{service.displayName} URL</Label>
-							<div className="flex gap-2">
-								<Input
-									id="url"
-									name="url"
-									type="url"
-									placeholder={`${service.baseUrl}/...`}
-									required
-									defaultValue={''}
-									className="flex-1"
-								/>
-								<Button type="submit" disabled={isSubmitting}>
-									{isSubmitting ? (
-										<>
-											<Icon name="update" className="mr-2 animate-spin" />
-											Loading...
-										</>
-									) : (
-										<>
-											<Icon name="magnifying-glass" className="mr-2" />
-											Preview Track
-										</>
-									)}
-								</Button>
-							</div>
-							<p className="text-sm text-muted-foreground">
-								Paste a {service.displayName} URL to preview and import it to your library
-							</p>
+						<Field
+							labelProps={{ htmlFor: 'url', children: `${service.displayName} URL` }}
+							inputProps={{
+								id: 'url',
+								name: 'url',
+								type: 'url',
+								placeholder: `${service.baseUrl}/...`,
+								required: true,
+								defaultValue: '',
+								className: 'flex-1'
+							}}
+							errors={actionData && 'field' in actionData && actionData.field === 'url' && 'error' in actionData ? [actionData.error] : undefined}
+						/>
+						<div className="flex gap-2">
+							<Button type="submit" disabled={isSubmitting}>
+								{isSubmitting ? (
+									<>
+										<Icon name="update" className="mr-2 animate-spin" />
+										Loading...
+									</>
+								) : (
+									<>
+										<Icon name="magnifying-glass" className="mr-2" />
+										Preview Track
+									</>
+								)}
+							</Button>
 						</div>
+						<p className="text-sm text-muted-foreground">
+							Paste a {service.displayName} URL to preview and import it to your library
+						</p>
 						
-						{actionData && 'error' in actionData && (
-							<div className="rounded-md bg-destructive/15 p-3">
-								<div className="flex items-center gap-2">
-									<Icon name="question-mark-circled" className="h-4 w-4 text-destructive" />
-									<p className="text-sm text-destructive font-medium">Preview Failed</p>
-								</div>
-								<p className="text-sm text-destructive mt-1">{actionData.error}</p>
-							</div>
+						{actionData && 'error' in actionData && (!('field' in actionData) || actionData.field !== 'url') && (
+							<ErrorList errors={[actionData.error]} />
 						)}
 					</Form>
 				</div>
@@ -310,10 +310,10 @@ export default function YouTubeImportPage() {
 				// Show preview with progressive enhancement
 				<div className="space-y-6">
 					<PreviewCard
-						title={previewTitle}
-						description={previewDescription}
-						icon={previewIcon}
-						iconColor={previewIconColor}
+						title={previewConfig.title}
+						description={previewConfig.description}
+						icon={previewConfig.icon}
+						iconColor={previewConfig.iconColor}
 						thumbnail={{
 							src: actionData.previewData.videoDetails.thumbnailUrl,
 							alt: `${actionData.previewData.videoDetails.title} thumbnail`

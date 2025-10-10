@@ -30,7 +30,7 @@ export default defineConfig((config) => ({
 			return undefined // Use default behavior for other assets
 		},
 
-		sourcemap: true,
+		sourcemap: MODE !== 'production',
 	},
 	server: {
 		watch: {

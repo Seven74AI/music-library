@@ -153,7 +153,7 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 						className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground"
 					>
 						<Icon name="arrow-left" className="h-4 w-4" />
-						Back to Playlists
+						Back
 					</Link>
 				</div>
 				

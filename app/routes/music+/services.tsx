@@ -8,7 +8,7 @@ export const handle: BreadcrumbHandle = {
 
 export default function ServicesLayout() {
 	return (
-		<main className="container flex min-h-[400px] flex-1 px-0 pb-12 md:px-8">
+		<main className="container flex min-h-[400px] flex-1 px-0 pb-12">
 			<div className="w-full">
 				<Outlet />
 			</div>

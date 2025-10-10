@@ -51,13 +51,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function YouTubeAuthPage() {
 	return (
-		<div className="container mx-auto py-8">
+		<div className="py-8">
 			<div className="mb-8">
 				<div className="flex items-center gap-4 mb-4">
 					<Button asChild variant="outline">
 						<a href="/music/services/youtube">
 							<Icon name="arrow-left" className="mr-2" />
-							Back to YouTube Service
+							Back
 						</a>
 					</Button>
 				</div>

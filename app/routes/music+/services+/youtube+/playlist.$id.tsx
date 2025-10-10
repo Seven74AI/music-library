@@ -154,13 +154,13 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	const { playlist, tracks } = loaderData
 
 	return (
-		<div className="container mx-auto py-8">
+		<div className="py-8">
 			<div className="mb-8">
 				<div className="flex items-center gap-4 mb-4">
 					<Button asChild variant="outline">
 						<Link to="/music/services/youtube/synced-playlists">
 							<Icon name="arrow-left" className="mr-2" />
-							Back to Synced Playlists
+							Back
 						</Link>
 					</Button>
 				</div>
