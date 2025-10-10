@@ -106,17 +106,20 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 					</NavLink>
 				</div>
 			) : (
-				<div className="rounded-md border">
-					<table className="w-full">
+				<div className="space-y-4">
+					{/* Desktop Table View */}
+					<div className="hidden lg:block rounded-md border overflow-hidden">
+						<div className="overflow-x-auto">
+							<table className="w-full table-fixed">
 						<thead>
 							<tr className="border-b bg-muted/50">
-								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Track</th>
-								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Artist</th>
-								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Source</th>
-								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Duration</th>
-								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Status</th>
-								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Added</th>
-								<th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground">Actions</th>
+								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground w-1/3">Track</th>
+								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground w-1/6">Artist</th>
+								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground w-20">Source</th>
+								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground w-20">Duration</th>
+								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground w-24">Status</th>
+								<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground w-24">Added</th>
+								<th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground w-24">Actions</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -146,7 +149,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 												<div className="min-w-0 flex-1">
 													<NavLink
 														to={track.id}
-														className="font-medium hover:underline truncate block"
+														className="font-medium hover:underline truncate block max-w-full"
 														title={track.title}
 													>
 														{track.title}
@@ -155,7 +158,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 											</div>
 										</td>
 										<td className="p-4 align-middle">
-											<span className="text-muted-foreground truncate block" title={track.artist}>
+											<span className="text-muted-foreground truncate block max-w-full" title={track.artist}>
 												{track.artist}
 											</span>
 										</td>
@@ -167,7 +170,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 													) : (
 														<Icon name="link-2" className="w-4 h-4 text-muted-foreground" />
 													)}
-													<span className="text-sm text-muted-foreground">{track.service.displayName}</span>
+													<span className="text-sm text-muted-foreground truncate" title={track.service.displayName}>{track.service.displayName}</span>
 												</div>
 											) : (
 												<span className="text-sm text-muted-foreground">Uploaded</span>
@@ -247,6 +250,115 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 							})}
 						</tbody>
 					</table>
+						</div>
+					</div>
+
+					{/* Mobile Card View */}
+					<div className="lg:hidden space-y-3">
+						{userTracks.map((userTrack) => {
+							const track = userTrack.track
+							return (
+								<div key={track.id} className="border rounded-lg p-4 space-y-3">
+									{/* Track Header */}
+									<div className="flex items-start gap-3">
+										<div className="flex-shrink-0">
+											{track.thumbnailUrl ? (
+												<img 
+													src={track.thumbnailUrl} 
+													alt={track.title}
+													className="h-12 w-12 rounded object-cover"
+												/>
+											) : track.audioFile ? (
+												<div className="h-12 w-12 rounded bg-muted flex items-center justify-center">
+													<Icon name="file-text" className="h-6 w-6 text-muted-foreground" />
+												</div>
+											) : (
+												<div className="h-12 w-12 rounded bg-muted flex items-center justify-center">
+													<Icon name="link-2" className="h-6 w-6 text-muted-foreground" />
+												</div>
+											)}
+										</div>
+										<div className="min-w-0 flex-1">
+											<NavLink
+												to={track.id}
+												className="font-medium hover:underline block text-sm leading-tight"
+											>
+												{track.title}
+											</NavLink>
+											<div className="text-xs text-muted-foreground mt-1">
+												{track.artist}
+											</div>
+										</div>
+										<div className="flex items-center gap-1">
+											<NavLink
+												to={track.id}
+												className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+												title="View track details"
+											>
+												<Icon name="eye-open" className="h-4 w-4" />
+											</NavLink>
+											{track.audioFile?.objectKey && (
+												<button
+													onClick={() => downloadTrack(track.id, `${track.title}.mp3`)}
+													className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+													title="Download audio file"
+												>
+													<Icon name="download" className="h-4 w-4" />
+												</button>
+											)}
+										</div>
+									</div>
+
+									{/* Track Details */}
+									<div className="grid grid-cols-2 gap-3 text-xs">
+										<div>
+											<span className="text-muted-foreground">Source:</span>
+											<div className="font-medium">{track.service?.name || 'Unknown'}</div>
+										</div>
+										<div>
+											<span className="text-muted-foreground">Duration:</span>
+											<div className="font-medium">{formatDuration(track.duration || 0)}</div>
+										</div>
+										<div>
+											<span className="text-muted-foreground">Added:</span>
+											<div className="font-medium">{new Date(userTrack.createdAt).toLocaleDateString()}</div>
+										</div>
+										<div>
+											<span className="text-muted-foreground">Status:</span>
+											<div>
+												{track.audioFile ? (
+													track.audioFile.status === 'pending' ? (
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<span className="text-xs px-2 py-1 rounded bg-yellow-100 text-yellow-800">
+																	Pending
+																</span>
+															</TooltipTrigger>
+															<TooltipContent>
+																<p>Track is in the processing queue and will be archived soon</p>
+															</TooltipContent>
+														</Tooltip>
+													) : (
+														<span className={`text-xs px-2 py-1 rounded ${
+															track.audioFile.status === 'completed' ? 'bg-green-100 text-green-800' :
+															track.audioFile.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+															'bg-red-100 text-red-800'
+														}`}>
+															{track.audioFile.status === 'completed' ? 'Ready' :
+															 track.audioFile.status === 'processing' ? 'Processing' :
+															 'Failed'}
+														</span>
+													)
+												) : (
+													<span className="text-xs text-muted-foreground">Not Archived</span>
+												)}
+											</div>
+										</div>
+									</div>
+								</div>
+							)
+						})}
+					</div>
 					
 					{/* Pagination */}
 					{pagination.hasNext && (

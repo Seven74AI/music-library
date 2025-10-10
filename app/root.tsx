@@ -199,12 +199,12 @@ function App() {
 		>
 			<div className="flex min-h-screen flex-col justify-between">
 				<header className="container py-6">
-					<nav className="flex flex-wrap items-center justify-between gap-4 sm:flex-nowrap md:gap-8">
+					<nav className="flex flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-4 md:gap-8">
 						<Logo />
 						<div className="ml-auto hidden max-w-sm flex-1 sm:block">
 							{searchBar}
 						</div>
-						<div className="flex items-center gap-10">
+						<div className="flex items-center gap-4 sm:gap-6 md:gap-10">
 							{user ? (
 								<UserDropdown />
 							) : (

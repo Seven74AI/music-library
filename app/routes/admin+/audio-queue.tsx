@@ -316,7 +316,7 @@ export default function AudioQueuePage() {
 					<CardTitle>Queue Statistics</CardTitle>
 				</CardHeader>
 				<CardContent>
-					<div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+					<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
 						<div className="text-center">
 							<div className="text-2xl font-bold text-blue-600">{stats.pending}</div>
 							<div className="text-sm text-muted-foreground">Pending</div>
@@ -356,12 +356,12 @@ export default function AudioQueuePage() {
 				</CardHeader>
 				<CardContent>
 					{/* Filters */}
-					<div className="flex gap-2 mb-4">
+					<div className="flex flex-wrap gap-2 mb-4">
 						{['all', 'pending', 'processing', 'completed', 'failed'].map((status) => (
 							<a
 								key={status}
 								href={`?status=${status}`}
-								className={`px-3 py-1 rounded text-sm ${
+								className={`px-3 py-1 rounded text-sm whitespace-nowrap ${
 									currentStatus === status
 										? 'bg-primary text-primary-foreground'
 										: 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
@@ -454,7 +454,7 @@ export default function AudioQueuePage() {
 													</div>
 													
 													{/* Actions */}
-													<div className="flex gap-1">
+													<div className="flex flex-wrap gap-1">
 														{track.status === 'failed' && (
 															<Form method="post" className="inline">
 																<input type="hidden" name="intent" value="retry-track" />
