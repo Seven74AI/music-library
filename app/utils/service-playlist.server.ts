@@ -20,14 +20,22 @@ import { prisma } from '#app/utils/db.server'
 import { 
   validateYouTubeOAuth
 } from '#app/utils/youtube-oauth-validation.server'
-import { enqueueTrack } from './audio-queue.server'
+import { enqueueTrackForArchiving } from './track-enqueue.server'
 import { createYouTubeService } from './youtube.server'
 
+/**
+ * Extended playlist interface with sync status information
+ * Combines YouTube playlist data with internal sync tracking
+ */
 interface PlaylistWithSyncStatus extends YouTubePlaylist {
   isSynced: boolean
   playlistInternalId: string | null
 }
 
+/**
+ * Batch data structure for processing tracks in batches
+ * Used for efficient database operations during playlist sync
+ */
 interface TrackDataBatch {
   serviceId: string
   externalId: string
@@ -148,13 +156,8 @@ export class ServicePlaylistService {
         const trackData = trackDataBatch[index]
         if (!trackData) return
         
-        // Check if this was a create operation (new track)
-        // We can detect this by checking if the track was just created
-        try {
-          await enqueueTrack(track.id, false)
-        } catch (error) {
-          console.warn(`Failed to enqueue track ${track.id} for archiving:`, error)
-        }
+        // Auto-enqueue newly created tracks for archiving
+        await enqueueTrackForArchiving(track.id, false)
       })
       
       // Don't await enqueue operations to avoid slowing down playlist sync
@@ -719,7 +722,10 @@ export class ServicePlaylistService {
   }
 }
 
-// Error classes
+/**
+ * Error class for when a service is not found in the database
+ * @param serviceName - The name of the service that was not found
+ */
 export class ServiceNotFoundError extends Error {
   constructor(serviceName: string) {
     super(`Service not found: ${serviceName}`)
@@ -727,6 +733,10 @@ export class ServiceNotFoundError extends Error {
   }
 }
 
+/**
+ * Error class for when no valid tokens are found for a service
+ * @param serviceName - The name of the service that lacks tokens
+ */
 export class NoTokensError extends Error {
   constructor(serviceName: string) {
     super(`No valid tokens found for service: ${serviceName}`)
@@ -734,7 +744,10 @@ export class NoTokensError extends Error {
   }
 }
 
-// Factory function to create service instance
+/**
+ * Factory function to create a new ServicePlaylistService instance
+ * @returns A new instance of ServicePlaylistService
+ */
 export function createServicePlaylistService(): ServicePlaylistService {
   return new ServicePlaylistService()
 }

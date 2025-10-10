@@ -1,5 +1,6 @@
-import { archiveTrackAudio } from '#app/utils/audio-archive.server'
-import { prisma } from '#app/utils/db.server'
+import { prisma } from '../utils/db.js'
+
+import { archiveTrackAudio } from './audio-archive.js'
 
 // Constants
 const DEFAULT_MAX_CONCURRENT = 2
@@ -14,6 +15,7 @@ const RETRY_DELAYS = [
 
 /**
  * Get validated max concurrent downloads from environment
+ * @returns The maximum number of concurrent downloads, validated against limits
  */
 function getMaxConcurrentDownloads(): number {
   const envValue = process.env.AUDIO_ARCHIVE_MAX_CONCURRENT
@@ -34,6 +36,8 @@ const MAX_CONCURRENT_DOWNLOADS = getMaxConcurrentDownloads()
 
 /**
  * Validate track ID parameter
+ * @param trackId - The track ID to validate
+ * @throws {Error} If the track ID is invalid
  */
 function validateTrackId(trackId: string): void {
   if (!trackId || typeof trackId !== 'string' || trackId.trim().length === 0) {
@@ -42,19 +46,30 @@ function validateTrackId(trackId: string): void {
 }
 
 /**
- * Enqueue a track for archiving
+ * Validate priority parameter
+ * @param priority - The priority value to validate
+ * @returns The validated boolean priority value
+ * @throws {Error} If the priority is not a boolean
  */
-export async function enqueueTrack(trackId: string, priority = false): Promise<void> {
-  // Validate input
-  if (!trackId || typeof trackId !== 'string' || trackId.trim().length === 0) {
-    throw new Error('Invalid trackId: must be a non-empty string')
-  }
-  
+function validatePriority(priority: unknown): boolean {
   if (typeof priority !== 'boolean') {
     throw new Error('Invalid priority: must be a boolean')
   }
-  
+  return priority
+}
+
+/**
+ * Enqueue a track for archiving
+ * Creates or updates a track audio file record for processing
+ * @param trackId - The ID of the track to enqueue
+ * @param priority - Whether to prioritize this track (default: false)
+ * @returns Promise that resolves when the track is successfully enqueued
+ * @throws {Error} If trackId is invalid or database operation fails
+ */
+export async function enqueueTrack(trackId: string, priority = false): Promise<void> {
+  // Validate inputs
   validateTrackId(trackId)
+  const validatedPriority = validatePriority(priority)
   // Check if track already has an audio file record
   const existingAudioFile = await prisma.trackAudioFile.findUnique({
     where: { trackId },
@@ -73,13 +88,13 @@ export async function enqueueTrack(trackId: string, priority = false): Promise<v
         where: { trackId },
         data: {
           status: 'pending',
-          priority,
+          priority: validatedPriority,
           retryCount: 0,
           lastAttemptAt: null,
           // Keep error history for debugging
         },
       })
-      console.log(`Reset failed track ${trackId} for retry with priority: ${priority}`)
+      console.log(`Reset failed track ${trackId} for retry with priority: ${validatedPriority}`)
       return
     }
 
@@ -87,9 +102,9 @@ export async function enqueueTrack(trackId: string, priority = false): Promise<v
     if (existingAudioFile.status === 'pending' || existingAudioFile.status === 'processing') {
       await prisma.trackAudioFile.update({
         where: { trackId },
-        data: { priority },
+        data: { priority: validatedPriority },
       })
-      console.log(`Updated priority for track ${trackId}: ${priority}`)
+      console.log(`Updated priority for track ${trackId}: ${validatedPriority}`)
       return
     }
   }
@@ -99,16 +114,18 @@ export async function enqueueTrack(trackId: string, priority = false): Promise<v
     data: {
       trackId,
       status: 'pending',
-      priority,
+      priority: validatedPriority,
       retryCount: 0,
     },
   })
 
-  console.log(`Enqueued track ${trackId} for archiving with priority: ${priority}`)
+  console.log(`Enqueued track ${trackId} for archiving with priority: ${validatedPriority}`)
 }
 
 /**
  * Get tracks eligible for retry based on exponential backoff
+ * Filters failed tracks that are ready for retry based on timing
+ * @returns Promise resolving to array of track IDs ready for retry
  */
 export async function getRetryableTracks(): Promise<{ trackId: string }[]> {
   const now = new Date()
@@ -150,6 +167,11 @@ export async function getRetryableTracks(): Promise<{ trackId: string }[]> {
 
 /**
  * Reset a track for retry (admin function)
+ * Resets a failed track to pending status for manual retry
+ * @param trackId - The ID of the track to reset
+ * @param priority - Whether to prioritize this track (default: false)
+ * @returns Promise that resolves when the track is successfully reset
+ * @throws {Error} If trackId is invalid or track not found
  */
 export async function resetTrackForRetry(trackId: string, priority = false): Promise<void> {
   const audioFile = await prisma.trackAudioFile.findUnique({
@@ -176,6 +198,8 @@ export async function resetTrackForRetry(trackId: string, priority = false): Pro
 
 /**
  * Process the queue - get pending tracks and process them concurrently
+ * Fetches pending and retryable tracks, processes them up to the concurrent limit
+ * @returns Promise resolving to processing results with counts of successful and failed operations
  */
 export async function processQueue(): Promise<{ processed: number; errors: number }> {
   // Check if worker is paused or in long break
@@ -254,6 +278,8 @@ export async function processQueue(): Promise<{ processed: number; errors: numbe
 
 /**
  * Get queue statistics
+ * Fetches counts of tracks in each status and calculates success rate
+ * @returns Promise resolving to queue statistics object
  */
 export async function getQueueStats() {
   const [
@@ -286,6 +312,12 @@ export async function getQueueStats() {
 
 /**
  * Get tracks for admin display
+ * Fetches tracks with pagination and filtering for the admin interface
+ * @param options - Configuration options for the query
+ * @param options.status - Filter by track status (optional)
+ * @param options.limit - Maximum number of tracks to return (default: 50)
+ * @param options.offset - Number of tracks to skip for pagination (default: 0)
+ * @returns Promise resolving to tracks data with pagination info
  */
 export async function getTracksForAdmin(options: {
   status?: string

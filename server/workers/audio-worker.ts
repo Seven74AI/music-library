@@ -1,20 +1,24 @@
-import { processQueue } from '#app/utils/audio-queue.server'
+import { prisma } from '../utils/db.js'
+
+import { processQueue } from './audio-queue.js'
 import { 
   cleanupStuckTracks, 
   initializeWorkerState, 
   calculateNextLongBreak 
-} from '#app/utils/audio-worker-control.server'
-import { prisma } from '#app/utils/db.server'
+} from './audio-worker-control.js'
 
 // Constants
 const LONG_BREAK_DURATION_HOURS = [3, 4] // Random 3-4h pause
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+const MAX_WAIT_TIME_MS = 10 * 60 * 1000 // 10 minutes
+const CHECK_INTERVAL_MS = 5 * 1000 // 5 seconds
 
 let workerInterval: NodeJS.Timeout | null = null
 let isShuttingDown = false
 
 /**
  * Get interval from environment or use default
+ * @returns The interval in milliseconds for worker execution
  */
 function getIntervalMs(): number {
   const envInterval = process.env.AUDIO_ARCHIVE_INTERVAL_MS
@@ -29,6 +33,7 @@ function getIntervalMs(): number {
 
 /**
  * Check if long break is due and handle it
+ * @returns Promise resolving to true if a long break was handled, false otherwise
  */
 async function handleLongBreak(): Promise<boolean> {
   const workerState = await prisma.workerState.findUnique({
@@ -45,11 +50,9 @@ async function handleLongBreak(): Promise<boolean> {
     console.log('Long break is due, waiting for current downloads to finish...')
     
     // Wait for current downloads to finish
-    const maxWaitTime = 10 * 60 * 1000 // 10 minutes
-    const checkInterval = 5 * 1000 // 5 seconds
     let waited = 0
 
-    while (waited < maxWaitTime && workerState.currentlyProcessing > 0) {
+    while (waited < MAX_WAIT_TIME_MS && workerState.currentlyProcessing > 0) {
       const currentState = await prisma.workerState.findUnique({
         where: { id: 'singleton' },
         select: { currentlyProcessing: true },
@@ -59,8 +62,8 @@ async function handleLongBreak(): Promise<boolean> {
         break
       }
 
-      await new Promise(resolve => setTimeout(resolve, checkInterval))
-      waited += checkInterval
+      await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL_MS))
+      waited += CHECK_INTERVAL_MS
     }
 
     // Set status to long_break
@@ -110,7 +113,9 @@ async function handleLongBreak(): Promise<boolean> {
 }
 
 /**
- * Main worker loop
+ * Main worker loop that processes the audio queue
+ * Handles long breaks and queue processing based on worker state
+ * @returns Promise that resolves when the loop iteration completes
  */
 async function workerLoop(): Promise<void> {
   if (isShuttingDown) {
@@ -149,7 +154,9 @@ async function workerLoop(): Promise<void> {
 }
 
 /**
- * Start the background worker
+ * Start the background audio archive worker
+ * Initializes worker state, cleans up stuck tracks, and starts the processing loop
+ * @returns Promise that resolves when the worker is successfully started
  */
 export async function startAudioWorker(): Promise<void> {
   // Check if audio archiving is enabled
@@ -204,6 +211,8 @@ export async function startAudioWorker(): Promise<void> {
 
 /**
  * Stop the background worker gracefully
+ * Waits for current downloads to complete before stopping
+ * @returns Promise that resolves when the worker is successfully stopped
  */
 export async function stopAudioWorker(): Promise<void> {
   console.log('Stopping audio archive worker...')
@@ -217,11 +226,9 @@ export async function stopAudioWorker(): Promise<void> {
   }
 
   // Wait for current downloads to finish
-  const maxWaitTime = 10 * 60 * 1000 // 10 minutes
-  const checkInterval = 5 * 1000 // 5 seconds
   let waited = 0
 
-  while (waited < maxWaitTime) {
+  while (waited < MAX_WAIT_TIME_MS) {
     const workerState = await prisma.workerState.findUnique({
       where: { id: 'singleton' },
       select: { currentlyProcessing: true },
@@ -232,11 +239,11 @@ export async function stopAudioWorker(): Promise<void> {
     }
 
     console.log(`Waiting for ${workerState.currentlyProcessing} downloads to complete...`)
-    await new Promise(resolve => setTimeout(resolve, checkInterval))
-    waited += checkInterval
+    await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL_MS))
+    waited += CHECK_INTERVAL_MS
   }
 
-  if (waited >= maxWaitTime) {
+  if (waited >= MAX_WAIT_TIME_MS) {
     console.warn('Timeout waiting for downloads to complete')
   }
 
@@ -245,6 +252,8 @@ export async function stopAudioWorker(): Promise<void> {
 
 /**
  * Restart the worker (useful for configuration changes)
+ * Stops the current worker and starts a new one
+ * @returns Promise that resolves when the worker is successfully restarted
  */
 export async function restartAudioWorker(): Promise<void> {
   console.log('Restarting audio archive worker...')

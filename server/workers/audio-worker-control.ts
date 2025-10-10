@@ -1,11 +1,14 @@
-import { prisma } from '#app/utils/db.server'
+import { prisma } from '../utils/db.js'
 
 // Constants
 const LONG_BREAK_INTERVAL_HOURS = [6, 8] // Random 6-8h
+const MAX_WAIT_TIME_MS = 10 * 60 * 1000 // 10 minutes
+const CHECK_INTERVAL_MS = 5 * 1000 // 5 seconds
 // const LONG_BREAK_DURATION_HOURS = [3, 4] // Random 3-4h pause - TODO: Implement long break functionality
 
 /**
  * Calculate next long break time (random 6-8 hours from now)
+ * @returns Date object representing when the next long break should occur
  */
 export function calculateNextLongBreak(): Date {
   const now = new Date()
@@ -23,6 +26,8 @@ export function calculateNextLongBreak(): Date {
 
 /**
  * Pause the worker gracefully
+ * Sets worker status to paused and waits for current downloads to complete
+ * @returns Promise resolving to operation result with success status and message
  */
 export async function pauseWorker(): Promise<{ success: boolean; message: string }> {
   const workerState = await prisma.workerState.findUnique({
@@ -47,11 +52,9 @@ export async function pauseWorker(): Promise<{ success: boolean; message: string
   })
 
   // Wait for current downloads to finish (with timeout)
-  const maxWaitTime = 10 * 60 * 1000 // 10 minutes
-  const checkInterval = 5 * 1000 // 5 seconds
   let waited = 0
 
-  while (waited < maxWaitTime) {
+  while (waited < MAX_WAIT_TIME_MS) {
     const currentState = await prisma.workerState.findUnique({
       where: { id: 'singleton' },
       select: { currentlyProcessing: true },
@@ -61,8 +64,8 @@ export async function pauseWorker(): Promise<{ success: boolean; message: string
       return { success: true, message: 'Worker paused successfully' }
     }
 
-    await new Promise(resolve => setTimeout(resolve, checkInterval))
-    waited += checkInterval
+    await new Promise(resolve => setTimeout(resolve, CHECK_INTERVAL_MS))
+    waited += CHECK_INTERVAL_MS
   }
 
   return { 
@@ -73,6 +76,8 @@ export async function pauseWorker(): Promise<{ success: boolean; message: string
 
 /**
  * Resume the worker
+ * Sets worker status to running and schedules the next long break
+ * @returns Promise resolving to operation result with success status and message
  */
 export async function resumeWorker(): Promise<{ success: boolean; message: string }> {
   const workerState = await prisma.workerState.findUnique({
@@ -106,6 +111,8 @@ export async function resumeWorker(): Promise<{ success: boolean; message: strin
 
 /**
  * Break a long pause early
+ * Ends a long break and resumes normal operation
+ * @returns Promise resolving to operation result with success status and message
  */
 export async function breakLongPause(): Promise<{ success: boolean; message: string }> {
   const workerState = await prisma.workerState.findUnique({
@@ -139,6 +146,8 @@ export async function breakLongPause(): Promise<{ success: boolean; message: str
 
 /**
  * Get worker status with additional info
+ * Fetches current worker state and calculates time until next break
+ * @returns Promise resolving to worker status object with formatted information
  */
 export async function getWorkerStatus() {
   const workerState = await prisma.workerState.findUnique({
@@ -193,6 +202,8 @@ export async function getWorkerStatus() {
 
 /**
  * Clean up tracks stuck in processing status (called on server startup)
+ * Resets tracks that were left in processing state from previous runs
+ * @returns Promise resolving to cleanup result with count of cleaned tracks
  */
 export async function cleanupStuckTracks(): Promise<{ cleaned: number }> {
   const stuckTracks = await prisma.trackAudioFile.findMany({
@@ -226,6 +237,11 @@ export async function cleanupStuckTracks(): Promise<{ cleaned: number }> {
 
 /**
  * Reset a track for retry (admin function)
+ * Resets a failed track to pending status for manual retry
+ * @param trackId - The ID of the track to reset
+ * @param priority - Whether to prioritize this track (default: false)
+ * @returns Promise that resolves when the track is successfully reset
+ * @throws {Error} If trackId is invalid or track not found
  */
 export async function resetTrackForRetry(trackId: string, priority = false): Promise<void> {
   const audioFile = await prisma.trackAudioFile.findUnique({
@@ -252,6 +268,8 @@ export async function resetTrackForRetry(trackId: string, priority = false): Pro
 
 /**
  * Initialize worker state if it doesn't exist
+ * Creates the singleton worker state record with default values
+ * @returns Promise that resolves when worker state is initialized
  */
 export async function initializeWorkerState(): Promise<void> {
   const existingState = await prisma.workerState.findUnique({

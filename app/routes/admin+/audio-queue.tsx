@@ -1,23 +1,111 @@
+import { type Prisma } from '@prisma/client'
 import { Form, useLoaderData, useNavigation, data, type ActionFunctionArgs, type LoaderFunctionArgs } from 'react-router'
+
 import { GeneralErrorBoundary } from '#app/components/error-boundary'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '#app/components/ui/accordion'
 import { Badge } from '#app/components/ui/badge'
 import { Button } from '#app/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '#app/components/ui/card'
 import { StatusBadge } from '#app/components/ui/status-badge'
-import { getQueueStats, getTracksForAdmin, enqueueTrack } from '#app/utils/audio-queue.server'
-import { 
-  pauseWorker, 
-  resumeWorker, 
-  breakLongPause,
-  getWorkerStatus,
-  resetTrackForRetry 
-} from '#app/utils/audio-worker-control.server'
 import { prisma } from '#app/utils/db.server'
 import { downloadTrack } from '#app/utils/download'
 import { validateAction, validateRequiredString, createValidationErrorResponse } from '#app/utils/form-validation'
 import { requireUserWithRole } from '#app/utils/permissions.server'
+import { enqueueTrackForArchiving } from '#app/utils/track-enqueue.server'
 
+// Types
+type AdminAudioQueueTrack = Prisma.TrackAudioFileGetPayload<{
+  include: {
+    track: {
+      include: {
+        service: true
+      }
+    }
+  }
+}>
+
+// Constants
+const LONG_BREAK_MIN_HOURS = 6
+const LONG_BREAK_MAX_HOURS = 8
+const MILLISECONDS_PER_HOUR = 60 * 60 * 1000
+
+// Helper functions for worker control
+/**
+ * Calculate the next long break time with random duration
+ * @returns Date object representing when the next long break should occur
+ */
+function calculateNextLongBreak(): Date {
+  const hours = LONG_BREAK_MIN_HOURS + Math.random() * (LONG_BREAK_MAX_HOURS - LONG_BREAK_MIN_HOURS)
+  return new Date(Date.now() + hours * MILLISECONDS_PER_HOUR)
+}
+
+interface WorkerState {
+  status: 'running' | 'paused' | 'long_break'
+  currentlyProcessing: number
+  lastQueueRun: Date | null
+  nextLongBreakAt: Date | null
+  lastStateChange: Date | null
+}
+
+interface FormattedWorkerStatus extends WorkerState {
+  message: string
+  timeUntilNextBreak: string | null
+}
+
+/**
+ * Format worker state for display in the admin UI
+ * @param workerState - The worker state from the database, or null if not found
+ * @returns Formatted worker status with human-readable message and time calculations
+ */
+function formatWorkerStatus(workerState: WorkerState | null): FormattedWorkerStatus {
+  if (!workerState) {
+    return { 
+      status: 'unknown' as any, 
+      message: 'Worker state not found',
+      currentlyProcessing: 0,
+      lastQueueRun: null,
+      nextLongBreakAt: null,
+      lastStateChange: null,
+      timeUntilNextBreak: null
+    }
+  }
+  
+  let message = ''
+  let timeUntilNextBreak: string | null = null
+  
+  switch (workerState.status) {
+    case 'running':
+      message = 'Worker is running normally'
+      if (workerState.nextLongBreakAt) {
+        const timeDiff = workerState.nextLongBreakAt.getTime() - Date.now()
+        if (timeDiff > 0) {
+          const hours = Math.floor(timeDiff / (1000 * 60 * 60))
+          const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60))
+          timeUntilNextBreak = `${hours}h ${minutes}m`
+        }
+      }
+      break
+    case 'paused':
+      message = 'Worker is paused'
+      break
+    case 'long_break':
+      message = 'Worker is in automatic long break'
+      break
+  }
+  
+  return {
+    ...workerState,
+    message,
+    timeUntilNextBreak,
+  }
+}
+
+/**
+ * Loader function for the admin audio queue page
+ * Fetches queue statistics, tracks, and worker state for display
+ * @param request - The incoming request object
+ * @returns Promise resolving to loader data with stats, tracks, and worker status
+ */
 export async function loader({ request }: LoaderFunctionArgs) {
 	await requireUserWithRole(request, 'admin')
 	
@@ -27,23 +115,56 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const limit = 50
 	const offset = (page - 1) * limit
 
-	const [stats, tracksData, workerStatus] = await Promise.all([
-		getQueueStats(),
-		getTracksForAdmin({ status, limit, offset }),
-		getWorkerStatus(),
+	const statsGrouped = await prisma.trackAudioFile.groupBy({
+		by: ['status'],
+		_count: { _all: true },
+	})
+
+	const [tracks, totalCount, workerState] = await Promise.all([
+		prisma.trackAudioFile.findMany({
+			where: status !== 'all' ? { status } : {},
+			orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+			skip: offset,
+			take: limit,
+			include: { track: { include: { service: true } } },
+		}),
+		prisma.trackAudioFile.count({
+			where: status !== 'all' ? { status } : {},
+		}),
+		prisma.workerState.findUnique({ where: { id: 'singleton' } }),
 	])
+
+	// Transform grouped stats to UI format
+	const stats = {
+		pending: statsGrouped.find(s => s.status === 'pending')?._count._all ?? 0,
+		processing: statsGrouped.find(s => s.status === 'processing')?._count._all ?? 0,
+		completed: statsGrouped.find(s => s.status === 'completed')?._count._all ?? 0,
+		failed: statsGrouped.find(s => s.status === 'failed')?._count._all ?? 0,
+		total: statsGrouped.reduce((sum, s) => sum + s._count._all, 0),
+		successRate: 0, // Will calculate below
+		workerState,
+	}
+
+	// Calculate success rate
+	stats.successRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0
 
 	return data({
 		stats,
-		tracks: tracksData.tracks,
-		totalCount: tracksData.totalCount,
-		hasMore: tracksData.hasMore,
+		tracks: tracks as AdminAudioQueueTrack[],
+		totalCount,
+		hasMore: offset + limit < totalCount,
 		currentPage: page,
 		currentStatus: status,
-		workerStatus,
+		workerStatus: formatWorkerStatus(workerState as WorkerState | null),
 	})
 }
 
+/**
+ * Action function for admin audio queue operations
+ * Handles worker control actions (pause, resume, retry tracks, etc.)
+ * @param request - The incoming request object with form data
+ * @returns Promise resolving to action response with success status and message
+ */
 export async function action({ request }: ActionFunctionArgs) {
 	await requireUserWithRole(request, 'admin')
 	
@@ -62,7 +183,11 @@ export async function action({ request }: ActionFunctionArgs) {
 		return createValidationErrorResponse(intentValidation.message!)
 	}
 
-	// Helper function to validate trackId for actions that require it
+	/**
+	 * Helper function to validate trackId for actions that require it
+	 * @param actionName - The name of the action being performed (for error messages)
+	 * @returns Validation error response if trackId is invalid, null if valid
+	 */
 	const validateTrackId = (actionName: string) => {
 		const trackIdValidation = validateRequiredString(trackId, 'Track ID')
 		if (!trackIdValidation.success) {
@@ -71,28 +196,56 @@ export async function action({ request }: ActionFunctionArgs) {
 		return null
 	}
 
+
 	try {
 		switch (intent) {
 		case 'pause-worker': {
-			const result = await pauseWorker()
-			return data({ success: result.success, message: result.message })
+			await prisma.workerState.update({
+				where: { id: 'singleton' },
+				data: { status: 'paused', lastStateChange: new Date() },
+			})
+			return data({ success: true, message: 'Worker pause requested (will take effect in ~5 min)' })
 		}
 		
 		case 'resume-worker': {
-			const result = await resumeWorker()
-			return data({ success: result.success, message: result.message })
+			const nextLongBreak = calculateNextLongBreak()
+			await prisma.workerState.update({
+				where: { id: 'singleton' },
+				data: { 
+					status: 'running', 
+					lastStateChange: new Date(),
+					nextLongBreakAt: nextLongBreak,
+				},
+			})
+			return data({ success: true, message: 'Worker resumed' })
 		}
 		
 		case 'break-long-pause': {
-			const result = await breakLongPause()
-			return data({ success: result.success, message: result.message })
+			const nextLongBreak = calculateNextLongBreak()
+			await prisma.workerState.update({
+				where: { id: 'singleton' },
+				data: { 
+					status: 'running',
+					lastStateChange: new Date(),
+					nextLongBreakAt: nextLongBreak,
+				},
+			})
+			return data({ success: true, message: 'Long break ended' })
 		}
 		
 		case 'retry-track': {
 			const validationError = validateTrackId('retry-track')
 			if (validationError) return validationError
 			
-			await resetTrackForRetry(trackId!, true) // Priority retry
+			await prisma.trackAudioFile.update({
+				where: { trackId: trackId! },
+				data: {
+					status: 'pending',
+					priority: true,
+					retryCount: 0,
+					lastAttemptAt: null,
+				},
+			})
 			return data({ success: true, message: `Track ${trackId} queued for priority retry` })
 		}
 		
@@ -100,7 +253,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			const validationError = validateTrackId('archive-now')
 			if (validationError) return validationError
 			
-			await enqueueTrack(trackId!, true) // Priority archive
+			await enqueueTrackForArchiving(trackId!, true)
 			return data({ success: true, message: `Track ${trackId} queued for priority archiving` })
 		}
 		
@@ -127,7 +280,10 @@ export async function action({ request }: ActionFunctionArgs) {
 			
 			// If enabling priority and track is not completed, queue it
 			if (newPriority && track.status !== 'completed') {
-				await enqueueTrack(trackId!, true)
+				await prisma.trackAudioFile.update({
+					where: { trackId: trackId! },
+					data: { status: 'pending', priority: true },
+				})
 			}
 			
 			return data({ 
@@ -175,7 +331,10 @@ export async function action({ request }: ActionFunctionArgs) {
 			})
 			
 			// Requeue for processing
-			await enqueueTrack(trackId!, false)
+			await prisma.trackAudioFile.update({
+				where: { trackId: trackId! },
+				data: { status: 'pending', priority: false },
+			})
 			
 			return data({ 
 				success: true, 
@@ -188,13 +347,19 @@ export async function action({ request }: ActionFunctionArgs) {
 		}
 	} catch (error) {
 		console.error('Error in audio queue action:', error)
+		const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
 		return data({ 
 			success: false, 
-			message: error instanceof Error ? error.message : 'An unexpected error occurred' 
+			message: `Failed to process action: ${errorMessage}` 
 		}, { status: 500 })
 	}
 }
 
+/**
+ * Admin Audio Queue Page Component
+ * Displays worker control panel, queue statistics, and track management interface
+ * @returns JSX element for the admin audio queue page
+ */
 export default function AudioQueuePage() {
 	const loaderData = useLoaderData<typeof loader>()
 	const { stats, tracks, totalCount, hasMore, currentPage, currentStatus, workerStatus } = loaderData || {}
@@ -354,27 +519,27 @@ export default function AudioQueuePage() {
 					</div>
 
 					<div className="space-y-4">
-						{tracks.map((track: any) => {
-							const errors = track.errorHistory ? JSON.parse(track.errorHistory) as Array<{code: string, message: string, attemptAt: string, retryCount: number}> : []
+						{tracks.map((audioFile) => {
+							const errors = audioFile.errorHistory ? JSON.parse(audioFile.errorHistory) as Array<{code: string, message: string, attemptAt: string, retryCount: number}> : []
 							
 							return (
-								<Card key={track.id} className="hover:shadow-md transition-shadow">
+								<Card key={audioFile.id} className="hover:shadow-md transition-shadow">
 									<CardContent className="p-4">
 										<div className="flex items-center justify-between">
 											{/* Main track info */}
 											<div className="flex-1 min-w-0">
 												<div className="flex items-center gap-4">
 													<div className="flex-1 min-w-0">
-														<div className="font-medium truncate">{track.track.title}</div>
+														<div className="font-medium truncate">{audioFile.track.title}</div>
 														<div className="text-sm text-muted-foreground truncate">
-															{track.track.artist} • {track.track.service?.name || 'Unknown'}
+															{audioFile.track.artist} • {audioFile.track.service?.name || 'Unknown'}
 														</div>
 													</div>
 													
 													{/* Status and priority */}
 													<div className="flex items-center gap-2">
-														<StatusBadge status={track.status} />
-														{track.priority && track.status !== 'completed' && (
+														<StatusBadge status={audioFile.status} />
+														{audioFile.priority && audioFile.status !== 'completed' && (
 															<Badge variant="outline" className="text-xs">
 																Priority
 															</Badge>
@@ -384,15 +549,15 @@ export default function AudioQueuePage() {
 													{/* Retry count */}
 													<div className="text-sm text-muted-foreground w-20 text-center">
 														<div className="font-medium">Retries</div>
-														<div>{track.retryCount}/3</div>
+														<div>{audioFile.retryCount}/3</div>
 													</div>
 													
 													{/* Last attempt */}
 													<div className="text-sm text-muted-foreground w-40 text-center">
 														<div className="font-medium">Last Attempt</div>
 														<div>
-															{track.lastAttemptAt 
-																? new Date(track.lastAttemptAt).toLocaleString('en-US', {
+															{audioFile.lastAttemptAt 
+																? new Date(audioFile.lastAttemptAt).toLocaleString('en-US', {
 																	month: 'short',
 																	day: 'numeric',
 																	hour: '2-digit',
@@ -405,11 +570,11 @@ export default function AudioQueuePage() {
 													</div>
 
 													{/* Downloaded date */}
-													{track.downloadedAt && (
+													{audioFile.downloadedAt && (
 														<div className="text-sm text-muted-foreground w-40 text-center">
 															<div className="font-medium">Downloaded</div>
 															<div>
-																{new Date(track.downloadedAt).toLocaleString('en-US', {
+																{new Date(audioFile.downloadedAt).toLocaleString('en-US', {
 																	month: 'short',
 																	day: 'numeric',
 																	hour: '2-digit',
@@ -424,7 +589,7 @@ export default function AudioQueuePage() {
 													<div className="text-sm text-muted-foreground w-40 text-center">
 														<div className="font-medium">Created</div>
 														<div>
-															{new Date(track.track.createdAt).toLocaleString('en-US', {
+															{new Date(audioFile.track.createdAt).toLocaleString('en-US', {
 																month: 'short',
 																day: 'numeric',
 																hour: '2-digit',
@@ -436,45 +601,45 @@ export default function AudioQueuePage() {
 													
 													{/* Actions */}
 													<div className="flex flex-wrap gap-1">
-														{track.status === 'failed' && (
+														{audioFile.status === 'failed' && (
 															<Form method="post" className="inline">
 																<input type="hidden" name="intent" value="retry-track" />
-																<input type="hidden" name="trackId" value={track.trackId} />
+																<input type="hidden" name="trackId" value={audioFile.trackId} />
 																<Button type="submit" size="sm" variant="outline" disabled={isSubmitting}>
 																	Retry
 																</Button>
 															</Form>
 														)}
 														
-														{!track.objectKey && track.status !== 'processing' && !track.priority && (
+														{!audioFile.objectKey && audioFile.status !== 'processing' && !audioFile.priority && (
 															<Form method="post" className="inline">
 																<input type="hidden" name="intent" value="archive-now" />
-																<input type="hidden" name="trackId" value={track.trackId} />
+																<input type="hidden" name="trackId" value={audioFile.trackId} />
 																<Button type="submit" size="sm" disabled={isSubmitting}>
 																	Archive Now
 																</Button>
 															</Form>
 														)}
 														
-														{!track.objectKey && track.status !== 'processing' && (
+														{!audioFile.objectKey && audioFile.status !== 'processing' && (
 															<Form method="post" className="inline">
 																<input type="hidden" name="intent" value="toggle-priority" />
-																<input type="hidden" name="trackId" value={track.trackId} />
+																<input type="hidden" name="trackId" value={audioFile.trackId} />
 																<Button 
 																	type="submit" 
 																	size="sm" 
-																	variant={track.priority ? "default" : "outline"}
+																	variant={audioFile.priority ? "default" : "outline"}
 																	disabled={isSubmitting}
 																>
-																	{track.priority ? 'Deprioritize' : 'Prioritize'}
+																	{audioFile.priority ? 'Deprioritize' : 'Prioritize'}
 																</Button>
 															</Form>
 														)}
 
-														{track.objectKey && track.status === 'completed' && (
+														{audioFile.objectKey && audioFile.status === 'completed' && (
 															<>
 																<button
-																	onClick={() => downloadTrack(track.trackId, `${track.title}.mp3`)}
+																	onClick={() => downloadTrack(audioFile.trackId, `${audioFile.track.title}.mp3`)}
 																	className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-8 px-3 py-1"
 																	title="Download audio file"
 																>
@@ -483,7 +648,7 @@ export default function AudioQueuePage() {
 																
 																<Form method="post" className="inline">
 																	<input type="hidden" name="intent" value="delete-audio" />
-																	<input type="hidden" name="trackId" value={track.trackId} />
+																	<input type="hidden" name="trackId" value={audioFile.trackId} />
 																	<Button 
 																		type="submit" 
 																		size="sm" 
@@ -497,10 +662,10 @@ export default function AudioQueuePage() {
 															</>
 														)}
 														
-														{track.objectKey && track.status === 'failed' && (
+														{audioFile.objectKey && audioFile.status === 'failed' && (
 															<Form method="post" className="inline">
 																<input type="hidden" name="intent" value="requeue-track" />
-																<input type="hidden" name="trackId" value={track.trackId} />
+																<input type="hidden" name="trackId" value={audioFile.trackId} />
 																<Button 
 																	type="submit" 
 																	size="sm" 
@@ -518,7 +683,7 @@ export default function AudioQueuePage() {
 										</div>
 
 										{/* Expandable error details */}
-										{track.errorHistory && errors.length > 0 && (
+										{audioFile.errorHistory && errors.length > 0 && (
 											<div className="mt-3 pt-3 border-t">
 												<Accordion type="single" collapsible>
 													<AccordionItem value="errors" className="border-0">
@@ -527,7 +692,7 @@ export default function AudioQueuePage() {
 														</AccordionTrigger>
 														<AccordionContent className="pt-2">
 															<div className="space-y-2">
-																{errors.map((error: any, index: number) => (
+																{errors.map((error, index: number) => (
 																	<div key={index} className="p-2 bg-red-50 dark:bg-red-950 rounded border-l-2 border-red-400">
 																		<div className="font-medium text-red-800 dark:text-red-200 text-sm">
 																			{error.code}
@@ -577,10 +742,19 @@ export default function AudioQueuePage() {
 	)
 }
 
+/**
+ * Error boundary component for the admin audio queue page
+ * @returns JSX element with error boundary handling
+ */
 export function ErrorBoundary() {
 	return <GeneralErrorBoundary />
 }
 
+/**
+ * Sitemap entries function for the admin audio queue page
+ * Returns null as admin pages should not be indexed
+ * @returns null
+ */
 export function getSitemapEntries() {
 	return null
 }

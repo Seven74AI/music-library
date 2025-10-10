@@ -1,7 +1,8 @@
 import { readFile, unlink } from 'fs/promises'
 import { execa } from 'execa'
-import { prisma } from '#app/utils/db.server'
-import { uploadAudioFile } from '#app/utils/storage.server'
+
+import { prisma } from '../utils/db.js'
+import { uploadAudioFile } from '../utils/storage.js'
 
 // Constants
 const SLEEP_INTERVAL_MIN = 2 // Minimum sleep interval
@@ -30,6 +31,12 @@ export type ErrorHistoryEntry = {
 
 /**
  * Download audio from YouTube using yt-dlp
+ * Downloads and converts audio from YouTube video to MP3 format
+ * @param track - Track object containing externalId and title
+ * @param track.externalId - YouTube video ID
+ * @param track.title - Track title for logging
+ * @returns Promise resolving to the temporary file path of the downloaded audio
+ * @throws {Error} If download fails or track data is invalid
  */
 export async function downloadTrackAudio(track: { externalId: string; title: string }): Promise<string> {
   // Validate input
@@ -126,6 +133,8 @@ const NON_ASCII_REGEX = /[^\x20-\x7E]/g
 
 /**
  * Sanitize metadata values for HTTP headers (remove invalid characters)
+ * @param value - The string value to sanitize
+ * @returns Sanitized string safe for HTTP headers
  */
 function sanitizeForHeader(value: string): string {
   if (typeof value !== 'string') {
@@ -142,6 +151,13 @@ function sanitizeForHeader(value: string): string {
 
 /**
  * Generate standardized metadata for audio files
+ * @param track - Track object containing metadata
+ * @param track.id - Track ID
+ * @param track.title - Track title
+ * @param track.artist - Track artist
+ * @param track.externalId - External service ID
+ * @param serviceName - Name of the service (e.g., 'youtube')
+ * @returns Object containing sanitized metadata for storage
  */
 function generateAudioMetadata(
   track: { id: string; title: string; artist: string; externalId: string },
@@ -158,6 +174,16 @@ function generateAudioMetadata(
 
 /**
  * Upload audio file to Tigris storage with metadata
+ * Reads the file from disk and uploads it to S3-compatible storage
+ * @param filePath - Path to the audio file on disk
+ * @param track - Track object containing metadata
+ * @param track.id - Track ID
+ * @param track.title - Track title
+ * @param track.artist - Track artist
+ * @param track.externalId - External service ID
+ * @param serviceName - Name of the service (e.g., 'youtube')
+ * @returns Promise resolving to upload result with object key, filename, and size
+ * @throws {Error} If file read or upload fails
  */
 export async function uploadAudioToStorage(
   filePath: string,
@@ -192,12 +218,18 @@ export async function uploadAudioToStorage(
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    throw new Error(`${ERROR_CODES.STORAGE_ERROR}: ${errorMessage}`)
+    throw new Error(`${ERROR_CODES.STORAGE_ERROR}: Upload failed - ${errorMessage}`)
   }
 }
 
 /**
  * Add error to error history
+ * Appends a new error entry to the existing error history JSON string
+ * @param currentErrorHistory - Current error history JSON string or null
+ * @param errorCode - Standardized error code
+ * @param errorMessage - Human-readable error message
+ * @param retryCount - Current retry attempt number
+ * @returns Updated error history as JSON string
  */
 export function addToErrorHistory(
   currentErrorHistory: string | null,
@@ -222,6 +254,9 @@ export function addToErrorHistory(
 
 /**
  * Get current error from error history
+ * Extracts the most recent error entry from the error history JSON
+ * @param errorHistory - Error history JSON string or null
+ * @returns Most recent error entry or null if no errors exist
  */
 export function getCurrentError(errorHistory: string | null): ErrorHistoryEntry | null {
   if (!errorHistory) return null
@@ -236,6 +271,11 @@ export function getCurrentError(errorHistory: string | null): ErrorHistoryEntry 
 
 /**
  * Main function to archive a track's audio
+ * Downloads audio from YouTube, uploads to storage, and updates database
+ * Handles error tracking, retry logic, and cleanup
+ * @param trackId - The ID of the track to archive
+ * @returns Promise that resolves when archiving is complete
+ * @throws {Error} If trackId is invalid or track not found
  */
 export async function archiveTrackAudio(trackId: string): Promise<void> {
   // Validate input
@@ -273,12 +313,17 @@ export async function archiveTrackAudio(trackId: string): Promise<void> {
   })
 
   // Update worker state processing count
-  await prisma.workerState.update({
-    where: { id: 'singleton' },
-    data: {
-      currentlyProcessing: { increment: 1 },
-    },
-  })
+  try {
+    await prisma.workerState.update({
+      where: { id: 'singleton' },
+      data: {
+        currentlyProcessing: { increment: 1 },
+      },
+    })
+  } catch (error) {
+    console.error('Failed to update worker state processing count:', error)
+    throw error // Re-throw to prevent processing if we can't track it
+  }
 
   let tempFilePath: string | null = null
 
@@ -362,11 +407,15 @@ export async function archiveTrackAudio(trackId: string): Promise<void> {
     }
 
     // Update worker state processing count
-    await prisma.workerState.update({
-      where: { id: 'singleton' },
-      data: {
-        currentlyProcessing: { decrement: 1 },
-      },
-    })
+    try {
+      await prisma.workerState.update({
+        where: { id: 'singleton' },
+        data: {
+          currentlyProcessing: { decrement: 1 },
+        },
+      })
+    } catch (error) {
+      console.error('Failed to update worker state processing count:', error)
+    }
   }
 }

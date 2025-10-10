@@ -1,13 +1,16 @@
 import { type Prisma } from '@prisma/client'
 import { redirect } from 'react-router'
 
-import { enqueueTrack } from './audio-queue.server'
 import { prisma } from './db.server'
+import { enqueueTrackForArchiving } from './track-enqueue.server'
 import { extractYouTubeVideoId } from './track-validation.server'
 import { YouTubeAPIError } from './youtube-errors'
 import { getYouTubeVideoDetails } from './youtube-search.server'
 
-// Generic service API error
+/**
+ * Generic service API error class for service import operations
+ * Extends the base Error class with additional properties for error handling
+ */
 export class ServiceAPIError extends Error {
   constructor(
     message: string,
@@ -19,7 +22,10 @@ export class ServiceAPIError extends Error {
   }
 }
 
-// Service import handler interface - designed for easy extension
+/**
+ * Service import handler interface - designed for easy extension
+ * Defines the contract for service-specific import operations
+ */
 export interface ServiceImportHandler {
   validateUrl(url: string): string | null // Returns video/track ID or null if invalid
   getVideoDetails(videoId: string): Promise<{
@@ -34,7 +40,10 @@ export interface ServiceImportHandler {
   getImportUrl(serviceName: string, videoId: string): string
 }
 
-// YouTube service handler - the only implemented service for now
+/**
+ * YouTube service handler - the only implemented service for now
+ * Implements the ServiceImportHandler interface for YouTube-specific operations
+ */
 const youtubeImportHandler: ServiceImportHandler = {
   validateUrl(url: string): string | null {
     return extractYouTubeVideoId(url)
@@ -65,7 +74,10 @@ const youtubeImportHandler: ServiceImportHandler = {
   }
 }
 
-// Service handlers registry - easy to extend with new services
+/**
+ * Service handlers registry - easy to extend with new services
+ * Maps service names to their respective import handlers
+ */
 const serviceHandlers: Record<string, ServiceImportHandler> = {
   youtube: youtubeImportHandler,
   // Future services can be added here:
@@ -76,6 +88,9 @@ const serviceHandlers: Record<string, ServiceImportHandler> = {
 
 /**
  * Get the import handler for a specific service
+ * @param serviceName - The name of the service to get the handler for
+ * @returns The service import handler for the specified service
+ * @throws {ServiceAPIError} If the service is not supported
  */
 export function getServiceImportHandler(serviceName: string): ServiceImportHandler {
   const handler = serviceHandlers[serviceName]
@@ -87,6 +102,11 @@ export function getServiceImportHandler(serviceName: string): ServiceImportHandl
 
 /**
  * Process a service import request - generic function that works with any service
+ * Validates the URL and redirects to the service-specific import route
+ * @param serviceName - The name of the service (e.g., 'youtube')
+ * @param url - The URL to import from
+ * @returns Promise resolving to a redirect response
+ * @throws {ServiceAPIError} If the URL is invalid or service is not supported
  */
 export async function processServiceImport(serviceName: string, url: string): Promise<Response> {
   const handler = getServiceImportHandler(serviceName)
@@ -107,6 +127,11 @@ export async function processServiceImport(serviceName: string, url: string): Pr
 
 /**
  * Import a track directly without redirecting - for use in action functions
+ * Creates the track in the database and adds it to the user's library
+ * @param serviceName - The name of the service (e.g., 'youtube')
+ * @param videoId - The video/track ID from the service
+ * @param userId - The ID of the user importing the track
+ * @returns Promise resolving to import result with success status and track data
  */
 export async function importTrackDirectly(serviceName: string, videoId: string, userId: string): Promise<{
   success: boolean
@@ -166,11 +191,7 @@ export async function importTrackDirectly(serviceName: string, videoId: string, 
       })
 
       // Auto-enqueue for archiving
-      try {
-        await enqueueTrack(track.id, false)
-      } catch (error) {
-        console.warn(`Failed to enqueue track ${track.id} for archiving:`, error)
-      }
+      await enqueueTrackForArchiving(track.id, false)
     }
     
     // Check if user already has this track
