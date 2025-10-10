@@ -1,6 +1,7 @@
 import { useInputControl } from '@conform-to/react'
 import { REGEXP_ONLY_DIGITS_AND_CHARS, type OTPInputProps } from 'input-otp'
 import React, { useId } from 'react'
+import { Alert, AlertDescription } from './ui/alert'
 import { Checkbox, type CheckboxProps } from './ui/checkbox.tsx'
 import {
 	InputOTP,
@@ -24,13 +25,15 @@ export function ErrorList({
 	const errorsToRender = errors?.filter(Boolean)
 	if (!errorsToRender?.length) return null
 	return (
-		<ul id={id} className="flex flex-col gap-1">
+		<div id={id} className="flex flex-col gap-1">
 			{errorsToRender.map((e) => (
-				<li key={e} className="text-foreground-destructive text-[10px]">
-					{e}
-				</li>
+				<Alert key={e} variant="destructive" className="py-1 px-2">
+					<AlertDescription className="text-[10px]">
+						{e}
+					</AlertDescription>
+				</Alert>
 			))}
-		</ul>
+		</div>
 	)
 }
 

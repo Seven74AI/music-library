@@ -79,19 +79,114 @@ export { Component }
 
 ### 3. Icon Implementation
 
-**Current**: Custom SVG sprite system
-**Recommended**: Migrate to Radix UI icons
+**Current**: Epic Stack SVG sprite system with Heroicons
+**Status**: ✅ OPTIMAL - Using Epic Stack recommended approach
+
+#### Heroicons Integration
+
+Our icon system uses the Epic Stack approach with Heroicons integration:
 
 ```bash
-# Install dependencies
-npm install -D sly
-npm install @radix-ui/icons
+# Install sly CLI (already installed)
+npm install -D sly-cli
 
-# Add specific icons
-npx sly add @radix-ui/icons icon-name-1 icon-name-2
+# Add Heroicons (recommended)
+npx sly add-icon heroicons icon-name
 
-# Usage
-import { IconName } from '@radix-ui/react-icons'
+# Add Radix UI icons (alternative)
+npx sly add-icon @radix-ui/icons icon-name
+
+# Interactive icon selection
+npx sly add-icon heroicons
+```
+
+#### Usage Examples
+
+```tsx
+// Basic icon usage
+import { Icon } from '#app/components/ui/icon.tsx'
+
+<Icon name="play" className="h-4 w-4" />
+<Icon name="pause" className="h-5 w-5 text-red-500" />
+<Icon name="youtube" className="h-6 w-6" />
+
+// With children (icon + text)
+<Icon name="download" size="font">
+  Download Track
+</Icon>
+
+// With accessibility
+<Icon 
+  name="eye-open" 
+  className="h-4 w-4" 
+  aria-label="View track details"
+/>
+```
+
+#### Available Icon Libraries
+
+1. **Heroicons** (Primary) - `npx sly add-icon heroicons icon-name`
+   - Comprehensive icon set
+   - Consistent design language
+   - Regular and outline variants
+   - Examples: `play`, `pause`, `youtube`, `calendar`, `clock`
+
+2. **Radix UI Icons** (Secondary) - `npx sly add-icon @radix-ui/icons icon-name`
+   - UI-focused icons
+   - Perfect for interface elements
+   - Examples: `avatar`, `pencil-1`, `trash`, `check`
+
+#### Icon Management
+
+```bash
+# Check available icons
+npx sly add-icon heroicons --list
+
+# Add multiple icons at once
+npx sly add-icon heroicons play pause youtube calendar
+
+# Overwrite existing icon
+npx sly add-icon heroicons icon-name --overwrite
+```
+
+#### Performance Benefits
+
+- **Single sprite file** (~30KB) vs multiple React components
+- **Better caching** with single file approach
+- **Tree shaking** - unused icons automatically removed
+- **Optimal bundle size** - no React component overhead
+- **Fast rendering** - SVG sprites are highly optimized
+
+#### Icon Naming Convention
+
+Icons follow consistent naming patterns:
+- **Actions**: `play`, `pause`, `download`, `trash`, `pencil-1`
+- **Navigation**: `chevron-up`, `chevron-down`, `arrow-left`, `arrow-right`
+- **Media**: `youtube`, `speaker-wave`, `speaker-x-mark`
+- **UI Elements**: `dots-horizontal`, `eye-open`, `clock`, `calendar`
+- **Status**: `check`, `check-circled`, `x-mark`, `question-mark-circled`
+
+#### Accessibility Best Practices
+
+```tsx
+// Decorative icons (hidden from screen readers)
+<Icon name="play" className="h-4 w-4" aria-hidden="true" />
+
+// Interactive icons (accessible)
+<Icon 
+  name="eye-open" 
+  className="h-4 w-4" 
+  aria-label="View track details"
+  role="button"
+  tabIndex={0}
+/>
+
+// Status icons (announced to screen readers)
+<Icon 
+  name="check-circled" 
+  className="h-4 w-4 text-green-500" 
+  aria-label="Track completed successfully"
+/>
 ```
 
 ### 4. Styling Guidelines
@@ -117,8 +212,8 @@ import { IconName } from '@radix-ui/react-icons'
 | **Form Inputs** | Plain HTML + Tailwind | `Input`, `Textarea` |
 | **Complex Interactions** | Radix UI Primitive | `Dialog`, `DropdownMenu` |
 | **Simple Buttons** | Radix UI Slot | `Button` |
-| **Icons** | `@radix-ui/icons` | `Icon` (migrate) |
-| **Notifications** | Radix UI Toast | Replace Sonner |
+| **Icons** | Heroicons + Epic Stack Sprite | `Icon` (optimal) |
+| **Notifications** | Radix UI Toast | `Toast` (replaced Sonner) |
 | **Layout Components** | Custom + Tailwind | `Spacer`, `ProgressBar` |
 
 ## 📦 Adding New Components
@@ -148,8 +243,20 @@ import { IconName } from '@radix-ui/react-icons'
 ## 🔧 Tools and Commands
 
 ```bash
-# Add Radix UI icons
-npx sly add @radix-ui/icons icon-name
+# Add Heroicons (recommended)
+npx sly add-icon heroicons icon-name
+
+# Add Radix UI icons (alternative)
+npx sly add-icon @radix-ui/icons icon-name
+
+# Interactive icon selection
+npx sly add-icon heroicons
+
+# List available icons
+npx sly add-icon heroicons --list
+
+# Overwrite existing icon
+npx sly add-icon heroicons icon-name --overwrite
 
 # Install Radix UI primitive
 npm install @radix-ui/react-component-name
@@ -167,6 +274,9 @@ npm run test:ui
 - [Epic Stack Documentation](https://github.com/epicweb-dev/epic-stack)
 - [shadcn/ui Components](https://ui.shadcn.com)
 - [Tailwind CSS](https://tailwindcss.com)
+- [Heroicons](https://heroicons.com) - Primary icon library
+- [Radix UI Icons](https://radix-ui.com/icons) - UI-focused icons
+- [Sly CLI Documentation](https://github.com/epicweb-dev/sly) - Icon management tool
 
 ## 🚀 Migration Plan
 
@@ -380,21 +490,215 @@ Our components follow the Epic Stack approach:
 - **Checkbox** - Radix UI Checkbox primitive
 - **Label** - Radix UI Label primitive
 - **Tooltip** - Radix UI Tooltip primitive
-- **Select** - **NEW** Full Radix UI Select primitive
-- **Popover** - **NEW** Radix UI Popover primitive
-- **Toast** - **NEW** Radix UI Toast primitive (replaced Sonner)
+- **Select** - Full Radix UI Select primitive
+- **Popover** - Radix UI Popover primitive
+- **Toast** - Radix UI Toast primitive (replaced Sonner)
+- **Accordion** - **NEW** Full Radix UI Accordion primitive
+- **Alert** - **NEW** Shadcn Alert component with Radix UI accessibility
+- **Progress** - **NEW** Radix UI Progress primitive
+- **Avatar** - **NEW** Radix UI Avatar primitive
+- **Breadcrumb** - **NEW** Shadcn Breadcrumb component
+- **Separator** - **NEW** Radix UI Separator primitive
+- **Skeleton** - **NEW** Shadcn Skeleton component for loading states
 
 ### ✅ Custom Components (Optimal)
 - **Input** - Plain HTML input (Radix UI doesn't provide input primitive)
 - **Textarea** - Plain HTML textarea (Radix UI doesn't provide textarea primitive)
 - **InputOTP** - Uses `input-otp` library (specialized component)
 - **StatusButton** - Custom wrapper around Button component
-- **Icon** - Epic Stack SVG sprite system (optimal performance)
+- **Icon** - Epic Stack SVG sprite system with Heroicons (optimal performance)
 
 ### 🎉 Migration Complete!
-All UI components now follow Radix UI best practices while maintaining Epic Stack optimizations. The component library is fully accessible, performant, and developer-friendly.
+All UI components now follow Radix UI and Shadcn best practices while maintaining Epic Stack optimizations. The component library is fully accessible, performant, and developer-friendly.
+
+## 🚀 Recent Migration (December 2024)
+
+### Components Migrated to Shadcn/Radix UI:
+1. **TrackAccordionItem** → **TrackList** - Replaced accordion with Spotify-like track list interface
+2. **EpicProgress** → **Progress** - Replaced custom progress bar with Radix UI Progress primitive  
+3. **Error Displays** → **Alert** - Replaced custom error divs with Shadcn Alert components
+4. **UserDropdown** → **Avatar** - Enhanced with Shadcn Avatar component for better user profile display
+5. **Breadcrumbs** → **Breadcrumb** - Replaced custom breadcrumb with Shadcn Breadcrumb component
+6. **Loading States** → **Skeleton** - Added Shadcn Skeleton components for better loading UX
+7. **Visual Hierarchy** → **Separator** - Added Radix UI Separator components for better content organization
+
+### Benefits Achieved:
+- ✅ **100% Radix UI/Shadcn components** for complex interactions
+- ✅ **Enhanced accessibility** with proper ARIA attributes and keyboard navigation
+- ✅ **Consistent design system** across all components
+- ✅ **Better loading states** with skeleton components
+- ✅ **Improved visual hierarchy** with separator components
+- ✅ **Reduced maintenance burden** with standardized components
+- ✅ **Epic Stack alignment** maintained throughout migration
+- ✅ **Spotify-like interface** - Modern, clean track list without accordion complexity
+- ✅ **No more FOUC** - Eliminated hydration issues and flash of unstyled content
+- ✅ **Better UX** - Hover effects, play buttons, and intuitive interactions
+
+## 🎨 Heroicons Integration Guide
+
+### Overview
+Our application uses Heroicons as the primary icon library, integrated through the Epic Stack SVG sprite system for optimal performance.
+
+### Quick Start
+
+```bash
+# Add a new Heroicon
+npx sly add-icon heroicons icon-name
+
+# Examples
+npx sly add-icon heroicons play pause youtube calendar clock
+npx sly add-icon heroicons speaker-wave speaker-x-mark
+npx sly add-icon heroicons eye-open dots-horizontal
+```
+
+### Usage in Components
+
+```tsx
+import { Icon } from '#app/components/ui/icon.tsx'
+
+// Basic usage
+<Icon name="play" className="h-4 w-4" />
+
+// With styling
+<Icon name="youtube" className="h-6 w-6 text-red-500" />
+
+// With accessibility
+<Icon 
+  name="eye-open" 
+  className="h-4 w-4" 
+  aria-label="View details"
+  aria-hidden="true"
+/>
+
+// With children (icon + text)
+<Icon name="download" size="font">
+  Download Track
+</Icon>
+```
+
+### Available Icon Categories
+
+#### Media & Playback
+- `play`, `pause`, `forward`, `backward`
+- `speaker-wave`, `speaker-x-mark`
+- `youtube` (custom added)
+
+#### Navigation & UI
+- `chevron-up`, `chevron-down`, `chevron-double-left`, `chevron-double-right`
+- `arrow-left`, `arrow-right`, `arrow-path`, `arrow-path-rounded-square`
+- `dots-horizontal`, `eye-open`
+
+#### Status & Actions
+- `check`, `check-circled`, `x-mark`
+- `clock`, `calendar`
+- `download`, `trash`, `pencil-1`, `pencil-2`
+
+#### User Interface
+- `avatar`, `magnifying-glass`
+- `moon`, `sun` (theme icons)
+- `lock-closed`, `lock-open-1`
+
+### Performance Benefits
+
+- **Single sprite file** (~30KB) vs multiple React components
+- **Better caching** with single file approach
+- **Tree shaking** - unused icons automatically removed
+- **Optimal bundle size** - no React component overhead
+- **Fast rendering** - SVG sprites are highly optimized
+
+### Icon Management Workflow
+
+1. **Find the icon** on [Heroicons.com](https://heroicons.com)
+2. **Add to project** using `npx sly add-icon heroicons icon-name`
+3. **Use in component** with `<Icon name="icon-name" />`
+4. **Style as needed** with Tailwind classes
+
+### Best Practices
+
+#### Accessibility
+```tsx
+// Decorative icons (hidden from screen readers)
+<Icon name="play" className="h-4 w-4" aria-hidden="true" />
+
+// Interactive icons (accessible)
+<Icon 
+  name="eye-open" 
+  className="h-4 w-4" 
+  aria-label="View track details"
+  role="button"
+  tabIndex={0}
+/>
+
+// Status icons (announced to screen readers)
+<Icon 
+  name="check-circled" 
+  className="h-4 w-4 text-green-500" 
+  aria-label="Track completed successfully"
+/>
+```
+
+#### Sizing
+```tsx
+// Consistent sizing
+<Icon name="play" className="h-4 w-4" />    // Small
+<Icon name="play" className="h-5 w-5" />    // Medium
+<Icon name="play" className="h-6 w-6" />    // Large
+
+// With size prop (recommended)
+<Icon name="play" size="sm" />   // h-4 w-4
+<Icon name="play" size="md" />   // h-5 w-5
+<Icon name="play" size="lg" />   // h-6 w-6
+```
+
+#### Styling
+```tsx
+// Color variations
+<Icon name="youtube" className="h-6 w-6 text-red-500" />
+<Icon name="check" className="h-4 w-4 text-green-500" />
+<Icon name="x-mark" className="h-4 w-4 text-red-500" />
+
+// Interactive states
+<Icon 
+  name="play" 
+  className="h-4 w-4 hover:text-blue-500 transition-colors" 
+/>
+```
+
+### Troubleshooting
+
+#### Icon Not Found
+```bash
+# Check if icon exists
+npx sly add-icon heroicons --list | grep icon-name
+
+# Add missing icon
+npx sly add-icon heroicons icon-name
+
+# Overwrite existing icon
+npx sly add-icon heroicons icon-name --overwrite
+```
+
+#### Build Issues
+```bash
+# Regenerate sprite
+npm run build
+
+# Check sprite file
+ls -la app/components/ui/icons/sprite.svg
+```
+
+#### TypeScript Errors
+```typescript
+// Check icon types
+import { type IconName } from '#app/components/ui/icons/types'
+
+// Available icons are auto-generated
+const iconName: IconName = 'play' // ✅ Valid
+const iconName: IconName = 'invalid' // ❌ TypeScript error
+```
 
 ---
 
-**Last Updated**: Based on Epic Stack and Radix UI best practices
+**Last Updated**: December 2024 - Heroicons integration complete
 **Maintainer**: Development Team
+**Icon System**: Epic Stack SVG sprites with Heroicons

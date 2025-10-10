@@ -78,7 +78,7 @@ export default async function handleRequest(...args: DocRequestArgs) {
 									],
 									'font-src': ["'self'"],
 									'frame-src': ["'self'"],
-									'img-src': ["'self'", 'data:'],
+									'img-src': ["'self'", 'data:', 'https://i.ytimg.com', 'https://img.youtube.com'],
 									'script-src': [
 										"'strict-dynamic'",
 										"'self'",

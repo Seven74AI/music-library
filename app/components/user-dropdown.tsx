@@ -1,8 +1,8 @@
-import { Img } from 'openimg/react'
 import { useRef } from 'react'
 import { Link, Form } from 'react-router'
 import { getUserImgSrc } from '#app/utils/misc.tsx'
 import { useUser, userHasRole  } from '#app/utils/user.ts'
+import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar'
 import { Button } from './ui/button'
 import {
 	DropdownMenu,
@@ -20,26 +20,16 @@ export function UserDropdown() {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button asChild variant="secondary">
-					<Link
-						to={`/users/${user.username}`}
-						// this is for progressive enhancement
-						onClick={(e) => e.preventDefault()}
-						className="flex items-center gap-2"
-						aria-label="User menu"
-					>
-						<Img
-							className="size-8 rounded-full object-cover"
-							alt={user.name ?? user.username}
-							src={getUserImgSrc(user.image?.objectKey)}
-							width={256}
-							height={256}
-							aria-hidden="true"
+				<Button variant="ghost" className="relative h-8 w-8 rounded-full p-0" aria-label="User menu">
+					<Avatar className="h-8 w-8">
+						<AvatarImage 
+							src={getUserImgSrc(user.image?.objectKey)} 
+							alt={user.name ?? user.username} 
 						/>
-						<span className="text-body-sm font-bold">
-							{user.name ?? user.username}
-						</span>
-					</Link>
+						<AvatarFallback>
+							{user.name?.[0] ?? user.username[0]}
+						</AvatarFallback>
+					</Avatar>
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuPortal>

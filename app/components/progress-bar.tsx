@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
 import { useNavigation } from 'react-router'
 import { useSpinDelay } from 'spin-delay'
-import { cn } from '#app/utils/misc.tsx'
-import { Icon } from './ui/icon.tsx'
+import { Progress } from './ui/progress'
 
 function EpicProgress() {
 	const transition = useNavigation()
@@ -11,51 +9,21 @@ function EpicProgress() {
 		delay: 600,
 		minDuration: 400,
 	})
-	const ref = useRef<HTMLDivElement>(null)
-	const [animationComplete, setAnimationComplete] = useState(true)
 
-	useEffect(() => {
-		if (!ref.current) return
-		if (delayedPending) setAnimationComplete(false)
+	const getProgressValue = () => {
+		if (transition.state === 'submitting') return 50
+		if (transition.state === 'loading') return 80
+		return 0
+	}
 
-		const animationPromises = ref.current
-			.getAnimations()
-			.map(({ finished }) => finished)
-
-		void Promise.allSettled(animationPromises).then(() => {
-			if (!delayedPending) setAnimationComplete(true)
-		})
-	}, [delayedPending])
+	if (!delayedPending) return null
 
 	return (
-		<div
-			role="progressbar"
-			aria-hidden={delayedPending ? undefined : true}
-			aria-valuetext={delayedPending ? 'Loading' : undefined}
-			className="fixed inset-x-0 top-0 z-50 h-[0.20rem] animate-pulse"
-		>
-			<div
-				ref={ref}
-				className={cn(
-					'bg-foreground h-full w-0 duration-500 ease-in-out',
-					transition.state === 'idle' &&
-						(animationComplete
-							? 'transition-none'
-							: 'w-full opacity-0 transition-all'),
-					delayedPending && transition.state === 'submitting' && 'w-5/12',
-					delayedPending && transition.state === 'loading' && 'w-8/12',
-				)}
+		<div className="fixed inset-x-0 top-0 z-50">
+			<Progress 
+				value={getProgressValue()} 
+				className="h-1 rounded-none"
 			/>
-			{delayedPending && (
-				<div className="absolute flex items-center justify-center">
-					<Icon
-						name="update"
-						size="md"
-						className="text-foreground m-1 animate-spin"
-						aria-hidden
-					/>
-				</div>
-			)}
 		</div>
 	)
 }

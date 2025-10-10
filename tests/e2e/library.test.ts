@@ -115,12 +115,12 @@ test.describe('Music Library', () => {
 		await expect(page).toHaveURL('/library')
 		await expect(page.getByText('Track Imported!', { exact: true })).toBeVisible()
 		
-		// Wait for toast to disappear, then check the accordion item
+		// Wait for toast to disappear, then check the table item
 		await page.waitForTimeout(2000) // Wait for toast to fade out
 		
-		// With the new accordion interface, tracks are displayed as accordion items
-		// Look specifically for the track title in the accordion header
-		await expect(page.getByRole('button', { name: /never gonna give you up/i })).toBeVisible()
+		// With the new table interface, tracks are displayed as table rows
+		// Look for the track title in the table (use exact match to avoid toast message)
+		await expect(page.getByText('Never Gonna Give You Up', { exact: true })).toBeVisible()
 	})
 
 	test('shows error when YouTube URL is invalid', async ({ page, login }) => {

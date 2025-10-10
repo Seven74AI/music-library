@@ -27,6 +27,11 @@
   animation: accordion-up 0.2s ease-out;
 }
 
+/* Prevent FOUC for accordion content */
+[data-radix-accordion-content][data-state="closed"] {
+  display: none;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {

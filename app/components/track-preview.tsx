@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
+import { Alert, AlertDescription } from '#app/components/ui/alert'
 import { Badge } from '#app/components/ui/badge.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#app/components/ui/card.tsx'
@@ -124,13 +125,13 @@ export function TrackPreview({ track, isImporting = false, error, alreadyExists 
 
         {/* Error Display */}
         {error && (
-          <div className="rounded-md bg-destructive/15 p-3">
-            <div className="flex items-center gap-2">
-              <Icon name={ICONS.QUESTION_MARK_CIRCLED} className="h-4 w-4 text-destructive" />
-              <p className="text-sm text-destructive font-medium">Import Failed</p>
-            </div>
-            <p className="text-sm text-destructive mt-1">{error}</p>
-          </div>
+          <Alert variant="destructive">
+            <Icon name={ICONS.QUESTION_MARK_CIRCLED} className="h-4 w-4" />
+            <AlertDescription>
+              <div className="font-medium">Import Failed</div>
+              <div className="mt-1">{error}</div>
+            </AlertDescription>
+          </Alert>
         )}
       </CardContent>
       

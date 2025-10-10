@@ -1,7 +1,13 @@
 import { Link, useMatches } from 'react-router'
 import { z } from 'zod'
-import { cn } from '../utils/misc.tsx'
-import { Icon } from './ui/icon.tsx'
+import { 
+	Breadcrumb, 
+	BreadcrumbItem, 
+	BreadcrumbLink, 
+	BreadcrumbList, 
+	BreadcrumbPage, 
+	BreadcrumbSeparator 
+} from './ui/breadcrumb'
 
 export const BreadcrumbHandle = z.object({ 
 	breadcrumb: z.union([
@@ -22,31 +28,34 @@ export function Breadcrumbs() {
 				? breadcrumb({ data: m.data }) 
 				: breadcrumb
 			
-			return (
-				<Link key={m.id} to={m.pathname} className="flex items-center">
-					{breadcrumbContent as React.ReactNode}
-				</Link>
-			)
+			return {
+				key: m.id,
+				pathname: m.pathname,
+				content: breadcrumbContent as React.ReactNode
+			}
 		})
 		.filter(Boolean)
 
 	if (breadcrumbs.length === 0) return null
 
 	return (
-		<nav aria-label="breadcrumb" className="mb-6">
-			<ol className="flex gap-3">
+		<Breadcrumb className="mb-6">
+			<BreadcrumbList>
 				{breadcrumbs.map((breadcrumb, i, arr) => (
-					<li
-						key={i}
-						className={cn('flex items-center gap-3', {
-							'text-muted-foreground': i < arr.length - 1,
-						})}
-					>
-						{i > 0 && <Icon name="arrow-right" size="sm" />}
-						{breadcrumb}
-					</li>
+					<BreadcrumbItem key={breadcrumb.key}>
+						{i > 0 && <BreadcrumbSeparator />}
+						{i === arr.length - 1 ? (
+							<BreadcrumbPage>{breadcrumb.content}</BreadcrumbPage>
+						) : (
+							<BreadcrumbLink asChild>
+								<Link to={breadcrumb.pathname}>
+									{breadcrumb.content}
+								</Link>
+							</BreadcrumbLink>
+						)}
+					</BreadcrumbItem>
 				))}
-			</ol>
-		</nav>
+			</BreadcrumbList>
+		</Breadcrumb>
 	)
 }

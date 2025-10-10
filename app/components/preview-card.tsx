@@ -1,4 +1,5 @@
 import { Form, Link } from 'react-router'
+import { Alert, AlertDescription } from '#app/components/ui/alert'
 import { Badge } from '#app/components/ui/badge.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#app/components/ui/card.tsx'
@@ -94,9 +95,9 @@ export function PreviewCard({
 
         {/* Error Display */}
         {error && (
-          <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md">
-            <p className="text-sm text-destructive">{error}</p>
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
       </CardContent>
 

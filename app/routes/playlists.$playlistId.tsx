@@ -39,6 +39,7 @@ import { Icon } from '#app/components/ui/icon.tsx'
 import { Input } from '#app/components/ui/input.tsx'
 import { Label } from '#app/components/ui/label.tsx'
 import { Textarea } from '#app/components/ui/textarea.tsx'
+import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { getPlaylistTitle } from '#app/utils/breadcrumb-utils.ts'
 import { prisma } from '#app/utils/db.server.ts'
@@ -74,9 +75,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 							audioFile: {
 								select: {
 									id: true,
+									objectKey: true,
 									fileName: true,
 									fileSize: true,
 									mimeType: true,
+									status: true,
 								},
 							},
 						},
@@ -143,6 +146,7 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === 'submitting'
 	const { playlist } = loaderData
+	const { currentTrack, playTrack } = useAudioPlayer()
 
 	return (
 		<div className="max-w-4xl mx-auto">
@@ -261,12 +265,39 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 											{playlistTrack.track.artist}
 										</p>
 									</div>
-									<Link 
-										to={`/library/${playlistTrack.track.id}`}
-										className="text-primary hover:underline text-sm"
-									>
-										View Track
-									</Link>
+									<div className="flex items-center gap-2">
+										{playlistTrack.track.audioFile?.objectKey && playlistTrack.track.audioFile.status === 'completed' && (
+											<Button
+												variant="outline"
+												size="sm"
+												onClick={() => {
+													const playlistTracks = playlist.tracks
+														.filter(pt => pt.track.audioFile?.objectKey && pt.track.audioFile.status === 'completed')
+														.map(pt => ({
+															id: pt.track.id,
+															title: pt.track.title,
+															artist: pt.track.artist,
+															duration: null, // Not available in this query
+															thumbnailUrl: null, // Not available in this query
+															audioFile: pt.track.audioFile
+														}))
+													const trackIndex = playlistTracks.findIndex(t => t.id === playlistTrack.track.id)
+													if (trackIndex !== -1 && playlistTracks[trackIndex]) {
+														playTrack(playlistTracks[trackIndex], { type: 'playlist', playlistId: playlist.id })
+													}
+												}}
+												aria-label={`Play ${playlistTrack.track.title}`}
+											>
+												<Icon name={currentTrack?.id === playlistTrack.track.id ? "pause" : "play"} className="h-4 w-4" />
+											</Button>
+										)}
+										<Link 
+											to={`/library/${playlistTrack.track.id}`}
+											className="text-primary hover:underline text-sm"
+										>
+											View Track
+										</Link>
+									</div>
 								</div>
 							))}
 						</div>

@@ -1,9 +1,13 @@
 import { formatDistanceToNow } from 'date-fns'
-import { data, Form, useActionData, useLoaderData, Link, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
-import  { type BreadcrumbHandle } from '#app/components/breadcrumbs'
+import { data, Form, useActionData, useLoaderData, Link, useFetcher, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+
+import { type BreadcrumbHandle } from '#app/components/breadcrumbs'
+import { useAudioPlayer } from '#app/components/audio-player-provider'
+import { TrackListItem } from '#app/components/track-list-item'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { Tooltip, TooltipContent, TooltipTrigger } from '#app/components/ui/tooltip'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { 
   isPlaylistWithTracks,
@@ -11,18 +15,16 @@ import {
   isErrorActionResult,
   isSuccessActionResult
 } from '#app/types/frontend'
-
 import { 
   YOUTUBE_PLAYLIST_DETAIL_INTENTS,
   YOUTUBE_PAGE_TYPES,
   validatePlaylistDetailIntent,
   getIntentErrorMessage
 } from '#app/types/youtube-intents'
-
 import { requireUserId } from '#app/utils/auth.server'
 import { getPlaylistTitle } from '#app/utils/breadcrumb-utils'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
-import { redirectWithToast } from '#app/utils/toast.server.ts'
+import { redirectWithToast } from '#app/utils/toast.server'
 
 export const handle: BreadcrumbHandle = {
 	breadcrumb: ({ data }) => getPlaylistTitle(data),
@@ -141,6 +143,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export default function YouTubeSyncedPlaylistDetailPage() {
 	const loaderData = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+	const fetcher = useFetcher()
+	const { currentTrack, playTrack } = useAudioPlayer()
 
 	// Validate loader data with type guards
 	if (!isPlaylistWithTracks(loaderData.playlist)) {
@@ -152,6 +156,21 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	}
 
 	const { playlist, tracks } = loaderData
+
+	// Handle add/remove track actions
+	const handleAddToLibrary = (trackId: string) => {
+		const formData = new FormData()
+		formData.append('intent', 'add-to-library')
+		formData.append('trackId', trackId)
+		void fetcher.submit(formData, { method: 'post' })
+	}
+
+	const handleRemoveFromLibrary = (trackId: string) => {
+		const formData = new FormData()
+		formData.append('intent', 'remove-from-library')
+		formData.append('trackId', trackId)
+		void fetcher.submit(formData, { method: 'post' })
+	}
 
 	return (
 		<div className="py-8">
@@ -300,7 +319,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 								{tracks.length} tracks in this playlist
 							</CardDescription>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="max-h-[600px] overflow-y-auto">
 							{tracks.length === 0 ? (
 								<div className="text-center py-12">
 									<Icon name="file-text" className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
@@ -318,81 +337,91 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 									</Button>
 								</div>
 							) : (
-								<div className="space-y-3">
-									{tracks.map((track) => (
-										<div 
-											key={track.id}
-											className="flex items-center gap-4 p-4 rounded-lg border bg-card hover:shadow-sm transition-shadow"
-										>
-											<div className="text-sm text-muted-foreground w-8">
-												{track.position}
-											</div>
-											{track.thumbnailUrl ? (
-												<img 
-													src={track.thumbnailUrl} 
-													alt={track.title}
-													className="w-16 h-12 rounded object-cover flex-shrink-0"
-												/>
-											) : (
-												<div className="w-16 h-12 bg-muted rounded flex items-center justify-center flex-shrink-0">
-													<Icon name="file-text" className="h-6 w-6 text-muted-foreground" />
-												</div>
-											)}
-											<div className="flex-1 min-w-0">
-												<h3 className="font-medium line-clamp-2 mb-1">
-													{track.title}
-												</h3>
-												<p className="text-sm text-muted-foreground line-clamp-1">
-													{track.artist}
-												</p>
-												
-												{!track.isInUserLibrary && (
-													<span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold border-gray-200 bg-gray-50 text-gray-600 mt-2">
-														Not in Library
-													</span>
-												)}
-											</div>
-											<div className="flex items-center gap-2">
-												<Button
-													variant="outline"
-													size="sm"
-													onClick={() => track.serviceUrl && window.open(track.serviceUrl, '_blank')}
-													aria-label={`Open ${track.title} on YouTube`}
-												>
-													<Icon name="link-2" className="h-4 w-4" />
-												</Button>
-												
-												{track.isInUserLibrary ? (
-													<Form method="post" className="inline">
-														<input type="hidden" name="intent" value="remove-from-library" />
-														<input type="hidden" name="trackId" value={track.id} />
-														<Button
-															type="submit"
-															variant="destructive"
-															size="sm"
-															aria-label={`Remove ${track.title} from library`}
-														>
-															<Icon name="trash" className="h-4 w-4 mr-2" />
-															Remove from Library
-														</Button>
-													</Form>
-												) : (
-													<Form method="post" className="inline">
-														<input type="hidden" name="intent" value="add-to-library" />
-														<input type="hidden" name="trackId" value={track.id} />
-														<Button
-															type="submit"
-															size="sm"
-															aria-label={`Add ${track.title} to library`}
-														>
-															<Icon name="plus" className="h-4 w-4 mr-2" />
-															Add to Library
-														</Button>
-													</Form>
-												)}
-											</div>
+								<div className="space-y-1">
+									{/* Table Header */}
+									<div className="flex items-center gap-4 px-4 py-2 text-sm font-medium text-muted-foreground border-b">
+										<div className="w-8 flex items-center justify-center">#</div>
+										<div className="flex-1 min-w-0">Title</div>
+										<div className="w-20 flex items-center justify-center">
+											<Tooltip>
+												<TooltipTrigger asChild>
+													<Icon name="check" className="h-4 w-4" />
+												</TooltipTrigger>
+												<TooltipContent>
+													<p>Is Saved</p>
+												</TooltipContent>
+											</Tooltip>
 										</div>
-									))}
+										<div className="w-12 flex items-center justify-center">
+											<Tooltip>
+												<TooltipTrigger asChild>
+													<Icon name="clock" className="h-4 w-4" />
+												</TooltipTrigger>
+												<TooltipContent>
+													<p>Duration</p>
+												</TooltipContent>
+											</Tooltip>
+										</div>
+										<div className="w-8 flex items-center justify-center"></div>
+									</div>
+									{tracks.map((track, index) => {
+										// Convert TrackWithUserStatus to TrackListItem format
+										const trackForListItem = {
+											id: track.id,
+											title: track.title,
+											artist: track.artist,
+											duration: track.duration,
+											thumbnailUrl: track.thumbnailUrl,
+											serviceUrl: track.serviceUrl,
+											audioFile: track.audioFile ? {
+												objectKey: track.audioFile.objectKey,
+												fileSize: null, // Not available in TrackWithUserStatus
+												status: track.audioFile.status
+											} : null,
+											service: track.service ? {
+												displayName: track.service.displayName,
+												logoUrl: track.service.logoUrl
+											} : null
+										}
+
+										const userTrack = {
+											createdAt: track.createdAt
+										}
+
+										// Get playable tracks for playlist context
+										const playableTracks = tracks
+											.filter(t => t.isInUserLibrary && t.audioFile?.objectKey && t.audioFile.status === 'completed')
+											.map(t => ({
+												id: t.id,
+												title: t.title,
+												artist: t.artist,
+												duration: t.duration,
+												thumbnailUrl: t.thumbnailUrl,
+												serviceUrl: t.serviceUrl,
+												audioFile: t.audioFile ? {
+													objectKey: t.audioFile.objectKey,
+													fileSize: null,
+													status: t.audioFile.status
+												} : null,
+												service: t.service ? {
+													displayName: t.service.displayName,
+													logoUrl: t.service.logoUrl
+												} : null
+											}))
+
+										return (
+											<TrackListItem
+												key={track.id}
+												track={trackForListItem}
+												userTrack={userTrack}
+												index={index}
+												playlistContext={{ type: 'playlist', playlistId: playlist.id }}
+												isInUserLibrary={track.isInUserLibrary}
+												onAddToLibrary={handleAddToLibrary}
+												onRemoveFromLibrary={handleRemoveFromLibrary}
+											/>
+										)
+									})}
 								</div>
 							)}
 						</CardContent>

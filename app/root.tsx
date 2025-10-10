@@ -1,3 +1,4 @@
+import { HeroUIProvider } from '@heroui/react'
 import { OpenImgContextProvider } from 'openimg/react'
 import {
 	data,
@@ -14,6 +15,7 @@ import { HoneypotProvider } from 'remix-utils/honeypot/react'
 import { type Route } from './+types/root.ts'
 import appleTouchIconAssetUrl from './assets/favicons/apple-touch-icon.png'
 import faviconAssetUrl from './assets/favicons/favicon.svg'
+import { AudioPlayerProvider } from './components/audio-player-provider'
 import { GeneralErrorBoundary } from './components/error-boundary.tsx'
 import { EpicProgress } from './components/progress-bar.tsx'
 import { SearchBar } from './components/search-bar.tsx'
@@ -43,7 +45,7 @@ import { useOptionalUser } from './utils/user.ts'
 export const links: Route.LinksFunction = () => {
 	return [
 		// Preload svg sprite as a resource to avoid render blocking
-		{ rel: 'preload', href: iconsHref, as: 'image' },
+		{ rel: 'preload', href: iconsHref, as: 'image/svg+xml' },
 		{
 			rel: 'icon',
 			href: '/favicon.ico',
@@ -193,44 +195,48 @@ function App() {
 	useToast(data.toast)
 
 	return (
-		<OpenImgContextProvider
-			optimizerEndpoint="/resources/images"
-			getSrc={getImgSrc}
-		>
-			<div className="flex min-h-screen flex-col justify-between">
-				<header className="container py-6">
-					<nav className="flex flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-4 md:gap-8">
-						<Logo />
-						<div className="ml-auto hidden max-w-sm flex-1 sm:block">
-							{searchBar}
-						</div>
-						<div className="flex items-center gap-4 sm:gap-6 md:gap-10">
-							{user ? (
-								<UserDropdown />
-							) : (
-								<Button asChild variant="default" size="lg">
-									<Link to="/login">Log In</Link>
-								</Button>
-							)}
-						</div>
-						<div className="block w-full sm:hidden">{searchBar}</div>
-					</nav>
-				</header>
+		<HeroUIProvider>
+			<OpenImgContextProvider
+				optimizerEndpoint="/resources/images"
+				getSrc={getImgSrc}
+			>
+				<AudioPlayerProvider>
+					<div className="flex min-h-screen flex-col justify-between">
+					<header className="container py-6">
+						<nav className="flex flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-4 md:gap-8">
+							<Logo />
+							<div className="ml-auto hidden max-w-sm flex-1 sm:block">
+								{searchBar}
+							</div>
+							<div className="flex items-center gap-4 sm:gap-6 md:gap-10">
+								{user ? (
+									<UserDropdown />
+								) : (
+									<Button asChild variant="default" size="lg">
+										<Link to="/login">Log In</Link>
+									</Button>
+								)}
+							</div>
+							<div className="block w-full sm:hidden">{searchBar}</div>
+						</nav>
+					</header>
 
-				<div className="flex flex-1 flex-col">
-					<div className="container">
-						<Outlet />
+					<div className="flex flex-1 flex-col">
+						<div className="container">
+							<Outlet />
+						</div>
 					</div>
-				</div>
 
-				<div className="container flex justify-between pb-5">
-					<Logo />
-					<ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
-				</div>
-			</div>
-			<Toaster />
-			<EpicProgress />
-		</OpenImgContextProvider>
+					<div className="container flex justify-between pb-5">
+						<Logo />
+						<ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
+					</div>
+					</div>
+					<Toaster />
+					<EpicProgress />
+				</AudioPlayerProvider>
+			</OpenImgContextProvider>
+		</HeroUIProvider>
 	)
 }
 

@@ -17,6 +17,9 @@
     },
     "iconify:@radix-ui/icons": {
       "config": "icons"
+    },
+    "iconify:heroicons": {
+      "config": "icons"
     }
   }
 }

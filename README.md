@@ -1,47 +1,18 @@
 <div align="center">
-  <h1 align="center"><a href="https://www.epicweb.dev/epic-stack">The Epic Stack 🚀</a></h1>
+  <h1 align="center"><a href="https://www.epicweb.dev/epic-stack">The Music Library 🎶</a></h1>
   <strong align="center">
-    Ditch analysis paralysis and start shipping Epic Web apps.
+    Store, share and play your music from everywhere.
   </strong>
-  <p>
-    This is an opinionated project starter and reference that allows teams to
-    ship their ideas to production faster and on a more stable foundation based
-    on the experience of <a href="https://kentcdodds.com">Kent C. Dodds</a> and
-    <a href="https://github.com/epicweb-dev/epic-stack/graphs/contributors">contributors</a>.
-  </p>
 </div>
 
-```sh
-npx epicli
-```
+## Install
 
-[![The Epic Stack](https://github-production-user-asset-6210df.s3.amazonaws.com/1500684/246885449-1b00286c-aa3d-44b2-9ef2-04f694eb3592.png)](https://www.epicweb.dev/epic-stack)
+1. Sign to fly
+`fly auth signup``
 
-[The Epic Stack](https://www.epicweb.dev/epic-stack)
-
-<hr />
-
-## Watch Kent's Introduction to The Epic Stack
-
-[![Epic Stack Talk slide showing Flynn Rider with knives, the text "I've been around and I've got opinions" and Kent speaking in the corner](https://github-production-user-asset-6210df.s3.amazonaws.com/1500684/277818553-47158e68-4efc-43ae-a477-9d1670d4217d.png)](https://www.epicweb.dev/talks/the-epic-stack)
-
-["The Epic Stack" by Kent C. Dodds](https://www.epicweb.dev/talks/the-epic-stack)
-
-## Docs
-
-[Read the docs](https://github.com/epicweb-dev/epic-stack/blob/main/docs)
-(please 🙏).
-
-## Support
-
-- 🆘 Join the
-  [discussion on GitHub](https://github.com/epicweb-dev/epic-stack/discussions)
-  and the [KCD Community on Discord](https://kcd.im/discord).
-- 💡 Create an
-  [idea discussion](https://github.com/epicweb-dev/epic-stack/discussions/new?category=ideas)
-  for suggestions.
-- 🐛 Open a [GitHub issue](https://github.com/epicweb-dev/epic-stack/issues) to
-  report a bug.
+2. Create 2 apps, prd & stg (get app name from fly.toml)
+fly apps create [app-name]
+fly apps create [app-name]-staging
 
 ## YouTube Playlist Integration
 
@@ -73,13 +44,3 @@ To enable YouTube playlist features, you'll need to:
 2. Click "Connect YouTube Account" to authenticate
 3. Your playlists will be automatically synced
 4. Manage your synced playlists from the interface
-
-## Branding
-
-Want to talk about the Epic Stack in a blog post or talk? Great! Here are some
-assets you can use in your material:
-[EpicWeb.dev/brand](https://epicweb.dev/brand)
-
-## Thanks
-
-You rock 🪨

@@ -41,7 +41,7 @@ export default defineConfig((config) => ({
 	plugins: [
 		envOnlyMacros(),
 		tailwindcss(),
-		reactRouterDevTools(),
+		//reactRouterDevTools(),
 
 		iconsSpritesheet({
 			inputDir: './other/svg-icons',
