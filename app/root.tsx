@@ -1,4 +1,3 @@
-import { HeroUIProvider } from '@heroui/react'
 import { OpenImgContextProvider } from 'openimg/react'
 import {
 	data,
@@ -195,8 +194,7 @@ function App() {
 	useToast(data.toast)
 
 	return (
-		<HeroUIProvider>
-			<OpenImgContextProvider
+		<OpenImgContextProvider
 				optimizerEndpoint="/resources/images"
 				getSrc={getImgSrc}
 			>
@@ -233,7 +231,6 @@ function App() {
 					<EpicProgress />
 				</AudioPlayerProvider>
 			</OpenImgContextProvider>
-		</HeroUIProvider>
 	)
 }
 

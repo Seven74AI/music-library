@@ -1,4 +1,3 @@
-import { Spinner } from '@heroui/react'
 import { useAsyncList } from "@react-stately/data";
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useState, useEffect, useRef } from 'react'
@@ -166,7 +165,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 			setIsLoadingMore(true)
 			list.loadMore()
 		}
-	}, [allItems.length, hasMore, isLoadingMore, list.isLoading, list.loadMore, virtualizer])
+	}, [allItems.length, hasMore, isLoadingMore, list.isLoading, list.loadMore, list, virtualizer])
 
 	// Load more immediately if content is not scrollable but we have more data
 	useEffect(() => {
@@ -187,7 +186,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 		}, 100)
 
 		return () => clearTimeout(timer)
-	}, [hasMore, isLoadingMore, list.isLoading, list.loadMore])
+	}, [hasMore, isLoadingMore, list.isLoading, list.loadMore, list])
 
 
 
@@ -268,7 +267,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 											}}
 										>
 											<div className="flex w-full justify-center py-4">
-												<Spinner />
+												<Icon name="update" className="h-6 w-6 animate-spin" />
 											</div>
 										</div>
 									)
