@@ -1,6 +1,6 @@
-import { useAsyncList } from "@react-stately/data";
-import { useVirtualizer } from '@tanstack/react-virtual'
-import { useState, useEffect, useRef } from 'react'
+import { useInfiniteQuery } from '@tanstack/react-query'
+import { useVirtualizer, defaultRangeExtractor, type Range } from '@tanstack/react-virtual'
+import { useCallback, useEffect, useRef } from 'react'
 import { data, NavLink } from 'react-router'
 import { TrackListItem } from '#app/components/track-list-item'
 import { Icon } from '#app/components/ui/icon.tsx'
@@ -37,7 +37,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 	const userId = await requireUserId(request)
 	const url = new URL(request.url)
 	const cursor = url.searchParams.get('cursor')
-	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20')))
+	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '5')))
 
 	// Get user's tracks with cursor-based pagination
 	const userTracks = await prisma.userTrack.findMany({
@@ -102,99 +102,104 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 	// Ensure we have valid data structure
 	const safeLoaderData = loaderData || {
 		userTracks: [],
-		pagination: { hasNext: false, nextCursor: null, limit: 20 }
+		pagination: { hasNext: false, nextCursor: null, limit: 5 }
 	}
 	const { userTracks, pagination } = safeLoaderData
 
-	const [hasMore, setHasMore] = useState(pagination?.hasNext || false)
-	const [allItems, setAllItems] = useState<UserTrack[]>(userTracks || [])
-	const [isLoadingMore, setIsLoadingMore] = useState(false)
-
-	// Use AsyncList for data fetching
-	const list = useAsyncList<UserTrack, string>({
-		async load({ signal, cursor }) {
-			if (cursor) {
-				// Load more data from API
-				const res = await fetch(`/api/user-tracks?cursor=${cursor}&limit=20`, { signal })
-				const json = await res.json() as { userTracks: UserTrack[], pagination: { hasNext: boolean, nextCursor: string | null } }
-
-				setHasMore(json.pagination.hasNext)
-				setAllItems(prev => [...prev, ...json.userTracks])
-				setIsLoadingMore(false)
-				return {
-					items: json.userTracks,
-					cursor: json.pagination.nextCursor || undefined,
-				}
-			} else {
-				// Initial load from route data
-				setHasMore(pagination?.hasNext || false)
-				setAllItems(userTracks || [])
-				return {
-					items: userTracks || [],
-					cursor: pagination?.nextCursor || undefined,
-				}
-			}
+	// Use useInfiniteQuery for data fetching
+	const {
+		data: queryData,
+		error,
+		fetchNextPage,
+		hasNextPage,
+		isFetching,
+		isFetchingNextPage,
+		isPending,
+		status,
+	} = useInfiniteQuery({
+		queryKey: ['user-tracks'],
+		queryFn: async ({ pageParam }) => {
+			const url = pageParam 
+				? `/api/user-tracks?cursor=${pageParam}&limit=5`
+				: `/api/user-tracks?limit=5`
+			const res = await fetch(url)
+			const json = await res.json() as { userTracks: UserTrack[], pagination: { hasNext: boolean, nextCursor: string | null } }
+			return json
+		},
+		getNextPageParam: (lastPage) => lastPage.pagination.nextCursor || undefined,
+		initialPageParam: pagination?.nextCursor || undefined,
+		initialData: {
+			pages: [{ userTracks: userTracks || [], pagination: { hasNext: pagination?.hasNext || false, nextCursor: pagination?.nextCursor || null } }],
+			pageParams: [pagination?.nextCursor || undefined],
 		},
 	})
 
-	// Virtualization setup
+	// Flatten all pages into a single array
+	const allItems = queryData?.pages.flatMap(page => page.userTracks) || []
+
+	// Virtualization setup with sticky header support
 	const parentRef = useRef<HTMLDivElement>(null)
 	const virtualizer = useVirtualizer({
-		count: allItems.length + (hasMore ? 1 : 0), // +1 for loading indicator
+		count: 1 + allItems.length + (hasNextPage ? 1 : 0), // 1 for header + items + 1 for loading indicator
 		getScrollElement: () => parentRef.current?.querySelector('[data-radix-scroll-area-viewport]') || null,
-		estimateSize: () => 64, // Approximate height of each track item
+		estimateSize: () => 64, // Fixed track item size
 		overscan: 5, // Render 5 extra items outside viewport
+		rangeExtractor: useCallback((range: Range) => {
+			const next = new Set([0, ...defaultRangeExtractor(range)])
+			return [...next].sort((a, b) => a - b)
+		}, []),
 	})
 
-	// Load more when scrolling near the end
+	// Monitor when last virtual item is rendered for infinite scroll
+	const virtualItems = virtualizer.getVirtualItems()
 	useEffect(() => {
-		const virtualItems = virtualizer.getVirtualItems()
-		const [lastVirtualItem] = [...virtualItems].reverse()
+		const [lastItem] = [...virtualItems].reverse()
 		
-		if (!lastVirtualItem) return
-
-		// Check if we need to load more data
-		const shouldLoadMore = (
-			lastVirtualItem.index >= allItems.length - 1 &&
-			hasMore &&
-			!isLoadingMore &&
-			!list.isLoading
-		)
-
-		if (shouldLoadMore) {
-			setIsLoadingMore(true)
-			list.loadMore()
+		if (!lastItem) return
+		
+		// When last virtual item index >= last data index - 1, fetch more
+		if (
+			lastItem.index >= allItems.length &&
+			hasNextPage &&
+			!isFetchingNextPage
+		) {
+			void (async () => {
+				try {
+					await fetchNextPage()
+				} catch (error) {
+					console.error('Failed to fetch next page:', error)
+				}
+			})()
 		}
-	}, [allItems.length, hasMore, isLoadingMore, list.isLoading, list.loadMore, list, virtualizer])
+	}, [
+		hasNextPage,
+		fetchNextPage,
+		isFetchingNextPage,
+		virtualItems,
+		allItems.length,
+	])
 
-	// Load more immediately if content is not scrollable but we have more data
-	useEffect(() => {
-		if (!hasMore || isLoadingMore || list.isLoading) return
-
-		// Use a small delay to ensure DOM is ready
-		const timer = setTimeout(() => {
-			const scrollArea = parentRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
-			if (!scrollArea) return
-
-			const { scrollHeight, clientHeight } = scrollArea
-
-			// If content is not scrollable but we have more data, load immediately
-			if (scrollHeight <= clientHeight) {
-				setIsLoadingMore(true)
-				list.loadMore()
-			}
-		}, 100)
-
-		return () => clearTimeout(timer)
-	}, [hasMore, isLoadingMore, list.isLoading, list.loadMore, list])
 
 
 
 	// Show loading skeleton while data is being processed
-	if (!userTracks || !Array.isArray(userTracks) || !pagination) {
+	if (isPending) {
 		return (
 			<div className="space-y-4">
 				<TrackListSkeleton />
+			</div>
+		)
+	}
+
+	// Show error state
+	if (status === 'error') {
+		return (
+			<div className="flex flex-col items-center justify-center py-12 text-center">
+				<Icon name="x-mark" className="h-12 w-12 text-destructive mb-4" />
+				<h3 className="text-lg font-semibold mb-2">Error loading tracks</h3>
+				<p className="text-muted-foreground mb-4">
+					{error instanceof Error ? error.message : 'Something went wrong'}
+				</p>
 			</div>
 		)
 	}
@@ -214,7 +219,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 				</div>
 			</div>
 
-			{allItems.length === 0 && !list.isLoading ? (
+			{allItems.length === 0 && !isFetching ? (
 				<div className="flex flex-col items-center justify-center py-12 text-center">
 					<Icon name="file-text" className="h-12 w-12 text-muted-foreground mb-4" />
 					<h3 className="text-lg font-semibold mb-2">No tracks yet</h3>
@@ -231,19 +236,8 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 				</div>
 			) : (
 				<div className="h-[600px] w-full">
-					{/* Fixed Header */}
-					<div className="bg-background border-b sticky top-0 z-10">
-						<div className="flex items-center gap-4 px-4 py-3 text-sm font-medium text-muted-foreground">
-							<div className="w-8 flex items-center justify-center min-w-8">#</div>
-							<div className="flex-1 min-w-0">Title</div>
-							<div className="hidden lg:flex items-center justify-center w-20">Saved</div>
-							<div className="text-xs text-muted-foreground w-12 text-center">Duration</div>
-							<div className="flex items-center gap-1 w-8">Actions</div>
-						</div>
-					</div>
-					
-					{/* Virtualized Content */}
-					<ScrollArea className="h-[calc(100%-3rem)] w-full" ref={parentRef}>
+					{/* Virtualized Content with Sticky Header */}
+					<ScrollArea className="h-full w-full" ref={parentRef}>
 						<div
 							style={{
 								height: `${virtualizer.getTotalSize()}px`,
@@ -252,7 +246,36 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 							}}
 						>
 							{virtualizer.getVirtualItems().map((virtualItem) => {
-								if (virtualItem.index >= allItems.length) {
+								const isHeader = virtualItem.index === 0
+								
+								if (isHeader) {
+									return (
+										<div
+											key="header"
+											style={{
+												position: 'sticky',
+												top: 0,
+												zIndex: 10,
+												height: `${virtualItem.size}px`,
+												transform: `translateY(${virtualItem.start}px)`,
+											}}
+											className="bg-background border-b"
+										>
+											<div className="flex items-center gap-4 px-4 py-3 text-sm font-medium text-muted-foreground">
+												<div className="w-8 flex items-center justify-center min-w-8">#</div>
+												<div className="flex-1 min-w-0">Title</div>
+												<div className="hidden lg:flex items-center justify-center w-20">Saved</div>
+												<div className="text-xs text-muted-foreground w-12 text-center">Duration</div>
+												<div className="flex items-center gap-1 w-8">Actions</div>
+											</div>
+										</div>
+									)
+								}
+								
+								// Adjust index for actual items (skip header)
+								const itemIndex = virtualItem.index - 1
+								
+								if (itemIndex >= allItems.length) {
 									// Loading indicator
 									return (
 										<div
@@ -267,13 +290,19 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 											}}
 										>
 											<div className="flex w-full justify-center py-4">
-												<Icon name="update" className="h-6 w-6 animate-spin" />
+												{isFetchingNextPage ? (
+													<Icon name="update" className="h-6 w-6 animate-spin" />
+												) : hasNextPage ? (
+													'Loading more...'
+												) : (
+													'Nothing more to load'
+												)}
 											</div>
 										</div>
 									)
 								}
 
-								const item = allItems[virtualItem.index]
+								const item = allItems[itemIndex]
 								if (!item) return null
 								
 								return (
@@ -291,7 +320,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 										<TrackListItem
 											track={item.track}
 											userTrack={item}
-											index={virtualItem.index}
+											index={itemIndex}
 										/>
 									</div>
 								)

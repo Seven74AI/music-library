@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { OpenImgContextProvider } from 'openimg/react'
 import {
 	data,
@@ -193,8 +194,18 @@ function App() {
 	const searchBar = isOnSearchPage ? null : <SearchBar status="idle" />
 	useToast(data.toast)
 
+	const queryClient = new QueryClient({
+		defaultOptions: {
+			queries: {
+				staleTime: 1000 * 60 * 5, // 5 minutes
+				gcTime: 1000 * 60 * 10, // 10 minutes
+			},
+		},
+	})
+
 	return (
-		<OpenImgContextProvider
+		<QueryClientProvider client={queryClient}>
+			<OpenImgContextProvider
 				optimizerEndpoint="/resources/images"
 				getSrc={getImgSrc}
 			>
@@ -231,6 +242,7 @@ function App() {
 					<EpicProgress />
 				</AudioPlayerProvider>
 			</OpenImgContextProvider>
+		</QueryClientProvider>
 	)
 }
 
