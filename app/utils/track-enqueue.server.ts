@@ -10,6 +10,12 @@ import { prisma } from './db.server'
  * @returns Promise that resolves when the track is successfully enqueued
  */
 export async function enqueueTrackForArchiving(trackId: string, priority: boolean): Promise<void> {
+  // Check if audio archiving is enabled
+  if (process.env.AUDIO_ARCHIVE_ENABLED !== 'true') {
+    console.log('Audio archiving is disabled, skipping track enqueue')
+    return
+  }
+
   try {
     const existing = await prisma.trackAudioFile.findUnique({
       where: { trackId },

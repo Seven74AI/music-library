@@ -239,14 +239,6 @@ const server = app.listen(portToUse, async () => {
 	}
 	console.log(`🚀  We have liftoff!`)
 	
-	// Initialize audio worker
-	try {
-		await startAudioWorker()
-		console.log('🎵 Audio archive worker initialized')
-	} catch (error) {
-		console.error('Failed to initialize audio worker:', error)
-	}
-	
 	const localUrl = `http://localhost:${portToUse}`
 	let lanUrl: string | null = null
 	const localIp = ipAddress() ?? 'Unknown'
@@ -264,6 +256,16 @@ ${lanUrl ? `${styleText('bold', 'On Your Network:')}  ${styleText('cyan', lanUrl
 ${styleText('bold', 'Press Ctrl+C to stop')}
 		`.trim(),
 	)
+	
+	// Initialize audio worker asynchronously after server is ready
+	setImmediate(async () => {
+		try {
+			await startAudioWorker()
+			console.log('🎵 Audio archive worker initialized')
+		} catch (error) {
+			console.error('Failed to initialize audio worker:', error)
+		}
+	})
 })
 
 closeWithGrace(async ({ err }) => {

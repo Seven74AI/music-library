@@ -5,6 +5,9 @@ kill_timeout = 5
 processes = [ ]
 swap_size_mb = 512
 
+[env]
+  NODE_OPTIONS = "--max-old-space-size=512"
+
 [experimental]
 allowed_public_ports = [ ]
 auto_rollback = true
@@ -18,10 +21,13 @@ dockerfile = "/other/Dockerfile"
 ignorefile = "/other/Dockerfile.dockerignore"
 
 [[services]]
+memory = "1gb"
+size = "shared-cpu-4x"
 internal_port = 8_080
 processes = [ "app" ]
 protocol = "tcp"
 script_checks = [ ]
+
 
   [services.concurrency]
   hard_limit = 100
