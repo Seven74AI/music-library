@@ -88,13 +88,28 @@ export async function loader({ request }: Route.LoaderArgs) {
 	// Get next cursor for pagination
 	const nextCursor = userTracks.length === limit ? userTracks[userTracks.length - 1]?.id : null
 
+	// Add playlists to loader
+	const playlists = await prisma.userPlaylist.findMany({
+		where: { ownerId: userId },
+		select: {
+			id: true,
+			title: true,
+			description: true,
+			_count: {
+				select: { tracks: true }
+			}
+		},
+		orderBy: { updatedAt: 'desc' }
+	})
+
 	return data({
 		userTracks,
 		pagination: {
 			limit,
 			hasNext: !!nextCursor,
 			nextCursor,
-		}
+		},
+		playlists
 	})
 }
 
@@ -102,9 +117,10 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 	// Ensure we have valid data structure
 	const safeLoaderData = loaderData || {
 		userTracks: [],
-		pagination: { hasNext: false, nextCursor: null, limit: 5 }
+		pagination: { hasNext: false, nextCursor: null, limit: 5 },
+		playlists: []
 	}
-	const { userTracks, pagination } = safeLoaderData
+	const { userTracks, pagination, playlists } = safeLoaderData
 
 	// Use useInfiniteQuery for data fetching
 	const {
@@ -321,6 +337,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 											track={item.track}
 											userTrack={item}
 											index={itemIndex}
+											playlists={playlists}
 										/>
 									</div>
 								)

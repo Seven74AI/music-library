@@ -1,28 +1,3 @@
-// @context7: Prisma, React, SQLite
-// Before answering my question, MANDATORY use Context7 to fetch documentation for:
-//
-// - Prisma
-// - React
-// - SQLite
-// - resolve-library-id: Prisma
-// - get-library-docs: [resolved-id] (focus: general usage)
-// - resolve-library-id: React
-// - get-library-docs: [resolved-id] (focus: general usage)
-// - resolve-library-id: SQLite
-// - get-library-docs: [resolved-id] (focus: general usage)
-//
-// Context7 Instructions:
-// - resolve-library-id: Prisma
-// - get-library-docs: [resolved-id] (focus: general usage)
-// - resolve-library-id: React
-// - get-library-docs: [resolved-id] (focus: general usage)
-// - resolve-library-id: SQLite
-// - get-library-docs: [resolved-id] (focus: general usage)
-//
-// ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["typedSql"]
@@ -34,110 +9,90 @@ datasource db {
 }
 
 model User {
-  id       String  @id @default(cuid())
-  email    String  @unique
-  username String  @unique
-  name     String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  image       UserImage?
-  password    Password?
-  roles       Role[]
-  sessions    Session[]
-  connections Connection[]
-  passkey     Passkey[]
-  playlists   UserPlaylist[]
-  userTracks  UserTrack[]
+  id               String            @id @default(cuid())
+  email            String            @unique
+  username         String            @unique
+  name             String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  connections      Connection[]
+  passkey          Passkey[]
+  password         Password?
   servicePlaylists ServicePlaylist[]
+  sessions         Session[]
+  image            UserImage?
+  playlists        UserPlaylist[]
+  userTracks       UserTrack[]
+  roles            Role[]            @relation("RoleToUser")
 }
 
 model UserImage {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   altText   String?
   objectKey String
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  userId String @unique
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Password {
-  hash String
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  hash   String
   userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Session {
   id             String   @id @default(cuid())
   expirationDate DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  userId String
-
-  // non-unique foreign key
   @@index([userId])
 }
 
 model Permission {
-  id          String @id @default(cuid())
-  action      String // e.g. create, read, update, delete
-  entity      String // e.g. user, etc.
-  access      String // e.g. own or any
-  description String @default("")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  roles Role[]
+  id          String   @id @default(cuid())
+  action      String
+  entity      String
+  access      String
+  description String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  roles       Role[]   @relation("PermissionToRole")
 
   @@unique([action, entity, access])
 }
 
 model Role {
-  id          String @id @default(cuid())
-  name        String @unique
-  description String @default("")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  users       User[]
-  permissions Permission[]
+  id          String       @id @default(cuid())
+  name        String       @unique
+  description String       @default("")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  permissions Permission[] @relation("PermissionToRole")
+  users       User[]       @relation("RoleToUser")
 }
 
 model Verification {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
   /// The type of verification, e.g. "email" or "phone"
-  type String
-
+  type      String
   /// The thing we're trying to verify, e.g. a user's email or phone number
-  target String
-
+  target    String
   /// The secret key used to generate the otp
-  secret String
-
+  secret    String
   /// The algorithm used to generate the otp
   algorithm String
-
   /// The number of digits in the otp
-  digits Int
-
+  digits    Int
   /// The number of seconds the otp is valid for
-  period Int
-
+  period    Int
   /// The valid characters for the otp
-  charSet String
-
+  charSet   String
   /// When it's safe to delete this verification
   expiresAt DateTime?
 
@@ -145,16 +100,14 @@ model Verification {
 }
 
 model Connection {
-  id           String @id @default(cuid())
+  id           String   @id @default(cuid())
   providerName String
   providerId   String
-  tokens       String? // JSON string to store OAuth tokens
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  userId String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  userId       String
+  tokens       String?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([providerName, providerId])
 }
@@ -165,216 +118,172 @@ model Passkey {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   publicKey      Bytes
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId         String
   webauthnUserId String
   counter        BigInt
-  deviceType     String // 'singleDevice' or 'multiDevice'
+  deviceType     String
   backedUp       Boolean
-  transports     String? // Stored as comma-separated values
+  transports     String?
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index(userId)
+  @@index([userId])
 }
 
 model Track {
-  id     String @id @default(cuid())
-  title  String
-  artist String
-
-  // External service integration
-  serviceId         String? // Reference to Service
-  externalId        String? // External service's track ID (e.g., YouTube video ID)
-  serviceUrl        String? // Direct link to track on external service
-
-  // Metadata from external services
-  duration     Int?     // Duration in seconds
-  thumbnailUrl String?  // Track artwork
-  album        String?  // Album name
-  releaseDate  DateTime? // Release date
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  service Service? @relation(fields: [serviceId], references: [id])
-  audioFile TrackAudioFile?
-  playlists UserPlaylistTrack[]
-  userTracks UserTrack[] // User's personal library
+  id                    String                 @id @default(cuid())
+  title                 String
+  artist                String
+  serviceId             String?
+  externalId            String?
+  serviceUrl            String?
+  duration              Int?
+  thumbnailUrl          String?
+  album                 String?
+  releaseDate           DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
   servicePlaylistTracks ServicePlaylistTrack[]
+  service               Service?               @relation(fields: [serviceId], references: [id])
+  audioFile             TrackAudioFile?
+  playlists             UserPlaylistTrack[]
+  userTracks            UserTrack[]
 
-  // Indexes
-  @@index([serviceId, externalId]) // For external service lookups
+  @@unique([serviceId, externalId])
+  @@index([serviceId, externalId])
   @@index([updatedAt])
-  @@index([createdAt]) // For ordering performance
-  @@unique([serviceId, externalId]) // Prevent duplicate external tracks
+  @@index([createdAt])
 }
 
 model TrackAudioFile {
-  id        String  @id @default(cuid())
-  objectKey String?
-  fileName  String?
-  fileSize  Int?
-  mimeType  String?
+  id            String    @id @default(cuid())
+  objectKey     String?
+  fileName      String?
+  fileSize      Int?
+  mimeType      String?
+  status        String    @default("pending")
+  priority      Boolean   @default(false)
+  errorHistory  String?
+  retryCount    Int       @default(0)
+  downloadedAt  DateTime?
+  lastAttemptAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  trackId       String    @unique
+  track         Track     @relation(fields: [trackId], references: [id], onDelete: Cascade)
 
-  // Archive status tracking
-  status       String   @default("pending") // 'pending', 'processing', 'completed', 'failed'
-  priority     Boolean  @default(false)     // Admin-triggered priority archiving
-  errorHistory String?  // JSON array of error entries
-  retryCount   Int      @default(0)         // Number of retry attempts (0-3)
-  downloadedAt DateTime? // When archiving completed
-  lastAttemptAt DateTime? // Last processing attempt
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  track   Track  @relation(fields: [trackId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  trackId String @unique
-
-  // Indexes for queue queries
   @@index([status])
-  @@index([status, priority, createdAt]) // For queue ordering (priority first, then FIFO)
-  @@index([status, lastAttemptAt]) // For retry logic
+  @@index([status, priority, createdAt])
+  @@index([status, lastAttemptAt])
 }
 
 model UserPlaylist {
-  id          String  @id @default(cuid())
+  id          String              @id @default(cuid())
   title       String
   description String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  ownerId     String
+  owner       User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  tracks      UserPlaylistTrack[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  ownerId String
-
-  tracks UserPlaylistTrack[]
-
-  // Index for ordering by user
   @@index([ownerId])
   @@index([ownerId, updatedAt])
 }
 
 model UserPlaylistTrack {
-  id         String @id @default(cuid())
-  position   Int    // Track position in playlist
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  playlist   UserPlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id         String       @id @default(cuid())
+  position   Int
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
   playlistId String
+  trackId    String
+  track      Track        @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  playlist   UserPlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
-  track   Track @relation(fields: [trackId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  trackId String
-
-  // Ensure unique track per playlist
-  @@unique([playlistId, trackId])
-  // Index for ordering tracks in playlist
   @@index([playlistId, position])
 }
 
-
 model Service {
-  id   String @id @default(cuid())
-  name String @unique // 'youtube', 'spotify', 'apple_music', etc.
-  
-  // Service metadata
-  displayName String // 'YouTube', 'Spotify', 'Apple Music'
-  baseUrl     String // 'https://youtube.com', 'https://spotify.com'
-  logoUrl     String? // Service logo
-  isActive    Boolean @default(true) // Whether service is available
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  // Relations
-  tracks Track[]
-  playlists ServicePlaylist[]
-  
+  id          String            @id @default(cuid())
+  name        String            @unique
+  displayName String
+  baseUrl     String
+  logoUrl     String?
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  playlists   ServicePlaylist[]
+  tracks      Track[]
+
   @@index([name])
 }
 
 model UserTrack {
-  id     String @id @default(cuid())
-  userId String
-  trackId  String
-  
-  // Soft delete
-  isActive Boolean @default(true)
+  id        String    @id @default(cuid())
+  userId    String
+  trackId   String
+  isActive  Boolean   @default(true)
   deletedAt DateTime?
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  // Relations
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  track   Track @relation(fields: [trackId], references: [id], onDelete: Cascade)
-  
-  // Ensure unique track per user
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  track     Track     @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, trackId])
   @@index([userId])
   @@index([trackId])
-  @@index([userId, isActive]) // For efficient filtering
-  @@index([userId, createdAt]) // For library ordering performance
+  @@index([userId, isActive])
+  @@index([userId, createdAt])
 }
 
 model ServicePlaylist {
-  id          String @id @default(cuid())
-  serviceId   String
-  externalId  String // YouTube playlist ID, Spotify playlist ID, etc.
-  title       String
-  description String?
+  id           String                 @id @default(cuid())
+  serviceId    String
+  externalId   String
+  title        String
+  description  String?
   thumbnailUrl String?
-  channelId   String? // YouTube channel, Spotify artist, etc.
-  channelTitle String? // YouTube channel name, Spotify artist name, etc.
-  publishedAt DateTime?
-  itemCount   Int
-  
-  // Sync tracking
+  channelId    String?
+  channelTitle String?
+  publishedAt  DateTime?
+  itemCount    Int
   lastSyncedAt DateTime?
-  isActive     Boolean @default(true)
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  // Relations
-  service   Service @relation(fields: [serviceId], references: [id])
-  owner     User    @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  ownerId   String
-  
-  tracks ServicePlaylistTrack[]
-  
-  @@unique([serviceId, externalId]) // Unique per service
+  isActive     Boolean                @default(true)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  ownerId      String
+  owner        User                   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  service      Service                @relation(fields: [serviceId], references: [id])
+  tracks       ServicePlaylistTrack[]
+
+  @@unique([serviceId, externalId])
   @@index([ownerId])
   @@index([ownerId, updatedAt])
   @@index([serviceId, externalId])
 }
 
 model ServicePlaylistTrack {
-  id          String @id @default(cuid())
-  playlistId  String // Reference to ServicePlaylist
-  trackId     String // Reference to Track
-  position    Int    // Position in playlist
-  
-  playlist    ServicePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
-  track       Track @relation(fields: [trackId], references: [id])
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  id         String          @id @default(cuid())
+  playlistId String
+  trackId    String
+  position   Int
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  track      Track           @relation(fields: [trackId], references: [id])
+  playlist   ServicePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
   @@unique([playlistId, trackId])
   @@index([playlistId])
   @@index([trackId])
 }
 
 model WorkerState {
-  id                String    @id @default("singleton") // Primary key, always 'singleton' (only 1 record)
-  status            String    @default("running") // 'running', 'paused', 'long_break'
-  lastStateChange   DateTime  @updatedAt // When state last changed
-  lastQueueRun      DateTime? // Last time queue was processed
-  nextLongBreakAt   DateTime? // When next automatic long break starts
-  currentlyProcessing Int     @default(0) // Count of active downloads (0-2)
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String    @id @default("singleton")
+  status              String    @default("running")
+  lastStateChange     DateTime  @updatedAt
+  lastQueueRun        DateTime?
+  nextLongBreakAt     DateTime?
+  currentlyProcessing Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }

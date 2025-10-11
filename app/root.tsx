@@ -12,6 +12,7 @@ import {
 	useMatches,
 } from 'react-router'
 import { HoneypotProvider } from 'remix-utils/honeypot/react'
+import { Toaster as SonnerToaster } from 'sonner'
 import { type Route } from './+types/root.ts'
 import appleTouchIconAssetUrl from './assets/favicons/apple-touch-icon.png'
 import faviconAssetUrl from './assets/favicons/favicon.svg'
@@ -239,6 +240,7 @@ function App() {
 
 					</div>
 					<Toaster />
+					<SonnerToaster />
 					<EpicProgress />
 				</AudioPlayerProvider>
 			</OpenImgContextProvider>
