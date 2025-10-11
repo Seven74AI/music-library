@@ -1,20 +1,12 @@
-import { 
-	Table, 
-	TableHeader, 
-	TableBody, 
-	TableColumn, 
-	TableRow, 
-	TableCell,
-	Spinner,
-	Button
-} from '@heroui/react'
+import { Spinner } from '@heroui/react'
 import { useInfiniteScroll } from '@heroui/use-infinite-scroll'
 import { useAsyncList } from "@react-stately/data";
 import { useState } from 'react'
 import { data, NavLink } from 'react-router'
-import { Icon } from '#app/components/ui/icon.tsx'
-import { TrackListSkeleton } from '#app/components/ui/track-list-skeleton'
 import { TrackListItem } from '#app/components/track-list-item'
+import { Icon } from '#app/components/ui/icon.tsx'
+import { ScrollArea } from '#app/components/ui/scroll-area'
+import { TrackListSkeleton } from '#app/components/ui/track-list-skeleton'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { type Route } from './+types/library.index.ts'
@@ -97,8 +89,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 	// Get next cursor for pagination
 	const nextCursor = userTracks.length === limit ? userTracks[userTracks.length - 1]?.id : null
 
-	return data({ 
-		userTracks, 
+	return data({
+		userTracks,
 		pagination: {
 			limit,
 			hasNext: !!nextCursor,
@@ -109,9 +101,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) {
 	// Ensure we have valid data structure
-	const safeLoaderData = loaderData || { 
-		userTracks: [], 
-		pagination: { hasNext: false, nextCursor: null, limit: 5 } 
+	const safeLoaderData = loaderData || {
+		userTracks: [],
+		pagination: { hasNext: false, nextCursor: null, limit: 5 }
 	}
 	const { userTracks, pagination } = safeLoaderData
 
@@ -124,7 +116,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 				// Load more data from API
 				const res = await fetch(`/api/user-tracks?cursor=${cursor}&limit=5`, { signal })
 				const json = await res.json() as { userTracks: UserTrack[], pagination: { hasNext: boolean, nextCursor: string | null } }
-				
+
 				setHasMore(json.pagination.hasNext)
 				return {
 					items: json.userTracks,
@@ -142,27 +134,12 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 	})
 
 	// Set up infinite scroll
-	const [loaderRef, scrollerRef] = useInfiniteScroll({ 
-		hasMore, 
+	const [loaderRef, scrollerRef] = useInfiniteScroll({
+		hasMore,
 		onLoadMore: list.loadMore
 	})
 
-	// Define columns for the table
-	const columns = [
-		{ key: 'number', label: '#' },
-		{ key: 'title', label: 'Title' },
-		{ key: 'artist', label: 'Artist' },
-		{ key: 'duration', label: 'Duration' },
-		{ key: 'actions', label: 'Actions' }
-	]
 
-	// Format duration helper
-	const formatDuration = (seconds: number | null) => {
-		if (!seconds) return '--:--'
-		const minutes = Math.floor(seconds / 60)
-		const remainingSeconds = Math.floor(seconds % 60)
-		return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
-	}
 
 	// Show loading skeleton while data is being processed
 	if (!userTracks || !Array.isArray(userTracks) || !pagination) {
@@ -187,7 +164,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 					</NavLink>
 				</div>
 			</div>
-			
+
 			{list.items.length === 0 && !list.isLoading ? (
 				<div className="flex flex-col items-center justify-center py-12 text-center">
 					<Icon name="file-text" className="h-12 w-12 text-muted-foreground mb-4" />
@@ -204,48 +181,37 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 					</NavLink>
 				</div>
 			) : (
-				<Table
-					aria-label="Music library tracks"
-					isHeaderSticky
-					baseRef={scrollerRef}
-					bottomContent={
-						hasMore ? (
-							<div className="flex w-full justify-center">
-								<Spinner ref={loaderRef} />
-							</div>
-						) : null
-					}
-					classNames={{
-						base: "max-h-[600px] overflow-scroll",
-						table: "min-h-[200px]",
-					}}
-				>
-					<TableHeader columns={columns}>
-						{(column) => (
-							<TableColumn key={column.key}>
-								{column.label}
-							</TableColumn>
-						)}
-					</TableHeader>
-					<TableBody
-						items={list.items}
-						isLoading={list.isLoading}
-						loadingContent={<Spinner label="Loading..." />}
-						emptyContent="No tracks found"
-					>
-						{(item) => (
-							<TableRow key={item.id}>
-								<TableCell colSpan={5} className="p-0">
-									<TrackListItem
-										track={item.track}
-										userTrack={item}
-										index={list.items.indexOf(item)}
-									/>
-								</TableCell>
-							</TableRow>
-						)}
-					</TableBody>
-				</Table>
+				<div className="h-[600px] w-full">
+					{/* Fixed Header */}
+					<div className="bg-background border-b sticky top-0 z-10">
+						<div className="flex items-center gap-4 px-4 py-3 text-sm font-medium text-muted-foreground">
+							<div className="w-8 flex items-center justify-center min-w-8">#</div>
+							<div className="flex-1 min-w-0">Title</div>
+							<div className="hidden lg:flex items-center justify-center w-20">Saved</div>
+							<div className="text-xs text-muted-foreground w-12 text-center">Duration</div>
+							<div className="flex items-center gap-1 w-8">Actions</div>
+						</div>
+					</div>
+					
+					{/* Scrollable Content */}
+					<ScrollArea className="h-[calc(100%-3rem)] w-full">
+						<div className="space-y-0" ref={scrollerRef as React.RefObject<HTMLDivElement>}>
+							{list.items.map((item, index) => (
+								<TrackListItem
+									key={item.id}
+									track={item.track}
+									userTrack={item}
+									index={index}
+								/>
+							))}
+							{hasMore && (
+								<div className="flex w-full justify-center py-4">
+									<Spinner ref={loaderRef} />
+								</div>
+							)}
+						</div>
+					</ScrollArea>
+				</div>
 			)}
 		</div>
 	)

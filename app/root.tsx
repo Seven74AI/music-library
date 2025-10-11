@@ -209,6 +209,7 @@ function App() {
 								{searchBar}
 							</div>
 							<div className="flex items-center gap-4 sm:gap-6 md:gap-10">
+								<ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
 								{user ? (
 									<UserDropdown />
 								) : (
@@ -227,10 +228,6 @@ function App() {
 						</div>
 					</div>
 
-					<div className="container flex justify-between pb-5">
-						<Logo />
-						<ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
-					</div>
 					</div>
 					<Toaster />
 					<EpicProgress />

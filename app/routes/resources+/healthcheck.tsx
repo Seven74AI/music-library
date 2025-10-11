@@ -40,7 +40,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 				headers: { 'X-Healthcheck': 'true' },
 			}).then((r) => {
 				if (!r.ok) return Promise.reject(r)
-				return r
+				return new Response('OK')
 			}),
 		])
 		return new Response('OK')
