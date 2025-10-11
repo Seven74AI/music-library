@@ -107,6 +107,7 @@
     "execa": "^8.0.1",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
+    "framer-motion": "^12.23.24",
     "get-port": "^7.1.0",
     "glob": "^11.0.2",
     "googleapis": "^161.0.0",
