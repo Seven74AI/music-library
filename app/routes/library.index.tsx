@@ -1,7 +1,7 @@
 import { Spinner } from '@heroui/react'
-import { useInfiniteScroll } from '@heroui/use-infinite-scroll'
 import { useAsyncList } from "@react-stately/data";
-import { useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { useState, useEffect, useRef } from 'react'
 import { data, NavLink } from 'react-router'
 import { TrackListItem } from '#app/components/track-list-item'
 import { Icon } from '#app/components/ui/icon.tsx'
@@ -38,7 +38,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 	const userId = await requireUserId(request)
 	const url = new URL(request.url)
 	const cursor = url.searchParams.get('cursor')
-	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '5')))
+	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20')))
 
 	// Get user's tracks with cursor-based pagination
 	const userTracks = await prisma.userTrack.findMany({
@@ -103,21 +103,25 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 	// Ensure we have valid data structure
 	const safeLoaderData = loaderData || {
 		userTracks: [],
-		pagination: { hasNext: false, nextCursor: null, limit: 5 }
+		pagination: { hasNext: false, nextCursor: null, limit: 20 }
 	}
 	const { userTracks, pagination } = safeLoaderData
 
 	const [hasMore, setHasMore] = useState(pagination?.hasNext || false)
+	const [allItems, setAllItems] = useState<UserTrack[]>(userTracks || [])
+	const [isLoadingMore, setIsLoadingMore] = useState(false)
 
-	// Use AsyncList following HeroUI docs pattern
+	// Use AsyncList for data fetching
 	const list = useAsyncList<UserTrack, string>({
 		async load({ signal, cursor }) {
 			if (cursor) {
 				// Load more data from API
-				const res = await fetch(`/api/user-tracks?cursor=${cursor}&limit=5`, { signal })
+				const res = await fetch(`/api/user-tracks?cursor=${cursor}&limit=20`, { signal })
 				const json = await res.json() as { userTracks: UserTrack[], pagination: { hasNext: boolean, nextCursor: string | null } }
 
 				setHasMore(json.pagination.hasNext)
+				setAllItems(prev => [...prev, ...json.userTracks])
+				setIsLoadingMore(false)
 				return {
 					items: json.userTracks,
 					cursor: json.pagination.nextCursor || undefined,
@@ -125,6 +129,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 			} else {
 				// Initial load from route data
 				setHasMore(pagination?.hasNext || false)
+				setAllItems(userTracks || [])
 				return {
 					items: userTracks || [],
 					cursor: pagination?.nextCursor || undefined,
@@ -133,11 +138,56 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 		},
 	})
 
-	// Set up infinite scroll
-	const [loaderRef, scrollerRef] = useInfiniteScroll({
-		hasMore,
-		onLoadMore: list.loadMore
+	// Virtualization setup
+	const parentRef = useRef<HTMLDivElement>(null)
+	const virtualizer = useVirtualizer({
+		count: allItems.length + (hasMore ? 1 : 0), // +1 for loading indicator
+		getScrollElement: () => parentRef.current?.querySelector('[data-radix-scroll-area-viewport]') || null,
+		estimateSize: () => 64, // Approximate height of each track item
+		overscan: 5, // Render 5 extra items outside viewport
 	})
+
+	// Load more when scrolling near the end
+	useEffect(() => {
+		const virtualItems = virtualizer.getVirtualItems()
+		const [lastVirtualItem] = [...virtualItems].reverse()
+		
+		if (!lastVirtualItem) return
+
+		// Check if we need to load more data
+		const shouldLoadMore = (
+			lastVirtualItem.index >= allItems.length - 1 &&
+			hasMore &&
+			!isLoadingMore &&
+			!list.isLoading
+		)
+
+		if (shouldLoadMore) {
+			setIsLoadingMore(true)
+			list.loadMore()
+		}
+	}, [allItems.length, hasMore, isLoadingMore, list.isLoading, list.loadMore, virtualizer])
+
+	// Load more immediately if content is not scrollable but we have more data
+	useEffect(() => {
+		if (!hasMore || isLoadingMore || list.isLoading) return
+
+		// Use a small delay to ensure DOM is ready
+		const timer = setTimeout(() => {
+			const scrollArea = parentRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
+			if (!scrollArea) return
+
+			const { scrollHeight, clientHeight } = scrollArea
+
+			// If content is not scrollable but we have more data, load immediately
+			if (scrollHeight <= clientHeight) {
+				setIsLoadingMore(true)
+				list.loadMore()
+			}
+		}, 100)
+
+		return () => clearTimeout(timer)
+	}, [hasMore, isLoadingMore, list.isLoading, list.loadMore])
 
 
 
@@ -165,7 +215,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 				</div>
 			</div>
 
-			{list.items.length === 0 && !list.isLoading ? (
+			{allItems.length === 0 && !list.isLoading ? (
 				<div className="flex flex-col items-center justify-center py-12 text-center">
 					<Icon name="file-text" className="h-12 w-12 text-muted-foreground mb-4" />
 					<h3 className="text-lg font-semibold mb-2">No tracks yet</h3>
@@ -193,22 +243,60 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 						</div>
 					</div>
 					
-					{/* Scrollable Content */}
-					<ScrollArea className="h-[calc(100%-3rem)] w-full">
-						<div className="space-y-0" ref={scrollerRef as React.RefObject<HTMLDivElement>}>
-							{list.items.map((item, index) => (
-								<TrackListItem
-									key={item.id}
-									track={item.track}
-									userTrack={item}
-									index={index}
-								/>
-							))}
-							{hasMore && (
-								<div className="flex w-full justify-center py-4">
-									<Spinner ref={loaderRef} />
-								</div>
-							)}
+					{/* Virtualized Content */}
+					<ScrollArea className="h-[calc(100%-3rem)] w-full" ref={parentRef}>
+						<div
+							style={{
+								height: `${virtualizer.getTotalSize()}px`,
+								width: '100%',
+								position: 'relative',
+							}}
+						>
+							{virtualizer.getVirtualItems().map((virtualItem) => {
+								if (virtualItem.index >= allItems.length) {
+									// Loading indicator
+									return (
+										<div
+											key="loading"
+											style={{
+												position: 'absolute',
+												top: 0,
+												left: 0,
+												width: '100%',
+												height: `${virtualItem.size}px`,
+												transform: `translateY(${virtualItem.start}px)`,
+											}}
+										>
+											<div className="flex w-full justify-center py-4">
+												<Spinner />
+											</div>
+										</div>
+									)
+								}
+
+								const item = allItems[virtualItem.index]
+								if (!item) return null
+								
+								return (
+									<div
+										key={item.id}
+										style={{
+											position: 'absolute',
+											top: 0,
+											left: 0,
+											width: '100%',
+											height: `${virtualItem.size}px`,
+											transform: `translateY(${virtualItem.start}px)`,
+										}}
+									>
+										<TrackListItem
+											track={item.track}
+											userTrack={item}
+											index={virtualItem.index}
+										/>
+									</div>
+								)
+							})}
 						</div>
 					</ScrollArea>
 				</div>
