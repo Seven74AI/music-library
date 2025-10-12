@@ -93,7 +93,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
 	const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false)
 	const isMobile = useIsMobile()
-	const { currentTrack, playTrack, playNextTrack, addToCurrentPlaylist } = useAudioPlayer()
+	const { currentTrack, currentIndex, playTrack, playNextTrack, addToCurrentPlaylist } = useAudioPlayer()
 
 	const handleClick = useCallback((event: React.MouseEvent) => {
 		event.stopPropagation()
@@ -155,8 +155,8 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 		setIsDetailsSheetOpen(true)
 	}, [])
 
-	// Check if this track is currently playing
-	const isCurrentlyPlaying = currentTrack?.id === track.id
+	// Check if this track is currently playing (both ID and position must match for duplicates)
+	const isCurrentlyPlaying = currentTrack?.id === track.id && currentIndex === index
 	
 	// Check if track has playable audio
 	const hasPlayableAudio = Boolean(track.audioFile?.objectKey && track.audioFile.status === 'completed')
@@ -294,7 +294,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 			)}
 
 			{/* Duration */}
-			<div className="text-xs text-muted-foreground w-12 text-center">
+			<div className="hidden md:flex text-xs text-muted-foreground w-12 text-center">
 				{formatDuration(track.duration || 0)}
 			</div>
 

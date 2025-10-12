@@ -281,7 +281,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 												<div className="w-8 flex items-center justify-center min-w-8">#</div>
 												<div className="flex-1 min-w-0">Title</div>
 												<div className="hidden lg:flex items-center justify-center w-20">Saved</div>
-												<div className="text-xs text-muted-foreground w-12 text-center">Duration</div>
+												<div className="hidden md:flex text-xs text-muted-foreground w-12 text-center">Duration</div>
 												<div className="flex items-center gap-1 w-8">Actions</div>
 											</div>
 										</div>

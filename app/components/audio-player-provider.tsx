@@ -66,7 +66,7 @@ interface AudioPlayerContextType {
 	isLoadingPrevious: boolean
 	// New playlist management functions
 	addTrackToPlaylist: (track: Track, position?: 'next' | 'end') => void
-	removeTrackFromPlaylist: (trackId: string) => void
+	removeTrackFromPlaylist: (index: number) => void
 	playNextTrack: (track: Track) => void
 	addToCurrentPlaylist: (track: Track) => void
 }
@@ -87,14 +87,20 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const [isLoadingNext] = useState(false)
 	const [isLoadingPrevious] = useState(false)
 
-	// Fetch tracks from API based on context
+	/**
+	 * Fetch tracks from API based on context
+	 * 
+	 * @param context - The playlist context (library, playlist, etc.)
+	 * @param cursor - Optional cursor for pagination
+	 * @returns Promise resolving to array of tracks
+	 */
 	const fetchTracks = useCallback(async (context: PlaylistContext, cursor?: string): Promise<Track[]> => {
 		try {
 			let url = ''
 			if (context.type === 'library') {
 				url = `/api/user-tracks?limit=50${cursor ? `&cursor=${cursor}` : ''}`
 			} else if (context.type === 'playlist' && context.playlistId) {
-				url = `/api/service-playlist-tracks?playlistId=${context.playlistId}&limit=50${cursor ? `&cursor=${cursor}` : ''}`
+				url = `/api/playlist-tracks?playlistId=${context.playlistId}&limit=50${cursor ? `&cursor=${cursor}` : ''}`
 			}
 		
 			if (!url) return []
@@ -119,6 +125,13 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		}
 	}, [])
 
+	/**
+	 * Play a track with optional position index for duplicate track support
+	 * 
+	 * @param track - The track to play
+	 * @param context - The playlist context
+	 * @param index - Optional position index (used for duplicate track support)
+	 */
 	const playTrack = useCallback(async (track: Track, context: PlaylistContext, index?: number) => {
 		setCurrentTrack(track)
 		setIsPlayerVisible(true)
@@ -128,8 +141,10 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		const tracks = await fetchTracks(context)
 		
 		setPlaylist(tracks)
-		const calculatedIndex = tracks.findIndex(t => t.id === track.id)
-		setCurrentIndex(index ?? calculatedIndex)
+		// If index is explicitly provided, use it (for duplicate track support)
+		// Otherwise, find the track by ID (fallback for API-fetched playlists)
+		const calculatedIndex = index !== undefined ? index : tracks.findIndex(t => t.id === track.id)
+		setCurrentIndex(calculatedIndex)
 	}, [fetchTracks])
 
 	// Add track to current playlist
@@ -145,16 +160,21 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		}
 	}, [playlist, currentIndex])
 
-	// Remove track from playlist
-	const removeTrackFromPlaylist = useCallback((trackId: string) => {
+	/**
+	 * Remove track from playlist by position index (supports duplicate tracks)
+	 * 
+	 * @param index - The position index of the track to remove
+	 */
+	const removeTrackFromPlaylist = useCallback((index: number) => {
 		setPlaylist(prev => {
-			const newPlaylist = prev.filter(track => track.id !== trackId)
+			const newPlaylist = [...prev]
+			newPlaylist.splice(index, 1)  // Remove only at specific index
+			
 			// Adjust current index if needed
-			const removedIndex = prev.findIndex(track => track.id === trackId)
-			if (removedIndex !== -1 && removedIndex < currentIndex) {
+			if (index < currentIndex) {
 				setCurrentIndex(prevIndex => prevIndex - 1)
-			} else if (removedIndex === currentIndex && newPlaylist.length > 0) {
-				// If current track was removed, play the next available track
+			} else if (index === currentIndex && newPlaylist.length > 0) {
+				// If current track was removed, play the next available track at same position
 				const nextIndex = Math.min(currentIndex, newPlaylist.length - 1)
 				setCurrentIndex(nextIndex)
 				const nextTrack = newPlaylist[nextIndex]

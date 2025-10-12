@@ -128,7 +128,7 @@ export function AudioPlayer({
 			audio.removeEventListener('canplay', handleCanPlay)
 			audio.removeEventListener('ended', handleEnded)
 		}
-	}, [onNext, loopMode, hasNext])
+	}, [onNext, loopMode, hasNext, track?.duration])
 
 	// Update volume
 	useEffect(() => {
@@ -203,7 +203,7 @@ export function AudioPlayer({
 				<div className="flex items-center gap-3 min-w-0 flex-1">
 					{track.thumbnailUrl ? (
 						<img 
-							src={track.thumbnailUrl} 
+							src={`/resources/images?src=${encodeURIComponent(track.thumbnailUrl)}&w=48&h=48&fit=cover&format=webp`} 
 							alt={track.title}
 							className="h-12 w-12 rounded object-cover"
 						/>
@@ -327,9 +327,17 @@ export function AudioPlayer({
 	)
 }
 
-// Queue Sheet Component
+/**
+ * Queue Sheet Component - Displays the current playlist queue
+ * 
+ * Features:
+ * - Shows all tracks in the current playlist
+ * - Highlights the currently playing track (by ID and position)
+ * - Allows removal of specific tracks by position
+ * - Supports duplicate tracks with unique keys
+ */
 function QueueSheet() {
-	const { playlist, currentTrack, removeTrackFromPlaylist } = useAudioPlayer()
+	const { playlist, currentTrack, currentIndex, removeTrackFromPlaylist } = useAudioPlayer()
 
 	return (
 		<Sheet>
@@ -358,12 +366,12 @@ function QueueSheet() {
 						</div>
 					) : (
 						<div className="space-y-1 pb-4">
-							{playlist.map((track) => (
+							{playlist.map((track, index) => (
 								<QueueTrackItem
-									key={track.id}
+									key={`${track.id}-${index}`}  // Combine ID and index for unique key
 									track={track}
-									isCurrentlyPlaying={currentTrack?.id === track.id}
-									onRemove={() => removeTrackFromPlaylist(track.id)}
+									isCurrentlyPlaying={currentTrack?.id === track.id && currentIndex === index}
+									onRemove={() => removeTrackFromPlaylist(index)}
 								/>
 							))}
 						</div>
@@ -374,7 +382,13 @@ function QueueSheet() {
 	)
 }
 
-// Simple queue track item with cover, title-artist, and remove button
+/**
+ * Queue Track Item Component - Individual track item in the queue
+ * 
+ * @param track - The track data
+ * @param isCurrentlyPlaying - Whether this specific track instance is currently playing
+ * @param onRemove - Callback to remove this track from the queue
+ */
 function QueueTrackItem({ track, isCurrentlyPlaying, onRemove }: { track: Track, isCurrentlyPlaying: boolean, onRemove: () => void }) {
 	const thumbnailUrl = track.thumbnailUrl 
 		? `/resources/images?src=${encodeURIComponent(track.thumbnailUrl)}&w=48&h=48&fit=cover&format=webp`

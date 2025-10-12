@@ -1,4 +1,5 @@
 import { Form, useNavigation } from 'react-router'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '#app/components/ui/alert-dialog'
 import { Button } from '#app/components/ui/button'
 
 interface ServiceDisconnectButtonProps {
@@ -6,6 +7,15 @@ interface ServiceDisconnectButtonProps {
 	disconnectUrl: string
 }
 
+/**
+ * Service Disconnect Button Component
+ * 
+ * Provides a confirmation dialog for disconnecting from a service.
+ * Uses AlertDialog instead of browser confirm() for better UX.
+ * 
+ * @param serviceName - The name of the service to disconnect from
+ * @param disconnectUrl - The URL to POST to for disconnecting
+ */
 export function ServiceDisconnectButton({ 
 	serviceName, 
 	disconnectUrl 
@@ -14,22 +24,35 @@ export function ServiceDisconnectButton({
 	const isDisconnecting = navigation.state === 'submitting' && 
 		navigation.formAction === disconnectUrl
 
-	const handleDisconnect = (event: React.MouseEvent) => {
-		if (!confirm(`Are you sure you want to disconnect from ${serviceName}?`)) {
-			event.preventDefault()
-		}
-	}
-
 	return (
-		<Form method="post" action={disconnectUrl}>
-			<Button 
-				variant="destructive" 
-				size="sm"
-				onClick={handleDisconnect}
-				disabled={isDisconnecting}
-			>
-				{isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-			</Button>
-		</Form>
+		<AlertDialog>
+			<AlertDialogTrigger asChild>
+				<Button 
+					variant="destructive" 
+					size="sm"
+					disabled={isDisconnecting}
+				>
+					{isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+				</Button>
+			</AlertDialogTrigger>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Disconnect Service</AlertDialogTitle>
+					<AlertDialogDescription>
+						Are you sure you want to disconnect from {serviceName}?
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>Cancel</AlertDialogCancel>
+					<Form method="post" action={disconnectUrl}>
+						<AlertDialogAction asChild>
+							<Button type="submit" variant="destructive">
+								Disconnect
+							</Button>
+						</AlertDialogAction>
+					</Form>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	)
 }

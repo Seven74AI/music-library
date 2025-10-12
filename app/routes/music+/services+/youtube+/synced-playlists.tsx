@@ -11,6 +11,7 @@ import {
 } from 'react-router'
 
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '#app/components/ui/alert-dialog'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
@@ -249,24 +250,38 @@ export default function YouTubeSyncedPlaylistsPage() {
 												</Button>
 											</Form>
 											
-											<Form method="post" className="inline">
-												<input type="hidden" name="intent" value={YOUTUBE_SYNCED_PLAYLISTS_INTENTS.REMOVE} />
-												<input type="hidden" name="playlistId" value={playlist.id} />
-												<Button
-													type="submit"
-													variant="outline"
-													size="sm"
-													className="text-destructive hover:text-destructive"
-													aria-label={`Remove ${playlist.title || 'Unknown Playlist'} from sync`}
-													onClick={(e) => {
-														if (!confirm('Are you sure you want to remove this playlist from sync? This will not delete the playlist from YouTube.')) {
-															e.preventDefault()
-														}
-													}}
-												>
-													<Icon name="trash" className="h-4 w-4" />
-												</Button>
-											</Form>
+											<AlertDialog>
+												<AlertDialogTrigger asChild>
+													<Button
+														variant="outline"
+														size="sm"
+														className="text-destructive hover:text-destructive"
+														aria-label={`Remove ${playlist.title || 'Unknown Playlist'} from sync`}
+													>
+														<Icon name="trash" className="h-4 w-4" />
+													</Button>
+												</AlertDialogTrigger>
+												<AlertDialogContent>
+													<AlertDialogHeader>
+														<AlertDialogTitle>Remove Playlist from Sync</AlertDialogTitle>
+														<AlertDialogDescription>
+															Are you sure you want to remove this playlist from sync? This will not delete the playlist from YouTube.
+														</AlertDialogDescription>
+													</AlertDialogHeader>
+													<AlertDialogFooter>
+														<AlertDialogCancel>Cancel</AlertDialogCancel>
+														<Form method="post" className="inline">
+															<input type="hidden" name="intent" value={YOUTUBE_SYNCED_PLAYLISTS_INTENTS.REMOVE} />
+															<input type="hidden" name="playlistId" value={playlist.id} />
+															<AlertDialogAction asChild>
+																<Button type="submit" variant="destructive">
+																	Remove from Sync
+																</Button>
+															</AlertDialogAction>
+														</Form>
+													</AlertDialogFooter>
+												</AlertDialogContent>
+											</AlertDialog>
 										</div>
 									</div>
 								</div>

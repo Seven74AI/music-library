@@ -34,12 +34,13 @@
 */
 import { data, redirect, Form, Link, useActionData, useNavigation } from 'react-router'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
+import { TrackListItem } from '#app/components/track-list-item'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '#app/components/ui/alert-dialog'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { Input } from '#app/components/ui/input.tsx'
 import { Label } from '#app/components/ui/label.tsx'
 import { Textarea } from '#app/components/ui/textarea.tsx'
-import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { getPlaylistTitle } from '#app/utils/breadcrumb-utils.ts'
 import { prisma } from '#app/utils/db.server.ts'
@@ -71,7 +72,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 							id: true,
 							title: true,
 							artist: true,
+							duration: true,
+							thumbnailUrl: true,
+							serviceUrl: true,
 							createdAt: true,
+							service: {
+								select: {
+									displayName: true,
+									logoUrl: true,
+								}
+							},
 							audioFile: {
 								select: {
 									id: true,
@@ -94,7 +104,21 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		throw new Response('Playlist not found', { status: 404 })
 	}
 
-	return data({ playlist })
+	// Get user's playlists for TrackListItem component
+	const userPlaylists = await prisma.userPlaylist.findMany({
+		where: { ownerId: userId },
+		select: {
+			id: true,
+			title: true,
+			description: true,
+			_count: {
+				select: { tracks: true }
+			}
+		},
+		orderBy: { updatedAt: 'desc' }
+	})
+
+	return data({ playlist, playlists: userPlaylists })
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -145,11 +169,10 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === 'submitting'
-	const { playlist } = loaderData
-	const { currentTrack, playTrack } = useAudioPlayer()
+	const { playlist, playlists } = loaderData
 
 	return (
-		<div className="max-w-4xl mx-auto">
+		<div className="w-full">
 			<div className="mb-6">
 				<div className="flex items-center gap-4 mb-4">
 					<Link 
@@ -215,21 +238,32 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 					{/* Delete Form */}
 					<div className="border-t pt-6">
 						<h3 className="text-lg font-semibold text-destructive mb-4">Danger Zone</h3>
-						<Form method="post">
-							<input type="hidden" name="intent" value="delete" />
-							<Button 
-								type="submit" 
-								variant="destructive" 
-								disabled={isSubmitting}
-								onClick={(e) => {
-									if (!confirm('Are you sure you want to delete this playlist? This action cannot be undone.')) {
-										e.preventDefault()
-									}
-								}}
-							>
-								{isSubmitting ? 'Deleting...' : 'Delete Playlist'}
-							</Button>
-						</Form>
+						<AlertDialog>
+							<AlertDialogTrigger asChild>
+								<Button variant="destructive" disabled={isSubmitting}>
+									{isSubmitting ? 'Deleting...' : 'Delete Playlist'}
+								</Button>
+							</AlertDialogTrigger>
+							<AlertDialogContent>
+								<AlertDialogHeader>
+									<AlertDialogTitle>Delete Playlist</AlertDialogTitle>
+									<AlertDialogDescription>
+										Are you sure you want to delete this playlist? This action cannot be undone.
+									</AlertDialogDescription>
+								</AlertDialogHeader>
+								<AlertDialogFooter>
+									<AlertDialogCancel>Cancel</AlertDialogCancel>
+									<Form method="post">
+										<input type="hidden" name="intent" value="delete" />
+										<AlertDialogAction asChild>
+											<Button type="submit" variant="destructive">
+												Delete Playlist
+											</Button>
+										</AlertDialogAction>
+									</Form>
+								</AlertDialogFooter>
+							</AlertDialogContent>
+						</AlertDialog>
 					</div>
 				</div>
 
@@ -252,53 +286,14 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 					) : (
 						<div className="space-y-2">
 							{playlist.tracks.map((playlistTrack, index) => (
-								<div 
+								<TrackListItem
 									key={playlistTrack.id}
-									className="flex items-center gap-4 p-3 rounded-lg border bg-card"
-								>
-									<div className="text-sm text-muted-foreground w-8">
-										{index + 1}
-									</div>
-									<div className="flex-1">
-										<h3 className="font-medium">{playlistTrack.track.title}</h3>
-										<p className="text-sm text-muted-foreground">
-											{playlistTrack.track.artist}
-										</p>
-									</div>
-									<div className="flex items-center gap-2">
-										{playlistTrack.track.audioFile?.objectKey && playlistTrack.track.audioFile.status === 'completed' && (
-											<Button
-												variant="outline"
-												size="sm"
-												onClick={() => {
-													const playlistTracks = playlist.tracks
-														.filter(pt => pt.track.audioFile?.objectKey && pt.track.audioFile.status === 'completed')
-														.map(pt => ({
-															id: pt.track.id,
-															title: pt.track.title,
-															artist: pt.track.artist,
-															duration: null, // Not available in this query
-															thumbnailUrl: null, // Not available in this query
-															audioFile: pt.track.audioFile
-														}))
-													const trackIndex = playlistTracks.findIndex(t => t.id === playlistTrack.track.id)
-													if (trackIndex !== -1 && playlistTracks[trackIndex]) {
-														playTrack(playlistTracks[trackIndex], { type: 'playlist', playlistId: playlist.id })
-													}
-												}}
-												aria-label={`Play ${playlistTrack.track.title}`}
-											>
-												<Icon name={currentTrack?.id === playlistTrack.track.id ? "pause" : "play"} className="h-4 w-4" />
-											</Button>
-										)}
-										<Link 
-											to={`/library/${playlistTrack.track.id}`}
-											className="text-primary hover:underline text-sm"
-										>
-											View Track
-										</Link>
-									</div>
-								</div>
+									track={playlistTrack.track}
+									userTrack={{ createdAt: playlistTrack.track.createdAt }}
+									index={index}
+									playlistContext={{ type: 'playlist', playlistId: playlist.id }}
+									playlists={playlists}
+								/>
 							))}
 						</div>
 					)}
