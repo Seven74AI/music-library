@@ -11,7 +11,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	if (success) {
 		return redirectWithToast('/music/services/youtube', {
 			description: 'YouTube account disconnected successfully',
-			type: 'success',
+			type: 'destructive',
 		})
 	} else {
 		return redirectWithToast('/music/services/youtube', {

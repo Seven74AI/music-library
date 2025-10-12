@@ -151,20 +151,6 @@ export class ServicePlaylistService {
       
       const tracks = await Promise.all(trackPromises)
       
-      // Auto-enqueue newly created tracks for archiving
-      const enqueuePromises = tracks.map(async (track, index) => {
-        const trackData = trackDataBatch[index]
-        if (!trackData) return
-        
-        // Auto-enqueue newly created tracks for archiving
-        await enqueueTrackForArchiving(track.id, false)
-      })
-      
-      // Don't await enqueue operations to avoid slowing down playlist sync
-      Promise.all(enqueuePromises).catch(error => {
-        console.warn('Some tracks failed to enqueue for archiving:', error)
-      })
-      
       // Batch upsert playlist tracks
       const playlistTrackPromises = tracks.map((track, index) => {
         const trackData = trackDataBatch[index]
@@ -585,6 +571,10 @@ export class ServicePlaylistService {
               deletedAt: null
             }
           })
+          
+          // Enqueue track for archiving when reactivated
+          await enqueueTrackForArchiving(trackId, false)
+          
           return { success: true } // Reactivated
         }
       }
@@ -597,6 +587,9 @@ export class ServicePlaylistService {
           isActive: true
         }
       })
+      
+      // Enqueue track for archiving when added to library
+      await enqueueTrackForArchiving(trackId, false)
       
       return { success: true }
     } catch (error) {

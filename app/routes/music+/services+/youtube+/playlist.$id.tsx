@@ -173,6 +173,16 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 		void fetcher.submit(formData, { method: 'post' })
 	}
 
+	const handleAddAllToLibrary = () => {
+		const tracksNotInLibrary = tracks.filter(t => !t.isInUserLibrary)
+		tracksNotInLibrary.forEach(track => {
+			const formData = new FormData()
+			formData.append('intent', 'add-to-library')
+			formData.append('trackId', track.id)
+			void fetcher.submit(formData, { method: 'post' })
+		})
+	}
+
 	return (
 		<div className="py-8">
 			<div className="mb-8">
@@ -333,6 +343,16 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 							<CardDescription>
 								{tracks.length} tracks in this playlist
 							</CardDescription>
+							{tracks.filter(t => !t.isInUserLibrary).length > 0 && (
+								<Button 
+									onClick={handleAddAllToLibrary}
+									size="sm"
+									className="mt-2"
+								>
+									<Icon name="plus" className="h-4 w-4 mr-2" />
+									Add All to Library ({tracks.filter(t => !t.isInUserLibrary).length})
+								</Button>
+							)}
 						</CardHeader>
 						<CardContent className="max-h-[600px] overflow-y-auto">
 							{tracks.length === 0 ? (
@@ -364,16 +384,6 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 												</TooltipTrigger>
 												<TooltipContent>
 													<p>Is Saved</p>
-												</TooltipContent>
-											</Tooltip>
-										</div>
-										<div className="w-12 flex items-center justify-center">
-											<Tooltip>
-												<TooltipTrigger asChild>
-													<Icon name="clock" className="h-4 w-4" />
-												</TooltipTrigger>
-												<TooltipContent>
-													<p>Duration</p>
 												</TooltipContent>
 											</Tooltip>
 										</div>

@@ -4,6 +4,28 @@ import { execa } from 'execa'
 import { prisma } from '../utils/db.js'
 import { uploadAudioFile } from '../utils/storage.js'
 
+/**
+ * Extract duration from audio file using ffprobe
+ * @param filePath - Path to the audio file
+ * @returns Duration in seconds, or null if extraction fails
+ */
+async function extractAudioDuration(filePath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execa('ffprobe', [
+      '-v', 'quiet',
+      '-show_entries', 'format=duration',
+      '-of', 'csv=p=0',
+      filePath
+    ])
+    
+    const duration = parseFloat(stdout.trim())
+    return isNaN(duration) ? null : Math.round(duration)
+  } catch (error) {
+    console.warn(`Failed to extract duration from ${filePath}:`, error)
+    return null
+  }
+}
+
 // Constants
 const SLEEP_INTERVAL_MIN = 2 // Minimum sleep interval
 const SLEEP_INTERVAL_MAX = 5 // Maximum sleep interval
@@ -331,6 +353,9 @@ export async function archiveTrackAudio(trackId: string): Promise<void> {
     // Download audio
     tempFilePath = await downloadTrackAudio({ externalId: track.externalId, title: track.title })
     
+    // Extract duration from the downloaded audio file
+    const duration = await extractAudioDuration(tempFilePath)
+    
     // Upload to storage
     const uploadResult = await uploadAudioToStorage(
       tempFilePath,
@@ -338,22 +363,30 @@ export async function archiveTrackAudio(trackId: string): Promise<void> {
       track.service.name
     )
 
-    // Update database with success
-    await prisma.trackAudioFile.update({
-      where: { trackId },
-      data: {
-        status: 'completed',
-        objectKey: uploadResult.objectKey,
-        fileName: uploadResult.fileName,
-        fileSize: uploadResult.fileSize,
-        mimeType: 'audio/mpeg',
-        downloadedAt: new Date(),
-        lastAttemptAt: new Date(),
-        // Clear error history on success
-        errorHistory: null,
-        retryCount: 0,
-      },
-    })
+    // Update database with success and duration
+    await prisma.$transaction([
+      // Update track with duration
+      prisma.track.update({
+        where: { id: trackId },
+        data: { duration }
+      }),
+      // Update audio file with success
+      prisma.trackAudioFile.update({
+        where: { trackId },
+        data: {
+          status: 'completed',
+          objectKey: uploadResult.objectKey,
+          fileName: uploadResult.fileName,
+          fileSize: uploadResult.fileSize,
+          mimeType: 'audio/mpeg',
+          downloadedAt: new Date(),
+          lastAttemptAt: new Date(),
+          // Clear error history on success
+          errorHistory: null,
+          retryCount: 0,
+        },
+      })
+    ])
 
     console.log(`Successfully archived track ${trackId}: ${uploadResult.fileName}`)
   } catch (error) {

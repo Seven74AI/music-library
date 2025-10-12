@@ -9,7 +9,7 @@ const ToastSchema = z.object({
 	description: z.string(),
 	id: z.string().default(() => cuid()),
 	title: z.string().optional(),
-	type: z.enum(['message', 'success', 'error']).default('message'),
+	type: z.enum(['message', 'success', 'error', 'destructive']).default('message'),
 	// Custom options
 	duration: z.number().optional(),
 	action: z.object({

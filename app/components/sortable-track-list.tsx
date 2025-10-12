@@ -24,6 +24,17 @@ import { Checkbox } from '#app/components/ui/checkbox.tsx'
 import { cn } from '#app/utils/misc.tsx'
 import { TrackListItem } from './track-list-item'
 
+function announceToScreenReader(message: string) {
+	const announcementEl = document.getElementById('drag-announcements')
+	if (announcementEl) {
+		announcementEl.textContent = message
+		// Clear after announcement to allow repeated announcements
+		setTimeout(() => {
+			announcementEl.textContent = ''
+		}, 1000)
+	}
+}
+
 interface Track {
 	id: string
 	title: string
@@ -87,6 +98,10 @@ function SortableTrackItem({ track, index, playlists, onRemove, isSelected, onSe
 				isDragging && 'opacity-50 z-50 scale-105 shadow-lg',
 				isSelected && 'bg-primary/10 ring-1 ring-primary/20'
 			)}
+			role="listitem"
+			aria-selected={isSelected}
+			aria-grabbed={isDragging}
+			aria-label={`Track ${index + 1}: ${track.track.title} by ${track.track.artist}`}
 		>
 			{/* Selection Checkbox */}
 			{showSelection && (
@@ -99,19 +114,31 @@ function SortableTrackItem({ track, index, playlists, onRemove, isSelected, onSe
 			)}
 
 			{/* Drag Handle */}
-			<div
+			<Button
 				{...attributes}
 				{...listeners}
+				variant="ghost"
+				size="sm"
 				className={cn(
-					"absolute top-1/2 -translate-y-1/2 w-8 h-12 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-80 group-hover:opacity-100 transition-all duration-200 ease-out hover:bg-muted/50 rounded z-30",
+					"absolute top-1/2 -translate-y-1/2 w-8 h-12 p-0 cursor-grab active:cursor-grabbing opacity-80 group-hover:opacity-100 transition-all duration-200 ease-out hover:bg-muted/50 rounded z-30",
 					showSelection ? "left-8" : "left-2"
 				)}
+				aria-pressed={isDragging}
+				aria-label={`Drag handle for track ${index + 1}: ${track.track.title} by ${track.track.artist}. Press Space or Enter to activate drag mode, then use arrow keys to reorder.`}
+				aria-describedby={`track-${track.id}-description`}
+				onKeyDown={(e) => {
+					if (e.key === 'Escape' && isDragging) {
+						e.preventDefault()
+						// Cancel drag operation
+						announceToScreenReader('Drag operation cancelled')
+					}
+				}}
 			>
-				<Icon name="drag-handle-dots-2" className="h-4 w-4 text-foreground/60 transition-colors duration-200" />
-			</div>
+				<Icon name="drag-handle-dots-2" className="h-4 w-4 text-foreground/60 transition-colors duration-200" aria-hidden="true" />
+			</Button>
 
 			{/* Track Item */}
-			<div className={cn("pl-10", showSelection && "pl-16")}>
+			<div className={cn("pl-10", showSelection && "pl-16")} id={`track-${track.id}-description`}>
 				<TrackListItem
 					track={track.track}
 					userTrack={{ createdAt: track.track.createdAt }}
@@ -179,6 +206,23 @@ export function SortableTrackList({
 				position: index + 1
 			}))
 			onReorder(newOrder)
+
+			// Announce the change to screen readers
+			const movedTrack = items.find(item => item.id === active.id)
+			if (movedTrack) {
+				const announcement = `Track "${movedTrack.track.title}" moved from position ${oldIndex + 1} to position ${newIndex + 1}`
+				announceToScreenReader(announcement)
+			}
+		}
+	}
+
+
+	function handleDragStart(event: any) {
+		const activeId = event.active.id
+		const activeTrack = items.find(item => item.id === activeId)
+		if (activeTrack) {
+			const announcement = `Started dragging track "${activeTrack.track.title}". Use arrow keys to move it to a new position, or press Escape to cancel.`
+			announceToScreenReader(announcement)
 		}
 	}
 
@@ -227,16 +271,30 @@ export function SortableTrackList({
 	}, [tracks])
 
 	return (
-		<div className={cn('space-y-4', className)}>
-			{/* Bulk Actions Bar */}
+		<div className={cn('space-y-4', className)} role="region" aria-label="Playlist tracks">
+			{/* Screen reader announcements for drag and drop */}
+			<div 
+				id="drag-announcements" 
+				aria-live="polite" 
+				aria-atomic="true" 
+				className="sr-only"
+			>
+				{/* This will be populated by JavaScript for drag announcements */}
+			</div>
+			{/* Bulk Actions Bar - Sticky */}
 			{showSelection && (
-				<div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border border-border/50 animate-in slide-in-from-top-2 duration-300">
+				<div 
+					className="sticky top-0 z-40 flex items-center justify-between p-4 bg-background/95 backdrop-blur-sm border-b border-border/50 shadow-sm animate-in slide-in-from-top-2 duration-300"
+					role="toolbar"
+					aria-label="Bulk actions for selected tracks"
+				>
 					<div className="flex items-center gap-4">
 						<Checkbox
 							checked={selectedTracks.size === items.length}
 							onCheckedChange={handleSelectAll}
+							aria-label={`Select all ${items.length} tracks`}
 						/>
-						<span className="text-sm font-medium">
+						<span className="text-sm font-medium" aria-live="polite" aria-atomic="true">
 							{selectedTracks.size} track{selectedTracks.size !== 1 ? 's' : ''} selected
 						</span>
 					</div>
@@ -247,8 +305,9 @@ export function SortableTrackList({
 							onClick={handleBulkAddToQueue}
 							disabled={selectedTracks.size === 0 || isReordering || isRemoving}
 							className="transition-all duration-200 ease-out hover:scale-105"
+							aria-label={`Add ${selectedTracks.size} selected tracks to queue`}
 						>
-							<Icon name="plus" className="h-4 w-4 mr-2" />
+							<Icon name="plus" className="h-4 w-4 mr-2" aria-hidden="true" />
 							Add to Queue
 						</Button>
 						<Button
@@ -257,41 +316,57 @@ export function SortableTrackList({
 							onClick={handleBulkRemove}
 							disabled={selectedTracks.size === 0 || isReordering || isRemoving}
 							className="transition-all duration-200 ease-out hover:scale-105"
+							aria-label={`Remove ${selectedTracks.size} selected tracks from playlist`}
 						>
-							<Icon name="trash" className="h-4 w-4 mr-2" />
+							<Icon name="trash" className="h-4 w-4 mr-2" aria-hidden="true" />
 							Remove Selected
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={toggleSelectionMode}
+							disabled={isReordering || isRemoving}
+							className="transition-all duration-200 ease-out hover:scale-105"
+							aria-label="Cancel track selection"
+						>
+							<Icon name="x-mark" className="h-4 w-4 mr-2" aria-hidden="true" />
+							Cancel
 						</Button>
 					</div>
 				</div>
 			)}
 
 			{/* Selection Toggle */}
-			<div className="flex items-center justify-between">
-				<div className="flex items-center gap-2">
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={toggleSelectionMode}
-						disabled={isReordering || isRemoving}
-					>
-						<Icon name="check" className="h-4 w-4 mr-2" />
-						{showSelection ? 'Cancel Selection' : 'Select Tracks'}
-					</Button>
-					{(isReordering || isRemoving) && (
-						<div className="flex items-center gap-2 text-sm text-muted-foreground">
-							<Icon name="update" className="h-3 w-3 animate-spin" />
-							<span>{isReordering ? 'Reordering...' : 'Removing...'}</span>
-						</div>
-					)}
+			{!showSelection && (
+				<div className="flex items-center justify-between">
+					<div className="flex items-center gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={toggleSelectionMode}
+							disabled={isReordering || isRemoving}
+							aria-label="Enable track selection mode"
+						>
+							<Icon name="check" className="h-4 w-4 mr-2" aria-hidden="true" />
+							Select Tracks
+						</Button>
+						{(isReordering || isRemoving) && (
+							<div className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+								<Icon name="update" className="h-3 w-3 animate-spin" aria-hidden="true" />
+								<span>{isReordering ? 'Reordering tracks...' : 'Removing tracks...'}</span>
+							</div>
+						)}
+					</div>
 				</div>
-			</div>
+			)}
 
 			<DndContext
 				sensors={sensors}
 				collisionDetection={closestCenter}
+				onDragStart={handleDragStart}
 				onDragEnd={handleDragEnd}
 			>
-				<div className="space-y-1">
+				<div className="space-y-1" role="list" aria-label={`Playlist with ${items.length} tracks`}>
 					<SortableContext items={items.map(item => item.id)} strategy={verticalListSortingStrategy}>
 						{items.map((track, index) => (
 							<SortableTrackItem

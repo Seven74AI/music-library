@@ -36,6 +36,8 @@ export function useToast(toast?: Toast | null) {
 							return 'error'
 						case 'success':
 							return 'success'
+						case 'destructive':
+							return 'destructive'
 						default:
 							return 'default'
 					}

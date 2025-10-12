@@ -22,10 +22,14 @@ export async function enqueueTrackForArchiving(trackId: string, priority: boolea
     })
 
     if (existing) {
-      await prisma.trackAudioFile.update({
-        where: { trackId },
-        data: { status: 'pending', priority },
-      })
+      // Only re-enqueue if not already completed
+      if (existing.status !== 'completed') {
+        await prisma.trackAudioFile.update({
+          where: { trackId },
+          data: { status: 'pending', priority },
+        })
+      }
+      // If status is 'completed', do nothing - track is already archived
     } else {
       await prisma.trackAudioFile.create({
         data: { trackId, status: 'pending', priority, retryCount: 0 },

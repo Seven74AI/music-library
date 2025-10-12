@@ -334,7 +334,7 @@ function SignOutOfSessions({
 async function deleteDataAction({ userId }: ProfileActionArgs) {
 	await prisma.user.delete({ where: { id: userId } })
 	return redirectWithToast('/', {
-		type: 'success',
+		type: 'destructive',
 		title: 'Data Deleted',
 		description: 'All of your data has been deleted',
 	})

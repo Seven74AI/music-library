@@ -32,7 +32,7 @@ export interface ServiceImportHandler {
     id: string
     title: string
     artist: string
-    duration: number
+    duration: number | null
     thumbnailUrl: string
     serviceUrl: string
     publishedAt: string

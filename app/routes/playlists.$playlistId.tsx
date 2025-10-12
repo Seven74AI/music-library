@@ -507,6 +507,7 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 		toast({
 			title: 'Success',
 			description: `${playableTracks.length} tracks added to queue`,
+			variant: 'success',
 		})
 		
 		setIsAddToQueueDialogOpen(false)
@@ -514,6 +515,8 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 
 
 	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+	const [isBulkRemoveDialogOpen, setIsBulkRemoveDialogOpen] = useState(false)
+	const [tracksToRemove, setTracksToRemove] = useState<string[]>([])
 
 	const handleDelete = () => {
 		setIsDeleteDialogOpen(true)
@@ -571,17 +574,27 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	}
 
 	const handleBulkRemove = (playlistTrackIds: string[]) => {
+		// Store tracks to remove and open confirmation dialog
+		setTracksToRemove(playlistTrackIds)
+		setIsBulkRemoveDialogOpen(true)
+	}
+
+	const confirmBulkRemove = () => {
 		// Optimistic update - remove all tracks immediately
-		setOptimisticTracks(prev => prev.filter(playlistTrack => !playlistTrackIds.includes(playlistTrack.id)))
+		setOptimisticTracks(prev => prev.filter(playlistTrack => !tracksToRemove.includes(playlistTrack.id)))
 		
 		// Submit bulk removal with fetcher
 		void removeTrackFetcher.submit(
 			{
 				intent: 'bulk-remove-tracks',
-				trackIds: JSON.stringify(playlistTrackIds)
+				trackIds: JSON.stringify(tracksToRemove)
 			},
 			{ method: 'post' }
 		)
+		
+		// Close dialog and reset state
+		setIsBulkRemoveDialogOpen(false)
+		setTracksToRemove([])
 	}
 
 	const handleBulkAddToQueue = (playlistTrackIds: string[]) => {
@@ -603,6 +616,7 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 		toast({
 			title: 'Success',
 			description: `${playableTracks.length} tracks added to queue`,
+			variant: 'success',
 		})
 	}
 
@@ -716,6 +730,27 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 							className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
 						>
 							Delete Playlist
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+
+			{/* Bulk Remove Confirmation Dialog */}
+			<AlertDialog open={isBulkRemoveDialogOpen} onOpenChange={setIsBulkRemoveDialogOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Remove Tracks</AlertDialogTitle>
+						<AlertDialogDescription>
+							Are you sure you want to remove {tracksToRemove.length} track{tracksToRemove.length !== 1 ? 's' : ''} from "{optimisticPlaylist.title}"? This action cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={confirmBulkRemove}
+							className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+						>
+							Remove Tracks
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

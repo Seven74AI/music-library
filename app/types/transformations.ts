@@ -120,7 +120,7 @@ export function transformYouTubeVideoToTrack(
  * @returns VideoData format for service import
  */
 export function transformYouTubeVideoToVideoData(video: YouTubeVideo): VideoData {
-  const duration = video.contentDetails?.duration ? parseDuration(video.contentDetails.duration) : 0
+  const duration = video.contentDetails?.duration ? parseDuration(video.contentDetails.duration) : null
   
   return {
     id: video.id || '',
