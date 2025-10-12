@@ -24,8 +24,9 @@ test.describe('Playlists', () => {
 		
 		// Should redirect to the playlist detail page
 		await expect(page).toHaveURL(/\/playlists\/[a-z0-9]+/)
-		await expect(page.getByRole('heading', { name: 'My Test Playlist' })).toBeVisible()
-		await expect(page.getByRole('paragraph').filter({ hasText: 'A test playlist for testing' })).toBeVisible()
+		// Check for the title in the editable text component (use nth(1) to avoid breadcrumb)
+		await expect(page.getByText('My Test Playlist').nth(1)).toBeVisible()
+		await expect(page.getByText('A test playlist for testing')).toBeVisible()
 	})
 
 	test('shows validation errors when creating playlist without title', async ({ page, login }) => {
@@ -81,10 +82,10 @@ test.describe('Playlists', () => {
 
 		await page.goto(`/playlists/${playlist.id}`)
 		
-		// Should show playlist details
-		await expect(page.getByRole('heading', { name: 'Test Playlist' })).toBeVisible()
-		await expect(page.getByRole('paragraph').filter({ hasText: 'A test playlist' })).toBeVisible()
-		await expect(page.getByText('0 tracks')).toBeVisible()
+		// Should show playlist details (use nth(1) to avoid breadcrumb)
+		await expect(page.getByText('Test Playlist').nth(1)).toBeVisible()
+		await expect(page.getByText('A test playlist')).toBeVisible()
+		await expect(page.getByText('0 tracks').first()).toBeVisible()
 		
 		// Cleanup
 		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
@@ -104,21 +105,25 @@ test.describe('Playlists', () => {
 
 		await page.goto(`/playlists/${playlist.id}`)
 		
-		// Update the playlist
-		await page.getByRole('textbox', { name: /title/i }).fill('Updated Title')
-		await page.getByRole('textbox', { name: /description/i }).fill('Updated description')
+		// Click on the title to edit it (inline editing) - use nth(1) to avoid breadcrumb
+		await page.getByText('Original Title').nth(1).click()
+		await page.getByRole('textbox').fill('Updated Title')
+		// Press Enter to save (since the check button doesn't have accessible name)
+		await page.getByRole('textbox').press('Enter')
 		
-		// Submit the update
-		await page.getByRole('button', { name: /update playlist/i }).click()
+		// Click on the description to edit it
+		await page.getByText('Original description').click()
+		await page.getByRole('textbox').fill('Updated description')
+		// Press Enter to save
+		await page.getByRole('textbox').press('Enter')
 		
 		// Wait for the page to load after update
 		await page.waitForLoadState('networkidle')
 		
-		// Should redirect back to the playlist page with updated content
+		// Should show updated content
 		await expect(page).toHaveURL(`/playlists/${playlist.id}`)
-		await expect(page.getByRole('heading', { name: 'Updated Title' })).toBeVisible()
-		// Look for the description paragraph with the updated text
-		await expect(page.getByRole('paragraph').filter({ hasText: 'Updated description' }).first()).toBeVisible()
+		await expect(page.getByText('Updated Title').nth(1)).toBeVisible()
+		await expect(page.getByText('Updated description')).toBeVisible()
 		
 		// Cleanup
 		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
@@ -138,10 +143,10 @@ test.describe('Playlists', () => {
 
 		await page.goto(`/playlists/${playlist.id}`)
 		
-		// Handle the confirmation dialog BEFORE clicking
-		page.on('dialog', dialog => dialog.accept())
+		// Click delete button directly (it's visible on desktop)
+		await page.getByRole('button', { name: /delete/i }).click()
 		
-		// Click delete button and confirm
+		// Confirm deletion in the dialog
 		await page.getByRole('button', { name: /delete playlist/i }).click()
 		
 		// Should redirect to playlists page
@@ -179,7 +184,7 @@ test.describe('Playlists', () => {
 		await page.goto(`/playlists/${playlist.id}`)
 		
 		// Should show the track in the playlist
-		await expect(page.getByText('1 track')).toBeVisible()
+		await expect(page.getByText('1 track').first()).toBeVisible()
 		await expect(page.getByText('Test Track')).toBeVisible()
 		await expect(page.getByText('Test Artist')).toBeVisible()
 		
@@ -203,8 +208,8 @@ test.describe('Playlists', () => {
 		await page.goto(`/playlists/${playlist.id}`)
 		
 		// Should show empty state
-		await expect(page.getByText('No tracks in this playlist yet.')).toBeVisible()
-		await expect(page.getByRole('link', { name: /add tracks from your library/i })).toBeVisible()
+		await expect(page.getByText('No tracks yet')).toBeVisible()
+		await expect(page.getByRole('link', { name: /add tracks from library/i })).toBeVisible()
 		
 		// Cleanup
 		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
