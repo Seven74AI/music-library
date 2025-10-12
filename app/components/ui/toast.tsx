@@ -4,9 +4,16 @@ import * as React from "react"
 import { cn } from "#app/utils/misc.tsx"
 import { Icon } from "./icon.tsx"
 
-
+/**
+ * Toast provider component that manages toast context
+ * Wraps the Radix UI Toast Provider
+ */
 const ToastProvider = ToastPrimitives.Provider
 
+/**
+ * Toast viewport component that defines where toasts appear
+ * Positioned at bottom-right on desktop, top-center on mobile
+ */
 const ToastViewport = React.forwardRef<
   React.ElementRef<typeof ToastPrimitives.Viewport>,
   React.ComponentPropsWithoutRef<typeof ToastPrimitives.Viewport>
@@ -23,13 +30,15 @@ const ToastViewport = React.forwardRef<
 ToastViewport.displayName = ToastPrimitives.Viewport.displayName
 
 const toastVariants = cva(
-  "group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-md border p-6 pr-8 shadow-lg transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full",
+  "group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-lg border p-4 pr-8 shadow-lg backdrop-blur-sm transition-all duration-300 ease-in-out data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full",
   {
     variants: {
       variant: {
-        default: "border bg-background text-foreground",
+        default: "border bg-background/95 text-foreground",
+        success: "border-green-500/50 bg-green-50/95 text-green-900 dark:bg-green-900/20 dark:text-green-100 dark:border-green-400/30",
         destructive:
           "destructive border-destructive bg-destructive text-destructive-foreground",
+        error: "border-red-500/50 bg-red-50/95 text-red-900 dark:bg-red-900/20 dark:text-red-100 dark:border-red-400/30",
       },
     },
     defaultVariants: {
@@ -110,6 +119,39 @@ const ToastDescription = React.forwardRef<
 ))
 ToastDescription.displayName = ToastPrimitives.Description.displayName
 
+/**
+ * Available toast variants for different message types
+ */
+type ToastVariant = "default" | "success" | "destructive" | "error"
+
+/**
+ * Toast icon component that displays appropriate icon based on variant
+ * @param variant - The toast variant determining which icon to show
+ * @returns Icon component with appropriate icon and styling
+ */
+const ToastIcon = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement> & { variant?: ToastVariant }
+>(({ className, variant = "default", ...props }, ref) => {
+  const iconMap: Record<ToastVariant, string> = {
+    default: "question-mark-circled",
+    success: "check-circled",
+    destructive: "x-mark",
+    error: "x-mark",
+  } as const
+  
+  return (
+    <div
+      ref={ref}
+      className={cn("flex-shrink-0", className)}
+      {...props}
+    >
+      <Icon name={iconMap[variant] as any} className="h-5 w-5" />
+    </div>
+  )
+})
+ToastIcon.displayName = "ToastIcon"
+
 type ToastProps = React.ComponentPropsWithoutRef<typeof Toast>
 
 type ToastActionElement = React.ReactElement<typeof ToastAction>
@@ -124,4 +166,5 @@ export {
   ToastDescription,
   ToastClose,
   ToastAction,
+  ToastIcon,
 }

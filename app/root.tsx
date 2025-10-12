@@ -12,7 +12,6 @@ import {
 	useMatches,
 } from 'react-router'
 import { HoneypotProvider } from 'remix-utils/honeypot/react'
-import { Toaster as SonnerToaster } from 'sonner'
 import { type Route } from './+types/root.ts'
 import appleTouchIconAssetUrl from './assets/favicons/apple-touch-icon.png'
 import faviconAssetUrl from './assets/favicons/favicon.svg'
@@ -20,7 +19,7 @@ import { AudioPlayerProvider } from './components/audio-player-provider'
 import { GeneralErrorBoundary } from './components/error-boundary.tsx'
 import { EpicProgress } from './components/progress-bar.tsx'
 import { SearchBar } from './components/search-bar.tsx'
-import { useToast } from './components/toaster.tsx'
+import { useToast } from '#app/components/toaster.tsx'
 import { Button } from './components/ui/button.tsx'
 import { href as iconsHref } from './components/ui/icon.tsx'
 import { Toaster } from './components/ui/toaster.tsx'
@@ -240,7 +239,6 @@ function App() {
 
 					</div>
 					<Toaster />
-					<SonnerToaster />
 					<EpicProgress />
 				</AudioPlayerProvider>
 			</OpenImgContextProvider>

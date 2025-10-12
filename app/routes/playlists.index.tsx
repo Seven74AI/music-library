@@ -1,8 +1,13 @@
 import { data, NavLink } from 'react-router'
+import { useState } from 'react'
 import { Icon } from '#app/components/ui/icon.tsx'
+import { Button } from '#app/components/ui/button.tsx'
+import { Input } from '#app/components/ui/input.tsx'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#app/components/ui/select.tsx'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { cn } from '#app/utils/misc.tsx'
+import { PlaylistCard } from '#app/components/playlist-card'
 import { type Route } from './+types/playlists.index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -28,6 +33,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 							id: true,
 							title: true,
 							artist: true,
+							duration: true,
+							thumbnailUrl: true,
 						},
 					},
 				},
@@ -53,18 +60,51 @@ export async function loader({ request }: Route.LoaderArgs) {
 	})
 }
 
+type SortOption = 'name' | 'created' | 'updated' | 'tracks'
+type ViewMode = 'grid' | 'list'
+
 export default function PlaylistsIndexRoute({ loaderData }: Route.ComponentProps) {
 	const { playlists, pagination } = loaderData
+	const [searchQuery, setSearchQuery] = useState('')
+	const [sortBy, setSortBy] = useState<SortOption>('updated')
+	const [viewMode, setViewMode] = useState<ViewMode>('grid')
+
+	// Filter and sort playlists
+	const filteredPlaylists = playlists
+		.filter(playlist => 
+			playlist.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			playlist.description?.toLowerCase().includes(searchQuery.toLowerCase())
+		)
+		.sort((a, b) => {
+			switch (sortBy) {
+				case 'name':
+					return a.title.localeCompare(b.title)
+				case 'created':
+					return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+				case 'updated':
+					return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+				case 'tracks':
+					return b.tracks.length - a.tracks.length
+				default:
+					return 0
+			}
+		})
 
 	return (
-		<>
-			<div className="flex items-center justify-between mb-6">
-				<h1 className="text-2xl font-bold">My Playlists</h1>
+		<div className="space-y-6">
+			{/* Header */}
+			<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+				<div>
+					<h1 className="text-3xl font-bold">My Playlists</h1>
+					<p className="text-muted-foreground">
+						{filteredPlaylists.length} playlist{filteredPlaylists.length !== 1 ? 's' : ''}
+					</p>
+				</div>
 				<NavLink
 					to="new"
 					className={({ isActive }) =>
 						cn(
-							'inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90',
+							'inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90 transition-colors',
 							isActive && 'bg-primary/90',
 						)
 					}
@@ -73,79 +113,113 @@ export default function PlaylistsIndexRoute({ loaderData }: Route.ComponentProps
 					Create Playlist
 				</NavLink>
 			</div>
-			
-			{playlists.length === 0 ? (
-				<div className="flex flex-col items-center justify-center py-12 text-center">
-					<Icon name="file-text" className="h-12 w-12 text-muted-foreground mb-4" />
-					<h3 className="text-lg font-semibold mb-2">No playlists yet</h3>
-					<p className="text-muted-foreground mb-4">
-						Start organizing your music by creating your first playlist.
-					</p>
-					<NavLink
-						to="new"
-						className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90"
+
+			{/* Controls */}
+			<div className="flex flex-col sm:flex-row gap-4">
+				{/* Search */}
+				<div className="relative flex-1">
+					<Icon name="magnifying-glass" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+					<Input
+						placeholder="Search playlists..."
+						value={searchQuery}
+						onChange={(e) => setSearchQuery(e.target.value)}
+						className="pl-9"
+					/>
+				</div>
+
+				{/* Sort */}
+				<Select value={sortBy} onValueChange={(value: SortOption) => setSortBy(value)}>
+					<SelectTrigger className="w-full sm:w-40">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="updated">Recently Updated</SelectItem>
+						<SelectItem value="created">Recently Created</SelectItem>
+						<SelectItem value="name">Name</SelectItem>
+						<SelectItem value="tracks">Track Count</SelectItem>
+					</SelectContent>
+				</Select>
+
+				{/* View Toggle */}
+				<div className="flex rounded-lg border p-1">
+					<Button
+						variant={viewMode === 'grid' ? 'default' : 'ghost'}
+						size="sm"
+						onClick={() => setViewMode('grid')}
+						className="h-8 w-8 p-0"
 					>
-						<Icon name="plus" className="h-4 w-4" />
-						Create Your First Playlist
-					</NavLink>
+						<Icon name="dots-horizontal" className="h-4 w-4" />
+					</Button>
+					<Button
+						variant={viewMode === 'list' ? 'default' : 'ghost'}
+						size="sm"
+						onClick={() => setViewMode('list')}
+						className="h-8 w-8 p-0"
+					>
+						<Icon name="list-bullet" className="h-4 w-4" />
+					</Button>
+				</div>
+			</div>
+			
+			{/* Content */}
+			{filteredPlaylists.length === 0 ? (
+				<div className="flex flex-col items-center justify-center py-16 text-center">
+					<Icon name="file-text" className="h-16 w-16 text-muted-foreground mb-4" />
+					<h3 className="text-xl font-semibold mb-2">
+						{searchQuery ? 'No playlists found' : 'No playlists yet'}
+					</h3>
+					<p className="text-muted-foreground mb-6 max-w-md">
+						{searchQuery 
+							? `No playlists match "${searchQuery}". Try a different search term.`
+							: 'Start organizing your music by creating your first playlist.'
+						}
+					</p>
+					{!searchQuery && (
+						<NavLink
+							to="new"
+							className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-primary-foreground hover:bg-primary/90 transition-colors"
+						>
+							<Icon name="plus" className="h-5 w-5" />
+							Create Your First Playlist
+						</NavLink>
+					)}
 				</div>
 			) : (
 				<>
-					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-						{playlists.map((playlist) => (
-							<NavLink
+					{/* Playlists Grid/List */}
+					<div className={cn(
+						'grid gap-6',
+						viewMode === 'grid' 
+							? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+							: 'grid-cols-1'
+					)}>
+						{filteredPlaylists.map((playlist) => (
+							<PlaylistCard
 								key={playlist.id}
-								to={playlist.id}
-								preventScrollReset
-								prefetch="intent"
-								className={({ isActive }) =>
-									cn(
-										'group relative rounded-lg border bg-card p-4 shadow-sm transition-all hover:shadow-md',
-										isActive && 'ring-2 ring-primary',
-									)
-								}
-							>
-								<div className="flex flex-col gap-2">
-									<div className="flex items-center justify-center mb-2">
-										<Icon name="file-text" className="h-8 w-8 text-muted-foreground" />
-									</div>
-									<div className="text-center">
-										<h3 className="font-medium text-sm line-clamp-2 mb-1">
-											{playlist.title}
-										</h3>
-										{playlist.description && (
-											<p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-												{playlist.description}
-											</p>
-										)}
-										<p className="text-xs text-muted-foreground">
-											{playlist.tracks.length} track{playlist.tracks.length !== 1 ? 's' : ''}
-										</p>
-									</div>
-									<div className="text-xs text-muted-foreground text-center">
-										{new Date(playlist.createdAt).toLocaleDateString()}
-									</div>
-								</div>
-							</NavLink>
+								id={playlist.id}
+								title={playlist.title}
+								description={playlist.description}
+								tracks={playlist.tracks.map(pt => pt.track)}
+								createdAt={playlist.createdAt.toISOString()}
+								updatedAt={playlist.updatedAt.toISOString()}
+							/>
 						))}
 					</div>
 					
 					{/* Pagination */}
 					{pagination.hasNext && (
-						<div className="flex items-center justify-center mt-6">
-							<div className="flex items-center gap-2">
-								<NavLink
-									to={`?cursor=${pagination.nextCursor}&limit=${pagination.limit}`}
-									className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 hover:bg-accent"
-								>
-									Next
-									<Icon name="arrow-right" className="h-4 w-4" />
-								</NavLink>
-							</div>
+						<div className="flex items-center justify-center mt-8">
+							<NavLink
+								to={`?cursor=${pagination.nextCursor}&limit=${pagination.limit}`}
+								className="inline-flex items-center gap-2 rounded-lg border px-6 py-3 hover:bg-accent transition-colors"
+							>
+								Load More
+								<Icon name="arrow-right" className="h-4 w-4" />
+							</NavLink>
 						</div>
 					)}
 				</>
 			)}
-		</>
+		</div>
 	)
 }

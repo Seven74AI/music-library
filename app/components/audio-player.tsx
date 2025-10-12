@@ -27,9 +27,11 @@ interface AudioPlayerProps {
 	onNext: () => void
 	onPrevious: () => void
 	onToggleLoop: () => void
+	onToggleShuffle: () => void
 	hasNext: boolean
 	hasPrevious: boolean
 	loopMode: 'off' | 'all' | 'one'
+	isShuffleEnabled: boolean
 }
 
 export function AudioPlayer({ 
@@ -38,10 +40,12 @@ export function AudioPlayer({
 	onClose, 
 	onNext, 
 	onPrevious, 
-	onToggleLoop,
-	hasNext,
-	hasPrevious,
-	loopMode
+	onToggleLoop, 
+	onToggleShuffle,
+	hasNext, 
+	hasPrevious, 
+	loopMode,
+	isShuffleEnabled
 }: AudioPlayerProps) {
 	const audioRef = useRef<HTMLAudioElement>(null)
 	const [isPlaying, setIsPlaying] = useState(false)
@@ -256,6 +260,20 @@ export function AudioPlayer({
 						<Icon name="forward" className="h-4 w-4" />
 					</Button>
 					
+					<Button
+						variant="ghost"
+						size="sm"
+						onClick={onToggleShuffle}
+						className={`h-8 w-8 p-0 ${
+							isShuffleEnabled 
+								? 'text-primary hover:text-primary/80' 
+								: 'text-muted-foreground hover:text-foreground'
+						}`}
+						title={isShuffleEnabled ? 'Shuffle on' : 'Shuffle off'}
+					>
+						<Icon name="shuffle" className="h-4 w-4" />
+					</Button>
+
 					<Button
 						variant="ghost"
 						size="sm"

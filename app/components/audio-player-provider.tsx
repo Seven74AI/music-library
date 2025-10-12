@@ -55,10 +55,13 @@ interface AudioPlayerContextType {
 	currentIndex: number
 	playContext: PlaylistContext | null
 	loopMode: LoopMode
+	isShuffleEnabled: boolean
 	playTrack: (track: Track, context: PlaylistContext, index?: number) => void
+	playPlaylist: (tracks: Track[], context: PlaylistContext, startIndex?: number) => void
 	playNext: () => void
 	playPrevious: () => void
 	toggleLoop: () => void
+	toggleShuffle: () => void
 	closePlayer: () => void
 	hasNext: boolean
 	hasPrevious: boolean
@@ -84,6 +87,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const [currentIndex, setCurrentIndex] = useState(0)
 	const [playContext, setPlayContext] = useState<PlaylistContext | null>(null)
 	const [loopMode, setLoopMode] = useState<LoopMode>('off')
+	const [isShuffleEnabled, setIsShuffleEnabled] = useState(false)
 	const [isLoadingNext] = useState(false)
 	const [isLoadingPrevious] = useState(false)
 
@@ -146,6 +150,21 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		const calculatedIndex = index !== undefined ? index : tracks.findIndex(t => t.id === track.id)
 		setCurrentIndex(calculatedIndex)
 	}, [fetchTracks])
+
+	/**
+	 * Play multiple tracks directly (bypassing API fetch)
+	 * 
+	 * @param tracks - Array of tracks to play
+	 * @param context - The playlist context
+	 * @param startIndex - Index to start playing from (default: 0)
+	 */
+	const playPlaylist = useCallback((tracks: Track[], context: PlaylistContext, startIndex: number = 0) => {
+		setPlaylist(tracks)
+		setPlayContext(context)
+		setCurrentIndex(startIndex)
+		setCurrentTrack(tracks[startIndex] || null)
+		setIsPlayerVisible(true)
+	}, [])
 
 	// Add track to current playlist
 	const addTrackToPlaylist = useCallback((track: Track, position: 'next' | 'end' = 'end') => {
@@ -222,6 +241,26 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			}
 			return
 		}
+
+		if (isShuffleEnabled && playlist.length > 0) {
+			// Pick random track that's not the current one
+			const playableTracks = playlist.filter(hasPlayableAudio)
+			if (playableTracks.length > 1) {
+				let nextTrack: Track | undefined
+				do {
+					nextTrack = playableTracks[Math.floor(Math.random() * playableTracks.length)]
+				} while (nextTrack?.id === playlist[currentIndex]?.id)
+				
+				if (nextTrack) {
+					const nextIndex = playlist.findIndex(t => t.id === nextTrack.id)
+					if (nextIndex !== -1) {
+						setCurrentIndex(nextIndex)
+						setCurrentTrack(nextTrack)
+					}
+				}
+			}
+			return
+		}
 		
 		const nextIndex = findNextCompletedTrack(currentIndex)
 		
@@ -243,7 +282,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			}
 		}
 		// If loopMode is 'off' and no next track, do nothing (stop playback)
-	}, [currentIndex, playlist, loopMode])
+	}, [currentIndex, playlist, loopMode, isShuffleEnabled])
 
 	const playPrevious = useCallback(() => {
 		// Helper function to check if a track has playable audio
@@ -295,6 +334,10 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		})
 	}, [])
 
+	const toggleShuffle = useCallback(() => {
+		setIsShuffleEnabled(prev => !prev)
+	}, [])
+
 	const closePlayer = useCallback(() => {
 		setIsPlayerVisible(false)
 		setCurrentTrack(null)
@@ -304,15 +347,45 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	}, [])
 
 	// Allow navigation based on loop mode
+	// Helper function to check if a track has playable audio
+	const hasPlayableAudio = (track: Track) => {
+		return track.audioFile?.objectKey && track.audioFile.status === 'completed'
+	}
+
+	// Helper function to find next completed track
+	const findNextCompletedTrack = (startIndex: number) => {
+		for (let i = startIndex + 1; i < playlist.length; i++) {
+			const track = playlist[i]
+			if (track && hasPlayableAudio(track)) {
+				return i
+			}
+		}
+		return -1
+	}
+
+	// Helper function to find previous completed track
+	const findPreviousCompletedTrack = (startIndex: number) => {
+		for (let i = startIndex - 1; i >= 0; i--) {
+			const track = playlist[i]
+			if (track && hasPlayableAudio(track)) {
+				return i
+			}
+		}
+		return -1
+	}
+
 	const hasNext = playlist.length > 0 && (
-		loopMode === 'all' || 
-		loopMode === 'one' || 
-		(currentIndex < playlist.length - 1)
+		loopMode === 'one' || // Always true for loop one (restart current track)
+		loopMode === 'all' || // Always true for loop all (will wrap around)
+		isShuffleEnabled || // Always true for shuffle (will pick random track)
+		findNextCompletedTrack(currentIndex) !== -1 // Check if there's a next playable track
 	)
+	
 	const hasPrevious = playlist.length > 0 && (
-		loopMode === 'all' || 
-		loopMode === 'one' || 
-		(currentIndex > 0)
+		loopMode === 'one' || // Always true for loop one (restart current track)
+		loopMode === 'all' || // Always true for loop all (will wrap around)
+		isShuffleEnabled || // Always true for shuffle (will pick random track)
+		findPreviousCompletedTrack(currentIndex) !== -1 // Check if there's a previous playable track
 	)
 
 	return (
@@ -324,10 +397,13 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				currentIndex,
 				playContext,
 				loopMode,
+				isShuffleEnabled,
 				playTrack,
+				playPlaylist,
 				playNext,
 				playPrevious,
 				toggleLoop,
+				toggleShuffle,
 				closePlayer,
 				hasNext,
 				hasPrevious,
@@ -347,9 +423,11 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				onNext={playNext}
 				onPrevious={playPrevious}
 				onToggleLoop={toggleLoop}
+				onToggleShuffle={toggleShuffle}
 				hasNext={hasNext}
 				hasPrevious={hasPrevious}
 				loopMode={loopMode}
+				isShuffleEnabled={isShuffleEnabled}
 			/>
 		</AudioPlayerContext.Provider>
 	)

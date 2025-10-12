@@ -4,6 +4,19 @@ import { ToastAction } from '#app/components/ui/toast.tsx'
 import { toast as showToast } from '#app/components/ui/use-toast.ts'
 import { type Toast } from '#app/utils/toast.server.ts'
 
+/**
+ * Available toast variants for different message types
+ */
+type ToastVariant = "default" | "success" | "destructive" | "error"
+
+/**
+ * Custom hook for handling server-side toast notifications
+ * Converts server toast types to client-side toast variants
+ * Handles navigation and global function calls for toast actions
+ * 
+ * @param toast - Server-side toast data from React Router loader
+ * @returns void - Side effect hook that displays toasts
+ */
 export function useToast(toast?: Toast | null) {
 	const navigate = useNavigate()
 	const [mounted, setMounted] = useState(false)
@@ -17,10 +30,21 @@ export function useToast(toast?: Toast | null) {
 		if (toast && mounted) {
 			// Use requestAnimationFrame instead of setTimeout to ensure proper timing
 			requestAnimationFrame(() => {
-				const toastOptions: any = {
+				const getVariant = (type: Toast['type']): ToastVariant => {
+					switch (type) {
+						case 'error':
+							return 'error'
+						case 'success':
+							return 'success'
+						default:
+							return 'default'
+					}
+				}
+
+				const toastOptions: Parameters<typeof showToast>[0] = {
 					title: toast.title,
 					description: toast.description,
-					variant: toast.type === 'error' ? 'destructive' : 'default',
+					variant: getVariant(toast.type),
 				}
 
 				// Custom duration
@@ -37,8 +61,8 @@ export function useToast(toast?: Toast | null) {
 								if (toast.action?.href) {
 									void navigate(toast.action.href)
 								} else if (toast.action?.onClick) {
-									// Call a custom function - safely typed
-									const globalFunction = (window as typeof window & Record<string, unknown>)[toast.action.onClick]
+									// Safer global function access
+									const globalFunction = (window as unknown as Record<string, unknown>)[toast.action.onClick]
 									if (typeof globalFunction === 'function') {
 										globalFunction()
 									}

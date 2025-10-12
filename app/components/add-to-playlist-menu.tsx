@@ -1,10 +1,12 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useFetcher } from 'react-router'
-import { toast } from 'sonner'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog'
 import { Input } from './ui/input'
 import { ScrollArea } from './ui/scroll-area'
 
+/**
+ * Playlist data structure for the add-to-playlist menu
+ */
 interface Playlist {
   id: string
   title: string
@@ -12,10 +14,17 @@ interface Playlist {
   _count: { tracks: number }
 }
 
+/**
+ * Props for the AddToPlaylistMenu component
+ */
 interface AddToPlaylistMenuProps {
+  /** ID of the track to add to playlist */
   trackId: string
+  /** Title of the track for display purposes */
   trackTitle: string
+  /** Array of available playlists to add the track to */
   playlists: Playlist[]
+  /** Optional callback when track is successfully added (used to close sheets on mobile) */
   onSuccess?: () => void
 }
 
@@ -23,10 +32,15 @@ interface AddToPlaylistMenuProps {
  * Component for adding a track to a playlist with search functionality
  * Supports both dropdown (desktop) and sheet (mobile) contexts
  * 
- * @param trackId - ID of the track to add
- * @param trackTitle - Title of the track for display
- * @param playlists - Array of available playlists
- * @param onSuccess - Optional callback when track is successfully added (used to close sheets on mobile)
+ * Features:
+ * - Real-time playlist search/filtering
+ * - Duplicate track detection with confirmation dialog
+ * - Server-side toast notifications for success/error states
+ * - Accessibility support with proper ARIA labels
+ * - Loading states and error handling
+ * 
+ * @param props - Component props
+ * @returns JSX element for the add-to-playlist menu
  * 
  * @example
  * ```tsx
@@ -43,7 +57,10 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
   const [duplicatePlaylist, setDuplicatePlaylist] = useState<Playlist | null>(null)
   const fetcher = useFetcher<{ status: string; message?: string; playlistId?: string }>()
   
-  // Filter playlists by search query
+  /**
+   * Filter playlists based on search query
+   * Case-insensitive search on playlist titles
+   */
   const filteredPlaylists = useMemo(() => {
     if (!searchQuery) return playlists
     return playlists.filter(p => 
@@ -51,7 +68,11 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
     )
   }, [playlists, searchQuery])
   
-  // Handle add to playlist using React Router v7 fetcher
+  /**
+   * Handle adding track to playlist using React Router v7 fetcher
+   * @param playlist - The playlist to add the track to
+   * @param force - Whether to force adding duplicate tracks
+   */
   const handleAddToPlaylist = useCallback((playlist: Playlist, force = false) => {
     void fetcher.submit(
       {
@@ -66,25 +87,26 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
     )
   }, [fetcher, trackId])
 
-  // Handle responses using React Router v7 idiomatic pattern
+  /**
+   * Handle fetcher responses using React Router v7 idiomatic pattern
+   * Processes success, duplicate, and error states
+   */
   useEffect(() => {
     // Only process when fetcher transitions from submitting to idle
     if (fetcher.state === 'idle' && fetcher.data) {
       if (fetcher.data.status === 'success') {
-        void toast.success(fetcher.data.message || 'Track added successfully')
         setDuplicatePlaylist(null)
         // Call onSuccess callback if provided (for closing sheets on mobile)
         if (onSuccess) {
           onSuccess()
         }
-      } else if (fetcher.data.status === 'error') {
-        void toast.error(fetcher.data.message || 'Failed to add track to playlist')
       } else if (fetcher.data.status === 'duplicate') {
         const playlist = playlists.find(p => p.id === fetcher.data?.playlistId)
         if (playlist) {
           setDuplicatePlaylist(playlist)
         }
       }
+      // Error handling is now done via server-side toasts
     }
   }, [fetcher.state, fetcher.data, playlists, onSuccess])
   

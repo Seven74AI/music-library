@@ -48,6 +48,8 @@ interface TrackListItemProps {
 	onRemoveFromLibrary?: (trackId: string) => void
 	showQueueActions?: boolean
 	onRemoveFromQueue?: (trackId: string) => void
+	showPlaylistActions?: boolean
+	onRemoveFromPlaylist?: (trackId: string) => void
 	playlists?: Array<{ id: string; title: string; description: string | null; _count: { tracks: number } }>
 }
 
@@ -87,7 +89,7 @@ interface TrackListItemProps {
  * />
  * ```
  */
-export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, showSyncActions, isInUserLibrary, onAddToLibrary, onRemoveFromLibrary, showQueueActions, onRemoveFromQueue, playlists }: TrackListItemProps) {
+export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, showSyncActions, isInUserLibrary, onAddToLibrary, onRemoveFromLibrary, showQueueActions, onRemoveFromQueue, showPlaylistActions, onRemoveFromPlaylist, playlists }: TrackListItemProps) {
 	const [isHovered, setIsHovered] = useState(false)
 	const [isActionsSheetOpen, setIsActionsSheetOpen] = useState(false)
 	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
@@ -481,6 +483,12 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 									Remove from Queue
 								</DropdownMenuItem>
 							)}
+							{showPlaylistActions && onRemoveFromPlaylist && (
+								<DropdownMenuItem onClick={() => onRemoveFromPlaylist(track.id)}>
+									<Icon name="trash" className="h-4 w-4 mr-2" />
+									Remove from Playlist
+								</DropdownMenuItem>
+							)}
 						</DropdownMenuContent>
 					</DropdownMenu>
 				)}
@@ -636,6 +644,19 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 									>
 										<Icon name="trash" className="h-5 w-5 mr-3" />
 										Remove from Queue
+									</Button>
+								)}
+								{showPlaylistActions && onRemoveFromPlaylist && (
+									<Button
+										variant="ghost"
+										className="w-full justify-start h-12 text-base"
+										onClick={() => {
+											onRemoveFromPlaylist(track.id)
+											setIsActionsSheetOpen(false)
+										}}
+									>
+										<Icon name="trash" className="h-5 w-5 mr-3" />
+										Remove from Playlist
 									</Button>
 								)}
 								{isInUserLibrary !== undefined && (
