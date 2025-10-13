@@ -1,8 +1,8 @@
 import { readFile, unlink } from 'fs/promises'
 import { execa } from 'execa'
 
-import { prisma } from '#server/utils/db.js'
-import { uploadAudioFile } from '#server/utils/storage.js'
+import { prisma } from '../utils/db.js'
+import { uploadAudioFile } from '../utils/storage.js'
 
 /**
  * Extract duration from audio file using ffprobe

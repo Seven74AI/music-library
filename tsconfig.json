@@ -18,7 +18,6 @@
 		"paths": {
 			"#app/*": ["./app/*"],
 			"#tests/*": ["./tests/*"],
-			"#server/*": ["./server/*"],
 			"#prisma/*": ["./prisma/*"],
 			"@/icon-name": [
 				"./app/components/ui/icons/types.ts",

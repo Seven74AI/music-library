@@ -1,6 +1,6 @@
-import { prisma } from '#server/utils/db.js'
+import { prisma } from '../utils/db.js'
 
-import { archiveTrackAudio } from '#server/workers/audio-archive.js'
+import { archiveTrackAudio } from '../workers/audio-archive.js'
 
 // Constants
 const DEFAULT_MAX_CONCURRENT = 2

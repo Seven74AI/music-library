@@ -1,11 +1,11 @@
-import { prisma } from '#server/utils/db.js'
+import { prisma } from '../utils/db.js'
 
-import { processQueue } from '#server/workers/audio-queue.js'
+import { processQueue } from '../workers/audio-queue.js'
 import { 
   cleanupStuckTracks, 
   initializeWorkerState, 
   calculateNextLongBreak 
-} from '#server/workers/audio-worker-control.js'
+} from '../workers/audio-worker-control.js'
 
 // Constants
 const LONG_BREAK_DURATION_HOURS = [1, 2] // Random 1-2h pause

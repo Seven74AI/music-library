@@ -1,4 +1,4 @@
-import { prisma } from '#server/utils/db.js'
+import { prisma } from '../utils/db.js'
 
 // Constants
 const LONG_BREAK_INTERVAL_HOURS = [3, 4] // Random 3-4h
