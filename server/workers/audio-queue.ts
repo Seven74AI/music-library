@@ -1,6 +1,6 @@
-import { prisma } from '../utils/db.js'
+import { prisma } from '#server/utils/db.js'
 
-import { archiveTrackAudio } from './audio-archive.js'
+import { archiveTrackAudio } from '#server/workers/audio-archive.js'
 
 // Constants
 const DEFAULT_MAX_CONCURRENT = 2
@@ -202,6 +202,8 @@ export async function resetTrackForRetry(trackId: string, priority = false): Pro
  * @returns Promise resolving to processing results with counts of successful and failed operations
  */
 export async function processQueue(): Promise<{ processed: number; errors: number }> {
+  console.log('Starting queue processing...')
+
   // Check if worker is paused or in long break
   const workerState = await prisma.workerState.findUnique({
     where: { id: 'singleton' },
@@ -261,7 +263,7 @@ export async function processQueue(): Promise<{ processed: number; errors: numbe
     },
   })
 
-  console.log(`Queue processing completed: ${processed} successful, ${errors} errors`)
+  console.log(`Queue processing promises completed: ${processed} successful, ${errors} failed`)
 
   // Log any errors
   results.forEach((result, index) => {

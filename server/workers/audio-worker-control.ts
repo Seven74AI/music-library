@@ -1,10 +1,9 @@
-import { prisma } from '../utils/db.js'
+import { prisma } from '#server/utils/db.js'
 
 // Constants
-const LONG_BREAK_INTERVAL_HOURS = [6, 8] // Random 6-8h
-const MAX_WAIT_TIME_MS = 10 * 60 * 1000 // 10 minutes
+const LONG_BREAK_INTERVAL_HOURS = [3, 4] // Random 3-4h
+const MAX_WAIT_TIME_MS = 5 * 60 * 1000 // 5 minutes
 const CHECK_INTERVAL_MS = 5 * 1000 // 5 seconds
-// const LONG_BREAK_DURATION_HOURS = [3, 4] // Random 3-4h pause - TODO: Implement long break functionality
 
 /**
  * Calculate next long break time (random 6-8 hours from now)

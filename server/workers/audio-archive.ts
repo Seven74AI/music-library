@@ -1,8 +1,8 @@
 import { readFile, unlink } from 'fs/promises'
 import { execa } from 'execa'
 
-import { prisma } from '../utils/db.js'
-import { uploadAudioFile } from '../utils/storage.js'
+import { prisma } from '#server/utils/db.js'
+import { uploadAudioFile } from '#server/utils/storage.js'
 
 /**
  * Extract duration from audio file using ffprobe
@@ -76,13 +76,21 @@ export async function downloadTrackAudio(track: { externalId: string; title: str
 
   const youtubeUrl = `https://www.youtube.com/watch?v=${track.externalId}`
   const outputPath = `/tmp/${track.externalId}.mp3`
-  
+
   // Generate random sleep interval
   const sleepInterval = Math.floor(Math.random() * (SLEEP_INTERVAL_MAX - SLEEP_INTERVAL_MIN + 1)) + SLEEP_INTERVAL_MIN
   console.log(`Downloading ${track.title} with sleep interval: ${sleepInterval} seconds`)
 
+  // Random user agent
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  ]
+  const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)]
+
   try {
-    await execa('yt-dlp', [
+    const ytDlpArgs = [
       '-x', // Extract audio only
       '--audio-format', 'mp3',
       '--audio-quality', '0', // Best quality
@@ -92,13 +100,19 @@ export async function downloadTrackAudio(track: { externalId: string; title: str
       '--no-warnings',
       '--newline',
       '--sleep-interval', String(sleepInterval),
+      '--max-sleep-interval', String(sleepInterval * 2),
+      '--user-agent', randomUserAgent,
       '--embed-thumbnail',
       '--add-metadata',
       '--retries', '3',
       '--fragment-retries', '3',
-      '-o', outputPath,
-      youtubeUrl,
-    ])
+      '-o', outputPath, youtubeUrl,
+    ]
+
+
+    // OAuth token removed - using yt-dlp without authentication
+    
+    await execa('yt-dlp', ytDlpArgs.filter((arg): arg is string => typeof arg === 'string'))
 
     // Check if file was created
     try {

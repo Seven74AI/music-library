@@ -308,39 +308,3 @@ export async function uploadProfileImage(
     timings,
   })
 }
-
-/**
- * Upload audio file with standardized naming
- * @param buffer - Audio file buffer
- * @param objectKey - Pre-generated object key
- * @param metadata - File metadata
- * @param timings - Optional timing object for performance tracking
- * @returns Promise resolving to the uploaded object key
- */
-export async function uploadAudioFile(
-  buffer: Buffer,
-  objectKey: string,
-  metadata: Record<string, string>,
-  timings?: Timings
-): Promise<string> {
-  // Validate input
-  if (!Buffer.isBuffer(buffer)) {
-    throw new Error('Buffer is required and must be a Buffer instance')
-  }
-  
-  if (!objectKey || typeof objectKey !== 'string') {
-    throw new Error('Invalid objectKey: must be a non-empty string')
-  }
-  
-  if (!metadata || typeof metadata !== 'object') {
-    throw new Error('Metadata is required and must be an object')
-  }
-  
-  return uploadFile({
-    file: buffer,
-    key: objectKey,
-    contentType: 'audio/mpeg',
-    metadata,
-    timings,
-  })
-}

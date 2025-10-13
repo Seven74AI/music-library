@@ -1,16 +1,16 @@
-import { prisma } from '../utils/db.js'
+import { prisma } from '#server/utils/db.js'
 
-import { processQueue } from './audio-queue.js'
+import { processQueue } from '#server/workers/audio-queue.js'
 import { 
   cleanupStuckTracks, 
   initializeWorkerState, 
   calculateNextLongBreak 
-} from './audio-worker-control.js'
+} from '#server/workers/audio-worker-control.js'
 
 // Constants
-const LONG_BREAK_DURATION_HOURS = [3, 4] // Random 3-4h pause
-const DEFAULT_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
-const MAX_WAIT_TIME_MS = 10 * 60 * 1000 // 10 minutes
+const LONG_BREAK_DURATION_HOURS = [1, 2] // Random 1-2h pause
+const DEFAULT_INTERVAL_MS = 2 * 60 * 1000 // 2 minutes
+const MAX_WAIT_TIME_MS = 5 * 60 * 1000 // 5 minutes
 const CHECK_INTERVAL_MS = 5 * 1000 // 5 seconds
 
 let workerInterval: NodeJS.Timeout | null = null
@@ -89,8 +89,25 @@ async function handleLongBreak(): Promise<boolean> {
 
     console.log(`Long break duration: ${Math.round(breakDurationMs / (60 * 60 * 1000) * 10) / 10} hours`)
 
-    // Sleep for the break duration
-    await new Promise(resolve => setTimeout(resolve, breakDurationMs))
+    // Polling approach to allow admin interruption
+    const startTime = Date.now()
+    const checkInterval = 30 * 1000 // Check every 30 seconds
+    
+    while (Date.now() - startTime < breakDurationMs) {
+      // Check if admin wants to break the pause
+      const currentState = await prisma.workerState.findUnique({
+        where: { id: 'singleton' },
+        select: { status: true },
+      })
+      
+      if (currentState?.status !== 'long_break') {
+        console.log('Long break interrupted by admin')
+        return true
+      }
+      
+      // Sleep for a shorter interval
+      await new Promise(resolve => setTimeout(resolve, checkInterval))
+    }
 
     // Calculate next long break time
     const nextLongBreak = calculateNextLongBreak()
