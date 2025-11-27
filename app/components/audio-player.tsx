@@ -38,7 +38,10 @@ export function AudioPlayer(_props: AudioPlayerProps) {
  * - Highlights the currently playing track (by ID and position)
  * - Allows removal of specific tracks by position
  * - Supports duplicate tracks with unique keys
+ * 
+ * Note: Currently unused as AudioPlayer is disabled, but kept for future use
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function QueueSheet() {
 	const { playlist, currentTrack, currentIndex, removeTrackFromPlaylist } = useAudioPlayer()
 

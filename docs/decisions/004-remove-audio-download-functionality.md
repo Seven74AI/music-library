@@ -132,11 +132,16 @@ Audio playback functionality is disabled until a legal and sustainable alternati
 
 #### Migration
 ```sql
--- Migration: Remove TrackAudioFile table
-DROP INDEX IF EXISTS "TrackAudioFile_trackId_key";
-DROP INDEX IF EXISTS "TrackAudioFile_objectKey_key";
+-- Drop indexes on TrackAudioFile
+DROP INDEX IF EXISTS "TrackAudioFile_status_idx";
+DROP INDEX IF EXISTS "TrackAudioFile_status_createdAt_idx";
+DROP INDEX IF EXISTS "TrackAudioFile_status_lastAttemptAt_idx";
+
+-- Drop the TrackAudioFile table
 DROP TABLE IF EXISTS "TrackAudioFile";
 ```
+
+**Note**: When a table is dropped, all its indexes (including unique constraints like `TrackAudioFile_trackId_key`) are automatically dropped by the database. The migration explicitly drops only the status-related indexes for clarity, but all other indexes are removed when the table is dropped.
 
 ### Code Changes
 
@@ -277,4 +282,5 @@ DROP TABLE IF EXISTS "TrackAudioFile";
 ## Revision History
 
 - **2025-01-15**: Initial version - Documents decision to remove audio download functionality
+
 
