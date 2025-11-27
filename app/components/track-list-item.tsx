@@ -1,13 +1,12 @@
 import { useState, useCallback, memo } from 'react'
 import { NavLink } from 'react-router'
+import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { Button } from '#app/components/ui/button'
-import { Icon } from '#app/components/ui/icon.tsx'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '#app/components/ui/dialog.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '#app/components/ui/dropdown-menu.tsx'
+import { Icon } from '#app/components/ui/icon.tsx'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#app/components/ui/sheet.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#app/components/ui/tooltip'
-import { useAudioPlayer } from '#app/components/audio-player-provider'
-import { downloadTrack } from '#app/utils/download.ts'
 import { formatDuration } from '#app/utils/format-duration.ts'
 import { useIsMobile } from '#app/utils/use-mobile.ts'
 import { AddToPlaylistMenu } from './add-to-playlist-menu'
@@ -19,11 +18,6 @@ interface Track {
 	duration: number | null
 	thumbnailUrl: string | null
 	serviceUrl: string | null
-	audioFile?: {
-		objectKey: string | null
-		fileSize: number | null
-		status: string
-	} | null
 	service?: {
 		displayName: string
 		logoUrl: string | null
@@ -51,6 +45,7 @@ interface TrackListItemProps {
 	showPlaylistActions?: boolean
 	onRemoveFromPlaylist?: (trackId: string) => void
 	playlists?: Array<{ id: string; title: string; description: string | null; _count: { tracks: number } }>
+	showDuration?: boolean // New prop to control duration display
 }
 
 /**
@@ -64,7 +59,7 @@ interface TrackListItemProps {
  * - Track thumbnail and metadata display
  * - Responsive action menu (sheet on mobile, dropdown on desktop)
  * - Add to playlist functionality with duplicate detection
- * - Download and external link actions
+ * - External link actions
  * 
  * @param track - Track data including title, artist, duration, etc.
  * @param userTrack - User-specific track data (creation date, etc.)
@@ -89,41 +84,17 @@ interface TrackListItemProps {
  * />
  * ```
  */
-export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, showSyncActions, isInUserLibrary, onAddToLibrary, onRemoveFromLibrary, showQueueActions, onRemoveFromQueue, showPlaylistActions, onRemoveFromPlaylist, playlists }: TrackListItemProps) {
+export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, showSyncActions, isInUserLibrary, onAddToLibrary, onRemoveFromLibrary, showQueueActions, onRemoveFromQueue, showPlaylistActions, onRemoveFromPlaylist, playlists, showDuration = true }: TrackListItemProps) {
 	const [isHovered, setIsHovered] = useState(false)
 	const [isActionsSheetOpen, setIsActionsSheetOpen] = useState(false)
 	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
 	const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false)
 	const isMobile = useIsMobile()
-	const { currentTrack, currentIndex, playTrack, playNextTrack, addToCurrentPlaylist } = useAudioPlayer()
+	const { currentTrack, currentIndex } = useAudioPlayer()
 
 	const handleClick = useCallback((event: React.MouseEvent) => {
 		event.stopPropagation()
 	}, [])
-
-	const handleDownload = useCallback(() => {
-		void downloadTrack(track.id, `${track.title}.mp3`)
-	}, [track.id, track.title])
-
-	const handlePlayPause = useCallback(() => {
-		// If this track is currently playing, we could pause it
-		// For now, we'll just play this track
-		if (track.audioFile?.objectKey && track.audioFile.status === 'completed') {
-			const context = playlistContext || { type: 'library' as const }
-			playTrack(track, context, index)
-		}
-		// If audio is not available, the button will be disabled and show a tooltip
-	}, [track, index, playTrack, playlistContext])
-
-	const handlePlayNext = useCallback(() => {
-		if (track.audioFile?.objectKey && track.audioFile.status === 'completed') {
-			playNextTrack(track)
-		}
-	}, [track, playNextTrack])
-
-	const handleAddToQueue = useCallback(() => {
-		addToCurrentPlaylist(track)
-	}, [track, addToCurrentPlaylist])
 
 	const handleAddToLibrary = useCallback(() => {
 		if (onAddToLibrary) {
@@ -160,9 +131,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	// Check if this track is currently playing (both ID and position must match for duplicates)
 	const isCurrentlyPlaying = currentTrack?.id === track.id && currentIndex === index
 	
-	// Check if track has playable audio
-	const hasPlayableAudio = Boolean(track.audioFile?.objectKey && track.audioFile.status === 'completed')
-	
 	// Memoize thumbnail URL to prevent unnecessary re-renders
 	const thumbnailUrl = track.thumbnailUrl 
 		? `/resources/images?src=${encodeURIComponent(track.thumbnailUrl)}&w=40&h=40&fit=cover&format=webp`
@@ -176,45 +144,14 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 			role="gridcell"
 			aria-label={`Track ${index + 1}: ${track.title} by ${track.artist}`}
 		>
-			{/* Track Number / Play Button */}
+			{/* Track Number */}
 			<div className="w-8 flex items-center justify-center min-w-8">
-				{isHovered || isCurrentlyPlaying ? (
-					hasPlayableAudio ? (
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-8 w-8 p-0 hover:scale-110 transition-transform hover:bg-muted/50 flex items-center justify-center bg-muted/20"
-							onClick={handlePlayPause}
-							aria-label={isCurrentlyPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
-							aria-pressed={isCurrentlyPlaying}
-						>
-							<Icon 
-								name={isCurrentlyPlaying ? "pause" : "play"} 
-								className="h-4 w-4 text-foreground" 
-								aria-hidden="true"
-							/>
-						</Button>
-					) : (
-						<div 
-							className="h-8 w-8 flex items-center justify-center bg-muted/20 rounded-md"
-							aria-label={`${track.title} is being processed`}
-							role="status"
-						>
-							<Icon 
-								name="clock" 
-								className="h-4 w-4 text-muted-foreground" 
-								aria-hidden="true"
-							/>
-						</div>
-					)
-				) : (
-					<span 
-						className="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
-						aria-label={`Track number ${index + 1}`}
-					>
-						{index + 1}
-					</span>
-				)}
+				<span 
+					className="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
+					aria-label={`Track number ${index + 1}`}
+				>
+					{index + 1}
+				</span>
 			</div>
 
 			{/* Track Info */}
@@ -229,10 +166,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 								className="h-10 w-10 rounded object-cover"
 								loading="lazy"
 							/>
-						) : track.audioFile ? (
-							<div className="h-10 w-10 rounded bg-muted flex items-center justify-center">
-								<Icon name="file-text" className="h-5 w-5 text-muted-foreground" />
-							</div>
 						) : (
 							<div className="h-10 w-10 rounded bg-muted flex items-center justify-center">
 								<Icon name="link-2" className="h-5 w-5 text-muted-foreground" />
@@ -296,9 +229,11 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 			)}
 
 			{/* Duration */}
-			<div className="hidden md:flex text-xs text-muted-foreground w-12 text-center">
-				{formatDuration(track.duration || 0)}
-			</div>
+			{showDuration && (
+				<div className="hidden md:flex text-xs text-muted-foreground w-12 text-center">
+					{formatDuration(track.duration || 0)}
+				</div>
+			)}
 
 			{/* Actions */}
 			<div className="flex items-center gap-1 w-8">
@@ -373,8 +308,8 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 												)}
 											</div>
 										</div>
-										<div className="flex gap-2">
-											{track.serviceUrl && (
+										{track.serviceUrl && (
+											<div className="flex gap-2">
 												<Button
 													variant="outline"
 													size="sm"
@@ -384,29 +319,8 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 													<Icon name="link-2" className="h-4 w-4 mr-2" />
 													Open on YouTube
 												</Button>
-											)}
-											{track.audioFile?.objectKey ? (
-												<Button
-													variant="outline"
-													size="sm"
-													onClick={handleDownload}
-													className="flex-1"
-												>
-													<Icon name="download" className="h-4 w-4 mr-2" />
-													Download
-												</Button>
-											) : (
-												<Button
-													variant="outline"
-													size="sm"
-													disabled
-													className="flex-1"
-												>
-													<Icon name="clock" className="h-4 w-4 mr-2" />
-													Processing...
-												</Button>
-											)}
-										</div>
+											</div>
+										)}
 									</div>
 								</DialogContent>
 							</Dialog>
@@ -423,18 +337,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 									</a>
 								</DropdownMenuItem>
 							)}
-							{hasPlayableAudio && (
-								<DropdownMenuItem onClick={handlePlayNext}>
-									<Icon name="play" className="h-4 w-4 mr-2" />
-									Play next
-								</DropdownMenuItem>
-							)}
-							{hasPlayableAudio && (
-								<DropdownMenuItem onClick={handleAddToQueue}>
-									<Icon name="plus" className="h-4 w-4 mr-2" />
-									Add to queue
-								</DropdownMenuItem>
-							)}
 							{playlists && playlists.length > 0 && (
 								<DropdownMenuSub>
 									<DropdownMenuSubTrigger>
@@ -449,17 +351,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										/>
 									</DropdownMenuSubContent>
 								</DropdownMenuSub>
-							)}
-							{track.audioFile?.objectKey ? (
-								<DropdownMenuItem onClick={handleDownload}>
-									<Icon name="download" className="h-4 w-4 mr-2" />
-									Download audio file
-								</DropdownMenuItem>
-							) : (
-								<DropdownMenuItem disabled>
-									<Icon name="clock" className="h-4 w-4 mr-2" />
-									Audio is being processed
-								</DropdownMenuItem>
 							)}
 							{showSyncActions && (
 								<>
@@ -551,32 +442,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										</a>
 									</Button>
 								)}
-								{hasPlayableAudio && (
-									<Button
-										variant="ghost"
-										className="w-full justify-start h-12 text-base"
-										onClick={() => {
-											handlePlayNext()
-											setIsActionsSheetOpen(false)
-										}}
-									>
-										<Icon name="play" className="h-5 w-5 mr-3" />
-										Play next
-									</Button>
-								)}
-								{hasPlayableAudio && (
-									<Button
-										variant="ghost"
-										className="w-full justify-start h-12 text-base"
-										onClick={() => {
-											handleAddToQueue()
-											setIsActionsSheetOpen(false)
-										}}
-									>
-										<Icon name="plus" className="h-5 w-5 mr-3" />
-										Add to queue
-									</Button>
-								)}
 								{playlists && playlists.length > 0 && (
 									<Button
 										variant="ghost"
@@ -585,28 +450,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 									>
 										<Icon name="plus" className="h-5 w-5 mr-3" />
 										Add to Playlist
-									</Button>
-								)}
-								{track.audioFile?.objectKey ? (
-									<Button
-										variant="ghost"
-										className="w-full justify-start h-12 text-base"
-										onClick={() => {
-											handleDownload()
-											setIsActionsSheetOpen(false)
-										}}
-									>
-										<Icon name="download" className="h-5 w-5 mr-3" />
-										Download audio file
-									</Button>
-								) : (
-									<Button
-										variant="ghost"
-										className="w-full justify-start h-12 text-base"
-										disabled
-									>
-										<Icon name="clock" className="h-5 w-5 mr-3" />
-										Audio is being processed
 									</Button>
 								)}
 								{showSyncActions && (
@@ -758,27 +601,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										>
 											<Icon name="link-2" className="h-4 w-4 mr-2" />
 											Open on YouTube
-										</Button>
-									)}
-									{track.audioFile?.objectKey ? (
-										<Button
-											variant="outline"
-											size="sm"
-											onClick={handleDownload}
-											className="flex-1"
-										>
-											<Icon name="download" className="h-4 w-4 mr-2" />
-											Download
-										</Button>
-									) : (
-										<Button
-											variant="outline"
-											size="sm"
-											disabled
-											className="flex-1"
-										>
-											<Icon name="clock" className="h-4 w-4 mr-2" />
-											Processing...
 										</Button>
 									)}
 								</div>

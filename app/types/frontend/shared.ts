@@ -40,9 +40,4 @@ export interface TrackWithUserStatus {
     displayName: string
     logoUrl: string | null
   }
-  audioFile?: {
-    objectKey: string | null
-    status: string
-    priority: boolean
-  } | null
 }

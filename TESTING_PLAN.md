@@ -105,7 +105,7 @@ This document outlines a systematic testing plan for all routes and actions in t
 #### 3.3 Track Detail (`/library/{trackId}`)
 - **Actions to test**:
   - [ ] Display track information
-  - [ ] Play audio
+  - [ ] Play audio (audio playback disabled - no downloads available)
   - [ ] Edit track metadata
   - [ ] Delete track
 
@@ -278,6 +278,7 @@ This document outlines a systematic testing plan for all routes and actions in t
 - **Actions to test**:
   - [ ] Download user data
   - [ ] Data export functionality
+  - Note: Audio download functionality has been removed
 
 ### 10. SEO Routes (`_seo+/`)
 **Base URL**: Various

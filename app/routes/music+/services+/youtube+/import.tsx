@@ -162,24 +162,15 @@ export async function action({ request }: ActionFunctionArgs) {
 				return data({ error: result.error }, { status: 400 })
 			}
 			
-			// Success - redirect to library with success toast
+			// Success - return data
 			if (result.track) {
-				return redirectWithToast('/library', {
-					title: 'Track Imported!',
-					description: `"${result.track.title}" by ${result.track.artist} has been added to your library.`,
-					type: 'success',
-					duration: 10000,
-					action: {
-						label: 'View Track',
-						href: `/library/${result.track.id}`
-					}
+				return data({
+					success: true,
+					track: result.track,
 				})
 			} else {
-				return redirectWithToast('/library', {
-					title: 'Track Imported!',
-					description: 'Track has been added to your library.',
-					type: 'success',
-					duration: 10000
+				return data({
+					success: true,
 				})
 			}
 			
@@ -263,6 +254,30 @@ export default function YouTubeImportPage() {
 			<p className="text-muted-foreground">
 				Import tracks from {service.displayName} by pasting a video URL. You'll be able to preview the track before adding it to your library.
 			</p>
+
+			{/* Success message */}
+			{(() => {
+				if (!actionData || typeof actionData !== 'object' || actionData === null) return null
+				if (!('success' in actionData) || !actionData.success) return null
+				if (!('track' in actionData) || !actionData.track || typeof actionData.track !== 'object' || actionData.track === null) return null
+				
+				const track = actionData.track as { title?: string; artist?: string }
+				const message = track.title && track.artist
+					? `"${track.title}" by ${track.artist} has been added to your library.`
+					: 'Track has been added to your library.'
+				
+				return (
+					<div className="rounded-lg border border-green-200 bg-green-50 p-4">
+						<div className="flex items-center gap-2">
+							<Icon name="check-circled" className="h-5 w-5 text-green-600" />
+							<div>
+								<h3 className="font-medium text-green-800">Track Imported!</h3>
+								<p className="text-sm text-green-700">{message}</p>
+							</div>
+						</div>
+					</div>
+				)
+			})()}
 
 			{!hasPreview ? (
 				// Show URL input form

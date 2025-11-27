@@ -10,7 +10,6 @@ import rateLimit from 'express-rate-limit'
 import getPort, { portNumbers } from 'get-port'
 import morgan from 'morgan'
 import { type ServerBuild } from 'react-router'
-import { startAudioWorker, stopAudioWorker } from './workers/audio-worker.js'
 
 const MODE = process.env.NODE_ENV ?? 'development'
 const IS_PROD = MODE === 'production'
@@ -257,26 +256,9 @@ ${styleText('bold', 'Press Ctrl+C to stop')}
 		`.trim(),
 	)
 	
-	// Initialize audio worker asynchronously after server is ready
-	setImmediate(async () => {
-		try {
-			await startAudioWorker()
-			console.log('🎵 Audio archive worker initialized')
-		} catch (error) {
-			console.error('Failed to initialize audio worker:', error)
-		}
-	})
 })
 
 closeWithGrace(async ({ err }) => {
-	// Stop audio worker gracefully
-	try {
-		await stopAudioWorker()
-		console.log('🎵 Audio worker stopped')
-	} catch (error) {
-		console.error('Error stopping audio worker:', error)
-	}
-	
 	await new Promise((resolve, reject) => {
 		server.close((e) => (e ? reject(e) : resolve('ok')))
 	})

@@ -1,8 +1,8 @@
-import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
+import * as React from "react"
+import { cn } from "#app/utils/misc.tsx"
 import { Icon } from "./icon"
 
-import { cn } from "#app/utils/misc.tsx"
 
 const Breadcrumb = React.forwardRef<
   HTMLElement,

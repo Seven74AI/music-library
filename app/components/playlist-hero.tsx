@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#app/components/ui/sheet.tsx'
-import { cn } from '#app/utils/misc.tsx'
-import { PlaylistCover } from './playlist-cover'
-import { EditableText } from './editable-text'
 import { formatDuration } from '#app/utils/format-duration.ts'
+import { cn } from '#app/utils/misc.tsx'
 import { useIsMobile } from '#app/utils/use-mobile.ts'
+import { EditableText } from './editable-text'
+import { PlaylistCover } from './playlist-cover'
 
 interface Track {
 	id: string

@@ -144,7 +144,6 @@ model Track {
   updatedAt             DateTime               @updatedAt
   servicePlaylistTracks ServicePlaylistTrack[]
   service               Service?               @relation(fields: [serviceId], references: [id])
-  audioFile             TrackAudioFile?
   playlists             UserPlaylistTrack[]
   userTracks            UserTrack[]
 
@@ -152,28 +151,6 @@ model Track {
   @@index([serviceId, externalId])
   @@index([updatedAt])
   @@index([createdAt])
-}
-
-model TrackAudioFile {
-  id            String    @id @default(cuid())
-  objectKey     String?
-  fileName      String?
-  fileSize      Int?
-  mimeType      String?
-  status        String    @default("pending")
-  priority      Boolean   @default(false)
-  errorHistory  String?
-  retryCount    Int       @default(0)
-  downloadedAt  DateTime?
-  lastAttemptAt DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  trackId       String    @unique
-  track         Track     @relation(fields: [trackId], references: [id], onDelete: Cascade)
-
-  @@index([status])
-  @@index([status, priority, createdAt])
-  @@index([status, lastAttemptAt])
 }
 
 model UserPlaylist {
@@ -277,13 +254,3 @@ model ServicePlaylistTrack {
   @@index([trackId])
 }
 
-model WorkerState {
-  id                  String    @id @default("singleton")
-  status              String    @default("running")
-  lastStateChange     DateTime  @updatedAt
-  lastQueueRun        DateTime?
-  nextLongBreakAt     DateTime?
-  currentlyProcessing Int       @default(0)
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-}

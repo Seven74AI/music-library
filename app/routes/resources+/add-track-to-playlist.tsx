@@ -1,8 +1,8 @@
 import { data } from 'react-router'
-import type { Route } from './+types/add-track-to-playlist'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
+import  { type Route } from './+types/add-track-to-playlist'
 
 /**
  * Server action for adding a track to a playlist

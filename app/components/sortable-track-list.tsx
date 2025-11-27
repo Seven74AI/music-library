@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import {
 	DndContext,
 	closestCenter,
@@ -13,14 +12,13 @@ import {
 	SortableContext,
 	sortableKeyboardCoordinates,
 	verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
-import {
-	useSortable,
+	useSortable
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { useState, useEffect } from 'react'
 import { Button } from '#app/components/ui/button.tsx'
-import { Icon } from '#app/components/ui/icon.tsx'
 import { Checkbox } from '#app/components/ui/checkbox.tsx'
+import { Icon } from '#app/components/ui/icon.tsx'
 import { cn } from '#app/utils/misc.tsx'
 import { TrackListItem } from './track-list-item'
 
@@ -46,14 +44,6 @@ interface Track {
 	service?: {
 		displayName: string
 		logoUrl: string | null
-	} | null
-	audioFile?: {
-		id: string
-		objectKey: string | null
-		fileName: string | null
-		fileSize: number | null
-		mimeType: string | null
-		status: string
 	} | null
 }
 

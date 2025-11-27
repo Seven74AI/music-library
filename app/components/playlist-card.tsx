@@ -3,10 +3,10 @@ import { NavLink } from 'react-router'
 import { Button } from '#app/components/ui/button.tsx'
 import { Card, CardContent } from '#app/components/ui/card.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
-import { cn } from '#app/utils/misc.tsx'
-import { PlaylistCover } from './playlist-cover'
 import { formatDuration } from '#app/utils/format-duration.ts'
+import { cn } from '#app/utils/misc.tsx'
 import { useIsMobile } from '#app/utils/use-mobile.ts'
+import { PlaylistCover } from './playlist-cover'
 
 interface Track {
 	id: string

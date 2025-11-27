@@ -27,7 +27,6 @@ export async function loader({ request }: { request: Request }) {
 				track: {
 					include: {
 						service: true,
-						audioFile: true,
 					},
 				},
 			},

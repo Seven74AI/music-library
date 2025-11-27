@@ -32,21 +32,21 @@
 
     ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
 */
-import { data, redirect, Form, Link, useActionData, useNavigation, useFetcher, useParams } from 'react-router'
-import { createToastHeaders } from '#app/utils/toast.server.ts'
-import { toast } from '#app/components/ui/use-toast.ts'
 import { useState, useEffect } from 'react'
+import { data, redirect, Form, Link, useActionData, useNavigation, useFetcher, useParams } from 'react-router'
+import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
+import { PlaylistHero } from '#app/components/playlist-hero'
+import { SortableTrackList } from '#app/components/sortable-track-list'
 import { TrackListItem } from '#app/components/track-list-item'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '#app/components/ui/alert-dialog'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
-import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
+import { toast } from '#app/components/ui/use-toast.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { getPlaylistTitle } from '#app/utils/breadcrumb-utils.ts'
 import { prisma } from '#app/utils/db.server.ts'
-import { PlaylistHero } from '#app/components/playlist-hero'
-import { SortableTrackList } from '#app/components/sortable-track-list'
+import { createToastHeaders } from '#app/utils/toast.server.ts'
 import { type Route } from './+types/playlists.$playlistId.ts'
 
 export const handle: BreadcrumbHandle = {
@@ -84,16 +84,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 									displayName: true,
 									logoUrl: true,
 								}
-							},
-							audioFile: {
-								select: {
-									id: true,
-									objectKey: true,
-									fileName: true,
-									fileSize: true,
-									mimeType: true,
-									status: true,
-								},
 							},
 						},
 					},
@@ -417,7 +407,7 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	const isSubmitting = navigation.state === 'submitting'
 	const { playlist, playlists } = loaderData
 	
-	// Audio player context
+	// Audio player context (audio playback disabled)
 	const { addToCurrentPlaylist } = useAudioPlayer()
 	
 	// Fetchers for progressive enhancement
@@ -481,32 +471,18 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	const [isAddToQueueDialogOpen, setIsAddToQueueDialogOpen] = useState(false)
 
 	const handleAddAllToQueue = () => {
-		// Filter tracks to only include those with completed audio files
-		const playableTracks = optimisticTracks
-			.map(pt => pt.track)
-			.filter(track => track.audioFile?.objectKey && track.audioFile.status === 'completed')
-		
-		if (playableTracks.length === 0) {
-			console.warn('No playable tracks found')
-			return
-		}
-		
 		setIsAddToQueueDialogOpen(true)
 	}
 
 	const confirmAddToQueue = () => {
-		// Filter tracks to only include those with completed audio files
-		const playableTracks = optimisticTracks
-			.map(pt => pt.track)
-			.filter(track => track.audioFile?.objectKey && track.audioFile.status === 'completed')
-		
-		// Add each track to the current playlist
-		playableTracks.forEach(track => addToCurrentPlaylist(track))
+		// Add all tracks to the current playlist
+		const tracks = optimisticTracks.map(pt => pt.track)
+		tracks.forEach(track => addToCurrentPlaylist(track))
 		
 		// Show success toast
 		toast({
 			title: 'Success',
-			description: `${playableTracks.length} tracks added to queue`,
+			description: `${tracks.length} tracks added to queue`,
 			variant: 'success',
 		})
 		
@@ -598,24 +574,22 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	}
 
 	const handleBulkAddToQueue = (playlistTrackIds: string[]) => {
-		// Find the selected tracks and filter for playable ones
+		// Find the selected tracks
 		const selectedTracks = optimisticTracks.filter(pt => playlistTrackIds.includes(pt.id))
-		const playableTracks = selectedTracks
-			.map(pt => pt.track)
-			.filter(track => track.audioFile?.objectKey && track.audioFile.status === 'completed')
+		const tracks = selectedTracks.map(pt => pt.track)
 		
-		if (playableTracks.length === 0) {
-			console.warn('No playable tracks found in selection')
+		if (tracks.length === 0) {
+			console.warn('No tracks found in selection')
 			return
 		}
 		
 		// Add each track to the current playlist
-		playableTracks.forEach(track => addToCurrentPlaylist(track))
+		tracks.forEach(track => addToCurrentPlaylist(track))
 		
 		// Show success toast
 		toast({
 			title: 'Success',
-			description: `${playableTracks.length} tracks added to queue`,
+			description: `${tracks.length} tracks added to queue`,
 			variant: 'success',
 		})
 	}

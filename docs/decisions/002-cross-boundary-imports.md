@@ -1,7 +1,7 @@
 # ADR-002: Eliminating Cross-Boundary Imports Between App and Server Layers
 
 ## Status
-Accepted
+Accepted (Note: Audio worker functionality has been removed from the codebase)
 
 ## Context
 The Music Library application has a hybrid architecture with two distinct layers:
@@ -10,18 +10,22 @@ The Music Library application has a hybrid architecture with two distinct layers
 
 During development, we encountered cross-boundary import issues where the admin UI was importing functions directly from server workers, creating architectural coupling and build complexity.
 
+**Note**: This ADR documents the architectural pattern used for the audio worker system, which has since been removed from the codebase. The principles and patterns described here remain valid for any future background worker implementations.
+
 ### Problems with Cross-Boundary Imports
 
 #### 1. Admin UI Importing from Server Workers
 ```typescript
-// app/routes/admin+/audio-queue.tsx
+// Example from removed audio-queue.tsx
+// app/routes/admin+/audio-queue.tsx (removed)
 import { getQueueStats, getTracksForAdmin, enqueueTrack } from '#server/workers/audio-queue'
 import { pauseWorker, resumeWorker, getWorkerStatus } from '#server/workers/audio-worker-control'
 ```
 
 #### 2. Server Workers Importing from App Utils
 ```typescript
-// server/workers/audio-queue.ts
+// Example from removed audio-queue.ts
+// server/workers/audio-queue.ts (removed)
 import { prisma } from '#app/utils/db.server'
 import { uploadAudioFile } from '#app/utils/storage.server'
 ```
@@ -112,10 +116,11 @@ const [stats, tracks, workerStatus] = await Promise.all([
 
 **After:**
 ```typescript
+// Example from removed audio queue system
 const [statsGrouped, tracks, workerState] = await Promise.all([
-  prisma.trackAudioFile.groupBy({ by: ['status'], _count: { _all: true } }), // 1 grouped query
-  prisma.trackAudioFile.findMany({ ... }), // Direct query
-  prisma.workerState.findUnique({ where: { id: 'singleton' } }), // Direct query
+  prisma.trackAudioFile.groupBy({ by: ['status'], _count: { _all: true } }), // 1 grouped query (removed)
+  prisma.trackAudioFile.findMany({ ... }), // Direct query (removed)
+  prisma.workerState.findUnique({ where: { id: 'singleton' } }), // Direct query (removed)
 ])
 ```
 
@@ -146,12 +151,13 @@ const [statsGrouped, tracks, workerState] = await Promise.all([
 
 ### File Structure Changes
 ```
-app/routes/admin+/audio-queue.tsx
+// Example structure from removed audio worker system
+app/routes/admin+/audio-queue.tsx (removed)
 ├── Direct Prisma queries (no server imports)
 ├── Inline helper functions
 └── Database state updates
 
-server/workers/
+server/workers/ (removed)
 ├── audio-worker.ts (reads database state)
 ├── audio-queue.ts (self-contained)
 └── audio-worker-control.ts (self-contained)
@@ -165,12 +171,13 @@ server/utils/
 
 #### Admin UI Loader Pattern
 ```typescript
+// Example from removed audio queue system
 export async function loader({ request }) {
   // Direct Prisma queries - no cross-boundary imports
   const [statsGrouped, tracks, workerState] = await Promise.all([
-    prisma.trackAudioFile.groupBy({ by: ['status'], _count: { _all: true } }),
-    prisma.trackAudioFile.findMany({ include: { track: true } }),
-    prisma.workerState.findUnique({ where: { id: 'singleton' } }),
+    prisma.trackAudioFile.groupBy({ by: ['status'], _count: { _all: true } }), // Removed
+    prisma.trackAudioFile.findMany({ include: { track: true } }), // Removed
+    prisma.workerState.findUnique({ where: { id: 'singleton' } }), // Removed
   ])
   
   return data({ statsGrouped, tracks, workerState })
@@ -196,6 +203,7 @@ export async function action({ request }) {
 
 #### Worker State Check Pattern
 ```typescript
+// Example from removed audio worker system
 async function workerLoop() {
   // Read state from database
   const workerState = await prisma.workerState.findUnique({
@@ -259,27 +267,29 @@ function formatWorkerStatus(workerState: any) {
 ## Migration Strategy
 
 ### Phase 1: Server Layer Isolation
-1. Move worker files from `app/utils/` to `server/workers/`
-2. Create `server/utils/db.ts` and `server/utils/storage.ts`
-3. Update server imports to use relative paths
-4. Test server build and startup
+1. Move worker files from `app/utils/` to `server/workers/` (completed, then removed)
+2. Create `server/utils/db.ts` and `server/utils/storage.ts` (completed)
+3. Update server imports to use relative paths (completed)
+4. Test server build and startup (completed)
 
 ### Phase 2: Admin UI Refactoring
-1. Replace function calls with direct Prisma queries
-2. Add inline helper functions
-3. Update loader and action functions
-4. Remove cross-boundary imports
+1. Replace function calls with direct Prisma queries (completed, then removed)
+2. Add inline helper functions (completed, then removed)
+3. Update loader and action functions (completed, then removed)
+4. Remove cross-boundary imports (completed)
 
 ### Phase 3: Service Utilities
-1. Update `service-import.server.ts` and `service-playlist.server.ts`
-2. Replace `enqueueTrack()` calls with database upsert logic
-3. Test all functionality
+1. Update `service-import.server.ts` and `service-playlist.server.ts` (completed, then removed)
+2. Replace `enqueueTrack()` calls with database upsert logic (completed, then removed)
+3. Test all functionality (completed)
 
 ### Phase 4: Verification
-1. Verify no cross-boundary imports remain
-2. Test build and startup
-3. Test admin UI functionality
-4. Document new patterns
+1. Verify no cross-boundary imports remain (completed)
+2. Test build and startup (completed)
+3. Test admin UI functionality (completed, then removed)
+4. Document new patterns (completed)
+
+**Note**: The audio worker system described in this ADR has been removed from the codebase. The architectural principles remain valid for future background worker implementations.
 
 ## Success Metrics
 
@@ -307,7 +317,7 @@ function formatWorkerStatus(workerState: any) {
 ## Future Considerations
 
 ### Scalability
-- Worker can be moved to separate service
+- Worker can be moved to separate service (pattern remains valid)
 - Database can be split if needed
 - Easy to add new communication patterns
 - Supports microservices architecture
@@ -339,3 +349,4 @@ function formatWorkerStatus(workerState: any) {
 
 - **2024-12-XX**: Initial version
 - **2024-12-XX**: Added implementation details and migration strategy
+- **2025-01-XX**: Updated to reflect removal of audio worker system - architectural principles remain valid

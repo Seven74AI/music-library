@@ -29,11 +29,6 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     // YouTube Data API Configuration (uses existing Google OAuth credentials)
     YOUTUBE_API_KEY: z.string().optional(),
     SITE_URL: z.string().optional(),
-
-    // Audio Archive Configuration
-    AUDIO_ARCHIVE_ENABLED: z.enum(['true', 'false']).optional(),
-    AUDIO_ARCHIVE_MAX_CONCURRENT: z.string().optional(), // Default: '2'
-    AUDIO_ARCHIVE_INTERVAL_MS: z.string().optional(), // Default: '300000' (5 min)
   })
 }
 

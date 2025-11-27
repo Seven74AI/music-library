@@ -40,9 +40,6 @@
    
    # Email (optional for local dev)
    RESEND_API_KEY=your-resend-api-key
-   
-   # Audio Archive (optional)
-   AUDIO_ARCHIVE_ENABLED=true
    ```
 
 4. **Set up the database**
@@ -124,7 +121,6 @@ Set the following secrets for both production and staging apps:
 - `GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
 - `YOUTUBE_API_KEY` - YouTube Data API key
-- `AUDIO_ARCHIVE_ENABLED` - Enable audio archiving feature
 
 **Set secrets:**
 ```bash
@@ -148,9 +144,6 @@ fly secrets set YOUTUBE_API_KEY=your-youtube-key --app [APP_NAME]-staging
 
 fly secrets set RESEND_API_KEY=your-resend-key --app [APP_NAME]
 fly secrets set RESEND_API_KEY=your-resend-key --app [APP_NAME]-staging
-
-fly secrets set AUDIO_ARCHIVE_ENABLED=true --app [APP_NAME]
-fly secrets set AUDIO_ARCHIVE_ENABLED=true --app [APP_NAME]-staging
 ```
 
 ### 3. Additional Configuration
@@ -246,7 +239,6 @@ SITE_URL=http://localhost:3000  # or your production URL
 - `GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
 - `RESEND_API_KEY` - Resend API key for email functionality
-- `AUDIO_ARCHIVE_ENABLED` - Enable audio archiving feature (`true`/`false`)
 - `ALLOW_INDEXING` - Allow search engine indexing (`true`/`false`, defaults to `true`)
 
 ## Database

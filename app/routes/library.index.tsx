@@ -25,11 +25,6 @@ type UserTrack = {
 			displayName: string
 			logoUrl: string | null
 		} | null
-		audioFile?: {
-			objectKey: string | null
-			fileSize: number | null
-			status: string
-		} | null
 	}
 }
 
@@ -62,20 +57,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 					serviceUrl: true,
 					thumbnailUrl: true,
 					duration: true,
-					audioFile: {
-						select: {
-							id: true,
-							objectKey: true,
-							fileName: true,
-							fileSize: true,
-							mimeType: true,
-							status: true,
-							errorHistory: true,
-							retryCount: true,
-							downloadedAt: true,
-							lastAttemptAt: true,
-						},
-					},
 				},
 			},
 		},

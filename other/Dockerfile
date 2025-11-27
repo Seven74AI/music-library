@@ -6,11 +6,10 @@ FROM node:22-bookworm-slim as base
 # set for base and all layer that inherit from it
 ENV NODE_ENV production
 
-# Install openssl for Prisma and audio archiving dependencies
-RUN apt-get update && apt-get install -y fuse3 openssl sqlite3 ca-certificates python3 python3-pip ffmpeg curl
-# Install yt-dlp for audio archiving (latest version from GitHub)
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
-    chmod a+rx /usr/local/bin/yt-dlp
+# Install openssl for Prisma
+RUN apt-get update && apt-get install -y \
+    fuse3 openssl sqlite3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install all node_modules, including dev dependencies
 FROM base as deps

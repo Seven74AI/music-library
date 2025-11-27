@@ -96,6 +96,7 @@
     "@tanstack/react-query": "^5.90.2",
     "@tanstack/react-virtual": "^3.13.12",
     "@tusbar/cache-control": "1.0.2",
+    "@types/ws": "^8.18.1",
     "address": "^2.0.3",
     "bcryptjs": "^3.0.2",
     "class-variance-authority": "^0.7.1",
@@ -134,6 +135,7 @@
     "tailwind-merge": "^3.2.0",
     "tailwindcss": "^4.1.5",
     "vite-env-only": "^3.0.3",
+    "ws": "^8.18.3",
     "zod": "^3.24.4"
   },
   "devDependencies": {

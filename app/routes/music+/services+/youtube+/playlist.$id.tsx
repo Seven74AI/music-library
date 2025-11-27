@@ -2,7 +2,6 @@ import { formatDistanceToNow } from 'date-fns'
 import { data, Form, useActionData, useLoaderData, Link, useFetcher, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
 
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs'
-import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { TrackListItem } from '#app/components/track-list-item'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '#app/components/ui/alert-dialog'
 import { Button } from '#app/components/ui/button'
@@ -95,7 +94,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				}
 				
 				await servicePlaylistService.addTrackToUserLibrary(userId, trackId)
-				return data({ status: 'success', message: 'Track added to your library' })
+				
+				return data({ 
+					status: 'success', 
+					message: 'Track added to your library',
+				})
 			}
 			
 			case 'remove-from-library': {
@@ -145,7 +148,6 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	const loaderData = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const fetcher = useFetcher()
-	const { currentTrack, playTrack } = useAudioPlayer()
 
 	// Validate loader data with type guards
 	if (!isPlaylistWithTracks(loaderData.playlist)) {
@@ -398,11 +400,6 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 											duration: track.duration,
 											thumbnailUrl: track.thumbnailUrl,
 											serviceUrl: track.serviceUrl,
-											audioFile: track.audioFile ? {
-												objectKey: track.audioFile.objectKey,
-												fileSize: null, // Not available in TrackWithUserStatus
-												status: track.audioFile.status
-											} : null,
 											service: track.service ? {
 												displayName: track.service.displayName,
 												logoUrl: track.service.logoUrl
@@ -413,26 +410,6 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 											createdAt: track.createdAt
 										}
 
-										// Get playable tracks for playlist context
-										const playableTracks = tracks
-											.filter(t => t.isInUserLibrary && t.audioFile?.objectKey && t.audioFile.status === 'completed')
-											.map(t => ({
-												id: t.id,
-												title: t.title,
-												artist: t.artist,
-												duration: t.duration,
-												thumbnailUrl: t.thumbnailUrl,
-												serviceUrl: t.serviceUrl,
-												audioFile: t.audioFile ? {
-													objectKey: t.audioFile.objectKey,
-													fileSize: null,
-													status: t.audioFile.status
-												} : null,
-												service: t.service ? {
-													displayName: t.service.displayName,
-													logoUrl: t.service.logoUrl
-												} : null
-											}))
 
 										return (
 											<TrackListItem
@@ -444,6 +421,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 												isInUserLibrary={track.isInUserLibrary}
 												onAddToLibrary={handleAddToLibrary}
 												onRemoveFromLibrary={handleRemoveFromLibrary}
+												showDuration={false} // Hide duration on YouTube playlist browsing
 											/>
 										)
 									})}

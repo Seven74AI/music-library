@@ -7,11 +7,6 @@ interface Track {
 	artist: string
 	duration: number | null
 	thumbnailUrl: string | null
-	audioFile?: {
-		objectKey: string | null
-		fileSize: number | null
-		status: string
-	} | null
 }
 
 interface UserTrack {
@@ -217,18 +212,11 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	}, [addTrackToPlaylist])
 
 	const playNext = useCallback(() => {
-		// Helper function to check if a track has playable audio
-		const hasPlayableAudio = (track: Track) => {
-			return track.audioFile?.objectKey && track.audioFile.status === 'completed'
-		}
 
-		// Helper function to find next completed track
-		const findNextCompletedTrack = (startIndex: number) => {
-			for (let i = startIndex + 1; i < playlist.length; i++) {
-				const track = playlist[i]
-				if (track && hasPlayableAudio(track)) {
-					return i
-				}
+		// Helper function to find next track
+		const findNextTrack = (startIndex: number) => {
+			if (startIndex + 1 < playlist.length) {
+				return startIndex + 1
 			}
 			return -1
 		}
@@ -244,11 +232,10 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
 		if (isShuffleEnabled && playlist.length > 0) {
 			// Pick random track that's not the current one
-			const playableTracks = playlist.filter(hasPlayableAudio)
-			if (playableTracks.length > 1) {
+			if (playlist.length > 1) {
 				let nextTrack: Track | undefined
 				do {
-					nextTrack = playableTracks[Math.floor(Math.random() * playableTracks.length)]
+					nextTrack = playlist[Math.floor(Math.random() * playlist.length)]
 				} while (nextTrack?.id === playlist[currentIndex]?.id)
 				
 				if (nextTrack) {
@@ -262,7 +249,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			return
 		}
 		
-		const nextIndex = findNextCompletedTrack(currentIndex)
+		const nextIndex = findNextTrack(currentIndex)
 		
 		if (nextIndex !== -1) {
 			const nextTrack = playlist[nextIndex]
@@ -272,36 +259,24 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			}
 		} else if (loopMode === 'all') {
 			// Wrap around to first track
-			const firstIndex = findNextCompletedTrack(-1)
-			if (firstIndex !== -1) {
-				const firstTrack = playlist[firstIndex]
-				if (firstTrack) {
-					setCurrentIndex(firstIndex)
-					setCurrentTrack(firstTrack)
-				}
+			if (playlist.length > 0 && playlist[0]) {
+				setCurrentIndex(0)
+				setCurrentTrack(playlist[0])
 			}
 		}
 		// If loopMode is 'off' and no next track, do nothing (stop playback)
 	}, [currentIndex, playlist, loopMode, isShuffleEnabled])
 
 	const playPrevious = useCallback(() => {
-		// Helper function to check if a track has playable audio
-		const hasPlayableAudio = (track: Track) => {
-			return track.audioFile?.objectKey && track.audioFile.status === 'completed'
-		}
-
-		// Helper function to find previous completed track
-		const findPreviousCompletedTrack = (startIndex: number) => {
-			for (let i = startIndex - 1; i >= 0; i--) {
-				const track = playlist[i]
-				if (track && hasPlayableAudio(track)) {
-					return i
-				}
+		// Helper function to find previous track
+		const findPreviousTrack = (startIndex: number) => {
+			if (startIndex > 0) {
+				return startIndex - 1
 			}
 			return -1
 		}
 
-		const prevIndex = findPreviousCompletedTrack(currentIndex)
+		const prevIndex = findPreviousTrack(currentIndex)
 		
 		if (prevIndex !== -1) {
 			const prevTrack = playlist[prevIndex]
@@ -311,8 +286,8 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			}
 		} else if (loopMode === 'all') {
 			// Only wrap around to last track when loop all is enabled
-			const lastIndex = findPreviousCompletedTrack(playlist.length)
-			if (lastIndex !== -1) {
+			if (playlist.length > 0) {
+				const lastIndex = playlist.length - 1
 				const lastTrack = playlist[lastIndex]
 				if (lastTrack) {
 					setCurrentIndex(lastIndex)
@@ -347,45 +322,18 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	}, [])
 
 	// Allow navigation based on loop mode
-	// Helper function to check if a track has playable audio
-	const hasPlayableAudio = (track: Track) => {
-		return track.audioFile?.objectKey && track.audioFile.status === 'completed'
-	}
-
-	// Helper function to find next completed track
-	const findNextCompletedTrack = (startIndex: number) => {
-		for (let i = startIndex + 1; i < playlist.length; i++) {
-			const track = playlist[i]
-			if (track && hasPlayableAudio(track)) {
-				return i
-			}
-		}
-		return -1
-	}
-
-	// Helper function to find previous completed track
-	const findPreviousCompletedTrack = (startIndex: number) => {
-		for (let i = startIndex - 1; i >= 0; i--) {
-			const track = playlist[i]
-			if (track && hasPlayableAudio(track)) {
-				return i
-			}
-		}
-		return -1
-	}
-
 	const hasNext = playlist.length > 0 && (
 		loopMode === 'one' || // Always true for loop one (restart current track)
 		loopMode === 'all' || // Always true for loop all (will wrap around)
 		isShuffleEnabled || // Always true for shuffle (will pick random track)
-		findNextCompletedTrack(currentIndex) !== -1 // Check if there's a next playable track
+		currentIndex < playlist.length - 1 // Check if there's a next track
 	)
 	
 	const hasPrevious = playlist.length > 0 && (
 		loopMode === 'one' || // Always true for loop one (restart current track)
 		loopMode === 'all' || // Always true for loop all (will wrap around)
 		isShuffleEnabled || // Always true for shuffle (will pick random track)
-		findPreviousCompletedTrack(currentIndex) !== -1 // Check if there's a previous playable track
+		currentIndex > 0 // Check if there's a previous track
 	)
 
 	return (

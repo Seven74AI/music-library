@@ -2,7 +2,6 @@ import { type Prisma } from '@prisma/client'
 import { redirect } from 'react-router'
 
 import { prisma } from './db.server'
-import { enqueueTrackForArchiving } from './track-enqueue.server'
 import { extractYouTubeVideoId } from './track-validation.server'
 import { YouTubeAPIError } from './youtube-errors'
 import { getYouTubeVideoDetails } from './youtube-search.server'
@@ -189,9 +188,6 @@ export async function importTrackDirectly(serviceName: string, videoId: string, 
           ...trackData,
         }
       })
-
-      // Auto-enqueue for archiving
-      await enqueueTrackForArchiving(track.id, false)
     }
     
     // Check if user already has this track

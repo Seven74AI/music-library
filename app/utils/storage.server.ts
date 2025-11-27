@@ -33,7 +33,18 @@ const getStorageConfig = (): {
     .map(([key]) => key)
 
   if (missingVars.length > 0) {
-    throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`)
+    const errorMessage = `Missing required environment variables: ${missingVars.join(', ')}`
+    console.error('Storage configuration error:', errorMessage)
+    console.error('Current environment variables:', {
+      AWS_ENDPOINT_URL_S3: process.env.AWS_ENDPOINT_URL_S3 ? 'SET' : 'MISSING',
+      BUCKET_NAME: process.env.BUCKET_NAME ? 'SET' : 'MISSING',
+      AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID ? 'SET' : 'MISSING',
+      AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY ? 'SET' : 'MISSING',
+      AWS_REGION: process.env.AWS_REGION ? 'SET' : 'MISSING',
+      MOCKS: process.env.MOCKS,
+      NODE_ENV: process.env.NODE_ENV,
+    })
+    throw new Error(errorMessage)
   }
 
   return {
@@ -218,8 +229,28 @@ export async function uploadFile(params: {
     return key
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error(`Failed to upload file to storage:`, error)
-    throw new Error(`Failed to upload object: ${key} - ${errorMessage}`)
+    console.error(`Failed to upload file to storage:`, {
+      key,
+      error: errorMessage,
+      bucket: config.bucket,
+      endpoint: config.endpoint,
+      region: config.region,
+      fileSize: body instanceof Uint8Array ? body.length : 'stream',
+    })
+    
+    // Categorize S3/Tigris errors
+    let errorType = 'STORAGE_ERROR'
+    if (errorMessage.includes('AccessDenied') || errorMessage.includes('403')) {
+      errorType = 'STORAGE_ACCESS_DENIED'
+    } else if (errorMessage.includes('NoSuchBucket') || errorMessage.includes('404')) {
+      errorType = 'STORAGE_BUCKET_NOT_FOUND'
+    } else if (errorMessage.includes('timeout') || errorMessage.includes('ECONNRESET')) {
+      errorType = 'STORAGE_NETWORK_ERROR'
+    } else if (errorMessage.includes('InvalidAccessKeyId') || errorMessage.includes('SignatureDoesNotMatch')) {
+      errorType = 'STORAGE_AUTH_ERROR'
+    }
+    
+    throw new Error(`${errorType}: Failed to upload object: ${key} - ${errorMessage}`)
   }
 }
 

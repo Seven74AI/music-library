@@ -17,17 +17,6 @@ export function getUserImgSrc(objectKey?: string | null) {
 }
 
 /**
- * Get audio source URL for playback
- * @param objectKey - Optional object key for the audio file
- * @returns Audio source URL or null if no object key provided
- */
-export function getAudioSrc(objectKey?: string | null) {
-	return objectKey
-		? `/resources/audio?objectKey=${encodeURIComponent(objectKey)}`
-		: null
-}
-
-/**
  * Get optimized image source URL with custom formatting
  * @param params - Image source parameters
  * @returns Optimized image source URL

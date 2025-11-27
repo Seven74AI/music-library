@@ -20,7 +20,6 @@ import { prisma } from '#app/utils/db.server'
 import { 
   validateYouTubeOAuth
 } from '#app/utils/youtube-oauth-validation.server'
-import { enqueueTrackForArchiving } from './track-enqueue.server'
 import { createYouTubeService } from './youtube.server'
 
 /**
@@ -439,13 +438,6 @@ export class ServicePlaylistService {
                 displayName: true,
                 logoUrl: true
               }
-            },
-            audioFile: {
-              select: {
-                objectKey: true,
-                status: true,
-                priority: true,
-              }
             }
           }
         }
@@ -572,9 +564,6 @@ export class ServicePlaylistService {
             }
           })
           
-          // Enqueue track for archiving when reactivated
-          await enqueueTrackForArchiving(trackId, false)
-          
           return { success: true } // Reactivated
         }
       }
@@ -587,9 +576,6 @@ export class ServicePlaylistService {
           isActive: true
         }
       })
-      
-      // Enqueue track for archiving when added to library
-      await enqueueTrackForArchiving(trackId, false)
       
       return { success: true }
     } catch (error) {
