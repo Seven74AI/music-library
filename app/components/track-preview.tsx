@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { Link } from 'react-router'
+import { TrackThumbnail } from '#app/components/track-thumbnail'
 import { Alert, AlertDescription } from '#app/components/ui/alert'
 import { Badge } from '#app/components/ui/badge.tsx'
 import { Button } from '#app/components/ui/button.tsx'
@@ -46,12 +46,6 @@ interface TrackPreviewProps {
 }
 
 export function TrackPreview({ track, isImporting = false, error, alreadyExists = false, existingTrackId }: TrackPreviewProps) {
-  const [imageError, setImageError] = useState(false)
-
-  const handleImageError = () => {
-    setImageError(true)
-  }
-
   // Computed values for conditional logic
   const statusIcon = alreadyExists ? ICONS.CHECK_CIRCLED : ICONS.MAGNIFYING_GLASS
   const statusIconColor = alreadyExists ? "text-green-600" : "text-muted-foreground"
@@ -75,18 +69,12 @@ export function TrackPreview({ track, isImporting = false, error, alreadyExists 
         <div className="flex gap-4">
           {/* Thumbnail */}
           <div className="flex-shrink-0">
-            {!imageError && track.thumbnailUrl ? (
-              <img
-                src={track.thumbnailUrl}
-                alt={`${track.title} thumbnail`}
-                className="w-24 h-24 rounded-lg object-cover"
-                onError={handleImageError}
-              />
-            ) : (
-              <div className="w-24 h-24 rounded-lg bg-muted flex items-center justify-center">
-                <Icon name={ICONS.FILE_TEXT} className="h-8 w-8 text-muted-foreground" />
-              </div>
-            )}
+            <TrackThumbnail 
+              thumbnailUrl={track.thumbnailUrl}
+              alt={`${track.title} thumbnail`}
+              size="lg"
+              className="rounded-lg"
+            />
           </div>
           
           {/* Track Details */}

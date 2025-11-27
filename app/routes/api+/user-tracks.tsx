@@ -8,19 +8,31 @@ export async function loader({ request }: { request: Request }) {
 		const cursor = url.searchParams.get('cursor')
 		const limitParam = url.searchParams.get('limit')
 		const limit = parseInt(limitParam || '5')
+		const fields = url.searchParams.get('fields') || 'full' // 'minimal' or 'full'
 
 		if (isNaN(limit) || limit < 1 || limit > 100) {
 			return Response.json({ error: 'Invalid limit parameter' }, { status: 400 })
 		}
 
+		const isMinimal = fields === 'minimal'
+
 		const userTracks = await prisma.userTrack.findMany({
 			where: { userId },
 			include: {
-				track: {
-					include: {
-						service: true,
-					},
-				},
+				track: isMinimal
+					? {
+							select: {
+								id: true,
+								title: true,
+								artist: true,
+							},
+						}
+					: {
+							include: {
+								service: true,
+								audioFiles: true,
+							},
+						},
 			},
 			orderBy: { createdAt: 'desc' },
 			take: limit,

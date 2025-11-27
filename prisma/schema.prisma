@@ -146,6 +146,7 @@ model Track {
   service               Service?               @relation(fields: [serviceId], references: [id])
   playlists             UserPlaylistTrack[]
   userTracks            UserTrack[]
+  audioFiles            TrackAudioFile[]
 
   @@unique([serviceId, externalId])
   @@index([serviceId, externalId])
@@ -191,6 +192,7 @@ model Service {
   updatedAt   DateTime          @updatedAt
   playlists   ServicePlaylist[]
   tracks      Track[]
+  audioFiles  TrackAudioFile[]
 
   @@index([name])
 }
@@ -254,3 +256,36 @@ model ServicePlaylistTrack {
   @@index([trackId])
 }
 
+model TrackAudioFile {
+  id      String @id @default(cuid())
+  trackId String
+  track   Track  @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  // Service attribution
+  serviceId String? // null = local upload, otherwise references Service
+  service   Service? @relation(fields: [serviceId], references: [id])
+
+  // File storage
+  objectKey String // S3 storage key
+  fileName  String?
+  fileSize  Int?
+  mimeType  String? // audio/mpeg, audio/flac, etc.
+  format    String? // "mp3", "flac", "wav", etc.
+
+  // Audio metadata
+  bitrate    Int? // kbps
+  sampleRate Int? // Hz
+
+  // Upload info
+  uploadedAt DateTime @default(now())
+  uploadedBy String? // userId who uploaded (for local uploads)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([trackId, serviceId, format]) // One file per track/service/format combination
+  @@index([trackId])
+  @@index([serviceId])
+  @@index([format])
+  @@index([trackId, format]) // Quick lookup: "get MP3 for this track"
+}

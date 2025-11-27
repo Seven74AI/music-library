@@ -54,12 +54,12 @@ function getGradientFromTitle(title: string): string {
 }
 
 export function PlaylistHero({
-	id,
+	id: _id,
 	title,
 	description,
 	tracks,
 	createdAt,
-	updatedAt,
+	updatedAt: _updatedAt,
 	onTitleUpdate,
 	onDescriptionUpdate,
 	onAddAllToQueue,

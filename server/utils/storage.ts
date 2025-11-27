@@ -12,12 +12,9 @@ type StorageConfig = {
   region: string
 }
 
-/**
- * Validate and get storage configuration from environment variables
- * @returns Validated storage configuration object
- * @throws {Error} If required environment variables are missing
- */
-function getStorageConfig(): StorageConfig {
+// Storage configuration functions and singleton client are reserved for future use
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _getStorageConfig(): StorageConfig {
   const config = {
     endpoint: process.env.AWS_ENDPOINT_URL_S3,
     bucket: process.env.BUCKET_NAME,
@@ -38,6 +35,7 @@ function getStorageConfig(): StorageConfig {
 }
 
 // Singleton S3 client for connection pooling
-let s3ClientInstance: S3Client | null = null
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+let _s3ClientInstance: S3Client | null = null
 
 

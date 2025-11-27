@@ -9,6 +9,7 @@ export async function loader({ request }: { request: Request }) {
 		const cursor = url.searchParams.get('cursor')
 		const limitParam = url.searchParams.get('limit')
 		const limit = parseInt(limitParam || '50')
+		const fields = url.searchParams.get('fields') || 'full' // 'minimal' or 'full'
 
 		if (!playlistId) {
 			return Response.json({ error: 'Playlist ID is required' }, { status: 400 })
@@ -18,17 +19,28 @@ export async function loader({ request }: { request: Request }) {
 			return Response.json({ error: 'Invalid limit parameter' }, { status: 400 })
 		}
 
+		const isMinimal = fields === 'minimal'
+
 		const playlistTracks = await prisma.userPlaylistTrack.findMany({
 			where: { 
 				playlistId,
 				playlist: { ownerId: userId } // Ensure user owns the playlist
 			},
 			include: {
-				track: {
-					include: {
-						service: true,
-					},
-				},
+				track: isMinimal
+					? {
+							select: {
+								id: true,
+								title: true,
+								artist: true,
+							},
+						}
+					: {
+							include: {
+								service: true,
+								audioFiles: true,
+							},
+						},
 			},
 			orderBy: { position: 'asc' },
 			take: limit,

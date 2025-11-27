@@ -1,0 +1,220 @@
+// @context7: music-metadata, File, Buffer, TypeScript
+import { parseBuffer, type IAudioMetadata } from 'music-metadata'
+
+export interface ExtractedAudioMetadata {
+	title?: string
+	artist?: string
+	album?: string
+	albumArtist?: string
+	genre?: string[]
+	composer?: string
+	year?: number
+	date?: string // YYYY-MM-DD format
+	track?: { no: number; of?: number }
+	disk?: { no: number; of?: number }
+	duration?: number // in seconds
+	bitrate?: number // in kbps
+	sampleRate?: number // in Hz
+	format?: string // "mp3", "flac", "wav", etc.
+	mimeType?: string
+	lossless?: boolean
+	numberOfChannels?: number
+	bitsPerSample?: number
+}
+
+/**
+ * Extract metadata from an audio file buffer
+ * 
+ * @param buffer - Audio file buffer
+ * @param fileName - Optional file name for format detection
+ * @returns Promise resolving to extracted metadata
+ */
+export async function extractAudioMetadata(
+	buffer: Buffer,
+	fileName?: string
+): Promise<ExtractedAudioMetadata> {
+	try {
+		const metadata: IAudioMetadata = await parseBuffer(buffer)
+
+		// Extract format from metadata or file extension
+		const format = getFormatFromMetadata(metadata, fileName)
+		const mimeType = getMimeTypeFromFormat(format)
+
+		// Helper function to extract string from string or array
+		const extractString = (value: string | string[] | undefined): string | undefined => {
+			if (!value) return undefined
+			if (Array.isArray(value)) {
+				return value.length > 0 ? value[0] : undefined
+			}
+			return value
+		}
+
+		// Helper function to extract array from string or array
+		const extractArray = (value: string | string[] | undefined): string[] | undefined => {
+			if (!value) return undefined
+			if (Array.isArray(value)) {
+				return value.length > 0 ? value : undefined
+			}
+			return [value]
+		}
+
+		// Extract common tags
+		const title = extractString(metadata.common.title)
+		// Artist: prefer artist, fallback to artists array (first element)
+		const artist = extractString(metadata.common.artist) || 
+			(Array.isArray(metadata.common.artists) && metadata.common.artists.length > 0
+				? metadata.common.artists[0]
+				: undefined)
+		const album = extractString(metadata.common.album)
+		const albumArtist = extractString(metadata.common.albumartist)
+		const genre = extractArray(metadata.common.genre)
+		const composer = extractString(metadata.common.composer)
+
+		// Extract date/year
+		const date = extractString(metadata.common.date) // YYYY-MM-DD format
+		const year = metadata.common.year
+			? (typeof metadata.common.year === 'number' ? metadata.common.year : parseInt(String(metadata.common.year), 10))
+			: undefined
+
+		// Extract track and disk numbers
+		// Handle null values in track/disk objects
+		const track = metadata.common.track && metadata.common.track.no !== null
+			? {
+					no: metadata.common.track.no,
+					...(metadata.common.track.of !== null && metadata.common.track.of !== undefined
+						? { of: metadata.common.track.of }
+						: {}),
+				}
+			: undefined
+		const disk = metadata.common.disk && metadata.common.disk.no !== null
+			? {
+					no: metadata.common.disk.no,
+					...(metadata.common.disk.of !== null && metadata.common.disk.of !== undefined
+						? { of: metadata.common.disk.of }
+						: {}),
+				}
+			: undefined
+
+		// Extract audio format properties
+		const duration = metadata.format.duration
+			? Math.round(metadata.format.duration)
+			: undefined
+		const bitrate = metadata.format.bitrate
+			? Math.round(metadata.format.bitrate / 1000) // Convert to kbps
+			: undefined
+		const sampleRate = metadata.format.sampleRate
+			? Math.round(metadata.format.sampleRate)
+			: undefined
+		const lossless = metadata.format.lossless
+		const numberOfChannels = metadata.format.numberOfChannels
+		const bitsPerSample = metadata.format.bitsPerSample
+
+		return {
+			title: title || undefined,
+			artist: artist || undefined,
+			album: album || undefined,
+			albumArtist: albumArtist || undefined,
+			genre: genre || undefined,
+			composer: composer || undefined,
+			year: year || undefined,
+			date: date || undefined,
+			track: track || undefined,
+			disk: disk || undefined,
+			duration,
+			bitrate,
+			sampleRate,
+			format,
+			mimeType,
+			lossless,
+			numberOfChannels,
+			bitsPerSample,
+		}
+	} catch (error) {
+		console.error('Error extracting audio metadata:', error)
+		// Fallback to format detection from filename
+		const format = getFormatFromFileName(fileName)
+		return {
+			format,
+			mimeType: getMimeTypeFromFormat(format),
+		}
+	}
+}
+
+/**
+ * Get audio format from metadata or filename
+ */
+function getFormatFromMetadata(
+	metadata: IAudioMetadata,
+	fileName?: string
+): string | undefined {
+	// Try to get format from metadata first
+	if (metadata.format.container) {
+		const container = metadata.format.container.toLowerCase()
+		// Map common containers to formats
+		if (container.includes('mp3') || container.includes('mpeg')) {
+			return 'mp3'
+		}
+		if (container.includes('flac')) {
+			return 'flac'
+		}
+		if (container.includes('wav') || container.includes('wave')) {
+			return 'wav'
+		}
+		if (container.includes('m4a') || container.includes('mp4')) {
+			return 'm4a'
+		}
+		if (container.includes('ogg')) {
+			return 'ogg'
+		}
+		if (container.includes('aac')) {
+			return 'aac'
+		}
+	}
+
+	// Fallback to filename extension
+	return getFormatFromFileName(fileName)
+}
+
+/**
+ * Get format from file extension
+ */
+function getFormatFromFileName(fileName?: string): string | undefined {
+	if (!fileName) return undefined
+
+	const extension = fileName.split('.').pop()?.toLowerCase()
+	if (!extension) return undefined
+
+	// Map extensions to formats
+	const formatMap: Record<string, string> = {
+		mp3: 'mp3',
+		flac: 'flac',
+		wav: 'wav',
+		m4a: 'm4a',
+		aac: 'aac',
+		ogg: 'ogg',
+		opus: 'ogg',
+		webm: 'webm',
+	}
+
+	return formatMap[extension]
+}
+
+/**
+ * Get MIME type from format
+ */
+function getMimeTypeFromFormat(format?: string): string | undefined {
+	if (!format) return undefined
+
+	const mimeTypeMap: Record<string, string> = {
+		mp3: 'audio/mpeg',
+		flac: 'audio/flac',
+		wav: 'audio/wav',
+		m4a: 'audio/mp4',
+		aac: 'audio/aac',
+		ogg: 'audio/ogg',
+		webm: 'audio/webm',
+	}
+
+	return mimeTypeMap[format]
+}
+

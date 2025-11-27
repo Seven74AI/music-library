@@ -24,6 +24,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 			createdAt: true,
 			updatedAt: true,
 			duration: true,
+			audioFiles: {
+				select: {
+					id: true,
+					format: true,
+					objectKey: true,
+					fileSize: true,
+					bitrate: true,
+					sampleRate: true,
+				},
+			},
 		},
 	})
 
