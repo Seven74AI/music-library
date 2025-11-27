@@ -438,7 +438,8 @@ export class ServicePlaylistService {
                 displayName: true,
                 logoUrl: true
               }
-            }
+            },
+            audioFiles: true
           }
         }
       },
@@ -488,7 +489,16 @@ export class ServicePlaylistService {
     const tracks: TrackWithUserStatus[] = result.tracks.map(track => ({
       ...track,
       isInUserLibrary: userTrackIds.has(track.id),
-      service: undefined // Will be populated if needed
+      service: track.service ? {
+        name: track.service.name,
+        displayName: track.service.displayName,
+        logoUrl: track.service.logoUrl
+      } : undefined,
+      audioFiles: track.audioFiles?.map(af => ({
+        id: af.id,
+        format: af.format,
+        objectKey: af.objectKey
+      }))
     }))
     
     // Update playlist tracks

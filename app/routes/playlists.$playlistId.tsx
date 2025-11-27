@@ -33,14 +33,12 @@
     ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
 */
 import { useState, useEffect } from 'react'
-import { data, redirect, Form, Link, useActionData, useNavigation, useFetcher, useParams } from 'react-router'
+import { data, redirect, Link, useFetcher, useParams } from 'react-router'
 import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { PlaylistHero } from '#app/components/playlist-hero'
 import { SortableTrackList } from '#app/components/sortable-track-list'
-import { TrackListItem } from '#app/components/track-list-item'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '#app/components/ui/alert-dialog'
-import { Button } from '#app/components/ui/button.tsx'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '#app/components/ui/alert-dialog'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { toast } from '#app/components/ui/use-toast.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
@@ -84,6 +82,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 									displayName: true,
 									logoUrl: true,
 								}
+							},
+							audioFiles: {
+								select: {
+									id: true,
+									format: true,
+									objectKey: true,
+								},
 							},
 						},
 					},
@@ -220,7 +225,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 					}),
 				}
 			)
-		} catch (error) {
+		} catch {
 			return data(
 				{ error: 'Invalid track order data' },
 				{
@@ -372,7 +377,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 					}),
 				}
 			)
-		} catch (error) {
+		} catch {
 			return data(
 				{ error: 'Invalid track IDs format' },
 				{
@@ -401,10 +406,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
-	const actionData = useActionData<typeof action>()
-	const navigation = useNavigation()
 	const params = useParams()
-	const isSubmitting = navigation.state === 'submitting'
 	const { playlist, playlists } = loaderData
 	
 	// Audio player context (audio playback disabled)

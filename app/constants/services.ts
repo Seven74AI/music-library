@@ -14,10 +14,21 @@ export const YOUTUBE_SERVICE = {
 } as const
 
 /**
+ * Local upload service constants
+ */
+export const LOCAL_SERVICE = {
+  NAME: 'local' as const,
+  PROVIDER_ID: 'local' as const,
+  DISPLAY_NAME: 'Local Upload',
+  BASE_URL: '',
+} as const
+
+/**
  * All supported services
  */
 export const SERVICES = {
   YOUTUBE: YOUTUBE_SERVICE,
+  LOCAL: LOCAL_SERVICE,
 } as const
 
 /**

@@ -57,6 +57,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 					serviceUrl: true,
 					thumbnailUrl: true,
 					duration: true,
+					audioFiles: {
+						select: {
+							id: true,
+							format: true,
+							objectKey: true,
+						},
+					},
 				},
 			},
 		},

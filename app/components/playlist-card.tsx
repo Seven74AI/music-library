@@ -53,7 +53,7 @@ export function PlaylistCard({
 	title, 
 	description, 
 	tracks, 
-	createdAt, 
+	createdAt: _createdAt, 
 	updatedAt,
 	className 
 }: PlaylistCardProps) {

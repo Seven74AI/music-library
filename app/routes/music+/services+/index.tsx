@@ -3,7 +3,7 @@ import { ServiceDisconnectButton } from '#app/components/service-disconnect-butt
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
-import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { YOUTUBE_SERVICE, LOCAL_SERVICE } from '#app/constants/services'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
@@ -215,7 +215,14 @@ function ServiceCard({
 				)}
 				
 				<div className="flex gap-2">
-					{isConnected ? (
+					{service.name === LOCAL_SERVICE.NAME ? (
+						<Button asChild className="w-full">
+							<Link to={`/music/services/local/upload`}>
+								<Icon name="download" className="h-4 w-4 mr-2" />
+								Upload
+							</Link>
+						</Button>
+					) : isConnected ? (
 						<>
 							<Button asChild className="flex-1">
 								<Link to={`/music/services/${service.name}`}>

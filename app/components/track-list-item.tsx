@@ -1,6 +1,7 @@
 import { useState, useCallback, memo } from 'react'
 import { NavLink } from 'react-router'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
+import { TrackThumbnail } from '#app/components/track-thumbnail'
 import { Button } from '#app/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '#app/components/ui/dialog.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '#app/components/ui/dropdown-menu.tsx'
@@ -22,6 +23,11 @@ interface Track {
 		displayName: string
 		logoUrl: string | null
 	} | null
+	audioFiles?: Array<{
+		id: string
+		format: string | null
+		objectKey: string
+	}>
 }
 
 interface UserTrack {
@@ -90,11 +96,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
 	const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false)
 	const isMobile = useIsMobile()
-	const { currentTrack, currentIndex } = useAudioPlayer()
-
-	const handleClick = useCallback((event: React.MouseEvent) => {
-		event.stopPropagation()
-	}, [])
+	const { currentTrack, currentIndex, playTrack } = useAudioPlayer()
 
 	const handleAddToLibrary = useCallback(() => {
 		if (onAddToLibrary) {
@@ -128,30 +130,56 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 		setIsDetailsSheetOpen(true)
 	}, [])
 
+	const handlePlayTrack = useCallback(() => {
+		if (!track.audioFiles || track.audioFiles.length === 0) {
+			return
+		}
+		const context = playlistContext || { type: 'library' as const }
+		playTrack(track, context, index)
+	}, [track, playlistContext, index, playTrack])
+
 	// Check if this track is currently playing (both ID and position must match for duplicates)
 	const isCurrentlyPlaying = currentTrack?.id === track.id && currentIndex === index
-	
-	// Memoize thumbnail URL to prevent unnecessary re-renders
-	const thumbnailUrl = track.thumbnailUrl 
-		? `/resources/images?src=${encodeURIComponent(track.thumbnailUrl)}&w=40&h=40&fit=cover&format=webp`
-		: null
+	const hasAudioFiles = track.audioFiles && track.audioFiles.length > 0
 
 	return (
 		<div 
-			className="group flex items-center gap-4 px-4 py-2 rounded-md hover:bg-muted/50 transition-colors h-20"
+			className={`group flex items-center gap-4 px-4 py-2 rounded-md hover:bg-muted/50 transition-colors h-20 ${
+				isCurrentlyPlaying ? 'bg-primary/5' : ''
+			}`}
 			onMouseEnter={() => setIsHovered(true)}
 			onMouseLeave={() => setIsHovered(false)}
+			onClick={hasAudioFiles ? handlePlayTrack : undefined}
 			role="gridcell"
 			aria-label={`Track ${index + 1}: ${track.title} by ${track.artist}`}
+			style={hasAudioFiles ? { cursor: 'pointer' } : undefined}
 		>
-			{/* Track Number */}
+			{/* Track Number / Play Button */}
 			<div className="w-8 flex items-center justify-center min-w-8">
-				<span 
-					className="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
-					aria-label={`Track number ${index + 1}`}
-				>
-					{index + 1}
-				</span>
+				{hasAudioFiles && (isHovered || isCurrentlyPlaying) ? (
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-8 w-8 p-0"
+						onClick={(e) => {
+							e.stopPropagation()
+							handlePlayTrack()
+						}}
+						aria-label={isCurrentlyPlaying ? 'Pause track' : `Play ${track.title}`}
+					>
+						<Icon 
+							name={isCurrentlyPlaying ? 'pause' : 'play'} 
+							className="h-4 w-4" 
+						/>
+					</Button>
+				) : (
+					<span 
+						className="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
+						aria-label={`Track number ${index + 1}`}
+					>
+						{index + 1}
+					</span>
+				)}
 			</div>
 
 			{/* Track Info */}
@@ -159,18 +187,11 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 				<div className="flex items-center gap-3">
 					{/* Thumbnail */}
 					<div className="flex-shrink-0">
-						{thumbnailUrl ? (
-							<img 
-								src={thumbnailUrl} 
-								alt={track.title}
-								className="h-10 w-10 rounded object-cover"
-								loading="lazy"
-							/>
-						) : (
-							<div className="h-10 w-10 rounded bg-muted flex items-center justify-center">
-								<Icon name="link-2" className="h-5 w-5 text-muted-foreground" />
-							</div>
-						)}
+						<TrackThumbnail 
+							thumbnailUrl={track.thumbnailUrl}
+							alt={track.title}
+							size="sm"
+						/>
 					</div>
 
 					{/* Title and Artist */}
@@ -273,18 +294,11 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 									<DialogHeader>
 										<DialogTitle className="text-left">
 										<div className="flex items-center gap-3">
-											{track.thumbnailUrl ? (
-												<img
-													src={`/resources/images?src=${encodeURIComponent(track.thumbnailUrl)}&w=48&h=48&fit=cover&format=webp`}
-													alt={track.title}
-													className="h-12 w-12 rounded object-cover"
-													loading="lazy"
-												/>
-											) : (
-												<div className="h-12 w-12 rounded bg-muted flex items-center justify-center">
-													<Icon name="file-text" className="h-6 w-6 text-muted-foreground" />
-												</div>
-											)}
+											<TrackThumbnail 
+												thumbnailUrl={track.thumbnailUrl}
+												alt={track.title}
+												size="md"
+											/>
 												<div className="min-w-0 flex-1">
 													<div className="font-medium text-sm truncate" title={track.title}>
 														{track.title}
@@ -394,18 +408,11 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 							<SheetHeader>
 								<SheetTitle className="text-left">
 									<div className="flex items-center gap-3">
-										{track.thumbnailUrl ? (
-											<img
-												src={`/resources/images?src=${encodeURIComponent(track.thumbnailUrl)}&w=48&h=48&fit=cover&format=webp`}
-												alt={track.title}
-												className="h-12 w-12 rounded object-cover"
-												loading="lazy"
-											/>
-										) : (
-											<div className="h-12 w-12 rounded bg-muted flex items-center justify-center">
-												<Icon name="file-text" className="h-6 w-6 text-muted-foreground" />
-											</div>
-										)}
+										<TrackThumbnail 
+											thumbnailUrl={track.thumbnailUrl}
+											alt={track.title}
+											size="md"
+										/>
 										<div className="min-w-0 flex-1">
 											<div className="font-medium text-sm truncate" title={track.title}>
 												{track.title}
@@ -556,18 +563,11 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 							<SheetHeader>
 								<SheetTitle className="text-left">
 									<div className="flex items-center gap-3">
-										{track.thumbnailUrl ? (
-											<img
-												src={`/resources/images?src=${encodeURIComponent(track.thumbnailUrl)}&w=48&h=48&fit=cover&format=webp`}
-												alt={track.title}
-												className="h-12 w-12 rounded object-cover"
-												loading="lazy"
-											/>
-										) : (
-											<div className="h-12 w-12 rounded bg-muted flex items-center justify-center">
-												<Icon name="file-text" className="h-6 w-6 text-muted-foreground" />
-											</div>
-										)}
+										<TrackThumbnail 
+											thumbnailUrl={track.thumbnailUrl}
+											alt={track.title}
+											size="md"
+										/>
 										<div className="min-w-0 flex-1">
 											<div className="font-medium text-sm truncate" title={track.title}>
 												{track.title}

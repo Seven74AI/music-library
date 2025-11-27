@@ -40,4 +40,36 @@ export interface TrackWithUserStatus {
     displayName: string
     logoUrl: string | null
   }
+  audioFiles?: Array<{
+    id: string
+    format: string | null
+    objectKey: string
+  }>
+}
+
+/**
+ * Minimal track data for queue display
+ * Used for efficient queue management with large libraries
+ */
+export interface QueueTrack {
+  id: string
+  title: string
+  artist: string
+}
+
+/**
+ * Full track data for playback
+ * Extends QueueTrack with all necessary playback information
+ */
+export interface FullTrack {
+  id: string
+  title: string
+  artist: string
+  duration: number | null
+  thumbnailUrl: string | null
+  audioFiles?: Array<{
+    id: string
+    format: string | null
+    objectKey: string
+  }>
 }

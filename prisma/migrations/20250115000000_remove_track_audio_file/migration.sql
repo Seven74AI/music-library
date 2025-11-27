@@ -1,9 +1,5 @@
--- Drop indexes on TrackAudioFile
-DROP INDEX IF EXISTS "TrackAudioFile_status_idx";
-DROP INDEX IF EXISTS "TrackAudioFile_status_createdAt_idx";
-DROP INDEX IF EXISTS "TrackAudioFile_status_lastAttemptAt_idx";
-
--- Drop the TrackAudioFile table
+-- Drop the TrackAudioFile table (all indexes are automatically dropped with the table)
 DROP TABLE IF EXISTS "TrackAudioFile";
+
 
 
