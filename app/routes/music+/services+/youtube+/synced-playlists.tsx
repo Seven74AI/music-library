@@ -83,7 +83,13 @@ export async function action({ request }: ActionFunctionArgs) {
 				}
 				
 				const result = await servicePlaylistService.resyncPlaylist(playlistId, userId)
-				return data({ status: 'success', ...result })
+				if (result.success) {
+					return data({ status: 'success', ...result })
+				}
+				return data({ 
+					status: 'error', 
+					message: result.error || 'Failed to sync playlist. Please try again.' 
+				})
 			}
 			
 			case YOUTUBE_SYNCED_PLAYLISTS_INTENTS.REMOVE: {

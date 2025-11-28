@@ -17,6 +17,9 @@ import { validateYouTubeAPIResponse } from '#app/utils/validation'
 import { 
   YouTubeAPIError, 
   YouTubeNotFoundError,
+  YouTubeQuotaError,
+  YouTubeAuthError,
+  YouTubeNetworkError,
   YOUTUBE_ERROR_CODES 
 } from '#app/utils/youtube-errors'
 import { shouldMockYouTube } from '#app/utils/youtube-mock-utils'
@@ -198,7 +201,61 @@ export class YouTubeService {
       return validatedResponse.items || []
     } catch (error) {
       console.error('Error fetching playlist items:', error)
-      throw new YouTubeAPIError('Failed to fetch playlist items', YOUTUBE_ERROR_CODES.API_ERROR, 500)
+      
+      // Extract more specific error information from YouTube API
+      if (error && typeof error === 'object' && 'response' in error) {
+        const apiError = error as { response?: { data?: { error?: { code?: number; message?: string; errors?: Array<{ message?: string; reason?: string }> } } } }
+        const errorData = apiError.response?.data?.error
+        
+        if (errorData) {
+          const errorCode = errorData.code
+          const errorMessage = errorData.message || 'Unknown error'
+          const firstError = errorData.errors?.[0]
+          
+          // Handle specific error codes
+          if (errorCode === 404) {
+            throw new YouTubeNotFoundError('Playlist')
+          }
+          
+          if (errorCode === 403) {
+            // Check for quota exceeded
+            if (errorMessage.includes('quota') || errorMessage.includes('Quota')) {
+              throw new YouTubeQuotaError()
+            }
+            // Check for access denied
+            if (errorMessage.includes('access') || errorMessage.includes('permission') || firstError?.reason === 'forbidden') {
+              throw new YouTubeAPIError('Access denied. The playlist may be private or you may not have permission to view it.', 'ACCESS_DENIED', 403)
+            }
+            throw new YouTubeAPIError('Access denied. Please check your YouTube account permissions.', 'ACCESS_DENIED', 403)
+          }
+          
+          if (errorCode === 401) {
+            throw new YouTubeAuthError('Invalid or expired access token. Please reconnect your YouTube account.')
+          }
+          
+          // Use the API's error message if available
+          throw new YouTubeAPIError(errorMessage, YOUTUBE_ERROR_CODES.API_ERROR, errorCode || 500)
+        }
+      }
+      
+      // Handle other error types
+      if (error instanceof YouTubeAPIError || error instanceof YouTubeNotFoundError || error instanceof YouTubeQuotaError || error instanceof YouTubeAuthError) {
+        throw error
+      }
+      
+      if (error instanceof Error) {
+        if (error.message.includes('quota')) {
+          throw new YouTubeQuotaError()
+        }
+        if (error.message.includes('network') || error.message.includes('timeout') || error.message.includes('ECONNREFUSED')) {
+          throw new YouTubeNetworkError('Unable to connect to YouTube. Please check your internet connection and try again.')
+        }
+        if (error.message.includes('not found') || error.message.includes('404')) {
+          throw new YouTubeNotFoundError('Playlist')
+        }
+      }
+      
+      throw new YouTubeAPIError('Failed to fetch playlist items. Please try again.', YOUTUBE_ERROR_CODES.API_ERROR, 500)
     }
   }
 

@@ -55,7 +55,6 @@ export function isTrackWithUserStatus(obj: unknown): obj is TrackWithUserStatus 
     isDate(obj.createdAt) &&
     isDate(obj.updatedAt) &&
     isNumber(obj.position) &&
-    isBoolean(obj.isInUserLibrary) &&
     (obj.service === undefined || (
       isObject(obj.service) &&
       isString(obj.service.name) &&

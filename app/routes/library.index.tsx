@@ -212,15 +212,6 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 		<div className="py-8">
 			<div className="flex items-center justify-between mb-6">
 				<h1 className="text-2xl font-bold">Music Library</h1>
-				<div className="flex gap-2">
-					<NavLink
-						to="/music/services/youtube/import"
-						className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 hover:bg-accent"
-					>
-						<Icon name="download" className="h-4 w-4" />
-						Import Track
-					</NavLink>
-				</div>
 			</div>
 
 			{allItems.length === 0 && !isFetching ? (
@@ -228,15 +219,8 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 					<Icon name="file-text" className="h-12 w-12 text-muted-foreground mb-4" />
 					<h3 className="text-lg font-semibold mb-2">No tracks yet</h3>
 					<p className="text-muted-foreground mb-4">
-						Start building your music library by importing tracks from YouTube.
+						Start building your music library by uploading tracks.
 					</p>
-					<NavLink
-						to="/music/services/youtube/import"
-						className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 hover:bg-accent"
-					>
-						<Icon name="download" className="h-4 w-4" />
-						Import Track
-					</NavLink>
 				</div>
 			) : (
 				<div className="h-[600px] w-full">

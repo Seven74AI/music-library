@@ -117,12 +117,6 @@ export default function MusicDashboard() {
 			<div className="mb-8">
 				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
 				<div className="flex flex-wrap gap-4">
-					<Button asChild>
-						<Link to="/music/services/youtube/import">
-							<Icon name="download" className="h-4 w-4 mr-2" />
-							Import Tracks
-						</Link>
-					</Button>
 					<Button asChild variant="outline">
 						<Link to="/playlists/new">
 							<Icon name="plus" className="h-4 w-4 mr-2" />
@@ -211,11 +205,6 @@ export default function MusicDashboard() {
 							<div className="text-center py-4 text-muted-foreground">
 								<Icon name="file-text" className="h-8 w-8 mx-auto mb-2" />
 								<p>No tracks yet</p>
-								<Button asChild variant="outline" size="sm" className="mt-2">
-									<Link to="/music/services/youtube/import">
-										Import your first track
-									</Link>
-								</Button>
 							</div>
 						) : (
 							<div className="space-y-3">

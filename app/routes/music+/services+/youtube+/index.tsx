@@ -123,12 +123,6 @@ export default function YouTubeServicePage() {
 			<div className="mb-6">
 				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
 				<div className="flex flex-wrap gap-4">
-					<Button asChild>
-						<Link to="/music/services/youtube/import">
-							<Icon name="download" className="h-4 w-4 mr-2" />
-							Import YouTube Tracks
-						</Link>
-					</Button>
 					{hasConnection && (
 						<Button asChild variant="outline">
 							<Link to="/music/services/youtube/playlists">

@@ -71,12 +71,6 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 			<div className="mb-8">
 				<h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
 				<div className="flex flex-wrap gap-4">
-					<Button asChild>
-						<Link to="/music/services/youtube/import">
-							<Icon name="download" className="h-4 w-4 mr-2" />
-							Import Tracks
-						</Link>
-					</Button>
 					<Button asChild variant="outline">
 						<Link to="/library">
 							<Icon name="file-text" className="h-4 w-4 mr-2" />
@@ -227,11 +221,6 @@ function ServiceCard({
 							<Button asChild className="flex-1">
 								<Link to={`/music/services/${service.name}`}>
 									Manage
-								</Link>
-							</Button>
-							<Button asChild variant="outline" size="sm">
-								<Link to={`/music/services/youtube/import`}>
-									<Icon name="download" className="h-4 w-4" />
 								</Link>
 							</Button>
 							{service.name === YOUTUBE_SERVICE.NAME && (
