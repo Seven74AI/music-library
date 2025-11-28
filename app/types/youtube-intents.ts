@@ -21,6 +21,7 @@ export type YouTubePlaylistDiscoveryIntent = typeof YOUTUBE_PLAYLIST_DISCOVERY_I
 export const YOUTUBE_PLAYLIST_DETAIL_INTENTS = {
   REFRESH: 'refresh',
   REMOVE: 'remove',
+  CONFIRM_DELETED_MATCH: 'confirm-deleted-match',
 } as const
 
 export type YouTubePlaylistDetailIntent = typeof YOUTUBE_PLAYLIST_DETAIL_INTENTS[keyof typeof YOUTUBE_PLAYLIST_DETAIL_INTENTS]

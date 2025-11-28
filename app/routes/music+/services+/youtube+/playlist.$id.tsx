@@ -1,7 +1,9 @@
 import { formatDistanceToNow } from 'date-fns'
-import { data, Form, useActionData, useLoaderData, Link, useFetcher, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+import { useState, useEffect } from 'react'
+import { data, Form, useActionData, useLoaderData, Link, useNavigate, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
 
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs'
+import { DeletedVideoMatchDialog } from '#app/components/deleted-video-match-dialog'
 import { TrackListItem } from '#app/components/track-list-item'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '#app/components/ui/alert-dialog'
 import { Button } from '#app/components/ui/button'
@@ -93,7 +95,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				}
 				return data({ 
 					status: 'error', 
-					message: result.error || 'Failed to sync playlist. Please try again.' 
+					message: result.message || 'Failed to sync playlist. Please try again.' 
 				})
 			}
 			
@@ -113,6 +115,42 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				return data({ status: 'error', ...result })
 			}
 			
+			case YOUTUBE_PLAYLIST_DETAIL_INTENTS.CONFIRM_DELETED_MATCH: {
+				const matchesJson = formData.get('matches')
+				if (typeof matchesJson !== 'string') {
+					return data({ status: 'error', message: 'Invalid matches data' }, { status: 400 })
+				}
+
+				try {
+					const matches = JSON.parse(matchesJson) as Array<{
+						deletedItemId: string | undefined
+						selectedTrackId: string | null
+						position: number
+						action: 'match' | 'new' | 'skip'
+					}>
+
+					const result = await servicePlaylistService.confirmDeletedVideoMatches(params.id!, matches, userId)
+					
+					if (result.success) {
+						return data({ 
+							status: 'success', 
+							message: result.message 
+						})
+					}
+
+					return data({ 
+						status: 'error', 
+						message: result.message || 'Failed to process matches. Please try again.' 
+					})
+				} catch (error) {
+					console.error('Error parsing matches:', error)
+					return data({ 
+						status: 'error', 
+						message: 'Invalid matches format' 
+					}, { status: 400 })
+				}
+			}
+			
 			default:
 				return data({ status: 'error', message: 'Invalid action' })
 		}
@@ -128,7 +166,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export default function YouTubeSyncedPlaylistDetailPage() {
 	const loaderData = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
-	const fetcher = useFetcher()
 
 	// Validate loader data with type guards
 	if (!isPlaylistWithTracks(loaderData.playlist)) {
@@ -140,6 +177,43 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	}
 
 	const { playlist, tracks } = loaderData
+	const navigate = useNavigate()
+	const [showDialog, setShowDialog] = useState(false)
+	const [syncButtonDisabled, setSyncButtonDisabled] = useState(false)
+
+	// Check for pending matches in action data
+	const pendingMatches = actionData && 'pendingMatches' in actionData && Array.isArray(actionData.pendingMatches) 
+		? actionData.pendingMatches 
+		: []
+
+	// Show dialog when pending matches exist
+	useEffect(() => {
+		if (pendingMatches.length > 0) {
+			setShowDialog(true)
+		}
+	}, [pendingMatches.length])
+
+	// Handle dialog close
+	const handleDialogClose = () => {
+		setShowDialog(false)
+	}
+
+	// Handle sync button state change
+	const handleSyncButtonStateChange = (disabled: boolean) => {
+		setSyncButtonDisabled(disabled)
+	}
+
+	// Close dialog and reload page after successful confirmation
+	useEffect(() => {
+		if (actionData && 'status' in actionData && actionData.status === 'success') {
+			// Check if this was a confirmation action (no pendingMatches in response means they were processed)
+			if (pendingMatches.length > 0 && (!('pendingMatches' in actionData) || (Array.isArray(actionData.pendingMatches) && actionData.pendingMatches.length === 0))) {
+				// Matches were confirmed, close dialog and reload page
+				setShowDialog(false)
+				void navigate('.', { replace: true })
+			}
+		}
+	}, [actionData, navigate, pendingMatches.length])
 
 	return (
 		<div className="py-8">
@@ -166,6 +240,29 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 					</div>
 				</div>
 			</div>
+
+			{/* Pending Matches Dialog */}
+			{showDialog && pendingMatches.length > 0 && (
+				<DeletedVideoMatchDialog
+					pendingMatches={pendingMatches}
+					playlistId={playlist.id}
+					onClose={handleDialogClose}
+					onSyncButtonStateChange={handleSyncButtonStateChange}
+				/>
+			)}
+
+			{/* Persistent Banner for Pending Matches */}
+			{!showDialog && pendingMatches.length > 0 && (
+				<div className="mb-6 rounded-md bg-yellow-50 p-4">
+					<div className="flex items-center gap-2">
+						<Icon name="question-mark-circled" className="h-4 w-4 text-yellow-600" />
+						<p className="text-sm text-yellow-800 font-medium">Pending Matches</p>
+					</div>
+					<p className="text-sm text-yellow-700 mt-1">
+						You have {pendingMatches.length} pending match(es) that need confirmation. Please complete the confirmation to sync again.
+					</p>
+				</div>
+			)}
 
 			{/* Action Messages */}
 			{actionData?.status === 'error' && (
@@ -277,10 +374,21 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 								
 								<Form method="post" className="w-full">
 									<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DETAIL_INTENTS.REFRESH} />
-									<Button type="submit" variant="outline" className="w-full" aria-label={`Re-sync ${playlist.title || 'Unknown Playlist'}`}>
+									<Button 
+										type="submit" 
+										variant="outline" 
+										className="w-full" 
+										disabled={syncButtonDisabled}
+										aria-label={`Re-sync ${playlist.title || 'Unknown Playlist'}`}
+									>
 										<Icon name="update" className="h-4 w-4 mr-2" />
 										Re-sync Playlist
 									</Button>
+									{syncButtonDisabled && (
+										<p className="text-xs text-muted-foreground mt-1">
+											Please complete pending matches first
+										</p>
+									)}
 								</Form>
 								
 								<AlertDialog>

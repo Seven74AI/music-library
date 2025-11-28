@@ -1,7 +1,7 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useVirtualizer, defaultRangeExtractor, type Range } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useRef } from 'react'
-import { data, NavLink } from 'react-router'
+import { data } from 'react-router'
 import { TrackListItem } from '#app/components/track-list-item'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { ScrollArea } from '#app/components/ui/scroll-area'
