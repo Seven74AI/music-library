@@ -197,6 +197,10 @@ This music library application includes YouTube playlist integration features:
 - **List YouTube Playlists**: View all your YouTube playlists in one place
 - **Sync Playlists**: Connect your YouTube account and sync your playlists
 - **Store Playlist Data**: Save playlist metadata locally for offline access
+- **Track Deleted Videos**: Preserve original titles and metadata when videos are deleted from YouTube
+- **Track Removed Videos**: Automatically remove tracks that are no longer in YouTube playlists
+- **Sync Reporting**: View summary of deleted and removed tracks after each sync
+- **Visual Indicators**: See which tracks have been deleted with clear visual indicators
 - **Remove Playlists**: Remove playlists from your synced collection
 - **OAuth Integration**: Secure authentication with YouTube using OAuth 2.0
 
@@ -225,7 +229,12 @@ SITE_URL=http://localhost:3000  # or your production URL
 1. Navigate to `/music/services/youtube/playlists` in the application
 2. Click "Connect YouTube Account" to authenticate
 3. Your playlists will be automatically synced
-4. Manage your synced playlists from the interface
+4. Refresh any playlist to see a sync summary showing:
+   - Tracks added to the playlist
+   - Tracks deleted from YouTube (with original titles preserved)
+   - Tracks removed from the playlist
+5. Deleted tracks are displayed with visual indicators and cannot be played
+6. Manage your synced playlists from the interface
 
 ## Environment Variables Reference
 

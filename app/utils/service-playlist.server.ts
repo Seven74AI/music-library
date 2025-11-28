@@ -40,6 +40,7 @@ interface TrackDataBatch {
   externalId: string
   trackData: ReturnType<typeof transformYouTubePlaylistItemToTrack>
   position: number
+  item: NewYouTubePlaylistItem
 }
 
 /**
@@ -186,9 +187,6 @@ export class ServicePlaylistService {
         if (!item) continue
         
         const externalId = item.snippet?.resourceId?.videoId || ''
-        if (externalId) {
-          processedExternalIds.add(externalId)
-        }
         
         try {
           // Get existing track to preserve data if needed
@@ -221,10 +219,17 @@ export class ServicePlaylistService {
             serviceId,
             externalId,
             trackData,
-            position: batchStart + i + 1
+            position: batchStart + i + 1,
+            item
           })
+          
+          // Only mark as processed after successful preparation
+          if (externalId) {
+            processedExternalIds.add(externalId)
+          }
         } catch (error) {
           console.error(`Error preparing track ${item.snippet?.resourceId?.videoId || 'unknown'}:`, error)
+          // externalId is NOT added to processedExternalIds on error, so it will be removed if it exists
         }
       }
       
@@ -252,7 +257,8 @@ export class ServicePlaylistService {
         const trackData = trackDataBatch[index]
         if (!trackData) return null
         
-        const item = batch[index]
+        // Use the item stored with trackData to avoid index mismatch when items are skipped
+        const item = trackData.item
         const isDeleted = item ? this.isDeletedYouTubeVideo(item) : false
         
         // Check if this track was previously deleted
@@ -469,14 +475,14 @@ export class ServicePlaylistService {
     })
 
     // Process tracks in batches for better performance
-    const tracksAdded = await prisma.$transaction(async (tx) => {
+    const processResult = await prisma.$transaction(async (tx) => {
       return this.processTracksInBatches(playlistItems, service.id, playlist.id, tx)
     })
 
     return {
       success: true,
       playlistId: playlist.id,
-      tracksAdded,
+      tracksAdded: processResult.processedCount,
       totalTracks: playlistItems.length
     }
   }
