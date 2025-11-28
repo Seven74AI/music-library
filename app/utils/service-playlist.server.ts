@@ -42,6 +42,24 @@ interface TrackDataBatch {
   position: number
 }
 
+/**
+ * Track information for sync reporting
+ */
+interface SyncTrackInfo {
+  id: string
+  title: string
+  externalId: string
+}
+
+/**
+ * Result from processing tracks in batches
+ */
+interface ProcessTracksResult {
+  processedCount: number
+  deletedTracks: SyncTrackInfo[]
+  processedExternalIds: Set<string>
+}
+
 
 /**
  * Service class for managing service playlists (YouTube, Spotify, etc.)
@@ -91,22 +109,71 @@ export class ServicePlaylistService {
   }
 
   /**
+   * Check if a YouTube playlist item represents a deleted video
+   * 
+   * @param item - YouTube playlist item to check
+   * @returns true if the video appears to be deleted
+   */
+  private isDeletedYouTubeVideo(item: NewYouTubePlaylistItem): boolean {
+    const title = item.snippet?.title || ''
+    const videoId = item.snippet?.resourceId?.videoId
+    
+    // Check for common deleted video patterns
+    const deletedPatterns = [
+      /^deleted video$/i,
+      /^private video$/i,
+      /^unavailable video$/i,
+      /^video unavailable$/i,
+      /^this video is unavailable$/i,
+    ]
+    
+    const hasDeletedTitle = deletedPatterns.some(pattern => pattern.test(title))
+    const missingVideoId = !videoId || videoId.trim() === ''
+    const missingThumbnail = !item.snippet?.thumbnails?.default?.url
+    
+    return hasDeletedTitle || missingVideoId || missingThumbnail
+  }
+
+  /**
+   * Determine if we should preserve existing track data
+   * 
+   * @param existingTrack - Existing track from database
+   * @param newItem - New item from YouTube API
+   * @returns true if we should preserve existing data
+   */
+  private shouldPreserveTrackData(
+    existingTrack: { title: string } | null,
+    newItem: NewYouTubePlaylistItem
+  ): boolean {
+    if (!existingTrack) return false
+    
+    // Preserve if video is deleted and we have a real title (not "Deleted video")
+    if (this.isDeletedYouTubeVideo(newItem) && existingTrack.title !== 'Deleted video' && existingTrack.title !== 'Unknown Title') {
+      return true
+    }
+    
+    return false
+  }
+
+  /**
    * Process tracks in batches for better performance
    * 
    * @param playlistItems - Array of playlist items to process
    * @param serviceId - The service ID
    * @param playlistId - The playlist ID
    * @param tx - Prisma transaction instance
-   * @returns Number of processed tracks
+   * @returns Result with processed count, deleted tracks, and processed external IDs
    */
   private async processTracksInBatches(
     playlistItems: NewYouTubePlaylistItem[],
     serviceId: string,
     playlistId: string,
     tx: any
-  ): Promise<number> {
+  ): Promise<ProcessTracksResult> {
     let processedTracks = 0
     const batchSize = 50
+    const deletedTracks: SyncTrackInfo[] = []
+    const processedExternalIds = new Set<string>()
     
     for (let batchStart = 0; batchStart < playlistItems.length; batchStart += batchSize) {
       const batch = playlistItems.slice(batchStart, batchStart + batchSize)
@@ -118,11 +185,41 @@ export class ServicePlaylistService {
         const item = batch[i] as NewYouTubePlaylistItem
         if (!item) continue
         
+        const externalId = item.snippet?.resourceId?.videoId || ''
+        if (externalId) {
+          processedExternalIds.add(externalId)
+        }
+        
         try {
-          const trackData = transformYouTubePlaylistItemToTrack(item, serviceId)
+          // Get existing track to preserve data if needed
+          const existingTrack = externalId ? await tx.track.findUnique({
+            where: {
+              serviceId_externalId: {
+                serviceId,
+                externalId
+              }
+            }
+          }) : null
+          
+          // Determine if we should preserve existing track data
+          const preserveData = this.shouldPreserveTrackData(existingTrack, item)
+          
+          let trackData: ReturnType<typeof transformYouTubePlaylistItemToTrack>
+          if (preserveData && existingTrack) {
+            // Preserve existing data, only update non-critical fields
+            trackData = {
+              ...transformYouTubePlaylistItemToTrack(item, serviceId),
+              title: existingTrack.title,
+              artist: existingTrack.artist,
+              thumbnailUrl: existingTrack.thumbnailUrl,
+            }
+          } else {
+            trackData = transformYouTubePlaylistItemToTrack(item, serviceId)
+          }
+          
           trackDataBatch.push({
             serviceId,
-            externalId: item.snippet?.resourceId?.videoId || '',
+            externalId,
             trackData,
             position: batchStart + i + 1
           })
@@ -150,11 +247,27 @@ export class ServicePlaylistService {
       
       const tracks = await Promise.all(trackPromises)
       
-      // Batch upsert playlist tracks
-      const playlistTrackPromises = tracks.map((track, index) => {
+      // Batch upsert playlist tracks with deletion status
+      const playlistTrackPromises = tracks.map(async (track, index) => {
         const trackData = trackDataBatch[index]
         if (!trackData) return null
-        return tx.servicePlaylistTrack.upsert({
+        
+        const item = batch[index]
+        const isDeleted = item ? this.isDeletedYouTubeVideo(item) : false
+        
+        // Check if this track was previously deleted
+        const existingPlaylistTrack = await tx.servicePlaylistTrack.findUnique({
+          where: {
+            playlistId_trackId: {
+              playlistId: playlistId,
+              trackId: track.id
+            }
+          }
+        })
+        
+        const shouldSetDeletedAt = isDeleted && !existingPlaylistTrack?.isDeleted
+        
+        const result = await tx.servicePlaylistTrack.upsert({
           where: {
             playlistId_trackId: {
               playlistId: playlistId,
@@ -162,21 +275,40 @@ export class ServicePlaylistService {
             }
           },
           update: {
-            position: trackData.position
+            position: trackData.position,
+            isDeleted,
+            deletedAt: shouldSetDeletedAt ? new Date() : (isDeleted ? existingPlaylistTrack?.deletedAt : null)
           },
           create: {
             playlistId: playlistId,
             trackId: track.id,
-            position: trackData.position
+            position: trackData.position,
+            isDeleted,
+            deletedAt: isDeleted ? new Date() : null
           }
         })
+        
+        // Track deleted videos for reporting - only report newly detected deletions
+        if (shouldSetDeletedAt) {
+          deletedTracks.push({
+            id: track.id,
+            title: track.title,
+            externalId: trackData.externalId
+          })
+        }
+        
+        return result
       }).filter(Boolean)
       
       await Promise.all(playlistTrackPromises)
       processedTracks += tracks.length
     }
     
-    return processedTracks
+    return {
+      processedCount: processedTracks,
+      deletedTracks,
+      processedExternalIds
+    }
   }
 
   /**
@@ -452,7 +584,9 @@ export class ServicePlaylistService {
       playlist,
       tracks: playlistTracks.map(pt => ({
         ...pt.track,
-        position: pt.position
+        position: pt.position,
+        isDeleted: pt.isDeleted,
+        deletedAt: pt.deletedAt
       }))
     }
   }
@@ -489,6 +623,8 @@ export class ServicePlaylistService {
     const tracks: TrackWithUserStatus[] = result.tracks.map(track => ({
       ...track,
       isInUserLibrary: userTrackIds.has(track.id),
+      isDeleted: track.isDeleted || false,
+      deletedAt: track.deletedAt || null,
       service: track.service ? {
         name: track.service.name,
         displayName: track.service.displayName,
@@ -640,7 +776,16 @@ export class ServicePlaylistService {
    * @param userId - The user ID
    * @returns Promise resolving to sync result
    */
-  async resyncPlaylist(playlistId: string, userId: string): Promise<{ success: boolean; tracksAdded: number; totalTracks: number }> {
+  async resyncPlaylist(
+    playlistId: string, 
+    userId: string
+  ): Promise<{
+    success: boolean
+    tracksAdded: number
+    totalTracks: number
+    deletedTracks: SyncTrackInfo[]
+    removedTracks: SyncTrackInfo[]
+  }> {
     try {
       // Get the playlist
       const playlist = await prisma.servicePlaylist.findUnique({
@@ -649,7 +794,13 @@ export class ServicePlaylistService {
       })
       
       if (!playlist) {
-        return { success: false, tracksAdded: 0, totalTracks: 0 }
+        return { 
+          success: false, 
+          tracksAdded: 0, 
+          totalTracks: 0,
+          deletedTracks: [],
+          removedTracks: []
+        }
       }
       
       // Use the existing sync method
@@ -657,11 +808,27 @@ export class ServicePlaylistService {
       return result
     } catch (error) {
       console.error('Error resyncing playlist:', error)
-      return { success: false, tracksAdded: 0, totalTracks: 0 }
+      return { 
+        success: false, 
+        tracksAdded: 0, 
+        totalTracks: 0,
+        deletedTracks: [],
+        removedTracks: []
+      }
     }
   }
 
-  async syncPlaylistTracks(serviceName: string, playlistId: string, userId: string) {
+  async syncPlaylistTracks(
+    serviceName: string, 
+    playlistId: string, 
+    userId: string
+  ): Promise<{
+    success: boolean
+    tracksAdded: number
+    totalTracks: number
+    deletedTracks: SyncTrackInfo[]
+    removedTracks: SyncTrackInfo[]
+  }> {
     const service = await this.getServiceByName(serviceName)
     const connection = await this.getUserConnection(serviceName, userId)
     const tokenData = this.parseConnectionTokens(connection)
@@ -689,6 +856,54 @@ export class ServicePlaylistService {
     const youtubeService = createYouTubeService()
     const playlistItems = await youtubeService.getPlaylistItems(playlist.externalId, tokenData.access_token)
 
+    // Process tracks in batches and get results
+    const processResult = await prisma.$transaction(async (tx) => {
+      return this.processTracksInBatches(playlistItems, service.id, playlist.id, tx)
+    })
+
+    // Find tracks that were removed from playlist (exist in DB but not in current sync)
+    const existingPlaylistTracks = await prisma.servicePlaylistTrack.findMany({
+      where: {
+        playlistId: playlist.id
+      },
+      include: {
+        track: {
+          select: {
+            id: true,
+            title: true,
+            externalId: true
+          }
+        }
+      }
+    })
+
+    const removedTracks: SyncTrackInfo[] = []
+    const tracksToRemove: string[] = []
+
+    for (const playlistTrack of existingPlaylistTracks) {
+      const externalId = playlistTrack.track.externalId
+      if (externalId && !processResult.processedExternalIds.has(externalId)) {
+        // This track is no longer in the YouTube playlist
+        removedTracks.push({
+          id: playlistTrack.track.id,
+          title: playlistTrack.track.title,
+          externalId
+        })
+        tracksToRemove.push(playlistTrack.id)
+      }
+    }
+
+    // Remove tracks that are no longer in the playlist
+    if (tracksToRemove.length > 0) {
+      await prisma.servicePlaylistTrack.deleteMany({
+        where: {
+          id: {
+            in: tracksToRemove
+          }
+        }
+      })
+    }
+
     // Update playlist metadata
     await prisma.servicePlaylist.update({
       where: { id: playlist.id },
@@ -698,15 +913,12 @@ export class ServicePlaylistService {
       }
     })
 
-    // Process tracks in batches for better performance
-    const tracksAdded = await prisma.$transaction(async (tx) => {
-      return this.processTracksInBatches(playlistItems, service.id, playlist.id, tx)
-    })
-
     return {
       success: true,
-      tracksAdded,
-      totalTracks: playlistItems.length
+      tracksAdded: processResult.processedCount,
+      totalTracks: playlistItems.length,
+      deletedTracks: processResult.deletedTracks,
+      removedTracks
     }
   }
 }

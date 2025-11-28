@@ -246,6 +246,8 @@ model ServicePlaylistTrack {
   playlistId String
   trackId    String
   position   Int
+  isDeleted  Boolean         @default(false)
+  deletedAt  DateTime?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   track      Track           @relation(fields: [trackId], references: [id])
@@ -254,6 +256,7 @@ model ServicePlaylistTrack {
   @@unique([playlistId, trackId])
   @@index([playlistId])
   @@index([trackId])
+  @@index([playlistId, isDeleted])
 }
 
 model TrackAudioFile {
