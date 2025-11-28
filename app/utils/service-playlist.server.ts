@@ -18,6 +18,13 @@ import {
 } from '#app/types/youtube-api'
 import { prisma } from '#app/utils/db.server'
 import { 
+  YouTubeAPIError,
+  YouTubeNotFoundError,
+  YouTubeQuotaError,
+  YouTubeAuthError,
+  YouTubeNetworkError
+} from '#app/utils/youtube-errors'
+import { 
   validateYouTubeOAuth
 } from '#app/utils/youtube-oauth-validation.server'
 import { createYouTubeService } from './youtube.server'
@@ -49,7 +56,7 @@ interface TrackDataBatch {
 interface SyncTrackInfo {
   id: string
   title: string
-  externalId: string
+  externalId?: string
 }
 
 /**
@@ -59,6 +66,7 @@ interface ProcessTracksResult {
   processedCount: number
   deletedTracks: SyncTrackInfo[]
   processedExternalIds: Set<string>
+  processedTrackIds: Set<string>
 }
 
 
@@ -175,6 +183,7 @@ export class ServicePlaylistService {
     const batchSize = 50
     const deletedTracks: SyncTrackInfo[] = []
     const processedExternalIds = new Set<string>()
+    const processedTrackIds = new Set<string>()
     
     for (let batchStart = 0; batchStart < playlistItems.length; batchStart += batchSize) {
       const batch = playlistItems.slice(batchStart, batchStart + batchSize)
@@ -186,7 +195,21 @@ export class ServicePlaylistService {
         const item = batch[i] as NewYouTubePlaylistItem
         if (!item) continue
         
-        const externalId = item.snippet?.resourceId?.videoId || ''
+        // Use videoId if available, otherwise use playlist item ID or generate unique identifier
+        // This prevents multiple deleted videos from collapsing into a single track record
+        let externalId = item.snippet?.resourceId?.videoId || ''
+        if (!externalId) {
+          // For deleted videos without videoId, use playlist item ID if available
+          // Otherwise generate a unique identifier using playlist ID and position
+          if (item.id) {
+            externalId = item.id
+          } else {
+            // Fallback: use playlist ID + position to create unique identifier
+            const playlistId = item.snippet?.playlistId || 'unknown'
+            const position = item.snippet?.position ?? batchStart + i
+            externalId = `deleted-${playlistId}-${position}`
+          }
+        }
         
         try {
           // Get existing track to preserve data if needed
@@ -210,9 +233,13 @@ export class ServicePlaylistService {
               title: existingTrack.title,
               artist: existingTrack.artist,
               thumbnailUrl: existingTrack.thumbnailUrl,
+              externalId, // Use the generated/actual externalId
             }
           } else {
-            trackData = transformYouTubePlaylistItemToTrack(item, serviceId)
+            trackData = {
+              ...transformYouTubePlaylistItemToTrack(item, serviceId),
+              externalId, // Override with the generated/actual externalId
+            }
           }
           
           trackDataBatch.push({
@@ -223,10 +250,9 @@ export class ServicePlaylistService {
             item
           })
           
-          // Only mark as processed after successful preparation
-          if (externalId) {
-            processedExternalIds.add(externalId)
-          }
+          // Mark as processed after successful preparation
+          // Always add externalId, even for deleted videos with generated IDs
+          processedExternalIds.add(externalId)
         } catch (error) {
           console.error(`Error preparing track ${item.snippet?.resourceId?.videoId || 'unknown'}:`, error)
           // externalId is NOT added to processedExternalIds on error, so it will be removed if it exists
@@ -304,16 +330,26 @@ export class ServicePlaylistService {
         }
         
         return result
-      }).filter(Boolean)
+      })
       
-      await Promise.all(playlistTrackPromises)
-      processedTracks += tracks.length
+      // Await all promises first, then filter out null results
+      const playlistTrackResults = await Promise.all(playlistTrackPromises)
+      const successfulResults = playlistTrackResults.filter((result): result is NonNullable<typeof result> => result !== null)
+      
+      // Track all successfully processed trackIds for removal detection
+      for (const result of successfulResults) {
+        processedTrackIds.add(result.trackId)
+      }
+      
+      // Count only successfully processed tracks
+      processedTracks += successfulResults.length
     }
     
     return {
       processedCount: processedTracks,
       deletedTracks,
-      processedExternalIds
+      processedExternalIds,
+      processedTrackIds
     }
   }
 
@@ -607,19 +643,6 @@ export class ServicePlaylistService {
     // Get playlist with tracks
     const result = await this.getPlaylistTracks('youtube', playlistId, userId)
     
-    // Get user's active library tracks for status check
-    const userTracks = await prisma.userTrack.findMany({
-      where: {
-        userId: userId,
-        isActive: true
-      },
-      select: {
-        trackId: true
-      }
-    })
-    
-    const userTrackIds = new Set(userTracks.map(ut => ut.trackId))
-    
     // Transform to type-safe frontend format
     const playlist: PlaylistWithTracks = {
       ...result.playlist,
@@ -628,7 +651,6 @@ export class ServicePlaylistService {
     
     const tracks: TrackWithUserStatus[] = result.tracks.map(track => ({
       ...track,
-      isInUserLibrary: userTrackIds.has(track.id),
       isDeleted: track.isDeleted || false,
       deletedAt: track.deletedAt || null,
       service: track.service ? {
@@ -653,129 +675,6 @@ export class ServicePlaylistService {
   }
 
   /**
-   * Sync playlist tracks (refresh from service)
-   */
-  /**
-   * Adds a track to the user's library, handling soft-deleted track reactivation
-   * 
-   * This method performs the following operations:
-   * 1. Validates that the track exists in the database
-   * 2. Checks if the user already has this track in their library
-   * 3. If the track was previously soft-deleted, reactivates it
-   * 4. If the track is new to the user, creates a new UserTrack record
-   * 
-   * @param userId - The ID of the user adding the track
-   * @param trackId - The ID of the track to add to the user's library
-   * @returns Promise resolving to success status
-   * @throws {ServiceNotFoundError} If the service is not found
-   * @throws {TrackNotFoundError} If the track is not found
-   * @example
-   * ```typescript
-   * const result = await service.addTrackToUserLibrary('user123', 'track456')
-   * if (result.success) {
-   *   console.log('Track added successfully')
-   * }
-   * ```
-   */
-  async addTrackToUserLibrary(userId: string, trackId: string): Promise<{ success: boolean }> {
-    try {
-      // Check if track exists
-      const track = await prisma.track.findUnique({
-        where: { id: trackId }
-      })
-      
-      if (!track) {
-        return { success: false }
-      }
-      
-      // Check if user already has this track
-      const existingUserTrack = await prisma.userTrack.findUnique({
-        where: {
-          userId_trackId: {
-            userId,
-            trackId
-          }
-        }
-      })
-      
-      if (existingUserTrack) {
-        if (existingUserTrack.isActive) {
-          return { success: true } // Already exists and is active
-        } else {
-          // Reactivate soft-deleted track
-          await prisma.userTrack.update({
-            where: {
-              userId_trackId: {
-                userId,
-                trackId
-              }
-            },
-            data: {
-              isActive: true,
-              deletedAt: null
-            }
-          })
-          
-          return { success: true } // Reactivated
-        }
-      }
-      
-      // Add track to user's library
-      await prisma.userTrack.create({
-        data: {
-          userId,
-          trackId,
-          isActive: true
-        }
-      })
-      
-      return { success: true }
-    } catch (error) {
-      console.error('Error adding track to user library:', error)
-      return { success: false }
-    }
-  }
-
-  /**
-   * Removes a track from the user's library using soft delete
-   * 
-   * This method performs a soft delete by setting `isActive: false` and `deletedAt: timestamp`
-   * instead of permanently removing the record. This allows for data recovery and audit trails.
-   * 
-   * @param userId - The ID of the user removing the track
-   * @param trackId - The ID of the track to remove from the user's library
-   * @returns Promise resolving to success status (true if record was updated, false if not found)
-   * @example
-   * ```typescript
-   * const result = await service.removeTrackFromUserLibrary('user123', 'track456')
-   * if (result.success) {
-   *   console.log('Track removed successfully')
-   * } else {
-   *   console.log('Track was not found in user library')
-   * }
-   * ```
-   */
-  async removeTrackFromUserLibrary(userId: string, trackId: string): Promise<{ success: boolean }> {
-    try {
-      const result = await prisma.userTrack.updateMany({
-        where: {
-          userId,
-          trackId,
-        },
-        data: {
-          isActive: false,
-          deletedAt: new Date()
-        }
-      })
-      
-      return { success: result.count > 0 }
-    } catch (error) {
-      console.error('Error removing track from user library:', error)
-      return { success: false }
-    }
-  }
-
-  /**
    * Resync a playlist (refresh tracks from external service)
    * 
    * @param playlistId - The playlist ID to resync
@@ -791,6 +690,7 @@ export class ServicePlaylistService {
     totalTracks: number
     deletedTracks: SyncTrackInfo[]
     removedTracks: SyncTrackInfo[]
+    error?: string
   }> {
     try {
       // Get the playlist
@@ -805,7 +705,8 @@ export class ServicePlaylistService {
           tracksAdded: 0, 
           totalTracks: 0,
           deletedTracks: [],
-          removedTracks: []
+          removedTracks: [],
+          error: 'Playlist not found. It may have been removed or you may not have access to it.'
         }
       }
       
@@ -814,12 +715,14 @@ export class ServicePlaylistService {
       return result
     } catch (error) {
       console.error('Error resyncing playlist:', error)
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
       return { 
         success: false, 
         tracksAdded: 0, 
         totalTracks: 0,
         deletedTracks: [],
-        removedTracks: []
+        removedTracks: [],
+        error: errorMessage
       }
     }
   }
@@ -860,7 +763,16 @@ export class ServicePlaylistService {
 
     // Get fresh playlist items from YouTube service
     const youtubeService = createYouTubeService()
-    const playlistItems = await youtubeService.getPlaylistItems(playlist.externalId, tokenData.access_token)
+    let playlistItems: Awaited<ReturnType<typeof youtubeService.getPlaylistItems>>
+    try {
+      playlistItems = await youtubeService.getPlaylistItems(playlist.externalId, tokenData.access_token)
+    } catch (error) {
+      // Re-throw with more context if it's a known error type
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error('Failed to fetch playlist items from YouTube')
+    }
 
     // Process tracks in batches and get results
     const processResult = await prisma.$transaction(async (tx) => {
@@ -888,12 +800,21 @@ export class ServicePlaylistService {
 
     for (const playlistTrack of existingPlaylistTracks) {
       const externalId = playlistTrack.track.externalId
-      if (externalId && !processResult.processedExternalIds.has(externalId)) {
+      const trackId = playlistTrack.track.id
+      
+      // Determine if track should be removed:
+      // 1. If externalId exists and is not in processedExternalIds → remove
+      // 2. If externalId is null/empty and trackId is not in processedTrackIds → remove
+      const shouldRemove = externalId
+        ? !processResult.processedExternalIds.has(externalId)
+        : !processResult.processedTrackIds.has(trackId)
+      
+      if (shouldRemove) {
         // This track is no longer in the YouTube playlist
         removedTracks.push({
-          id: playlistTrack.track.id,
+          id: trackId,
           title: playlistTrack.track.title,
-          externalId
+          ...(externalId && { externalId })
         })
         tracksToRemove.push(playlistTrack.id)
       }

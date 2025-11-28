@@ -1,5 +1,4 @@
 import { useState, useCallback, memo } from 'react'
-import { NavLink } from 'react-router'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { TrackThumbnail } from '#app/components/track-thumbnail'
 import { Button } from '#app/components/ui/button'
@@ -42,11 +41,7 @@ interface TrackListItemProps {
 		type: 'library' | 'playlist' | 'music'
 		playlistId?: string
 	}
-	showSyncActions?: boolean
-	isInUserLibrary?: boolean
 	isDeleted?: boolean
-	onAddToLibrary?: (trackId: string) => void
-	onRemoveFromLibrary?: (trackId: string) => void
 	showQueueActions?: boolean
 	onRemoveFromQueue?: (trackId: string) => void
 	showPlaylistActions?: boolean
@@ -72,10 +67,6 @@ interface TrackListItemProps {
  * @param userTrack - User-specific track data (creation date, etc.)
  * @param index - Position in the list (for numbering)
  * @param playlistContext - Context for playlist-specific actions
- * @param showSyncActions - Whether to show sync-related actions
- * @param isInUserLibrary - Whether track is in user's library
- * @param onAddToLibrary - Callback for adding track to library
- * @param onRemoveFromLibrary - Callback for removing track from library
  * @param showQueueActions - Whether to show queue-related actions
  * @param onRemoveFromQueue - Callback for removing track from queue
  * @param playlists - Available playlists for "Add to Playlist" functionality
@@ -87,29 +78,16 @@ interface TrackListItemProps {
  *   userTrack={userTrackData}
  *   index={0}
  *   playlists={userPlaylists}
- *   showSyncActions={true}
  * />
  * ```
  */
-export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, showSyncActions, isInUserLibrary, isDeleted, onAddToLibrary, onRemoveFromLibrary, showQueueActions, onRemoveFromQueue, showPlaylistActions, onRemoveFromPlaylist, playlists, showDuration = true }: TrackListItemProps) {
+export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, isDeleted, showQueueActions, onRemoveFromQueue, showPlaylistActions, onRemoveFromPlaylist, playlists, showDuration = true }: TrackListItemProps) {
 	const [isHovered, setIsHovered] = useState(false)
 	const [isActionsSheetOpen, setIsActionsSheetOpen] = useState(false)
 	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
 	const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false)
 	const isMobile = useIsMobile()
 	const { currentTrack, currentIndex, playTrack } = useAudioPlayer()
-
-	const handleAddToLibrary = useCallback(() => {
-		if (onAddToLibrary) {
-			onAddToLibrary(track.id)
-		}
-	}, [track.id, onAddToLibrary])
-
-	const handleRemoveFromLibrary = useCallback(() => {
-		if (onRemoveFromLibrary) {
-			onRemoveFromLibrary(track.id)
-		}
-	}, [track.id, onRemoveFromLibrary])
 
 	const handleRemoveFromQueue = useCallback(() => {
 		if (onRemoveFromQueue) {
@@ -236,35 +214,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 				</div>
 			</div>
 
-			{/* Is Saved */}
-			{isInUserLibrary !== undefined && (
-				<div className="hidden lg:flex items-center justify-center w-20">
-					{isInUserLibrary ? (
-						<Button
-							variant="outline"
-							size="sm"
-							className="h-6 px-2 text-xs"
-							onClick={handleRemoveFromLibrary}
-							aria-label={`Remove ${track.title} from library`}
-						>
-							<Icon name="check" className="h-3 w-3 mr-1" />
-							Saved
-						</Button>
-					) : (
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-6 px-2 text-xs"
-							onClick={handleAddToLibrary}
-							aria-label={`Add ${track.title} to library`}
-						>
-							<Icon name="plus" className="h-3 w-3 mr-1" />
-							Add
-						</Button>
-					)}
-				</div>
-			)}
-
 			{/* Duration */}
 			{showDuration && (
 				<div className="hidden md:flex text-xs text-muted-foreground w-12 text-center">
@@ -382,22 +331,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 									</DropdownMenuSubContent>
 								</DropdownMenuSub>
 							)}
-							{showSyncActions && (
-								<>
-									<DropdownMenuItem asChild>
-										<NavLink to={`/library?add=${track.id}`}>
-											<Icon name="plus" className="h-4 w-4 mr-2" />
-											Add to Library
-										</NavLink>
-									</DropdownMenuItem>
-									<DropdownMenuItem asChild>
-										<NavLink to={`/library?remove=${track.id}`}>
-											<Icon name="trash" className="h-4 w-4 mr-2" />
-											Remove from Library
-										</NavLink>
-									</DropdownMenuItem>
-								</>
-							)}
 							{showQueueActions && (
 								<DropdownMenuItem onClick={handleRemoveFromQueue}>
 									<Icon name="trash" className="h-4 w-4 mr-2" />
@@ -475,30 +408,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										Add to Playlist
 									</Button>
 								)}
-								{showSyncActions && (
-									<>
-										<Button
-											variant="ghost"
-											className="w-full justify-start h-12 text-base"
-											asChild
-										>
-											<NavLink to={`/library?add=${track.id}`}>
-												<Icon name="plus" className="h-5 w-5 mr-3" />
-												Add to Library
-											</NavLink>
-										</Button>
-										<Button
-											variant="ghost"
-											className="w-full justify-start h-12 text-base"
-											asChild
-										>
-											<NavLink to={`/library?remove=${track.id}`}>
-												<Icon name="trash" className="h-5 w-5 mr-3" />
-												Remove from Library
-											</NavLink>
-										</Button>
-									</>
-								)}
 								{showQueueActions && (
 									<Button
 										variant="ghost"
@@ -524,33 +433,6 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										<Icon name="trash" className="h-5 w-5 mr-3" />
 										Remove from Playlist
 									</Button>
-								)}
-								{isInUserLibrary !== undefined && (
-									isInUserLibrary ? (
-										<Button
-											variant="ghost"
-											className="w-full justify-start h-12 text-base"
-											onClick={() => {
-												handleRemoveFromLibrary()
-												setIsActionsSheetOpen(false)
-											}}
-										>
-											<Icon name="trash" className="h-5 w-5 mr-3" />
-											Remove from Library
-										</Button>
-									) : (
-										<Button
-											variant="ghost"
-											className="w-full justify-start h-12 text-base"
-											onClick={() => {
-												handleAddToLibrary()
-												setIsActionsSheetOpen(false)
-											}}
-										>
-											<Icon name="plus" className="h-5 w-5 mr-3" />
-											Add to Library
-										</Button>
-									)
 								)}
 							</div>
 						</SheetContent>

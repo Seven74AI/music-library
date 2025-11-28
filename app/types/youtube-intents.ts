@@ -19,8 +19,6 @@ export type YouTubePlaylistDiscoveryIntent = typeof YOUTUBE_PLAYLIST_DISCOVERY_I
  * Intent constants for playlist detail page actions
  */
 export const YOUTUBE_PLAYLIST_DETAIL_INTENTS = {
-  ADD_TO_LIBRARY: 'add-to-library',
-  REMOVE_FROM_LIBRARY: 'remove-from-library',
   REFRESH: 'refresh',
   REMOVE: 'remove',
 } as const

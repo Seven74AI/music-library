@@ -1,0 +1,24 @@
+refactor: Remove add-to-library functionality from services
+
+Services are now exclusively used for archiving playlists (like YouTube).
+Since audio files cannot be downloaded from services, there's no need to
+add tracks to user library from services. The add-to-library functionality
+remains only for the local upload service.
+
+Changes:
+- Remove YouTube import page and service import utilities
+- Remove add/remove from library actions from playlist pages
+- Remove isInUserLibrary property from types and UI components
+- Remove addTrackToUserLibrary and removeTrackFromUserLibrary methods
+- Improve error handling for playlist sync with specific error messages
+- Fix promise filtering bug: await all promises before filtering results
+- Fix track removal logic: handle tracks with null/empty externalId values
+
+Bug fixes:
+- Fixed promise array filtering that skipped awaiting filtered promises
+- Fixed track removal logic to properly clean up orphaned tracks with null externalId
+- Improved error messages for playlist sync failures (404, 403, 401, network errors)
+
+This simplifies the codebase by removing ~600 lines of unused code and
+clarifies the purpose of services: playlist archiving only, not library
+management.

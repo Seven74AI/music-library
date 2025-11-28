@@ -7,7 +7,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
-import { Tooltip, TooltipContent, TooltipTrigger } from '#app/components/ui/tooltip'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { 
   isPlaylistWithTracks,
@@ -87,33 +86,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	try {
 		switch (intent) {
-			case 'add-to-library': {
-				const trackId = formData.get('trackId')
-				if (typeof trackId !== 'string' || trackId.length === 0) {
-					return data({ status: 'error', message: 'Valid track ID is required' }, { status: 400 })
-				}
-				
-				await servicePlaylistService.addTrackToUserLibrary(userId, trackId)
-				
-				return data({ 
-					status: 'success', 
-					message: 'Track added to your library',
-				})
-			}
-			
-			case 'remove-from-library': {
-				const trackId = formData.get('trackId')
-				if (typeof trackId !== 'string' || trackId.length === 0) {
-					return data({ status: 'error', message: 'Valid track ID is required' }, { status: 400 })
-				}
-				
-				await servicePlaylistService.removeTrackFromUserLibrary(userId, trackId)
-				return data({ status: 'success', message: 'Track removed from your library' })
-			}
-			
 			case YOUTUBE_PLAYLIST_DETAIL_INTENTS.REFRESH: {
 				const result = await servicePlaylistService.resyncPlaylist(params.id!, userId)
-				return data({ status: 'success', ...result })
+				if (result.success) {
+					return data({ status: 'success', ...result })
+				}
+				return data({ 
+					status: 'error', 
+					message: result.error || 'Failed to sync playlist. Please try again.' 
+				})
 			}
 			
 			case 'remove': {
@@ -159,31 +140,6 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	}
 
 	const { playlist, tracks } = loaderData
-
-	// Handle add/remove track actions
-	const handleAddToLibrary = (trackId: string) => {
-		const formData = new FormData()
-		formData.append('intent', 'add-to-library')
-		formData.append('trackId', trackId)
-		void fetcher.submit(formData, { method: 'post' })
-	}
-
-	const handleRemoveFromLibrary = (trackId: string) => {
-		const formData = new FormData()
-		formData.append('intent', 'remove-from-library')
-		formData.append('trackId', trackId)
-		void fetcher.submit(formData, { method: 'post' })
-	}
-
-	const handleAddAllToLibrary = () => {
-		const tracksNotInLibrary = tracks.filter(t => !t.isInUserLibrary)
-		tracksNotInLibrary.forEach(track => {
-			const formData = new FormData()
-			formData.append('intent', 'add-to-library')
-			formData.append('trackId', track.id)
-			void fetcher.submit(formData, { method: 'post' })
-		})
-	}
 
 	return (
 		<div className="py-8">
@@ -371,16 +327,6 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 							<CardDescription>
 								{tracks.length} tracks in this playlist
 							</CardDescription>
-							{tracks.filter(t => !t.isInUserLibrary).length > 0 && (
-								<Button 
-									onClick={handleAddAllToLibrary}
-									size="sm"
-									className="mt-2"
-								>
-									<Icon name="plus" className="h-4 w-4 mr-2" />
-									Add All to Library ({tracks.filter(t => !t.isInUserLibrary).length})
-								</Button>
-							)}
 						</CardHeader>
 						<CardContent className="max-h-[600px] overflow-y-auto">
 							{tracks.length === 0 ? (
@@ -405,16 +351,6 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 									<div className="flex items-center gap-4 px-4 py-2 text-sm font-medium text-muted-foreground border-b">
 										<div className="w-8 flex items-center justify-center">#</div>
 										<div className="flex-1 min-w-0">Title</div>
-										<div className="w-20 flex items-center justify-center">
-											<Tooltip>
-												<TooltipTrigger asChild>
-													<Icon name="check" className="h-4 w-4" />
-												</TooltipTrigger>
-												<TooltipContent>
-													<p>Is Saved</p>
-												</TooltipContent>
-											</Tooltip>
-										</div>
 										<div className="w-8 flex items-center justify-center"></div>
 									</div>
 									{tracks.map((track, index) => {
@@ -444,10 +380,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 												userTrack={userTrack}
 												index={index}
 												playlistContext={{ type: 'playlist', playlistId: playlist.id }}
-												isInUserLibrary={track.isInUserLibrary}
 												isDeleted={track.isDeleted}
-												onAddToLibrary={handleAddToLibrary}
-												onRemoveFromLibrary={handleRemoveFromLibrary}
 												showDuration={false} // Hide duration on YouTube playlist browsing
 											/>
 										)
