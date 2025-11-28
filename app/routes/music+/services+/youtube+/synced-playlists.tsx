@@ -1,11 +1,13 @@
 import { type ServicePlaylist } from '@prisma/client'
 import { formatDistanceToNow } from 'date-fns'
+import { useEffect } from 'react'
 import {
   data,
   Form,
   useActionData,
   useLoaderData,
   Link,
+  useNavigate,
   type LoaderFunctionArgs,
   type ActionFunctionArgs,
 } from 'react-router'
@@ -84,11 +86,11 @@ export async function action({ request }: ActionFunctionArgs) {
 				
 				const result = await servicePlaylistService.resyncPlaylist(playlistId, userId)
 				if (result.success) {
-					return data({ status: 'success', ...result })
+					return data({ status: 'success', ...result, playlistId })
 				}
 				return data({ 
 					status: 'error', 
-					message: result.error || 'Failed to sync playlist. Please try again.' 
+					message: result.message || 'Failed to sync playlist. Please try again.' 
 				})
 			}
 			
@@ -99,7 +101,13 @@ export async function action({ request }: ActionFunctionArgs) {
 				}
 				
 				const result = await servicePlaylistService.removePlaylistFromSync(YOUTUBE_SERVICE.NAME, playlistId, userId)
-				return data({ status: 'success', ...result })
+				if (result.success) {
+					return data({ status: 'success', ...result })
+				}
+				return data({ 
+					status: 'error', 
+					message: result.message || 'Failed to remove playlist from sync. Please try again.' 
+				})
 			}
 			
 			default:
@@ -117,6 +125,24 @@ export async function action({ request }: ActionFunctionArgs) {
 export default function YouTubeSyncedPlaylistsPage() {
 	const { playlists } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+	const navigate = useNavigate()
+
+	// Check for pending matches and redirect to detail page if they exist
+	useEffect(() => {
+		if (actionData && 'status' in actionData && actionData.status === 'success') {
+			const pendingMatches = 'pendingMatches' in actionData && Array.isArray(actionData.pendingMatches) 
+				? actionData.pendingMatches 
+				: []
+			const playlistId = 'playlistId' in actionData && typeof actionData.playlistId === 'string'
+				? actionData.playlistId
+				: null
+
+			if (pendingMatches.length > 0 && playlistId) {
+				// Redirect to detail page to show confirmation dialog
+				void navigate(`/music/services/youtube/playlist/${playlistId}`, { replace: true })
+			}
+		}
+	}, [actionData, navigate])
 
 	return (
 		<div className="py-8">

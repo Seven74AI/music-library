@@ -18,13 +18,6 @@ import {
 } from '#app/types/youtube-api'
 import { prisma } from '#app/utils/db.server'
 import { 
-  YouTubeAPIError,
-  YouTubeNotFoundError,
-  YouTubeQuotaError,
-  YouTubeAuthError,
-  YouTubeNetworkError
-} from '#app/utils/youtube-errors'
-import { 
   validateYouTubeOAuth
 } from '#app/utils/youtube-oauth-validation.server'
 import { createYouTubeService } from './youtube.server'
@@ -60,6 +53,26 @@ interface SyncTrackInfo {
 }
 
 /**
+ * Pending match for deleted videos that need user confirmation
+ */
+interface PendingMatch {
+  deletedVideo: {
+    position: number
+    itemId: string | undefined
+    title: string | undefined
+    snippet: NewYouTubePlaylistItem['snippet'] | undefined
+  }
+  candidateTracks: Array<{
+    id: string
+    title: string
+    artist: string
+    externalId: string | null
+    position: number
+    isDeleted: boolean
+  }>
+}
+
+/**
  * Result from processing tracks in batches
  */
 interface ProcessTracksResult {
@@ -67,6 +80,7 @@ interface ProcessTracksResult {
   deletedTracks: SyncTrackInfo[]
   processedExternalIds: Set<string>
   processedTrackIds: Set<string>
+  pendingMatches: PendingMatch[]
 }
 
 
@@ -165,6 +179,92 @@ export class ServicePlaylistService {
   }
 
   /**
+   * Find orphaned tracks (tracks in playlist but not in current sync)
+   * These are candidates for matching with deleted videos
+   * 
+   * @param playlistId - The playlist ID
+   * @param processedExternalIds - Set of external IDs that were processed in current sync
+   * @param processedTrackIds - Set of track IDs that were processed in current sync
+   * @param pendingMatches - Array of existing pending matches to avoid duplicate suggestions
+   * @param tx - Prisma transaction instance
+   * @returns Array of orphaned tracks with metadata
+   */
+  private async findOrphanedTracks(
+    playlistId: string,
+    processedExternalIds: Set<string>,
+    processedTrackIds: Set<string>,
+    pendingMatches: PendingMatch[],
+    tx: any
+  ): Promise<Array<{
+    id: string
+    title: string
+    artist: string
+    externalId: string | null
+    position: number
+    isDeleted: boolean
+  }>> {
+    // Get all tracks in the playlist
+    const allPlaylistTracks = await tx.servicePlaylistTrack.findMany({
+      where: {
+        playlistId: playlistId
+      },
+      include: {
+        track: {
+          select: {
+            id: true,
+            title: true,
+            artist: true,
+            externalId: true
+          }
+        }
+      },
+      orderBy: {
+        position: 'asc'
+      }
+    })
+
+    // Get track IDs already claimed in pending matches
+    const claimedTrackIds = new Set<string>()
+    for (const match of pendingMatches) {
+      for (const candidate of match.candidateTracks) {
+        claimedTrackIds.add(candidate.id)
+      }
+    }
+
+    // Filter orphaned tracks:
+    // 1. Not in processedExternalIds or processedTrackIds (not in current sync)
+    // 2. Not already deleted (isDeleted === false) - Edge Case 9
+    // 3. Not already claimed in pending matches
+    const orphanedTracks = allPlaylistTracks
+      .filter((playlistTrack: { track: { externalId: string | null; id: string }; isDeleted: boolean }) => {
+        const externalId = playlistTrack.track.externalId
+        const trackId = playlistTrack.track.id
+        
+        // Skip if already processed in current sync
+        if (externalId && processedExternalIds.has(externalId)) return false
+        if (processedTrackIds.has(trackId)) return false
+        
+        // Skip if already deleted - Edge Case 9
+        if (playlistTrack.isDeleted) return false
+        
+        // Skip if already claimed in pending matches
+        if (claimedTrackIds.has(trackId)) return false
+        
+        return true
+      })
+      .map((playlistTrack: { track: { id: string; title: string; artist: string; externalId: string | null }; position: number; isDeleted: boolean }) => ({
+        id: playlistTrack.track.id,
+        title: playlistTrack.track.title,
+        artist: playlistTrack.track.artist,
+        externalId: playlistTrack.track.externalId,
+        position: playlistTrack.position,
+        isDeleted: playlistTrack.isDeleted
+      }))
+
+    return orphanedTracks
+  }
+
+  /**
    * Process tracks in batches for better performance
    * 
    * @param playlistItems - Array of playlist items to process
@@ -184,6 +284,7 @@ export class ServicePlaylistService {
     const deletedTracks: SyncTrackInfo[] = []
     const processedExternalIds = new Set<string>()
     const processedTrackIds = new Set<string>()
+    const pendingMatches: PendingMatch[] = []
     
     for (let batchStart = 0; batchStart < playlistItems.length; batchStart += batchSize) {
       const batch = playlistItems.slice(batchStart, batchStart + batchSize)
@@ -198,29 +299,94 @@ export class ServicePlaylistService {
         // Use videoId if available, otherwise use playlist item ID or generate unique identifier
         // This prevents multiple deleted videos from collapsing into a single track record
         let externalId = item.snippet?.resourceId?.videoId || ''
-        if (!externalId) {
-          // For deleted videos without videoId, use playlist item ID if available
-          // Otherwise generate a unique identifier using playlist ID and position
-          if (item.id) {
-            externalId = item.id
-          } else {
-            // Fallback: use playlist ID + position to create unique identifier
-            const playlistId = item.snippet?.playlistId || 'unknown'
-            const position = item.snippet?.position ?? batchStart + i
-            externalId = `deleted-${playlistId}-${position}`
-          }
+        const position = batchStart + i + 1
+        const isDeleted = this.isDeletedYouTubeVideo(item)
+        
+        // Try to find existing track by stable identifiers
+        let existingTrack: { id: string; title: string; artist: string; thumbnailUrl: string | null; externalId: string | null } | null = null
+        
+        // First, try matching by playlist item ID (for deleted videos)
+        if (isDeleted && item.id) {
+          // Try to find a track with this playlist item ID as externalId
+          existingTrack = await tx.track.findUnique({
+            where: {
+              serviceId_externalId: {
+                serviceId,
+                externalId: item.id
+              }
+            },
+            select: {
+              id: true,
+              title: true,
+              artist: true,
+              thumbnailUrl: true,
+              externalId: true
+            }
+          })
         }
         
-        try {
-          // Get existing track to preserve data if needed
-          const existingTrack = externalId ? await tx.track.findUnique({
+        // If not found, try matching by videoId (externalId)
+        if (!existingTrack && externalId) {
+          existingTrack = await tx.track.findUnique({
             where: {
               serviceId_externalId: {
                 serviceId,
                 externalId
               }
+            },
+            select: {
+              id: true,
+              title: true,
+              artist: true,
+              thumbnailUrl: true,
+              externalId: true
             }
-          }) : null
+          })
+        }
+        
+        // For deleted videos without a match, find orphaned tracks and add to pendingMatches
+        if (isDeleted && !existingTrack) {
+          // Generate a temporary externalId for tracking
+          if (item.id) {
+            externalId = item.id
+          } else {
+            externalId = `pending-${playlistId}-${item.id || position}`
+          }
+          
+          // Find orphaned tracks (tracks in playlist but not in current sync)
+          const orphanedTracks = await this.findOrphanedTracks(
+            playlistId,
+            processedExternalIds,
+            processedTrackIds,
+            pendingMatches,
+            tx
+          )
+          
+          // Add to pendingMatches for user confirmation
+          pendingMatches.push({
+            deletedVideo: {
+              position,
+              itemId: item.id,
+              title: item.snippet?.title,
+              snippet: item.snippet
+            },
+            candidateTracks: orphanedTracks
+          })
+          
+          // Skip creating track immediately - wait for user confirmation
+          continue
+        }
+        
+        // Generate externalId for deleted videos if not already set
+        if (isDeleted && !externalId) {
+          if (item.id) {
+            externalId = item.id
+          } else {
+            externalId = `deleted-${playlistId}-${position}`
+          }
+        }
+        
+        try {
           
           // Determine if we should preserve existing track data
           const preserveData = this.shouldPreserveTrackData(existingTrack, item)
@@ -349,7 +515,8 @@ export class ServicePlaylistService {
       processedCount: processedTracks,
       deletedTracks,
       processedExternalIds,
-      processedTrackIds
+      processedTrackIds,
+      pendingMatches
     }
   }
 
@@ -519,7 +686,8 @@ export class ServicePlaylistService {
       success: true,
       playlistId: playlist.id,
       tracksAdded: processResult.processedCount,
-      totalTracks: playlistItems.length
+      totalTracks: playlistItems.length,
+      pendingMatches: processResult.pendingMatches
     }
   }
 
@@ -560,8 +728,6 @@ export class ServicePlaylistService {
           ownerId: userId
         }
       })
-
-      console.log('result', result, result.count > 0)
 
       return {
         success: result.count > 0,
@@ -690,6 +856,8 @@ export class ServicePlaylistService {
     totalTracks: number
     deletedTracks: SyncTrackInfo[]
     removedTracks: SyncTrackInfo[]
+    pendingMatches: PendingMatch[]
+    message?: string
     error?: string
   }> {
     try {
@@ -706,12 +874,15 @@ export class ServicePlaylistService {
           totalTracks: 0,
           deletedTracks: [],
           removedTracks: [],
+          pendingMatches: [],
+          message: 'Playlist not found. It may have been removed or you may not have access to it.',
           error: 'Playlist not found. It may have been removed or you may not have access to it.'
         }
       }
       
       // Use the existing sync method
       const result = await this.syncPlaylistTracks(playlist.service.name, playlistId, userId)
+      // syncPlaylistTracks already includes a message field
       return result
     } catch (error) {
       console.error('Error resyncing playlist:', error)
@@ -722,6 +893,8 @@ export class ServicePlaylistService {
         totalTracks: 0,
         deletedTracks: [],
         removedTracks: [],
+        pendingMatches: [],
+        message: errorMessage,
         error: errorMessage
       }
     }
@@ -737,6 +910,8 @@ export class ServicePlaylistService {
     totalTracks: number
     deletedTracks: SyncTrackInfo[]
     removedTracks: SyncTrackInfo[]
+    pendingMatches: PendingMatch[]
+    message: string
   }> {
     const service = await this.getServiceByName(serviceName)
     const connection = await this.getUserConnection(serviceName, userId)
@@ -795,12 +970,25 @@ export class ServicePlaylistService {
       }
     })
 
+    // Get track IDs that are candidates in pending matches (don't remove these yet)
+    const candidateTrackIds = new Set<string>()
+    for (const match of processResult.pendingMatches) {
+      for (const candidate of match.candidateTracks) {
+        candidateTrackIds.add(candidate.id)
+      }
+    }
+
     const removedTracks: SyncTrackInfo[] = []
     const tracksToRemove: string[] = []
 
     for (const playlistTrack of existingPlaylistTracks) {
       const externalId = playlistTrack.track.externalId
       const trackId = playlistTrack.track.id
+      
+      // Don't remove tracks that are candidates in pending matches
+      if (candidateTrackIds.has(trackId)) {
+        continue
+      }
       
       // Determine if track should be removed:
       // 1. If externalId exists and is not in processedExternalIds → remove
@@ -845,7 +1033,171 @@ export class ServicePlaylistService {
       tracksAdded: processResult.processedCount,
       totalTracks: playlistItems.length,
       deletedTracks: processResult.deletedTracks,
-      removedTracks
+      removedTracks,
+      pendingMatches: processResult.pendingMatches,
+      message: `Playlist synced successfully. ${processResult.processedCount} tracks processed.`
+    }
+  }
+
+  /**
+   * Confirm deleted video matches - process user selections for pending matches
+   * 
+   * @param playlistId - The playlist ID
+   * @param matches - Array of user selections: { deletedItemId, selectedTrackId, position, action }
+   * @param userId - The user ID
+   * @returns Result with success count and any errors
+   */
+  async confirmDeletedVideoMatches(
+    playlistId: string,
+    matches: Array<{
+      deletedItemId: string | undefined
+      selectedTrackId: string | null
+      position: number
+      action: 'match' | 'new' | 'skip'
+    }>,
+    userId: string
+  ): Promise<{
+    success: boolean
+    processedCount: number
+    message: string
+    error?: string
+  }> {
+    // Verify playlist ownership
+    const playlist = await prisma.servicePlaylist.findFirst({
+      where: {
+        id: playlistId,
+        ownerId: userId,
+        isActive: true
+      }
+    })
+
+    if (!playlist) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: 'Playlist not found or access denied',
+        error: 'Playlist not found or access denied'
+      }
+    }
+
+    const service = await this.getServiceByName(playlist.serviceId)
+    const { createId } = await import('@paralleldrive/cuid2')
+
+    try {
+      // Process all matches in a single transaction (Edge Case 10)
+      const result = await prisma.$transaction(async (tx) => {
+        let processedCount = 0
+
+        for (const match of matches) {
+          if (match.action === 'skip') {
+            // Do nothing - skip this deleted video
+            continue
+          }
+
+          if (match.action === 'new') {
+            // Create new track with generated ID
+            const newTrackId = createId()
+            const externalId = match.deletedItemId || `deleted-${playlistId}-${match.position}`
+            
+            // Create track
+            const track = await tx.track.create({
+              data: {
+                id: newTrackId,
+                title: 'Deleted video',
+                artist: 'Unknown Artist',
+                album: null,
+                duration: null,
+                externalId,
+                serviceId: service.id,
+                serviceUrl: null,
+                thumbnailUrl: null,
+                releaseDate: null
+              }
+            })
+
+            // Create ServicePlaylistTrack
+            await tx.servicePlaylistTrack.create({
+              data: {
+                id: createId(),
+                playlistId: playlistId,
+                trackId: track.id,
+                position: match.position,
+                isDeleted: true,
+                deletedAt: new Date()
+              }
+            })
+
+            processedCount++
+          } else if (match.action === 'match' && match.selectedTrackId) {
+            // Match deleted video to existing track
+            const track = await tx.track.findUnique({
+              where: { id: match.selectedTrackId }
+            })
+
+            if (!track) {
+              throw new Error(`Track not found: ${match.selectedTrackId}`)
+            }
+
+            // Check if ServicePlaylistTrack already exists
+            const existingPlaylistTrack = await tx.servicePlaylistTrack.findUnique({
+              where: {
+                playlistId_trackId: {
+                  playlistId: playlistId,
+                  trackId: track.id
+                }
+              }
+            })
+
+            if (existingPlaylistTrack) {
+              // Update existing record
+              await tx.servicePlaylistTrack.update({
+                where: {
+                  playlistId_trackId: {
+                    playlistId: playlistId,
+                    trackId: track.id
+                  }
+                },
+                data: {
+                  position: match.position,
+                  isDeleted: true,
+                  deletedAt: existingPlaylistTrack.deletedAt || new Date()
+                }
+              })
+            } else {
+              // Create new ServicePlaylistTrack
+              await tx.servicePlaylistTrack.create({
+                data: {
+                  id: createId(),
+                  playlistId: playlistId,
+                  trackId: track.id,
+                  position: match.position,
+                  isDeleted: true,
+                  deletedAt: new Date()
+                }
+              })
+            }
+
+            processedCount++
+          }
+        }
+
+        return { processedCount }
+      })
+
+      return {
+        success: true,
+        processedCount: result.processedCount,
+        message: `Successfully processed ${result.processedCount} match(es).`
+      }
+    } catch (error) {
+      console.error('Error confirming deleted video matches:', error)
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      return {
+        success: false,
+        processedCount: 0,
+        message: `Failed to process matches. No changes were made. Please try again.`,
+        error: errorMessage
+      }
     }
   }
 }

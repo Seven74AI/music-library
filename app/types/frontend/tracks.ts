@@ -19,7 +19,6 @@ import {
   isDateOrNull, 
   isDate, 
   isNumber, 
-  isBoolean, 
   isObject 
 } from './type-guards'
 
