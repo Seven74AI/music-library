@@ -35,6 +35,8 @@ export interface TrackWithUserStatus {
   updatedAt: Date
   position: number
   isInUserLibrary: boolean
+  isDeleted?: boolean
+  deletedAt?: Date | null
   service?: {
     name: string
     displayName: string

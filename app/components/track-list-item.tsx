@@ -44,6 +44,7 @@ interface TrackListItemProps {
 	}
 	showSyncActions?: boolean
 	isInUserLibrary?: boolean
+	isDeleted?: boolean
 	onAddToLibrary?: (trackId: string) => void
 	onRemoveFromLibrary?: (trackId: string) => void
 	showQueueActions?: boolean
@@ -90,7 +91,7 @@ interface TrackListItemProps {
  * />
  * ```
  */
-export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, showSyncActions, isInUserLibrary, onAddToLibrary, onRemoveFromLibrary, showQueueActions, onRemoveFromQueue, showPlaylistActions, onRemoveFromPlaylist, playlists, showDuration = true }: TrackListItemProps) {
+export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, showSyncActions, isInUserLibrary, isDeleted, onAddToLibrary, onRemoveFromLibrary, showQueueActions, onRemoveFromQueue, showPlaylistActions, onRemoveFromPlaylist, playlists, showDuration = true }: TrackListItemProps) {
 	const [isHovered, setIsHovered] = useState(false)
 	const [isActionsSheetOpen, setIsActionsSheetOpen] = useState(false)
 	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
@@ -131,27 +132,27 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	}, [])
 
 	const handlePlayTrack = useCallback(() => {
-		if (!track.audioFiles || track.audioFiles.length === 0) {
+		if (!track.audioFiles || track.audioFiles.length === 0 || isDeleted) {
 			return
 		}
 		const context = playlistContext || { type: 'library' as const }
 		playTrack(track, context, index)
-	}, [track, playlistContext, index, playTrack])
+	}, [track, playlistContext, index, playTrack, isDeleted])
 
 	// Check if this track is currently playing (both ID and position must match for duplicates)
 	const isCurrentlyPlaying = currentTrack?.id === track.id && currentIndex === index
-	const hasAudioFiles = track.audioFiles && track.audioFiles.length > 0
+	const hasAudioFiles = track.audioFiles && track.audioFiles.length > 0 && !isDeleted
 
 	return (
 		<div 
 			className={`group flex items-center gap-4 px-4 py-2 rounded-md hover:bg-muted/50 transition-colors h-20 ${
 				isCurrentlyPlaying ? 'bg-primary/5' : ''
-			}`}
+			} ${isDeleted ? 'opacity-60' : ''}`}
 			onMouseEnter={() => setIsHovered(true)}
 			onMouseLeave={() => setIsHovered(false)}
 			onClick={hasAudioFiles ? handlePlayTrack : undefined}
 			role="gridcell"
-			aria-label={`Track ${index + 1}: ${track.title} by ${track.artist}`}
+			aria-label={`Track ${index + 1}: ${track.title} by ${track.artist}${isDeleted ? ' (Deleted from YouTube)' : ''}`}
 			style={hasAudioFiles ? { cursor: 'pointer' } : undefined}
 		>
 			{/* Track Number / Play Button */}
@@ -200,7 +201,19 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 							<div className="font-medium text-sm truncate group-hover:text-foreground transition-colors">
 								{track.title}
 							</div>
-							{track.service?.displayName === 'YouTube' && (
+							{isDeleted && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<div className="flex-shrink-0">
+											<Icon name="question-mark-circled" className="h-4 w-4 text-muted-foreground" />
+										</div>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>This video has been deleted from YouTube</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{track.service?.displayName === 'YouTube' && !isDeleted && (
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<div className="flex-shrink-0">
@@ -215,6 +228,9 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 						</div>
 						<div className="text-xs text-muted-foreground truncate">
 							{track.artist}
+							{isDeleted && (
+								<span className="ml-2 text-muted-foreground/70">• Deleted from YouTube</span>
+							)}
 						</div>
 					</div>
 				</div>

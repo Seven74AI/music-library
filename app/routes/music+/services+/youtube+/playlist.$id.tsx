@@ -229,6 +229,32 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 						<p className="text-sm text-green-800 font-medium">Success</p>
 					</div>
 					<p className="text-sm text-green-700 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
+					{'deletedTracks' in actionData && Array.isArray(actionData.deletedTracks) && actionData.deletedTracks.length > 0 && (
+						<div className="mt-2 text-sm text-green-700">
+							<p className="font-medium">Deleted tracks: {actionData.deletedTracks.length}</p>
+							<ul className="list-disc list-inside mt-1 space-y-1">
+								{actionData.deletedTracks.slice(0, 5).map((track: { id: string; title: string }) => (
+									<li key={track.id}>{track.title}</li>
+								))}
+								{actionData.deletedTracks.length > 5 && (
+									<li className="text-muted-foreground">...and {actionData.deletedTracks.length - 5} more</li>
+								)}
+							</ul>
+						</div>
+					)}
+					{'removedTracks' in actionData && Array.isArray(actionData.removedTracks) && actionData.removedTracks.length > 0 && (
+						<div className="mt-2 text-sm text-green-700">
+							<p className="font-medium">Removed tracks: {actionData.removedTracks.length}</p>
+							<ul className="list-disc list-inside mt-1 space-y-1">
+								{actionData.removedTracks.slice(0, 5).map((track: { id: string; title: string }) => (
+									<li key={track.id}>{track.title}</li>
+								))}
+								{actionData.removedTracks.length > 5 && (
+									<li className="text-muted-foreground">...and {actionData.removedTracks.length - 5} more</li>
+								)}
+							</ul>
+						</div>
+					)}
 				</div>
 			)}
 
@@ -419,6 +445,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 												index={index}
 												playlistContext={{ type: 'playlist', playlistId: playlist.id }}
 												isInUserLibrary={track.isInUserLibrary}
+												isDeleted={track.isDeleted}
 												onAddToLibrary={handleAddToLibrary}
 												onRemoveFromLibrary={handleRemoveFromLibrary}
 												showDuration={false} // Hide duration on YouTube playlist browsing
