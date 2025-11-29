@@ -1,5 +1,6 @@
+import path from 'node:path'
 import { test as base, type Response } from '@playwright/test'
-import { type User as UserModel } from '@prisma/client'
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { href, type Register } from 'react-router'
 import * as setCookieParser from 'set-cookie-parser'
 import {
@@ -7,9 +8,18 @@ import {
 	getSessionExpirationDate,
 	sessionKey,
 } from '#app/utils/auth.server.ts'
-import { prisma } from '#app/utils/db.server.ts'
 import { authSessionStorage } from '#app/utils/session.server.ts'
+import { type User as UserModel, PrismaClient } from '#prisma/client.js'
 import { createUser } from './db-utils.ts'
+
+// Use the same test database as the webServer
+const TEST_DATABASE_PATH = path.join(process.cwd(), './tests/prisma/base.db')
+const testPrisma = new PrismaClient({
+	adapter: new PrismaBetterSqlite3({
+		url: `file:${TEST_DATABASE_PATH}`,
+	}),
+})
+void testPrisma.$connect()
 
 export * from './db-utils.ts'
 
@@ -35,7 +45,7 @@ async function getOrInsertUser({
 }: GetOrInsertUserOptions = {}): Promise<User> {
 	const select = { id: true, email: true, username: true, name: true }
 	if (id) {
-		return await prisma.user.findUniqueOrThrow({
+		return await testPrisma.user.findUniqueOrThrow({
 			select,
 			where: { id: id },
 		})
@@ -44,7 +54,7 @@ async function getOrInsertUser({
 		username ??= userData.username
 		password ??= userData.username
 		email ??= userData.email
-		return await prisma.user.create({
+		return await testPrisma.user.create({
 			select,
 			data: {
 				...userData,
@@ -88,27 +98,27 @@ async function cleanupUserData(userIds: string[]): Promise<void> {
 	
 	try {
 		// Delete user tracks (references User)
-		await prisma.userTrack.deleteMany({ where: whereUserId })
+		await testPrisma.userTrack.deleteMany({ where: whereUserId })
 		
 		// Delete user playlists and their tracks (references User)
-		await prisma.userPlaylistTrack.deleteMany({
+		await testPrisma.userPlaylistTrack.deleteMany({
 			where: {
 				playlist: whereOwnerId
 			}
 		})
-		await prisma.userPlaylist.deleteMany({ where: whereOwnerId })
+		await testPrisma.userPlaylist.deleteMany({ where: whereOwnerId })
 
 		// Delete user-related data (references User) - can be done in parallel
 		await Promise.all([
-			prisma.session.deleteMany({ where: whereUserId }),
-			prisma.connection.deleteMany({ where: whereUserId }),
-			prisma.passkey.deleteMany({ where: whereUserId }),
-			prisma.userImage.deleteMany({ where: whereUserId }),
-			prisma.password.deleteMany({ where: whereUserId }),
+			testPrisma.session.deleteMany({ where: whereUserId }),
+			testPrisma.connection.deleteMany({ where: whereUserId }),
+			testPrisma.passkey.deleteMany({ where: whereUserId }),
+			testPrisma.userImage.deleteMany({ where: whereUserId }),
+			testPrisma.password.deleteMany({ where: whereUserId }),
 		])
 		
 		// Finally delete the users (ServicePlaylist will be auto-deleted via CASCADE)
-		await prisma.user.deleteMany({ where: whereUserIds })
+		await testPrisma.user.deleteMany({ where: whereUserIds })
 	} catch (error) {
 		console.warn(`Failed to cleanup users [${userIds.length} users]:`, error)
 		// In test environment, we might want to re-throw to fail the test
@@ -150,7 +160,7 @@ export const test = base.extend<{
 		await use(async (options) => {
 			const user = await getOrInsertUser(options)
 			userIds.push(user.id)
-			const session = await prisma.session.create({
+			const session = await testPrisma.session.create({
 				data: {
 					expirationDate: getSessionExpirationDate(),
 					userId: user.id,
@@ -179,7 +189,7 @@ export const test = base.extend<{
 		const trackIds: string[] = []
 		const userTrackIds: string[] = []
 		await use(async (options?: { title?: string; artist?: string }, userId?: string) => {
-			const track = await prisma.track.create({
+			const track = await testPrisma.track.create({
 				data: {
 					title: options?.title || 'Test Track',
 					artist: options?.artist || 'Test Artist',
@@ -189,7 +199,7 @@ export const test = base.extend<{
 			
 			// Add track to user's library if userId is provided
 			if (userId) {
-				const userTrack = await prisma.userTrack.create({
+				const userTrack = await testPrisma.userTrack.create({
 					data: {
 						userId: userId,
 						trackId: track.id,
@@ -203,14 +213,14 @@ export const test = base.extend<{
 		// Optimized cleanup - batch deletion
 		if (userTrackIds.length > 0) {
 			try {
-				await prisma.userTrack.deleteMany({ where: { id: { in: userTrackIds } } })
+				await testPrisma.userTrack.deleteMany({ where: { id: { in: userTrackIds } } })
 			} catch (error) {
 				console.warn(`Failed to cleanup user tracks:`, error)
 			}
 		}
 		if (trackIds.length > 0) {
 			try {
-				await prisma.track.deleteMany({ where: { id: { in: trackIds } } })
+				await testPrisma.track.deleteMany({ where: { id: { in: trackIds } } })
 			} catch (error) {
 				console.warn(`Failed to cleanup tracks:`, error)
 			}
@@ -222,7 +232,7 @@ export const test = base.extend<{
 			// Use YOUTUBE_SERVICE_ID from config
 			const { YOUTUBE_SERVICE_ID } = await import('#app/config/youtube')
 			
-			const playlist = await prisma.servicePlaylist.create({
+			const playlist = await testPrisma.servicePlaylist.create({
 				data: {
 					serviceId: YOUTUBE_SERVICE_ID,
 					externalId: options?.externalId || `PLtest${Date.now()}`,
@@ -243,7 +253,7 @@ export const test = base.extend<{
 		// Cleanup - ServicePlaylistTrack will CASCADE delete
 		if (playlistIds.length > 0) {
 			try {
-				await prisma.servicePlaylist.deleteMany({ 
+				await testPrisma.servicePlaylist.deleteMany({ 
 					where: { id: { in: playlistIds } } 
 				})
 			} catch (error) {

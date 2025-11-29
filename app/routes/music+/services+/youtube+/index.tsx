@@ -1,4 +1,3 @@
-import { type ServicePlaylist } from '@prisma/client'
 import { formatDistanceToNow } from 'date-fns'
 import { data, Link, useActionData, useLoaderData, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
 
@@ -11,6 +10,7 @@ import { isErrorActionResult, isSuccessActionResult } from '#app/types/frontend'
 import { requireUserId } from '#app/utils/auth.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
+import { type ServicePlaylist } from '#prisma/client.js'
 
 /**
  * Loader function for YouTube service overview page

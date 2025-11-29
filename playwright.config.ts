@@ -1,4 +1,13 @@
+import path from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
+
+// Set DATABASE_URL for the test process BEFORE any other imports
+// This ensures it's available when test files import prisma from db.server.ts
+// This must be set before 'dotenv/config' to ensure it takes precedence
+const BASE_DATABASE_PATH = path.join(process.cwd(), './tests/prisma/base.db')
+process.env.DATABASE_URL = `file:${BASE_DATABASE_PATH}`
+
+// Now load dotenv (which won't override DATABASE_URL if it's already set)
 import 'dotenv/config'
 
 const PORT = process.env.PORT || '3000'
@@ -48,7 +57,7 @@ export default defineConfig({
 	webServer: {
 		command: process.env.CI ? 'npm run start:mocks' : 'npm run dev',
 		port: Number(PORT),
-		reuseExistingServer: true,
+		reuseExistingServer: false, // Always start fresh to ensure correct DATABASE_URL
 		stdout: 'pipe',
 		stderr: 'pipe',
 		timeout: 60 * 1000, // Server timeout
@@ -57,6 +66,9 @@ export default defineConfig({
 			NODE_ENV: 'test',
 			MOCKS: 'true',
 			YOUTUBE_MOCKS: 'true',
+			// Use the test database created by global setup (absolute path)
+			// This ensures the webServer uses the same database as the global setup
+			DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
 		},
 	},
 })

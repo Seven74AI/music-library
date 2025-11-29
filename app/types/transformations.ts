@@ -1,6 +1,6 @@
-import { type Prisma } from '@prisma/client'
 import { type YouTubePlaylistItem, type YouTubePlaylist, type YouTubeVideo } from '#app/types/youtube-api'
 import { parseDuration, type VideoData } from '#app/utils/youtube-utils'
+import { type Prisma } from '#prisma/client.js'
 
 /**
  * Type-safe transformation from YouTube API to Prisma input types

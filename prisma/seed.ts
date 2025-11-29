@@ -1,15 +1,25 @@
+import 'dotenv/config'
 import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync, readdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { createId } from '@paralleldrive/cuid2'
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { LOCAL_SERVICE } from '#app/constants/services'
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
-import { prisma } from '#app/utils/db.server.ts'
 import { uploadFile } from '#app/utils/storage.server'
+import { PrismaClient } from '#prisma/client.js'
 import {
 	createPassword,
 	createUser,
 	getUserImages,
 } from '#tests/db-utils.ts'
+
+// Create Prisma Client directly using DATABASE_URL from environment
+// This ensures seed uses the same DATABASE_URL as migrations (both read from .env)
+const adapter = new PrismaBetterSqlite3({
+	url: process.env.DATABASE_URL || 'file:./prisma/data.db',
+})
+
+const prisma = new PrismaClient({ adapter })
 
 async function seed() {
 	console.log('🌱 Seeding...')
@@ -346,6 +356,22 @@ async function seedAudioFiles(userId: string) {
 
 				// Create track and audio file in transaction
 				await prisma.$transaction(async (tx) => {
+					// Parse releaseDate and originalDate if they exist
+					const releaseDate = extractedMetadata.releaseDate
+						? new Date(extractedMetadata.releaseDate)
+						: null
+					const originalDate = extractedMetadata.originalDate
+						? new Date(extractedMetadata.originalDate)
+						: null
+
+					// Extract genre (take first if array)
+					const genre = Array.isArray(extractedMetadata.genre)
+						? extractedMetadata.genre[0] || null
+						: extractedMetadata.genre || null
+
+					// Extract trackNumber from track.no
+					const trackNumber = extractedMetadata.track?.no || null
+
 					// Create track
 					const track = await tx.track.create({
 						data: {
@@ -358,7 +384,20 @@ async function seedAudioFiles(userId: string) {
 							externalId: fileId,
 							serviceUrl: null,
 							thumbnailUrl: null,
-							releaseDate: null,
+							releaseDate: releaseDate,
+							// New metadata fields
+							genre: genre,
+							year: extractedMetadata.year || null,
+							trackNumber: trackNumber,
+							albumArtist: extractedMetadata.albumArtist || null,
+							bpm: extractedMetadata.bpm || null,
+							label: extractedMetadata.label || null,
+							isrc: extractedMetadata.isrc || null,
+							originalDate: originalDate,
+							originalYear: extractedMetadata.originalYear || null,
+							totalTracks: extractedMetadata.totalTracks || null,
+							totalDiscs: extractedMetadata.totalDiscs || null,
+							lyrics: extractedMetadata.lyrics || null,
 						},
 					})
 
