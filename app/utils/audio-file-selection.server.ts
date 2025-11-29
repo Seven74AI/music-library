@@ -1,5 +1,5 @@
 // @context7: Prisma, TypeScript
-import  { type Prisma } from '@prisma/client'
+import { type Prisma } from '#prisma/client.js'
 
 type TrackAudioFile = Prisma.TrackAudioFileGetPayload<{}>
 

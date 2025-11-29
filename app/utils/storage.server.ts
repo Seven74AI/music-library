@@ -313,6 +313,71 @@ export async function deleteFile(
  * @param timings - Optional timing object for performance tracking
  * @returns Promise resolving to the uploaded object key
  */
+/**
+ * Upload album art/cover image for a track
+ * Processes and resizes the image using sharp
+ */
+export async function uploadAlbumArt(
+	params: {
+		file: File | FileUpload | Buffer
+		trackId: string
+		timings?: Timings
+	}
+): Promise<string> {
+	const { file, trackId, timings } = params
+
+	// Import sharp dynamically (only when needed)
+	const sharp = await import('sharp').catch(() => null)
+	if (!sharp) {
+		throw new Error('sharp is not available for image processing')
+	}
+
+	let imageBuffer: Buffer
+
+	if (Buffer.isBuffer(file)) {
+		imageBuffer = file
+	} else if (file instanceof File) {
+		const arrayBuffer = await file.arrayBuffer()
+		imageBuffer = Buffer.from(arrayBuffer)
+	} else {
+		// FileUpload
+		if ('buffer' in file && file.buffer instanceof ArrayBuffer) {
+			imageBuffer = Buffer.from(file.buffer)
+		} else if ('arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
+			const arrayBuffer = await file.arrayBuffer()
+			imageBuffer = Buffer.from(arrayBuffer)
+		} else {
+			throw new Error('Unsupported file type for album art')
+		}
+	}
+
+	// Process image: resize to max 1000x1000, convert to JPEG, optimize
+	const processedImage = await sharp.default(imageBuffer)
+		.resize(1000, 1000, {
+			fit: 'inside',
+			withoutEnlargement: true,
+		})
+		.jpeg({ quality: 85 })
+		.toBuffer()
+
+	const fileId = createId()
+	const timestamp = Date.now()
+	const key = `images/tracks/${trackId}/cover/${timestamp}-${fileId}.jpg`
+
+	await uploadFile({
+		file: processedImage,
+		key,
+		contentType: 'image/jpeg',
+		metadata: {
+			trackId,
+			type: 'album-art',
+		},
+		timings,
+	})
+
+	return key
+}
+
 export async function uploadProfileImage(
   userId: string,
   file: File | FileUpload,

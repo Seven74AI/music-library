@@ -1,11 +1,10 @@
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["typedSql"]
+  provider = "prisma-client"
+  output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -140,6 +139,20 @@ model Track {
   thumbnailUrl          String?
   album                 String?
   releaseDate           DateTime?
+  // Basic metadata
+  genre                 String?
+  year                  Int?
+  trackNumber           Int?
+  albumArtist           String?
+  // Additional metadata
+  bpm                   Int?
+  label                 String?
+  isrc                  String?
+  originalDate          DateTime?
+  originalYear          Int?
+  totalTracks           Int?
+  totalDiscs            Int?
+  lyrics                String?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   servicePlaylistTracks ServicePlaylistTrack[]

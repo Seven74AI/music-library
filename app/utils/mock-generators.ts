@@ -1,13 +1,6 @@
 import { faker } from '@faker-js/faker'
-import { type Prisma } from '@prisma/client'
 import { HttpResponse, http, type HttpHandler } from 'msw'
 import { YOUTUBE_SERVICE_ID } from '#app/config/youtube'
-
-// Mock data constants
-const DEFAULT_PLAYLIST_COUNT = 2
-const DEFAULT_TRACKS_PER_PLAYLIST = 3
-const TEST_CHANNEL_TITLE = 'Test Channel'
-const API_PLAYLIST_ID_PREFIX = 'PLapi'
 import { 
   type YouTubePlaylistItem, 
   type YouTubePlaylist,
@@ -19,6 +12,13 @@ import {
   YouTubeVideoSchema
 } from '#app/types/youtube-api'
 import { prisma } from '#app/utils/db.server'
+import { type Prisma } from '#prisma/client.js'
+
+// Mock data constants
+const DEFAULT_PLAYLIST_COUNT = 2
+const DEFAULT_TRACKS_PER_PLAYLIST = 3
+const TEST_CHANNEL_TITLE = 'Test Channel'
+const API_PLAYLIST_ID_PREFIX = 'PLapi'
 
 /**
  * MOCK DATA GENERATION ARCHITECTURE

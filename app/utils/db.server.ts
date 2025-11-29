@@ -1,7 +1,9 @@
 import { styleText } from 'node:util'
 import { remember } from '@epic-web/remember'
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 // Changed import due to issue: https://github.com/remix-run/react-router/pull/12644
-import { PrismaClient } from '@prisma/client/index.js'
+import { PrismaClient } from '#prisma/client.js'
+import { getDatabaseUrl } from './database-url.server.ts'
 
 export const prisma = remember('prisma', () => {
 	// NOTE: if you change anything in this function you'll need to restart
@@ -10,7 +12,12 @@ export const prisma = remember('prisma', () => {
 	// Always 20ms threshold as requested
 	const logThreshold = 20
 
+	const adapter = new PrismaBetterSqlite3({
+		url: getDatabaseUrl(),
+	})
+
 	const client = new PrismaClient({
+		adapter,
 		log: [
 			{ level: 'query', emit: 'event' },
 			{ level: 'error', emit: 'stdout' },

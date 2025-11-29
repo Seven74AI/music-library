@@ -27,5 +27,6 @@ node_modules
 prompt.txt
 
 # generated files
+/generated
 /app/components/ui/icons
 .react-router/

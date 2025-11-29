@@ -20,6 +20,16 @@ export interface ExtractedAudioMetadata {
 	lossless?: boolean
 	numberOfChannels?: number
 	bitsPerSample?: number
+	// Additional metadata fields
+	bpm?: number
+	label?: string
+	isrc?: string
+	originalDate?: string // YYYY-MM-DD format
+	originalYear?: number
+	releaseDate?: string // YYYY-MM-DD format
+	totalTracks?: number
+	totalDiscs?: number
+	lyrics?: string
 }
 
 /**
@@ -95,6 +105,39 @@ export async function extractAudioMetadata(
 				}
 			: undefined
 
+		// Extract additional metadata fields
+		const bpm = metadata.common.bpm
+		const label = extractString(metadata.common.label)
+		const isrc = extractString(metadata.common.isrc)
+		const originalDate = extractString(metadata.common.originaldate)
+		const originalYear = metadata.common.originalyear
+			? (typeof metadata.common.originalyear === 'number' 
+				? metadata.common.originalyear 
+				: parseInt(String(metadata.common.originalyear), 10))
+			: undefined
+		const releaseDate = extractString(metadata.common.releasedate)
+		
+		// Extract totalTracks from track.of or totaltracks field
+		const totalTracksRaw = track?.of || metadata.common.totaltracks
+		const totalTracks = typeof totalTracksRaw === 'number' ? totalTracksRaw : undefined
+		
+		// Extract totalDiscs from disk.of or totaldiscs field
+		const totalDiscsRaw = disk?.of || metadata.common.totaldiscs
+		const totalDiscs = typeof totalDiscsRaw === 'number' ? totalDiscsRaw : undefined
+		
+		// Extract lyrics (take first element if array, or combine if multiple)
+		// lyrics can be ILyricsTag[] which has text property
+		let lyrics: string | undefined
+		const lyricsData = metadata.common.lyrics
+		if (Array.isArray(lyricsData)) {
+			lyrics = lyricsData
+				.map(item => typeof item === 'string' ? item : (item as any)?.text || '')
+				.filter(Boolean)
+				.join('\n')
+		} else if (typeof lyricsData === 'string') {
+			lyrics = lyricsData
+		}
+
 		// Extract audio format properties
 		const duration = metadata.format.duration
 			? Math.round(metadata.format.duration)
@@ -128,6 +171,15 @@ export async function extractAudioMetadata(
 			lossless,
 			numberOfChannels,
 			bitsPerSample,
+			bpm: bpm || undefined,
+			label: label || undefined,
+			isrc: isrc || undefined,
+			originalDate: originalDate || undefined,
+			originalYear: originalYear || undefined,
+			releaseDate: releaseDate || undefined,
+			totalTracks: totalTracks || undefined,
+			totalDiscs: totalDiscs || undefined,
+			lyrics: lyrics || undefined,
 		}
 	} catch (error) {
 		console.error('Error extracting audio metadata:', error)

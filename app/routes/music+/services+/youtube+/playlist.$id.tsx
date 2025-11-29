@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from 'date-fns'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { data, Form, useActionData, useLoaderData, Link, useNavigate, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
 
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs'
@@ -180,6 +180,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	const navigate = useNavigate()
 	const [showDialog, setShowDialog] = useState(false)
 	const [syncButtonDisabled, setSyncButtonDisabled] = useState(false)
+	const hadPendingMatchesRef = useRef(false)
 
 	// Check for pending matches in action data
 	const pendingMatches = actionData && 'pendingMatches' in actionData && Array.isArray(actionData.pendingMatches) 
@@ -190,12 +191,14 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	useEffect(() => {
 		if (pendingMatches.length > 0) {
 			setShowDialog(true)
+			hadPendingMatchesRef.current = true
 		}
 	}, [pendingMatches.length])
 
 	// Handle dialog close
 	const handleDialogClose = () => {
 		setShowDialog(false)
+		hadPendingMatchesRef.current = false
 	}
 
 	// Handle sync button state change
@@ -206,14 +209,15 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	// Close dialog and reload page after successful confirmation
 	useEffect(() => {
 		if (actionData && 'status' in actionData && actionData.status === 'success') {
-			// Check if this was a confirmation action (no pendingMatches in response means they were processed)
-			if (pendingMatches.length > 0 && (!('pendingMatches' in actionData) || (Array.isArray(actionData.pendingMatches) && actionData.pendingMatches.length === 0))) {
+			// Check if we had pending matches before and they're now gone (confirmation was successful)
+			if (hadPendingMatchesRef.current && pendingMatches.length === 0 && showDialog) {
 				// Matches were confirmed, close dialog and reload page
 				setShowDialog(false)
+				hadPendingMatchesRef.current = false
 				void navigate('.', { replace: true })
 			}
 		}
-	}, [actionData, navigate, pendingMatches.length])
+	}, [actionData, navigate, pendingMatches.length, showDialog])
 
 	return (
 		<div className="py-8">

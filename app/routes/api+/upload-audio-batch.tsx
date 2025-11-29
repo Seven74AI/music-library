@@ -1,0 +1,480 @@
+// @context7: @mjackson/form-data-parser, @paralleldrive/cuid2, Prisma, React Router
+import { parseFormData } from '@mjackson/form-data-parser'
+import { createId } from '@paralleldrive/cuid2'
+import { data, type ActionFunctionArgs } from 'react-router'
+import { LOCAL_SERVICE } from '#app/constants/services'
+import { extractAudioMetadata, type ExtractedAudioMetadata } from '#app/utils/audio-metadata.server'
+import { requireUserId } from '#app/utils/auth.server'
+import { prisma } from '#app/utils/db.server'
+import { uploadFile } from '#app/utils/storage.server'
+import { extractAudioFilesFromZip } from '#app/utils/zip-extraction.server'
+import {
+	initUploadProgress,
+	updateFileProgress,
+	addSuccessfulTrack,
+	addFailedFile,
+	type StoredFileData,
+} from './upload-progress.$uploadId'
+
+// Maximum file size: 100MB per file, 500MB for ZIP
+const MAX_FILE_SIZE = 100 * 1024 * 1024
+const MAX_ZIP_SIZE = 500 * 1024 * 1024
+
+// Allowed audio MIME types
+const ALLOWED_AUDIO_MIME_TYPES = [
+	'audio/mpeg',
+	'audio/mp3',
+	'audio/flac',
+	'audio/wav',
+	'audio/wave',
+	'audio/mp4',
+	'audio/m4a',
+	'audio/aac',
+	'audio/ogg',
+	'audio/webm',
+]
+
+// Allowed ZIP MIME types
+const ALLOWED_ZIP_MIME_TYPES = [
+	'application/zip',
+	'application/x-zip-compressed',
+	'application/x-zip',
+]
+
+/**
+ * Generate storage key for audio file
+ */
+function generateAudioFileKey(
+	trackId: string,
+	serviceId: string | null,
+	format: string,
+	fileId: string,
+	extension: string
+): string {
+	const service = serviceId || 'local'
+	const timestamp = Date.now()
+	return `audio/tracks/${trackId}/${service}/${format}/${timestamp}-${fileId}.${extension}`
+}
+
+/**
+ * Get file extension from filename or MIME type
+ */
+function getFileExtension(fileName: string, mimeType?: string | null): string {
+	const extFromName = fileName.split('.').pop()?.toLowerCase()
+	if (extFromName) {
+		return extFromName
+	}
+
+	if (mimeType) {
+		const mimeToExt: Record<string, string> = {
+			'audio/mpeg': 'mp3',
+			'audio/mp3': 'mp3',
+			'audio/flac': 'flac',
+			'audio/wav': 'wav',
+			'audio/wave': 'wav',
+			'audio/mp4': 'm4a',
+			'audio/m4a': 'm4a',
+			'audio/aac': 'aac',
+			'audio/ogg': 'ogg',
+			'audio/webm': 'webm',
+		}
+		return mimeToExt[mimeType] || 'mp3'
+	}
+
+	return 'mp3'
+}
+
+interface FileWithMetadata {
+	fileName: string
+	buffer: Buffer
+	mimeType?: string
+	metadata: ExtractedAudioMetadata
+	userMetadata?: {
+		title?: string
+		artist?: string
+		album?: string
+		genre?: string
+		year?: number
+		trackNumber?: number
+		albumArtist?: string
+		bpm?: number
+		label?: string
+		isrc?: string
+		originalDate?: string
+		originalYear?: number
+		releaseDate?: string
+		totalTracks?: number
+		totalDiscs?: number
+		lyrics?: string
+	}
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+	const userId = await requireUserId(request)
+
+	// Parse form data
+	const formData = await parseFormData(request, { maxFileSize: MAX_ZIP_SIZE })
+
+	// Get upload session ID or create one
+	const uploadId = formData.get('uploadId')?.toString() || createId()
+
+	// Get files - can be single file, multiple files, or ZIP
+	const fileInput = formData.get('file')
+	const filesInput = formData.getAll('files')
+	const zipInput = formData.get('zipFile')
+
+	let filesToProcess: FileWithMetadata[] = []
+
+	// Handle ZIP file
+	if (zipInput instanceof File || (fileInput instanceof File && (ALLOWED_ZIP_MIME_TYPES.includes(fileInput.type) || fileInput.name.toLowerCase().endsWith('.zip')))) {
+		const zipFile = zipInput instanceof File ? zipInput : fileInput as File
+
+		if (zipFile.size > MAX_ZIP_SIZE) {
+			return data(
+				{
+					success: false,
+					error: `ZIP file size exceeds maximum of ${MAX_ZIP_SIZE / 1024 / 1024}MB`,
+				},
+				{ status: 400 }
+			)
+		}
+
+		try {
+			const arrayBuffer = await zipFile.arrayBuffer()
+			const zipBuffer = Buffer.from(arrayBuffer)
+			const extractedFiles = await extractAudioFilesFromZip(zipBuffer)
+
+			// Initialize progress tracking
+			initUploadProgress(uploadId, extractedFiles.map(f => f.fileName))
+
+			// Extract metadata from each file
+			for (let i = 0; i < extractedFiles.length; i++) {
+				const extractedFile = extractedFiles[i]
+				if (!extractedFile) continue
+				
+				const fileId = `file-${i}`
+
+				try {
+					updateFileProgress(uploadId, fileId, 0, 'processing')
+					const metadata = await extractAudioMetadata(extractedFile.buffer, extractedFile.fileName)
+
+					// Get user-provided metadata for this file (if any)
+					const userMetadata = formData.get(`metadata[${i}]`)?.toString()
+					const parsedMetadata = userMetadata ? (JSON.parse(userMetadata) as FileWithMetadata['userMetadata']) : undefined
+
+					filesToProcess.push({
+						fileName: extractedFile.fileName,
+						buffer: extractedFile.buffer,
+						mimeType: metadata.mimeType,
+						metadata,
+						userMetadata: parsedMetadata,
+					})
+				} catch (error) {
+					updateFileProgress(uploadId, fileId, 0, 'failed', error instanceof Error ? error.message : 'Failed to extract metadata')
+					console.error(`Error extracting metadata from ${extractedFile.fileName}:`, error)
+				}
+			}
+		} catch (error) {
+			return data(
+				{
+					success: false,
+					error: `Failed to extract ZIP file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+				},
+				{ status: 400 }
+			)
+		}
+	} else {
+		// Handle single or multiple audio files
+		const audioFiles: File[] = []
+
+		if (fileInput instanceof File) {
+			audioFiles.push(fileInput)
+		} else if (filesInput.length > 0 && filesInput.every(f => f instanceof File)) {
+			audioFiles.push(...(filesInput as File[]))
+		} else {
+			return data(
+				{
+					success: false,
+					error: 'No file or files provided',
+				},
+				{ status: 400 }
+			)
+		}
+
+		// Validate files
+		for (const file of audioFiles) {
+			if (file.size === 0) {
+				return data(
+					{
+						success: false,
+						error: `File ${file.name} is empty`,
+					},
+					{ status: 400 }
+				)
+			}
+
+			if (file.size > MAX_FILE_SIZE) {
+				return data(
+					{
+						success: false,
+						error: `File ${file.name} exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024}MB`,
+					},
+					{ status: 400 }
+				)
+			}
+
+			if (!ALLOWED_AUDIO_MIME_TYPES.includes(file.type)) {
+				return data(
+					{
+						success: false,
+						error: `File ${file.name} has invalid MIME type: ${file.type}`,
+					},
+					{ status: 400 }
+				)
+			}
+		}
+
+		// Initialize progress tracking
+		initUploadProgress(uploadId, audioFiles.map(f => f.name))
+
+		// Extract metadata from each file
+		for (let i = 0; i < audioFiles.length; i++) {
+			const file = audioFiles[i]
+			if (!file) continue
+			
+			const fileId = `file-${i}`
+
+			try {
+				updateFileProgress(uploadId, fileId, 0, 'processing')
+				const arrayBuffer = await file.arrayBuffer()
+				const buffer = Buffer.from(arrayBuffer)
+				const metadata = await extractAudioMetadata(buffer, file.name)
+
+				// Get user-provided metadata for this file (if any)
+				const userMetadata = formData.get(`metadata[${i}]`)?.toString()
+				const parsedMetadata = userMetadata ? (JSON.parse(userMetadata) as FileWithMetadata['userMetadata']) : undefined
+
+				filesToProcess.push({
+					fileName: file.name,
+					buffer,
+					mimeType: file.type,
+					metadata,
+					userMetadata: parsedMetadata,
+				})
+			} catch (error) {
+				updateFileProgress(uploadId, fileId, 0, 'failed', error instanceof Error ? error.message : 'Failed to extract metadata')
+				console.error(`Error extracting metadata from ${file.name}:`, error)
+			}
+		}
+	}
+
+	if (filesToProcess.length === 0) {
+		return data(
+			{
+				success: false,
+				error: 'No valid audio files to upload',
+			},
+			{ status: 400 }
+		)
+	}
+
+	// Get or create local service
+	const localService = await prisma.service.findUnique({
+		where: { name: LOCAL_SERVICE.NAME },
+	})
+
+	if (!localService) {
+		return data(
+			{ success: false, error: 'Local service not found' },
+			{ status: 500 }
+		)
+	}
+
+	// Process files asynchronously (don't await, return upload ID immediately)
+	void processFilesAsync(uploadId, filesToProcess, userId, localService.id)
+
+	return data(
+		{
+			success: true,
+			uploadId,
+			message: 'Upload started',
+		},
+		{ status: 202 } // Accepted - processing asynchronously
+	)
+}
+
+/**
+ * Process files asynchronously and update progress
+ */
+async function processFilesAsync(
+	uploadId: string,
+	files: FileWithMetadata[],
+	userId: string,
+	serviceId: string
+) {
+	const results: Array<{ success: boolean; trackId?: string; error?: string }> = []
+
+	for (let i = 0; i < files.length; i++) {
+		const file = files[i]
+		if (!file) continue
+		
+		const fileId = `file-${i}`
+
+		try {
+			// Use user metadata if provided, otherwise use extracted metadata
+			const title = file.userMetadata?.title || file.metadata.title
+			const artist = file.userMetadata?.artist || file.metadata.artist
+			const album = file.userMetadata?.album || file.metadata.album
+
+			// Validate required fields
+			if (!title || !artist) {
+				updateFileProgress(uploadId, fileId, 0, 'failed', 'Title and artist are required')
+				results.push({ success: false, error: 'Title and artist are required' })
+				continue
+			}
+
+			updateFileProgress(uploadId, fileId, 10, 'uploading')
+
+			// Generate IDs
+			const trackId = createId()
+			const fileIdForStorage = createId()
+			const format = file.metadata.format || 'mp3'
+			const extension = getFileExtension(file.fileName, file.mimeType)
+			const objectKey = generateAudioFileKey(
+				trackId,
+				serviceId,
+				format,
+				fileIdForStorage,
+				extension
+			)
+
+			updateFileProgress(uploadId, fileId, 30, 'uploading')
+
+			// Upload file to storage
+			await uploadFile({
+				file: file.buffer,
+				key: objectKey,
+				contentType: file.metadata.mimeType || file.mimeType || 'audio/mpeg',
+				metadata: {
+					title,
+					artist,
+					album: album || '',
+					uploadedBy: userId,
+				},
+			})
+
+			updateFileProgress(uploadId, fileId, 60, 'uploading')
+
+			// Create track and audio file in transaction
+			await prisma.$transaction(async (tx) => {
+				// Create track with all metadata fields
+				const track = await tx.track.create({
+					data: {
+						id: trackId,
+						title,
+						artist,
+						album: album || null,
+						duration: file.metadata.duration || null,
+						serviceId: serviceId || null,
+						externalId: fileIdForStorage,
+						serviceUrl: null,
+						thumbnailUrl: null,
+						releaseDate: file.userMetadata?.releaseDate 
+							? new Date(file.userMetadata.releaseDate) 
+							: (file.metadata.releaseDate ? new Date(file.metadata.releaseDate) : null),
+						// Basic metadata
+						genre: file.userMetadata?.genre || (file.metadata.genre?.[0] || null),
+						year: file.userMetadata?.year || file.metadata.year || null,
+						trackNumber: file.userMetadata?.trackNumber || file.metadata.track?.no || null,
+						albumArtist: file.userMetadata?.albumArtist || file.metadata.albumArtist || null,
+						// Additional metadata
+						bpm: file.userMetadata?.bpm || file.metadata.bpm || null,
+						label: file.userMetadata?.label || file.metadata.label || null,
+						isrc: file.userMetadata?.isrc || file.metadata.isrc || null,
+						originalDate: file.userMetadata?.originalDate 
+							? new Date(file.userMetadata.originalDate) 
+							: (file.metadata.originalDate ? new Date(file.metadata.originalDate) : null),
+						originalYear: file.userMetadata?.originalYear || file.metadata.originalYear || null,
+						totalTracks: file.userMetadata?.totalTracks || file.metadata.totalTracks || null,
+						totalDiscs: file.userMetadata?.totalDiscs || file.metadata.totalDiscs || null,
+						lyrics: file.userMetadata?.lyrics || file.metadata.lyrics || null,
+					},
+				})
+
+				updateFileProgress(uploadId, fileId, 80, 'uploading')
+
+				// Create audio file record
+				await tx.trackAudioFile.create({
+					data: {
+						trackId: track.id,
+						serviceId,
+						objectKey,
+						fileName: file.fileName,
+						fileSize: file.buffer.length,
+						mimeType: file.metadata.mimeType || file.mimeType,
+						format,
+						bitrate: file.metadata.bitrate || null,
+						sampleRate: file.metadata.sampleRate || null,
+						uploadedBy: userId,
+					},
+				})
+
+				updateFileProgress(uploadId, fileId, 90, 'uploading')
+
+				// Add track to user's library
+				await tx.userTrack.create({
+					data: {
+						userId,
+						trackId: track.id,
+					},
+				})
+
+				updateFileProgress(uploadId, fileId, 100, 'completed')
+				
+				// Store successful track information
+				addSuccessfulTrack(uploadId, {
+					trackId: track.id,
+					fileName: file.fileName,
+					title: track.title,
+					artist: track.artist,
+				})
+				
+				results.push({ success: true, trackId: track.id })
+			})
+		} catch (error) {
+			console.error(`Error uploading file ${file.fileName}:`, error)
+			const errorMessage = error instanceof Error ? error.message : 'Failed to upload file'
+			updateFileProgress(uploadId, fileId, 0, 'failed', errorMessage)
+			
+			// Store failed file data for retry
+			const storedFileData: StoredFileData = {
+				fileName: file.fileName,
+				buffer: file.buffer,
+				mimeType: file.mimeType,
+				metadata: {
+					title: file.metadata.title,
+					artist: file.metadata.artist,
+					album: file.metadata.album,
+					genre: file.metadata.genre?.[0],
+					year: file.metadata.year,
+					trackNumber: file.metadata.track?.no,
+					albumArtist: file.metadata.albumArtist,
+					bpm: file.metadata.bpm,
+					label: file.metadata.label,
+					isrc: file.metadata.isrc,
+					originalDate: file.metadata.originalDate,
+					originalYear: file.metadata.originalYear,
+					releaseDate: file.metadata.releaseDate,
+					totalTracks: file.metadata.totalTracks,
+					totalDiscs: file.metadata.totalDiscs,
+					lyrics: file.metadata.lyrics,
+				},
+				userMetadata: file.userMetadata,
+			}
+			addFailedFile(uploadId, fileId, errorMessage, storedFileData)
+			
+			results.push({ success: false, error: errorMessage })
+		}
+	}
+}
+

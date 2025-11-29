@@ -373,6 +373,10 @@ export class ServicePlaylistService {
             candidateTracks: orphanedTracks
           })
           
+          // Mark externalId as processed to prevent it from being marked as "removed"
+          // This ensures pending deleted videos aren't deleted before user confirmation
+          processedExternalIds.add(externalId)
+          
           // Skip creating track immediately - wait for user confirmation
           continue
         }
@@ -1068,7 +1072,8 @@ export class ServicePlaylistService {
         id: playlistId,
         ownerId: userId,
         isActive: true
-      }
+      },
+      include: { service: true }
     })
 
     if (!playlist) {
@@ -1080,7 +1085,16 @@ export class ServicePlaylistService {
       }
     }
 
-    const service = await this.getServiceByName(playlist.serviceId)
+    if (!playlist.service) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: 'Service not found for playlist',
+        error: 'Service not found for playlist'
+      }
+    }
+
+    const service = await this.getServiceByName(playlist.service.name)
     const { createId } = await import('@paralleldrive/cuid2')
 
     try {

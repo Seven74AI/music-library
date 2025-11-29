@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Form } from 'react-router'
 import { Button } from '#app/components/ui/button'
 import {
@@ -46,6 +46,7 @@ export function DeletedVideoMatchDialog({
 }: DeletedVideoMatchDialogProps) {
 	const [currentPage, setCurrentPage] = useState(1)
 	const [selections, setSelections] = useState<Record<number, { action: 'match' | 'new' | 'skip'; trackId?: string }>>({})
+	const hasNotifiedRef = useRef(false)
 
 	const totalPages = Math.ceil(pendingMatches.length / ITEMS_PER_PAGE)
 	const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
@@ -63,20 +64,29 @@ export function DeletedVideoMatchDialog({
 		}))
 	}
 
-
-	// Notify parent about sync button state
+	// Notify parent about sync button state when dialog opens
+	// Use useEffect to avoid side effects during render
 	useEffect(() => {
-		if (onSyncButtonStateChange) {
+		if (!hasNotifiedRef.current && onSyncButtonStateChange) {
 			onSyncButtonStateChange(true)
+			hasNotifiedRef.current = true
 		}
+
 		return () => {
-			if (onSyncButtonStateChange) {
+			// Re-enable sync button when component unmounts or dialog closes
+			if (onSyncButtonStateChange && hasNotifiedRef.current) {
 				onSyncButtonStateChange(false)
+				hasNotifiedRef.current = false
 			}
 		}
 	}, [onSyncButtonStateChange])
 
 	const handleClose = () => {
+		// Re-enable sync button when dialog closes
+		if (onSyncButtonStateChange) {
+			onSyncButtonStateChange(false)
+		}
+		hasNotifiedRef.current = false
 		onClose()
 	}
 
