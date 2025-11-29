@@ -7,7 +7,7 @@ Accepted
 The Music Library application uses Playwright for end-to-end (e2e) testing. During the migration to Prisma 7, we encountered issues where test files were querying the wrong database (development database instead of test database), causing test failures and data inconsistencies.
 
 ### Problems with Previous Approach
-test
+test2
 #### 1. Database URL Inconsistency
 - Test files directly importing `prisma` from `db.server.ts` were using the default database (`file:./prisma/data.db`)
 - The webServer process had `DATABASE_URL` set correctly, but the test process did not
