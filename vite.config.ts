@@ -1,3 +1,5 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { reactRouter } from '@react-router/dev/vite'
 import {
 	type SentryReactRouterBuildOptions,
@@ -9,6 +11,8 @@ import { envOnlyMacros } from 'vite-env-only'
 import { iconsSpritesheet } from 'vite-plugin-icons-spritesheet'
 
 const MODE = process.env.NODE_ENV
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig((config) => ({
 	build: {
@@ -30,6 +34,11 @@ export default defineConfig((config) => ({
 		},
 
 		sourcemap: MODE !== 'production',
+	},
+	resolve: {
+		alias: {
+			'#prisma/client.js': path.resolve(__dirname, './generated/prisma/client.js'),
+		},
 	},
 	server: {
 		watch: {
