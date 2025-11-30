@@ -368,11 +368,11 @@ export async function searchAll(
 		return { results: [], pagination: { limit, hasNext: false, nextCursor: null } }
 	}
 
-	// Calculate per-type limits (distribute evenly, with remainder to tracks)
-	const perTypeLimit = Math.ceil(limit / 3)
-	const trackLimit = type === 'all' || type === 'tracks' ? perTypeLimit : 0
-	const albumLimit = type === 'all' || type === 'albums' ? perTypeLimit : 0
-	const artistLimit = type === 'all' || type === 'artists' ? perTypeLimit : 0
+	// Fetch limit results from each type to ensure we have enough candidates
+	// Then combine and take the top N by relevance for better result quality
+	const trackLimit = type === 'all' || type === 'tracks' ? limit : 0
+	const albumLimit = type === 'all' || type === 'albums' ? limit : 0
+	const artistLimit = type === 'all' || type === 'artists' ? limit : 0
 
 	// Search all types in parallel
 	const [tracksResult, albumsResult, artistsResult] = await Promise.all([
@@ -388,7 +388,7 @@ export async function searchAll(
 		...artistsResult.results,
 	].sort((a, b) => a.relevance - b.relevance)
 
-	// Take top N results
+	// Take top N results (this ensures the most relevant results across all types)
 	const results = allResults.slice(0, limit)
 	const hasNext = allResults.length > limit || tracksResult.pagination.hasNext || albumsResult.pagination.hasNext || artistsResult.pagination.hasNext
 	const nextCursor = results.length > 0 ? results[results.length - 1]?.id ?? null : null
