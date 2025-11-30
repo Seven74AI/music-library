@@ -1,9 +1,61 @@
 # This file is moved to the root directory before building the image
 
+# Dependencies (installed in container)
 /node_modules
+
+# Build artifacts (built in container)
+/build
+/server-build
+/public/build
+.generated
+.react-router/
+
+# Test files and reports (not needed in production)
+/tests
+/test-results
+/playwright-report
+/playwright
+/coverage
+
+# Development files
+.env
+.env.*
 *.log
 .DS_Store
-.env
 /.cache
-/public/build
-/build
+
+# Seed data (large audio files, not needed in production)
+prisma/seed-data
+prisma/seed-data/**
+**/seed-data/**
+
+# Generated files (regenerated in container)
+/app/components/ui/icons
+
+# Documentation (not needed in production)
+/docs
+*.md
+!README.md
+
+# Scripts (not needed in production)
+/scripts
+
+# Other development files
+prompt.txt
+*.local.*
+/other/cache.db
+
+# Git (not needed in container)
+.git
+.gitignore
+.gitattributes
+
+# CI/CD (not needed in container)
+.github
+
+# Editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~

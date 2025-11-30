@@ -20,9 +20,11 @@ destination = "/data"
 dockerfile = "/other/Dockerfile"
 ignorefile = "/other/Dockerfile.dockerignore"
 
-[[services]]
-memory = "1gb"
+[[vm]]
 size = "shared-cpu-4x"
+memory = "1gb"
+
+[[services]]
 internal_port = 8_080
 processes = [ "app" ]
 protocol = "tcp"
