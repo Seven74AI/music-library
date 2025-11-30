@@ -37,7 +37,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 		)
 		
 		const rawCursor = url.searchParams.get('cursor')
-		const cursor = validateCursor(rawCursor)
+		// Convert null to undefined for cursor validation (url.searchParams.get returns null, not undefined)
+		const cursor = validateCursor(rawCursor === null ? undefined : rawCursor)
 		
 		// Enable prefix matching by default for better search experience
 		const usePrefix = url.searchParams.get('prefix') !== 'false'
@@ -46,15 +47,21 @@ export async function loader({ request }: Route.LoaderArgs) {
 		const results = await searchAll(query, limit, cursor, type, usePrefix)
 		return Response.json(results)
 	} catch (error) {
-		// Security: Don't expose internal error details to clients
+		// Log all errors for debugging (including validation errors)
 		if (error instanceof z.ZodError) {
+			console.error('🚨 [SEARCH API] Validation error:', error.errors)
+			console.error('🚨 [SEARCH API] Full ZodError:', error)
+			// Security: Don't expose internal error details to clients
 			return Response.json(
 				{ error: 'Invalid search parameters', details: error.errors },
 				{ status: 400 },
 			)
 		}
 		
-		console.error('Error searching:', error)
+		console.error('🚨 [SEARCH API] Unexpected error searching:', error)
+		if (error instanceof Error) {
+			console.error('🚨 [SEARCH API] Error stack:', error.stack)
+		}
 		return Response.json(
 			{ error: 'Failed to perform search' },
 			{ status: 500 },

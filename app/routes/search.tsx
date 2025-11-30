@@ -42,7 +42,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 		)
 		
 		const rawCursor = url.searchParams.get('cursor')
-		const cursor = validateCursor(rawCursor)
+		// Convert null to undefined for cursor validation (url.searchParams.get returns null, not undefined)
+		const cursor = validateCursor(rawCursor === null ? undefined : rawCursor)
 		
 		// Enable prefix matching by default for better search experience
 		const usePrefix = url.searchParams.get('prefix') !== 'false'
@@ -65,8 +66,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 			pagination: searchResults.pagination,
 		}
 	} catch (error) {
-		// Security: Don't expose internal error details to clients
+		// Log all errors for debugging (including validation errors)
 		if (error instanceof z.ZodError) {
+			console.error('🚨 [SEARCH ROUTE] Validation error:', error.errors)
+			console.error('🚨 [SEARCH ROUTE] Full ZodError:', error)
+			// Security: Don't expose internal error details to clients
 			// Validation error - return empty results
 			return {
 				results: [],
@@ -76,7 +80,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 			}
 		}
 		
-		console.error('Error in search loader:', error)
+		console.error('🚨 [SEARCH ROUTE] Unexpected error in search loader:', error)
+		if (error instanceof Error) {
+			console.error('🚨 [SEARCH ROUTE] Error stack:', error.stack)
+		}
 		return {
 			results: [],
 			query: url.searchParams.get('q') || '',
