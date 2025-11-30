@@ -56,14 +56,14 @@ jobs:
       - name: 📥 Download deps
         uses: bahmutov/npm-install@v1
 
-      - name: 🏗 Build
-        run: npm run build
-
       - name: 🏄 Copy test env vars
         run: cp .env.example .env
 
       - name: 🛠 Setup Database
         run: npx prisma migrate deploy && npx prisma generate --sql
+
+      - name: 🏗 Build
+        run: npm run build
 
       - name: 🔎 Type check
         run: npm run typecheck --if-present
