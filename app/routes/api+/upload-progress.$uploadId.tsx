@@ -56,9 +56,11 @@ const uploadProgressStore = new Map<
 			progress: number
 			status: 'pending' | 'processing' | 'uploading' | 'completed' | 'failed'
 			error?: string
+			fileSize?: number // File size in bytes for speed calculation
 		}>
 		overallProgress: number
 		status: 'active' | 'completed' | 'failed'
+		startTime?: number // Timestamp when upload started
 		successfulTracks?: Array<{
 			trackId: string
 			fileName: string
@@ -72,6 +74,12 @@ const uploadProgressStore = new Map<
 			fileData?: StoredFileData
 		}>
 	}
+>()
+
+// Store active SSE connections for real-time updates
+const activeConnections = new Map<
+	string,
+	Set<ReadableStreamDefaultController>
 >()
 
 /**
@@ -93,9 +101,11 @@ export function setUploadProgress(
 			progress: number
 			status: 'pending' | 'processing' | 'uploading' | 'completed' | 'failed'
 			error?: string
+			fileSize?: number
 		}>
 		overallProgress: number
 		status: 'active' | 'completed' | 'failed'
+		startTime?: number
 		successfulTracks?: Array<{
 			trackId: string
 			fileName: string
@@ -131,9 +141,85 @@ export function initUploadProgress(
 		files,
 		overallProgress: 0,
 		status: 'active',
+		startTime: Date.now(),
 		successfulTracks: [],
 		failedFiles: [],
 	})
+}
+
+/**
+ * Push progress update to all active SSE connections for this upload
+ */
+function pushProgressUpdate(uploadId: string) {
+	const progress = getUploadProgress(uploadId)
+	if (!progress) return
+
+	const connections = activeConnections.get(uploadId)
+	if (!connections || connections.size === 0) return
+
+	// Calculate upload speed
+	let uploadSpeed = 0
+	if (progress.startTime) {
+		const elapsedSeconds = (Date.now() - progress.startTime) / 1000
+		if (elapsedSeconds > 0) {
+			// Calculate total bytes transferred
+			const totalBytes = progress.files.reduce((sum, file) => {
+				if (file.fileSize && file.status !== 'pending' && file.status !== 'processing') {
+					// Only count bytes for files that are uploading or completed
+					return sum + (file.fileSize * file.progress / 100)
+				}
+				return sum
+			}, 0)
+			uploadSpeed = totalBytes / elapsedSeconds // bytes per second
+		}
+	}
+
+	// Create a clean progress object for JSON serialization
+	// Avoid circular references and ensure all data is serializable
+	const cleanProgress = {
+		type: 'progress' as const,
+		files: progress.files.map(file => ({
+			fileId: file.fileId,
+			fileName: file.fileName,
+			progress: file.progress,
+			status: file.status,
+			error: file.error,
+		})),
+		overallProgress: progress.overallProgress,
+		status: progress.status,
+		uploadSpeed,
+		successfulTracks: (progress.successfulTracks || []).map(track => ({
+			trackId: track.trackId,
+			fileName: track.fileName,
+			title: track.title,
+			artist: track.artist,
+		})),
+		failedFiles: (progress.failedFiles || []).map(file => ({
+			fileId: file.fileId,
+			fileName: file.fileName,
+			error: file.error,
+		})),
+	}
+
+	try {
+		const encoder = new TextEncoder()
+		const message = encoder.encode(
+			`data: ${JSON.stringify(cleanProgress)}\n\n`
+		)
+
+		// Send to all active connections
+		for (const controller of connections) {
+			try {
+				controller.enqueue(message)
+			} catch {
+				// Connection might be closed, remove it
+				connections.delete(controller)
+			}
+		}
+	} catch (error) {
+		// If JSON.stringify fails, log error but don't crash
+		console.error('Error serializing progress update:', error)
+	}
 }
 
 /**
@@ -144,7 +230,8 @@ export function updateFileProgress(
 	fileId: string,
 	progress: number,
 	status?: 'processing' | 'uploading' | 'completed' | 'failed',
-	error?: string
+	error?: string,
+	fileSize?: number // Optional file size in bytes for speed calculation
 ) {
 	const current = uploadProgressStore.get(uploadId)
 	if (!current) return
@@ -162,6 +249,9 @@ export function updateFileProgress(
 	if (error) {
 		file.error = error
 	}
+	if (fileSize !== undefined) {
+		file.fileSize = fileSize
+	}
 
 	// Calculate overall progress
 	const totalProgress = current.files.reduce((sum, file) => sum + file.progress, 0)
@@ -175,6 +265,9 @@ export function updateFileProgress(
 	}
 
 	uploadProgressStore.set(uploadId, current)
+	
+	// Push update immediately to all active connections
+	pushProgressUpdate(uploadId)
 }
 
 /**
@@ -228,12 +321,12 @@ export function addFailedFile(
 
 /**
  * Clean up old progress entries (older than 1 hour)
+ * Note: In production, use Redis with TTL for automatic cleanup
  */
 export function cleanupOldProgress() {
-	// const oneHourAgo = Date.now() - 60 * 60 * 1000
-	// TODO: Implement cleanup logic if needed
-	// Note: We'd need to track timestamps for this, but for now we'll rely on manual cleanup
-	// In production, use Redis with TTL
+	// In-memory cleanup would require tracking timestamps
+	// For now, progress entries are cleaned up when upload completes or fails
+	// In production, use Redis with TTL for automatic expiration
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
@@ -244,50 +337,140 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		return data({ error: 'Upload ID is required' }, { status: 400 })
 	}
 
-	// Create SSE stream
+	// Create SSE stream with real-time updates
 	const stream = new ReadableStream({
 		start(controller) {
 			// Send initial connection message
 			const encoder = new TextEncoder()
 			controller.enqueue(encoder.encode('data: {"type":"connected"}\n\n'))
 
-			// Poll for progress updates
-			const interval = setInterval(() => {
+			// Register this connection for real-time updates
+			if (!activeConnections.has(uploadId)) {
+				activeConnections.set(uploadId, new Set())
+			}
+			activeConnections.get(uploadId)?.add(controller)
+
+			// Send initial progress state
+			const initialProgress = getUploadProgress(uploadId)
+			if (initialProgress) {
+				// Calculate initial upload speed
+				let uploadSpeed = 0
+				if (initialProgress.startTime) {
+					const elapsedSeconds = (Date.now() - initialProgress.startTime) / 1000
+					if (elapsedSeconds > 0) {
+						const totalBytes = initialProgress.files.reduce((sum, file) => {
+							if (file.fileSize && file.status !== 'pending' && file.status !== 'processing') {
+								return sum + (file.fileSize * file.progress / 100)
+							}
+							return sum
+						}, 0)
+						uploadSpeed = totalBytes / elapsedSeconds
+					}
+				}
+				// Create clean progress object to avoid JSON.stringify issues
+				const cleanInitialProgress = {
+					type: 'progress' as const,
+					files: initialProgress.files.map(file => ({
+						fileId: file.fileId,
+						fileName: file.fileName,
+						progress: file.progress,
+						status: file.status,
+						error: file.error,
+					})),
+					overallProgress: initialProgress.overallProgress,
+					status: initialProgress.status,
+					uploadSpeed,
+					successfulTracks: (initialProgress.successfulTracks || []).map(track => ({
+						trackId: track.trackId,
+						fileName: track.fileName,
+						title: track.title,
+						artist: track.artist,
+					})),
+					failedFiles: (initialProgress.failedFiles || []).map(file => ({
+						fileId: file.fileId,
+						fileName: file.fileName,
+						error: file.error,
+					})),
+				}
+				controller.enqueue(
+					encoder.encode(`data: ${JSON.stringify(cleanInitialProgress)}\n\n`)
+				)
+			}
+
+			// Periodic heartbeat to check if upload is completed (fallback for edge cases)
+			const heartbeat = setInterval(() => {
 				const progress = getUploadProgress(uploadId)
 
 				if (!progress) {
-					// Upload session not found or expired
 					controller.enqueue(
 						encoder.encode('data: {"type":"error","message":"Upload session not found"}\n\n')
 					)
-					clearInterval(interval)
+					clearInterval(heartbeat)
 					controller.close()
 					return
 				}
 
-				// Send progress update
-				controller.enqueue(
-					encoder.encode(`data: ${JSON.stringify({ type: 'progress', ...progress })}\n\n`)
-				)
-
 				// Close stream if upload is completed or failed
 				if (progress.status === 'completed' || progress.status === 'failed') {
-					clearInterval(interval)
-					// Send final update with completion data before closing
+					clearInterval(heartbeat)
+					// Send final update
+					let uploadSpeed = 0
+					if (progress.startTime) {
+						const elapsedSeconds = (Date.now() - progress.startTime) / 1000
+						if (elapsedSeconds > 0) {
+							const totalBytes = progress.files.reduce((sum, file) => {
+								if (file.fileSize) {
+									return sum + (file.fileSize * file.progress / 100)
+								}
+								return sum
+							}, 0)
+							uploadSpeed = totalBytes / elapsedSeconds
+						}
+					}
+					// Create clean progress object
+					const cleanFinalProgress = {
+						type: 'progress' as const,
+						files: progress.files.map(file => ({
+							fileId: file.fileId,
+							fileName: file.fileName,
+							progress: file.progress,
+							status: file.status,
+							error: file.error,
+						})),
+						overallProgress: progress.overallProgress,
+						status: progress.status,
+						uploadSpeed,
+						successfulTracks: (progress.successfulTracks || []).map(track => ({
+							trackId: track.trackId,
+							fileName: track.fileName,
+							title: track.title,
+							artist: track.artist,
+						})),
+						failedFiles: (progress.failedFiles || []).map(file => ({
+							fileId: file.fileId,
+							fileName: file.fileName,
+							error: file.error,
+						})),
+					}
 					controller.enqueue(
-						encoder.encode(`data: ${JSON.stringify({ type: 'progress', ...progress })}\n\n`)
+						encoder.encode(`data: ${JSON.stringify(cleanFinalProgress)}\n\n`)
 					)
 					// Keep data for a bit longer to allow client to fetch it
 					setTimeout(() => {
 						uploadProgressStore.delete(uploadId)
+						activeConnections.delete(uploadId)
 					}, 30000) // Keep for 30 seconds to allow completion screen to load
 					controller.close()
 				}
-			}, 500) // Poll every 500ms
+			}, 1000) // Check every 1 second (just for completion detection)
 
 			// Cleanup on client disconnect
 			request.signal.addEventListener('abort', () => {
-				clearInterval(interval)
+				clearInterval(heartbeat)
+				activeConnections.get(uploadId)?.delete(controller)
+				if (activeConnections.get(uploadId)?.size === 0) {
+					activeConnections.delete(uploadId)
+				}
 				controller.close()
 			})
 		},

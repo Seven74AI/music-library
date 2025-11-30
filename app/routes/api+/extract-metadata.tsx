@@ -167,7 +167,17 @@ export async function action({ request }: ActionFunctionArgs) {
 				metadata,
 			})
 		} catch (error) {
-			console.error(`Error extracting metadata from ${file.name}:`, error)
+			// Enhanced error logging for debugging
+			console.error(`Error extracting metadata from ${file.name}:`, {
+				fileName: file.name,
+				fileSize: file.size,
+				fileType: file.type,
+				error: error instanceof Error ? {
+					message: error.message,
+					stack: error.stack,
+					name: error.name,
+				} : error,
+			})
 			// Continue with other files even if one fails
 			results.push({
 				fileName: file.name,

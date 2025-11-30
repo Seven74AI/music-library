@@ -2,6 +2,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { Upload } from '@aws-sdk/lib-storage'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { type FileUpload } from '@mjackson/form-data-parser'
 import { createId } from '@paralleldrive/cuid2'
@@ -69,6 +70,40 @@ const getStorageConfig = (): {
     secretKey: config.secretKey as string,
     region: config.region as string,
   }
+}
+
+/**
+ * Handle storage upload errors with consistent categorization and logging
+ */
+function handleStorageError(
+  error: unknown,
+  key: string,
+  config: ReturnType<typeof getStorageConfig>,
+  fileSize: number
+): never {
+  const errorMessage = error instanceof Error ? error.message : String(error)
+  console.error(`Failed to upload file to storage:`, {
+    key,
+    error: errorMessage,
+    bucket: config.bucket,
+    endpoint: config.endpoint,
+    region: config.region,
+    fileSize,
+  })
+  
+  // Categorize S3/Tigris errors
+  let errorType = 'STORAGE_ERROR'
+  if (errorMessage.includes('AccessDenied') || errorMessage.includes('403')) {
+    errorType = 'STORAGE_ACCESS_DENIED'
+  } else if (errorMessage.includes('NoSuchBucket') || errorMessage.includes('404')) {
+    errorType = 'STORAGE_BUCKET_NOT_FOUND'
+  } else if (errorMessage.includes('timeout') || errorMessage.includes('ECONNRESET')) {
+    errorType = 'STORAGE_NETWORK_ERROR'
+  } else if (errorMessage.includes('InvalidAccessKeyId') || errorMessage.includes('SignatureDoesNotMatch')) {
+    errorType = 'STORAGE_AUTH_ERROR'
+  }
+  
+  throw new Error(`${errorType}: Failed to upload object: ${key} - ${errorMessage}`)
 }
 
 /**
@@ -179,6 +214,7 @@ export async function signRequest(params: {
 
 /**
  * Generic file upload function - Direct S3 client upload (more reliable)
+ * Supports real-time progress tracking via progress callback
  * @param params - Upload parameters
  * @returns Promise resolving to the uploaded object key
  */
@@ -188,8 +224,9 @@ export async function uploadFile(params: {
   contentType?: string
   metadata?: Record<string, string>
   timings?: Timings
+  onProgress?: (progress: { loaded: number; total?: number }) => void
 }): Promise<string> {
-  const { file, key, contentType, metadata } = params
+  const { file, key, contentType, metadata, onProgress } = params
   
   // Validate input
   if (!file) {
@@ -228,19 +265,20 @@ export async function uploadFile(params: {
   const s3Client = getS3Client()
   const config = getStorageConfig()
   
-  let body: Uint8Array | ReadableStream
-  if (file instanceof File) {
-    // Convert File to ArrayBuffer, then to Uint8Array
+  // Convert file to Buffer for consistent handling
+  let fileBuffer: Buffer
+  if (Buffer.isBuffer(file)) {
+    fileBuffer = file
+  } else if (file instanceof File) {
     const arrayBuffer = await file.arrayBuffer()
-    body = new Uint8Array(arrayBuffer)
-  } else if ('stream' in file && typeof file.stream === 'function') {
-    // For FileUpload, try to get the buffer directly if available
+    fileBuffer = Buffer.from(arrayBuffer)
+  } else {
+    // FileUpload
     if ('buffer' in file && file.buffer instanceof ArrayBuffer) {
-      body = new Uint8Array(file.buffer)
+      fileBuffer = Buffer.from(file.buffer)
     } else if ('arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
-      // Try to get the array buffer
       const arrayBuffer = await file.arrayBuffer()
-      body = new Uint8Array(arrayBuffer)
+      fileBuffer = Buffer.from(arrayBuffer)
     } else {
       // Fallback to stream conversion
       const stream = file.stream()
@@ -257,7 +295,7 @@ export async function uploadFile(params: {
         reader.releaseLock()
       }
       
-      // Combine all chunks into a single Uint8Array
+      // Combine all chunks into a single Buffer
       const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
       const combined = new Uint8Array(totalLength)
       let offset = 0
@@ -265,50 +303,79 @@ export async function uploadFile(params: {
         combined.set(chunk, offset)
         offset += chunk.length
       }
-      
-      body = combined
+      fileBuffer = Buffer.from(combined)
     }
-  } else if (Buffer.isBuffer(file)) {
-    body = new Uint8Array(file)
-  } else {
-    throw new Error('Unsupported file type')
   }
   
-  const command = new PutObjectCommand({
-    Bucket: config.bucket,
-    Key: key,
-    Body: body,
-    ContentType: contentType,
-    Metadata: metadata,
-  })
+  // For Tigris compatibility: Use different strategies based on file size
+  // - Small files (< 5MB): Use PutObjectCommand directly (no multipart, no progress tracking)
+  // - Medium files (5MB - 100MB): Use Upload class with partSize > fileSize (single-part with progress)
+  // - Large files (> 100MB): Use Upload class with multipart (50MB parts)
+  const SMALL_FILE_THRESHOLD = 5 * 1024 * 1024 // 5MB - minimum part size for multipart
+  const MULTIPART_THRESHOLD = 100 * 1024 * 1024 // 100MB
   
-  try {
-    await s3Client.send(command)
-    return key
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error(`Failed to upload file to storage:`, {
-      key,
-      error: errorMessage,
-      bucket: config.bucket,
-      endpoint: config.endpoint,
-      region: config.region,
-      fileSize: body instanceof Uint8Array ? body.length : 'stream',
+  // For small files (like cover images), use PutObjectCommand directly
+  // This avoids the Upload class validation error for files smaller than 5MB
+  if (fileBuffer.length < SMALL_FILE_THRESHOLD) {
+    const command = new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+      Body: fileBuffer,
+      ContentType: contentType,
+      Metadata: metadata,
     })
     
-    // Categorize S3/Tigris errors
-    let errorType = 'STORAGE_ERROR'
-    if (errorMessage.includes('AccessDenied') || errorMessage.includes('403')) {
-      errorType = 'STORAGE_ACCESS_DENIED'
-    } else if (errorMessage.includes('NoSuchBucket') || errorMessage.includes('404')) {
-      errorType = 'STORAGE_BUCKET_NOT_FOUND'
-    } else if (errorMessage.includes('timeout') || errorMessage.includes('ECONNRESET')) {
-      errorType = 'STORAGE_NETWORK_ERROR'
-    } else if (errorMessage.includes('InvalidAccessKeyId') || errorMessage.includes('SignatureDoesNotMatch')) {
-      errorType = 'STORAGE_AUTH_ERROR'
+    // Small files don't support progress tracking, but we can simulate it
+    if (onProgress) {
+      onProgress({ loaded: 0, total: fileBuffer.length })
     }
     
-    throw new Error(`${errorType}: Failed to upload object: ${key} - ${errorMessage}`)
+    try {
+      await s3Client.send(command)
+      if (onProgress) {
+        onProgress({ loaded: fileBuffer.length, total: fileBuffer.length })
+      }
+      return key
+    } catch (error) {
+      handleStorageError(error, key, config, fileBuffer.length)
+    }
+  }
+  
+  // For medium and large files, use Upload class
+  // Set partSize larger than file size to force single-part upload, but still get progress events
+  const partSize = fileBuffer.length < MULTIPART_THRESHOLD 
+    ? fileBuffer.length + 1 // Force single-part for files < 100MB (partSize > fileSize)
+    : 1024 * 1024 * 50 // 50MB per part for very large files (multipart)
+  
+  const upload = new Upload({
+    client: s3Client,
+    params: {
+      Bucket: config.bucket,
+      Key: key,
+      Body: fileBuffer,
+      ContentType: contentType,
+      Metadata: metadata,
+    },
+    partSize, // Single-part if partSize > fileSize, multipart otherwise
+    queueSize: 4, // Number of concurrent parts (only used for multipart)
+    leavePartsOnError: false, // Auto-cleanup on failure
+  })
+  
+  // Listen for progress events if callback provided
+  if (onProgress) {
+    upload.on('httpUploadProgress', (progress) => {
+      onProgress({
+        loaded: progress.loaded || 0,
+        total: progress.total || fileBuffer.length,
+      })
+    })
+  }
+  
+  try {
+    await upload.done()
+    return key
+  } catch (error) {
+    handleStorageError(error, key, config, fileBuffer.length)
   }
 }
 

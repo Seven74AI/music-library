@@ -74,6 +74,8 @@ export default function LocalUploadPage() {
 	const [filesWithMetadata, setFilesWithMetadata] = useState<FileWithMetadata[]>([])
 	const [isDragging, setIsDragging] = useState(false)
 	const [uploadId, setUploadId] = useState<string | null>(null)
+	const [browserUploadProgress, setBrowserUploadProgress] = useState(0)
+	const [uploadPhase, setUploadPhase] = useState<'uploading-to-server' | 'server-processing' | null>(null)
 	const fileInputRef = useRef<HTMLInputElement>(null)
 	const dropZoneRef = useRef<HTMLDivElement>(null)
 
@@ -235,6 +237,8 @@ export default function LocalUploadPage() {
 	// Start upload
 	const startUpload = async () => {
 		setStep('uploading')
+		setUploadPhase('uploading-to-server')
+		setBrowserUploadProgress(0)
 
 		try {
 			const formData = new FormData()
@@ -260,27 +264,70 @@ export default function LocalUploadPage() {
 				formData.append(`metadata[${index}]`, JSON.stringify(fileWithMeta.editedMetadata))
 			})
 
-			const response = await fetch('/api/upload-audio-batch', {
-				method: 'POST',
-				body: formData,
-			})
-
-			const result = await response.json() as {
+			// Use XMLHttpRequest to track upload progress
+			const result = await new Promise<{
 				success: boolean
 				uploadId?: string
 				error?: string
-			}
+			}>((resolve, reject) => {
+				const xhr = new XMLHttpRequest()
 
-			if (!response.ok || !result.success) {
-				throw new Error(result.error || 'Failed to start upload')
-			}
+				// Track upload progress (browser → server)
+				xhr.upload.addEventListener('progress', (e) => {
+					if (e.lengthComputable) {
+						const percentComplete = Math.round((e.loaded / e.total) * 100)
+						setBrowserUploadProgress(percentComplete)
+					}
+				})
 
+				xhr.addEventListener('load', () => {
+					if (xhr.status >= 200 && xhr.status < 300) {
+						try {
+							const result = JSON.parse(xhr.responseText) as {
+								success: boolean
+								uploadId?: string
+								error?: string
+							}
+
+							if (!result.success) {
+								reject(new Error(result.error || 'Failed to start upload'))
+								return
+							}
+
+							resolve(result)
+						} catch (error) {
+							reject(error)
+						}
+					} else {
+						reject(new Error(`Upload failed with status ${xhr.status}`))
+					}
+				})
+
+				xhr.addEventListener('error', () => {
+					reject(new Error('Upload failed'))
+				})
+
+				xhr.addEventListener('abort', () => {
+					reject(new Error('Upload aborted'))
+				})
+
+				xhr.open('POST', '/api/upload-audio-batch')
+				xhr.send(formData)
+			})
+
+			// Browser upload complete, transition to server processing phase
+			// Set uploadId first, then phase, to ensure smooth transition
 			if (result.uploadId) {
 				setUploadId(result.uploadId)
 			}
+			// Transition to server processing phase immediately after upload completes
+			setUploadPhase('server-processing')
+			// Keep progress at 100% briefly, then it will be replaced by SSE progress
 		} catch (error) {
 			console.error('Error starting upload:', error)
-			// Show error
+			setUploadPhase(null)
+			setBrowserUploadProgress(0)
+			// Show error - you may want to add error state handling here
 		}
 	}
 
@@ -448,7 +495,38 @@ export default function LocalUploadPage() {
 			)}
 
 			{/* Step 5: Uploading with Progress */}
-			{step === 'uploading' && uploadId && (
+			{/* Phase 1: Browser → Server Upload */}
+			{step === 'uploading' && uploadPhase === 'uploading-to-server' && (
+				<Card>
+					<CardHeader>
+						<CardTitle>Uploading Files</CardTitle>
+						<CardDescription>
+							Uploading to server...
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						<div className="space-y-4">
+							<div>
+								<div className="flex justify-between mb-2">
+									<span className="text-sm font-medium">Upload Progress</span>
+									<span className="text-sm text-muted-foreground">{browserUploadProgress}%</span>
+								</div>
+								<div className="w-full bg-muted rounded-full h-2">
+									<div
+										className="bg-primary h-2 rounded-full transition-all"
+										style={{ width: `${browserUploadProgress}%` }}
+									/>
+								</div>
+							</div>
+							<p className="text-sm text-muted-foreground">
+								Please wait while your files are being uploaded to the server...
+							</p>
+						</div>
+					</CardContent>
+				</Card>
+			)}
+			{/* Phase 2 & 3: Server Processing (Metadata Extraction + Storage Upload) */}
+			{step === 'uploading' && uploadPhase === 'server-processing' && uploadId && (
 				<UploadProgressStep 
 					uploadId={uploadId}
 					onComplete={handleUploadComplete}
@@ -555,6 +633,7 @@ function UploadProgressStep({
 		}>
 		overallProgress: number
 		status: string
+		uploadSpeed?: number // bytes per second
 		successfulTracks?: Array<{
 			trackId: string
 			fileName: string
@@ -584,6 +663,7 @@ function UploadProgressStep({
 					}>
 					overallProgress?: number
 					status?: string
+					uploadSpeed?: number
 					successfulTracks?: Array<{
 						trackId: string
 						fileName: string
@@ -601,6 +681,7 @@ function UploadProgressStep({
 						files: data.files || [],
 						overallProgress: data.overallProgress || 0,
 						status: data.status || 'in-progress',
+						uploadSpeed: data.uploadSpeed,
 						successfulTracks: data.successfulTracks || [],
 						failedFiles: data.failedFiles || [],
 					}
@@ -633,8 +714,12 @@ function UploadProgressStep({
 			<CardHeader>
 				<CardTitle>Uploading Files</CardTitle>
 				<CardDescription>
-					Upload progress will appear here
-				</CardDescription>
+					{progress && progress.files.some(f => f.status === 'processing') 
+						? 'Extracting metadata from files...' 
+						: progress && progress.files.some(f => f.status === 'uploading')
+						? 'Uploading files to storage...'
+						: 'Upload progress will appear here'}
+			</CardDescription>
 			</CardHeader>
 			<CardContent>
 				{progress && (
@@ -642,11 +727,30 @@ function UploadProgressStep({
 						<div>
 							<div className="flex justify-between mb-2">
 								<span className="text-sm font-medium">Overall Progress</span>
-								<span className="text-sm text-muted-foreground">{progress.overallProgress}%</span>
+								<div className="flex items-center gap-2">
+									{progress.files.some(f => f.status === 'processing') && (
+										<span className="text-xs text-muted-foreground animate-pulse">
+											Extracting metadata...
+										</span>
+									)}
+									{progress.uploadSpeed !== undefined && progress.uploadSpeed > 0 && (
+										<span className="text-xs text-muted-foreground">
+											{progress.uploadSpeed > 1024 * 1024
+												? `${(progress.uploadSpeed / (1024 * 1024)).toFixed(2)} MB/s`
+												: `${(progress.uploadSpeed / 1024).toFixed(2)} KB/s`}
+										</span>
+									)}
+									<span className="text-sm text-muted-foreground">{progress.overallProgress}%</span>
+								</div>
 							</div>
 							<div className="w-full bg-muted rounded-full h-2">
 								<div
-									className="bg-primary h-2 rounded-full transition-all"
+									className={`h-2 rounded-full transition-all ${
+										progress.files.some(f => f.status === 'processing') ? 'bg-yellow-500' :
+										progress.files.some(f => f.status === 'failed') ? 'bg-destructive' :
+										progress.files.every(f => f.status === 'completed') ? 'bg-green-500' :
+										'bg-primary'
+									}`}
 									style={{ width: `${progress.overallProgress}%` }}
 								/>
 							</div>
@@ -656,13 +760,36 @@ function UploadProgressStep({
 								<div key={file.fileId}>
 									<div className="flex justify-between mb-1">
 										<span className="text-sm">{file.fileName}</span>
-										<span className="text-sm text-muted-foreground">{file.progress}%</span>
+										<div className="flex items-center gap-2">
+											{file.status === 'processing' && (
+												<span className="text-xs text-muted-foreground animate-pulse">
+													Extracting metadata...
+												</span>
+											)}
+											{file.status === 'uploading' && (
+												<span className="text-xs text-muted-foreground">
+													Uploading...
+												</span>
+											)}
+											{file.status === 'completed' && (
+												<span className="text-xs text-green-600">
+													Completed
+												</span>
+											)}
+											{file.status === 'failed' && (
+												<span className="text-xs text-destructive">
+													Failed
+												</span>
+											)}
+											<span className="text-sm text-muted-foreground">{file.progress}%</span>
+										</div>
 									</div>
 									<div className="w-full bg-muted rounded-full h-1.5">
 										<div
 											className={`h-1.5 rounded-full transition-all ${
 												file.status === 'completed' ? 'bg-green-500' :
 												file.status === 'failed' ? 'bg-destructive' :
+												file.status === 'processing' ? 'bg-yellow-500' :
 												'bg-primary'
 											}`}
 											style={{ width: `${file.progress}%` }}

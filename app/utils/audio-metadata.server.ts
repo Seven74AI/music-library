@@ -46,7 +46,27 @@ export async function extractAudioMetadata(
 	fileName?: string
 ): Promise<ExtractedAudioMetadata> {
 	try {
-		const metadata: IAudioMetadata = await parseBuffer(buffer)
+		// Validate buffer
+		if (!buffer || buffer.length === 0) {
+			throw new Error(`Empty buffer for file: ${fileName || 'unknown'}`)
+		}
+
+		// Parse metadata from buffer
+		let metadata: IAudioMetadata
+		try {
+			metadata = await parseBuffer(buffer)
+		} catch (parseError) {
+			console.error('Error in parseBuffer:', {
+				fileName,
+				fileSize: buffer.length,
+				error: parseError instanceof Error ? {
+					message: parseError.message,
+					stack: parseError.stack,
+					name: parseError.name,
+				} : parseError,
+			})
+			throw parseError
+		}
 
 		// Extract format from metadata or file extension
 		const format = getFormatFromMetadata(metadata, fileName)
@@ -207,7 +227,17 @@ export async function extractAudioMetadata(
 			coverImage: coverImage || undefined,
 		}
 	} catch (error) {
-		console.error('Error extracting audio metadata:', error)
+		// Enhanced error logging for debugging
+		console.error('Error extracting audio metadata:', {
+			fileName,
+			fileSize: buffer.length,
+			error: error instanceof Error ? {
+				message: error.message,
+				stack: error.stack,
+				name: error.name,
+			} : error,
+		})
+		
 		// Fallback to format detection from filename
 		const format = getFormatFromFileName(fileName)
 		return {

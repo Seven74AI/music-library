@@ -23,6 +23,9 @@ const adapter = new PrismaBetterSqlite3({
 
 const prisma = new PrismaClient({ adapter })
 
+// Toggle to enable/disable track seeding
+const ENABLE_TRACK_SEEDING = false
+
 async function seed() {
 	console.log('🌱 Seeding...')
 	console.time(`🌱 Database has been seeded`)
@@ -114,8 +117,12 @@ async function seed() {
 		},
 	})
 
-	// Seed audio files for kody
-	await seedAudioFiles(kody.id)
+	// Seed audio files for kody (if enabled)
+	if (ENABLE_TRACK_SEEDING) {
+		await seedAudioFiles(kody.id)
+	} else {
+		console.log('⏭️  Track seeding is disabled (ENABLE_TRACK_SEEDING = false)')
+	}
 
 	console.time(`👤 Created regular user "kodyuser"`)
 

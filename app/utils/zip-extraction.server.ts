@@ -49,17 +49,36 @@ export async function extractAudioFilesFromZip(
 				continue
 			}
 
-			// Check if file is an audio file
-			if (!isAudioFile(entry.entryName)) {
+			const fileName = entry.entryName
+
+			// Skip macOS metadata files FIRST (before any other checks)
+			// - Files in __MACOSX/ directory
+			// - Files whose filename (basename) starts with ._ (macOS resource fork files)
+			// Note: We check the basename only, not the full path, to avoid filtering
+			// legitimate files that might have underscores in their titles
+			const basename = fileName.split('/').pop() || fileName
+			if (fileName.includes('__MACOSX/') || basename.startsWith('._')) {
+				continue
+			}
+
+			// Check if file has a valid audio extension (only process files from our allowed list)
+			if (!isAudioFile(fileName)) {
 				continue
 			}
 
 			// Extract file data (getData returns Buffer directly)
 			const buffer = entry.getData()
+			const fileBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
+
+			// Skip files that are too small (likely corrupted or metadata files)
+			// Audio files should be at least a few KB
+			if (fileBuffer.length < 1024) {
+				continue
+			}
 
 			audioFiles.push({
-				fileName: entry.entryName,
-				buffer: Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer),
+				fileName,
+				buffer: fileBuffer,
 			})
 		}
 
