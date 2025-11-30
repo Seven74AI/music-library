@@ -1,8 +1,8 @@
 import { test, expect } from '#tests/playwright-utils.ts'
 
 test.describe('Local Upload Service', () => {
-	test('can navigate to upload page', async ({ page, login }) => {
-		await login()
+	test('can navigate to upload page as admin', async ({ page, loginAsAdmin }) => {
+		await loginAsAdmin()
 		
 		await page.goto('/music/services/local/upload')
 		
@@ -10,8 +10,8 @@ test.describe('Local Upload Service', () => {
 		await expect(page.getByText(/drag and drop files here/i)).toBeVisible()
 	})
 
-	test('can select single audio file', async ({ page, login }) => {
-		await login()
+	test('can select single audio file as admin', async ({ page, loginAsAdmin }) => {
+		await loginAsAdmin()
 		
 		await page.goto('/music/services/local/upload')
 		
@@ -23,8 +23,8 @@ test.describe('Local Upload Service', () => {
 		await expect(browseButton).toBeVisible()
 	})
 
-	test('shows drag and drop zone', async ({ page, login }) => {
-		await login()
+	test('shows drag and drop zone as admin', async ({ page, loginAsAdmin }) => {
+		await loginAsAdmin()
 		
 		await page.goto('/music/services/local/upload')
 		
@@ -36,8 +36,8 @@ test.describe('Local Upload Service', () => {
 		await expect(dropZone).toBeVisible()
 	})
 
-	test('can cancel upload workflow', async ({ page, login }) => {
-		await login()
+	test('can cancel upload workflow as admin', async ({ page, loginAsAdmin }) => {
+		await loginAsAdmin()
 		
 		await page.goto('/music/services/local/upload')
 		
@@ -50,8 +50,8 @@ test.describe('Local Upload Service', () => {
 		await expect(page).toHaveURL(/\/music\/services/)
 	})
 
-	test('shows file selection interface', async ({ page, login }) => {
-		await login()
+	test('shows file selection interface as admin', async ({ page, loginAsAdmin }) => {
+		await loginAsAdmin()
 		
 		await page.goto('/music/services/local/upload')
 		
@@ -64,8 +64,8 @@ test.describe('Local Upload Service', () => {
 		await expect(page.getByText(/mp3.*flac.*wav/i)).toBeVisible()
 	})
 
-	test('displays error message on invalid file', async ({ page, login }) => {
-		await login()
+	test('displays error message on invalid file as admin', async ({ page, loginAsAdmin }) => {
+		await loginAsAdmin()
 		
 		await page.goto('/music/services/local/upload')
 		
@@ -74,8 +74,8 @@ test.describe('Local Upload Service', () => {
 		// Error container should exist but may be hidden initially
 	})
 
-	test('upload page has required UI elements', async ({ page, login }) => {
-		await login()
+	test('upload page has required UI elements as admin', async ({ page, loginAsAdmin }) => {
+		await loginAsAdmin()
 		
 		await page.goto('/music/services/local/upload')
 		
@@ -89,6 +89,29 @@ test.describe('Local Upload Service', () => {
 		// File input is hidden, so we check for the browse button instead
 		const browseButton = page.getByRole('button', { name: /browse files/i })
 		await expect(browseButton).toBeVisible()
+	})
+
+	test('non-admin users cannot access upload page', async ({ page, login }) => {
+		// Login as regular user (not admin)
+		await login()
+		
+		// Try to access upload page - should get 403
+		const response = await page.goto('/music/services/local/upload')
+		
+		// Should be redirected or get 403
+		expect(response?.status()).toBe(403)
+	})
+
+	test('non-admin users see disabled upload button on services page', async ({ page, login }) => {
+		// Login as regular user (not admin)
+		await login()
+		
+		await page.goto('/music/services')
+		
+		// Check for disabled "Admin Only" button
+		const adminOnlyButton = page.getByRole('button', { name: /admin only/i })
+		await expect(adminOnlyButton).toBeVisible()
+		await expect(adminOnlyButton).toBeDisabled()
 	})
 
 	// Note: Full upload tests would require:
