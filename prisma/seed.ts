@@ -117,6 +117,34 @@ async function seed() {
 	// Seed audio files for kody
 	await seedAudioFiles(kody.id)
 
+	console.time(`👤 Created regular user "kodyuser"`)
+
+	const kodyuser = await prisma.user.upsert({
+		where: { username: 'kodyuser' },
+		select: { id: true },
+		update: {},
+		create: {
+			email: 'kodyuser@kcd.dev',
+			username: 'kodyuser',
+			name: 'Kody User',
+			password: { create: createPassword('kodylovesyou') },
+			roles: { connect: { name: 'user' } },
+		},
+	})
+
+	await prisma.userImage.upsert({
+		where: { userId: kodyuser.id },
+		update: {
+			objectKey: kodyImages.kodyUser.objectKey,
+		},
+		create: {
+			userId: kodyuser.id,
+			objectKey: kodyImages.kodyUser.objectKey,
+		},
+	})
+
+	console.timeEnd(`👤 Created regular user "kodyuser"`)
+
 	console.timeEnd(`🌱 Database has been seeded`)
 }
 

@@ -129,6 +129,13 @@ model Passkey {
   @@index([userId])
 }
 
+// FTS5 virtual tables for full-text search:
+// - tracks_fts: indexes Track.title, Artist.name, Album.name
+// - albums_fts: indexes Album.name, Artist.name
+// - artists_fts: indexes Artist.name, Artist.genre
+// These are managed via triggers and require raw SQL queries (prisma.$queryRaw)
+// See migration: 20251204000000_add_fts5_search
+
 model Artist {
   id            String   @id @default(cuid())
   name          String
