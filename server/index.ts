@@ -78,6 +78,14 @@ app.use((_, res, next) => {
 	next()
 })
 
+// Add cache headers for SVG sprite files in both dev and production
+app.use((req, res, next) => {
+	if (req.path?.includes('sprite.svg')) {
+		res.set('Cache-Control', 'public, max-age=31536000, immutable')
+	}
+	next()
+})
+
 if (viteDevServer) {
 	app.use(viteDevServer.middlewares)
 } else {

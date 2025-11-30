@@ -114,7 +114,6 @@ export async function action({ request }: Route.ActionArgs) {
 		})
 	})
 
-	console.log('Profile photo upload successful, redirecting...')
 	return redirect('/settings/profile')
 }
 

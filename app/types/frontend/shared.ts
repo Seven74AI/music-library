@@ -23,13 +23,17 @@
 export interface TrackWithUserStatus {
   id: string
   title: string
-  artist: string
-  album: string | null
+  artist: {
+    id: string
+    name: string
+  }
   duration: number | null
   externalId: string | null
   serviceId: string | null
   serviceUrl: string | null
-  thumbnailUrl: string | null
+  coverImage: {
+    objectKey: string
+  } | null
   releaseDate: Date | null
   createdAt: Date
   updatedAt: Date
@@ -55,7 +59,10 @@ export interface TrackWithUserStatus {
 export interface QueueTrack {
   id: string
   title: string
-  artist: string
+  artist: {
+    id: string
+    name: string
+  }
 }
 
 /**
@@ -65,9 +72,14 @@ export interface QueueTrack {
 export interface FullTrack {
   id: string
   title: string
-  artist: string
+  artist: {
+    id: string
+    name: string
+  }
   duration: number | null
-  thumbnailUrl: string | null
+  coverImage: {
+    objectKey: string
+  } | null
   audioFiles?: Array<{
     id: string
     format: string | null

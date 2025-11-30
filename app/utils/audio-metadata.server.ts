@@ -30,6 +30,8 @@ export interface ExtractedAudioMetadata {
 	totalTracks?: number
 	totalDiscs?: number
 	lyrics?: string
+	// Cover image extracted from audio file metadata
+	coverImage?: { data: Buffer; format: string }
 }
 
 /**
@@ -138,6 +140,28 @@ export async function extractAudioMetadata(
 			lyrics = lyricsData
 		}
 
+		// Extract cover image from pictures array
+		// Prefer pictures with description "cover" or "front cover", otherwise use the first one
+		let coverImage: { data: Buffer; format: string } | undefined
+		if (metadata.common.picture && metadata.common.picture.length > 0) {
+			// Try to find a picture with cover-related description
+			const coverPicture = metadata.common.picture.find(
+				pic => pic.description?.toLowerCase().includes('cover') ||
+					pic.description?.toLowerCase().includes('front')
+			) || metadata.common.picture[0]
+
+			if (coverPicture && coverPicture.data) {
+				// Convert Uint8Array to Buffer if needed
+				const imageData = Buffer.isBuffer(coverPicture.data)
+					? coverPicture.data
+					: Buffer.from(coverPicture.data)
+				coverImage = {
+					data: imageData,
+					format: coverPicture.format || 'image/jpeg',
+				}
+			}
+		}
+
 		// Extract audio format properties
 		const duration = metadata.format.duration
 			? Math.round(metadata.format.duration)
@@ -180,6 +204,7 @@ export async function extractAudioMetadata(
 			totalTracks: totalTracks || undefined,
 			totalDiscs: totalDiscs || undefined,
 			lyrics: lyrics || undefined,
+			coverImage: coverImage || undefined,
 		}
 	} catch (error) {
 		console.error('Error extracting audio metadata:', error)

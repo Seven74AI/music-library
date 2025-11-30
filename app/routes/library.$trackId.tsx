@@ -15,15 +15,25 @@ export const handle: BreadcrumbHandle = {
 export async function loader({ request, params }: Route.LoaderArgs) {
 	await requireUserId(request)
 	
-	const track = await prisma.track.findUnique({
+	const trackRaw = await prisma.track.findUnique({
 		where: { id: params.trackId },
 		select: {
 			id: true,
 			title: true,
-			artist: true,
+			artist: {
+				select: {
+					id: true,
+					name: true,
+				},
+			},
 			createdAt: true,
 			updatedAt: true,
 			duration: true,
+			coverImage: {
+				select: {
+					objectKey: true,
+				},
+			},
 			audioFiles: {
 				select: {
 					id: true,
@@ -37,11 +47,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		},
 	})
 
-	if (!track) {
+	if (!trackRaw) {
 		throw new Response('Track not found', { status: 404 })
 	}
 
-	return data({ track })
+	// Return track with relations (no transformations needed)
+	return data({ track: trackRaw })
 }
 
 export default function TrackRoute({ loaderData }: Route.ComponentProps) {
@@ -73,7 +84,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
 									</div>
 									<div>
 										<span className="text-sm font-medium text-muted-foreground">Artist:</span>
-										<p className="text-base">{track.artist}</p>
+										<p className="text-base">{track.artist.name}</p>
 									</div>
 									<div>
 										<span className="text-sm font-medium text-muted-foreground">Duration:</span>

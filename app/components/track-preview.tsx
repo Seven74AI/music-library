@@ -29,9 +29,9 @@ function formatDate(dateString: string): string {
 interface TrackPreviewData {
   id: string
   title: string
-  artist: string
+  artist: { id: string; name: string }
   duration: number
-  thumbnailUrl: string
+  coverImage: { objectKey: string } | null
   serviceUrl: string
   publishedAt: string
   serviceName: string
@@ -70,7 +70,7 @@ export function TrackPreview({ track, isImporting = false, error, alreadyExists 
           {/* Thumbnail */}
           <div className="flex-shrink-0">
             <TrackThumbnail 
-              thumbnailUrl={track.thumbnailUrl}
+              coverImage={track.coverImage}
               alt={`${track.title} thumbnail`}
               size="lg"
               className="rounded-lg"
@@ -81,7 +81,7 @@ export function TrackPreview({ track, isImporting = false, error, alreadyExists 
           <div className="flex-1 space-y-2">
             <div>
               <h3 className="text-lg font-semibold line-clamp-2">{track.title}</h3>
-              <p className="text-muted-foreground">{track.artist}</p>
+              <p className="text-muted-foreground">{track.artist.name}</p>
             </div>
             
             <div className="flex items-center gap-4 text-sm text-muted-foreground">

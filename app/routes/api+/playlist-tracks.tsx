@@ -21,7 +21,7 @@ export async function loader({ request }: { request: Request }) {
 
 		const isMinimal = fields === 'minimal'
 
-		const playlistTracks = await prisma.userPlaylistTrack.findMany({
+		const playlistTracksRaw = await prisma.userPlaylistTrack.findMany({
 			where: { 
 				playlistId,
 				playlist: { ownerId: userId } // Ensure user owns the playlist
@@ -32,11 +32,27 @@ export async function loader({ request }: { request: Request }) {
 							select: {
 								id: true,
 								title: true,
-								artist: true,
+								artist: {
+									select: {
+										id: true,
+										name: true,
+									},
+								},
 							},
 						}
 					: {
 							include: {
+								artist: {
+									select: {
+										id: true,
+										name: true,
+									},
+								},
+								coverImage: {
+									select: {
+										objectKey: true,
+									},
+								},
 								service: true,
 								audioFiles: true,
 							},
@@ -50,11 +66,12 @@ export async function loader({ request }: { request: Request }) {
 			}),
 		})
 
-		const hasNext = playlistTracks.length === limit
-		const nextCursor = hasNext ? playlistTracks[playlistTracks.length - 1]?.id : null
+		// Return tracks with relations (no transformations needed)
+		const hasNext = playlistTracksRaw.length === limit
+		const nextCursor = hasNext ? playlistTracksRaw[playlistTracksRaw.length - 1]?.id : null
 
 		return Response.json({
-			tracks: playlistTracks.map((pt: any) => pt.track),
+			tracks: playlistTracksRaw.map((pt: any) => pt.track),
 			pagination: {
 				hasNext,
 				nextCursor,

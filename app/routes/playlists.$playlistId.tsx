@@ -72,9 +72,18 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 						select: {
 							id: true,
 							title: true,
-							artist: true,
+							artist: {
+								select: {
+									id: true,
+									name: true,
+								},
+							},
 							duration: true,
-							thumbnailUrl: true,
+							coverImage: {
+								select: {
+									objectKey: true,
+								},
+							},
 							serviceUrl: true,
 							createdAt: true,
 							service: {
@@ -428,17 +437,7 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	}, [playlist])
 
 	// Handle success messages from fetchers
-	useEffect(() => {
-		if (updateFetcher.data && 'success' in updateFetcher.data) {
-			console.log('Playlist updated:', updateFetcher.data.message)
-		}
-		if (reorderFetcher.data && 'success' in reorderFetcher.data) {
-			console.log('Tracks reordered:', reorderFetcher.data.message)
-		}
-		if (removeTrackFetcher.data && 'success' in removeTrackFetcher.data) {
-			console.log('Track removed:', removeTrackFetcher.data.message)
-		}
-	}, [updateFetcher.data, reorderFetcher.data, removeTrackFetcher.data])
+	// Fetcher data changes are handled by toast notifications, no need for console logs
 
 	const handleTitleUpdate = (newTitle: string) => {
 		// Optimistic update

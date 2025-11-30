@@ -16,7 +16,7 @@ export async function loader({ request }: { request: Request }) {
 
 		const isMinimal = fields === 'minimal'
 
-		const userTracks = await prisma.userTrack.findMany({
+		const userTracksRaw = await prisma.userTrack.findMany({
 			where: { userId },
 			include: {
 				track: isMinimal
@@ -24,11 +24,27 @@ export async function loader({ request }: { request: Request }) {
 							select: {
 								id: true,
 								title: true,
-								artist: true,
+								artist: {
+									select: {
+										id: true,
+										name: true,
+									},
+								},
 							},
 						}
 					: {
 							include: {
+								artist: {
+									select: {
+										id: true,
+										name: true,
+									},
+								},
+								coverImage: {
+									select: {
+										objectKey: true,
+									},
+								},
 								service: true,
 								audioFiles: true,
 							},
@@ -41,6 +57,9 @@ export async function loader({ request }: { request: Request }) {
 				cursor: { id: cursor },
 			}),
 		})
+
+		// Return tracks with relations (no transformations needed)
+		const userTracks = userTracksRaw
 
 		const hasNext = userTracks.length === limit
 		const nextCursor = hasNext ? userTracks[userTracks.length - 1]?.id : null

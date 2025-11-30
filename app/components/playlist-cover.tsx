@@ -3,7 +3,7 @@ import { cn } from '#app/utils/misc.tsx'
 
 interface Track {
 	id: string
-	thumbnailUrl: string | null
+	coverImage: { objectKey: string } | null
 }
 
 interface PlaylistCoverProps {
@@ -20,11 +20,11 @@ const sizeClasses = {
 
 export function PlaylistCover({ tracks, size = 'md', className }: PlaylistCoverProps) {
 	const thumbnails = tracks
-		.filter(track => track.thumbnailUrl)
+		.filter(track => track.coverImage?.objectKey)
 		.slice(0, 4)
 		.map(track => ({
 			id: track.id,
-			url: `/resources/images?src=${encodeURIComponent(track.thumbnailUrl!)}&w=64&h=64&fit=cover&format=webp`
+			url: `/resources/images?src=${encodeURIComponent(track.coverImage!.objectKey)}&w=64&h=64&fit=cover&format=webp`
 		}))
 
 	if (thumbnails.length === 0) {

@@ -45,7 +45,8 @@ import { useOptionalUser } from './utils/user.ts'
 export const links: Route.LinksFunction = () => {
 	return [
 		// Preload svg sprite as a resource to avoid render blocking
-		{ rel: 'preload', href: iconsHref, as: 'image/svg+xml' },
+		// Use fetchpriority="high" to ensure it loads early
+		{ rel: 'preload', href: iconsHref, as: 'image/svg+xml', fetchPriority: 'high' as const },
 		{
 			rel: 'icon',
 			href: '/favicon.ico',
@@ -160,6 +161,28 @@ function Document({
 				<Links />
 			</head>
 			<body className="bg-background text-foreground">
+				{/* Inject SVG sprite into DOM before React hydrates */}
+				<script
+					nonce={nonce}
+					dangerouslySetInnerHTML={{
+						__html: `
+(function() {
+	if (document.getElementById('svg-sprite-container')) return;
+	var container = document.createElement('div');
+	container.id = 'svg-sprite-container';
+	container.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;';
+	container.setAttribute('aria-hidden', 'true');
+	var xhr = new XMLHttpRequest();
+	xhr.open('GET', '${iconsHref}', false);
+	xhr.send();
+	if (xhr.status === 200 && xhr.responseText) {
+		container.innerHTML = xhr.responseText;
+		document.body.insertBefore(container, document.body.firstChild);
+	}
+})();
+						`.trim(),
+					}}
+				/>
 				{children}
 				<script
 					nonce={nonce}

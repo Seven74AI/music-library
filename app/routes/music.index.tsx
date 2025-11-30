@@ -25,7 +25,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 					select: {
 						id: true,
 						title: true,
-						artist: true,
+						artist: {
+							select: {
+								name: true,
+							},
+						},
 						service: {
 							select: {
 								name: true,
@@ -213,7 +217,7 @@ export default function MusicDashboard() {
 										<div className="flex-1 min-w-0">
 											<p className="font-medium truncate">{userTrack.track.title}</p>
 											<p className="text-sm text-muted-foreground truncate">
-												{userTrack.track.artist}
+												{userTrack.track.artist?.name || 'Unknown Artist'}
 											</p>
 										</div>
 										{userTrack.track.service && (

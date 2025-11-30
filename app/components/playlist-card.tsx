@@ -11,9 +11,14 @@ import { PlaylistCover } from './playlist-cover'
 interface Track {
 	id: string
 	title: string
-	artist: string
+	artist: {
+		id: string
+		name: string
+	}
 	duration: number | null
-	thumbnailUrl: string | null
+	coverImage: {
+		objectKey: string
+	} | null
 }
 
 interface PlaylistCardProps {

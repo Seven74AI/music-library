@@ -43,13 +43,17 @@ export function isTrackWithUserStatus(obj: unknown): obj is TrackWithUserStatus 
   return (
     isString(obj.id) &&
     isString(obj.title) &&
-    isString(obj.artist) &&
-    isStringOrNull(obj.album) &&
+    isObject(obj.artist) &&
+    isString(obj.artist.id) &&
+    isString(obj.artist.name) &&
     isNumberOrNull(obj.duration) &&
     isStringOrNull(obj.externalId) &&
     isStringOrNull(obj.serviceId) &&
     isStringOrNull(obj.serviceUrl) &&
-    isStringOrNull(obj.thumbnailUrl) &&
+    (obj.coverImage === null || (
+      isObject(obj.coverImage) &&
+      isString(obj.coverImage.objectKey)
+    )) &&
     isDateOrNull(obj.releaseDate) &&
     isDate(obj.createdAt) &&
     isDate(obj.updatedAt) &&

@@ -16,6 +16,8 @@ import {
   type YouTubePlaylist,
   type YouTubePlaylistItem as NewYouTubePlaylistItem
 } from '#app/types/youtube-api'
+import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
+import { downloadExternalImage, findOrCreateCoverImageTx } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server'
 import { 
   validateYouTubeOAuth
@@ -213,7 +215,12 @@ export class ServicePlaylistService {
           select: {
             id: true,
             title: true,
-            artist: true,
+            artist: {
+              select: {
+                id: true,
+                name: true
+              }
+            },
             externalId: true
           }
         }
@@ -252,10 +259,10 @@ export class ServicePlaylistService {
         
         return true
       })
-      .map((playlistTrack: { track: { id: string; title: string; artist: string; externalId: string | null }; position: number; isDeleted: boolean }) => ({
+      .map((playlistTrack: { track: { id: string; title: string; artist: { id: string; name: string } | null; externalId: string | null }; position: number; isDeleted: boolean }) => ({
         id: playlistTrack.track.id,
         title: playlistTrack.track.title,
-        artist: playlistTrack.track.artist,
+        artist: playlistTrack.track.artist || { id: '', name: 'Unknown Artist' },
         externalId: playlistTrack.track.externalId,
         position: playlistTrack.position,
         isDeleted: playlistTrack.isDeleted
@@ -303,7 +310,7 @@ export class ServicePlaylistService {
         const isDeleted = this.isDeletedYouTubeVideo(item)
         
         // Try to find existing track by stable identifiers
-        let existingTrack: { id: string; title: string; artist: string; thumbnailUrl: string | null; externalId: string | null } | null = null
+        let existingTrack: { id: string; title: string; artistId: string; coverImageId: string | null; externalId: string | null } | null = null
         
         // First, try matching by playlist item ID (for deleted videos)
         if (isDeleted && item.id) {
@@ -318,8 +325,8 @@ export class ServicePlaylistService {
             select: {
               id: true,
               title: true,
-              artist: true,
-              thumbnailUrl: true,
+              artistId: true,
+              coverImageId: true,
               externalId: true
             }
           })
@@ -337,8 +344,8 @@ export class ServicePlaylistService {
             select: {
               id: true,
               title: true,
-              artist: true,
-              thumbnailUrl: true,
+              artistId: true,
+              coverImageId: true,
               externalId: true
             }
           })
@@ -391,23 +398,54 @@ export class ServicePlaylistService {
         }
         
         try {
+          // Get or create artist
+          const artistName = item.snippet?.videoOwnerChannelTitle || item.snippet?.channelTitle || 'Unknown Artist'
+          const artistRecord = await getOrCreateArtistTx(tx, artistName)
           
           // Determine if we should preserve existing track data
           const preserveData = this.shouldPreserveTrackData(existingTrack, item)
           
-          let trackData: ReturnType<typeof transformYouTubePlaylistItemToTrack>
+          // Download thumbnail and create CoverImage if available
+          let coverImageId: string | null = null
+          const thumbnailUrl = item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || null
+          if (thumbnailUrl && !(preserveData && existingTrack?.coverImageId)) {
+            try {
+              const imageBuffer = await downloadExternalImage(thumbnailUrl)
+              if (imageBuffer) {
+                const coverImage = await findOrCreateCoverImageTx(tx, {
+                  imageBuffer,
+                  trackId: existingTrack?.id,
+                })
+                coverImageId = coverImage.id
+              }
+            } catch (error) {
+              console.warn(`Failed to download/create cover image for ${item.snippet?.resourceId?.videoId || 'unknown'}:`, error)
+              // Continue without cover image
+            }
+          } else if (preserveData && existingTrack?.coverImageId) {
+            // Preserve existing cover image
+            coverImageId = existingTrack.coverImageId
+          }
+
+          let trackData: Omit<ReturnType<typeof transformYouTubePlaylistItemToTrack>, 'thumbnailUrl'> & { coverImageId?: string | null }
           if (preserveData && existingTrack) {
             // Preserve existing data, only update non-critical fields
+            // Use existing artistId if preserving data
+            const transformed = transformYouTubePlaylistItemToTrack(item, serviceId, existingTrack.artistId)
+            const { thumbnailUrl: _, ...rest } = transformed
             trackData = {
-              ...transformYouTubePlaylistItemToTrack(item, serviceId),
+              ...rest,
               title: existingTrack.title,
-              artist: existingTrack.artist,
-              thumbnailUrl: existingTrack.thumbnailUrl,
+              artistId: existingTrack.artistId,
+              coverImageId: coverImageId || existingTrack.coverImageId || null,
               externalId, // Use the generated/actual externalId
             }
           } else {
+            const transformed = transformYouTubePlaylistItemToTrack(item, serviceId, artistRecord.id)
+            const { thumbnailUrl: _, ...rest } = transformed
             trackData = {
-              ...transformYouTubePlaylistItemToTrack(item, serviceId),
+              ...rest,
+              coverImageId,
               externalId, // Override with the generated/actual externalId
             }
           }
@@ -776,6 +814,17 @@ export class ServicePlaylistService {
       include: {
         track: {
           include: {
+            artist: {
+              select: {
+                id: true,
+                name: true
+              }
+            },
+            coverImage: {
+              select: {
+                objectKey: true
+              }
+            },
             service: {
               select: {
                 name: true,
@@ -796,6 +845,7 @@ export class ServicePlaylistService {
       playlist,
       tracks: playlistTracks.map(pt => ({
         ...pt.track,
+        artist: pt.track.artist || { id: '', name: 'Unknown Artist' },
         position: pt.position,
         isDeleted: pt.isDeleted,
         deletedAt: pt.deletedAt
@@ -823,6 +873,9 @@ export class ServicePlaylistService {
       ...track,
       isDeleted: track.isDeleted || false,
       deletedAt: track.deletedAt || null,
+      coverImage: track.coverImage ? {
+        objectKey: track.coverImage.objectKey
+      } : null,
       service: track.service ? {
         name: track.service.name,
         displayName: track.service.displayName,
@@ -1113,18 +1166,19 @@ export class ServicePlaylistService {
             const newTrackId = createId()
             const externalId = match.deletedItemId || `deleted-${playlistId}-${match.position}`
             
+            // Get or create artist
+            const artistRecord = await getOrCreateArtistTx(tx, 'Unknown Artist')
+            
             // Create track
             const track = await tx.track.create({
               data: {
                 id: newTrackId,
                 title: 'Deleted video',
-                artist: 'Unknown Artist',
-                album: null,
+                artistId: artistRecord.id,
                 duration: null,
                 externalId,
                 serviceId: service.id,
                 serviceUrl: null,
-                thumbnailUrl: null,
                 releaseDate: null
               }
             })
