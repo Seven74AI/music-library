@@ -1,7 +1,8 @@
 // @context7: React Router, File Upload, Server-Sent Events
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { data, Link, useActionData, useNavigate, type ActionFunctionArgs, type LoaderFunctionArgs } from 'react-router'
+import { data, Link, useActionData, useNavigate, isRouteErrorResponse, type ActionFunctionArgs, type LoaderFunctionArgs } from 'react-router'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs'
+import { GeneralErrorBoundary } from '#app/components/error-boundary'
 import { MetadataEditor } from '#app/components/metadata-editor'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
@@ -9,8 +10,8 @@ import { Icon } from '#app/components/ui/icon'
 import { UploadCompletion } from '#app/components/upload-completion'
 import { LOCAL_SERVICE } from '#app/constants/services'
 import { type ExtractedAudioMetadata } from '#app/utils/audio-metadata.server'
-import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
+import { requireUserWithRole } from '#app/utils/permissions.server'
 
 export const handle: BreadcrumbHandle = {
 	breadcrumb: <Icon name="download">Upload</Icon>,
@@ -44,7 +45,7 @@ interface FileWithMetadata {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	await requireUserId(request)
+	await requireUserWithRole(request, 'admin')
 	
 	const service = await prisma.service.findUnique({
 		where: { name: LOCAL_SERVICE.NAME }
@@ -58,7 +59,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	await requireUserId(request)
+	await requireUserWithRole(request, 'admin')
 	// This action is kept for backward compatibility but won't be used in the new workflow
 	// The new workflow uses the batch upload API directly
 	return data({ error: 'Please use the new upload workflow' }, { status: 400 })
@@ -464,6 +465,32 @@ export default function LocalUploadPage() {
 				/>
 			)}
 		</div>
+	)
+}
+
+export function ErrorBoundary() {
+	return (
+		<GeneralErrorBoundary
+			statusHandlers={{
+				403: ({ error }) => (
+					<div className="flex flex-col items-center justify-center gap-4 p-8">
+						<Icon name="lock-closed" className="h-12 w-12 text-destructive" />
+						<h1 className="text-2xl font-bold">Access Denied</h1>
+						<p className="text-muted-foreground">
+							{isRouteErrorResponse(error) && error.data?.message
+								? error.data.message
+								: 'You do not have permission to access this page. Admin access is required.'}
+						</p>
+						<Button asChild>
+							<Link to="/music/services">
+								<Icon name="arrow-left" className="mr-2" />
+								Back to Services
+							</Link>
+						</Button>
+					</div>
+				),
+			}}
+		/>
 	)
 }
 

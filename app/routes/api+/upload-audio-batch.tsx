@@ -5,9 +5,9 @@ import { data, type ActionFunctionArgs } from 'react-router'
 import { LOCAL_SERVICE } from '#app/constants/services'
 import { getOrCreateArtistTx, extractArtistMetadata } from '#app/utils/artist-management.server'
 import { extractAudioMetadata, type ExtractedAudioMetadata } from '#app/utils/audio-metadata.server'
-import { requireUserId } from '#app/utils/auth.server'
 import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server'
+import { requireUserWithRole } from '#app/utils/permissions.server'
 import { uploadFile } from '#app/utils/storage.server'
 import { extractAudioFilesFromZip } from '#app/utils/zip-extraction.server'
 import {
@@ -112,7 +112,7 @@ interface FileWithMetadata {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const userId = await requireUserId(request)
+	const userId = await requireUserWithRole(request, 'admin')
 
 	// Parse form data
 	const formData = await parseFormData(request, { maxFileSize: MAX_ZIP_SIZE })

@@ -14,7 +14,7 @@ import { createUser } from './db-utils.ts'
 
 // Use the same test database as the webServer
 const TEST_DATABASE_PATH = path.join(process.cwd(), './tests/prisma/base.db')
-const testPrisma = new PrismaClient({
+export const testPrisma = new PrismaClient({
 	adapter: new PrismaBetterSqlite3({
 		url: `file:${TEST_DATABASE_PATH}`,
 	}),
@@ -28,6 +28,7 @@ type GetOrInsertUserOptions = {
 	username?: UserModel['username']
 	password?: string
 	email?: UserModel['email']
+	roles?: string[]
 }
 
 type User = {
@@ -42,9 +43,29 @@ async function getOrInsertUser({
 	username,
 	password,
 	email,
+	roles,
 }: GetOrInsertUserOptions = {}): Promise<User> {
 	const select = { id: true, email: true, username: true, name: true }
 	if (id) {
+		// If roles are specified and user exists, update roles
+		if (roles && roles.length > 0) {
+			const existingUser = await testPrisma.user.findUnique({
+				where: { id: id },
+				include: { roles: true },
+			})
+			if (existingUser) {
+				const existingRoleNames = existingUser.roles.map(r => r.name)
+				const rolesToConnect = roles.filter(r => !existingRoleNames.includes(r))
+				if (rolesToConnect.length > 0) {
+					await testPrisma.user.update({
+						where: { id: id },
+						data: {
+							roles: { connect: rolesToConnect.map(name => ({ name })) },
+						},
+					})
+				}
+			}
+		}
 		return await testPrisma.user.findUniqueOrThrow({
 			select,
 			where: { id: id },
@@ -54,13 +75,16 @@ async function getOrInsertUser({
 		username ??= userData.username
 		password ??= userData.username
 		email ??= userData.email
+		const rolesToConnect = roles && roles.length > 0 
+			? roles.map(name => ({ name }))
+			: [{ name: 'user' }]
 		return await testPrisma.user.create({
 			select,
 			data: {
 				...userData,
 				email,
 				username,
-				roles: { connect: { name: 'user' } },
+				roles: { connect: rolesToConnect },
 				password: { create: { hash: await getPasswordHash(password) } },
 			},
 		})
@@ -132,6 +156,7 @@ export const test = base.extend<{
 	) => Promise<null | Response>
 	insertNewUser(options?: GetOrInsertUserOptions): Promise<User>
 	login(options?: GetOrInsertUserOptions): Promise<User>
+	loginAsAdmin(options?: Omit<GetOrInsertUserOptions, 'roles'>): Promise<User>
 	insertNewTrack(options?: { title?: string; artist?: string }, userId?: string): Promise<{ id: string; title: string; artist: string }>
 	insertNewPlaylist(options?: {
 		title?: string
@@ -159,6 +184,37 @@ export const test = base.extend<{
 		const userIds: string[] = []
 		await use(async (options) => {
 			const user = await getOrInsertUser(options)
+			userIds.push(user.id)
+			const session = await testPrisma.session.create({
+				data: {
+					expirationDate: getSessionExpirationDate(),
+					userId: user.id,
+				},
+				select: { id: true },
+			})
+
+			const authSession = await authSessionStorage.getSession()
+			authSession.set(sessionKey, session.id)
+			const cookieConfig = setCookieParser.parseString(
+				await authSessionStorage.commitSession(authSession),
+			)
+			const newConfig = {
+				...cookieConfig,
+				domain: 'localhost',
+				expires: cookieConfig.expires?.getTime(),
+				sameSite: cookieConfig.sameSite as 'Strict' | 'Lax' | 'None',
+			}
+			await page.context().addCookies([newConfig])
+			return user
+		})
+		// Use helper function for proper cleanup order
+		await cleanupUserData(userIds)
+	},
+	loginAsAdmin: async ({ page }, use) => {
+		const userIds: string[] = []
+		await use(async (options) => {
+			// Automatically add admin and user roles
+			const user = await getOrInsertUser({ ...options, roles: ['admin', 'user'] })
 			userIds.push(user.id)
 			const session = await testPrisma.session.create({
 				data: {

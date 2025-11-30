@@ -7,6 +7,7 @@ import { YOUTUBE_SERVICE, LOCAL_SERVICE } from '#app/constants/services'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { useUser, userHasRole } from '#app/utils/user'
 import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 import { type Route } from './+types/index.ts'
 
@@ -49,6 +50,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 	const { services, youtubeConnectionStatus } = loaderData
+	const user = useUser()
+	const isAdmin = userHasRole(user, 'admin')
 
 	return (
 		<div className="py-8">
@@ -95,6 +98,7 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 							key={service.id} 
 							service={service} 
 							connectionStatus={service.name === YOUTUBE_SERVICE.NAME ? youtubeConnectionStatus : null}
+							isAdmin={isAdmin}
 						/>
 					))}
 				</div>
@@ -168,10 +172,12 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 
 function ServiceCard({ 
 	service, 
-	connectionStatus 
+	connectionStatus,
+	isAdmin
 }: { 
 	service: { id: string; name: string; displayName: string; logoUrl?: string | null; baseUrl: string }
 	connectionStatus: { connected: boolean; syncStatus: { totalPlaylists: number; lastSync: Date | null | undefined } | null } | null
+	isAdmin: boolean
 }) {
 	const isConnected = connectionStatus?.connected || false
 	const syncStatus = connectionStatus?.syncStatus
@@ -210,12 +216,19 @@ function ServiceCard({
 				
 				<div className="flex gap-2">
 					{service.name === LOCAL_SERVICE.NAME ? (
-						<Button asChild className="w-full">
-							<Link to={`/music/services/local/upload`}>
-								<Icon name="download" className="h-4 w-4 mr-2" />
-								Upload
-							</Link>
-						</Button>
+						isAdmin ? (
+							<Button asChild className="w-full">
+								<Link to={`/music/services/local/upload`}>
+									<Icon name="download" className="h-4 w-4 mr-2" />
+									Upload
+								</Link>
+							</Button>
+						) : (
+							<Button disabled className="w-full">
+								<Icon name="lock-closed" className="h-4 w-4 mr-2" />
+								Admin Only
+							</Button>
+						)
 					) : isConnected ? (
 						<>
 							<Button asChild className="flex-1">
