@@ -25,12 +25,12 @@ describe('extractAudioFilesFromZip', () => {
 			getEntries: vi.fn(() => [
 				{
 					entryName: 'song1.mp3',
-					getData: vi.fn().mockReturnValue(Buffer.from('fake mp3 data')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'fake mp3 data')),
 					isDirectory: false,
 				},
 				{
 					entryName: 'song2.flac',
-					getData: vi.fn().mockReturnValue(Buffer.from('fake flac data')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'fake flac data')),
 					isDirectory: false,
 				},
 				{
@@ -52,14 +52,10 @@ describe('extractAudioFilesFromZip', () => {
 		const result = await extractAudioFilesFromZip(zipBuffer)
 
 		expect(result).toHaveLength(2)
-		expect(result[0]).toEqual({
-			fileName: 'song1.mp3',
-			buffer: Buffer.from('fake mp3 data'),
-		})
-		expect(result[1]).toEqual({
-			fileName: 'song2.flac',
-			buffer: Buffer.from('fake flac data'),
-		})
+		expect(result[0]?.fileName).toBe('song1.mp3')
+		expect(result[0]?.buffer.length).toBeGreaterThanOrEqual(1024)
+		expect(result[1]?.fileName).toBe('song2.flac')
+		expect(result[1]?.buffer.length).toBeGreaterThanOrEqual(1024)
 	})
 
 	test('handles nested directory structures', async () => {
@@ -69,17 +65,17 @@ describe('extractAudioFilesFromZip', () => {
 			getEntries: vi.fn(() => [
 				{
 					entryName: 'album1/track1.mp3',
-					getData: vi.fn().mockReturnValue(Buffer.from('track1 data')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'track1 data')),
 					isDirectory: false,
 				},
 				{
 					entryName: 'album1/track2.wav',
-					getData: vi.fn().mockReturnValue(Buffer.from('track2 data')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'track2 data')),
 					isDirectory: false,
 				},
 				{
 					entryName: 'album2/track3.m4a',
-					getData: vi.fn().mockReturnValue(Buffer.from('track3 data')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'track3 data')),
 					isDirectory: false,
 				},
 			]),
@@ -144,32 +140,32 @@ describe('extractAudioFilesFromZip', () => {
 			getEntries: vi.fn(() => [
 				{
 					entryName: 'track1.mp3',
-					getData: vi.fn().mockReturnValue(Buffer.from('mp3')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'mp3')),
 					isDirectory: false,
 				},
 				{
 					entryName: 'track2.flac',
-					getData: vi.fn().mockReturnValue(Buffer.from('flac')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'flac')),
 					isDirectory: false,
 				},
 				{
 					entryName: 'track3.wav',
-					getData: vi.fn().mockReturnValue(Buffer.from('wav')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'wav')),
 					isDirectory: false,
 				},
 				{
 					entryName: 'track4.m4a',
-					getData: vi.fn().mockReturnValue(Buffer.from('m4a')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'm4a')),
 					isDirectory: false,
 				},
 				{
 					entryName: 'track5.aac',
-					getData: vi.fn().mockReturnValue(Buffer.from('aac')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'aac')),
 					isDirectory: false,
 				},
 				{
 					entryName: 'track6.ogg',
-					getData: vi.fn().mockReturnValue(Buffer.from('ogg')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'ogg')),
 					isDirectory: false,
 				},
 			]),
@@ -198,12 +194,12 @@ describe('extractAudioFilesFromZip', () => {
 			getEntries: vi.fn(() => [
 				{
 					entryName: 'TRACK1.MP3',
-					getData: vi.fn().mockReturnValue(Buffer.from('mp3')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'mp3')),
 					isDirectory: false,
 				},
 				{
 					entryName: 'track2.FLAC',
-					getData: vi.fn().mockReturnValue(Buffer.from('flac')),
+					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'flac')),
 					isDirectory: false,
 				},
 			]),

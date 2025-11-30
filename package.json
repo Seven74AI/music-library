@@ -37,7 +37,8 @@
     "typecheck": "react-router typegen && tsc",
     "validate": "run-p \"test -- --run\" \"lint\" typecheck test:e2e:run",
     "add-headers": "node scripts/add-context7-headers.js",
-    "stop": "lsof -ti:3000 | xargs kill -9"
+    "stop": "lsof -ti:3000 | xargs kill -9",
+    "reset-storage": "tsx scripts/reset-storage.ts"
   },
   "prettier": "@epic-web/config/prettier",
   "eslintIgnore": [
@@ -49,6 +50,7 @@
   ],
   "dependencies": {
     "@aws-sdk/client-s3": "^3.907.0",
+    "@aws-sdk/lib-storage": "^3.940.0",
     "@aws-sdk/s3-request-presigner": "^3.907.0",
     "@conform-to/react": "^1.5.0",
     "@conform-to/zod": "^1.5.0",

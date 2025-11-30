@@ -43,6 +43,34 @@ const ALLOWED_ZIP_MIME_TYPES = [
 	'application/x-zip',
 ]
 
+// Maximum concurrency for parallel processing
+const MAX_CONCURRENCY = 5
+
+/**
+ * Process items in parallel with a concurrency limit
+ * @param items - Array of items to process
+ * @param processor - Function to process each item
+ * @param concurrency - Maximum number of concurrent operations (default: MAX_CONCURRENCY)
+ * @returns Promise that resolves when all items are processed
+ */
+async function processWithConcurrency<T, R>(
+	items: T[],
+	processor: (item: T, index: number) => Promise<R>,
+	concurrency: number = MAX_CONCURRENCY
+): Promise<R[]> {
+	const results: R[] = []
+	
+	for (let i = 0; i < items.length; i += concurrency) {
+		const batch = items.slice(i, i + concurrency)
+		const batchResults = await Promise.all(
+			batch.map((item, batchIndex) => processor(item, i + batchIndex))
+		)
+		results.push(...batchResults)
+	}
+	
+	return results
+}
+
 /**
  * Generate storage key for audio file
  */
@@ -149,33 +177,34 @@ export async function action({ request }: ActionFunctionArgs) {
 			// Initialize progress tracking
 			initUploadProgress(uploadId, extractedFiles.map(f => f.fileName))
 
-			// Extract metadata from each file
-			for (let i = 0; i < extractedFiles.length; i++) {
-				const extractedFile = extractedFiles[i]
-				if (!extractedFile) continue
-				
-				const fileId = `file-${i}`
+			// Extract metadata from each file in parallel (max 5 concurrent)
+			await processWithConcurrency(
+				extractedFiles,
+				async (extractedFile, i) => {
+					const fileId = `file-${i}`
+					
+					try {
+						updateFileProgress(uploadId, fileId, 0, 'processing')
+						const metadata = await extractAudioMetadata(extractedFile.buffer, extractedFile.fileName)
 
-				try {
-					updateFileProgress(uploadId, fileId, 0, 'processing')
-					const metadata = await extractAudioMetadata(extractedFile.buffer, extractedFile.fileName)
+						// Get user-provided metadata for this file (if any)
+						const userMetadata = formData.get(`metadata[${i}]`)?.toString()
+						const parsedMetadata = userMetadata ? (JSON.parse(userMetadata) as FileWithMetadata['userMetadata']) : undefined
 
-					// Get user-provided metadata for this file (if any)
-					const userMetadata = formData.get(`metadata[${i}]`)?.toString()
-					const parsedMetadata = userMetadata ? (JSON.parse(userMetadata) as FileWithMetadata['userMetadata']) : undefined
-
-					filesToProcess.push({
-						fileName: extractedFile.fileName,
-						buffer: extractedFile.buffer,
-						mimeType: metadata.mimeType,
-						metadata,
-						userMetadata: parsedMetadata,
-					})
-				} catch (error) {
-					updateFileProgress(uploadId, fileId, 0, 'failed', error instanceof Error ? error.message : 'Failed to extract metadata')
-					console.error(`Error extracting metadata from ${extractedFile.fileName}:`, error)
-				}
-			}
+						filesToProcess.push({
+							fileName: extractedFile.fileName,
+							buffer: extractedFile.buffer,
+							mimeType: metadata.mimeType,
+							metadata,
+							userMetadata: parsedMetadata,
+						})
+					} catch (error) {
+						updateFileProgress(uploadId, fileId, 0, 'failed', error instanceof Error ? error.message : 'Failed to extract metadata')
+						console.error(`Error extracting metadata from ${extractedFile.fileName}:`, error)
+					}
+				},
+				MAX_CONCURRENCY
+			)
 		} catch (error) {
 			return data(
 				{
@@ -239,35 +268,36 @@ export async function action({ request }: ActionFunctionArgs) {
 		// Initialize progress tracking
 		initUploadProgress(uploadId, audioFiles.map(f => f.name))
 
-		// Extract metadata from each file
-		for (let i = 0; i < audioFiles.length; i++) {
-			const file = audioFiles[i]
-			if (!file) continue
-			
-			const fileId = `file-${i}`
+		// Extract metadata from each file in parallel (max 5 concurrent)
+		await processWithConcurrency(
+			audioFiles,
+			async (file, i) => {
+				const fileId = `file-${i}`
+				
+				try {
+					updateFileProgress(uploadId, fileId, 0, 'processing')
+					const arrayBuffer = await file.arrayBuffer()
+					const buffer = Buffer.from(arrayBuffer)
+					const metadata = await extractAudioMetadata(buffer, file.name)
 
-			try {
-				updateFileProgress(uploadId, fileId, 0, 'processing')
-				const arrayBuffer = await file.arrayBuffer()
-				const buffer = Buffer.from(arrayBuffer)
-				const metadata = await extractAudioMetadata(buffer, file.name)
+					// Get user-provided metadata for this file (if any)
+					const userMetadata = formData.get(`metadata[${i}]`)?.toString()
+					const parsedMetadata = userMetadata ? (JSON.parse(userMetadata) as FileWithMetadata['userMetadata']) : undefined
 
-				// Get user-provided metadata for this file (if any)
-				const userMetadata = formData.get(`metadata[${i}]`)?.toString()
-				const parsedMetadata = userMetadata ? (JSON.parse(userMetadata) as FileWithMetadata['userMetadata']) : undefined
-
-				filesToProcess.push({
-					fileName: file.name,
-					buffer,
-					mimeType: file.type,
-					metadata,
-					userMetadata: parsedMetadata,
-				})
-			} catch (error) {
-				updateFileProgress(uploadId, fileId, 0, 'failed', error instanceof Error ? error.message : 'Failed to extract metadata')
-				console.error(`Error extracting metadata from ${file.name}:`, error)
-			}
-		}
+					filesToProcess.push({
+						fileName: file.name,
+						buffer,
+						mimeType: file.type,
+						metadata,
+						userMetadata: parsedMetadata,
+					})
+				} catch (error) {
+					updateFileProgress(uploadId, fileId, 0, 'failed', error instanceof Error ? error.message : 'Failed to extract metadata')
+					console.error(`Error extracting metadata from ${file.name}:`, error)
+				}
+			},
+			MAX_CONCURRENCY
+		)
 	}
 
 	if (filesToProcess.length === 0) {
@@ -314,202 +344,228 @@ async function processFilesAsync(
 	userId: string,
 	serviceId: string
 ) {
-	const results: Array<{ success: boolean; trackId?: string; error?: string }> = []
+	// Process files in parallel (max 5 concurrent)
+	await processWithConcurrency(
+		files,
+		async (file, i): Promise<{ success: boolean; trackId?: string; error?: string }> => {
+			const fileId = `file-${i}`
 
-	for (let i = 0; i < files.length; i++) {
-		const file = files[i]
-		if (!file) continue
-		
-		const fileId = `file-${i}`
+			try {
+				// Use user metadata if provided, otherwise use extracted metadata
+				const title = file.userMetadata?.title || file.metadata.title
+				const artist = file.userMetadata?.artist || file.metadata.artist
+				const album = file.userMetadata?.album || file.metadata.album
 
-		try {
-			// Use user metadata if provided, otherwise use extracted metadata
-			const title = file.userMetadata?.title || file.metadata.title
-			const artist = file.userMetadata?.artist || file.metadata.artist
-			const album = file.userMetadata?.album || file.metadata.album
-
-			// Validate required fields
-			if (!title || !artist) {
-				updateFileProgress(uploadId, fileId, 0, 'failed', 'Title and artist are required')
-				results.push({ success: false, error: 'Title and artist are required' })
-				continue
-			}
-
-			updateFileProgress(uploadId, fileId, 10, 'uploading')
-
-			// Generate IDs
-			const trackId = createId()
-			const fileIdForStorage = createId()
-			const format = file.metadata.format || 'mp3'
-			const extension = getFileExtension(file.fileName, file.mimeType)
-			const objectKey = generateAudioFileKey(
-				trackId,
-				serviceId,
-				format,
-				fileIdForStorage,
-				extension
-			)
-
-			updateFileProgress(uploadId, fileId, 30, 'uploading')
-
-			// Upload file to storage
-			await uploadFile({
-				file: file.buffer,
-				key: objectKey,
-				contentType: file.metadata.mimeType || file.mimeType || 'audio/mpeg',
-				metadata: {
-					title,
-					artist,
-					album: album || '',
-					uploadedBy: userId,
-				},
-			})
-
-			updateFileProgress(uploadId, fileId, 60, 'uploading')
-
-			// Create track and audio file in transaction
-			// All database operations (Artist, Album, CoverImage, Track) happen here
-			await prisma.$transaction(async (tx) => {
-				// Get or create artist
-				const artistMetadata = extractArtistMetadata(file.metadata)
-				const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata)
-
-				// Get or create album (using artistId)
-				const albumArtist = file.userMetadata?.albumArtist || file.metadata.albumArtist || artist
-				const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata)
-				const albumRecord = await getOrCreateAlbumTx(
-					tx,
-					albumArtistRecord.id,
-					album || null,
-					file.userMetadata?.year || file.metadata.year || null
-				)
-
-				// Upload cover image if present (with deduplication)
-				// Note: File upload happens outside transaction, but DB operations are in transaction
-				let coverImageId: string | null = null
-				if (file.metadata.coverImage) {
-					try {
-						const coverImage = await findOrCreateCoverImageTx(tx, {
-							imageBuffer: file.metadata.coverImage.data,
-							albumId: albumRecord?.id || null,
-							trackId,
-							format: file.metadata.coverImage.format,
-						})
-						coverImageId = coverImage.id
-					} catch (error) {
-						console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error)
-						// Continue without cover image
-					}
+				// Validate required fields
+				if (!title || !artist) {
+					updateFileProgress(uploadId, fileId, 0, 'failed', 'Title and artist are required')
+					return { success: false, error: 'Title and artist are required' }
 				}
 
-				// Create track with all metadata fields
-				const track = await tx.track.create({
-					data: {
-						id: trackId,
+				updateFileProgress(uploadId, fileId, 5, 'uploading', undefined, file.buffer.length)
+
+				// Generate IDs
+				const trackId = createId()
+				const fileIdForStorage = createId()
+				const format = file.metadata.format || 'mp3'
+				const extension = getFileExtension(file.fileName, file.mimeType)
+				const objectKey = generateAudioFileKey(
+					trackId,
+					serviceId,
+					format,
+					fileIdForStorage,
+					extension
+				)
+
+				updateFileProgress(uploadId, fileId, 10, 'uploading', undefined, file.buffer.length)
+
+				// Upload file to storage with real-time progress tracking
+				// Progress: 10% -> 50% (40% for file upload, updated in real-time)
+				const uploadStartProgress = 10
+				const uploadEndProgress = 50
+				const uploadProgressRange = uploadEndProgress - uploadStartProgress
+				
+				await uploadFile({
+					file: file.buffer,
+					key: objectKey,
+					contentType: file.metadata.mimeType || file.mimeType || 'audio/mpeg',
+					metadata: {
 						title,
-						artistId: artistRecord.id,
-						albumId: albumRecord?.id || null,
-						coverImageId,
-						duration: file.metadata.duration || null,
-						serviceId: serviceId || null,
-						externalId: fileIdForStorage,
-						serviceUrl: null,
-						releaseDate: file.userMetadata?.releaseDate 
-							? new Date(file.userMetadata.releaseDate) 
-							: (file.metadata.releaseDate ? new Date(file.metadata.releaseDate) : null),
-						// Basic metadata
-						genre: file.userMetadata?.genre || (file.metadata.genre?.[0] || null),
-						year: file.userMetadata?.year || file.metadata.year || null,
-						trackNumber: file.userMetadata?.trackNumber || file.metadata.track?.no || null,
-						albumArtist: file.userMetadata?.albumArtist || file.metadata.albumArtist || null,
-						// Additional metadata
-						bpm: file.userMetadata?.bpm || file.metadata.bpm || null,
-						label: file.userMetadata?.label || file.metadata.label || null,
-						isrc: file.userMetadata?.isrc || file.metadata.isrc || null,
-						originalDate: file.userMetadata?.originalDate 
-							? new Date(file.userMetadata.originalDate) 
-							: (file.metadata.originalDate ? new Date(file.metadata.originalDate) : null),
-						originalYear: file.userMetadata?.originalYear || file.metadata.originalYear || null,
-						totalTracks: file.userMetadata?.totalTracks || file.metadata.totalTracks || null,
-						totalDiscs: file.userMetadata?.totalDiscs || file.metadata.totalDiscs || null,
-						lyrics: file.userMetadata?.lyrics || file.metadata.lyrics || null,
-					},
-				})
-
-				updateFileProgress(uploadId, fileId, 80, 'uploading')
-
-				// Create audio file record
-				await tx.trackAudioFile.create({
-					data: {
-						trackId: track.id,
-						serviceId,
-						objectKey,
-						fileName: file.fileName,
-						fileSize: file.buffer.length,
-						mimeType: file.metadata.mimeType || file.mimeType,
-						format,
-						bitrate: file.metadata.bitrate || null,
-						sampleRate: file.metadata.sampleRate || null,
+						artist,
+						album: album || '',
 						uploadedBy: userId,
 					},
-				})
-
-				updateFileProgress(uploadId, fileId, 90, 'uploading')
-
-				// Add track to user's library
-				await tx.userTrack.create({
-					data: {
-						userId,
-						trackId: track.id,
+					onProgress: (progress) => {
+						// Calculate progress percentage based on bytes uploaded
+						if (progress.total && progress.total > 0) {
+							const uploadPercentage = (progress.loaded / progress.total) * uploadProgressRange
+							const currentProgress = Math.round(uploadStartProgress + uploadPercentage)
+							updateFileProgress(uploadId, fileId, currentProgress, 'uploading', undefined, file.buffer.length)
+						}
 					},
 				})
-
-				updateFileProgress(uploadId, fileId, 100, 'completed')
 				
-				// Store successful track information
-				addSuccessfulTrack(uploadId, {
-					trackId: track.id,
-					fileName: file.fileName,
-					title: track.title,
-					artist: artistRecord.name,
+				// Ensure we're at 50% after upload completes
+				updateFileProgress(uploadId, fileId, 50, 'uploading', undefined, file.buffer.length)
+
+				// Create track and audio file in transaction
+				// All database operations (Artist, Album, CoverImage, Track) happen here
+				// Note: Increased timeout to 30s to accommodate image processing and file uploads
+				const result = await prisma.$transaction(async (tx) => {
+					// Get or create artist
+					const artistMetadata = extractArtistMetadata(file.metadata)
+					const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata)
+
+					// Get or create album (using artistId)
+					const albumArtist = file.userMetadata?.albumArtist || file.metadata.albumArtist || artist
+					const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata)
+					const albumRecord = await getOrCreateAlbumTx(
+						tx,
+						albumArtistRecord.id,
+						album || null,
+						file.userMetadata?.year || file.metadata.year || null
+					)
+
+					// Upload cover image if present (with deduplication)
+					// Note: File upload happens outside transaction, but DB operations are in transaction
+					let coverImageId: string | null = null
+					if (file.metadata.coverImage) {
+						try {
+							const coverImage = await findOrCreateCoverImageTx(tx, {
+								imageBuffer: file.metadata.coverImage.data,
+								albumId: albumRecord?.id || null,
+								trackId,
+								format: file.metadata.coverImage.format,
+							})
+							coverImageId = coverImage.id
+						} catch (error) {
+							console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error)
+							// Continue without cover image
+						}
+					}
+
+					// Create track with all metadata fields
+					updateFileProgress(uploadId, fileId, 60, 'uploading')
+					const track = await tx.track.create({
+						data: {
+							id: trackId,
+							title,
+							artistId: artistRecord.id,
+							albumId: albumRecord?.id || null,
+							coverImageId,
+							duration: file.metadata.duration || null,
+							serviceId: serviceId || null,
+							externalId: fileIdForStorage,
+							serviceUrl: null,
+							releaseDate: file.userMetadata?.releaseDate 
+								? new Date(file.userMetadata.releaseDate) 
+								: (file.metadata.releaseDate ? new Date(file.metadata.releaseDate) : null),
+							// Basic metadata
+							genre: file.userMetadata?.genre || (file.metadata.genre?.[0] || null),
+							year: file.userMetadata?.year || file.metadata.year || null,
+							trackNumber: file.userMetadata?.trackNumber || file.metadata.track?.no || null,
+							albumArtist: file.userMetadata?.albumArtist || file.metadata.albumArtist || null,
+							// Additional metadata
+							bpm: file.userMetadata?.bpm || file.metadata.bpm || null,
+							label: file.userMetadata?.label || file.metadata.label || null,
+							isrc: file.userMetadata?.isrc || file.metadata.isrc || null,
+							originalDate: file.userMetadata?.originalDate 
+								? new Date(file.userMetadata.originalDate) 
+								: (file.metadata.originalDate ? new Date(file.metadata.originalDate) : null),
+							originalYear: file.userMetadata?.originalYear || file.metadata.originalYear || null,
+							totalTracks: file.userMetadata?.totalTracks || file.metadata.totalTracks || null,
+							totalDiscs: file.userMetadata?.totalDiscs || file.metadata.totalDiscs || null,
+							lyrics: file.userMetadata?.lyrics || file.metadata.lyrics || null,
+						},
+					})
+
+					updateFileProgress(uploadId, fileId, 75, 'uploading')
+
+					// Create audio file record
+					await tx.trackAudioFile.create({
+						data: {
+							trackId: track.id,
+							serviceId,
+							objectKey,
+							fileName: file.fileName,
+							fileSize: file.buffer.length,
+							mimeType: file.metadata.mimeType || file.mimeType,
+							format,
+							bitrate: file.metadata.bitrate || null,
+							sampleRate: file.metadata.sampleRate || null,
+							uploadedBy: userId,
+						},
+					})
+
+					updateFileProgress(uploadId, fileId, 85, 'uploading')
+
+					// Add track to user's library
+					await tx.userTrack.create({
+						data: {
+							userId,
+							trackId: track.id,
+						},
+					})
+
+					updateFileProgress(uploadId, fileId, 95, 'uploading')
+					
+					// Store successful track information
+					addSuccessfulTrack(uploadId, {
+						trackId: track.id,
+						fileName: file.fileName,
+						title: track.title,
+						artist: artistRecord.name,
+					})
+					
+					return { success: true, trackId: track.id }
+				}, {
+					timeout: 30000, // 30 seconds - increased to accommodate image processing and file uploads
+					maxWait: 10000, // 10 seconds - maximum time to wait for transaction to start
 				})
 				
-				results.push({ success: true, trackId: track.id })
-			})
-		} catch (error) {
-			console.error(`Error uploading file ${file.fileName}:`, error)
-			const errorMessage = error instanceof Error ? error.message : 'Failed to upload file'
-			updateFileProgress(uploadId, fileId, 0, 'failed', errorMessage)
-			
-			// Store failed file data for retry
-			const storedFileData: StoredFileData = {
-				fileName: file.fileName,
-				buffer: file.buffer,
-				mimeType: file.mimeType,
-				metadata: {
-					title: file.metadata.title,
-					artist: file.metadata.artist,
-					album: file.metadata.album,
-					genre: file.metadata.genre?.[0],
-					year: file.metadata.year,
-					trackNumber: file.metadata.track?.no,
-					albumArtist: file.metadata.albumArtist,
-					bpm: file.metadata.bpm,
-					label: file.metadata.label,
-					isrc: file.metadata.isrc,
-					originalDate: file.metadata.originalDate,
-					originalYear: file.metadata.originalYear,
-					releaseDate: file.metadata.releaseDate,
-					totalTracks: file.metadata.totalTracks,
-					totalDiscs: file.metadata.totalDiscs,
-					lyrics: file.metadata.lyrics,
-				},
-				userMetadata: file.userMetadata,
+				// Update to 100% after transaction completes successfully
+				updateFileProgress(uploadId, fileId, 100, 'completed', undefined, file.buffer.length)
+				
+				return result
+			} catch (error) {
+				console.error(`Error uploading file ${file.fileName}:`, error)
+				const errorMessage = error instanceof Error ? error.message : 'Failed to upload file'
+				updateFileProgress(uploadId, fileId, 0, 'failed', errorMessage)
+				
+				// Store failed file data for retry
+				const storedFileData: StoredFileData = {
+					fileName: file.fileName,
+					buffer: file.buffer,
+					mimeType: file.mimeType,
+					metadata: {
+						title: file.metadata.title,
+						artist: file.metadata.artist,
+						album: file.metadata.album,
+						genre: file.metadata.genre?.[0],
+						year: file.metadata.year,
+						trackNumber: file.metadata.track?.no,
+						albumArtist: file.metadata.albumArtist,
+						bpm: file.metadata.bpm,
+						label: file.metadata.label,
+						isrc: file.metadata.isrc,
+						originalDate: file.metadata.originalDate,
+						originalYear: file.metadata.originalYear,
+						releaseDate: file.metadata.releaseDate,
+						totalTracks: file.metadata.totalTracks,
+						totalDiscs: file.metadata.totalDiscs,
+						lyrics: file.metadata.lyrics,
+					},
+					userMetadata: file.userMetadata,
+				}
+				addFailedFile(uploadId, fileId, errorMessage, storedFileData)
+				
+				return { success: false, error: errorMessage }
 			}
-			addFailedFile(uploadId, fileId, errorMessage, storedFileData)
-			
-			results.push({ success: false, error: errorMessage })
-		}
-	}
+		},
+		MAX_CONCURRENCY
+	)
+	
+	// Results are now collected from the parallel processing
+	// (kept for potential future use, though not currently used)
 }
 
