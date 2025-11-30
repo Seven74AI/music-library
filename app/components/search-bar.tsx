@@ -4,23 +4,36 @@ import { useDebounce, useIsPending } from '#app/utils/misc.tsx'
 import { Icon } from './ui/icon.tsx'
 import { Input } from './ui/input.tsx'
 import { Label } from './ui/label.tsx'
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from './ui/select.tsx'
 import { StatusButton } from './ui/status-button.tsx'
 
 export function SearchBar({
 	status,
 	autoFocus = false,
 	autoSubmit = false,
+	action = '/search',
+	searchParamName = 'q',
+	showTypeSelector = false,
 }: {
 	status: 'idle' | 'pending' | 'success' | 'error'
 	autoFocus?: boolean
 	autoSubmit?: boolean
+	action?: string
+	searchParamName?: string
+	showTypeSelector?: boolean
 }) {
 	const id = useId()
 	const [searchParams] = useSearchParams()
 	const submit = useSubmit()
 	const isSubmitting = useIsPending({
 		formMethod: 'GET',
-		formAction: '/users',
+		formAction: action,
 	})
 
 	const handleFormChange = useDebounce(async (form: HTMLFormElement) => {
@@ -30,7 +43,7 @@ export function SearchBar({
 	return (
 		<Form
 			method="GET"
-			action="/users"
+			action={action}
 			className="flex flex-wrap items-center justify-center gap-2"
 			onChange={(e) => autoSubmit && handleFormChange(e.currentTarget)}
 		>
@@ -40,14 +53,30 @@ export function SearchBar({
 				</Label>
 				<Input
 					type="search"
-					name="search"
+					name={searchParamName}
 					id={id}
-					defaultValue={searchParams.get('search') ?? ''}
-					placeholder="Search"
+					defaultValue={searchParams.get(searchParamName) ?? ''}
+					placeholder="Search tracks, albums, artists..."
 					className="w-full"
 					autoFocus={autoFocus}
 				/>
 			</div>
+			{showTypeSelector && (
+				<Select
+					name="type"
+					defaultValue={searchParams.get('type') || 'all'}
+				>
+					<SelectTrigger className="w-[140px]">
+						<SelectValue placeholder="All" />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="all">All</SelectItem>
+						<SelectItem value="tracks">Tracks</SelectItem>
+						<SelectItem value="albums">Albums</SelectItem>
+						<SelectItem value="artists">Artists</SelectItem>
+					</SelectContent>
+				</Select>
+			)}
 			<div>
 				<StatusButton
 					type="submit"
