@@ -43,6 +43,13 @@ esbuild
 		sourcemap: true,
 		format: 'esm',
 		logLevel: 'info',
+		alias: {
+			'#prisma/client': here('../generated/prisma/client.ts'),
+			'#app/*': here('../app/*'),
+			'#tests/*': here('../tests/*'),
+		},
+		bundle: true,
+		packages: 'external',
 	})
 	.catch((error: unknown) => {
 		console.error(error)
