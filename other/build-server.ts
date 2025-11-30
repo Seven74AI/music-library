@@ -8,6 +8,7 @@ const pkg = fsExtra.readJsonSync(path.join(process.cwd(), 'package.json'))
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const here = (...s: Array<string>) => path.join(__dirname, ...s)
+const root = (...s: Array<string>) => path.join(process.cwd(), ...s)
 const globsafe = (s: string) => s.replace(/\\/g, '/')
 
 const allFiles = globSync(globsafe(here('../server/**/*.*')), {
@@ -44,9 +45,9 @@ esbuild
 		format: 'esm',
 		logLevel: 'info',
 		alias: {
-			'#prisma/client': here('../generated/prisma/client.ts'),
-			'#app/*': here('../app/*'),
-			'#tests/*': here('../tests/*'),
+			'#prisma/client.js': root('generated/prisma/client.ts'),
+			'#app/*': root('app/*'),
+			'#tests/*': root('tests/*'),
 		},
 		bundle: true,
 		packages: 'external',
