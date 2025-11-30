@@ -14,9 +14,14 @@ import { AddToPlaylistMenu } from './add-to-playlist-menu'
 interface Track {
 	id: string
 	title: string
-	artist: string
+	artist: {
+		id: string
+		name: string
+	}
 	duration: number | null
-	thumbnailUrl: string | null
+	coverImage: {
+		objectKey: string
+	} | null
 	serviceUrl: string | null
 	service?: {
 		displayName: string
@@ -130,7 +135,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 			onMouseLeave={() => setIsHovered(false)}
 			onClick={hasAudioFiles ? handlePlayTrack : undefined}
 			role="gridcell"
-			aria-label={`Track ${index + 1}: ${track.title} by ${track.artist}${isDeleted ? ' (Deleted from YouTube)' : ''}`}
+			aria-label={`Track ${index + 1}: ${track.title} by ${track.artist.name}${isDeleted ? ' (Deleted from YouTube)' : ''}`}
 			style={hasAudioFiles ? { cursor: 'pointer' } : undefined}
 		>
 			{/* Track Number / Play Button */}
@@ -167,7 +172,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 					{/* Thumbnail */}
 					<div className="flex-shrink-0">
 						<TrackThumbnail 
-							thumbnailUrl={track.thumbnailUrl}
+							coverImage={track.coverImage}
 							alt={track.title}
 							size="sm"
 						/>
@@ -205,7 +210,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 							)}
 						</div>
 						<div className="text-xs text-muted-foreground truncate">
-							{track.artist}
+							{track.artist.name}
 							{isDeleted && (
 								<span className="ml-2 text-muted-foreground/70">• Deleted from YouTube</span>
 							)}
@@ -260,7 +265,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										<DialogTitle className="text-left">
 										<div className="flex items-center gap-3">
 											<TrackThumbnail 
-												thumbnailUrl={track.thumbnailUrl}
+												coverImage={track.coverImage}
 												alt={track.title}
 												size="md"
 											/>
@@ -268,8 +273,8 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 													<div className="font-medium text-sm truncate" title={track.title}>
 														{track.title}
 													</div>
-													<div className="text-xs text-muted-foreground truncate" title={track.artist}>
-														{track.artist}
+													<div className="text-xs text-muted-foreground truncate" title={track.artist.name}>
+														{track.artist.name}
 													</div>
 												</div>
 											</div>
@@ -279,7 +284,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										<div className="space-y-2">
 											<div className="text-sm font-medium">Track Information</div>
 											<div className="text-sm text-muted-foreground space-y-1">
-												<div>Artist: {track.artist}</div>
+												<div>Artist: {track.artist.name}</div>
 												<div>Duration: {formatDuration(track.duration || 0)}</div>
 												<div>Added: {new Date(userTrack.createdAt).toLocaleDateString()}</div>
 												{track.service?.displayName && (
@@ -358,7 +363,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 								<SheetTitle className="text-left">
 									<div className="flex items-center gap-3">
 										<TrackThumbnail 
-											thumbnailUrl={track.thumbnailUrl}
+											coverImage={track.coverImage}
 											alt={track.title}
 											size="md"
 										/>
@@ -366,8 +371,8 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 											<div className="font-medium text-sm truncate" title={track.title}>
 												{track.title}
 											</div>
-											<div className="text-xs text-muted-foreground truncate" title={track.artist}>
-												{track.artist}
+											<div className="text-xs text-muted-foreground truncate" title={track.artist.name}>
+												{track.artist.name}
 											</div>
 										</div>
 									</div>
@@ -462,7 +467,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 								<SheetTitle className="text-left">
 									<div className="flex items-center gap-3">
 										<TrackThumbnail 
-											thumbnailUrl={track.thumbnailUrl}
+											coverImage={track.coverImage}
 											alt={track.title}
 											size="md"
 										/>
@@ -470,8 +475,8 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 											<div className="font-medium text-sm truncate" title={track.title}>
 												{track.title}
 											</div>
-											<div className="text-xs text-muted-foreground truncate" title={track.artist}>
-												{track.artist}
+											<div className="text-xs text-muted-foreground truncate" title={track.artist.name}>
+												{track.artist.name}
 											</div>
 										</div>
 									</div>
@@ -481,7 +486,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 								<div className="space-y-2">
 									<div className="text-sm font-medium">Track Information</div>
 									<div className="text-sm text-muted-foreground space-y-1">
-										<div>Artist: {track.artist}</div>
+										<div>Artist: {track.artist.name}</div>
 										<div>Duration: {formatDuration(track.duration || 0)}</div>
 										<div>Added: {new Date(userTrack.createdAt).toLocaleDateString()}</div>
 										{track.service?.displayName && (

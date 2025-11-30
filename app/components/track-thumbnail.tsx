@@ -2,7 +2,7 @@ import { Icon } from '#app/components/ui/icon'
 import { cn } from '#app/utils/misc'
 
 interface TrackThumbnailProps {
-	thumbnailUrl: string | null | undefined
+	coverImage: { objectKey: string } | null | undefined
 	alt?: string
 	size?: 'xs' | 'sm' | 'md' | 'lg'
 	className?: string
@@ -25,13 +25,13 @@ const iconSizeClasses = {
 /**
  * Reusable track thumbnail component with consistent placeholder
  * 
- * @param thumbnailUrl - The track's thumbnail URL (null/undefined shows placeholder)
+ * @param coverImage - The track's cover image object (null/undefined shows placeholder)
  * @param alt - Alt text for the image
  * @param size - Size variant (xs, sm, md, lg)
  * @param className - Additional CSS classes
  */
 export function TrackThumbnail({ 
-	thumbnailUrl, 
+	coverImage, 
 	alt = 'Track cover', 
 	size = 'md',
 	className 
@@ -39,9 +39,9 @@ export function TrackThumbnail({
 	const sizeClass = sizeClasses[size]
 	const iconSizeClass = iconSizeClasses[size]
 	
-	// Use optimized image URL if thumbnail exists
-	const imageUrl = thumbnailUrl
-		? `/resources/images?src=${encodeURIComponent(thumbnailUrl)}&w=${size === 'xs' ? 32 : size === 'sm' ? 40 : size === 'md' ? 48 : 56}&h=${size === 'xs' ? 32 : size === 'sm' ? 40 : size === 'md' ? 48 : 56}&fit=cover&format=webp`
+	// Use optimized image URL if cover image exists
+	const imageUrl = coverImage?.objectKey
+		? `/resources/images?src=${encodeURIComponent(coverImage.objectKey)}&w=${size === 'xs' ? 32 : size === 'sm' ? 40 : size === 'md' ? 48 : 56}&h=${size === 'xs' ? 32 : size === 'sm' ? 40 : size === 'md' ? 48 : 56}&fit=cover&format=webp`
 		: null
 
 	if (imageUrl) {

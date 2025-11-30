@@ -3,8 +3,10 @@ import { parseFormData } from '@mjackson/form-data-parser'
 import { createId } from '@paralleldrive/cuid2'
 import { data, type ActionFunctionArgs } from 'react-router'
 import { LOCAL_SERVICE } from '#app/constants/services'
+import { getOrCreateArtistTx, extractArtistMetadata } from '#app/utils/artist-management.server'
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { requireUserId } from '#app/utils/auth.server'
+import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server'
 import { uploadFile } from '#app/utils/storage.server'
 
@@ -161,7 +163,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			extension
 		)
 
-		// Upload file to storage
+		// Upload file to storage (outside transaction - storage can't be rolled back)
 		await uploadFile({
 			file: buffer,
 			key: objectKey,
@@ -175,19 +177,52 @@ export async function action({ request }: ActionFunctionArgs) {
 		})
 
 		// Create track and audio file in transaction
+		// All database operations (Artist, Album, CoverImage, Track) happen here
 		const result = await prisma.$transaction(async (tx) => {
-			// Create or find track
+			// Get or create artist
+			const artistMetadata = extractArtistMetadata(extractedMetadata)
+			const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata)
+
+			// Get or create album (using artistId)
+			const albumArtist = extractedMetadata.albumArtist || artist
+			const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata)
+			const albumRecord = await getOrCreateAlbumTx(
+				tx,
+				albumArtistRecord.id,
+				album || null,
+				extractedMetadata.year || null
+			)
+
+			// Upload cover image if present (with deduplication)
+			// Note: File upload happens outside transaction, but DB operations are in transaction
+			let coverImageId: string | null = null
+			if (extractedMetadata.coverImage) {
+				try {
+					const coverImage = await findOrCreateCoverImageTx(tx, {
+						imageBuffer: extractedMetadata.coverImage.data,
+						albumId: albumRecord?.id || null,
+						trackId,
+						format: extractedMetadata.coverImage.format,
+					})
+					coverImageId = coverImage.id
+				} catch (error) {
+					console.warn(`⚠️  Failed to upload cover image for ${audioFile.name}:`, error)
+					// Continue without cover image
+				}
+			}
+
+			// Create track
 			const track = await tx.track.create({
 				data: {
 					id: trackId,
 					title,
-					artist,
-					album: album || null,
+					artistId: artistRecord.id,
+					albumId: albumRecord?.id || null,
+					coverImageId,
 					duration: extractedMetadata.duration || null,
 					serviceId: localService.id,
 					externalId: fileId, // Use fileId as externalId for local uploads
 					serviceUrl: null,
-					thumbnailUrl: null,
 					releaseDate: null,
 				},
 			})
@@ -219,13 +254,19 @@ export async function action({ request }: ActionFunctionArgs) {
 			return { track, audioFile: audioFileRecord }
 		})
 
+		// Fetch artist name for response
+		const artistRecord = await prisma.artist.findUnique({
+			where: { id: result.track.artistId },
+			select: { name: true },
+		})
+
 		return data(
 			{
 				success: true,
 				track: {
 					id: result.track.id,
 					title: result.track.title,
-					artist: result.track.artist,
+					artist: artistRecord?.name || 'Unknown Artist',
 				},
 			},
 			{ status: 201 }

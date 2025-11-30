@@ -1,5 +1,7 @@
 // @context7: @mjackson/form-data-parser, @paralleldrive/cuid2, AWS S3, Fetch API, TypeScript, crypto
-import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { type FileUpload } from '@mjackson/form-data-parser'
 import { createId } from '@paralleldrive/cuid2'
@@ -10,6 +12,19 @@ const DEFAULT_EXPIRY_SECONDS = 3600
 const MAX_RETRY_ATTEMPTS = 3
 const RETRY_MODE = 'adaptive' as const
 const MAX_EXPIRY_SECONDS = 604800 // 7 days
+
+/**
+ * Check if storage is configured (all required env vars are set)
+ */
+function isStorageConfigured(): boolean {
+  return !!(
+    process.env.AWS_ENDPOINT_URL_S3 &&
+    process.env.BUCKET_NAME &&
+    process.env.AWS_ACCESS_KEY_ID &&
+    process.env.AWS_SECRET_ACCESS_KEY &&
+    process.env.AWS_REGION
+  )
+}
 
 // Environment configuration with validation
 const getStorageConfig = (): {
@@ -54,6 +69,24 @@ const getStorageConfig = (): {
     secretKey: config.secretKey as string,
     region: config.region as string,
   }
+}
+
+/**
+ * Upload file to local filesystem (for development when storage is not configured)
+ */
+async function uploadFileLocal(file: Buffer, key: string): Promise<string> {
+  const localStorageDir = join(process.cwd(), 'tests', 'fixtures', 'uploaded')
+  const filePath = join(localStorageDir, key)
+  const fileDir = dirname(filePath)
+  
+  // Create directory structure if it doesn't exist
+  mkdirSync(fileDir, { recursive: true })
+  
+  // Write file to local filesystem
+  writeFileSync(filePath, file)
+  
+  console.log(`📁 Saved file locally: ${filePath}`)
+  return key
 }
 
 // Singleton S3 client for connection pooling
@@ -167,6 +200,31 @@ export async function uploadFile(params: {
     throw new Error('Invalid key: must be a non-empty string')
   }
   
+  // Use local file storage if storage is not configured (for local development)
+  const useLocalStorage = !isStorageConfigured()
+  if (useLocalStorage) {
+    // Convert file to Buffer
+    let fileBuffer: Buffer
+    if (Buffer.isBuffer(file)) {
+      fileBuffer = file
+    } else if (file instanceof File) {
+      const arrayBuffer = await file.arrayBuffer()
+      fileBuffer = Buffer.from(arrayBuffer)
+    } else {
+      // FileUpload
+      if ('buffer' in file && file.buffer instanceof ArrayBuffer) {
+        fileBuffer = Buffer.from(file.buffer)
+      } else if ('arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
+        const arrayBuffer = await file.arrayBuffer()
+        fileBuffer = Buffer.from(arrayBuffer)
+      } else {
+        throw new Error('Unsupported file type for local storage')
+      }
+    }
+    
+    return uploadFileLocal(fileBuffer, key)
+  }
+  
   const s3Client = getS3Client()
   const config = getStorageConfig()
   
@@ -266,6 +324,12 @@ export async function getFileUrl(
   expirySeconds: number = DEFAULT_EXPIRY_SECONDS,
   timings?: Timings
 ): Promise<{ url: string; headers: Record<string, string> }> {
+  // If storage is not configured, throw an error
+  // The images route should check for local files first before calling this
+  if (!isStorageConfigured()) {
+    throw new Error('Storage is not configured. File should be served from local filesystem.')
+  }
+  
   return signRequest({
     method: 'GET',
     key,
@@ -315,22 +379,20 @@ export async function deleteFile(
  */
 /**
  * Upload album art/cover image for a track
- * Processes and resizes the image using sharp
+ * Uses cover management system with deduplication (hash + album grouping)
+ * 
+ * @deprecated Use findOrCreateCoverImage from cover-management.server.ts directly
+ * This function is kept for backward compatibility but now uses the new system
  */
 export async function uploadAlbumArt(
 	params: {
 		file: File | FileUpload | Buffer
 		trackId: string
+		albumId?: string | null
 		timings?: Timings
 	}
 ): Promise<string> {
-	const { file, trackId, timings } = params
-
-	// Import sharp dynamically (only when needed)
-	const sharp = await import('sharp').catch(() => null)
-	if (!sharp) {
-		throw new Error('sharp is not available for image processing')
-	}
+	const { file, trackId, albumId } = params
 
 	let imageBuffer: Buffer
 
@@ -349,33 +411,18 @@ export async function uploadAlbumArt(
 		} else {
 			throw new Error('Unsupported file type for album art')
 		}
+
 	}
 
-	// Process image: resize to max 1000x1000, convert to JPEG, optimize
-	const processedImage = await sharp.default(imageBuffer)
-		.resize(1000, 1000, {
-			fit: 'inside',
-			withoutEnlargement: true,
-		})
-		.jpeg({ quality: 85 })
-		.toBuffer()
-
-	const fileId = createId()
-	const timestamp = Date.now()
-	const key = `images/tracks/${trackId}/cover/${timestamp}-${fileId}.jpg`
-
-	await uploadFile({
-		file: processedImage,
-		key,
-		contentType: 'image/jpeg',
-		metadata: {
-			trackId,
-			type: 'album-art',
-		},
-		timings,
+	// Use new cover management system
+	const { findOrCreateCoverImage } = await import('./cover-management.server')
+	const coverImage = await findOrCreateCoverImage({
+		imageBuffer,
+		albumId,
+		trackId,
 	})
 
-	return key
+	return coverImage.objectKey
 }
 
 export async function uploadProfileImage(

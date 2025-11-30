@@ -4,7 +4,9 @@ import { join, dirname } from 'path'
 import { createId } from '@paralleldrive/cuid2'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { LOCAL_SERVICE } from '#app/constants/services'
+import { getOrCreateArtistTx, extractArtistMetadata } from '#app/utils/artist-management.server'
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
+import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { uploadFile } from '#app/utils/storage.server'
 import { PrismaClient } from '#prisma/client.js'
 import {
@@ -355,7 +357,39 @@ async function seedAudioFiles(userId: string) {
 				}
 
 				// Create track and audio file in transaction
+				// All database operations (Artist, Album, CoverImage, Track) happen here
 				await prisma.$transaction(async (tx) => {
+					// Get or create artist
+					const artistMetadata = extractArtistMetadata(extractedMetadata)
+					const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata)
+
+					// Get or create album (using artistId)
+					const albumArtist = extractedMetadata.albumArtist || artist
+					const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata)
+					const albumRecord = await getOrCreateAlbumTx(
+						tx,
+						albumArtistRecord.id,
+						album || null,
+						extractedMetadata.year || null
+					)
+
+					// Upload cover image if present (with deduplication)
+					// Note: File upload happens outside transaction, but DB operations are in transaction
+					let coverImageId: string | null = null
+					if (extractedMetadata.coverImage) {
+						try {
+							const coverImage = await findOrCreateCoverImageTx(tx, {
+								imageBuffer: extractedMetadata.coverImage.data,
+								albumId: albumRecord?.id || null,
+								trackId,
+								format: extractedMetadata.coverImage.format,
+							})
+							coverImageId = coverImage.id
+						} catch (error) {
+							console.warn(`⚠️  Failed to upload cover image for ${fileName}:`, error)
+							// Continue without cover image
+						}
+					}
 					// Parse releaseDate and originalDate if they exist
 					const releaseDate = extractedMetadata.releaseDate
 						? new Date(extractedMetadata.releaseDate)
@@ -377,13 +411,13 @@ async function seedAudioFiles(userId: string) {
 						data: {
 							id: trackId,
 							title,
-							artist,
-							album: album || null,
+							artistId: artistRecord.id,
+							albumId: albumRecord?.id || null,
+							coverImageId,
 							duration: extractedMetadata.duration || null,
 							serviceId: localService.id,
 							externalId: fileId,
 							serviceUrl: null,
-							thumbnailUrl: null,
 							releaseDate: releaseDate,
 							// New metadata fields
 							genre: genre,

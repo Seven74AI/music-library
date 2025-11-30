@@ -32,9 +32,18 @@ export async function loader({ request }: Route.LoaderArgs) {
 						select: {
 							id: true,
 							title: true,
-							artist: true,
+							artist: {
+								select: {
+									id: true,
+									name: true,
+								},
+							},
 							duration: true,
-							thumbnailUrl: true,
+							coverImage: {
+								select: {
+									objectKey: true,
+								},
+							},
 						},
 					},
 				},

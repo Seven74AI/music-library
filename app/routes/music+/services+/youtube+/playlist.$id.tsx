@@ -472,7 +472,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 											title: track.title,
 											artist: track.artist,
 											duration: track.duration,
-											thumbnailUrl: track.thumbnailUrl,
+											coverImage: track.coverImage,
 											serviceUrl: track.serviceUrl,
 											service: track.service ? {
 												displayName: track.service.displayName,

@@ -28,7 +28,11 @@ export async function action({ request, params }: Route.ActionArgs) {
 				track: {
 					select: {
 						title: true,
-						artist: true,
+						artist: {
+							select: {
+								name: true,
+							},
+						},
 					},
 				},
 			},
@@ -49,9 +53,10 @@ export async function action({ request, params }: Route.ActionArgs) {
 			},
 		})
 
+		const artistName = userTrack.track.artist?.name || 'Unknown Artist'
 		return redirectWithToast('/library', {
 			title: 'Track Removed',
-			description: `"${userTrack.track.title}" by ${userTrack.track.artist} has been removed from your library.`,
+			description: `"${userTrack.track.title}" by ${artistName} has been removed from your library.`,
 			type: 'destructive',
 		})
 	} catch (error) {

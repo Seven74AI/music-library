@@ -215,15 +215,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			<div className="container mx-auto px-4 py-3">
 				<div className="flex items-center gap-4">
 					<div className="flex items-center gap-3 min-w-0 w-64">
-						<TrackThumbnail 
-							thumbnailUrl={track.thumbnailUrl}
-							alt={track.title}
-							size="lg"
-							className="shadow-md"
-						/>
-						<div className="flex-1 min-w-0">
-							<p className="font-semibold text-sm truncate">{track.title}</p>
-							<p className="text-xs text-muted-foreground truncate">{track.artist}</p>
+					<TrackThumbnail 
+						coverImage={track.coverImage}
+						alt={track.title}
+						size="lg"
+						className="shadow-md"
+					/>
+					<div className="flex-1 min-w-0">
+						<p className="font-semibold text-sm truncate">{track.title}</p>
+						<p className="text-xs text-muted-foreground truncate">{track.artist.name}</p>
 						</div>
 					</div>
 					
@@ -489,7 +489,7 @@ function QueueSheet() {
 }
 
 function QueueTrackItem({ track, isCurrentlyPlaying, onRemove }: { track: Track | QueueTrack, isCurrentlyPlaying: boolean, onRemove: () => void }) {
-	const thumbnailUrl = 'thumbnailUrl' in track ? track.thumbnailUrl : null
+	const coverImage = 'coverImage' in track ? track.coverImage : null
 
 	return (
 		<div className={`group flex items-center gap-3 px-4 py-3 rounded-md hover:bg-muted/50 transition-colors ${
@@ -497,7 +497,7 @@ function QueueTrackItem({ track, isCurrentlyPlaying, onRemove }: { track: Track 
 		}`}>
 			<div className="flex-shrink-0 relative">
 				<TrackThumbnail 
-					thumbnailUrl={thumbnailUrl}
+					coverImage={coverImage}
 					alt={track.title}
 					size="md"
 				/>
@@ -513,7 +513,7 @@ function QueueTrackItem({ track, isCurrentlyPlaying, onRemove }: { track: Track 
 					{track.title}
 				</div>
 				<div className="text-xs text-muted-foreground truncate">
-					{track.artist}
+					{track.artist.name}
 				</div>
 			</div>
 

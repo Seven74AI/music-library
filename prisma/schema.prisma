@@ -129,16 +129,70 @@ model Passkey {
   @@index([userId])
 }
 
+model Artist {
+  id            String   @id @default(cuid())
+  name          String
+  normalizedName String   @unique
+  bio           String?
+  imageUrl      String?
+  website       String?
+  genre         String?
+  country       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  tracks        Track[]
+  albums        Album[]
+
+  @@index([normalizedName])
+  @@index([name])
+}
+
+model CoverImage {
+  id          String   @id @default(cuid())
+  contentHash String   @unique // SHA-256 hash for deduplication
+  objectKey   String // Storage key for the image file
+  width       Int?
+  height      Int?
+  format      String? // jpeg, png, etc.
+  fileSize    Int? // Size in bytes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tracks      Track[]
+  albums      Album[]
+
+  @@index([contentHash])
+}
+
+model Album {
+  id           String      @id @default(cuid())
+  name         String
+  artistId     String
+  artist       Artist       @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  year         Int?
+  coverImageId String?
+  coverImage   CoverImage? @relation(fields: [coverImageId], references: [id], onDelete: SetNull)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  tracks       Track[]
+
+  @@unique([artistId, name]) // Unique album identifier
+  @@index([artistId, name])
+  @@index([artistId])
+}
+
 model Track {
   id                    String                 @id @default(cuid())
   title                 String
-  artist                String
+  artistId              String
+  artist                Artist                 @relation(fields: [artistId], references: [id], onDelete: Cascade)
   serviceId             String?
   externalId            String?
   serviceUrl            String?
   duration              Int?
-  thumbnailUrl          String?
-  album                 String?
+  albumId               String? // Foreign key to Album
+  albumRecord           Album?                 @relation(fields: [albumId], references: [id], onDelete: SetNull)
+  coverImageId          String? // Foreign key to CoverImage
+  coverImage            CoverImage?            @relation(fields: [coverImageId], references: [id], onDelete: SetNull)
   releaseDate           DateTime?
   // Basic metadata
   genre                 String?
@@ -166,6 +220,9 @@ model Track {
   @@index([serviceId, externalId])
   @@index([updatedAt])
   @@index([createdAt])
+  @@index([albumId])
+  @@index([coverImageId])
+  @@index([artistId])
 }
 
 model UserPlaylist {

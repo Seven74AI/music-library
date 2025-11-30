@@ -259,7 +259,7 @@ export function createFakerYouTubeVideo(
 // LAYER 2: DATABASE MOCK GENERATORS
 // ============================================================================
 
-export function createFakerTrackData(
+export async function createFakerTrackData(
   serviceId: string,
   options?: {
     title?: string
@@ -267,7 +267,7 @@ export function createFakerTrackData(
     duration?: number
     videoId?: string
   }
-): Prisma.TrackCreateInput {
+): Promise<Prisma.TrackUncheckedCreateInput> {
   const {
     title = faker.music.songName(),
     artist = faker.person.fullName(),
@@ -275,15 +275,17 @@ export function createFakerTrackData(
     videoId = faker.string.alphanumeric(11)
   } = options || {}
 
+  // Get or create artist
+  const { getOrCreateArtist } = await import('#app/utils/artist-management.server')
+  const artistRecord = await getOrCreateArtist(artist)
+
   return {
     title,
-    artist,
-    album: null,
+    artistId: artistRecord.id,
     duration,
     externalId: videoId,
-    service: { connect: { id: serviceId } },
+    serviceId,
     serviceUrl: `https://youtube.com/watch?v=${videoId}`,
-    thumbnailUrl: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
     releaseDate: null,
   }
 }
@@ -331,7 +333,7 @@ export async function createFakerTrack(
   serviceId: string,
   options?: Parameters<typeof createFakerTrackData>[1]
 ): Promise<Prisma.TrackGetPayload<{}>> {
-  const trackData = createFakerTrackData(serviceId, options)
+  const trackData = await createFakerTrackData(serviceId, options)
   
   // Prisma handles validation
   return prisma.track.create({

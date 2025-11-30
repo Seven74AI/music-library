@@ -3,8 +3,10 @@ import { parseFormData } from '@mjackson/form-data-parser'
 import { createId } from '@paralleldrive/cuid2'
 import { data, type ActionFunctionArgs } from 'react-router'
 import { LOCAL_SERVICE } from '#app/constants/services'
+import { getOrCreateArtistTx, extractArtistMetadata } from '#app/utils/artist-management.server'
 import { extractAudioMetadata, type ExtractedAudioMetadata } from '#app/utils/audio-metadata.server'
 import { requireUserId } from '#app/utils/auth.server'
+import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server'
 import { uploadFile } from '#app/utils/storage.server'
 import { extractAudioFilesFromZip } from '#app/utils/zip-extraction.server'
@@ -366,19 +368,52 @@ async function processFilesAsync(
 			updateFileProgress(uploadId, fileId, 60, 'uploading')
 
 			// Create track and audio file in transaction
+			// All database operations (Artist, Album, CoverImage, Track) happen here
 			await prisma.$transaction(async (tx) => {
+				// Get or create artist
+				const artistMetadata = extractArtistMetadata(file.metadata)
+				const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata)
+
+				// Get or create album (using artistId)
+				const albumArtist = file.userMetadata?.albumArtist || file.metadata.albumArtist || artist
+				const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata)
+				const albumRecord = await getOrCreateAlbumTx(
+					tx,
+					albumArtistRecord.id,
+					album || null,
+					file.userMetadata?.year || file.metadata.year || null
+				)
+
+				// Upload cover image if present (with deduplication)
+				// Note: File upload happens outside transaction, but DB operations are in transaction
+				let coverImageId: string | null = null
+				if (file.metadata.coverImage) {
+					try {
+						const coverImage = await findOrCreateCoverImageTx(tx, {
+							imageBuffer: file.metadata.coverImage.data,
+							albumId: albumRecord?.id || null,
+							trackId,
+							format: file.metadata.coverImage.format,
+						})
+						coverImageId = coverImage.id
+					} catch (error) {
+						console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error)
+						// Continue without cover image
+					}
+				}
+
 				// Create track with all metadata fields
 				const track = await tx.track.create({
 					data: {
 						id: trackId,
 						title,
-						artist,
-						album: album || null,
+						artistId: artistRecord.id,
+						albumId: albumRecord?.id || null,
+						coverImageId,
 						duration: file.metadata.duration || null,
 						serviceId: serviceId || null,
 						externalId: fileIdForStorage,
 						serviceUrl: null,
-						thumbnailUrl: null,
 						releaseDate: file.userMetadata?.releaseDate 
 							? new Date(file.userMetadata.releaseDate) 
 							: (file.metadata.releaseDate ? new Date(file.metadata.releaseDate) : null),
@@ -436,7 +471,7 @@ async function processFilesAsync(
 					trackId: track.id,
 					fileName: file.fileName,
 					title: track.title,
-					artist: track.artist,
+					artist: artistRecord.name,
 				})
 				
 				results.push({ success: true, trackId: track.id })

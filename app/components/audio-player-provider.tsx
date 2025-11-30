@@ -87,7 +87,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	 * Check if a track has full data (is a FullTrack)
 	 */
 	const isFullTrack = (track: Track | QueueTrack): track is Track => {
-		return 'audioFiles' in track || 'thumbnailUrl' in track || 'duration' in track
+		return 'audioFiles' in track || 'coverImage' in track || 'duration' in track
 	}
 
 	/**

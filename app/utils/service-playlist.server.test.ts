@@ -41,6 +41,14 @@ vi.mock('#app/utils/youtube-oauth-validation.server', () => ({
 	validateYouTubeOAuth: vi.fn(),
 }))
 
+vi.mock('#app/utils/cover-management.server', () => ({
+	findOrCreateCoverImageTx: vi.fn().mockResolvedValue({
+		id: 'cover1',
+		objectKey: 'cover1.jpg',
+	}),
+	downloadExternalImage: vi.fn().mockRejectedValue(new Error('Invalid URL')),
+}))
+
 describe('ServicePlaylistService - Deleted Video Detection', () => {
 	let service: ServicePlaylistService
 
@@ -275,7 +283,7 @@ describe('ServicePlaylistService - Sync Logic', () => {
 						snippet: {
 							title: 'Video 1',
 							resourceId: { videoId: 'video1' },
-							thumbnails: { default: { url: 'thumb1.jpg' } },
+							thumbnails: { default: { url: 'https://example.com/thumb1.jpg' } },
 						},
 					},
 				] as any),
@@ -320,6 +328,14 @@ describe('ServicePlaylistService - Sync Logic', () => {
 							id: 'track1',
 							title: 'Video 1',
 							externalId: 'video1',
+						}),
+					},
+					artist: {
+						findMany: vi.fn().mockResolvedValue([]),
+						findFirst: vi.fn().mockResolvedValue(null),
+						create: vi.fn().mockResolvedValue({
+							id: 'artist1',
+							name: 'Test Artist',
 						}),
 					},
 					servicePlaylistTrack: {
@@ -413,8 +429,8 @@ describe('ServicePlaylistService - Sync Logic', () => {
 			const existingTrack = {
 				id: 'track1',
 				title: 'Original Video Title',
-				artist: 'Original Artist',
-				thumbnailUrl: 'original-thumb.jpg',
+				artistId: 'artist1',
+				coverImageId: 'cover1',
 				externalId: 'video1',
 			}
 
@@ -427,6 +443,14 @@ describe('ServicePlaylistService - Sync Logic', () => {
 							id: 'track1',
 							title: 'Original Video Title', // Should be preserved
 							externalId: 'video1',
+						}),
+					},
+					artist: {
+						findMany: vi.fn().mockResolvedValue([]),
+						findFirst: vi.fn().mockResolvedValue(null),
+						create: vi.fn().mockResolvedValue({
+							id: 'artist1',
+							name: 'Original Artist',
 						}),
 					},
 					servicePlaylistTrack: {

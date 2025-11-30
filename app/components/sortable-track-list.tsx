@@ -36,9 +36,14 @@ function announceToScreenReader(message: string) {
 interface Track {
 	id: string
 	title: string
-	artist: string
+	artist: {
+		id: string
+		name: string
+	}
 	duration: number | null
-	thumbnailUrl: string | null
+	coverImage: {
+		objectKey: string
+	} | null
 	serviceUrl: string | null
 	createdAt: string
 	service?: {
@@ -91,7 +96,7 @@ function SortableTrackItem({ track, index, playlists, onRemove, isSelected, onSe
 			role="listitem"
 			aria-selected={isSelected}
 			aria-grabbed={isDragging}
-			aria-label={`Track ${index + 1}: ${track.track.title} by ${track.track.artist}`}
+			aria-label={`Track ${index + 1}: ${track.track.title} by ${track.track.artist.name}`}
 		>
 			{/* Selection Checkbox */}
 			{showSelection && (
@@ -114,7 +119,7 @@ function SortableTrackItem({ track, index, playlists, onRemove, isSelected, onSe
 					showSelection ? "left-8" : "left-2"
 				)}
 				aria-pressed={isDragging}
-				aria-label={`Drag handle for track ${index + 1}: ${track.track.title} by ${track.track.artist}. Press Space or Enter to activate drag mode, then use arrow keys to reorder.`}
+				aria-label={`Drag handle for track ${index + 1}: ${track.track.title} by ${track.track.artist.name}. Press Space or Enter to activate drag mode, then use arrow keys to reorder.`}
 				aria-describedby={`track-${track.id}-description`}
 				onKeyDown={(e) => {
 					if (e.key === 'Escape' && isDragging) {

@@ -38,12 +38,14 @@ import { type Prisma } from '#prisma/client.js'
  */
 export function transformYouTubePlaylistItemToTrack(
   item: YouTubePlaylistItem, 
-  serviceId: string
-): Prisma.TrackCreateInput {
+  serviceId: string,
+  artistId: string
+): Omit<Prisma.TrackCreateInput, 'artist'> & { artistId: string; thumbnailUrl?: string | null } {
+  // thumbnailUrl is returned for downloading, but not saved to database
+  // It will be downloaded and stored as CoverImage instead
   return {
     title: item.snippet?.title || 'Unknown Title',
-    artist: item.snippet?.videoOwnerChannelTitle || item.snippet?.channelTitle || 'Unknown Artist',
-    album: null, // YouTube doesn't provide album info
+    artistId,
     duration: null, // Duration is not available in playlist items, need to fetch from video details
     externalId: item.snippet?.resourceId?.videoId || '',
     service: { connect: { id: serviceId } },
@@ -96,14 +98,16 @@ export function transformYouTubePlaylistToServicePlaylist(
  */
 export function transformYouTubeVideoToTrack(
   video: YouTubeVideo,
-  serviceId: string
-): Prisma.TrackCreateInput {
+  serviceId: string,
+  artistId: string
+): Omit<Prisma.TrackCreateInput, 'artist'> & { artistId: string; thumbnailUrl?: string | null } {
   const duration = video.contentDetails?.duration ? parseDuration(video.contentDetails.duration) : null
   
+  // thumbnailUrl is returned for downloading, but not saved to database
+  // It will be downloaded and stored as CoverImage instead
   return {
     title: video.snippet?.title || 'Unknown Title',
-    artist: video.snippet?.channelTitle || 'Unknown Artist',
-    album: null, // YouTube doesn't provide album info
+    artistId,
     duration,
     externalId: video.id || '',
     service: { connect: { id: serviceId } },

@@ -189,10 +189,21 @@ export const test = base.extend<{
 		const trackIds: string[] = []
 		const userTrackIds: string[] = []
 		await use(async (options?: { title?: string; artist?: string }, userId?: string) => {
+			// Get or create artist
+			const artistName = options?.artist || 'Test Artist'
+			const artist = await testPrisma.artist.upsert({
+				where: { normalizedName: artistName.toLowerCase().trim() },
+				update: {},
+				create: {
+					name: artistName,
+					normalizedName: artistName.toLowerCase().trim(),
+				},
+			})
+			
 			const track = await testPrisma.track.create({
 				data: {
 					title: options?.title || 'Test Track',
-					artist: options?.artist || 'Test Artist',
+					artistId: artist.id,
 				},
 			})
 			trackIds.push(track.id)
@@ -208,7 +219,12 @@ export const test = base.extend<{
 				userTrackIds.push(userTrack.id)
 			}
 			
-			return track
+			// Return track with artist name for compatibility
+			return {
+				id: track.id,
+				title: track.title,
+				artist: artist.name,
+			}
 		})
 		// Optimized cleanup - batch deletion
 		if (userTrackIds.length > 0) {

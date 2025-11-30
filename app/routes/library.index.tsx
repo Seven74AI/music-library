@@ -17,14 +17,24 @@ type UserTrack = {
 	track: {
 		id: string
 		title: string
-		artist: string
+		artist: {
+			id: string
+			name: string
+		}
 		duration: number | null
-		thumbnailUrl: string | null
+		coverImage: {
+			objectKey: string
+		} | null
 		serviceUrl: string | null
 		service?: {
 			displayName: string
 			logoUrl: string | null
 		} | null
+		audioFiles?: Array<{
+			id: string
+			format: string | null
+			objectKey: string
+		}>
 	}
 }
 
@@ -35,7 +45,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '5')))
 
 	// Get user's tracks with cursor-based pagination
-	const userTracks = await prisma.userTrack.findMany({
+	const userTracksRaw = await prisma.userTrack.findMany({
 		where: { userId },
 		select: {
 			id: true,
@@ -44,7 +54,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 				select: {
 					id: true,
 					title: true,
-					artist: true,
+					artist: {
+						select: {
+							id: true,
+							name: true,
+						},
+					},
 					createdAt: true,
 					updatedAt: true,
 					service: {
@@ -55,7 +70,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 						}
 					},
 					serviceUrl: true,
-					thumbnailUrl: true,
+					coverImage: {
+						select: {
+							objectKey: true,
+						},
+					},
 					duration: true,
 					audioFiles: {
 						select: {
@@ -72,6 +91,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 		cursor: cursor ? { id: cursor } : undefined,
 		skip: cursor ? 1 : undefined,
 	})
+
+	// Return tracks with relations (no transformations needed)
+	const userTracks = userTracksRaw
 
 	// Get next cursor for pagination
 	const nextCursor = userTracks.length === limit ? userTracks[userTracks.length - 1]?.id : null
