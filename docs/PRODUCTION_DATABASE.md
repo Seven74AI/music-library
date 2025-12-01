@@ -306,14 +306,22 @@ See `scripts/` directory for helper scripts:
 ```bash
 # Local development
 npm run make-admin <username>
+# Or: npx tsx scripts/make-admin.ts <username>
 
-# Production (Fly.io)
+# Production (Fly.io) - After deploying updated package.json
 fly ssh console --app [APP_NAME] -C "cd /myapp && npm run make-admin <username>"
+
+# Production (Fly.io) - Using npx directly (works immediately after deployment)
+fly ssh console --app [APP_NAME] -C "cd /myapp && npx tsx scripts/make-admin.ts <username>"
 ```
 
 Example:
 ```bash
+# Local
 npm run make-admin kody
+
+# Production
+fly ssh console --app music-library-5a00 -C "cd /myapp && npx tsx scripts/make-admin.ts kody"
 ```
 
 The script will:
@@ -321,6 +329,8 @@ The script will:
 2. Check if they're already an admin
 3. Add the admin role (without removing existing roles)
 4. Verify the change
+
+**Note**: `tsx` has been moved to `dependencies` so it's available in production after deployment.
 
 ### Resetting Database
 
