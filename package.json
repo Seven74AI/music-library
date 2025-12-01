@@ -21,6 +21,7 @@
     "lint:fix": "node --max-old-space-size=4096 ./node_modules/.bin/eslint --fix .",
     "setup": "npm run build && prisma migrate deploy && prisma generate --sql && playwright install",
     "db:reset": "prisma migrate reset --force && prisma generate",
+    "db:reset:script": "tsx scripts/reset-db.ts",
     "db:seed": "prisma db seed",
     "start": "cross-env NODE_ENV=production node .",
     "start:mocks": "cross-env NODE_ENV=production MOCKS=true tsx .",
@@ -38,7 +39,9 @@
     "validate": "run-p \"test -- --run\" \"lint\" typecheck test:e2e:run",
     "add-headers": "node scripts/add-context7-headers.js",
     "stop": "lsof -ti:3000 | xargs kill -9",
-    "reset-storage": "tsx scripts/reset-storage.ts"
+    "reset-storage": "tsx scripts/reset-storage.ts",
+    "db:manage": "tsx scripts/manage-db.ts",
+    "make-admin": "tsx scripts/make-admin.ts"
   },
   "prettier": "@epic-web/config/prettier",
   "eslintIgnore": [
