@@ -221,6 +221,25 @@ fly ssh console --app [APP_NAME] -C "
 
 #### Reset Database (⚠️ DESTRUCTIVE)
 
+**⚠️ WARNING**: This will DELETE ALL DATA in the database!
+
+**Important**: With LiteFS, `prisma migrate reset` may fail with disk I/O errors due to active database connections. Use the manual procedure below instead.
+
+**Recommended Procedure** (for LiteFS environments):
+
+```bash
+# 1. Stop the app to release database locks
+fly machine stop [MACHINE_ID] --app [APP_NAME]
+
+# 2. Wait a moment, then delete database files and recreate schema
+fly ssh console --app [APP_NAME] -C "sh -c 'rm -f /litefs/data/sqlite.db /litefs/data/sqlite.db-wal /litefs/data/sqlite.db-shm && npx prisma migrate deploy'"
+
+# 3. (Optional) Run seed if needed
+fly ssh console --app [APP_NAME] -C "npx prisma db seed"
+```
+
+**Alternative** (if `prisma migrate reset` works):
+
 ```bash
 # ⚠️ WARNING: This will delete all data!
 fly ssh console --app [APP_NAME] -C "
@@ -229,6 +248,8 @@ fly ssh console --app [APP_NAME] -C "
   npx prisma db seed
 "
 ```
+
+**Note**: If you encounter `P3016` disk I/O errors, use the manual procedure above. The error occurs because LiteFS maintains active connections to the database file.
 
 #### Manual Schema Changes
 
@@ -336,21 +357,34 @@ The script will:
 
 ⚠️ **WARNING**: This will DELETE ALL DATA!
 
+**Local Development:**
+
 ```bash
-# Local development
 npm run db:reset:script -- --force
 npm run db:reset:script -- --force --seed  # Also run seed
-
-# Production (Fly.io) - NOT RECOMMENDED
-fly ssh console --app [APP_NAME] -C "cd /myapp && npm run db:reset:script -- --force"
 ```
 
-The script includes safety checks:
-- Requires `--force` flag to prevent accidental resets
-- Blocks reset in production unless `--force` is used
-- Shows clear warnings before proceeding
+**Production (Fly.io with LiteFS):**
 
-**Note**: The existing `npm run db:reset` command also works, but this script provides better safety checks and documentation.
+The reset script may not work in production due to LiteFS disk I/O errors. Use the manual procedure:
+
+```bash
+# 1. Stop the app to release database locks
+fly machine stop [MACHINE_ID] --app [APP_NAME]
+
+# 2. Delete database files and recreate schema
+fly ssh console --app [APP_NAME] -C "sh -c 'rm -f /litefs/data/sqlite.db /litefs/data/sqlite.db-wal /litefs/data/sqlite.db-shm && npx prisma migrate deploy'"
+
+# 3. (Optional) Run seed if needed
+fly ssh console --app [APP_NAME] -C "npx prisma db seed"
+```
+
+**Why manual deletion?** LiteFS maintains active connections to the database file. `prisma migrate reset` may fail with `P3016` disk I/O errors because it cannot clean up the database while connections are active. Stopping the app releases these locks, allowing safe deletion and recreation.
+
+**Safety checks:**
+- Always stop the app before resetting in production
+- Verify migration status after reset: `npx prisma migrate status`
+- Consider creating a backup before resetting (see Backup section above)
 
 ## References
 
