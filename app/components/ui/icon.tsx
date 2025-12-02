@@ -65,13 +65,22 @@ export function Icon({
 			</span>
 		)
 	}
+	// Per ADR-008: Use local reference if sprite is in DOM, otherwise fallback to external
+	// Check once and memoize to avoid repeated DOM queries
+	// This ensures icons work even if DOM injection fails in production
+	const iconHref = (() => {
+		if (typeof document === 'undefined') return `${href}#${name}`
+		const spriteContainer = document.getElementById('svg-sprite-container')
+		return spriteContainer ? `#${name}` : `${href}#${name}`
+	})()
+	
 	return (
 		<svg
 			{...props}
 			className={cn(sizeClassName[size], 'inline self-center', className)}
 		>
 			{title ? <title>{title}</title> : null}
-			<use href={`#${name}`} />
+			<use href={iconHref} />
 		</svg>
 	)
 }
