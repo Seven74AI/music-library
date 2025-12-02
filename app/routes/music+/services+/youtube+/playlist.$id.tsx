@@ -24,6 +24,7 @@ import {
 } from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
 import { getPlaylistTitle } from '#app/utils/breadcrumb-utils'
+import { useIsPending } from '#app/utils/misc'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 import { redirectWithToast } from '#app/utils/toast.server'
 
@@ -91,7 +92,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			case YOUTUBE_PLAYLIST_DETAIL_INTENTS.REFRESH: {
 				const result = await servicePlaylistService.resyncPlaylist(params.id!, userId)
 				if (result.success) {
-					return data({ status: 'success', ...result })
+					return data({ 
+						status: 'success',
+						message: result.message || 'Playlist synced successfully',
+						tracksAdded: result.tracksAdded,
+						totalTracks: result.totalTracks,
+						deletedTracks: result.deletedTracks.map(t => ({ id: t.id, title: String(t.title), externalId: t.externalId || null })),
+						removedTracks: result.removedTracks.map(t => ({ id: t.id, title: String(t.title), externalId: t.externalId || null })),
+						pendingMatches: result.pendingMatches
+					})
 				}
 				return data({ 
 					status: 'error', 
@@ -181,10 +190,28 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	const [showDialog, setShowDialog] = useState(false)
 	const [syncButtonDisabled, setSyncButtonDisabled] = useState(false)
 	const hadPendingMatchesRef = useRef(false)
+	
+	// Detect when sync form is submitting
+	const isSyncing = useIsPending({ formMethod: 'POST' })
 
 	// Check for pending matches in action data
-	const pendingMatches = actionData && 'pendingMatches' in actionData && Array.isArray(actionData.pendingMatches) 
-		? actionData.pendingMatches 
+	type PendingMatch = {
+		deletedVideo: {
+			position: number
+			itemId: string | undefined
+			title: string | undefined
+		}
+		candidateTracks: Array<{
+			id: string
+			title: string
+			artist: string
+			externalId: string | null
+			position: number
+			isDeleted: boolean
+		}>
+	}
+	const pendingMatches: PendingMatch[] = actionData && 'pendingMatches' in actionData && Array.isArray(actionData.pendingMatches) 
+		? (actionData.pendingMatches as PendingMatch[])
 		: []
 
 	// Show dialog when pending matches exist
@@ -268,6 +295,19 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 				</div>
 			)}
 
+			{/* Sync Status Message */}
+			{isSyncing && (
+				<div className="mb-6 rounded-md bg-blue-50 p-4">
+					<div className="flex items-center gap-2">
+						<Icon name="update" className="h-4 w-4 text-blue-600 animate-spin" />
+						<p className="text-sm text-blue-800 font-medium">Syncing Playlist</p>
+					</div>
+					<p className="text-sm text-blue-700 mt-1">
+						Syncing playlist... This may take a moment for large playlists.
+					</p>
+				</div>
+			)}
+
 			{/* Action Messages */}
 			{actionData?.status === 'error' && (
 				<div className="mb-6 rounded-md bg-destructive/15 p-4">
@@ -290,7 +330,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 						<div className="mt-2 text-sm text-green-700">
 							<p className="font-medium">Deleted tracks: {actionData.deletedTracks.length}</p>
 							<ul className="list-disc list-inside mt-1 space-y-1">
-								{actionData.deletedTracks.slice(0, 5).map((track: { id: string; title: string }) => (
+								{(actionData.deletedTracks as Array<{ id: string; title: string }>).slice(0, 5).map((track) => (
 									<li key={track.id}>{track.title}</li>
 								))}
 								{actionData.deletedTracks.length > 5 && (
@@ -303,7 +343,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 						<div className="mt-2 text-sm text-green-700">
 							<p className="font-medium">Removed tracks: {actionData.removedTracks.length}</p>
 							<ul className="list-disc list-inside mt-1 space-y-1">
-								{actionData.removedTracks.slice(0, 5).map((track: { id: string; title: string }) => (
+								{(actionData.removedTracks as Array<{ id: string; title: string }>).slice(0, 5).map((track) => (
 									<li key={track.id}>{track.title}</li>
 								))}
 								{actionData.removedTracks.length > 5 && (
@@ -382,13 +422,16 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 										type="submit" 
 										variant="outline" 
 										className="w-full" 
-										disabled={syncButtonDisabled}
+										disabled={syncButtonDisabled || isSyncing}
 										aria-label={`Re-sync ${playlist.title || 'Unknown Playlist'}`}
 									>
-										<Icon name="update" className="h-4 w-4 mr-2" />
-										Re-sync Playlist
+									<Icon 
+										name="update" 
+										className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} 
+									/>
+										{isSyncing ? 'Syncing...' : 'Re-sync Playlist'}
 									</Button>
-									{syncButtonDisabled && (
+									{syncButtonDisabled && !isSyncing && (
 										<p className="text-xs text-muted-foreground mt-1">
 											Please complete pending matches first
 										</p>
@@ -470,9 +513,12 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 										const trackForListItem = {
 											id: track.id,
 											title: track.title,
-											artist: track.artist,
+											artist: track.artist && typeof track.artist === 'object' && 'name' in track.artist 
+												? track.artist 
+												: { id: '', name: 'Unknown Artist' }, // Safety check: ensure artist is always an object
 											duration: track.duration,
 											coverImage: track.coverImage,
+											thumbnailUrl: track.thumbnailUrl, // Include thumbnailUrl for placeholder images
 											serviceUrl: track.serviceUrl,
 											service: track.service ? {
 												displayName: track.service.displayName,

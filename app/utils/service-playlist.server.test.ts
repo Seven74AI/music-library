@@ -484,3 +484,558 @@ describe('ServicePlaylistService - Sync Logic', () => {
 	})
 })
 
+describe('ServicePlaylistService - Batch Processing', () => {
+	let service: ServicePlaylistService
+	let prisma: any
+	let createYouTubeService: any
+
+	beforeEach(async () => {
+		service = createServicePlaylistService()
+		prisma = (await import('#app/utils/db.server')).prisma
+		createYouTubeService = (await import('./youtube.server')).createYouTubeService
+		vi.clearAllMocks()
+	})
+
+	describe('Position calculation across multiple batches', () => {
+		test('positions are sequential across transaction batches (50+ items)', async () => {
+			const userId = 'user123'
+			const playlistId = 'playlist123'
+			const serviceId = 'youtube-service'
+
+			// Mock service lookup
+			vi.mocked(prisma.service.findUnique).mockResolvedValue({
+				id: serviceId,
+				name: 'youtube',
+				displayName: 'YouTube',
+				baseUrl: 'https://youtube.com',
+				isActive: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Mock connection
+			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
+				id: 'conn123',
+				providerName: 'youtube',
+				providerId: 'provider123',
+				userId,
+				tokens: JSON.stringify({ access_token: 'token123' }),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Mock playlist
+			vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
+				id: playlistId,
+				serviceId,
+				externalId: 'external123',
+				title: 'Test Playlist',
+				itemCount: 0,
+				ownerId: userId,
+				isActive: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Create 50 playlist items (will require multiple transaction batches of 15)
+			const playlistItems = Array.from({ length: 50 }, (_, i) => ({
+				snippet: {
+					title: `Video ${i + 1}`,
+					resourceId: { videoId: `video${i + 1}` },
+					thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+					videoOwnerChannelTitle: 'Test Channel',
+				},
+			}))
+
+			// Mock YouTube service
+			vi.mocked(createYouTubeService).mockReturnValue({
+				getPlaylistItems: vi.fn().mockResolvedValue(playlistItems as any),
+			} as any)
+
+			const upsertedPositions: number[] = []
+
+			// Mock transaction - track positions
+			vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+				const tx = {
+					track: {
+						findUnique: vi.fn().mockResolvedValue(null),
+						upsert: vi.fn().mockImplementation(async (args: any) => ({
+							id: `track-${args.where.serviceId_externalId.externalId}`,
+							title: args.create.title,
+							externalId: args.create.externalId,
+						})),
+					},
+					artist: {
+						findMany: vi.fn().mockResolvedValue([]),
+						findFirst: vi.fn().mockResolvedValue(null),
+						create: vi.fn().mockResolvedValue({
+							id: 'artist1',
+							name: 'Test Channel',
+						}),
+					},
+					servicePlaylistTrack: {
+						findUnique: vi.fn().mockResolvedValue(null),
+						upsert: vi.fn().mockImplementation(async (args: any) => {
+							upsertedPositions.push(args.create.position)
+							return {
+								id: `pt-${args.create.trackId}`,
+								playlistId: args.create.playlistId,
+								trackId: args.create.trackId,
+								position: args.create.position,
+								isDeleted: false,
+							}
+						}),
+					},
+				}
+				return callback(tx)
+			})
+
+			// Mock playlist tracks query (empty - no removed tracks)
+			vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([])
+
+			// Mock playlist update
+			vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any)
+
+			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+
+			expect(result.success).toBe(true)
+			expect(result.tracksAdded).toBe(50)
+			
+			// Verify positions are sequential: 1, 2, 3, ..., 50
+			expect(upsertedPositions).toHaveLength(50)
+			expect(upsertedPositions[0]).toBe(1)
+			expect(upsertedPositions[49]).toBe(50)
+			
+			// Verify no position is duplicated or skipped
+			const sortedPositions = [...upsertedPositions].sort((a, b) => a - b)
+			expect(sortedPositions).toEqual(Array.from({ length: 50 }, (_, i) => i + 1))
+		})
+	})
+
+	describe('Orphaned track detection across batches', () => {
+		test('only detects truly orphaned tracks, not tracks in current sync', async () => {
+			const userId = 'user123'
+			const playlistId = 'playlist123'
+			const serviceId = 'youtube-service'
+
+			// Mock service lookup
+			vi.mocked(prisma.service.findUnique).mockResolvedValue({
+				id: serviceId,
+				name: 'youtube',
+				displayName: 'YouTube',
+				baseUrl: 'https://youtube.com',
+				isActive: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Mock connection
+			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
+				id: 'conn123',
+				providerName: 'youtube',
+				providerId: 'provider123',
+				userId,
+				tokens: JSON.stringify({ access_token: 'token123' }),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Mock playlist
+			vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
+				id: playlistId,
+				serviceId,
+				externalId: 'external123',
+				title: 'Test Playlist',
+				itemCount: 0,
+				ownerId: userId,
+				isActive: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Create 30 playlist items (2 transaction batches)
+			// Include one deleted video without match
+			const playlistItems = [
+				...Array.from({ length: 14 }, (_, i) => ({
+					snippet: {
+						title: `Video ${i + 1}`,
+						resourceId: { videoId: `video${i + 1}` },
+						thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+						videoOwnerChannelTitle: 'Test Channel',
+					},
+				})),
+				{
+					id: 'deleted-item-1',
+					snippet: {
+						title: 'Deleted video',
+						resourceId: { videoId: '' },
+					},
+				},
+				...Array.from({ length: 15 }, (_, i) => ({
+					snippet: {
+						title: `Video ${i + 16}`,
+						resourceId: { videoId: `video${i + 16}` },
+						thumbnails: { default: { url: `https://example.com/thumb${i + 16}.jpg` } },
+						videoOwnerChannelTitle: 'Test Channel',
+					},
+				})),
+			]
+
+			// Mock YouTube service
+			vi.mocked(createYouTubeService).mockReturnValue({
+				getPlaylistItems: vi.fn().mockResolvedValue(playlistItems as any),
+			} as any)
+
+			// Mock existing playlist tracks (some orphaned, some in current sync)
+			const existingOrphanedTrack = {
+				id: 'pt-orphaned',
+				playlistId,
+				trackId: 'track-orphaned',
+				position: 100,
+				isDeleted: false,
+				track: {
+					id: 'track-orphaned',
+					title: 'Orphaned Track',
+					externalId: 'orphaned-video',
+				},
+			}
+
+			// Mock transaction
+			let processedTrackIds = new Set<string>()
+			vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+				const tx = {
+					track: {
+						findUnique: vi.fn().mockResolvedValue(null),
+						upsert: vi.fn().mockImplementation(async (args: any) => {
+							const trackId = `track-${args.where.serviceId_externalId.externalId}`
+							processedTrackIds.add(trackId)
+							return {
+								id: trackId,
+								title: args.create.title,
+								externalId: args.create.externalId,
+							}
+						}),
+					},
+					artist: {
+						findMany: vi.fn().mockResolvedValue([]),
+						findFirst: vi.fn().mockResolvedValue(null),
+						create: vi.fn().mockResolvedValue({
+							id: 'artist1',
+							name: 'Test Channel',
+						}),
+					},
+					servicePlaylistTrack: {
+						findUnique: vi.fn().mockResolvedValue(null),
+						upsert: vi.fn().mockImplementation(async (args: any) => {
+							processedTrackIds.add(args.create.trackId)
+							return {
+								id: `pt-${args.create.trackId}`,
+								playlistId: args.create.playlistId,
+								trackId: args.create.trackId,
+								position: args.create.position,
+								isDeleted: false,
+							}
+						}),
+						findMany: vi.fn().mockResolvedValue([existingOrphanedTrack]),
+					},
+				}
+				return callback(tx)
+			})
+
+			// Mock playlist tracks query for removal detection
+			vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([
+				existingOrphanedTrack,
+			] as any)
+
+			// Mock playlist update
+			vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any)
+
+			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+
+			expect(result.success).toBe(true)
+			
+			// Should have pending matches for deleted video
+			expect(result.pendingMatches.length).toBeGreaterThan(0)
+			
+			// Orphaned track should be in candidates
+			const deletedVideoMatch = result.pendingMatches.find(
+				m => m.deletedVideo.title === 'Deleted video'
+			)
+			expect(deletedVideoMatch).toBeDefined()
+			
+			// Should include orphaned track as candidate
+			const orphanedCandidate = deletedVideoMatch?.candidateTracks.find(
+				t => t.id === 'track-orphaned'
+			)
+			expect(orphanedCandidate).toBeDefined()
+			
+			// Should NOT include tracks from current sync as candidates
+			const currentSyncTracks = deletedVideoMatch?.candidateTracks.filter(
+				t => t.externalId?.startsWith('video')
+			)
+			expect(currentSyncTracks?.length).toBe(0)
+		})
+	})
+
+	describe('Track removal across batches', () => {
+		test('correctly identifies removed tracks using accumulated processedExternalIds', async () => {
+			const userId = 'user123'
+			const playlistId = 'playlist123'
+			const serviceId = 'youtube-service'
+
+			// Mock service lookup
+			vi.mocked(prisma.service.findUnique).mockResolvedValue({
+				id: serviceId,
+				name: 'youtube',
+				displayName: 'YouTube',
+				baseUrl: 'https://youtube.com',
+				isActive: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Mock connection
+			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
+				id: 'conn123',
+				providerName: 'youtube',
+				providerId: 'provider123',
+				userId,
+				tokens: JSON.stringify({ access_token: 'token123' }),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Mock playlist
+			vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
+				id: playlistId,
+				serviceId,
+				externalId: 'external123',
+				title: 'Test Playlist',
+				itemCount: 0,
+				ownerId: userId,
+				isActive: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Create 20 playlist items (video1-video20)
+			const playlistItems = Array.from({ length: 20 }, (_, i) => ({
+				snippet: {
+					title: `Video ${i + 1}`,
+					resourceId: { videoId: `video${i + 1}` },
+					thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+					videoOwnerChannelTitle: 'Test Channel',
+				},
+			}))
+
+			// Mock YouTube service
+			vi.mocked(createYouTubeService).mockReturnValue({
+				getPlaylistItems: vi.fn().mockResolvedValue(playlistItems as any),
+			} as any)
+
+			// Mock existing playlist tracks (video21 and video22 should be removed)
+			const existingPlaylistTracks = [
+				{
+					id: 'pt-removed1',
+					playlistId,
+					trackId: 'track-removed1',
+					position: 21,
+					isDeleted: false,
+					track: {
+						id: 'track-removed1',
+						title: 'Video 21 (Removed)',
+						externalId: 'video21',
+					},
+				},
+				{
+					id: 'pt-removed2',
+					playlistId,
+					trackId: 'track-removed2',
+					position: 22,
+					isDeleted: false,
+					track: {
+						id: 'track-removed2',
+						title: 'Video 22 (Removed)',
+						externalId: 'video22',
+					},
+				},
+			]
+
+			// Mock transaction
+			vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+				const tx = {
+					track: {
+						findUnique: vi.fn().mockResolvedValue(null),
+						upsert: vi.fn().mockResolvedValue({
+							id: 'track-new',
+							title: 'New Video',
+							externalId: 'video-new',
+						}),
+					},
+					artist: {
+						findMany: vi.fn().mockResolvedValue([]),
+						findFirst: vi.fn().mockResolvedValue(null),
+						create: vi.fn().mockResolvedValue({
+							id: 'artist1',
+							name: 'Test Channel',
+						}),
+					},
+					servicePlaylistTrack: {
+						findUnique: vi.fn().mockResolvedValue(null),
+						upsert: vi.fn().mockResolvedValue({
+							id: 'pt-new',
+							playlistId,
+							trackId: 'track-new',
+							position: 1,
+							isDeleted: false,
+						}),
+					},
+				}
+				return callback(tx)
+			})
+
+			// Mock playlist tracks query for removal detection
+			vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue(
+				existingPlaylistTracks as any
+			)
+
+			// Mock playlist update
+			vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any)
+
+			// Mock deleteMany
+			vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 2 } as any)
+
+			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+
+			expect(result.success).toBe(true)
+			expect(result.removedTracks).toHaveLength(2)
+			expect(result.removedTracks.map(t => t.externalId)).toContain('video21')
+			expect(result.removedTracks.map(t => t.externalId)).toContain('video22')
+			
+			// Verify deleteMany was called with correct IDs
+			expect(prisma.servicePlaylistTrack.deleteMany).toHaveBeenCalledWith({
+				where: {
+					id: {
+						in: ['pt-removed1', 'pt-removed2'],
+					},
+				},
+			})
+		})
+	})
+
+	describe('Processed count accuracy', () => {
+		test('counts only successfully processed tracks, excludes pending matches', async () => {
+			const userId = 'user123'
+			const playlistId = 'playlist123'
+			const serviceId = 'youtube-service'
+
+			// Mock service lookup
+			vi.mocked(prisma.service.findUnique).mockResolvedValue({
+				id: serviceId,
+				name: 'youtube',
+				displayName: 'YouTube',
+				baseUrl: 'https://youtube.com',
+				isActive: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Mock connection
+			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
+				id: 'conn123',
+				providerName: 'youtube',
+				providerId: 'provider123',
+				userId,
+				tokens: JSON.stringify({ access_token: 'token123' }),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Mock playlist
+			vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
+				id: playlistId,
+				serviceId,
+				externalId: 'external123',
+				title: 'Test Playlist',
+				itemCount: 0,
+				ownerId: userId,
+				isActive: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as any)
+
+			// Create playlist with 5 normal videos and 1 deleted video without match
+			const playlistItems = [
+				...Array.from({ length: 5 }, (_, i) => ({
+					snippet: {
+						title: `Video ${i + 1}`,
+						resourceId: { videoId: `video${i + 1}` },
+						thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+						videoOwnerChannelTitle: 'Test Channel',
+					},
+				})),
+				{
+					id: 'deleted-item-1',
+					snippet: {
+						title: 'Deleted video',
+						resourceId: { videoId: '' },
+					},
+				},
+			]
+
+			// Mock YouTube service
+			vi.mocked(createYouTubeService).mockReturnValue({
+				getPlaylistItems: vi.fn().mockResolvedValue(playlistItems as any),
+			} as any)
+
+			// Mock transaction
+			vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+				const tx = {
+					track: {
+						findUnique: vi.fn().mockResolvedValue(null),
+						upsert: vi.fn().mockResolvedValue({
+							id: 'track-new',
+							title: 'New Video',
+							externalId: 'video-new',
+						}),
+					},
+					artist: {
+						findMany: vi.fn().mockResolvedValue([]),
+						findFirst: vi.fn().mockResolvedValue(null),
+						create: vi.fn().mockResolvedValue({
+							id: 'artist1',
+							name: 'Test Channel',
+						}),
+					},
+					servicePlaylistTrack: {
+						findUnique: vi.fn().mockResolvedValue(null),
+						upsert: vi.fn().mockResolvedValue({
+							id: 'pt-new',
+							playlistId,
+							trackId: 'track-new',
+							position: 1,
+							isDeleted: false,
+						}),
+						findMany: vi.fn().mockResolvedValue([]),
+					},
+				}
+				return callback(tx)
+			})
+
+			// Mock playlist tracks query (empty - no removed tracks)
+			vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([])
+
+			// Mock playlist update
+			vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any)
+
+			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+
+			expect(result.success).toBe(true)
+			// Should count only the 5 successfully processed tracks, not the deleted video
+			expect(result.tracksAdded).toBe(5)
+			// Should have pending matches for the deleted video
+			expect(result.pendingMatches).toHaveLength(1)
+		})
+	})
+})
+

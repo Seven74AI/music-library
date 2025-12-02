@@ -22,6 +22,7 @@ interface Track {
 	coverImage: {
 		objectKey: string
 	} | null
+	thumbnailUrl?: string | null // Placeholder thumbnail URL (e.g., from YouTube) when coverImage is not available
 	serviceUrl: string | null
 	service?: {
 		displayName: string
@@ -173,6 +174,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 					<div className="flex-shrink-0">
 						<TrackThumbnail 
 							coverImage={track.coverImage}
+							thumbnailUrl={track.thumbnailUrl}
 							alt={track.title}
 							size="sm"
 						/>
@@ -266,6 +268,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										<div className="flex items-center gap-3">
 											<TrackThumbnail 
 												coverImage={track.coverImage}
+												thumbnailUrl={track.thumbnailUrl}
 												alt={track.title}
 												size="md"
 											/>

@@ -14,10 +14,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	
 	// Get counts instead of full data for better performance
 	const [totalTracks, totalPlaylists, recentTracks, recentPlaylists] = await Promise.all([
-		prisma.userTrack.count({ where: { userId } }),
+		prisma.userTrack.count({ where: { userId, isActive: true, deletedAt: null } }),
 		prisma.userPlaylist.count({ where: { ownerId: userId } }),
 		prisma.userTrack.findMany({
-			where: { userId },
+			where: { userId, isActive: true, deletedAt: null },
 			select: {
 				id: true,
 				createdAt: true,

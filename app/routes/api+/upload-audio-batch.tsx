@@ -454,7 +454,7 @@ async function processFilesAsync(
 							albumId: albumRecord?.id || null,
 							coverImageId,
 							duration: file.metadata.duration || null,
-							serviceId: serviceId || null,
+							serviceId: serviceId,
 							externalId: fileIdForStorage,
 							serviceUrl: null,
 							releaseDate: file.userMetadata?.releaseDate 
