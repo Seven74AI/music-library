@@ -172,12 +172,18 @@ function Document({
 	container.id = 'svg-sprite-container';
 	container.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;';
 	container.setAttribute('aria-hidden', 'true');
-	var xhr = new XMLHttpRequest();
-	xhr.open('GET', '${iconsHref}', false);
-	xhr.send();
-	if (xhr.status === 200 && xhr.responseText) {
-		container.innerHTML = xhr.responseText;
-		document.body.insertBefore(container, document.body.firstChild);
+	try {
+		var xhr = new XMLHttpRequest();
+		xhr.open('GET', '${iconsHref}', false);
+		xhr.send();
+		if (xhr.status === 200 && xhr.responseText) {
+			container.innerHTML = xhr.responseText;
+			document.body.insertBefore(container, document.body.firstChild);
+		} else {
+			console.warn('Sprite injection failed: HTTP ' + xhr.status + ' for ' + '${iconsHref}');
+		}
+	} catch (e) {
+		console.error('Sprite injection failed:', e, 'for', '${iconsHref}');
 	}
 })();
 						`.trim(),
