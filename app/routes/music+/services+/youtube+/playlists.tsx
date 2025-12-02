@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react'
 import {
   data,
   Form,
@@ -10,8 +11,16 @@ import {
 
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { Button } from '#app/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
+import { Card, CardContent } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { Input } from '#app/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#app/components/ui/select'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { isErrorActionResult, isSuccessActionResult, isYouTubePlaylistDisplay } from '#app/types/frontend'
 import { 
@@ -94,7 +103,32 @@ export async function action({ request }: ActionFunctionArgs) {
 				}
 				
 				const result = await servicePlaylistService.addPlaylistToSync('youtube', playlistId, userId)
-				return data({ status: 'success', ...result })
+				if (result.success) {
+					// Serialize pendingMatches to ensure all nested objects are properly converted
+					const serializedPendingMatches = result.pendingMatches?.map(match => ({
+						deletedVideo: match.deletedVideo,
+						candidateTracks: match.candidateTracks.map(track => ({
+							...track,
+							artist: typeof track.artist === 'object' && track.artist !== null && 'name' in track.artist
+								? (track.artist as { name: string }).name || 'Unknown Artist'
+								: (typeof track.artist === 'string' ? track.artist : 'Unknown Artist')
+						}))
+					})) || []
+					
+					return data({ 
+						status: 'success', 
+						playlistId: result.playlistId,
+						tracksAdded: result.tracksAdded,
+						totalTracks: result.totalTracks,
+						pendingMatches: serializedPendingMatches,
+						message: result.message
+					})
+				} else {
+					return data({ 
+						status: 'error', 
+						message: result.message || result.error || 'Failed to sync playlist. Please try again.' 
+					}, { status: 500 })
+				}
 			}
 			
 			case YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.REMOVE_FROM_SYNC: {
@@ -120,6 +154,16 @@ export async function action({ request }: ActionFunctionArgs) {
 	}
 }
 
+type SortOption = 
+	| 'title-asc'
+	| 'title-desc'
+	| 'tracks-asc'
+	| 'tracks-desc'
+	| 'channel-asc'
+	| 'channel-desc'
+	| 'synced-first'
+	| 'not-synced-first'
+
 export default function YouTubePlaylistsPage() {
 	const loaderData = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
@@ -135,6 +179,58 @@ export default function YouTubePlaylistsPage() {
 
 	const { playlists, hasConnection } = loaderData
 	const typedPlaylists = playlists
+
+	// Search and sort state
+	const [searchQuery, setSearchQuery] = useState('')
+	const [sortOption, setSortOption] = useState<SortOption>('title-asc')
+
+	// Filter and sort playlists
+	const filteredAndSortedPlaylists = useMemo(() => {
+		let filtered = typedPlaylists
+
+		// Apply search filter
+		if (searchQuery.trim()) {
+			const query = searchQuery.toLowerCase().trim()
+			filtered = typedPlaylists.filter((playlist) => {
+				const title = playlist.snippet?.title?.toLowerCase() || ''
+				const description = playlist.snippet?.description?.toLowerCase() || ''
+				const channel = playlist.snippet?.channelTitle?.toLowerCase() || ''
+				return title.includes(query) || description.includes(query) || channel.includes(query)
+			})
+		}
+
+		// Apply sorting
+		const sorted = [...filtered].sort((a, b) => {
+			switch (sortOption) {
+				case 'title-asc':
+					return (a.snippet?.title || '').localeCompare(b.snippet?.title || '')
+				case 'title-desc':
+					return (b.snippet?.title || '').localeCompare(a.snippet?.title || '')
+				case 'tracks-asc':
+					return (a.contentDetails?.itemCount || 0) - (b.contentDetails?.itemCount || 0)
+				case 'tracks-desc':
+					return (b.contentDetails?.itemCount || 0) - (a.contentDetails?.itemCount || 0)
+				case 'channel-asc':
+					return (a.snippet?.channelTitle || '').localeCompare(b.snippet?.channelTitle || '')
+				case 'channel-desc':
+					return (b.snippet?.channelTitle || '').localeCompare(a.snippet?.channelTitle || '')
+				case 'synced-first':
+					if (a.isSynced === b.isSynced) {
+						return (a.snippet?.title || '').localeCompare(b.snippet?.title || '')
+					}
+					return a.isSynced ? -1 : 1
+				case 'not-synced-first':
+					if (a.isSynced === b.isSynced) {
+						return (a.snippet?.title || '').localeCompare(b.snippet?.title || '')
+					}
+					return a.isSynced ? 1 : -1
+				default:
+					return 0
+			}
+		})
+
+		return sorted
+	}, [typedPlaylists, searchQuery, sortOption])
 
 	return (
 		<div className="py-8">
@@ -214,131 +310,199 @@ export default function YouTubePlaylistsPage() {
 				</div>
 			)}
 
-			{/* Playlists Table */}
+			{/* Playlists List */}
 			{hasConnection && typedPlaylists.length > 0 && (
-				<Card>
-					<CardHeader>
-						<CardTitle>Your YouTube Playlists</CardTitle>
-						<CardDescription>
-							Choose which playlists to sync to your music library
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<div className="overflow-x-auto">
-							<table className="w-full">
-								<thead>
-									<tr className="border-b">
-										<th className="text-left p-4">Playlist</th>
-										<th className="text-left p-4">Channel</th>
-										<th className="text-left p-4">Tracks</th>
-										<th className="text-left p-4">Status</th>
-										<th className="text-left p-4">Actions</th>
-									</tr>
-								</thead>
-								<tbody>
-									{typedPlaylists.map((playlist) => (
-										<tr key={playlist.id} className="border-b hover:bg-muted/50">
-											<td className="p-4">
-												<div className="flex items-center gap-3">
-													{playlist.snippet?.thumbnails?.default?.url ? (
-														<img 
-															src={playlist.snippet.thumbnails.default.url} 
-															alt={playlist.snippet.title}
-															className="w-12 h-12 rounded object-cover flex-shrink-0"
-														/>
-													) : (
-														<div className="w-12 h-12 bg-muted rounded flex items-center justify-center flex-shrink-0">
-															<Icon name="file-text" className="h-6 w-6 text-muted-foreground" />
-														</div>
-													)}
-													<div className="min-w-0">
-														<h3 className="font-medium line-clamp-1">
-															{playlist.snippet?.title || 'Unknown Title'}
-														</h3>
-														<p className="text-sm text-muted-foreground line-clamp-1">
-															{playlist.snippet?.description || 'No description'}
-														</p>
-													</div>
-												</div>
-											</td>
-											<td className="p-4">
-												<span className="text-sm">
-													{playlist.snippet?.channelTitle || 'Unknown Channel'}
-												</span>
-											</td>
-											<td className="p-4">
-												<span className="text-sm">
-													{playlist.contentDetails?.itemCount || 0} tracks
-												</span>
-											</td>
-											<td className="p-4">
-												<span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${
-													playlist.isSynced 
-														? 'border-transparent bg-green-100 text-green-800' 
-														: 'border-transparent bg-gray-100 text-gray-600'
-												}`}>
-													{playlist.isSynced ? 'Synced' : 'Not Synced'}
-												</span>
-											</td>
-											<td className="p-4">
-												<div className="flex items-center gap-2">
-													<Button
-														variant="outline"
-														size="sm"
-														onClick={() => window.open(`https://youtube.com/playlist?list=${playlist.id}`, '_blank')}
-														aria-label={`Open ${playlist.snippet?.title || 'Unknown Playlist'} on YouTube`}
-													>
-														<Icon name="link-2" className="h-4 w-4" />
-													</Button>
-													
-													{playlist.isSynced && playlist.playlistInternalId ? (
-														<>
-															<Button
-																variant="outline"
-																size="sm"
-																asChild
-															>
-																<Link to={`/music/services/youtube/playlist/${playlist.playlistInternalId}`} aria-label={`View details for ${playlist.snippet?.title || 'Unknown Playlist'}`}>
-																	<Icon name="eye-open" className="h-4 w-4" />
-																</Link>
-															</Button>
-															<Form method="post" className="inline">
-																<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.REMOVE_FROM_SYNC} />
-																<input type="hidden" name="playlistId" value={playlist.playlistInternalId} />
-																<Button
-																	type="submit"
-																	variant="outline"
-																	size="sm"
-																	className="text-destructive hover:text-destructive"
-																	aria-label={`Remove ${playlist.snippet?.title || 'Unknown Playlist'} from sync`}
-																>
-																	<Icon name="trash" className="h-4 w-4" />
-																</Button>
-															</Form>
-														</>
-													) : (
-														<Form method="post" className="inline">
-															<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.ADD_TO_SYNC} />
-															<input type="hidden" name="playlistId" value={playlist.id} />
-															<Button
-																type="submit"
-																size="sm"
-																aria-label={`Add ${playlist.snippet?.title || 'Unknown Playlist'} to sync`}
-															>
-																<Icon name="plus" className="h-4 w-4 mr-2" />
-																Add to Sync
-															</Button>
-														</Form>
-													)}
-												</div>
-											</td>
-										</tr>
-									))}
-								</tbody>
-							</table>
+				<div className="bg-card rounded-lg border border-border p-6">
+					<div className="mb-6">
+						<h1 className="mb-2">Your YouTube Playlists</h1>
+						<p className="text-muted-foreground">Choose which playlists to sync to your music library</p>
+					</div>
+
+					{/* Search and Sort Controls */}
+					<div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+						<div className="flex-1 max-w-md">
+							<div className="relative">
+								<Icon 
+									name="magnifying-glass" 
+									className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+								/>
+								<Input
+									type="search"
+									placeholder="Search playlists..."
+									value={searchQuery}
+									onChange={(e) => setSearchQuery(e.target.value)}
+									className="pl-9"
+								/>
+							</div>
 						</div>
-					</CardContent>
-				</Card>
+						<div className="flex items-center gap-2">
+							<label htmlFor="sort-select" className="text-sm text-muted-foreground whitespace-nowrap">
+								Sort by:
+							</label>
+							<Select value={sortOption} onValueChange={(value) => setSortOption(value as SortOption)}>
+								<SelectTrigger id="sort-select" className="w-[180px]">
+									<SelectValue placeholder="Sort by..." />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="title-asc">Title (A-Z)</SelectItem>
+									<SelectItem value="title-desc">Title (Z-A)</SelectItem>
+									<SelectItem value="tracks-desc">Tracks (Most)</SelectItem>
+									<SelectItem value="tracks-asc">Tracks (Least)</SelectItem>
+									<SelectItem value="channel-asc">Channel (A-Z)</SelectItem>
+									<SelectItem value="channel-desc">Channel (Z-A)</SelectItem>
+									<SelectItem value="synced-first">Synced First</SelectItem>
+									<SelectItem value="not-synced-first">Not Synced First</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+					</div>
+
+					{/* Results count */}
+					{searchQuery && (
+						<div className="mb-4 text-sm text-muted-foreground">
+							Found {filteredAndSortedPlaylists.length} of {typedPlaylists.length} playlists
+						</div>
+					)}
+
+					{/* No results message */}
+					{filteredAndSortedPlaylists.length === 0 ? (
+						<div className="text-center py-12">
+							<Icon name="magnifying-glass" className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+							<p className="text-muted-foreground">
+								No playlists found matching "{searchQuery}"
+							</p>
+							<Button
+								variant="outline"
+								size="sm"
+								className="mt-4"
+								onClick={() => setSearchQuery('')}
+							>
+								Clear search
+							</Button>
+						</div>
+					) : (
+						<div className="border border-border rounded-lg overflow-hidden">
+							{/* Table Header */}
+							<div className="grid grid-cols-[1fr_auto_auto] md:grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-6 py-3 bg-muted/30 border-b border-border">
+								<div>Playlist</div>
+								<div className="w-32 text-center hidden md:block">Channel</div>
+								<div className="w-20 text-center">Tracks</div>
+								<div className="w-24 text-center hidden sm:block">Status</div>
+								<div className="w-40 text-center">Actions</div>
+							</div>
+
+							{/* Table Body */}
+							<div>
+								{filteredAndSortedPlaylists.map((playlist) => (
+									<div 
+										key={playlist.id} 
+										className="grid grid-cols-[1fr_auto_auto] md:grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-6 py-4 border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors"
+									>
+										{/* Playlist Info */}
+										<div className="flex items-center gap-3 min-w-0">
+											{playlist.snippet?.thumbnails?.default?.url ? (
+												<img 
+													src={playlist.snippet.thumbnails.default.url} 
+													alt={playlist.snippet.title}
+													className="w-12 h-12 rounded object-cover flex-shrink-0"
+												/>
+											) : (
+												<div className="w-12 h-12 bg-muted rounded flex items-center justify-center flex-shrink-0">
+													<Icon name="file-text" className="h-6 w-6 text-muted-foreground" />
+												</div>
+											)}
+											<div className="min-w-0 flex-1">
+												<div className="truncate">{playlist.snippet?.title || 'Unknown Title'}</div>
+												<div className="text-muted-foreground truncate">{playlist.snippet?.description || 'No description'}</div>
+												<div className="text-muted-foreground truncate md:hidden mt-1">
+													{playlist.snippet?.channelTitle || 'Unknown Channel'}
+												</div>
+											</div>
+										</div>
+
+										{/* Channel */}
+										<div className="w-32 flex flex-col items-center justify-center text-center hidden md:flex">
+											<div className="truncate w-full">{playlist.snippet?.channelTitle || 'Unknown Channel'}</div>
+											<div className="text-muted-foreground truncate w-full">
+												({playlist.snippet?.channelTitle?.replace(/\s+/g, '') || 'UnknownChannel'})
+											</div>
+										</div>
+
+										{/* Tracks */}
+										<div className="w-20 flex items-center justify-center">
+											{playlist.contentDetails?.itemCount || 0}
+										</div>
+
+										{/* Status */}
+										<div className="w-24 flex items-center justify-center hidden sm:flex">
+											{playlist.isSynced ? (
+												<span className="px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+													Synced
+												</span>
+											) : (
+												<span className="px-2 py-1 rounded-md bg-muted text-muted-foreground whitespace-nowrap">
+													Not Synced
+												</span>
+											)}
+										</div>
+
+										{/* Actions */}
+										<div className="w-40 flex items-center justify-center gap-2">
+											{/* Link to YouTube */}
+											<button
+												onClick={() => window.open(`https://youtube.com/playlist?list=${playlist.id}`, '_blank')}
+												className="p-2 hover:bg-accent rounded-md transition-colors"
+												title="Open on YouTube"
+												aria-label={`Open ${playlist.snippet?.title || 'Unknown Playlist'} on YouTube`}
+											>
+												<Icon name="link-2" className="w-4 h-4" />
+											</button>
+
+											{/* View Synced Playlist or Sync Button */}
+											{playlist.isSynced && playlist.playlistInternalId ? (
+												<>
+													<Link
+														to={`/music/services/youtube/playlist/${playlist.playlistInternalId}`}
+														className="p-2 hover:bg-accent rounded-md transition-colors"
+														title="View synced playlist"
+														aria-label={`View details for ${playlist.snippet?.title || 'Unknown Playlist'}`}
+													>
+														<Icon name="eye-open" className="w-4 h-4" />
+													</Link>
+													<Form method="post" className="inline">
+														<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.REMOVE_FROM_SYNC} />
+														<input type="hidden" name="playlistId" value={playlist.playlistInternalId} />
+														<button
+															type="submit"
+															className="p-2 hover:bg-destructive/10 text-foreground-destructive rounded-md transition-colors"
+															title="Delete"
+															aria-label={`Remove ${playlist.snippet?.title || 'Unknown Playlist'} from sync`}
+														>
+															<Icon name="trash" className="w-4 h-4" />
+														</button>
+													</Form>
+												</>
+											) : (
+												<Form method="post" className="inline">
+													<input type="hidden" name="intent" value={YOUTUBE_PLAYLIST_DISCOVERY_INTENTS.ADD_TO_SYNC} />
+													<input type="hidden" name="playlistId" value={playlist.id} />
+													<button
+														type="submit"
+														className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors flex items-center gap-1.5 whitespace-nowrap"
+														aria-label={`Add ${playlist.snippet?.title || 'Unknown Playlist'} to sync`}
+													>
+														<span className="text-lg leading-none">+</span>
+														<span>Add to Sync</span>
+													</button>
+												</Form>
+											)}
+										</div>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
+				</div>
 			)}
 
 			{/* No Playlists State */}

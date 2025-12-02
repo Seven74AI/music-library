@@ -3,6 +3,7 @@ import { cn } from '#app/utils/misc'
 
 interface TrackThumbnailProps {
 	coverImage: { objectKey: string } | null | undefined
+	thumbnailUrl?: string | null // Placeholder thumbnail URL (e.g., from YouTube) when coverImage is not available
 	alt?: string
 	size?: 'xs' | 'sm' | 'md' | 'lg'
 	className?: string
@@ -32,6 +33,7 @@ const iconSizeClasses = {
  */
 export function TrackThumbnail({ 
 	coverImage, 
+	thumbnailUrl,
 	alt = 'Track cover', 
 	size = 'md',
 	className 
@@ -39,10 +41,10 @@ export function TrackThumbnail({
 	const sizeClass = sizeClasses[size]
 	const iconSizeClass = iconSizeClasses[size]
 	
-	// Use optimized image URL if cover image exists
+	// Use optimized image URL if cover image exists, otherwise use thumbnailUrl as placeholder
 	const imageUrl = coverImage?.objectKey
 		? `/resources/images?src=${encodeURIComponent(coverImage.objectKey)}&w=${size === 'xs' ? 32 : size === 'sm' ? 40 : size === 'md' ? 48 : 56}&h=${size === 'xs' ? 32 : size === 'sm' ? 40 : size === 'md' ? 48 : 56}&fit=cover&format=webp`
-		: null
+		: thumbnailUrl || null
 
 	if (imageUrl) {
 		return (

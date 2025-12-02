@@ -45,8 +45,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '5')))
 
 	// Get user's tracks with cursor-based pagination
+	// Filter out deleted tracks (isActive = false or deletedAt is set)
 	const userTracksRaw = await prisma.userTrack.findMany({
-		where: { userId },
+		where: { 
+			userId,
+			isActive: true,
+			deletedAt: null,
+		},
 		select: {
 			id: true,
 			createdAt: true,

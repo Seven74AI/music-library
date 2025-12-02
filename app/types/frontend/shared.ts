@@ -34,6 +34,7 @@ export interface TrackWithUserStatus {
   coverImage: {
     objectKey: string
   } | null
+  thumbnailUrl?: string | null // Placeholder thumbnail URL from ServicePlaylistTrack (for YouTube playlists)
   releaseDate: Date | null
   createdAt: Date
   updatedAt: Date

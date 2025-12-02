@@ -7,7 +7,8 @@ import {
   YouTubePlaylistItemListResponseSchema,
   type YouTubePlaylistItem,
   type YouTubePlaylist,
-  type YouTubePlaylistListResponse
+  type YouTubePlaylistListResponse,
+  type YouTubePlaylistItemListResponse
 } from '#app/types/youtube-api'
 import { 
   createFakerYouTubePlaylist, 
@@ -79,8 +80,13 @@ export class YouTubeService {
 
   /**
    * Get user's YouTube playlists
+   * Fetches all playlists using cursor pagination (similar to getPlaylistItems)
+   * 
+   * @param accessToken - OAuth access token
+   * @param maxResults - Maximum results per page (default: 50, max: 50)
+   * @returns Promise resolving to all playlists across all pages
    */
-  async getUserPlaylists(accessToken: string, maxResults = 25, pageToken?: string): Promise<YouTubePlaylistListResponse> {
+  async getUserPlaylists(accessToken: string, maxResults = 50): Promise<YouTubePlaylist[]> {
     // Return mock data when mocking is enabled
     if (shouldMockYouTube()) {
       return this.getMockUserPlaylists()
@@ -95,18 +101,34 @@ export class YouTubeService {
     })
 
     try {
-      const response = await youtube.playlists.list({
-        part: ['snippet', 'contentDetails'],
-        mine: true,
-        maxResults,
-        pageToken,
-      })
+      const allPlaylists: YouTubePlaylist[] = []
+      let nextPageToken: string | undefined = undefined
 
-      // Validate API response with new type-safe architecture
-      return validateYouTubeAPIResponse(
-        response.data,
-        YouTubePlaylistListResponseSchema
-      )
+      // Loop through all pages until no more nextPageToken
+      do {
+        const response = await youtube.playlists.list({
+          part: ['snippet', 'contentDetails'],
+          mine: true,
+          maxResults: Math.min(maxResults, 50), // YouTube API max is 50
+          pageToken: nextPageToken,
+        })
+
+        // Validate API response with new type-safe architecture
+        const validatedResponse = validateYouTubeAPIResponse(
+          response.data,
+          YouTubePlaylistListResponseSchema
+        ) as YouTubePlaylistListResponse
+
+        // Add playlists from this page to the accumulated array
+        if (validatedResponse.items) {
+          allPlaylists.push(...validatedResponse.items)
+        }
+
+        // Get nextPageToken for next iteration
+        nextPageToken = validatedResponse.nextPageToken
+      } while (nextPageToken)
+
+      return allPlaylists
     } catch (error) {
       console.error('Error fetching YouTube playlists:', error)
       throw new YouTubeAPIError('Failed to fetch YouTube playlists', YOUTUBE_ERROR_CODES.API_ERROR, 500)
@@ -169,6 +191,7 @@ export class YouTubeService {
   /**
    * Get playlist items (videos) for a specific playlist
    * Requires accessToken for user's own playlists
+   * Handles pagination to fetch all items across multiple pages
    */
   async getPlaylistItems(playlistId: string, accessToken: string, maxResults = 50): Promise<YouTubePlaylistItem[]> {
     // Return mock data when mocking is enabled
@@ -186,19 +209,34 @@ export class YouTubeService {
     })
 
     try {
-      const response = await youtube.playlistItems.list({
-        part: ['snippet', 'contentDetails'],
-        playlistId,
-        maxResults,
-      })
+      const allItems: YouTubePlaylistItem[] = []
+      let nextPageToken: string | undefined = undefined
 
-      // Validate API response with new type-safe architecture
-      const validatedResponse = validateYouTubeAPIResponse(
-        response.data,
-        YouTubePlaylistItemListResponseSchema
-      )
+      // Loop through all pages until no more nextPageToken
+      do {
+        const response = await youtube.playlistItems.list({
+          part: ['snippet', 'contentDetails'],
+          playlistId,
+          maxResults,
+          pageToken: nextPageToken,
+        })
 
-      return validatedResponse.items || []
+        // Validate API response with new type-safe architecture
+        const validatedResponse = validateYouTubeAPIResponse(
+          response.data,
+          YouTubePlaylistItemListResponseSchema
+        ) as YouTubePlaylistItemListResponse
+
+        // Add items from this page to the accumulated array
+        if (validatedResponse.items) {
+          allItems.push(...validatedResponse.items)
+        }
+
+        // Get nextPageToken for next iteration
+        nextPageToken = validatedResponse.nextPageToken
+      } while (nextPageToken)
+
+      return allItems
     } catch (error) {
       console.error('Error fetching playlist items:', error)
       
@@ -260,7 +298,7 @@ export class YouTubeService {
   }
 
   // Mock data methods using mock generators
-  private getMockUserPlaylists(): YouTubePlaylistListResponse {
+  private getMockUserPlaylists(): YouTubePlaylist[] {
     // Generate 2 playlists using mock generators
     const playlists = [
       createFakerYouTubePlaylist('PLtest1', {
@@ -277,11 +315,7 @@ export class YouTubeService {
       })
     ]
 
-    return {
-      kind: 'youtube#playlistListResponse',
-      etag: 'mock-etag',
-      items: playlists
-    }
+    return playlists
   }
 
   private getMockPlaylist(playlistId: string): { items: YouTubePlaylist[] } {

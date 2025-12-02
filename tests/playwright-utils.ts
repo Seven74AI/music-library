@@ -245,6 +245,18 @@ export const test = base.extend<{
 		const trackIds: string[] = []
 		const userTrackIds: string[] = []
 		await use(async (options?: { title?: string; artist?: string }, userId?: string) => {
+			// Get or create local service for test tracks
+			const localService = await testPrisma.service.upsert({
+				where: { name: 'local' },
+				update: {},
+				create: {
+					name: 'local',
+					displayName: 'Local Upload',
+					baseUrl: '',
+					isActive: true,
+				},
+			})
+
 			// Get or create artist
 			const artistName = options?.artist || 'Test Artist'
 			const artist = await testPrisma.artist.upsert({
@@ -260,6 +272,8 @@ export const test = base.extend<{
 				data: {
 					title: options?.title || 'Test Track',
 					artistId: artist.id,
+					serviceId: localService.id,
+					externalId: `test-track-${Date.now()}-${Math.random().toString(36).substring(7)}`,
 				},
 			})
 			trackIds.push(track.id)

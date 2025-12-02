@@ -137,18 +137,18 @@ model Passkey {
 // See migration: 20251204000000_add_fts5_search
 
 model Artist {
-  id            String   @id @default(cuid())
-  name          String
+  id             String   @id @default(cuid())
+  name           String
   normalizedName String   @unique
-  bio           String?
-  imageUrl      String?
-  website       String?
-  genre         String?
-  country       String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  tracks        Track[]
-  albums        Album[]
+  bio            String?
+  imageUrl       String?
+  website        String?
+  genre          String?
+  country        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  tracks         Track[]
+  albums         Album[]
 
   @@index([normalizedName])
   @@index([name])
@@ -174,7 +174,7 @@ model Album {
   id           String      @id @default(cuid())
   name         String
   artistId     String
-  artist       Artist       @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  artist       Artist      @relation(fields: [artistId], references: [id], onDelete: Cascade)
   year         Int?
   coverImageId String?
   coverImage   CoverImage? @relation(fields: [coverImageId], references: [id], onDelete: SetNull)
@@ -192,8 +192,8 @@ model Track {
   title                 String
   artistId              String
   artist                Artist                 @relation(fields: [artistId], references: [id], onDelete: Cascade)
-  serviceId             String?
-  externalId            String?
+  serviceId             String
+  externalId            String
   serviceUrl            String?
   duration              Int?
   albumId               String? // Foreign key to Album
@@ -218,7 +218,7 @@ model Track {
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   servicePlaylistTracks ServicePlaylistTrack[]
-  service               Service?               @relation(fields: [serviceId], references: [id])
+  service               Service                @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   playlists             UserPlaylistTrack[]
   userTracks            UserTrack[]
   audioFiles            TrackAudioFile[]
@@ -320,16 +320,17 @@ model ServicePlaylist {
 }
 
 model ServicePlaylistTrack {
-  id         String          @id @default(cuid())
-  playlistId String
-  trackId    String
-  position   Int
-  isDeleted  Boolean         @default(false)
-  deletedAt  DateTime?
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-  track      Track           @relation(fields: [trackId], references: [id])
-  playlist   ServicePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  id           String          @id @default(cuid())
+  playlistId   String
+  trackId      String
+  position     Int
+  isDeleted    Boolean         @default(false)
+  deletedAt    DateTime?
+  thumbnailUrl String? // Temporary storage for YouTube thumbnail URL until processed
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  track        Track           @relation(fields: [trackId], references: [id])
+  playlist     ServicePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
   @@unique([playlistId, trackId])
   @@index([playlistId])
