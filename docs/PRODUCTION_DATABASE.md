@@ -324,28 +324,55 @@ See `scripts/` directory for helper scripts:
 
 ### Making a User Admin
 
+**Local Development:**
+
 ```bash
-# Local development
 npm run make-admin <username>
 # Or: npx tsx scripts/make-admin.ts <username>
-
-# Production (Fly.io) - After deploying updated package.json
-fly ssh console --app [APP_NAME] -C "cd /myapp && npm run make-admin <username>"
-
-# Production (Fly.io) - Using npx directly (works immediately after deployment)
-fly ssh console --app [APP_NAME] -C "cd /myapp && npx tsx scripts/make-admin.ts <username>"
 ```
 
-Example:
+**Production (Fly.io) - Manual SQL Method (Recommended):**
+
+Since scripts directory is not available in production builds, use direct SQL commands:
+
 ```bash
-# Local
-npm run make-admin kody
+# 1. Find the user ID and admin role ID
+fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT id, username FROM User WHERE username = '<username>';\""
+fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT id, name FROM Role WHERE name = 'admin';\""
 
-# Production
-fly ssh console --app music-library-5a00 -C "cd /myapp && npx tsx scripts/make-admin.ts kody"
+# 2. Check if user already has admin role
+fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT u.username, r.name FROM User u JOIN \\\"_RoleToUser\\\" ur ON u.id = ur.\\\"B\\\" JOIN Role r ON ur.\\\"A\\\" = r.id WHERE u.username = '<username>';\""
+
+# 3. Add admin role (A = Role ID, B = User ID)
+fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"INSERT INTO \\\"_RoleToUser\\\" (\\\"A\\\", \\\"B\\\") VALUES ('<role_id>', '<user_id>');\""
+
+# 4. Verify the role was added
+fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT u.username, r.name FROM User u JOIN \\\"_RoleToUser\\\" ur ON u.id = ur.\\\"B\\\" JOIN Role r ON ur.\\\"A\\\" = r.id WHERE u.username = '<username>';\""
 ```
 
-The script will:
+**Example:**
+
+```bash
+# Find user and admin role IDs
+fly ssh console --app music-library-5a00 -C "sqlite3 /litefs/data/sqlite.db \"SELECT id, username FROM User WHERE username = 'lieutner';\""
+# Output: cmiopkumo0001lqnhn8b0yges|lieutner
+
+fly ssh console --app music-library-5a00 -C "sqlite3 /litefs/data/sqlite.db \"SELECT id, name FROM Role WHERE name = 'admin';\""
+# Output: clnf2zvlw000gpcour6dyyuh6|admin
+
+# Add admin role (A = admin role ID, B = user ID)
+fly ssh console --app music-library-5a00 -C "sqlite3 /litefs/data/sqlite.db \"INSERT INTO \\\"_RoleToUser\\\" (\\\"A\\\", \\\"B\\\") VALUES ('clnf2zvlw000gpcour6dyyuh6', 'cmiopkumo0001lqnhn8b0yges');\""
+
+# Verify
+fly ssh console --app music-library-5a00 -C "sqlite3 /litefs/data/sqlite.db \"SELECT u.username, r.name FROM User u JOIN \\\"_RoleToUser\\\" ur ON u.id = ur.\\\"B\\\" JOIN Role r ON ur.\\\"A\\\" = r.id WHERE u.username = 'lieutner';\""
+```
+
+**Important Notes:**
+- The `_RoleToUser` join table uses: `A` = Role ID, `B` = User ID
+- User must **log out and log back in** for the session to refresh with new roles
+- The script method (`npx tsx scripts/make-admin.ts`) only works if scripts directory is deployed (not currently in Dockerfile)
+
+**The script will (when available):**
 1. Find the user by username
 2. Check if they're already an admin
 3. Add the admin role (without removing existing roles)
