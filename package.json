@@ -29,6 +29,8 @@
     "coverage": "vitest run --coverage",
     "test:e2e": "npm run test:e2e:dev --silent",
     "test:e2e:dev": "playwright test --ui",
+    "test:e2e:smoke": "playwright test --grep @smoke",
+    "test:e2e:slow": "playwright test --grep @slow",
     "test:e2e:fast": "cross-env CI=true playwright test --timeout=15000",
     "test:e2e:debug": "playwright test --debug --timeout=0",
     "test:e2e:headed": "playwright test --headed",

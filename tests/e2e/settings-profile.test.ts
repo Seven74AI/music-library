@@ -21,7 +21,7 @@ test('Users can update their basic info', { tag: '@smoke' }, async ({ page, navi
 	await page.getByRole('button', { name: /^save/i }).click()
 })
 
-test('Users can update their password', async ({ page, navigate, login }) => {
+test('Users can update their password', { tag: '@slow' }, async ({ page, navigate, login }) => {
 	const oldPassword = faker.internet.password()
 	const newPassword = faker.internet.password()
 	const user = await login({ password: oldPassword })
