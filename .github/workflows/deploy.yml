@@ -97,9 +97,13 @@ jobs:
           MOCKS: true
 
   playwright:
-    name: 🎭 Playwright
-    runs-on: ubuntu-22.04
+    name: 🎭 Playwright (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - name: ⬇️ Checkout repo
         uses: actions/checkout@v4
@@ -115,7 +119,15 @@ jobs:
       - name: 📥 Download deps
         uses: bahmutov/npm-install@v1
 
+      - name: 💾 Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: 📥 Install Playwright Browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npm run test:e2e:install
 
       - name: 🛠 Setup Database
@@ -139,7 +151,7 @@ jobs:
         run: npm run build
 
       - name: 🎭 Playwright tests
-        run: npx playwright test
+        run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           MOCKS: true
 
@@ -147,7 +159,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 30
 
