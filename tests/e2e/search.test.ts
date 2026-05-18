@@ -5,7 +5,7 @@
 import { test, expect } from '#tests/playwright-utils.ts'
 
 test.describe('Global Search', () => {
-	test('can navigate to search page', async ({ page, loginAsAdmin }) => {
+	test('can navigate to search page', { tag: '@smoke' }, async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		await page.goto('/search')
 		await expect(page.getByRole('heading', { name: /search/i })).toBeVisible()

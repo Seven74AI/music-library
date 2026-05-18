@@ -38,7 +38,7 @@ const test = base.extend<{
 	},
 })
 
-test('onboarding with link', async ({ page, navigate, getOnboardingData }) => {
+test('onboarding with link', { tag: '@slow' }, async ({ page, navigate, getOnboardingData }) => {
 	const onboardingData = getOnboardingData()
 
 	await navigate('/')
@@ -107,7 +107,7 @@ test('onboarding with link', async ({ page, navigate, getOnboardingData }) => {
 	await expect(page).toHaveURL(`/`)
 })
 
-test('onboarding with a short code', async ({
+test('onboarding with a short code', { tag: '@smoke' }, async ({
 	page,
 	navigate,
 	getOnboardingData,
@@ -137,7 +137,7 @@ test('onboarding with a short code', async ({
 	await expect(page).toHaveURL(`/onboarding`)
 })
 
-test('login as existing user', async ({ page, navigate, insertNewUser }) => {
+test('login as existing user', { tag: '@smoke' }, async ({ page, navigate, insertNewUser }) => {
 	const password = faker.internet.password()
 	const user = await insertNewUser({ password })
 	invariant(user.name, 'User name not found')
@@ -151,7 +151,7 @@ test('login as existing user', async ({ page, navigate, insertNewUser }) => {
 })
 
 // test reset password with a link
-test('reset password with a short code', async ({
+test('reset password with a short code', { tag: '@slow' }, async ({
 	page,
 	navigate,
 	insertNewUser,
