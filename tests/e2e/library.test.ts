@@ -14,7 +14,7 @@ test.describe('Music Library', () => {
 	})
 
 
-	test('shows tracks in library', async ({ page, login, insertNewTrack }) => {
+	test('shows tracks in library', { tag: '@smoke' }, async ({ page, login, insertNewTrack }) => {
 		const user = await login()
 		
 		// Create a test track using the fixture (will be cleaned up automatically)
