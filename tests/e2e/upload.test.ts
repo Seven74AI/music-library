@@ -1,6 +1,6 @@
 import { test, expect } from '#tests/playwright-utils.ts'
 
-test.describe('Local Upload Service', () => {
+test.describe('Local Upload Service', { tag: '@slow' }, () => {
 	test('can navigate to upload page as admin', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		

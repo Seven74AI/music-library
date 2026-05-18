@@ -1,6 +1,6 @@
 import { expect, test } from '#tests/playwright-utils.ts'
 
-test('Test root error boundary caught', async ({ page, navigate }) => {
+test('Test root error boundary caught', { tag: '@smoke' }, async ({ page, navigate }) => {
 	const pageUrl = '/does-not-exist'
 	const res = await navigate(pageUrl as any as any)
 

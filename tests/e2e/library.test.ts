@@ -1,7 +1,7 @@
 import { test, expect } from '#tests/playwright-utils.ts'
 
 test.describe('Music Library', () => {
-	test('can view library page', async ({ page, login }) => {
+	test('can view library page', { tag: '@smoke' }, async ({ page, login }) => {
 		await login()
 
 		await page.goto('/library')

@@ -19,7 +19,7 @@ async function setupWebAuthn(page: Page) {
 	return { client, authenticatorId: result.authenticatorId }
 }
 
-test('Users can register and use passkeys', async ({
+test('Users can register and use passkeys', { tag: '@slow' }, async ({
 	page,
 	navigate,
 	login,
@@ -128,7 +128,7 @@ test('Users can register and use passkeys', async ({
 	await expect(page).toHaveURL(`/login`)
 })
 
-test('Failed passkey verification shows error', async ({
+test('Failed passkey verification shows error', { tag: '@slow' }, async ({
 	page,
 	navigate,
 	login,
