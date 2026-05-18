@@ -19,6 +19,8 @@ export default defineConfig({
 		timeout: 5 * 1000, // Reduced from 10s to 5s
 	},
 	fullyParallel: true,
+	maxFailures: process.env.CI ? 10 : 0,
+	globalTimeout: 30 * 60 * 1000, // 30 min global timeout
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,
 	workers: process.env.CI ? 1 : 2,
@@ -48,6 +50,7 @@ export default defineConfig({
 						'--disable-background-timer-throttling',
 						'--disable-backgrounding-occluded-windows',
 						'--disable-renderer-backgrounding',
+						'--disable-gpu',
 					],
 				},
 			},
@@ -57,7 +60,7 @@ export default defineConfig({
 	webServer: {
 		command: process.env.CI ? 'npm run start:mocks' : 'npm run dev',
 		port: Number(PORT),
-		reuseExistingServer: false, // Always start fresh to ensure correct DATABASE_URL
+		reuseExistingServer: !!process.env.CI, // Reuse server in CI (sharding-friendly)
 		stdout: 'pipe',
 		stderr: 'pipe',
 		timeout: 60 * 1000, // Server timeout
