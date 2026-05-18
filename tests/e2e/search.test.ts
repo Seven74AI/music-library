@@ -26,8 +26,8 @@ test.describe('Global Search', () => {
 		await page.waitForTimeout(500)
 
 		// Check if search results are displayed (may be empty if no test data)
-		const resultsSection = page.getByText(/found/i).or(page.getByText(/no results/i))
-		await expect(resultsSection).toBeVisible()
+		// Use ^Found to avoid matching "No results found"
+		await expect(page.getByText(/^Found \d+/)).toBeVisible()
 	})
 
 	test('can filter search by type', async ({ page, loginAsAdmin }) => {
