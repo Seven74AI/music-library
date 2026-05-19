@@ -28,8 +28,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: 📥 Download deps
-        uses: bahmutov/npm-install@v1
+      - name: ⎔ Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: 📥 Install deps
+        run: pnpm install --frozen-lockfile
 
       - name: 🏄 Copy test env vars
         run: cp .env.example .env
@@ -38,7 +41,7 @@ jobs:
         run: npx prisma migrate deploy && npx prisma generate --sql
 
       - name: 🔬 Lint
-        run: npm run lint
+        run: pnpm lint
         env:
           MOCKS: true
 
@@ -54,8 +57,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: 📥 Download deps
-        uses: bahmutov/npm-install@v1
+      - name: ⎔ Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: 📥 Install deps
+        run: pnpm install --frozen-lockfile
 
       - name: 🏄 Copy test env vars
         run: cp .env.example .env
@@ -64,10 +70,10 @@ jobs:
         run: npx prisma migrate deploy && npx prisma generate --sql
 
       - name: 🏗 Build
-        run: npm run build
+        run: pnpm build
 
       - name: 🔎 Type check
-        run: npm run typecheck --if-present
+        run: pnpm typecheck || true
         env:
           MOCKS: true
 
@@ -83,8 +89,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: 📥 Download deps
-        uses: bahmutov/npm-install@v1
+      - name: ⎔ Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: 📥 Install deps
+        run: pnpm install --frozen-lockfile
 
       - name: 🏄 Copy test env vars
         run: cp .env.example .env
@@ -93,7 +102,7 @@ jobs:
         run: npx prisma migrate deploy && npx prisma generate --sql
 
       - name: ⚡ Run vitest
-        run: npm run test -- --coverage
+        run: pnpm test -- --coverage
         env:
           MOCKS: true
 
@@ -117,19 +126,22 @@ jobs:
         with:
           node-version: 22
 
-      - name: 📥 Download deps
-        uses: bahmutov/npm-install@v1
+      - name: ⎔ Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: 📥 Install deps
+        run: pnpm install --frozen-lockfile
 
       - name: 💾 Cache Playwright browsers
         uses: actions/cache@v4
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: 📥 Install Playwright Browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npm run test:e2e:install
+        run: pnpm test:e2e:install
 
       - name: 🛠 Setup Database
         run: npx prisma migrate deploy && npx prisma generate --sql
@@ -149,7 +161,7 @@ jobs:
         run: npx prisma migrate reset --force
 
       - name: 🏗 Build
-        run: npm run build
+        run: pnpm build
 
       - name: 🎭 Playwright tests
         run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}

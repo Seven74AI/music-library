@@ -1,6 +1,7 @@
 {
   "name": "music-library-5a00",
   "private": true,
+  "packageManager": "pnpm@11.1.2",
   "sideEffects": false,
   "type": "module",
   "imports": {
