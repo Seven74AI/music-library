@@ -57,7 +57,8 @@
     "stop": "lsof -ti:3000 | xargs kill -9",
     "reset-storage": "tsx scripts/reset-storage.ts",
     "db:manage": "tsx scripts/manage-db.ts",
-    "make-admin": "tsx scripts/make-admin.ts"
+    "make-admin": "tsx scripts/make-admin.ts",
+    "prepare": "sh scripts/setup-hooks.sh"
   },
   "prettier": "@epic-web/config/prettier",
   "eslintIgnore": [

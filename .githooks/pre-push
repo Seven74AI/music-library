@@ -1,0 +1,42 @@
+#!/bin/sh
+# pre-push hook — TypeScript/Vitest projects
+# Runs type-check and unit tests on changed files only. E2E tests belong in CI.
+set -e
+
+while read local_ref local_sha remote_ref remote_sha; do
+  # Skip deleted refs
+  if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+    continue
+  fi
+
+  # Determine changed files
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    CHANGED=$(git diff --name-only "$local_sha")
+    CHANGED_BASE="$local_sha"
+  else
+    CHANGED=$(git diff --name-only "$remote_sha" "$local_sha")
+    CHANGED_BASE="$remote_sha"
+  fi
+
+  # Fast path: skip if only documentation changed
+  if [ -n "$CHANGED" ] && ! echo "$CHANGED" | grep -v '\.md$' | grep -q .; then
+    echo "ℹ Only documentation changed — skipping tests"
+    continue
+  fi
+
+  # Fast path: skip if no .ts/.tsx files changed
+  if [ -n "$CHANGED" ] && ! echo "$CHANGED" | grep -qE '\.(ts|tsx|js|jsx)$'; then
+    echo "ℹ No TypeScript/JavaScript files changed — skipping tests"
+    continue
+  fi
+
+  echo "▶ Running type-check (tsc --noEmit)..."
+  npx tsc --noEmit || { echo "✗ Type-check failed — push blocked"; exit 1; }
+  echo "✓ Type-check passed"
+
+  echo "▶ Running unit tests (vitest run --changed)..."
+  npx vitest run --changed="$CHANGED_BASE" || { echo "✗ Tests failed — push blocked"; exit 1; }
+  echo "✓ Tests passed"
+done
+
+exit 0
