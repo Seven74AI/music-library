@@ -212,8 +212,8 @@ export default function YouTubeSyncedPlaylistsPage() {
 						</div>
 					)}
 					{'removedTracks' in actionData && Array.isArray(actionData.removedTracks) && actionData.removedTracks.length > 0 && (
-					<div className="mt-2 text-sm text-green-700 dark:text-green-300">
-						<p className="font-medium">Removed tracks: {actionData.removedTracks.length}</p>
+						<div className="mt-2 text-sm text-green-700 dark:text-green-300">
+							<p className="font-medium">Removed tracks: {actionData.removedTracks.length}</p>
 							<ul className="list-disc list-inside mt-1 space-y-1">
 								{actionData.removedTracks.slice(0, 5).map((track: { id: string; title: string }) => (
 									<li key={track.id}>{track.title}</li>
