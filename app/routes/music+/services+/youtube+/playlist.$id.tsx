@@ -284,12 +284,12 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 
 			{/* Persistent Banner for Pending Matches */}
 			{!showDialog && pendingMatches.length > 0 && (
-			<div className="mb-6 rounded-md bg-yellow-50 dark:bg-yellow-950 p-4">
-				<div className="flex items-center gap-2">
-					<Icon name="question-mark-circled" className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-					<p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium">Pending Matches</p>
-				</div>
-				<p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+				<div className="mb-6 rounded-md bg-yellow-50 dark:bg-yellow-950 p-4">
+					<div className="flex items-center gap-2">
+						<Icon name="question-mark-circled" className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+						<p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium">Pending Matches</p>
+					</div>
+					<p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
 						You have {pendingMatches.length} pending match(es) that need confirmation. Please complete the confirmation to sync again.
 					</p>
 				</div>
@@ -297,12 +297,12 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 
 			{/* Sync Status Message */}
 			{isSyncing && (
-			<div className="mb-6 rounded-md bg-blue-50 dark:bg-blue-950 p-4">
-				<div className="flex items-center gap-2">
-					<Icon name="update" className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin" />
-					<p className="text-sm text-blue-800 dark:text-blue-200 font-medium">Syncing Playlist</p>
-				</div>
-				<p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+				<div className="mb-6 rounded-md bg-blue-50 dark:bg-blue-950 p-4">
+					<div className="flex items-center gap-2">
+						<Icon name="update" className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin" />
+						<p className="text-sm text-blue-800 dark:text-blue-200 font-medium">Syncing Playlist</p>
+					</div>
+					<p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
 						Syncing playlist... This may take a moment for large playlists.
 					</p>
 				</div>
@@ -320,12 +320,12 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 			)}
 
 			{actionData?.status === 'success' && (
-		<div className="mb-6 rounded-md bg-green-50 dark:bg-green-950 p-4">
-				<div className="flex items-center gap-2">
-					<Icon name="check-circled" className="h-4 w-4 text-green-600 dark:text-green-400" />
-					<p className="text-sm text-green-800 dark:text-green-200 font-medium">Success</p>
-				</div>
-				<p className="text-sm text-green-700 dark:text-green-300 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
+				<div className="mb-6 rounded-md bg-green-50 dark:bg-green-950 p-4">
+					<div className="flex items-center gap-2">
+						<Icon name="check-circled" className="h-4 w-4 text-green-600 dark:text-green-400" />
+						<p className="text-sm text-green-800 dark:text-green-200 font-medium">Success</p>
+					</div>
+					<p className="text-sm text-green-700 dark:text-green-300 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
 					{'deletedTracks' in actionData && Array.isArray(actionData.deletedTracks) && actionData.deletedTracks.length > 0 && (
 						<div className="mt-2 text-sm text-green-700 dark:text-green-300">
 							<p className="font-medium">Deleted tracks: {actionData.deletedTracks.length}</p>

@@ -192,12 +192,12 @@ export default function YouTubeServicePage() {
 			)}
 
 			{actionData?.status === 'success' && (
-			<div className="mb-6 rounded-md bg-green-50 dark:bg-green-950 p-4">
-				<div className="flex items-center gap-2">
-					<Icon name="check-circled" className="h-4 w-4 text-green-600 dark:text-green-400" />
-					<p className="text-sm text-green-800 dark:text-green-200 font-medium">Success</p>
-				</div>
-				<p className="text-sm text-green-700 dark:text-green-300 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
+				<div className="mb-6 rounded-md bg-green-50 dark:bg-green-950 p-4">
+					<div className="flex items-center gap-2">
+						<Icon name="check-circled" className="h-4 w-4 text-green-600 dark:text-green-400" />
+						<p className="text-sm text-green-800 dark:text-green-200 font-medium">Success</p>
+					</div>
+					<p className="text-sm text-green-700 dark:text-green-300 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
 				</div>
 			)}
 
