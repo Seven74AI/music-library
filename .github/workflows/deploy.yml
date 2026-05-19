@@ -32,11 +32,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: 📥 Install deps
-        run: |
-          pnpm approve-builds --all
-          pnpm install
-        env:
-          COREPACK_ENABLE_STRICT: '0'
+        run: pnpm install --frozen-lockfile
 
       - name: 🏄 Copy test env vars
         run: cp .env.example .env
@@ -65,9 +61,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: 📥 Install deps
-        run: |
-          pnpm approve-builds --all
-          pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: 🏄 Copy test env vars
         run: cp .env.example .env
@@ -99,9 +93,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: 📥 Install deps
-        run: |
-          pnpm approve-builds --all
-          pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: 🏄 Copy test env vars
         run: cp .env.example .env
@@ -138,9 +130,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: 📥 Install deps
-        run: |
-          pnpm approve-builds --all
-          pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: 💾 Cache Playwright browsers
         uses: actions/cache@v4
