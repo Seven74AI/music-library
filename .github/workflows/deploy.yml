@@ -32,7 +32,9 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: 📥 Install deps
-        run: pnpm install
+        run: |
+          pnpm approve-builds --all
+          pnpm install
         env:
           COREPACK_ENABLE_STRICT: '0'
 
@@ -63,7 +65,9 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: 📥 Install deps
-        run: pnpm install
+        run: |
+          pnpm approve-builds --all
+          pnpm install
 
       - name: 🏄 Copy test env vars
         run: cp .env.example .env
@@ -95,7 +99,9 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: 📥 Install deps
-        run: pnpm install
+        run: |
+          pnpm approve-builds --all
+          pnpm install
 
       - name: 🏄 Copy test env vars
         run: cp .env.example .env
@@ -132,7 +138,9 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: 📥 Install deps
-        run: pnpm install
+        run: |
+          pnpm approve-builds --all
+          pnpm install
 
       - name: 💾 Cache Playwright browsers
         uses: actions/cache@v4
