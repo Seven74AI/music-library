@@ -2,7 +2,7 @@ import { prisma } from '#app/utils/db.server.ts'
 import { test, expect } from '#tests/playwright-utils.ts'
 
 test.describe('Playlists', () => {
-	test('can view playlists page', async ({ page, login }) => {
+	test('can view playlists page', { tag: '@smoke' }, async ({ page, login }) => {
 		await login()
 
 		await page.goto('/playlists')

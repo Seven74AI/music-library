@@ -7,7 +7,7 @@ import { expect, test, createUser, waitFor } from '#tests/playwright-utils.ts'
 
 const CODE_REGEX = /Here's your verification code: (?<code>[\d\w]+)/
 
-test('Users can update their basic info', async ({ page, navigate, login }) => {
+test('Users can update their basic info', { tag: '@smoke' }, async ({ page, navigate, login }) => {
 	await login()
 	await navigate('/settings/profile')
 
@@ -21,7 +21,7 @@ test('Users can update their basic info', async ({ page, navigate, login }) => {
 	await page.getByRole('button', { name: /^save/i }).click()
 })
 
-test('Users can update their password', async ({ page, navigate, login }) => {
+test('Users can update their password', { tag: '@slow' }, async ({ page, navigate, login }) => {
 	const oldPassword = faker.internet.password()
 	const newPassword = faker.internet.password()
 	const user = await login({ password: oldPassword })
@@ -52,7 +52,7 @@ test('Users can update their password', async ({ page, navigate, login }) => {
 	).toEqual({ id: user.id })
 })
 
-test('Users can update their profile photo', async ({
+test('Users can update their profile photo', { tag: '@slow' }, async ({
 	page,
 	navigate,
 	login,
@@ -110,7 +110,7 @@ test('Users can update their profile photo', async ({
 	expect(beforeSrc).not.toEqual(afterSrc)
 })
 
-test('Users can change their email address', async ({
+test('Users can change their email address', { tag: '@slow' }, async ({
 	page,
 	navigate,
 	login,
