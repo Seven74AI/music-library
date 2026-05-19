@@ -5,7 +5,7 @@
 import { test, expect } from '#tests/playwright-utils.ts'
 
 test.describe('Global Search', () => {
-	test('can navigate to search page', async ({ page, loginAsAdmin }) => {
+	test('can navigate to search page', { tag: '@smoke' }, async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		await page.goto('/search')
 		await expect(page.getByRole('heading', { name: /search/i })).toBeVisible()
@@ -26,8 +26,8 @@ test.describe('Global Search', () => {
 		await page.waitForTimeout(500)
 
 		// Check if search results are displayed (may be empty if no test data)
-		const resultsSection = page.getByText(/found/i).or(page.getByText(/no results/i))
-		await expect(resultsSection).toBeVisible()
+		// Use ^Found to avoid matching "No results found"
+		await expect(page.getByText(/^Found \d+/)).toBeVisible()
 	})
 
 	test('can filter search by type', async ({ page, loginAsAdmin }) => {

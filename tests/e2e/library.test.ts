@@ -1,7 +1,7 @@
 import { test, expect } from '#tests/playwright-utils.ts'
 
 test.describe('Music Library', () => {
-	test('can view library page', async ({ page, login }) => {
+	test('can view library page', { tag: '@smoke' }, async ({ page, login }) => {
 		await login()
 
 		await page.goto('/library')
@@ -14,7 +14,7 @@ test.describe('Music Library', () => {
 	})
 
 
-	test('shows tracks in library', async ({ page, login, insertNewTrack }) => {
+	test('shows tracks in library', { tag: '@smoke' }, async ({ page, login, insertNewTrack }) => {
 		const user = await login()
 		
 		// Create a test track using the fixture (will be cleaned up automatically)
