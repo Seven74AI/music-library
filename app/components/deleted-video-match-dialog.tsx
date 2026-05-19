@@ -110,7 +110,7 @@ export function DeletedVideoMatchDialog({
 								<div className="flex items-center gap-2">
 									<span className="font-semibold">Position {match.deletedVideo.position}</span>
 									{selection && (
-										<Icon name="check" className="h-4 w-4 text-green-600" />
+										<Icon name="check" className="h-4 w-4 text-green-600 dark:text-green-400" />
 									)}
 								</div>
 
