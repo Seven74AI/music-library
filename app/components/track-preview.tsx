@@ -48,7 +48,7 @@ interface TrackPreviewProps {
 export function TrackPreview({ track, isImporting = false, error, alreadyExists = false, existingTrackId }: TrackPreviewProps) {
   // Computed values for conditional logic
   const statusIcon = alreadyExists ? ICONS.CHECK_CIRCLED : ICONS.MAGNIFYING_GLASS
-  const statusIconColor = alreadyExists ? "text-green-600" : "text-muted-foreground"
+  const statusIconColor = alreadyExists ? "text-green-600 dark:text-green-400" : "text-muted-foreground"
   const title = alreadyExists ? "Track Already in Library" : "Preview Track"
   const description = alreadyExists 
     ? "This track is already in your library. You can view it or continue browsing."

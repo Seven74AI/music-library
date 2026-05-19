@@ -198,7 +198,7 @@ function ServiceCard({
 						</div>
 					)}
 					{service.displayName}
-					<div className={`w-3 h-3 rounded-full ml-auto ${isConnected ? 'bg-green-500' : 'bg-gray-300'}`} />
+					<div className={`w-3 h-3 rounded-full ml-auto ${isConnected ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
 				</CardTitle>
 				<CardDescription>
 					{isConnected ? 'Connected' : 'Not connected'}

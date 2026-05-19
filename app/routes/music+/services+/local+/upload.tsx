@@ -772,7 +772,7 @@ function UploadProgressStep({
 												</span>
 											)}
 											{file.status === 'completed' && (
-												<span className="text-xs text-green-600">
+												<span className="text-xs text-green-600 dark:text-green-400">
 													Completed
 												</span>
 											)}

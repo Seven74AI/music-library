@@ -92,19 +92,19 @@ export default function YouTubeAuthPage() {
 							<h3 className="font-semibold">What you'll be able to do:</h3>
 							<ul className="space-y-2 text-sm text-muted-foreground">
 								<li className="flex items-center gap-2">
-									<Icon name="check" className="h-4 w-4 text-green-600" />
-									Sync your YouTube playlists automatically
-								</li>
-								<li className="flex items-center gap-2">
-									<Icon name="check" className="h-4 w-4 text-green-600" />
-									Import tracks from your YouTube playlists
-								</li>
-								<li className="flex items-center gap-2">
-									<Icon name="check" className="h-4 w-4 text-green-600" />
-									Manage your YouTube playlist sync settings
-								</li>
-								<li className="flex items-center gap-2">
-									<Icon name="check" className="h-4 w-4 text-green-600" />
+<Icon name="check" className="h-4 w-4 text-green-600 dark:text-green-400" />
+								Sync your YouTube playlists automatically
+							</li>
+							<li className="flex items-center gap-2">
+								<Icon name="check" className="h-4 w-4 text-green-600 dark:text-green-400" />
+								Import tracks from your YouTube playlists
+							</li>
+							<li className="flex items-center gap-2">
+								<Icon name="check" className="h-4 w-4 text-green-600 dark:text-green-400" />
+								Manage your YouTube playlist sync settings
+							</li>
+							<li className="flex items-center gap-2">
+								<Icon name="check" className="h-4 w-4 text-green-600 dark:text-green-400" />
 									Keep your playlists up to date automatically
 								</li>
 							</ul>
@@ -114,15 +114,15 @@ export default function YouTubeAuthPage() {
 							<h3 className="font-semibold">Privacy & Security:</h3>
 							<ul className="space-y-2 text-sm text-muted-foreground">
 								<li className="flex items-center gap-2">
-									<Icon name="lock-closed" className="h-4 w-4 text-blue-600" />
-									We only request read-only access to your playlists
-								</li>
-								<li className="flex items-center gap-2">
-									<Icon name="lock-closed" className="h-4 w-4 text-blue-600" />
-									Your YouTube account credentials are never stored
-								</li>
-								<li className="flex items-center gap-2">
-									<Icon name="lock-closed" className="h-4 w-4 text-blue-600" />
+<Icon name="lock-closed" className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+								We only request read-only access to your playlists
+							</li>
+							<li className="flex items-center gap-2">
+								<Icon name="lock-closed" className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+								Your YouTube account credentials are never stored
+							</li>
+							<li className="flex items-center gap-2">
+								<Icon name="lock-closed" className="h-4 w-4 text-blue-600 dark:text-blue-400" />
 									You can disconnect your account at any time
 								</li>
 							</ul>
