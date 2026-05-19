@@ -1,3 +1,5 @@
+[![CI](https://github.com/Seven74AI/music-library/actions/workflows/ci.yml/badge.svg)](https://github.com/Seven74AI/music-library/actions/workflows/ci.yml)
+
 <div align="center">
   <h1 align="center"><a href="https://www.epicweb.dev/epic-stack">The Music Library 🎶</a></h1>
   <strong align="center">
