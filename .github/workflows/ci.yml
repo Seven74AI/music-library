@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, dev]
+    paths-ignore: ['**.md', '**.txt', 'docs/**']
+  pull_request:
+    branches: [main, master]
+    paths-ignore: ['**.md', '**.txt', 'docs/**']
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: npx playwright install --with-deps chromium
+      - run: pnpm exec vitest run
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm run lint
+      - run: pnpm exec playwright test --workers=1
