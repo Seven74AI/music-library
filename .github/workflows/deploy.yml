@@ -97,10 +97,6 @@ jobs:
   playwright:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
     steps:
       - name: ⬇️ Checkout repo
         uses: actions/checkout@v4
@@ -148,7 +144,7 @@ jobs:
         run: npm run build
 
       - name: 🎭 Playwright tests
-        run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: npx playwright test
         env:
           MOCKS: true
 
@@ -156,7 +152,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report-shard-${{ matrix.shard }}
+          name: playwright-report
           path: playwright-report/
           retention-days: 30
 
