@@ -160,6 +160,21 @@ jobs:
           path: playwright-report/
           retention-days: 30
 
+  playwright-gate:
+    needs: playwright
+    runs-on: ubuntu-24.04
+    if: always()
+    steps:
+      - name: Check playwright results
+        run: |
+          if [ "${{ needs.playwright.result }}" = "success" ]; then
+            echo "All playwright shards passed"
+            exit 0
+          else
+            echo "Playwright shards failed: ${{ needs.playwright.result }}"
+            exit 1
+          fi
+
   container:
     runs-on: ubuntu-24.04
     # only prepare container on pushes
@@ -207,7 +222,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-24.04
-    needs: [lint, typecheck, vitest, playwright, container]
+    needs: [lint, typecheck, vitest, playwright-gate, container]
     # only deploy on pushes
     if: ${{ github.event_name == 'push' }}
     steps:
