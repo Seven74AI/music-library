@@ -40,6 +40,7 @@
     "test:e2e:slow": "playwright test --grep @slow",
     "test:e2e:install": "npx playwright install --with-deps chromium",
     "typecheck": "react-router typegen && tsc",
+    "test:all": "npm run typecheck && vitest run && npm run test:e2e:run",
     "validate": "run-p \"test -- --run\" \"lint\" typecheck test:e2e:run",
     "add-headers": "node scripts/add-context7-headers.js",
     "stop": "lsof -ti:3000 | xargs kill -9",
