@@ -73,7 +73,7 @@ jobs:
         run: pnpm build
 
       - name: 🔎 Type check
-        run: pnpm typecheck || true
+        run: pnpm typecheck
         env:
           MOCKS: true
 
