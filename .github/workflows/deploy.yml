@@ -17,7 +17,6 @@ permissions:
 
 jobs:
   lint:
-    name: ⬣ ESLint
     runs-on: ubuntu-22.04
     steps:
       - name: ⬇️ Checkout repo
@@ -43,7 +42,6 @@ jobs:
           MOCKS: true
 
   typecheck:
-    name: ʦ TypeScript
     runs-on: ubuntu-22.04
     steps:
       - name: ⬇️ Checkout repo
@@ -72,7 +70,6 @@ jobs:
           MOCKS: true
 
   vitest:
-    name: ⚡ Vitest
     runs-on: ubuntu-22.04
     steps:
       - name: ⬇️ Checkout repo
@@ -98,7 +95,6 @@ jobs:
           MOCKS: true
 
   playwright:
-    name: 🎭 Playwright (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -165,7 +161,6 @@ jobs:
           retention-days: 30
 
   container:
-    name: 📦 Prepare Container
     runs-on: ubuntu-24.04
     # only prepare container on pushes
     if: ${{ github.event_name == 'push' }}
@@ -211,7 +206,6 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
   deploy:
-    name: 🚀 Deploy
     runs-on: ubuntu-24.04
     needs: [lint, typecheck, vitest, playwright, container]
     # only deploy on pushes
