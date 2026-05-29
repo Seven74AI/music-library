@@ -40,6 +40,7 @@ jobs:
         run: npm run lint
         env:
           MOCKS: true
+          NODE_OPTIONS: --max-old-space-size=4096
 
   typecheck:
     runs-on: ubuntu-22.04
