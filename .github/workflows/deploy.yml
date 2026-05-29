@@ -179,7 +179,7 @@ jobs:
   container:
     runs-on: ubuntu-24.04
     # only prepare container on pushes
-    if: ${{ github.event_name == 'push' }}
+    if: false
     steps:
       - name: ⬇️ Checkout repo
         uses: actions/checkout@v4
@@ -225,7 +225,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [lint, typecheck, vitest, playwright-gate, container]
     # only deploy on pushes
-    if: ${{ github.event_name == 'push' }}
+    if: false
     steps:
       - name: ⬇️ Checkout repo
         uses: actions/checkout@v4
