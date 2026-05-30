@@ -56,10 +56,7 @@ test('checkIsCommonPassword returns false when API returns 500', async () => {
 	expect(result).toBe(false)
 })
 
-// TODO: Pre-existing test failure — MSW Response.object.defineProperty no longer works with msw 2.14+
-// The mock handler's Response.text() override is silently ignored by MSW's interceptor.
-// Skipped pending investigation of MSW Response mocking behavior.
-test.skip('checkIsCommonPassword returns false when response has invalid format', async () => {
+test('checkIsCommonPassword returns false when response has invalid format', async () => {
 	consoleWarn.mockImplementation(() => {})
 	const password = 'testpassword'
 	const [prefix] = getPasswordHashParts(password)

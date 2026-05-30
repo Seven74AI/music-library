@@ -248,12 +248,11 @@ export async function uploadFile(params: {
       const arrayBuffer = await file.arrayBuffer()
       fileBuffer = Buffer.from(arrayBuffer)
     } else {
-      // FileUpload (cast needed for @aws-sdk/lib-storage type compatibility)
-      const fileAny = file as Record<string, unknown>
-      if ('buffer' in fileAny && fileAny.buffer instanceof ArrayBuffer) {
-        fileBuffer = Buffer.from(fileAny.buffer as ArrayBuffer)
-      } else if ('arrayBuffer' in fileAny && typeof fileAny.arrayBuffer === 'function') {
-        const arrayBuffer = await (fileAny.arrayBuffer as () => Promise<ArrayBuffer>)()
+      // FileUpload
+      if ('buffer' in file && file.buffer instanceof ArrayBuffer) {
+        fileBuffer = Buffer.from(file.buffer)
+      } else if ('arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
+        const arrayBuffer = await file.arrayBuffer()
         fileBuffer = Buffer.from(arrayBuffer)
       } else {
         throw new Error('Unsupported file type for local storage')
@@ -274,16 +273,15 @@ export async function uploadFile(params: {
     const arrayBuffer = await file.arrayBuffer()
     fileBuffer = Buffer.from(arrayBuffer)
   } else {
-    // FileUpload (cast needed for @aws-sdk/lib-storage type compatibility)
-    const fileAny = file as Record<string, unknown>
-    if ('buffer' in fileAny && fileAny.buffer instanceof ArrayBuffer) {
-      fileBuffer = Buffer.from(fileAny.buffer as ArrayBuffer)
-    } else if ('arrayBuffer' in fileAny && typeof fileAny.arrayBuffer === 'function') {
-      const arrayBuffer = await (fileAny.arrayBuffer as () => Promise<ArrayBuffer>)()
+    // FileUpload
+    if ('buffer' in file && file.buffer instanceof ArrayBuffer) {
+      fileBuffer = Buffer.from(file.buffer)
+    } else if ('arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
+      const arrayBuffer = await file.arrayBuffer()
       fileBuffer = Buffer.from(arrayBuffer)
     } else {
       // Fallback to stream conversion
-      const stream = (fileAny.stream as () => ReadableStream<Uint8Array>)()
+      const stream = file.stream()
       const chunks: Uint8Array[] = []
       const reader = stream.getReader()
       
@@ -471,12 +469,11 @@ export async function uploadAlbumArt(
 		const arrayBuffer = await file.arrayBuffer()
 		imageBuffer = Buffer.from(arrayBuffer)
 	} else {
-		// FileUpload (cast needed for @aws-sdk/lib-storage type compatibility)
-		const fileAny = file as Record<string, unknown>
-		if ('buffer' in fileAny && fileAny.buffer instanceof ArrayBuffer) {
-			imageBuffer = Buffer.from(fileAny.buffer as ArrayBuffer)
-		} else if ('arrayBuffer' in fileAny && typeof fileAny.arrayBuffer === 'function') {
-			const arrayBuffer = await (fileAny.arrayBuffer as () => Promise<ArrayBuffer>)()
+		// FileUpload
+		if ('buffer' in file && file.buffer instanceof ArrayBuffer) {
+			imageBuffer = Buffer.from(file.buffer)
+		} else if ('arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
+			const arrayBuffer = await file.arrayBuffer()
 			imageBuffer = Buffer.from(arrayBuffer)
 		} else {
 			throw new Error('Unsupported file type for album art')
