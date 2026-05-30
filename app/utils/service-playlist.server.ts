@@ -10,7 +10,6 @@ import {
 } from '#app/types/transformations'
 import { 
   type ValidatedOAuthConnection,
-  type YouTubeTokenData
 } from '#app/types/youtube'
 import { 
   type YouTubePlaylist,
@@ -23,6 +22,7 @@ import {
   validateYouTubeOAuth
 } from '#app/utils/youtube-oauth-validation.server'
 import { createYouTubeService } from './youtube.server'
+import { getServiceByName, getUserConnection, parseConnectionTokens } from './playlist-utils.server'
 
 /**
  * Extended playlist interface with sync status information
@@ -92,48 +92,6 @@ interface ProcessTracksResult {
  * Handles playlist synchronization, track management, and user library operations
  */
 export class ServicePlaylistService {
-  /**
-   * Get service by name with error handling
-   * 
-   * @param serviceName - The name of the service to retrieve
-   * @returns Promise resolving to the service record
-   * @throws ServiceNotFoundError if service doesn't exist
-   */
-  private async getServiceByName(serviceName: string) {
-    const service = await prisma.service.findUnique({
-      where: { name: serviceName }
-    })
-    
-    if (!service) {
-      throw new ServiceNotFoundError(serviceName)
-    }
-    
-    return service
-  }
-
-  /**
-   * Get user connection for service with error handling
-   * 
-   * @param serviceName - The name of the service
-   * @param userId - The user ID
-   * @returns Promise resolving to the connection record
-   * @throws NoTokensError if no connection or tokens found
-   */
-  private async getUserConnection(serviceName: string, userId: string) {
-    const connection = await prisma.connection.findFirst({
-      where: {
-        providerName: serviceName,
-        userId: userId
-      }
-    })
-
-    if (!connection || !connection.tokens) {
-      throw new NoTokensError(serviceName)
-    }
-
-    return connection
-  }
-
   /**
    * Check if a YouTube playlist item represents a deleted video
    * 
@@ -664,34 +622,6 @@ export class ServicePlaylistService {
   }
 
   /**
-   * Parse connection tokens with error handling
-   * 
-   * @param connection - The connection record with tokens
-   * @returns Parsed token data
-   * @throws Error if tokens cannot be parsed
-   */
-  private parseConnectionTokens(connection: { tokens: string | null }): { access_token: string } {
-    if (!connection.tokens) {
-      throw new Error('No tokens found in connection')
-    }
-
-    try {
-      const tokenData = JSON.parse(connection.tokens) as YouTubeTokenData
-      
-      if (!tokenData.access_token) {
-        throw new Error('No access token found in connection tokens')
-      }
-
-      return {
-        access_token: tokenData.access_token
-      }
-    } catch (error) {
-      console.error('Error parsing connection tokens:', error)
-      throw new Error('Failed to parse connection tokens')
-    }
-  }
-
-  /**
    * Get all playlists for a service with sync status
    */
   async getAllPlaylistsWithSyncStatus(serviceName: string, userId: string): Promise<{
@@ -708,7 +638,7 @@ export class ServicePlaylistService {
     }
   }> {
     try {
-      const service = await this.getServiceByName(serviceName)
+      const service = await getServiceByName(serviceName)
 
       // Validate YouTube OAuth connection and tokens
       const validation: ValidatedOAuthConnection | null = await validateYouTubeOAuth(userId)
@@ -765,7 +695,7 @@ export class ServicePlaylistService {
       return {
         playlists: [],
         hasConnection: false,
-        service: await this.getServiceByName(serviceName)
+        service: await getServiceByName(serviceName)
       }
     }
   }
@@ -783,9 +713,9 @@ export class ServicePlaylistService {
     message?: string
   }> {
     try {
-      const service = await this.getServiceByName(serviceName)
-      const connection = await this.getUserConnection(serviceName, userId)
-      const tokenData = this.parseConnectionTokens(connection)
+      const service = await getServiceByName(serviceName)
+      const connection = await getUserConnection(serviceName, userId)
+      const tokenData = parseConnectionTokens(connection)
 
       // For now, we only support YouTube - other services will be added later
       if (serviceName !== YOUTUBE_SERVICE.NAME) {
@@ -931,7 +861,7 @@ export class ServicePlaylistService {
    * Get synced playlists for a user
    */
   async getSyncedPlaylists(serviceName: string, userId: string) {
-    const service = await this.getServiceByName(serviceName)
+    const service = await getServiceByName(serviceName)
     
     return await prisma.servicePlaylist.findMany({
       where: {
@@ -954,7 +884,7 @@ export class ServicePlaylistService {
       throw new Error(`Service ${serviceName} is not yet supported`)
     }
 
-    const service = await this.getServiceByName(serviceName)
+    const service = await getServiceByName(serviceName)
     
     try {
       const result = await prisma.servicePlaylist.deleteMany({
@@ -984,7 +914,7 @@ export class ServicePlaylistService {
    * Get playlist tracks with details
    */
   async getPlaylistTracks(serviceName: string, playlistId: string, userId: string) {
-    const service = await this.getServiceByName(serviceName)
+    const service = await getServiceByName(serviceName)
     
     // Verify playlist belongs to user
     const playlist = await prisma.servicePlaylist.findFirst({
@@ -1167,9 +1097,9 @@ export class ServicePlaylistService {
     pendingMatches: PendingMatch[]
     message: string
   }> {
-    const service = await this.getServiceByName(serviceName)
-    const connection = await this.getUserConnection(serviceName, userId)
-    const tokenData = this.parseConnectionTokens(connection)
+    const service = await getServiceByName(serviceName)
+    const connection = await getUserConnection(serviceName, userId)
+    const tokenData = parseConnectionTokens(connection)
 
     // Get playlist details
     const playlist = await prisma.servicePlaylist.findFirst({
@@ -1414,7 +1344,7 @@ export class ServicePlaylistService {
       }
     }
 
-    const service = await this.getServiceByName(playlist.service.name)
+    const service = await getServiceByName(playlist.service.name)
     const { createId } = await import('@paralleldrive/cuid2')
 
     try {
