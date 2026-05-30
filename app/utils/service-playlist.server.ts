@@ -6,7 +6,6 @@ import {
 } from '#app/types/frontend'
 import { 
   transformYouTubePlaylistToServicePlaylist,
-  transformYouTubePlaylistItemToTrack
 } from '#app/types/transformations'
 import { 
   type ValidatedOAuthConnection,
@@ -21,7 +20,8 @@ import { prisma } from '#app/utils/db.server'
 import { 
   validateYouTubeOAuth
 } from '#app/utils/youtube-oauth-validation.server'
-import { createYouTubeService } from './youtube.server'
+import { type PlaylistSyncProvider } from './playlist-sync-provider.server'
+import { createYouTubePlaylistProvider } from './youtube-playlist-provider.server'
 import { getServiceByName, getUserConnection, parseConnectionTokens } from './playlist-utils.server'
 
 /**
@@ -40,7 +40,7 @@ interface PlaylistWithSyncStatus extends YouTubePlaylist {
 interface TrackDataBatch {
   serviceId: string
   externalId: string
-  trackData: Omit<ReturnType<typeof transformYouTubePlaylistItemToTrack>, 'thumbnailUrl' | 'service' | 'externalId'> & { serviceId: string; externalId: string; coverImageId?: string | null }
+  trackData: Omit<ReturnType<PlaylistSyncProvider['transformPlaylistItem']>, 'thumbnailUrl' | 'service' | 'externalId'> & { serviceId: string; externalId: string; coverImageId?: string | null }
   position: number
   item: NewYouTubePlaylistItem
 }
@@ -92,51 +92,28 @@ interface ProcessTracksResult {
  * Handles playlist synchronization, track management, and user library operations
  */
 export class ServicePlaylistService {
-  /**
-   * Check if a YouTube playlist item represents a deleted video
-   * 
-   * @param item - YouTube playlist item to check
-   * @returns true if the video appears to be deleted
-   */
-  private isDeletedYouTubeVideo(item: NewYouTubePlaylistItem): boolean {
-    const title = item.snippet?.title || ''
-    const videoId = item.snippet?.resourceId?.videoId
-    
-    // Check for common deleted video patterns
-    const deletedPatterns = [
-      /^deleted video$/i,
-      /^private video$/i,
-      /^unavailable video$/i,
-      /^video unavailable$/i,
-      /^this video is unavailable$/i,
-    ]
-    
-    const hasDeletedTitle = deletedPatterns.some(pattern => pattern.test(title))
-    const missingVideoId = !videoId || videoId.trim() === ''
-    const missingThumbnail = !item.snippet?.thumbnails?.default?.url
-    
-    return hasDeletedTitle || missingVideoId || missingThumbnail
+  private providers: Map<string, PlaylistSyncProvider>
+
+  constructor() {
+    this.providers = new Map()
+    // Register YouTube provider
+    const youtubeProvider = createYouTubePlaylistProvider()
+    this.providers.set(YOUTUBE_SERVICE.NAME, youtubeProvider)
   }
 
   /**
-   * Determine if we should preserve existing track data
-   * 
-   * @param existingTrack - Existing track from database
-   * @param newItem - New item from YouTube API
-   * @returns true if we should preserve existing data
+   * Resolve the provider for a given service name.
+   * Throws if no provider is registered for the service.
+   *
+   * @param serviceName - The service name to resolve
+   * @returns The PlaylistSyncProvider for the service
    */
-  private shouldPreserveTrackData(
-    existingTrack: { title: string } | null,
-    newItem: NewYouTubePlaylistItem
-  ): boolean {
-    if (!existingTrack) return false
-    
-    // Preserve if video is deleted and we have a real title (not "Deleted video")
-    if (this.isDeletedYouTubeVideo(newItem) && existingTrack.title !== 'Deleted video' && existingTrack.title !== 'Unknown Title') {
-      return true
+  private getProvider(serviceName: string): PlaylistSyncProvider {
+    const provider = this.providers.get(serviceName)
+    if (!provider) {
+      throw new Error(`Service ${serviceName} is not yet supported`)
     }
-    
-    return false
+    return provider
   }
 
   /**
@@ -238,7 +215,8 @@ export class ServicePlaylistService {
    * @returns Map of externalId to image buffer
    */
   private async preDownloadImages(
-    playlistItems: NewYouTubePlaylistItem[]
+    playlistItems: NewYouTubePlaylistItem[],
+    provider: PlaylistSyncProvider
   ): Promise<Map<string, Buffer>> {
     const imageMap = new Map<string, Buffer>()
     
@@ -246,7 +224,7 @@ export class ServicePlaylistService {
     const downloadPromises = playlistItems.map(async (item) => {
       // Use the same logic as processTracksInBatches to determine externalId
       let externalId = item.snippet?.resourceId?.videoId || ''
-      const isDeleted = this.isDeletedYouTubeVideo(item)
+      const isDeleted = provider.isDeletedVideo(item)
       
       // For deleted videos, use item.id if available, otherwise skip (will be handled in processTracksInBatches)
       if (isDeleted && !externalId) {
@@ -289,6 +267,7 @@ export class ServicePlaylistService {
     serviceId: string,
     playlistId: string,
     tx: any,
+    provider: PlaylistSyncProvider,
     globalStartPosition: number = 0,
     accumulatedProcessedExternalIds?: Set<string>,
     accumulatedProcessedTrackIds?: Set<string>
@@ -322,7 +301,7 @@ export class ServicePlaylistService {
         // This prevents multiple deleted videos from collapsing into a single track record
         let externalId = item.snippet?.resourceId?.videoId || ''
         const position = globalStartPosition + batchStart + i + 1
-        const isDeleted = this.isDeletedYouTubeVideo(item)
+        const isDeleted = provider.isDeletedVideo(item)
         
         // Try to find existing track by stable identifiers
         let existingTrack: { id: string; title: string; artistId: string; coverImageId: string | null; externalId: string | null } | null = null
@@ -413,7 +392,7 @@ export class ServicePlaylistService {
           const artistRecord = await getOrCreateArtistTx(tx, artistName)
           
           // Determine if we should preserve existing track data
-          const preserveData = this.shouldPreserveTrackData(existingTrack, item)
+          const preserveData = provider.shouldPreserveTrackData(existingTrack, item)
           
           // Skip image processing during sync - will be processed in background
           // Preserve existing coverImageId if available, otherwise set to null
@@ -421,11 +400,11 @@ export class ServicePlaylistService {
             ? existingTrack.coverImageId 
             : null
 
-          let trackData: Omit<ReturnType<typeof transformYouTubePlaylistItemToTrack>, 'thumbnailUrl' | 'service' | 'externalId'> & { serviceId: string; externalId: string; coverImageId?: string | null }
+          let trackData: Omit<ReturnType<PlaylistSyncProvider['transformPlaylistItem']>, 'thumbnailUrl' | 'service' | 'externalId'> & { serviceId: string; externalId: string; coverImageId?: string | null }
           if (preserveData && existingTrack) {
             // Preserve existing data, only update non-critical fields
             // Use existing artistId if preserving data
-            const transformed = transformYouTubePlaylistItemToTrack(item, serviceId, existingTrack.artistId)
+            const transformed = provider.transformPlaylistItem(item, serviceId, existingTrack.artistId)
             const { thumbnailUrl: _, service: __, externalId: ___, ...rest } = transformed
             trackData = {
               ...rest,
@@ -436,7 +415,7 @@ export class ServicePlaylistService {
               externalId, // Use the generated/actual externalId (explicitly set, not from transformation)
             }
           } else {
-            const transformed = transformYouTubePlaylistItemToTrack(item, serviceId, artistRecord.id)
+            const transformed = provider.transformPlaylistItem(item, serviceId, artistRecord.id)
             const { thumbnailUrl: _, service: __, externalId: ___, ...rest } = transformed
             trackData = {
               ...rest,
@@ -521,7 +500,7 @@ export class ServicePlaylistService {
         
         // Use the item stored with trackData to avoid index mismatch when items are skipped
         const item = trackData.item
-        const isDeleted = item ? this.isDeletedYouTubeVideo(item) : false
+        const isDeleted = item ? provider.isDeletedVideo(item) : false
         
         // Get thumbnailUrl from YouTube API response
         const thumbnailUrl = item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || null
@@ -651,16 +630,9 @@ export class ServicePlaylistService {
         }
       }
 
-      // Get all playlists from the service API
-      // For now, we only support YouTube - other services will be added later
-      if (serviceName !== YOUTUBE_SERVICE.NAME) {
-        throw new Error(`Service ${serviceName} is not yet supported`)
-      }
-      
-      // Use YouTube service directly
-      const youtubeService = createYouTubeService()
-      // getUserPlaylists now returns all playlists across all pages (handles pagination internally)
-      const allPlaylists = await youtubeService.getUserPlaylists(validation.tokenData.access_token)
+      // Delegate to the appropriate service provider
+      const provider = this.getProvider(serviceName)
+      const allPlaylists = await provider.fetchPlaylists(validation.tokenData.access_token, userId)
 
       // Get already synced playlists
       const syncedPlaylists = await prisma.servicePlaylist.findMany({
@@ -717,20 +689,11 @@ export class ServicePlaylistService {
       const connection = await getUserConnection(serviceName, userId)
       const tokenData = parseConnectionTokens(connection)
 
-      // For now, we only support YouTube - other services will be added later
-      if (serviceName !== YOUTUBE_SERVICE.NAME) {
-        return {
-          success: false,
-          error: `Service ${serviceName} is not yet supported`,
-          message: `Service ${serviceName} is not yet supported`
-        }
-      }
-
-      // Get playlist details and items using YouTube service directly
-      const youtubeService = createYouTubeService()
+      // Delegate to the appropriate service provider
+      const provider = this.getProvider(serviceName)
       const [youtubePlaylist, playlistItems] = await Promise.all([
-        youtubeService.getPlaylist(externalPlaylistId, tokenData.access_token),
-        youtubeService.getPlaylistItems(externalPlaylistId, tokenData.access_token)
+        provider.fetchPlaylist(externalPlaylistId, tokenData.access_token),
+        provider.fetchPlaylistItems(externalPlaylistId, tokenData.access_token)
       ])
 
       // getPlaylist and getPlaylistItems already validate and return validated data
@@ -791,6 +754,7 @@ export class ServicePlaylistService {
               service.id, 
               playlist.id, 
               tx, 
+              provider,
               batchStart,
               accumulatedResult.processedExternalIds,
               accumulatedResult.processedTrackIds
@@ -879,10 +843,8 @@ export class ServicePlaylistService {
    * Remove playlist from sync
    */
   async removePlaylistFromSync(serviceName: string, id: string, userId: string) {
-    // For now, we only support YouTube - other services will be added later
-    if (serviceName !== YOUTUBE_SERVICE.NAME) {
-      throw new Error(`Service ${serviceName} is not yet supported`)
-    }
+    // Validate service is supported via provider resolution
+    const provider = this.getProvider(serviceName)
 
     const service = await getServiceByName(serviceName)
     
@@ -1115,22 +1077,17 @@ export class ServicePlaylistService {
       throw new Error('Playlist not found or access denied')
     }
 
-    // For now, we only support YouTube - other services will be added later
-    if (serviceName !== YOUTUBE_SERVICE.NAME) {
-      throw new Error(`Service ${serviceName} is not yet supported`)
-    }
-
-    // Get fresh playlist items from YouTube service
-    const youtubeService = createYouTubeService()
-    let playlistItems: Awaited<ReturnType<typeof youtubeService.getPlaylistItems>>
+    // Delegate to the appropriate service provider
+    const provider = this.getProvider(serviceName)
+    let playlistItems: Awaited<ReturnType<typeof provider.fetchPlaylistItems>>
     try {
-      playlistItems = await youtubeService.getPlaylistItems(playlist.externalId, tokenData.access_token)
+      playlistItems = await provider.fetchPlaylistItems(playlist.externalId, tokenData.access_token)
     } catch (error) {
       // Re-throw with more context if it's a known error type
       if (error instanceof Error) {
         throw error
       }
-      throw new Error('Failed to fetch playlist items from YouTube')
+      throw new Error('Failed to fetch playlist items from external service')
     }
 
     // Process tracks in smaller transaction batches to avoid timeouts
@@ -1156,6 +1113,7 @@ export class ServicePlaylistService {
             service.id, 
             playlist.id, 
             tx, 
+            provider,
             batchStart,
             accumulatedResult.processedExternalIds,
             accumulatedResult.processedTrackIds
