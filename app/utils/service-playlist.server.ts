@@ -1,4 +1,3 @@
-// Prisma types used in transformations
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { 
   type PlaylistWithTracks,
@@ -12,17 +11,24 @@ import {
 } from '#app/types/youtube'
 import { 
   type YouTubePlaylist,
-  type YouTubePlaylistItem as NewYouTubePlaylistItem
 } from '#app/types/youtube-api'
-import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
-import { downloadExternalImage, findOrCreateCoverImage } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server'
+import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
 import { 
   validateYouTubeOAuth
 } from '#app/utils/youtube-oauth-validation.server'
 import { type PlaylistSyncProvider } from './playlist-sync-provider.server'
 import { createYouTubePlaylistProvider } from './youtube-playlist-provider.server'
 import { getServiceByName, getUserConnection, parseConnectionTokens } from './playlist-utils.server'
+import {
+  processTracksInBatches,
+  type ProcessTracksResult,
+  type SyncTrackInfo,
+  type PendingMatch,
+} from './track-batch-processor.server'
+import {
+  processTrackImagesAsync,
+} from './track-image-processor.server'
 
 /**
  * Extended playlist interface with sync status information
@@ -36,60 +42,6 @@ interface PlaylistWithSyncStatus extends YouTubePlaylist {
 /**
  * Batch data structure for processing tracks in batches
  * Used for efficient database operations during playlist sync
- */
-interface TrackDataBatch {
-  serviceId: string
-  externalId: string
-  trackData: Omit<ReturnType<PlaylistSyncProvider['transformPlaylistItem']>, 'thumbnailUrl' | 'service' | 'externalId'> & { serviceId: string; externalId: string; coverImageId?: string | null }
-  position: number
-  item: NewYouTubePlaylistItem
-}
-
-
-/**
- * Track information for sync reporting
- */
-interface SyncTrackInfo {
-  id: string
-  title: string
-  externalId?: string
-}
-
-/**
- * Pending match for deleted videos that need user confirmation
- */
-interface PendingMatch {
-  deletedVideo: {
-    position: number
-    itemId: string | undefined
-    title: string | undefined
-    snippet: NewYouTubePlaylistItem['snippet'] | undefined
-  }
-  candidateTracks: Array<{
-    id: string
-    title: string
-    artist: string
-    externalId: string | null
-    position: number
-    isDeleted: boolean
-  }>
-}
-
-/**
- * Result from processing tracks in batches
- */
-interface ProcessTracksResult {
-  processedCount: number
-  deletedTracks: SyncTrackInfo[]
-  processedExternalIds: Set<string>
-  processedTrackIds: Set<string>
-  pendingMatches: PendingMatch[]
-}
-
-
-/**
- * Service class for managing service playlists (YouTube, Spotify, etc.)
- * Handles playlist synchronization, track management, and user library operations
  */
 export class ServicePlaylistService {
   private providers: Map<string, PlaylistSyncProvider>
@@ -127,478 +79,6 @@ export class ServicePlaylistService {
    * @param tx - Prisma transaction instance
    * @returns Array of orphaned tracks with metadata
    */
-  private async findOrphanedTracks(
-    playlistId: string,
-    processedExternalIds: Set<string>,
-    processedTrackIds: Set<string>,
-    pendingMatches: PendingMatch[],
-    tx: any
-  ): Promise<Array<{
-    id: string
-    title: string
-    artist: string
-    externalId: string | null
-    position: number
-    isDeleted: boolean
-  }>> {
-    // Get all tracks in the playlist
-    const allPlaylistTracks = await tx.servicePlaylistTrack.findMany({
-      where: {
-        playlistId: playlistId
-      },
-      include: {
-        track: {
-          select: {
-            id: true,
-            title: true,
-            artist: {
-              select: {
-                id: true,
-                name: true
-              }
-            },
-            externalId: true
-          }
-        }
-      },
-      orderBy: {
-        position: 'asc'
-      }
-    })
-
-    // Get track IDs already claimed in pending matches
-    const claimedTrackIds = new Set<string>()
-    for (const match of pendingMatches) {
-      for (const candidate of match.candidateTracks) {
-        claimedTrackIds.add(candidate.id)
-      }
-    }
-
-    // Filter orphaned tracks:
-    // 1. Not in processedExternalIds or processedTrackIds (not in current sync)
-    // 2. Not already deleted (isDeleted === false) - Edge Case 9
-    // 3. Not already claimed in pending matches
-    const orphanedTracks = allPlaylistTracks
-      .filter((playlistTrack: { track: { externalId: string | null; id: string }; isDeleted: boolean }) => {
-        const externalId = playlistTrack.track.externalId
-        const trackId = playlistTrack.track.id
-        
-        // Skip if already processed in current sync
-        if (externalId && processedExternalIds.has(externalId)) return false
-        if (processedTrackIds.has(trackId)) return false
-        
-        // Skip if already deleted - Edge Case 9
-        if (playlistTrack.isDeleted) return false
-        
-        // Skip if already claimed in pending matches
-        if (claimedTrackIds.has(trackId)) return false
-        
-        return true
-      })
-      .map((playlistTrack: { track: { id: string; title: string; artist: { id: string; name: string } | null; externalId: string | null }; position: number; isDeleted: boolean }) => ({
-        id: playlistTrack.track.id,
-        title: playlistTrack.track.title,
-        artist: playlistTrack.track.artist?.name || 'Unknown Artist',
-        externalId: playlistTrack.track.externalId,
-        position: playlistTrack.position,
-        isDeleted: playlistTrack.isDeleted
-      }))
-
-    return orphanedTracks
-  }
-
-  /**
-   * Pre-download cover images for playlist items
-   * Downloads images in parallel to speed up the process
-   * 
-   * @param playlistItems - Array of playlist items to download images for
-   * @returns Map of externalId to image buffer
-   */
-  private async preDownloadImages(
-    playlistItems: NewYouTubePlaylistItem[],
-    provider: PlaylistSyncProvider
-  ): Promise<Map<string, Buffer>> {
-    const imageMap = new Map<string, Buffer>()
-    
-    // Download images in parallel
-    const downloadPromises = playlistItems.map(async (item) => {
-      // Use the same logic as processTracksInBatches to determine externalId
-      let externalId = item.snippet?.resourceId?.videoId || ''
-      const isDeleted = provider.isDeletedVideo(item)
-      
-      // For deleted videos, use item.id if available, otherwise skip (will be handled in processTracksInBatches)
-      if (isDeleted && !externalId) {
-        externalId = item.id || ''
-      }
-      
-      if (!externalId) return
-      
-      const thumbnailUrl = item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || null
-      if (!thumbnailUrl) return
-      
-      try {
-        const imageBuffer = await downloadExternalImage(thumbnailUrl)
-        if (imageBuffer) {
-          imageMap.set(externalId, imageBuffer)
-        }
-      } catch (error) {
-        console.warn(`Failed to download cover image for ${externalId}:`, error)
-        // Continue without this image
-      }
-    })
-    
-    await Promise.all(downloadPromises)
-    return imageMap
-  }
-
-  /**
-   * Process tracks in batches for better performance
-   * Images should be pre-downloaded and passed in to avoid transaction timeouts
-   * 
-   * @param playlistItems - Array of playlist items to process
-   * @param serviceId - The service ID
-   * @param playlistId - The playlist ID
-   * @param tx - Prisma transaction instance
-   * @param preDownloadedImages - Map of externalId to pre-downloaded image buffers
-   * @returns Result with processed count, deleted tracks, and processed external IDs
-   */
-  private async processTracksInBatches(
-    playlistItems: NewYouTubePlaylistItem[],
-    serviceId: string,
-    playlistId: string,
-    tx: any,
-    provider: PlaylistSyncProvider,
-    globalStartPosition: number = 0,
-    accumulatedProcessedExternalIds?: Set<string>,
-    accumulatedProcessedTrackIds?: Set<string>
-  ): Promise<ProcessTracksResult> {
-    let processedTracks = 0
-    const batchSize = 50
-    const deletedTracks: SyncTrackInfo[] = []
-    // Merge accumulated sets with new sets to track all processed items across batches
-    const processedExternalIds = new Set<string>(accumulatedProcessedExternalIds || [])
-    const processedTrackIds = new Set<string>(accumulatedProcessedTrackIds || [])
-    const pendingMatches: PendingMatch[] = []
-    
-    for (let batchStart = 0; batchStart < playlistItems.length; batchStart += batchSize) {
-      const batch = playlistItems.slice(batchStart, batchStart + batchSize)
-      
-      // Prepare batch data
-      const trackDataBatch: TrackDataBatch[] = []
-      // Collect deleted videos without matches for second pass (orphaned track detection)
-      const deletedVideosWithoutMatch: Array<{
-        item: NewYouTubePlaylistItem
-        position: number
-        externalId: string
-      }> = []
-      
-      // FIRST PASS: Process all items in the batch
-      for (let i = 0; i < batch.length; i++) {
-        const item = batch[i] as NewYouTubePlaylistItem
-        if (!item) continue
-        
-        // Use videoId if available, otherwise use playlist item ID or generate unique identifier
-        // This prevents multiple deleted videos from collapsing into a single track record
-        let externalId = item.snippet?.resourceId?.videoId || ''
-        const position = globalStartPosition + batchStart + i + 1
-        const isDeleted = provider.isDeletedVideo(item)
-        
-        // Try to find existing track by stable identifiers
-        let existingTrack: { id: string; title: string; artistId: string; coverImageId: string | null; externalId: string | null } | null = null
-        
-        // First, try matching by playlist item ID (for deleted videos)
-        if (isDeleted && item.id) {
-          // Try to find a track with this playlist item ID as externalId
-          existingTrack = await tx.track.findUnique({
-            where: {
-              serviceId_externalId: {
-                serviceId,
-                externalId: item.id
-              }
-            },
-            select: {
-              id: true,
-              title: true,
-              artistId: true,
-              coverImageId: true,
-              externalId: true
-            }
-          })
-        }
-        
-        // If not found, try matching by videoId (externalId)
-        if (!existingTrack && externalId) {
-          existingTrack = await tx.track.findUnique({
-            where: {
-              serviceId_externalId: {
-                serviceId,
-                externalId
-              }
-            },
-            select: {
-              id: true,
-              title: true,
-              artistId: true,
-              coverImageId: true,
-              externalId: true
-            }
-          })
-        }
-        
-        // For deleted videos without a match, defer orphaned track detection to second pass
-        // This ensures all tracks in the current batch are processed first
-        if (isDeleted && !existingTrack) {
-          // Generate a temporary externalId for tracking
-          if (item.id) {
-            externalId = item.id
-          } else {
-            externalId = `pending-${playlistId}-${item.id || position}`
-          }
-          
-          // Store for second pass processing
-          deletedVideosWithoutMatch.push({
-            item,
-            position,
-            externalId
-          })
-          
-          // Mark externalId as processed to prevent it from being marked as "removed"
-          // This ensures pending deleted videos aren't deleted before user confirmation
-          processedExternalIds.add(externalId)
-          
-          // Skip creating track immediately - wait for user confirmation
-          continue
-        }
-        
-        // Generate externalId for deleted videos if not already set
-        if (isDeleted && !externalId) {
-          if (item.id) {
-            externalId = item.id
-          } else {
-            externalId = `deleted-${playlistId}-${position}`
-          }
-        }
-        
-        // Skip tracks without a valid externalId (can't use unique constraint with empty string)
-        // Deleted videos should have been handled above with generated IDs
-        if (!externalId || externalId.trim() === '') {
-          console.warn(`Skipping track without externalId at position ${position}: ${item.snippet?.title || 'Unknown'}`)
-          continue
-        }
-        
-        try {
-          // Get or create artist
-          const artistName = item.snippet?.videoOwnerChannelTitle || item.snippet?.channelTitle || 'Unknown Artist'
-          const artistRecord = await getOrCreateArtistTx(tx, artistName)
-          
-          // Determine if we should preserve existing track data
-          const preserveData = provider.shouldPreserveTrackData(existingTrack, item)
-          
-          // Skip image processing during sync - will be processed in background
-          // Preserve existing coverImageId if available, otherwise set to null
-          const coverImageId: string | null = preserveData && existingTrack?.coverImageId 
-            ? existingTrack.coverImageId 
-            : null
-
-          let trackData: Omit<ReturnType<PlaylistSyncProvider['transformPlaylistItem']>, 'thumbnailUrl' | 'service' | 'externalId'> & { serviceId: string; externalId: string; coverImageId?: string | null }
-          if (preserveData && existingTrack) {
-            // Preserve existing data, only update non-critical fields
-            // Use existing artistId if preserving data
-            const transformed = provider.transformPlaylistItem(item, serviceId, existingTrack.artistId)
-            const { thumbnailUrl: _, service: __, externalId: ___, ...rest } = transformed
-            trackData = {
-              ...rest,
-              serviceId, // Use serviceId directly instead of service relation
-              title: existingTrack.title,
-              artistId: existingTrack.artistId,
-              coverImageId: coverImageId || existingTrack.coverImageId || null,
-              externalId, // Use the generated/actual externalId (explicitly set, not from transformation)
-            }
-          } else {
-            const transformed = provider.transformPlaylistItem(item, serviceId, artistRecord.id)
-            const { thumbnailUrl: _, service: __, externalId: ___, ...rest } = transformed
-            trackData = {
-              ...rest,
-              serviceId, // Use serviceId directly instead of service relation
-              coverImageId,
-              externalId, // Override with the generated/actual externalId (explicitly set, not from transformation)
-            }
-          }
-          
-          trackDataBatch.push({
-            serviceId,
-            externalId,
-            trackData,
-            position, // Use the calculated position that includes globalStartPosition
-            item
-          })
-          
-          // Mark as processed after successful preparation
-          // Always add externalId, even for deleted videos with generated IDs
-          processedExternalIds.add(externalId)
-        } catch (error) {
-          console.error(`Error preparing track ${item.snippet?.resourceId?.videoId || 'unknown'}:`, error)
-          // externalId is NOT added to processedExternalIds on error, so it will be removed if it exists
-        }
-      }
-      
-      // Batch upsert tracks
-      const trackPromises = trackDataBatch
-        .filter(({ serviceId, externalId }) => {
-          // Filter out any entries with invalid IDs (shouldn't happen, but safety check)
-          if (!serviceId || !externalId || externalId.trim() === '') {
-            console.warn(`Skipping track upsert with invalid IDs: serviceId=${serviceId}, externalId=${externalId}`)
-            return false
-          }
-          return true
-        })
-        .map(async ({ serviceId, externalId, trackData }) => {
-          // Final validation: ensure both serviceId and externalId are non-empty strings
-          // SQLite unique indexes on nullable columns require non-null, non-empty values for upsert
-          if (!serviceId || !externalId || serviceId.trim() === '' || externalId.trim() === '') {
-            console.error(`Invalid upsert parameters: serviceId="${serviceId}", externalId="${externalId}"`)
-            throw new Error(`Cannot upsert track: serviceId and externalId must be non-empty strings. Got serviceId="${serviceId}", externalId="${externalId}"`)
-          }
-          
-          // Ensure trackData has the correct serviceId and externalId for the create clause
-          // This is critical for SQLite unique constraint matching
-          const createData = {
-            ...trackData,
-            serviceId, // Explicitly set to ensure it matches the where clause
-            externalId, // Explicitly set to ensure it matches the where clause
-          }
-          
-          // Validate createData has required fields
-          if (!createData.serviceId || !createData.externalId || createData.serviceId.trim() === '' || createData.externalId.trim() === '') {
-            console.error(`Invalid createData: serviceId="${createData.serviceId}", externalId="${createData.externalId}"`)
-            throw new Error(`Cannot create track: createData must have non-empty serviceId and externalId`)
-          }
-          
-          return tx.track.upsert({
-            where: {
-              serviceId_externalId: {
-                serviceId,
-                externalId
-              }
-            },
-            update: {
-              ...trackData,
-              serviceId, // Ensure update also has correct values
-              externalId, // Ensure update also has correct values
-              updatedAt: new Date()
-            },
-            create: createData
-          })
-        })
-      
-      const tracks = await Promise.all(trackPromises)
-      
-      // Batch upsert playlist tracks with deletion status
-      const playlistTrackPromises = tracks.map(async (track, index) => {
-        const trackData = trackDataBatch[index]
-        if (!trackData) return null
-        
-        // Use the item stored with trackData to avoid index mismatch when items are skipped
-        const item = trackData.item
-        const isDeleted = item ? provider.isDeletedVideo(item) : false
-        
-        // Get thumbnailUrl from YouTube API response
-        const thumbnailUrl = item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || null
-        
-        // Check if this track was previously deleted
-        const existingPlaylistTrack = await tx.servicePlaylistTrack.findUnique({
-          where: {
-            playlistId_trackId: {
-              playlistId: playlistId,
-              trackId: track.id
-            }
-          }
-        })
-        
-        const shouldSetDeletedAt = isDeleted && !existingPlaylistTrack?.isDeleted
-        
-        const result = await tx.servicePlaylistTrack.upsert({
-          where: {
-            playlistId_trackId: {
-              playlistId: playlistId,
-              trackId: track.id
-            }
-          },
-          update: {
-            position: trackData.position,
-            isDeleted,
-            deletedAt: shouldSetDeletedAt ? new Date() : (isDeleted ? existingPlaylistTrack?.deletedAt : null),
-            thumbnailUrl // Store thumbnail URL for background processing
-          },
-          create: {
-            playlistId: playlistId,
-            trackId: track.id,
-            position: trackData.position,
-            isDeleted,
-            deletedAt: isDeleted ? new Date() : null,
-            thumbnailUrl // Store thumbnail URL for background processing
-          }
-        })
-        
-        // Track deleted videos for reporting - only report newly detected deletions
-        if (shouldSetDeletedAt) {
-          deletedTracks.push({
-            id: track.id,
-            title: track.title,
-            externalId: trackData.externalId
-          })
-        }
-        
-        return result
-      })
-      
-      // Await all promises first, then filter out null results
-      const playlistTrackResults = await Promise.all(playlistTrackPromises)
-      const successfulResults = playlistTrackResults.filter((result): result is NonNullable<typeof result> => result !== null)
-      
-      // Track all successfully processed trackIds for removal detection
-      for (const result of successfulResults) {
-        processedTrackIds.add(result.trackId)
-      }
-      
-      // Count only successfully processed tracks
-      processedTracks += successfulResults.length
-      
-      // SECOND PASS: Find orphaned tracks for deleted videos without matches
-      // This happens AFTER all tracks in the current batch are processed and added to processedTrackIds
-      // This prevents false positives where tracks in the current batch are incorrectly marked as orphaned
-      for (const deletedVideo of deletedVideosWithoutMatch) {
-        // Find orphaned tracks (tracks in playlist but not in current sync)
-        // At this point, processedTrackIds includes all tracks from previous batches AND the current batch
-        const orphanedTracks = await this.findOrphanedTracks(
-          playlistId,
-          processedExternalIds,
-          processedTrackIds,
-          pendingMatches,
-          tx
-        )
-        
-        // Add to pendingMatches for user confirmation
-        pendingMatches.push({
-          deletedVideo: {
-            position: deletedVideo.position,
-            itemId: deletedVideo.item.id,
-            title: deletedVideo.item.snippet?.title,
-            snippet: deletedVideo.item.snippet
-          },
-          candidateTracks: orphanedTracks
-        })
-      }
-    }
-    
-    return {
-      processedCount: processedTracks,
-      deletedTracks,
-      processedExternalIds,
-      processedTrackIds,
-      pendingMatches
-    }
-  }
 
   /**
    * Get all playlists for a service with sync status
@@ -749,12 +229,12 @@ export class ServicePlaylistService {
         
         try {
           const batchResult = await prisma.$transaction(async (tx) => {
-            return this.processTracksInBatches(
+            return processTracksInBatches(
               batchItems, 
               service.id, 
               playlist.id, 
               tx, 
-              provider,
+              provider as any,
               batchStart,
               accumulatedResult.processedExternalIds,
               accumulatedResult.processedTrackIds
@@ -798,7 +278,7 @@ export class ServicePlaylistService {
 
       if (playlistTrackIds.length > 0) {
         // Fire and forget - don't await, process on server in background
-        void this.processPlaylistTrackImagesAsync(playlistTrackIds).catch(error => {
+        void processTrackImagesAsync(playlistTrackIds).catch(error => {
           console.error('Error processing track images in background:', error)
         })
       }
@@ -1108,12 +588,12 @@ export class ServicePlaylistService {
       
       try {
         const batchResult = await prisma.$transaction(async (tx) => {
-          return this.processTracksInBatches(
+          return processTracksInBatches(
             batchItems, 
             service.id, 
             playlist.id, 
             tx, 
-            provider,
+            provider as any,
             batchStart,
             accumulatedResult.processedExternalIds,
             accumulatedResult.processedTrackIds
@@ -1235,7 +715,7 @@ export class ServicePlaylistService {
 
     if (playlistTrackIds.length > 0) {
       // Fire and forget - don't await, process on server in background
-      void this.processPlaylistTrackImagesAsync(playlistTrackIds).catch(error => {
+      void processTrackImagesAsync(playlistTrackIds).catch(error => {
         console.error('Error processing track images in background:', error)
       })
     }
@@ -1430,83 +910,6 @@ export class ServicePlaylistService {
    * 
    * @param playlistTrackIds - Array of ServicePlaylistTrack IDs to process images for
    */
-  private async processPlaylistTrackImagesAsync(playlistTrackIds: string[]): Promise<void> {
-    // Server-side background processing - runs after response is sent
-    // Process images in batches with concurrency control
-    await this.processPlaylistTrackImagesInBatches(playlistTrackIds)
-  }
-
-  /**
-   * Process images in batches with concurrency control
-   * 
-   * @param playlistTrackIds - Array of ServicePlaylistTrack IDs to process
-   */
-  private async processPlaylistTrackImagesInBatches(playlistTrackIds: string[]): Promise<void> {
-    const MAX_CONCURRENCY = 5
-    
-    // Fetch ServicePlaylistTrack records with thumbnailUrl and trackId
-    const playlistTracks = await prisma.servicePlaylistTrack.findMany({
-      where: {
-        id: { in: playlistTrackIds },
-        thumbnailUrl: { not: null }
-      },
-      include: {
-        track: {
-          select: {
-            id: true,
-            coverImageId: true
-          }
-        }
-      }
-    })
-
-    // Filter out tracks that already have cover images
-    const tracksToProcess = playlistTracks.filter(pt => 
-      pt.thumbnailUrl && !pt.track.coverImageId
-    )
-
-    if (tracksToProcess.length === 0) {
-      return
-    }
-
-    // Process images in parallel with concurrency limit
-    for (let i = 0; i < tracksToProcess.length; i += MAX_CONCURRENCY) {
-      const batch = tracksToProcess.slice(i, i + MAX_CONCURRENCY)
-      
-      await Promise.all(
-        batch.map(async (playlistTrack) => {
-          if (!playlistTrack.thumbnailUrl) return
-
-          try {
-            // Download image from thumbnailUrl
-            const imageBuffer = await downloadExternalImage(playlistTrack.thumbnailUrl)
-            if (!imageBuffer) {
-              console.warn(`Failed to download image from ${playlistTrack.thumbnailUrl}`)
-              return
-            }
-
-            // Process and create CoverImage
-            const coverImage = await findOrCreateCoverImage({
-              imageBuffer,
-              trackId: playlistTrack.trackId,
-            })
-
-            // Update Track.coverImageId
-            await prisma.track.update({
-              where: { id: playlistTrack.trackId },
-              data: { coverImageId: coverImage.id }
-            })
-
-            // Optionally clear thumbnailUrl from ServicePlaylistTrack (or keep as fallback)
-            // For now, we'll keep it as a fallback in case the processed image fails to load
-          } catch (error) {
-            console.error(`Error processing image for track ${playlistTrack.trackId}:`, error)
-            // Continue processing other tracks even if one fails
-          }
-        })
-      )
-    }
-  }
 }
 
 /**
