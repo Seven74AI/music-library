@@ -282,6 +282,15 @@ describe('ServicePlaylistService - Sync Logic', () => {
 			} as any)
 
 			// Mock YouTube service
+			// Only video1 exists in current playlist, video2 was removed
+			mockGetPlaylistItems.mockResolvedValue([{
+				snippet: {
+					title: 'Video 1',
+					resourceId: { videoId: 'video1' },
+					thumbnails: { default: { url: 'https://example.com/thumb1.jpg' } },
+					videoOwnerChannelTitle: 'Test Channel',
+				},
+			}])
 
 			// Mock existing playlist tracks (one that should be removed)
 			vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([
@@ -408,6 +417,13 @@ describe('ServicePlaylistService - Sync Logic', () => {
 			} as any)
 
 			// Mock YouTube service with deleted video
+			mockGetPlaylistItems.mockResolvedValue([{
+				id: 'deleted-item-1',
+				snippet: {
+					title: 'Deleted video',
+					resourceId: { videoId: 'video1' },
+				},
+			}])
 
 			// Mock existing track with original title
 			const existingTrack = {
@@ -530,6 +546,7 @@ describe('ServicePlaylistService - Batch Processing', () => {
 			}))
 
 			// Mock YouTube service
+			mockGetPlaylistItems.mockResolvedValue(playlistItems)
 
 			const upsertedPositions: number[] = []
 
@@ -661,6 +678,7 @@ describe('ServicePlaylistService - Batch Processing', () => {
 			]
 
 			// Mock YouTube service
+			mockGetPlaylistItems.mockResolvedValue(playlistItems)
 
 			// Mock existing playlist tracks (some orphaned, some in current sync)
 			const existingOrphanedTrack = {
@@ -805,6 +823,7 @@ describe('ServicePlaylistService - Batch Processing', () => {
 			}))
 
 			// Mock YouTube service
+			mockGetPlaylistItems.mockResolvedValue(playlistItems)
 
 			// Mock existing playlist tracks (video21 and video22 should be removed)
 			const existingPlaylistTracks = [
@@ -957,6 +976,7 @@ describe('ServicePlaylistService - Batch Processing', () => {
 			]
 
 			// Mock YouTube service
+			mockGetPlaylistItems.mockResolvedValue(playlistItems)
 
 			// Mock transaction
 			vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
