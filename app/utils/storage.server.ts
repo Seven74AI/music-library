@@ -247,19 +247,12 @@ export async function uploadFile(params: {
     } else if (file instanceof File) {
       const arrayBuffer = await file.arrayBuffer()
       fileBuffer = Buffer.from(arrayBuffer)
-    } else {
-      // FileUpload
-      if ('buffer' in file && file.buffer instanceof ArrayBuffer) {
-        fileBuffer = Buffer.from(file.buffer)
-      } else if ('arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
-        const arrayBuffer = await file.arrayBuffer()
-        fileBuffer = Buffer.from(arrayBuffer)
-      } else {
-        throw new Error('Unsupported file type for local storage')
-      }
-    }
-    
-    return uploadFileLocal(fileBuffer, key)
+  } else {
+    // FileUpload extends File, handled above
+    throw new Error('Unsupported file type for local storage')
+  }
+  
+  return uploadFileLocal(fileBuffer, key)
   }
   
   const s3Client = getS3Client()
@@ -273,38 +266,8 @@ export async function uploadFile(params: {
     const arrayBuffer = await file.arrayBuffer()
     fileBuffer = Buffer.from(arrayBuffer)
   } else {
-    // FileUpload
-    if ('buffer' in file && file.buffer instanceof ArrayBuffer) {
-      fileBuffer = Buffer.from(file.buffer)
-    } else if ('arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
-      const arrayBuffer = await file.arrayBuffer()
-      fileBuffer = Buffer.from(arrayBuffer)
-    } else {
-      // Fallback to stream conversion
-      const stream = file.stream()
-      const chunks: Uint8Array[] = []
-      const reader = stream.getReader()
-      
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          chunks.push(value)
-        }
-      } finally {
-        reader.releaseLock()
-      }
-      
-      // Combine all chunks into a single Buffer
-      const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-      const combined = new Uint8Array(totalLength)
-      let offset = 0
-      for (const chunk of chunks) {
-        combined.set(chunk, offset)
-        offset += chunk.length
-      }
-      fileBuffer = Buffer.from(combined)
-    }
+    // FileUpload extends File, handled above
+    throw new Error('Unsupported file type for S3 upload')
   }
   
   // For Tigris compatibility: Use different strategies based on file size
@@ -469,16 +432,8 @@ export async function uploadAlbumArt(
 		const arrayBuffer = await file.arrayBuffer()
 		imageBuffer = Buffer.from(arrayBuffer)
 	} else {
-		// FileUpload
-		if ('buffer' in file && file.buffer instanceof ArrayBuffer) {
-			imageBuffer = Buffer.from(file.buffer)
-		} else if ('arrayBuffer' in file && typeof file.arrayBuffer === 'function') {
-			const arrayBuffer = await file.arrayBuffer()
-			imageBuffer = Buffer.from(arrayBuffer)
-		} else {
-			throw new Error('Unsupported file type for album art')
-		}
-
+		// FileUpload extends File, handled above
+		throw new Error('Unsupported file type for album art')
 	}
 
 	// Use new cover management system
