@@ -64,6 +64,12 @@ export default defineConfig((config) => ({
 		coverage: {
 			include: ['app/**/*.{ts,tsx}'],
 			all: true,
+			thresholds: {
+				lines: 6,
+				branches: 50,
+				functions: 25,
+				statements: 6,
+			},
 		},
 	},
 }))
