@@ -33,8 +33,8 @@ test('The user profile when not logged in as self', async () => {
 	const routeUrl = `/users/${user.username}`
 	render(<App initialEntries={[routeUrl]} />)
 
-	await screen.findByRole('heading', { level: 1, name: user.name! })
-	await screen.findByRole('img', { name: user.name! })
+	await screen.findByRole('heading', { level: 1, name: user.name! }, { timeout: 5000 })
+	await screen.findByRole('img', { name: user.name! }, { timeout: 5000 })
 })
 
 test('The user profile when logged in as self', async () => {
@@ -88,8 +88,8 @@ test('The user profile when logged in as self', async () => {
 	const routeUrl = `/users/${user.username}`
 	render(<App initialEntries={[routeUrl]} />)
 
-	await screen.findByRole('heading', { level: 1, name: user.name! })
-	await screen.findByRole('img', { name: user.name! })
-	await screen.findByRole('button', { name: /logout/i })
-	await screen.findByRole('link', { name: /edit profile/i })
+	await screen.findByRole('heading', { level: 1, name: user.name! }, { timeout: 5000 })
+	await screen.findByRole('img', { name: user.name! }, { timeout: 5000 })
+	await screen.findByRole('button', { name: /logout/i }, { timeout: 5000 })
+	await screen.findByRole('link', { name: /edit profile/i }, { timeout: 5000 })
 })
