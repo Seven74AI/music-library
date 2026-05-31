@@ -1,4 +1,5 @@
 import { createCookieSessionStorage } from 'react-router'
+import { getSessionSecret } from './env.server.ts'
 
 export const verifySessionStorage = createCookieSessionStorage({
 	cookie: {
@@ -7,7 +8,7 @@ export const verifySessionStorage = createCookieSessionStorage({
 		path: '/',
 		httpOnly: true,
 		maxAge: 60 * 10, // 10 minutes
-		secrets: process.env.SESSION_SECRET?.split(',') || ['fallback-secret'],
+		secrets: getSessionSecret(),
 		secure: process.env.NODE_ENV === 'production',
 	},
 })

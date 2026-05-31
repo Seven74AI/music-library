@@ -1,14 +1,17 @@
 import { z } from 'zod'
+import crypto from 'node:crypto'
 
 // Helper function to create conditional validation
 const createConditionalSchema = (): z.ZodObject<any> => {
   const isMocksEnabled: boolean = process.env.MOCKS === 'true'
+  const isProduction: boolean = process.env.NODE_ENV === 'production'
   
   return z.object({
     NODE_ENV: z.enum(['production', 'development', 'test'] as const),
     DATABASE_PATH: z.string(),
     DATABASE_URL: z.string(),
-    SESSION_SECRET: z.string(),
+    // SESSION_SECRET is required in production, optional in dev/test (getSessionSecret() provides a random fallback)
+    SESSION_SECRET: isProduction ? z.string() : z.string().optional(),
     INTERNAL_COMMAND_TOKEN: z.string(),
     HONEYPOT_SECRET: z.string(),
     CACHE_DATABASE_PATH: z.string(),
@@ -38,6 +41,39 @@ declare global {
 	namespace NodeJS {
 		interface ProcessEnv extends z.infer<typeof schema> {}
 	}
+}
+
+/**
+ * Returns the SESSION_SECRET split by commas (supporting multiple secrets for
+ * key rotation). In production, throws if SESSION_SECRET is not set. In
+ * development/test, generates a random UUID fallback so dev workflow isn't
+ * blocked.
+ *
+ * This is the single source of truth for session secrets — all cookie-based
+ * session storage modules MUST use this instead of reading process.env directly.
+ */
+export function getSessionSecret(): string[] {
+	const secret = process.env.SESSION_SECRET
+	if (secret) {
+		return secret.split(',')
+	}
+
+	// In production, fail fast — no fallback, no silent vulnerability
+	if (process.env.NODE_ENV === 'production') {
+		throw new Error(
+			'SESSION_SECRET environment variable is required in production. ' +
+				'Generate one with: openssl rand -hex 32',
+		)
+	}
+
+	// In dev/test, generate a random secret so dev workflow isn't blocked.
+	// Cache it so it's stable across module reloads in the same process.
+	const devFallback = `dev-${crypto.randomUUID()}`
+	console.warn(
+		'⚠ SESSION_SECRET not set — using randomly generated fallback for dev/test only. ' +
+			'DO NOT use in production.',
+	)
+	return [devFallback]
 }
 
 export function init() {
