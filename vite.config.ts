@@ -10,6 +10,47 @@ import { iconsSpritesheet } from 'vite-plugin-icons-spritesheet'
 
 const MODE = process.env.NODE_ENV
 
+/**
+ * Strips Sentry monitoring imports from the client bundle at build time
+ * when SENTRY_DSN is not set, preventing the 182KB+ monitoring chunk from
+ * being included in production builds that don't use Sentry.
+ */
+function stripMonitoringWhenNoDSN() {
+	let isProductionWithoutDSN = false
+
+	return {
+		name: 'strip-monitoring-when-no-dsn',
+		enforce: 'pre',
+		configResolved() {
+			isProductionWithoutDSN =
+				MODE === 'production' && !process.env.SENTRY_DSN
+		},
+		transform(code: string, id: string) {
+			if (!isProductionWithoutDSN) return null
+
+			// Strip monitoring init from entry.client.tsx
+			if (id.includes('entry.client')) {
+				const stripped = code.replace(
+					/if\s*\(ENV\.MODE\s*===\s*'production'\s*&&\s*ENV\.SENTRY_DSN\)\s*\{[\s\S]*?\n\s*\}/,
+					'// Sentry monitoring stripped: SENTRY_DSN not set at build time',
+				)
+				if (stripped !== code) return stripped
+			}
+
+			// Strip captureException dynamic import from error-boundary.tsx
+			if (id.includes('error-boundary')) {
+				const stripped = code.replace(
+					/if\s*\(ENV\.MODE\s*===\s*'production'\s*&&\s*ENV\.SENTRY_DSN\)\s*\{[\s\S]*?\n\s*\}/,
+					'// Sentry captureException stripped: SENTRY_DSN not set at build time',
+				)
+				if (stripped !== code) return stripped
+			}
+
+			return null
+		},
+	}
+}
+
 export default defineConfig((config) => ({
 	build: {
 		target: 'es2022',
@@ -38,6 +79,7 @@ export default defineConfig((config) => ({
 	},
 	sentryConfig,
 	plugins: [
+		stripMonitoringWhenNoDSN(),
 		envOnlyMacros(),
 		tailwindcss(),
 		//reactRouterDevTools(),

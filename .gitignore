@@ -30,3 +30,8 @@ prompt.txt
 /generated
 /app/components/ui/icons
 .react-router/
+build.prev/
+build.prev2/
+build-verify.sh
+ci-and-build.sh
+run-ci.sh
