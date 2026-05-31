@@ -1,8 +1,4 @@
 import { reactRouter } from '@react-router/dev/vite'
-import {
-	type SentryReactRouterBuildOptions,
-	sentryReactRouter,
-} from '@sentry/react-router'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 import { envOnlyMacros } from 'vite-env-only'
@@ -77,7 +73,6 @@ export default defineConfig((config) => ({
 			ignored: ['**/playwright-report/**'],
 		},
 	},
-	sentryConfig,
 	plugins: [
 		stripMonitoringWhenNoDSN(),
 		envOnlyMacros(),
@@ -94,9 +89,6 @@ export default defineConfig((config) => ({
 		// it would be really nice to have this enabled in tests, but we'll have to
 		// wait until https://github.com/remix-run/remix/issues/9871 is fixed
 		MODE === 'test' ? null : reactRouter(),
-		MODE === 'production' && process.env.SENTRY_AUTH_TOKEN
-			? sentryReactRouter(sentryConfig, config)
-			: null,
 	],
 	test: {
 		include: ['./app/**/*.test.{ts,tsx}'],
@@ -115,21 +107,3 @@ export default defineConfig((config) => ({
 		},
 	},
 }))
-
-const sentryConfig: SentryReactRouterBuildOptions = {
-	authToken: process.env.SENTRY_AUTH_TOKEN,
-	org: process.env.SENTRY_ORG,
-	project: process.env.SENTRY_PROJECT,
-
-	unstable_sentryVitePluginOptions: {
-		release: {
-			name: process.env.COMMIT_SHA,
-			setCommits: {
-				auto: true,
-			},
-		},
-		sourcemaps: {
-			filesToDeleteAfterUpload: ['./build/**/*.map', '.server-build/**/*.map'],
-		},
-	},
-}
