@@ -6,6 +6,7 @@
 # Usage: bash scripts/check-bundle-size.sh [warn_kb] [error_kb]
 
 set -euo pipefail
+shopt -s nullglob
 
 WARN_KB="${1:-600}"
 ERROR_KB="${2:-800}"
@@ -33,8 +34,8 @@ RAW_KB=$((RAW_SIZE / 1024))
 
 echo "📦 Bundle size report"
 echo "  Chunks:       $CHUNK_COUNT"
-echo "  Raw size:     ${RAW_KB}KB"
-echo "  Gzip size:    ${TOTAL_KB}KB"
+echo "  Client assets (all): ${RAW_KB}KB"
+echo "  JS gzip size: ${TOTAL_KB}KB"
 echo "  Warn limit:   ${WARN_KB}KB"
 echo "  Error limit:  ${ERROR_KB}KB"
 
