@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/react-router'
 import { useEffect, type ReactElement } from 'react'
 import {
 	type ErrorResponse,
@@ -37,7 +36,11 @@ export function GeneralErrorBoundary({
 	useEffect(() => {
 		if (isResponse) return
 
-		captureException(error)
+		if (ENV.MODE === 'production' && ENV.SENTRY_DSN) {
+			void import('@sentry/react-router').then(({ captureException }) =>
+				captureException(error),
+			)
+		}
 	}, [error, isResponse])
 
 	return (
