@@ -266,7 +266,7 @@ function App() {
 						</nav>
 					</header>
 
-					<div className="flex flex-1 flex-col" id="main-content" role="main">
+					<div className="flex flex-1 flex-col" id="main-content">
 						<div className="container">
 							<Outlet />
 						</div>
