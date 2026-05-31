@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { styleText } from 'node:util'
 import { helmet } from '@nichtsam/helmet/node-http'
 import { createRequestHandler } from '@react-router/express'
@@ -66,9 +67,52 @@ app.use(compression())
 // http://expressjs.com/en/advanced/best-practice-security.html#at-a-minimum-disable-x-powered-by-header
 app.disable('x-powered-by')
 
-app.use((_, res, next) => {
+// Generate a nonce for CSP and inline scripts on every request
+app.use((_req, res, next) => {
+	res.locals.nonce = crypto.randomBytes(16).toString('hex')
+	next()
+})
+
+app.use((_req, res, next) => {
+	const nonce = res.locals.nonce as string
 	// The referrerPolicy breaks our redirectTo logic
-	helmet(res, { general: { referrerPolicy: false } })
+	helmet(res, {
+		general: { referrerPolicy: false },
+		content: {
+			crossOriginEmbedderPolicy: false,
+			contentSecurityPolicy: {
+				reportOnly: MODE !== 'production',
+				directives: {
+					fetch: {
+						'default-src': ["'self'"],
+						'connect-src': [
+							MODE === 'development' ? 'ws:' : undefined,
+							"'self'",
+						].filter(Boolean) as string[],
+						'media-src': ["'self'"],
+						'img-src': [
+							"'self'",
+							'data:',
+							'blob:',
+							'https://i.ytimg.com',
+							'https://img.youtube.com',
+						],
+						'font-src': ["'self'"],
+						'frame-src': ["'self'"],
+						'script-src': [
+							"'strict-dynamic'",
+							"'self'",
+							`'nonce-${nonce}'`,
+						],
+						'script-src-attr': [`'nonce-${nonce}'`],
+					},
+					navigation: {
+						'frame-ancestors': ["'none'"],
+					},
+				},
+			},
+		},
+	})
 	next()
 })
 
@@ -206,7 +250,7 @@ if (!ALLOW_INDEXING) {
 app.all(
 	'*',
 	createRequestHandler({
-		getLoadContext: () => ({ serverBuild: getBuild() }),
+		getLoadContext: (_req, res) => ({ serverBuild: getBuild(), nonce: res.locals.nonce }),
 		mode: MODE,
 		build: async () => {
 			const { error, build } = await getBuild()
