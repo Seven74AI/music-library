@@ -87,7 +87,6 @@ app.use((_req, res, next) => {
 						'default-src': ["'self'"],
 						'connect-src': [
 							MODE === 'development' ? 'ws:' : undefined,
-							process.env.SENTRY_DSN ? '*.sentry.io' : undefined,
 							"'self'",
 						].filter(Boolean) as string[],
 						'media-src': ["'self'"],
