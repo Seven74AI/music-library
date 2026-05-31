@@ -2,7 +2,6 @@ import crypto from 'node:crypto'
 import { PassThrough } from 'node:stream'
 import { styleText } from 'node:util'
 import { createReadableStreamFromReadable } from '@react-router/node'
-import * as Sentry from '@sentry/react-router'
 import { isbot } from 'isbot'
 import { renderToPipeableStream } from 'react-dom/server'
 import {
@@ -34,7 +33,7 @@ export default async function handleRequest(...args: DocRequestArgs) {
 	responseHeaders.set('fly-primary-instance', primaryInstance)
 	responseHeaders.set('fly-instance', currentInstance)
 
-	if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
+	if (process.env.NODE_ENV === 'production') {
 		responseHeaders.append('Document-Policy', 'js-profiling')
 	}
 
@@ -110,6 +109,4 @@ export function handleError(
 	} else {
 		console.error(error)
 	}
-
-	Sentry.captureException(error)
 }

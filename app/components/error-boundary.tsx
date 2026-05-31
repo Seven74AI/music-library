@@ -36,11 +36,7 @@ export function GeneralErrorBoundary({
 	useEffect(() => {
 		if (isResponse) return
 
-		if (ENV.MODE === 'production' && ENV.SENTRY_DSN) {
-			void import('@sentry/react-router').then(({ captureException }) =>
-				captureException(error),
-			)
-		}
+		console.error(error)
 	}, [error, isResponse])
 
 	return (
