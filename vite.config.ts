@@ -54,6 +54,16 @@ export default defineConfig((config) => ({
 
 		rollupOptions: {
 			external: [/node:.*/, 'fsevents', '#prisma/client.js'],
+			treeshake: {
+				preset: 'smallest',
+				moduleSideEffects: (id: string) => {
+					// These packages are known to be pure — marking them as
+					// side-effect-free allows Rollup to eliminate unused exports
+					if (id.includes('node_modules/zod/')) return false
+					if (id.includes('node_modules/openimg/')) return false
+					return true
+				},
+			},
 		},
 
 		assetsInlineLimit: (filePath: string, _content: Buffer): boolean | undefined => {
