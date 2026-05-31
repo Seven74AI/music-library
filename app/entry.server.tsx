@@ -3,7 +3,6 @@ import { PassThrough } from 'node:stream'
 import { styleText } from 'node:util'
 import { contentSecurity } from '@nichtsam/helmet/content'
 import { createReadableStreamFromReadable } from '@react-router/node'
-import * as Sentry from '@sentry/react-router'
 import { isbot } from 'isbot'
 import { renderToPipeableStream } from 'react-dom/server'
 import {
@@ -35,7 +34,7 @@ export default async function handleRequest(...args: DocRequestArgs) {
 	responseHeaders.set('fly-primary-instance', primaryInstance)
 	responseHeaders.set('fly-instance', currentInstance)
 
-	if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
+	if (process.env.NODE_ENV === 'production') {
 		responseHeaders.append('Document-Policy', 'js-profiling')
 	}
 
@@ -71,11 +70,10 @@ export default async function handleRequest(...args: DocRequestArgs) {
 							reportOnly: true,
 							directives: {
 								fetch: {
-									'connect-src': [
-										MODE === 'development' ? 'ws:' : undefined,
-										process.env.SENTRY_DSN ? '*.sentry.io' : undefined,
-										"'self'",
-									],
+								'connect-src': [
+									MODE === 'development' ? 'ws:' : undefined,
+									"'self'",
+								],
 									'font-src': ["'self'"],
 									'frame-src': ["'self'"],
 									'img-src': ["'self'", 'data:', 'https://i.ytimg.com', 'https://img.youtube.com'],
@@ -137,6 +135,4 @@ export function handleError(
 	} else {
 		console.error(error)
 	}
-
-	Sentry.captureException(error)
 }
