@@ -240,7 +240,13 @@ function App() {
 			>
 				<AudioPlayerProvider>
 					<div className="flex min-h-screen flex-col justify-between">
-					<header className="container py-6">
+					<a
+					href="#main-content"
+					className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50"
+				>
+					Skip to content
+				</a>
+				<header className="container py-6">
 						<nav className="flex flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-4 md:gap-8">
 							<Logo />
 							<div className="ml-auto hidden max-w-sm flex-1 sm:block">
@@ -260,7 +266,7 @@ function App() {
 						</nav>
 					</header>
 
-					<div className="flex flex-1 flex-col">
+					<div className="flex flex-1 flex-col" id="main-content" role="main">
 						<div className="container">
 							<Outlet />
 						</div>
