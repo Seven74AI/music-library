@@ -10,6 +10,7 @@ import {
 	type ActionFunctionArgs,
 	type HandleDocumentRequestFunction,
 } from 'react-router'
+import { createCSP } from './utils/csp.server.ts'
 import { getEnv, init } from './utils/env.server.ts'
 import { getInstanceInfo } from './utils/litefs.server.ts'
 import { NonceProvider } from './utils/nonce-provider.ts'
@@ -37,11 +38,17 @@ export default async function handleRequest(...args: DocRequestArgs) {
 		responseHeaders.append('Document-Policy', 'js-profiling')
 	}
 
+	const nonce = (loadContext as Record<string, unknown>)?.nonce as string || crypto.randomBytes(16).toString('hex')
+
+	responseHeaders.set(
+		'Content-Security-Policy',
+		createCSP(nonce),
+	)
+
 	const callbackName = isbot(request.headers.get('user-agent'))
 		? 'onAllReady'
 		: 'onShellReady'
 
-	const nonce = (loadContext as Record<string, unknown>)?.nonce as string || crypto.randomBytes(16).toString('hex')
 	return new Promise(async (resolve, reject) => {
 		let didError = false
 		// NOTE: this timing will only include things that are rendered in the shell
