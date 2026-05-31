@@ -9,7 +9,7 @@ import { getSessionSecret } from '#app/utils/env.server.ts'
 
 export const passkeyCookie = createCookie('webauthn-challenge', {
 	path: '/',
-	sameSite: 'lax',
+	sameSite: 'strict',
 	httpOnly: true,
 	maxAge: 60 * 60 * 2,
 	secure: process.env.NODE_ENV === 'production',

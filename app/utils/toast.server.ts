@@ -26,7 +26,7 @@ export type ToastInput = z.input<typeof ToastSchema>
 export const toastSessionStorage = createCookieSessionStorage({
 	cookie: {
 		name: 'en_toast',
-		sameSite: 'lax',
+		sameSite: 'strict',
 		path: '/',
 		httpOnly: true,
 		secrets: getSessionSecret(),
