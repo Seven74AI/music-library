@@ -7,6 +7,11 @@ test('createCSP generates header with default directives', () => {
 
 	expect(result).toContain("default-src 'none'")
 	expect(result).toContain("frame-ancestors 'none'")
+	expect(result).toContain("style-src 'self' 'unsafe-inline'")
+	expect(result).toContain("img-src 'self' data:")
+	expect(result).toContain("connect-src 'self'")
+	expect(result).toContain("font-src 'self'")
+	expect(result).toContain("media-src 'self'")
 })
 
 test('createCSP includes script-src with self and nonce', () => {
@@ -34,9 +39,8 @@ test('createCSP handles special characters in nonce', () => {
 test('createCSP joins directives with semicolon and space', () => {
 	const result = createCSP('test')
 
-	// Should use "; " as separator
 	expect(result).toBe(
-		"default-src 'none'; script-src 'self' 'nonce-test'; frame-ancestors 'none'",
+		"default-src 'none'; script-src 'self' 'nonce-test'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; media-src 'self'; frame-ancestors 'none'",
 	)
 })
 
@@ -46,8 +50,8 @@ test('createCSP produces valid CSP string for different nonces', () => {
 	for (const n of nonces) {
 		const result = createCSP(n)
 		expect(result).toContain(`'nonce-${n}'`)
-		expect(result).toBe(
-			`default-src 'none'; script-src 'self' 'nonce-${n}'; frame-ancestors 'none'`,
-		)
+		expect(result).toContain("default-src 'none'")
+		expect(result).toContain("style-src 'self' 'unsafe-inline'")
+		expect(result).toContain("media-src 'self'")
 	}
 })
