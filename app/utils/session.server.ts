@@ -4,7 +4,8 @@ import { getSessionSecret } from './env.server.ts'
 export const authSessionStorage = createCookieSessionStorage({
 	cookie: {
 		name: 'en_session',
-		sameSite: 'lax', // CSRF protection is advised if changing to 'none'
+		sameSite: 'lax', // Must stay 'lax' — OAuth redirects from providers (Google, GitHub)
+		// would lose the session cookie with 'strict', breaking auth flows.
 		path: '/',
 		httpOnly: true,
 		secrets: getSessionSecret(),

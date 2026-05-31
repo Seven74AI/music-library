@@ -104,8 +104,6 @@
     "@react-router/node": "^7.15.1",
     "@react-router/remix-routes-option-adapter": "^7.15.1",
     "@remix-run/server-runtime": "^2.17.4",
-    "@sentry/profiling-node": "^9.47.1",
-    "@sentry/react-router": "^9.47.1",
     "@simplewebauthn/browser": "^13.1.0",
     "@simplewebauthn/server": "^13.1.1",
     "@tailwindcss/vite": "^4.1.5",
