@@ -35,6 +35,7 @@ export default function Index() {
 					<a
 						href="https://www.epicweb.dev/stack"
 						className="animate-slide-top xl:animate-slide-left [animation-fill-mode:backwards] xl:[animation-delay:0.5s] xl:[animation-fill-mode:backwards]"
+						aria-label="Epic Stack"
 					>
 						<svg
 							className="text-foreground size-20 xl:-mt-4"
@@ -85,6 +86,7 @@ export default function Index() {
 										<a
 											href={logo.href}
 											className="grid size-20 place-items-center rounded-2xl bg-violet-600/10 p-4 transition hover:-rotate-6 hover:bg-violet-600/15 sm:size-24 dark:bg-violet-200 dark:hover:bg-violet-100"
+											aria-label={logo.alt}
 										>
 											<img src={logo.src} alt="" />
 										</a>
