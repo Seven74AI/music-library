@@ -161,6 +161,34 @@ jobs:
           path: playwright-report/
           retention-days: 30
 
+  bundle-size:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: ⬇️ Checkout repo
+        uses: actions/checkout@v4
+
+      - name: ⎔ Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 📥 Download deps
+        uses: bahmutov/npm-install@v1
+
+      - name: 🏄 Copy test env vars
+        run: cp .env.example .env
+
+      - name: 🛠 Setup Database
+        run: npx prisma migrate deploy && npx prisma generate --sql
+
+      - name: 🏗 Build
+        run: npm run build
+
+      - name: 📦 Check bundle size budget
+        run: bash scripts/check-bundle-size.sh 600 800
+        env:
+          MOCKS: true
+
   playwright-gate:
     needs: playwright
     runs-on: ubuntu-24.04
@@ -173,5 +201,20 @@ jobs:
             exit 0
           else
             echo "Playwright shards failed: ${{ needs.playwright.result }}"
+            exit 1
+          fi
+
+  bundle-size-gate:
+    needs: bundle-size
+    runs-on: ubuntu-24.04
+    if: always()
+    steps:
+      - name: Check bundle-size results
+        run: |
+          if [ "${{ needs.bundle-size.result }}" = "success" ]; then
+            echo "Bundle size check passed"
+            exit 0
+          else
+            echo "Bundle size check failed: ${{ needs.bundle-size.result }}"
             exit 1
           fi
