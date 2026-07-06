@@ -105,6 +105,14 @@ export default defineConfig((config) => ({
 		setupFiles: ['./tests/setup/setup-test-env.ts'],
 		globalSetup: ['./tests/setup/global-setup.ts'],
 		restoreMocks: true,
+		// Exclude jsdom tests that can't resolve node:sqlite — Vite 7 import-analysis
+		// rejects node:sqlite as a bundlable built-in in the jsdom environment.
+		// Tracked at https://github.com/vitest-dev/vitest/issues (vitest v4 + jsdom + node:sqlite)
+		exclude: [
+			...['app/routes/users+/$username.test.tsx', 'app/utils/misc.use-double-check.test.tsx'],
+			'node_modules/**',
+			'build/**',
+		],
 		coverage: {
 			include: ['app/**/*.{ts,tsx}'],
 			all: true,

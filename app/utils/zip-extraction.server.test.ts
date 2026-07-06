@@ -1,52 +1,44 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
 import { extractAudioFilesFromZip } from './zip-extraction.server'
+import { consoleWarn } from '#tests/setup/setup-test-env'
 
-// Mock adm-zip
-vi.mock('adm-zip', () => {
-	return {
-		default: vi.fn().mockImplementation((_buffer: Buffer) => {
-			const mockZip = {
-				getEntries: vi.fn(),
-			}
-			return mockZip
-		}),
-	}
-})
+// Mock adm-zip as a constructor class
+const mockGetEntries = vi.fn()
+vi.mock('adm-zip', () => ({
+	default: vi.fn(function (this: any, _buffer: Buffer) {
+		this.getEntries = mockGetEntries
+	}),
+}))
 
 describe('extractAudioFilesFromZip', () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
+		consoleWarn.mockImplementation(() => {})
 	})
 
 	test('extracts audio files from ZIP and filters out non-audio files', async () => {
-		const AdmZip = (await import('adm-zip')).default
-		
-		const mockZipInstance = {
-			getEntries: vi.fn(() => [
-				{
-					entryName: 'song1.mp3',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'fake mp3 data')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'song2.flac',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'fake flac data')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'readme.txt',
-					getData: vi.fn().mockReturnValue(Buffer.from('readme content')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'folder/',
-					getData: vi.fn(),
-					isDirectory: true,
-				},
-			]),
-		}
-
-		vi.mocked(AdmZip).mockImplementation(() => mockZipInstance as any)
+		mockGetEntries.mockReturnValue([
+			{
+				entryName: 'song1.mp3',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'fake mp3 data')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'song2.flac',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'fake flac data')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'readme.txt',
+				getData: vi.fn().mockReturnValue(Buffer.from('readme content')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'folder/',
+				getData: vi.fn(),
+				isDirectory: true,
+			},
+		])
 
 		const zipBuffer = Buffer.from('fake zip data')
 		const result = await extractAudioFilesFromZip(zipBuffer)
@@ -59,29 +51,23 @@ describe('extractAudioFilesFromZip', () => {
 	})
 
 	test('handles nested directory structures', async () => {
-		const AdmZip = (await import('adm-zip')).default
-		
-		const mockZipInstance = {
-			getEntries: vi.fn(() => [
-				{
-					entryName: 'album1/track1.mp3',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'track1 data')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'album1/track2.wav',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'track2 data')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'album2/track3.m4a',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'track3 data')),
-					isDirectory: false,
-				},
-			]),
-		}
-
-		vi.mocked(AdmZip).mockImplementation(() => mockZipInstance as any)
+		mockGetEntries.mockReturnValue([
+			{
+				entryName: 'album1/track1.mp3',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'track1 data')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'album1/track2.wav',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'track2 data')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'album2/track3.m4a',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'track3 data')),
+				isDirectory: false,
+			},
+		])
 
 		const zipBuffer = Buffer.from('fake zip data')
 		const result = await extractAudioFilesFromZip(zipBuffer)
@@ -93,24 +79,18 @@ describe('extractAudioFilesFromZip', () => {
 	})
 
 	test('returns empty array for ZIP with no audio files', async () => {
-		const AdmZip = (await import('adm-zip')).default
-		
-		const mockZipInstance = {
-			getEntries: vi.fn(() => [
-				{
-					entryName: 'readme.txt',
-					getData: vi.fn().mockReturnValue(Buffer.from('readme')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'image.jpg',
-					getData: vi.fn().mockReturnValue(Buffer.from('image data')),
-					isDirectory: false,
-				},
-			]),
-		}
-
-		vi.mocked(AdmZip).mockImplementation(() => mockZipInstance as any)
+		mockGetEntries.mockReturnValue([
+			{
+				entryName: 'readme.txt',
+				getData: vi.fn().mockReturnValue(Buffer.from('readme')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'image.jpg',
+				getData: vi.fn().mockReturnValue(Buffer.from('image data')),
+				isDirectory: false,
+			},
+		])
 
 		const zipBuffer = Buffer.from('fake zip data')
 		const result = await extractAudioFilesFromZip(zipBuffer)
@@ -119,13 +99,7 @@ describe('extractAudioFilesFromZip', () => {
 	})
 
 	test('handles empty ZIP file', async () => {
-		const AdmZip = (await import('adm-zip')).default
-		
-		const mockZipInstance = {
-			getEntries: vi.fn(() => []),
-		}
-
-		vi.mocked(AdmZip).mockImplementation(() => mockZipInstance as any)
+		mockGetEntries.mockReturnValue([])
 
 		const zipBuffer = Buffer.from('fake zip data')
 		const result = await extractAudioFilesFromZip(zipBuffer)
@@ -134,44 +108,38 @@ describe('extractAudioFilesFromZip', () => {
 	})
 
 	test('supports various audio formats', async () => {
-		const AdmZip = (await import('adm-zip')).default
-		
-		const mockZipInstance = {
-			getEntries: vi.fn(() => [
-				{
-					entryName: 'track1.mp3',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'mp3')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'track2.flac',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'flac')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'track3.wav',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'wav')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'track4.m4a',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'm4a')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'track5.aac',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'aac')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'track6.ogg',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'ogg')),
-					isDirectory: false,
-				},
-			]),
-		}
-
-		vi.mocked(AdmZip).mockImplementation(() => mockZipInstance as any)
+		mockGetEntries.mockReturnValue([
+			{
+				entryName: 'track1.mp3',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'mp3')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'track2.flac',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'flac')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'track3.wav',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'wav')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'track4.m4a',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'm4a')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'track5.aac',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'aac')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'track6.ogg',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'ogg')),
+				isDirectory: false,
+			},
+		])
 
 		const zipBuffer = Buffer.from('fake zip data')
 		const result = await extractAudioFilesFromZip(zipBuffer)
@@ -188,24 +156,18 @@ describe('extractAudioFilesFromZip', () => {
 	})
 
 	test('handles case-insensitive file extensions', async () => {
-		const AdmZip = (await import('adm-zip')).default
-		
-		const mockZipInstance = {
-			getEntries: vi.fn(() => [
-				{
-					entryName: 'TRACK1.MP3',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'mp3')),
-					isDirectory: false,
-				},
-				{
-					entryName: 'track2.FLAC',
-					getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'flac')),
-					isDirectory: false,
-				},
-			]),
-		}
-
-		vi.mocked(AdmZip).mockImplementation(() => mockZipInstance as any)
+		mockGetEntries.mockReturnValue([
+			{
+				entryName: 'TRACK1.MP3',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'mp3')),
+				isDirectory: false,
+			},
+			{
+				entryName: 'track2.FLAC',
+				getData: vi.fn().mockReturnValue(Buffer.alloc(2048, 'flac')),
+				isDirectory: false,
+			},
+		])
 
 		const zipBuffer = Buffer.from('fake zip data')
 		const result = await extractAudioFilesFromZip(zipBuffer)
@@ -214,15 +176,12 @@ describe('extractAudioFilesFromZip', () => {
 	})
 
 	test('throws error for invalid ZIP file', async () => {
-		const AdmZip = (await import('adm-zip')).default
-		
-		vi.mocked(AdmZip).mockImplementation(() => {
+		mockGetEntries.mockImplementation(() => {
 			throw new Error('Invalid ZIP file')
 		})
 
 		const zipBuffer = Buffer.from('invalid zip data')
-		
+
 		await expect(extractAudioFilesFromZip(zipBuffer)).rejects.toThrow('Invalid ZIP file')
 	})
 })
-
