@@ -99,20 +99,26 @@ export default defineConfig((config) => ({
 		// it would be really nice to have this enabled in tests, but we'll have to
 		// wait until https://github.com/remix-run/remix/issues/9871 is fixed
 		MODE === 'test' ? null : reactRouter(),
+		// Externalize node:sqlite for jsdom tests — Vite 7 import-analysis
+		// rejects node:sqlite as a bundlable built-in. This plugin runs
+		// before import-analysis and marks it as external.
+		MODE === 'test'
+			? {
+					name: 'externalize-node-sqlite',
+					enforce: 'pre' as const,
+					resolveId(id: string) {
+						if (id === 'node:sqlite') {
+							return { id: 'node:sqlite', external: true }
+						}
+					},
+				}
+			: null,
 	],
 	test: {
 		include: ['./app/**/*.test.{ts,tsx}'],
 		setupFiles: ['./tests/setup/setup-test-env.ts'],
 		globalSetup: ['./tests/setup/global-setup.ts'],
 		restoreMocks: true,
-		// Exclude jsdom tests that can't resolve node:sqlite — Vite 7 import-analysis
-		// rejects node:sqlite as a bundlable built-in in the jsdom environment.
-		// Tracked at https://github.com/vitest-dev/vitest/issues (vitest v4 + jsdom + node:sqlite)
-		exclude: [
-			...['app/routes/users+/$username.test.tsx', 'app/utils/misc.use-double-check.test.tsx'],
-			'node_modules/**',
-			'build/**',
-		],
 		coverage: {
 			include: ['app/**/*.{ts,tsx}'],
 			all: true,
