@@ -106,11 +106,12 @@ export default defineConfig((config) => ({
 			? {
 					name: 'externalize-node-sqlite',
 					enforce: 'pre' as const,
-					resolveId(id: string) {
-						if (id === 'node:sqlite') {
-							return { id: 'node:sqlite', external: true }
-						}
-					},
+				resolveId(id: string) {
+					if (id === 'node:sqlite') {
+						return { id: 'node:sqlite', external: true }
+					}
+					return undefined
+				},
 				}
 			: null,
 	],
