@@ -108,7 +108,7 @@
     "@sentry/react-router": "^10.55.0",
     "@simplewebauthn/browser": "^13.1.0",
     "@simplewebauthn/server": "^13.1.1",
-    "@tailwindcss/vite": "^4.1.5",
+    "@tailwindcss/vite": "^4.3.2",
     "@tanstack/react-query": "^5.90.2",
     "@tanstack/react-virtual": "^3.13.12",
     "@tusbar/cache-control": "1.0.2",
