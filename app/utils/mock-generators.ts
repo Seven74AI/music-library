@@ -675,7 +675,7 @@ async function ensureTestUser(userId?: string) {
       data: {
         id: userId,
         email: faker.internet.email(),
-        username: faker.internet.userName(),
+        username: faker.internet.username(),
         name: faker.person.fullName(),
       }
     })
@@ -685,7 +685,7 @@ async function ensureTestUser(userId?: string) {
   return await prisma.user.create({
     data: {
       email: faker.internet.email(),
-      username: faker.internet.userName(),
+      username: faker.internet.username(),
       name: faker.person.fullName(),
     }
   })

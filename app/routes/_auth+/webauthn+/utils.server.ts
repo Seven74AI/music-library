@@ -5,14 +5,15 @@ import {
 import { createCookie } from 'react-router'
 import { z } from 'zod'
 import { getDomainUrl } from '#app/utils/misc.tsx'
+import { getSessionSecret } from '#app/utils/env.server.ts'
 
 export const passkeyCookie = createCookie('webauthn-challenge', {
 	path: '/',
-	sameSite: 'lax',
+	sameSite: 'strict',
 	httpOnly: true,
 	maxAge: 60 * 60 * 2,
 	secure: process.env.NODE_ENV === 'production',
-	secrets: [process.env.SESSION_SECRET || 'fallback-secret'],
+	secrets: getSessionSecret(),
 })
 
 export const PasskeyCookieSchema = z.object({

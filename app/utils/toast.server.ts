@@ -2,6 +2,7 @@ import { createId as cuid } from '@paralleldrive/cuid2'
 import { createCookieSessionStorage, redirect } from 'react-router'
 import { z } from 'zod'
 import { combineHeaders } from './misc.tsx'
+import { getSessionSecret } from './env.server.ts'
 
 export const toastKey = 'toast'
 
@@ -25,10 +26,10 @@ export type ToastInput = z.input<typeof ToastSchema>
 export const toastSessionStorage = createCookieSessionStorage({
 	cookie: {
 		name: 'en_toast',
-		sameSite: 'lax',
+		sameSite: 'strict',
 		path: '/',
 		httpOnly: true,
-		secrets: process.env.SESSION_SECRET?.split(',') || ['fallback-secret'],
+		secrets: getSessionSecret(),
 		secure: process.env.NODE_ENV === 'production',
 	},
 })

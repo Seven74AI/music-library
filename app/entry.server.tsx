@@ -1,9 +1,7 @@
 import crypto from 'node:crypto'
 import { PassThrough } from 'node:stream'
 import { styleText } from 'node:util'
-import { contentSecurity } from '@nichtsam/helmet/content'
 import { createReadableStreamFromReadable } from '@react-router/node'
-import * as Sentry from '@sentry/react-router'
 import { isbot } from 'isbot'
 import { renderToPipeableStream } from 'react-dom/server'
 import {
@@ -12,6 +10,7 @@ import {
 	type ActionFunctionArgs,
 	type HandleDocumentRequestFunction,
 } from 'react-router'
+import { createCSP } from './utils/csp.server.ts'
 import { getEnv, init } from './utils/env.server.ts'
 import { getInstanceInfo } from './utils/litefs.server.ts'
 import { NonceProvider } from './utils/nonce-provider.ts'
@@ -27,7 +26,7 @@ const MODE = process.env.NODE_ENV ?? 'development'
 type DocRequestArgs = Parameters<HandleDocumentRequestFunction>
 
 export default async function handleRequest(...args: DocRequestArgs) {
-	const [request, responseStatusCode, responseHeaders, reactRouterContext] =
+	const [request, responseStatusCode, responseHeaders, reactRouterContext, loadContext] =
 		args
 	const { currentInstance, primaryInstance } = await getInstanceInfo()
 	responseHeaders.set('fly-region', process.env.FLY_REGION ?? 'unknown')
@@ -35,15 +34,21 @@ export default async function handleRequest(...args: DocRequestArgs) {
 	responseHeaders.set('fly-primary-instance', primaryInstance)
 	responseHeaders.set('fly-instance', currentInstance)
 
-	if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
+	if (process.env.NODE_ENV === 'production') {
 		responseHeaders.append('Document-Policy', 'js-profiling')
 	}
+
+	const nonce = (loadContext as Record<string, unknown>)?.nonce as string || crypto.randomBytes(16).toString('hex')
+
+	responseHeaders.set(
+		'Content-Security-Policy',
+		createCSP(nonce),
+	)
 
 	const callbackName = isbot(request.headers.get('user-agent'))
 		? 'onAllReady'
 		: 'onShellReady'
 
-	const nonce = crypto.randomBytes(16).toString('hex')
 	return new Promise(async (resolve, reject) => {
 		let didError = false
 		// NOTE: this timing will only include things that are rendered in the shell
@@ -64,33 +69,7 @@ export default async function handleRequest(...args: DocRequestArgs) {
 					responseHeaders.set('Content-Type', 'text/html')
 					responseHeaders.append('Server-Timing', timings.toString())
 
-					contentSecurity(responseHeaders, {
-						crossOriginEmbedderPolicy: false,
-						contentSecurityPolicy: {
-							// NOTE: Remove reportOnly when you're ready to enforce this CSP
-							reportOnly: true,
-							directives: {
-								fetch: {
-									'connect-src': [
-										MODE === 'development' ? 'ws:' : undefined,
-										process.env.SENTRY_DSN ? '*.sentry.io' : undefined,
-										"'self'",
-									],
-									'font-src': ["'self'"],
-									'frame-src': ["'self'"],
-									'img-src': ["'self'", 'data:', 'https://i.ytimg.com', 'https://img.youtube.com'],
-									'script-src': [
-										"'strict-dynamic'",
-										"'self'",
-										`'nonce-${nonce}'`,
-									],
-									'script-src-attr': [`'nonce-${nonce}'`],
-								},
-							},
-						},
-					})
-
-					resolve(
+				resolve(
 						new Response(createReadableStreamFromReadable(body), {
 							headers: responseHeaders,
 							status: didError ? 500 : responseStatusCode,
@@ -137,6 +116,4 @@ export function handleError(
 	} else {
 		console.error(error)
 	}
-
-	Sentry.captureException(error)
 }
