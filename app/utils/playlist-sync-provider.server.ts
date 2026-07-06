@@ -107,4 +107,37 @@ export interface PlaylistSyncProvider {
     serviceId: string,
     artistId: string,
   ): Omit<Prisma.TrackCreateInput, 'artist'> & { artistId: string; thumbnailUrl?: string | null }
+
+  /**
+   * Validate the OAuth connection for a user and return the access token.
+   * Returns null if no valid connection exists.
+   *
+   * @param userId - The authenticated user's ID
+   * @returns Token data with access_token, or null if no valid connection
+   */
+  validateConnection(userId: string): Promise<{ access_token: string } | null>
+
+  /**
+   * Normalize a service-specific playlist into a provider-agnostic data shape.
+   * Returns only the playlist fields — the facade adds service/owner relations
+   * and handles the Prisma upsert.
+   *
+   * @param rawPlaylist - The raw playlist from the service API
+   * @param serviceId - The internal service ID
+   * @param userId - The authenticated user's ID
+   * @returns Normalized playlist data ready for Prisma upsert (without relations)
+   */
+  normalizePlaylistData(
+    rawPlaylist: any,
+    serviceId: string,
+    userId: string,
+  ): {
+    title: string
+    description: string | null
+    externalId: string
+    itemCount: number
+    channelId: string | null
+    channelTitle: string | null
+    thumbnailUrl: string | null
+  }
 }
