@@ -1,6 +1,25 @@
 import { prisma } from '#app/utils/db.server'
 import type { YouTubeTokenData } from '#app/types/youtube'
-import { ServiceNotFoundError, NoTokensError } from './service-playlist.server'
+
+/**
+ * Error class for when a service is not found in the database.
+ */
+export class ServiceNotFoundError extends Error {
+  constructor(serviceName: string) {
+    super(`Service not found: ${serviceName}`)
+    this.name = 'ServiceNotFoundError'
+  }
+}
+
+/**
+ * Error class for when no valid tokens are found for a service.
+ */
+export class NoTokensError extends Error {
+  constructor(serviceName: string) {
+    super(`No valid tokens found for service: ${serviceName}`)
+    this.name = 'NoTokensError'
+  }
+}
 
 /**
  * Get service by name with error handling.
