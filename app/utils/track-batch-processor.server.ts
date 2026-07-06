@@ -1,4 +1,6 @@
 import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
+import { prisma } from '#app/utils/db.server'
+import { getServiceByName } from './playlist-utils.server'
 
 /**
  * Generic syncable item — normalized track data from any provider.
@@ -648,5 +650,181 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     processedExternalIds,
     processedTrackIds,
     pendingMatches,
+  }
+}
+
+/**
+ * Confirm deleted video matches — process user selections for pending matches.
+ *
+ * Extracted from ServicePlaylistService facade. Handles the full match resolution
+ * workflow: creating new tracks for deleted videos, matching to existing tracks,
+ * or skipping.
+ *
+ * @param playlistId - The playlist ID
+ * @param matches - Array of user selections: { deletedItemId, selectedTrackId, position, action }
+ * @param userId - The user ID
+ * @returns Result with success count and any errors
+ */
+export async function confirmDeletedVideoMatches(
+  playlistId: string,
+  matches: Array<{
+    deletedItemId: string | undefined
+    selectedTrackId: string | null
+    position: number
+    action: 'match' | 'new' | 'skip'
+  }>,
+  userId: string,
+): Promise<{
+  success: boolean
+  processedCount: number
+  message: string
+  error?: string
+}> {
+  // Verify playlist ownership
+  const playlist = await prisma.servicePlaylist.findFirst({
+    where: {
+      id: playlistId,
+      ownerId: userId,
+      isActive: true,
+    },
+    include: { service: true },
+  })
+
+  if (!playlist) {
+    return {
+      success: false,
+      processedCount: 0,
+      message: 'Playlist not found or access denied',
+      error: 'Playlist not found or access denied',
+    }
+  }
+
+  if (!playlist.service) {
+    return {
+      success: false,
+      processedCount: 0,
+      message: 'Service not found for playlist',
+      error: 'Service not found for playlist',
+    }
+  }
+
+  const service = await getServiceByName(playlist.service.name)
+  const { createId } = await import('@paralleldrive/cuid2')
+
+  try {
+    // Process all matches in a single transaction
+    const result = await prisma.$transaction(async (tx) => {
+      let processedCount = 0
+
+      for (const match of matches) {
+        if (match.action === 'skip') {
+          continue
+        }
+
+        if (match.action === 'new') {
+          // Create new track with generated ID
+          const newTrackId = createId()
+          const externalId = match.deletedItemId || `deleted-${playlistId}-${match.position}`
+
+          // Get or create artist
+          const artistRecord = await getOrCreateArtistTx(tx, 'Unknown Artist')
+
+          // Create track
+          const track = await tx.track.create({
+            data: {
+              id: newTrackId,
+              title: 'Deleted video',
+              artistId: artistRecord.id,
+              duration: null,
+              externalId,
+              serviceId: service.id,
+              serviceUrl: null,
+              releaseDate: null,
+            },
+          })
+
+          // Create ServicePlaylistTrack
+          await tx.servicePlaylistTrack.create({
+            data: {
+              id: createId(),
+              playlistId,
+              trackId: track.id,
+              position: match.position,
+              isDeleted: true,
+              deletedAt: new Date(),
+            },
+          })
+
+          processedCount++
+        } else if (match.action === 'match' && match.selectedTrackId) {
+          // Match deleted video to existing track
+          const track = await tx.track.findUnique({
+            where: { id: match.selectedTrackId },
+          })
+
+          if (!track) {
+            throw new Error(`Track not found: ${match.selectedTrackId}`)
+          }
+
+          // Check if ServicePlaylistTrack already exists
+          const existingPlaylistTrack = await tx.servicePlaylistTrack.findUnique({
+            where: {
+              playlistId_trackId: {
+                playlistId,
+                trackId: track.id,
+              },
+            },
+          })
+
+          if (existingPlaylistTrack) {
+            // Update existing record
+            await tx.servicePlaylistTrack.update({
+              where: {
+                playlistId_trackId: {
+                  playlistId,
+                  trackId: track.id,
+                },
+              },
+              data: {
+                position: match.position,
+                isDeleted: true,
+                deletedAt: existingPlaylistTrack.deletedAt || new Date(),
+              },
+            })
+          } else {
+            // Create new ServicePlaylistTrack
+            await tx.servicePlaylistTrack.create({
+              data: {
+                id: createId(),
+                playlistId,
+                trackId: track.id,
+                position: match.position,
+                isDeleted: true,
+                deletedAt: new Date(),
+              },
+            })
+          }
+
+          processedCount++
+        }
+      }
+
+      return { processedCount }
+    })
+
+    return {
+      success: true,
+      processedCount: result.processedCount,
+      message: `Successfully processed ${result.processedCount} match(es).`,
+    }
+  } catch (error) {
+    console.error('Error confirming deleted video matches:', error)
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+    return {
+      success: false,
+      processedCount: 0,
+      message: `Failed to process matches. No changes were made. Please try again.`,
+      error: errorMessage,
+    }
   }
 }
