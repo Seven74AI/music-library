@@ -78,7 +78,7 @@ export function parseCookieLine(line: string): NetscapeCookie | null {
 		return null
 	}
 
-	const expires = parseInt(expiresStr, 10)
+	const expires = parseInt(expiresStr!, 10)
 	if (isNaN(expires) || expires < 0) {
 		return null
 	}

@@ -26,7 +26,7 @@ interface LoaderData {
 	fileExists: boolean
 	lastUpload: {
 		id: string
-		updatedAt: string
+		updatedAt: Date
 		updatedBy: string
 		valid: boolean
 	} | null
@@ -159,7 +159,7 @@ export default function YoutubeCookiesAdminRoute({
 				{loaderData.lastUpload ? (
 					<p className="text-muted-foreground text-sm">
 						Last upload:{' '}
-						{new Date(loaderData.lastUpload.updatedAt).toLocaleString()}
+						{loaderData.lastUpload.updatedAt.toLocaleString()}
 						{' — '}
 						{loaderData.lastUpload.valid ? 'Valid' : 'Superseded'}
 					</p>
