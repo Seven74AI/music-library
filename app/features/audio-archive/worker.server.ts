@@ -2,6 +2,7 @@ import { prisma } from '#app/utils/db.server.ts'
 import { executeYtDlp, ErrorCategory } from './yt-dlp.server'
 import { uploadToTigris, buildObjectKey } from './tigris-upload.server'
 import { isWorkerActive } from './worker-control.server'
+import { notifyCookieExpired, notifyJobFailed } from './notification.server'
 import type { ErrorCategory as ErrorCategoryType } from './yt-dlp.server'
 
 /**
@@ -111,7 +112,7 @@ async function processJob(
 		const result = await executeYtDlp(url, { cookieFile })
 
 		if (result.exitCode !== 0 || !result.filePath) {
-			await handleJobError(jobId, result.errorCategory ?? 'UNKNOWN', result.errorMessage ?? null)
+			await handleJobError(jobId, result.errorCategory ?? 'UNKNOWN', result.errorMessage ?? null, url)
 			return
 		}
 
@@ -138,7 +139,7 @@ async function processJob(
 		})
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
-		await handleJobError(jobId, 'UNKNOWN', message)
+		await handleJobError(jobId, 'UNKNOWN', message, url)
 	} finally {
 		// Clear currently processing
 		await prisma.workerState.upsert({
@@ -152,11 +153,16 @@ async function processJob(
 /**
  * Handle a job error: categorize, record in error history, and
  * either mark as failed (non-retriable) or reset to pending for retry.
+ *
+ * Side effects:
+ * - Invalidates YoutubeCookie records on AUTH/COOKIE_EXPIRED errors
+ * - Sends Telegram notification for permanent failures
  */
 async function handleJobError(
 	jobId: string,
 	category: ErrorCategoryType,
 	message: string | null,
+	trackUrl: string,
 ): Promise<void> {
 	const job = await prisma.archiveJob.findUnique({
 		where: { id: jobId },
@@ -191,6 +197,21 @@ async function handleJobError(
 			errorHistory: JSON.stringify(errorHistory),
 		},
 	})
+
+	// Cookie-related errors: flag all cookies as invalid + notify admin
+	if (category === ErrorCategory.AUTH || category === ErrorCategory.COOKIE_EXPIRED) {
+		await prisma.youtubeCookie.updateMany({
+			where: { valid: true },
+			data: { valid: false, updatedAt: new Date() },
+		})
+
+		void notifyCookieExpired(jobId, trackUrl, message ?? 'Unknown error')
+	}
+
+	// Notify on other permanent failures (fire-and-forget)
+	if (shouldFail && category !== ErrorCategory.AUTH && category !== ErrorCategory.COOKIE_EXPIRED) {
+		void notifyJobFailed(jobId, trackUrl, category, message ?? 'Unknown error')
+	}
 }
 
 /**
