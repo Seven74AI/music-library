@@ -33,6 +33,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const [volume] = useState(1)
 	const previousTrackIdRef = useRef<string | null>(null)
 	const isManualPlayRef = useRef(false)
+	const [isDownloading, setIsDownloading] = useState(false)
 	
 	const getBestAudioFile = () => {
 		if (!track?.audioFiles || track.audioFiles.length === 0) {
@@ -146,10 +147,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	
 	const togglePlayPause = async () => {
 		if (!audioRef.current) return
-		
+
 		const wasPlaying = isPlaying
 		isManualPlayRef.current = true
-		
+
 		try {
 			if (wasPlaying) {
 				audioRef.current.pause()
@@ -159,6 +160,30 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		} catch (error) {
 			setIsPlaying(wasPlaying)
 			console.error('Playback error:', error)
+		}
+	}
+
+	const handleDownload = async () => {
+		if (!track) return
+		setIsDownloading(true)
+		try {
+			const response = await fetch(`/resources/audio/${track.id}/download-url`)
+			if (!response.ok) {
+				throw new Error(`Failed to get download URL: ${response.status}`)
+			}
+			const { url, fileName } = await response.json() as { url: string; fileName: string }
+
+			// Trigger browser download
+			const a = document.createElement('a')
+			a.href = url
+			a.download = fileName
+			document.body.appendChild(a)
+			a.click()
+			document.body.removeChild(a)
+		} catch (error) {
+			console.error('Download failed:', error)
+		} finally {
+			setIsDownloading(false)
 		}
 	}
 	
@@ -333,6 +358,17 @@ export function AudioPlayer(props: AudioPlayerProps) {
 								name="shuffle" 
 								className="h-4 w-4" 
 							/>
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={handleDownload}
+							disabled={isDownloading}
+							aria-label="Download track"
+							className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
+							title="Download"
+						>
+							<Icon name={isDownloading ? 'arrow-path' : 'download'} className={`h-4 w-4 ${isDownloading ? 'animate-spin' : ''}`} />
 						</Button>
 						<Button
 							variant="ghost"
