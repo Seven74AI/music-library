@@ -8,24 +8,19 @@ import { cn } from '#app/utils/misc.tsx'
 import { useIsMobile } from '#app/utils/use-mobile.ts'
 import { PlaylistCover } from './playlist-cover'
 
-interface Track {
+interface PlaylistCardTrack {
 	id: string
 	title: string
-	artist: {
-		id: string
-		name: string
-	}
+	artist: { id: string; name: string }
 	duration: number | null
-	coverImage: {
-		objectKey: string
-	} | null
+	coverImage: { objectKey: string } | null
 }
 
 interface PlaylistCardProps {
 	id: string
 	title: string
 	description: string | null
-	tracks: Track[]
+	tracks: PlaylistCardTrack[]
 	createdAt: string
 	updatedAt: string
 	className?: string

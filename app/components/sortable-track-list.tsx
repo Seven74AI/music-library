@@ -33,29 +33,21 @@ function announceToScreenReader(message: string) {
 	}
 }
 
-interface Track {
+interface SortableListTrack {
 	id: string
 	title: string
-	artist: {
-		id: string
-		name: string
-	}
+	artist: { id: string; name: string }
 	duration: number | null
-	coverImage: {
-		objectKey: string
-	} | null
+	coverImage: { objectKey: string } | null
 	serviceUrl: string | null
 	createdAt: string
-	service?: {
-		displayName: string
-		logoUrl: string | null
-	} | null
+	service?: { displayName: string; logoUrl: string | null } | null
 }
 
 interface PlaylistTrack {
 	id: string
 	position: number
-	track: Track
+	track: SortableListTrack
 }
 
 interface SortableTrackItemProps {
