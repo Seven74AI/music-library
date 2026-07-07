@@ -363,12 +363,12 @@ These are unit tests in `app/features/audio-archive/`:
 ### 12. SEO Routes (`_seo+/`)
 **Base URL**: Various
 
-#### 10.1 Robots.txt (`/robots.txt`)
+#### 12.1 Robots.txt (`/robots.txt`)
 - **Actions to test**:
   - [ ] Robots.txt accessibility
   - [ ] Correct content
 
-#### 10.2 Sitemap (`/sitemap.xml`)
+#### 12.2 Sitemap (`/sitemap.xml`)
 - **Actions to test**:
   - [ ] Sitemap generation
   - [ ] All routes included

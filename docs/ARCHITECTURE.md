@@ -50,11 +50,11 @@ docs/
 
 1. **Zod validation for external APIs only**
 2. **Prisma types for database operations**
-4. **Direct transformations from API to Prisma**
-5. **Dynamic mock data with Faker**
-6. **Test isolation via database copy pattern**
-7. **Clean separation of concerns**
-8. **Audio archiving via background worker**: yt-dlp → Tigris → TrackAudioFile
+3. **Direct transformations from API to Prisma**
+4. **Dynamic mock data with Faker**
+5. **Test isolation via database copy pattern**
+6. **Clean separation of concerns**
+7. **Audio archiving via background worker**: yt-dlp → Tigris → TrackAudioFile
 
 ## Audio Archiving Pipeline
 
