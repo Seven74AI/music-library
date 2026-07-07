@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import { data, Link } from 'react-router'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { Button } from '#app/components/ui/button.tsx'
@@ -57,6 +58,31 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 export default function TrackRoute({ loaderData }: Route.ComponentProps) {
 	const { track } = loaderData
+	const [isDownloading, setIsDownloading] = useState(false)
+	const hasAudioFiles = track.audioFiles.length > 0
+
+	const handleDownload = useCallback(async () => {
+		setIsDownloading(true)
+		try {
+			const response = await fetch(`/resources/audio/${track.id}/download-url`)
+			if (!response.ok) {
+				throw new Error(`Failed to get download URL: ${response.status}`)
+			}
+			const { url, fileName } = await response.json() as { url: string; fileName: string }
+
+			// Trigger browser download
+			const a = document.createElement('a')
+			a.href = url
+			a.download = fileName
+			document.body.appendChild(a)
+			a.click()
+			document.body.removeChild(a)
+		} catch (error) {
+			console.error('Download failed:', error)
+		} finally {
+			setIsDownloading(false)
+		}
+	}, [track.id])
 
 	return (
 		<div className="py-8">
@@ -105,6 +131,35 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
 									</div>
 								</div>
 							</div>
+
+							{hasAudioFiles && (
+								<div>
+									<h3 className="text-lg font-semibold mb-2">Audio Files</h3>
+									<div className="space-y-2">
+										{track.audioFiles.map((file) => (
+											<div key={file.id} className="flex items-center gap-2 text-sm">
+												<Icon name="file-text" className="h-4 w-4 text-muted-foreground" />
+												<span className="text-muted-foreground">
+													{file.format?.toUpperCase() || 'Unknown'} 
+													{file.bitrate ? ` · ${file.bitrate}kbps` : ''}
+													{file.sampleRate ? ` · ${(file.sampleRate / 1000).toFixed(1)}kHz` : ''}
+													{file.fileSize ? ` · ${(file.fileSize / 1024 / 1024).toFixed(1)}MB` : ''}
+												</span>
+											</div>
+										))}
+										<div className="pt-2">
+											<Button
+												variant="default"
+												onClick={handleDownload}
+												disabled={isDownloading}
+											>
+												<Icon name={isDownloading ? 'arrow-path' : 'download'} className={`mr-2 h-4 w-4 ${isDownloading ? 'animate-spin' : ''}`} />
+												{isDownloading ? 'Preparing download...' : 'Download'}
+											</Button>
+										</div>
+									</div>
+								</div>
+							)}
 						</div>
 			</div>
 		</div>
