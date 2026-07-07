@@ -40,6 +40,25 @@ const createConditionalSchema = (): z.ZodObject<any> => {
 
     // YouTube cookie file path for audio archiving
     COOKIE_FILE_PATH: z.string().optional().default('/data/youtube-cookies.txt'),
+
+    // YouTube mocking override (takes priority over MOCKS)
+    YOUTUBE_MOCKS: z.enum(['true', 'false']).optional(),
+
+    // OAuth credentials (optional — only needed when using those providers)
+    GOOGLE_CLIENT_ID: z.string().optional(),
+    GOOGLE_CLIENT_SECRET: z.string().optional(),
+    GITHUB_CLIENT_ID: z.string().optional(),
+    GITHUB_CLIENT_SECRET: z.string().optional(),
+    GITHUB_TOKEN: z.string().optional(),
+    GITHUB_REDIRECT_URI: z.string().optional(),
+
+    // Server / platform
+    PORT: z.coerce.number().optional(),
+    FLY_REGION: z.string().optional(),
+    FLY_APP_NAME: z.string().optional(),
+
+    // Playwright test base URL (test-only)
+    PLAYWRIGHT_TEST_BASE_URL: z.string().optional(),
   })
 }
 

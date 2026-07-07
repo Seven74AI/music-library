@@ -25,6 +25,43 @@ export interface WorkerStateResult {
 	lastStateChange: Date
 }
 
+// ── Private helpers ──────────────────────────────────────────────
+
+/** Reshape a raw Prisma WorkerState into the public result shape. */
+function reshape(state: {
+	status: string
+	currentlyProcessing: string | null
+	lastQueueRun: Date | null
+	nextLongBreakAt: Date | null
+	lastStateChange: Date
+}): WorkerStateResult {
+	return {
+		status: state.status as WorkerStatus,
+		currentlyProcessing: state.currentlyProcessing,
+		lastQueueRun: state.lastQueueRun,
+		nextLongBreakAt: state.nextLongBreakAt,
+		lastStateChange: state.lastStateChange,
+	}
+}
+
+/**
+ * Upsert the singleton WorkerState record with a new status and optional
+ * extra fields.  Every mutation records `lastStateChange`.
+ */
+async function setWorkerState(
+	status: WorkerStatus,
+	extra: Record<string, unknown> = {},
+): Promise<WorkerStateResult> {
+	const state = await prisma.workerState.upsert({
+		where: { id: 'singleton' },
+		update: { status, lastStateChange: new Date(), ...extra },
+		create: { id: 'singleton', status, ...extra },
+	})
+	return reshape(state)
+}
+
+// ── Public API ───────────────────────────────────────────────────
+
 /**
  * Get the current WorkerState, creating it (as "running") if it doesn't exist.
  */
@@ -37,14 +74,7 @@ export async function getWorkerState(): Promise<WorkerStateResult> {
 			status: WorkerStatus.RUNNING,
 		},
 	})
-
-	return {
-		status: state.status as WorkerStatus,
-		currentlyProcessing: state.currentlyProcessing,
-		lastQueueRun: state.lastQueueRun,
-		nextLongBreakAt: state.nextLongBreakAt,
-		lastStateChange: state.lastStateChange,
-	}
+	return reshape(state)
 }
 
 /**
@@ -73,51 +103,14 @@ export async function isWorkerActive(): Promise<boolean> {
  * Running jobs are allowed to finish.
  */
 export async function pauseWorker(): Promise<WorkerStateResult> {
-	const state = await prisma.workerState.upsert({
-		where: { id: 'singleton' },
-		update: {
-			status: WorkerStatus.PAUSED,
-			lastStateChange: new Date(),
-		},
-		create: {
-			id: 'singleton',
-			status: WorkerStatus.PAUSED,
-		},
-	})
-
-	return {
-		status: state.status as WorkerStatus,
-		currentlyProcessing: state.currentlyProcessing,
-		lastQueueRun: state.lastQueueRun,
-		nextLongBreakAt: state.nextLongBreakAt,
-		lastStateChange: state.lastStateChange,
-	}
+	return setWorkerState(WorkerStatus.PAUSED)
 }
 
 /**
  * Resume the worker from paused or long_break state.
  */
 export async function resumeWorker(): Promise<WorkerStateResult> {
-	const state = await prisma.workerState.upsert({
-		where: { id: 'singleton' },
-		update: {
-			status: WorkerStatus.RUNNING,
-			nextLongBreakAt: null,
-			lastStateChange: new Date(),
-		},
-		create: {
-			id: 'singleton',
-			status: WorkerStatus.RUNNING,
-		},
-	})
-
-	return {
-		status: state.status as WorkerStatus,
-		currentlyProcessing: state.currentlyProcessing,
-		lastQueueRun: state.lastQueueRun,
-		nextLongBreakAt: state.nextLongBreakAt,
-		lastStateChange: state.lastStateChange,
-	}
+	return setWorkerState(WorkerStatus.RUNNING, { nextLongBreakAt: null })
 }
 
 /**
@@ -130,26 +123,5 @@ export async function takeLongBreak(
 	durationMs: number = LONG_BREAK_DURATION_MS,
 ): Promise<WorkerStateResult> {
 	const nextLongBreakAt = new Date(Date.now() + durationMs)
-
-	const state = await prisma.workerState.upsert({
-		where: { id: 'singleton' },
-		update: {
-			status: WorkerStatus.LONG_BREAK,
-			nextLongBreakAt,
-			lastStateChange: new Date(),
-		},
-		create: {
-			id: 'singleton',
-			status: WorkerStatus.LONG_BREAK,
-			nextLongBreakAt,
-		},
-	})
-
-	return {
-		status: state.status as WorkerStatus,
-		currentlyProcessing: state.currentlyProcessing,
-		lastQueueRun: state.lastQueueRun,
-		nextLongBreakAt: state.nextLongBreakAt,
-		lastStateChange: state.lastStateChange,
-	}
+	return setWorkerState(WorkerStatus.LONG_BREAK, { nextLongBreakAt })
 }

@@ -1,6 +1,7 @@
 import { enqueueArchiveJob } from '#app/features/audio-archive/auto-enqueue.server'
 import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
 import { prisma } from '#app/utils/db.server'
+import { type Prisma } from '#prisma/client.js'
 import { getServiceByName } from './playlist-utils.server'
 
 /**
@@ -49,7 +50,7 @@ export interface BatchProcessorProvider {
     externalUrl?: string | null
     releaseDate?: Date | string | null
     thumbnailUrl?: string | null
-    service: { connect: { id: string } }
+    service?: Prisma.ServiceCreateNestedOneWithoutTracksInput
     externalId: string
     artistId: string
     [key: string]: any
