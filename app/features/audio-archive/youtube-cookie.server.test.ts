@@ -6,7 +6,6 @@ import {
 	parseCookieLine,
 	readCookies,
 	writeCookies,
-	type NetscapeCookie,
 } from './youtube-cookie.server.ts'
 
 function tmpPath(name: string): string {

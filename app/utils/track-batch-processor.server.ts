@@ -1,8 +1,8 @@
 import { enqueueArchiveJob } from '#app/features/audio-archive/auto-enqueue.server'
 import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
 import { prisma } from '#app/utils/db.server'
+import { type Prisma } from '#prisma/client.js'
 import { getServiceByName } from './playlist-utils.server'
-import type { Prisma } from '#prisma/client.js'
 
 /**
  * Generic syncable item — normalized track data from any provider.
