@@ -1,13 +1,13 @@
 import { Icon } from '#app/components/ui/icon.tsx'
 import { cn } from '#app/utils/misc.tsx'
 
-interface Track {
+interface PlaylistCoverTrack {
 	id: string
 	coverImage: { objectKey: string } | null
 }
 
 interface PlaylistCoverProps {
-	tracks: Track[]
+	tracks: PlaylistCoverTrack[]
 	size?: 'sm' | 'md' | 'lg'
 	className?: string
 }
