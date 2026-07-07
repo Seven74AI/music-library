@@ -25,6 +25,22 @@ app/utils/
 app/config/
 └── youtube.ts         # Configuration constants only
 
+app/features/audio-archive/
+├── auto-enqueue.server.ts          # Auto-enqueue on YouTube import
+├── auto-enqueue.server.test.ts
+├── notification.server.ts          # Telegram notifications
+├── notification.server.test.ts
+├── tigris-upload.server.ts         # Tigris Object Storage upload
+├── tigris-upload.server.test.ts
+├── worker-control.server.ts        # Worker state machine (run/pause/break)
+├── worker-control.server.test.ts
+├── worker.server.ts                # Queue processing loop
+├── worker.server.test.ts
+├── yt-dlp.server.ts                # yt-dlp child process wrapper
+├── yt-dlp.server.test.ts
+├── youtube-cookie.server.ts        # Cookie validation
+└── youtube-cookie.server.test.ts
+
 docs/
 ├── ARCHITECTURE.md    # This file - complete architecture overview
 └── decisions/         # Architecture Decision Records (ADRs)
@@ -34,10 +50,40 @@ docs/
 
 1. **Zod validation for external APIs only**
 2. **Prisma types for database operations**
-3. **Direct transformations from API to Prisma**
-4. **Dynamic mock data with Faker**
-5. **Test isolation via database copy pattern**
-6. **Clean separation of concerns**
+4. **Direct transformations from API to Prisma**
+5. **Dynamic mock data with Faker**
+6. **Test isolation via database copy pattern**
+7. **Clean separation of concerns**
+8. **Audio archiving via background worker**: yt-dlp → Tigris → TrackAudioFile
+
+## Audio Archiving Pipeline
+
+```
+YouTube Video → yt-dlp (MP3 download) → Local File → Tigris Upload → TrackAudioFile → Offline Playback
+                     │                       │                    │
+                    Cookie Auth              S3-Compatible         Prisma Record
+                    Error Categories         Storage                (track link)
+```
+
+### Domain Models
+
+- **`ArchiveJob`** — Queue entry linking a track to an audio download. States: `pending`, `processing`, `completed`, `failed`. Tracks retry count and error history (JSON).
+- **`WorkerState`** — Singleton controlling the background worker. States: `running`, `paused`, `long_break`. Long break auto-resumes after a configurable duration (default: 6 hours).
+- **`YoutubeCookie`** — Cookie record for authenticated YouTube downloads. Tracks validity and upload metadata.
+- **`TrackAudioFile`** — Maps a track to its stored audio file in Tigris. Contains file metadata (format, size, bitrate, sample rate).
+
+### Error Categorization
+
+yt-dlp failures are classified into retriable and non-retriable categories:
+
+| Category | Retriable? | Action |
+|----------|-----------|--------|
+| `AUTH` | No | Invalidate cookies, notify admin |
+| `RATE_LIMITED` | Yes (up to 3) | Re-queue job |
+| `GEO_BLOCKED` | No | Fail permanently |
+| `VIDEO_UNAVAILABLE` | No | Fail permanently |
+| `NETWORK` | Yes (up to 3) | Re-queue job |
+| `COOKIE_EXPIRED` | No | Invalidate cookies, notify admin |
 
 ## Type Safety Layers
 

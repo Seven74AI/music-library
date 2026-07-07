@@ -105,7 +105,7 @@ This document outlines a systematic testing plan for all routes and actions in t
 #### 3.3 Track Detail (`/library/{trackId}`)
 - **Actions to test**:
   - [ ] Display track information
-  - [ ] Play audio (audio playback disabled - no downloads available)
+  - [ ] Play audio (audio playback supported via archived files from Tigris)
   - [ ] Edit track metadata
   - [ ] Delete track
 
@@ -260,10 +260,90 @@ This document outlines a systematic testing plan for all routes and actions in t
   - [ ] Clear all cache
   - [ ] Admin authentication
 
-### 9. Resource Routes (`resources+/`)
+### 9. Admin Routes — Audio Queue Dashboard (`admin+/`)
+
+#### 9.1 Audio Queue Dashboard (`/admin/audio-queue`)
+- **Actions to test**:
+  - [ ] Admin authentication required
+  - [ ] Display queue stats (pending, processing, completed, failed)
+  - [ ] Pause worker
+  - [ ] Resume worker
+  - [ ] Long break (with configurable duration)
+  - [ ] View job list with status indicators
+  - [ ] View job error history
+  - [ ] Manual job priority toggle
+  - [ ] YouTube cookie upload
+  - [ ] Cookie validity display
+
+### 10. Audio Archive Worker Tests
+
+These are unit tests in `app/features/audio-archive/`:
+
+#### 10.1 yt-dlp Execution (`yt-dlp.server.test.ts`)
+- [ ] Mock yt-dlp spawn returns simulated success
+- [ ] Mock yt-dlp spawn returns error with category
+- [ ] Error categorization from stderr patterns (AUTH, RATE_LIMITED, GEO_BLOCKED, VIDEO_UNAVAILABLE, NETWORK, COOKIE_EXPIRED)
+- [ ] File path extraction from stdout
+- [ ] Progress percentage parsing
+- [ ] Cookie file flag in command args
+- [ ] Timeout handling
+
+#### 10.2 Worker Queue (`worker.server.test.ts`)
+- [ ] Queue tick: picks pending jobs ordered by priority, then creation date
+- [ ] Queue tick: respects max concurrent limit
+- [ ] Queue tick: skips when AUDIO_ARCHIVE_ENABLED is false
+- [ ] Queue tick: skips when worker is paused
+- [ ] Queue tick: skips when worker is on long_break (before expiry)
+- [ ] Job processing: download → upload → TrackAudioFile record
+- [ ] Job processing: error handling and categorization
+- [ ] Retry logic: retriable errors re-queued up to 3 attempts
+- [ ] Retry logic: non-retriable errors fail immediately
+- [ ] Cookie invalidation on AUTH/COOKIE_EXPIRED errors
+- [ ] Error history accumulation (JSON array on ArchiveJob)
+- [ ] getQueueStats returns correct counts
+
+#### 10.3 Worker Control (`worker-control.server.test.ts`)
+- [ ] Initial state: running
+- [ ] Pause → status: paused
+- [ ] Resume → status: running
+- [ ] Long break → status: long_break with nextLongBreakAt set
+- [ ] Long break auto-resume when break expires
+- [ ] isWorkerActive returns false when paused
+- [ ] isWorkerActive returns false when on long_break (before expiry)
+- [ ] isWorkerActive returns true when long_break expires
+
+#### 10.4 Tigris Upload (`tigris-upload.server.test.ts`)
+- [ ] Mock mode returns simulated UploadResult
+- [ ] Object key format: audio/{trackId}/{filename}
+- [ ] Bucket name from environment
+- [ ] S3 client configuration (Tigris endpoint, forcePathStyle)
+- [ ] Upload to Tigris with multipart for large files
+- [ ] UploadFileSimple via PutObjectCommand
+- [ ] Presigned URL generation (mock mode)
+
+#### 10.5 Auto-Enqueue (`auto-enqueue.server.test.ts`)
+- [ ] Creates ArchiveJob when AUDIO_ARCHIVE_ENABLED is true
+- [ ] Skips when AUDIO_ARCHIVE_ENABLED is false
+- [ ] Idempotent: duplicate trackId silently skipped
+- [ ] Priority defaults to false for auto-enqueued jobs
+
+#### 10.6 Telegram Notification (`notification.server.test.ts`)
+- [ ] notifyCookieExpired formats message correctly
+- [ ] notifyJobFailed formats message with category
+- [ ] HTML escaping of special characters
+- [ ] Silently fails when TELEGRAM_BOT_TOKEN is missing
+- [ ] Silently fails when TELEGRAM_ADMIN_CHAT_ID is missing
+
+#### 10.7 YouTube Cookie (`youtube-cookie.server.test.ts`)
+- [ ] Cookie upload creates YoutubeCookie record
+- [ ] Cookie validation check
+- [ ] Cookie invalidation (valid: false)
+- [ ] Updates updatedAt on state changes
+
+### 11. Resource Routes (`resources+/`)
 **Base URL**: `/resources`
 
-#### 9.1 Health Check (`/resources/healthcheck`)
+#### 11.1 Health Check (`/resources/healthcheck`)
 - **Actions to test**:
   - [ ] Health status endpoint
   - [ ] System information
@@ -278,9 +358,9 @@ This document outlines a systematic testing plan for all routes and actions in t
 - **Actions to test**:
   - [ ] Download user data
   - [ ] Data export functionality
-  - Note: Audio download functionality has been removed
+  - Note: Audio download functionality has been reintroduced — see Audio Archive section
 
-### 10. SEO Routes (`_seo+/`)
+### 12. SEO Routes (`_seo+/`)
 **Base URL**: Various
 
 #### 10.1 Robots.txt (`/robots.txt`)
