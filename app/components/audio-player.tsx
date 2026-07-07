@@ -171,7 +171,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			if (!response.ok) {
 				throw new Error(`Failed to get download URL: ${response.status}`)
 			}
-			const { url, fileName } = await response.json()
+			const { url, fileName } = await response.json() as { url: string; fileName: string }
 
 			// Trigger browser download
 			const a = document.createElement('a')

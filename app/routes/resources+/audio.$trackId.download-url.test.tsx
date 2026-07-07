@@ -46,7 +46,7 @@ test('returns download URL JSON for a track with audio files', async () => {
 		pattern: { path: '/resources/audio/:trackId/download-url' },
 	} as any)
 
-	const data = await response.json()
+	const data = await response.json() as { url: string; fileName: string; mimeType: string; format: string }
 	expect(data.url).toBeDefined()
 	expect(data.url).toContain('presigned=true')
 	expect(data.fileName).toBeDefined()
