@@ -14,6 +14,9 @@ const mockPrisma = {
 	trackAudioFile: {
 		create: vi.fn(),
 	},
+	youtubeCookie: {
+		updateMany: vi.fn(),
+	},
 	$disconnect: vi.fn().mockResolvedValue(undefined),
 }
 
@@ -50,20 +53,25 @@ vi.mock('./worker-control.server', () => ({
 	isWorkerActive: mockIsWorkerActive,
 }))
 
+// Mock notification service
+const mockNotifyCookieExpired = vi.fn().mockResolvedValue(undefined)
+const mockNotifyJobFailed = vi.fn().mockResolvedValue(undefined)
+vi.mock('./notification.server', () => ({
+	notifyCookieExpired: mockNotifyCookieExpired,
+	notifyJobFailed: mockNotifyJobFailed,
+}))
+
 describe('processQueueTick', () => {
 	const originalEnv = { ...process.env }
 
 	beforeEach(() => {
 		vi.clearAllMocks()
 		process.env.AUDIO_ARCHIVE_ENABLED = 'true'
-		// Default: worker is active
 		mockIsWorkerActive.mockResolvedValue(true)
-		// Default: no processing jobs
 		mockPrisma.archiveJob.count.mockResolvedValue(0)
-		// Default: no pending jobs
 		mockPrisma.archiveJob.findMany.mockResolvedValue([])
-		// Mock upsert to be a no-op
 		mockPrisma.workerState.upsert.mockResolvedValue({})
+		mockPrisma.youtubeCookie.updateMany.mockResolvedValue({ count: 1 })
 
 		mockBuildObjectKey.mockImplementation(
 			(trackId: string, filePath: string) => `audio/${trackId}/${filePath.split('/').pop()}`,
@@ -91,7 +99,6 @@ describe('processQueueTick', () => {
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
 
-			// Should not query for pending jobs
 			expect(mockPrisma.archiveJob.findMany).not.toHaveBeenCalled()
 
 			process.env.AUDIO_ARCHIVE_ENABLED = originalEnv
@@ -111,7 +118,7 @@ describe('processQueueTick', () => {
 
 	describe('max concurrent limit', () => {
 		it('skips when all slots are full', async () => {
-			mockPrisma.archiveJob.count.mockResolvedValue(2) // 2 processing
+			mockPrisma.archiveJob.count.mockResolvedValue(2)
 			process.env.AUDIO_ARCHIVE_MAX_CONCURRENT = '2'
 
 			const { processQueueTick } = await import('./worker.server.ts')
@@ -121,14 +128,13 @@ describe('processQueueTick', () => {
 		})
 
 		it('picks only available slots', async () => {
-			mockPrisma.archiveJob.count.mockResolvedValue(1) // 1 processing
+			mockPrisma.archiveJob.count.mockResolvedValue(1)
 			process.env.AUDIO_ARCHIVE_MAX_CONCURRENT = '3'
 			mockPrisma.archiveJob.findMany.mockResolvedValue([])
 
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
 
-			// Should request at most 2 jobs (3 max - 1 processing)
 			expect(mockPrisma.archiveJob.findMany).toHaveBeenCalledWith(
 				expect.objectContaining({ take: 2 }),
 			)
@@ -163,16 +169,11 @@ describe('processQueueTick', () => {
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
 
-			// Should have yt-dlp called with the URL
 			expect(mockExecuteYtDlp).toHaveBeenCalledWith(
 				'https://youtube.com/watch?v=abc123',
 				expect.objectContaining({ cookieFile: '/data/youtube-cookies.txt' }),
 			)
-
-			// Should upload to tigris
 			expect(mockUploadToTigris).toHaveBeenCalled()
-
-			// Should create TrackAudioFile record
 			expect(mockPrisma.trackAudioFile.create).toHaveBeenCalledWith(
 				expect.objectContaining({
 					data: expect.objectContaining({
@@ -182,8 +183,6 @@ describe('processQueueTick', () => {
 					}),
 				}),
 			)
-
-			// Should mark job as completed
 			expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
 				expect.objectContaining({
 					where: { id: 'job-1' },
@@ -219,7 +218,6 @@ describe('processQueueTick', () => {
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
 
-			// Should mark as failed (non-retriable)
 			expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
 				expect.objectContaining({
 					where: { id: 'job-2' },
@@ -230,8 +228,6 @@ describe('processQueueTick', () => {
 					}),
 				}),
 			)
-
-			// Should NOT upload or create TrackAudioFile
 			expect(mockUploadToTigris).not.toHaveBeenCalled()
 			expect(mockPrisma.trackAudioFile.create).not.toHaveBeenCalled()
 		})
@@ -261,7 +257,6 @@ describe('processQueueTick', () => {
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
 
-			// Should reset to pending (retriable, under max retries)
 			expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
 				expect.objectContaining({
 					data: expect.objectContaining({
@@ -279,7 +274,7 @@ describe('processQueueTick', () => {
 					id: 'job-4',
 					status: 'pending',
 					priority: false,
-					retryCount: 3, // Already at max
+					retryCount: 3,
 					errorHistory: '[]',
 					track: { id: 'track-4', serviceUrl: 'https://youtube.com/watch?v=max' },
 				},
@@ -306,16 +301,164 @@ describe('processQueueTick', () => {
 				}),
 			)
 		})
+
+		it('flags cookies invalid and notifies on AUTH error', async () => {
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+			mockPrisma.archiveJob.findMany.mockResolvedValue([
+				{
+					id: 'job-auth',
+					status: 'pending',
+					priority: false,
+					retryCount: 0,
+					errorHistory: '[]',
+					track: { id: 'track-auth', serviceUrl: 'https://youtube.com/watch?v=403' },
+				},
+			])
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
+			mockExecuteYtDlp.mockResolvedValue({
+				exitCode: 1,
+				stdout: '',
+				stderr: 'HTTP Error 403: Forbidden',
+				filePath: undefined,
+				errorCategory: 'AUTH',
+				errorMessage: 'HTTP Error 403: Forbidden',
+			})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			// Should flag all valid cookies as invalid
+			expect(mockPrisma.youtubeCookie.updateMany).toHaveBeenCalledWith({
+				where: { valid: true },
+				data: { valid: false, updatedAt: expect.any(Date) },
+			})
+
+			// Should notify admin
+			expect(mockNotifyCookieExpired).toHaveBeenCalledWith(
+				'job-auth',
+				'https://youtube.com/watch?v=403',
+				'HTTP Error 403: Forbidden',
+			)
+
+			// Should NOT call notifyJobFailed (cookie notification is separate)
+			expect(mockNotifyJobFailed).not.toHaveBeenCalled()
+		})
+
+		it('flags cookies invalid and notifies on COOKIE_EXPIRED error', async () => {
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+			mockPrisma.archiveJob.findMany.mockResolvedValue([
+				{
+					id: 'job-cookie',
+					status: 'pending',
+					priority: false,
+					retryCount: 0,
+					errorHistory: '[]',
+					track: { id: 'track-cookie', serviceUrl: 'https://youtube.com/watch?v=cookie' },
+				},
+			])
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
+			mockExecuteYtDlp.mockResolvedValue({
+				exitCode: 1,
+				stdout: '',
+				stderr: 'ERROR: Sign in to confirm',
+				filePath: undefined,
+				errorCategory: 'COOKIE_EXPIRED',
+				errorMessage: 'Sign in required',
+			})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			expect(mockPrisma.youtubeCookie.updateMany).toHaveBeenCalledWith({
+				where: { valid: true },
+				data: { valid: false, updatedAt: expect.any(Date) },
+			})
+			expect(mockNotifyCookieExpired).toHaveBeenCalledWith(
+				'job-cookie',
+				'https://youtube.com/watch?v=cookie',
+				'Sign in required',
+			)
+			expect(mockNotifyJobFailed).not.toHaveBeenCalled()
+		})
+
+		it('notifies on GEO_BLOCKED permanent failure', async () => {
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+			mockPrisma.archiveJob.findMany.mockResolvedValue([
+				{
+					id: 'job-geo',
+					status: 'pending',
+					priority: false,
+					retryCount: 0,
+					errorHistory: '[]',
+					track: { id: 'track-geo', serviceUrl: 'https://youtube.com/watch?v=geo' },
+				},
+			])
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
+			mockExecuteYtDlp.mockResolvedValue({
+				exitCode: 1,
+				stdout: '',
+				stderr: 'ERROR: not available in your country',
+				filePath: undefined,
+				errorCategory: 'GEO_BLOCKED',
+				errorMessage: 'Not available in your country',
+			})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			// Should NOT flag cookies (not auth/cookie related)
+			expect(mockPrisma.youtubeCookie.updateMany).not.toHaveBeenCalled()
+			expect(mockNotifyCookieExpired).not.toHaveBeenCalled()
+
+			// Should notify about geo-blocked failure
+			expect(mockNotifyJobFailed).toHaveBeenCalledWith(
+				'job-geo',
+				'https://youtube.com/watch?v=geo',
+				'GEO_BLOCKED',
+				'Not available in your country',
+			)
+		})
+
+		it('does not notify for retriable errors under max retries', async () => {
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+			mockPrisma.archiveJob.findMany.mockResolvedValue([
+				{
+					id: 'job-net',
+					status: 'pending',
+					priority: false,
+					retryCount: 0,
+					errorHistory: '[]',
+					track: { id: 'track-net', serviceUrl: 'https://youtube.com/watch?v=net' },
+				},
+			])
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
+			mockExecuteYtDlp.mockResolvedValue({
+				exitCode: 1,
+				stdout: '',
+				stderr: 'ERROR: ETIMEDOUT',
+				filePath: undefined,
+				errorCategory: 'NETWORK',
+				errorMessage: 'Connection timed out',
+			})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			// Should NOT notify (retriable, will be retried)
+			expect(mockNotifyCookieExpired).not.toHaveBeenCalled()
+			expect(mockNotifyJobFailed).not.toHaveBeenCalled()
+			expect(mockPrisma.youtubeCookie.updateMany).not.toHaveBeenCalled()
+		})
 	})
 })
 
 describe('getQueueStats', () => {
 	it('returns counts for all statuses', async () => {
 		mockPrisma.archiveJob.count
-			.mockResolvedValueOnce(3) // pending
-			.mockResolvedValueOnce(1) // processing
-			.mockResolvedValueOnce(10) // completed
-			.mockResolvedValueOnce(2) // failed
+			.mockResolvedValueOnce(3)
+			.mockResolvedValueOnce(1)
+			.mockResolvedValueOnce(10)
+			.mockResolvedValueOnce(2)
 
 		const { getQueueStats } = await import('./worker.server.ts')
 		const stats = await getQueueStats()
