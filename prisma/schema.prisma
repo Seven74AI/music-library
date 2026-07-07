@@ -222,7 +222,8 @@ model Track {
   playlists             UserPlaylistTrack[]
   userTracks            UserTrack[]
   audioFiles            TrackAudioFile[]
-
+  archiveJob            ArchiveJob?
+  
   @@unique([serviceId, externalId])
   @@index([serviceId, externalId])
   @@index([updatedAt])
@@ -370,4 +371,40 @@ model TrackAudioFile {
   @@index([serviceId])
   @@index([format])
   @@index([trackId, format]) // Quick lookup: "get MP3 for this track"
+}
+
+model ArchiveJob {
+  id             String    @id @default(cuid())
+  status         String    @default("pending") // pending, processing, completed, failed
+  priority       Boolean   @default(false)
+  retryCount     Int       @default(0)
+  errorHistory   String    @default("[]") // JSON array of error objects
+  lastAttemptAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  trackId        String    @unique
+  track          Track     @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model WorkerState {
+  id                 String    @id @default("singleton")
+  status             String    @default("running") // running, paused, long_break
+  currentlyProcessing String?
+  lastQueueRun       DateTime?
+  nextLongBreakAt    DateTime?
+  lastStateChange    DateTime  @default(now())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model YoutubeCookie {
+  id        String   @id @default(cuid())
+  updatedAt DateTime @default(now())
+  updatedBy String   // userId who uploaded the cookie
+  valid     Boolean  @default(true)
+  createdAt DateTime @default(now())
 }
