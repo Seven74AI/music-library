@@ -9,6 +9,13 @@ import {
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
 
+/** Helper: get the parsed JSON body from the last fetch call */
+function getFetchBody(): Record<string, unknown> {
+	const call = mockFetch.mock.calls[0] as [string, { body: string }] | undefined
+	if (!call) throw new Error('fetch was not called')
+	return JSON.parse(call[1].body) as Record<string, unknown>
+}
+
 describe('sendTelegramMessage', () => {
 	const originalEnv = { ...process.env }
 
@@ -57,7 +64,7 @@ describe('sendTelegramMessage', () => {
 			}),
 		)
 
-		const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+		const body = getFetchBody()
 		expect(body.chat_id).toBe('987654')
 		expect(body.text).toBe('hello world')
 		expect(body.parse_mode).toBe('HTML')
@@ -113,23 +120,23 @@ describe('notifyCookieExpired', () => {
 		)
 
 		expect(mockFetch).toHaveBeenCalledTimes(1)
-		const body = JSON.parse(mockFetch.mock.calls[0][1].body as string)
-		expect(body.text).toContain('Cookie Expired')
-		expect(body.text).toContain('job-abc')
-		expect(body.text).toContain('youtube.com')
-		expect(body.text).toContain('403')
-		// Track URL + error message are HTML-escaped, but Telegram tags are kept
-		expect(body.text).toContain('<b>') // Telegram bold tags preserved
-		expect(body.text).toContain('<i>') // Telegram italic tags preserved
-		expect(body.text).not.toContain('<script>') // User content escaped
+		const body = getFetchBody()
+		const text = body.text as string
+		expect(text).toContain('Cookie Expired')
+		expect(text).toContain('job-abc')
+		expect(text).toContain('youtube.com')
+		expect(text).toContain('403')
+		expect(text).toContain('<b>')
+		expect(text).toContain('<i>')
+		expect(text).not.toContain('<script>')
 	})
 
 	it('escapes HTML in the track URL', async () => {
 		await notifyCookieExpired('j1', '<script>alert("xss")</script>', 'error')
 
-		const body = JSON.parse(mockFetch.mock.calls[0][1].body as string)
-		expect(body.text).toContain('&lt;script&gt;')
-		expect(body.text).not.toContain('<script>')
+		const text = getFetchBody().text as string
+		expect(text).toContain('&lt;script&gt;')
+		expect(text).not.toContain('<script>')
 	})
 })
 
@@ -155,19 +162,19 @@ describe('notifyJobFailed', () => {
 		)
 
 		expect(mockFetch).toHaveBeenCalledTimes(1)
-		const body = JSON.parse(mockFetch.mock.calls[0][1].body as string)
-		expect(body.text).toContain('Archive Job Failed')
-		expect(body.text).toContain('job-xyz')
-		expect(body.text).toContain('GEO_BLOCKED')
-		expect(body.text).toContain('not available')
+		const text = getFetchBody().text as string
+		expect(text).toContain('Archive Job Failed')
+		expect(text).toContain('job-xyz')
+		expect(text).toContain('GEO_BLOCKED')
+		expect(text).toContain('not available')
 	})
 
 	it('escapes HTML in all fields', async () => {
 		await notifyJobFailed('j1', '<a>', '&amp;', '<b>')
 
-		const body = JSON.parse(mockFetch.mock.calls[0][1].body as string)
-		expect(body.text).toContain('&lt;a&gt;')
-		expect(body.text).toContain('&amp;amp;')
-		expect(body.text).toContain('&lt;b&gt;')
+		const text = getFetchBody().text as string
+		expect(text).toContain('&lt;a&gt;')
+		expect(text).toContain('&amp;amp;')
+		expect(text).toContain('&lt;b&gt;')
 	})
 })
