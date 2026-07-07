@@ -18,6 +18,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		where: { id: trackId },
 		include: {
 			audioFiles: true,
+			artist: {
+				select: { name: true },
+			},
 			userTracks: {
 				where: { userId },
 				select: { id: true },

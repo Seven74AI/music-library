@@ -42,7 +42,9 @@ test('returns download URL JSON for a track with audio files', async () => {
 		request: new Request(`https://localhost/resources/audio/${track.id}/download-url`),
 		params: { trackId: track.id },
 		context: {},
-	})
+		url: new URL(`https://localhost/resources/audio/${track.id}/download-url`),
+		pattern: { path: '/resources/audio/:trackId/download-url' },
+	} as any)
 
 	const data = await response.json()
 	expect(data.url).toBeDefined()
@@ -58,7 +60,9 @@ test('returns 404 for non-existent track', async () => {
 			request: new Request('https://localhost/resources/audio/nonexistent/download-url'),
 			params: { trackId: 'nonexistent' },
 			context: {},
-		})
+			url: new URL('https://localhost/resources/audio/nonexistent/download-url'),
+			pattern: { path: '/resources/audio/:trackId/download-url' },
+		} as any)
 		expect(true).toBe(false) // Should have thrown
 	} catch (error) {
 		expect(error).toBeDefined()
@@ -71,7 +75,9 @@ test('returns 400 for missing trackId', async () => {
 			request: new Request('https://localhost/resources/audio//download-url'),
 			params: {},
 			context: {},
-		})
+			url: new URL('https://localhost/resources/audio//download-url'),
+			pattern: { path: '/resources/audio/:trackId?/download-url' },
+		} as any)
 		expect(true).toBe(false) // Should have thrown
 	} catch (error) {
 		expect(error).toBeDefined()
