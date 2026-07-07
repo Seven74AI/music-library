@@ -30,6 +30,16 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     // YouTube Data API Configuration (uses existing Google OAuth credentials)
     YOUTUBE_API_KEY: z.string().optional(),
     SITE_URL: z.string().optional(),
+
+    // Audio Archive Configuration
+    AUDIO_ARCHIVE_ENABLED: z.enum(['true', 'false']).optional().default('false'),
+    AUDIO_ARCHIVE_MAX_CONCURRENT: z.coerce.number().optional().default(2),
+    AUDIO_ARCHIVE_INTERVAL_MS: z.coerce.number().optional().default(120000),
+    TELEGRAM_BOT_TOKEN: z.string().optional(),
+    TELEGRAM_ADMIN_CHAT_ID: z.string().optional(),
+
+    // YouTube cookie file path for audio archiving
+    COOKIE_FILE_PATH: z.string().optional().default('/data/youtube-cookies.txt'),
   })
 }
 
