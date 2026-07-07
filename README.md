@@ -11,6 +11,8 @@
 - npm
 - Fly.io CLI
 - Git
+- ffmpeg (for audio archiving — already in Dockerfile)
+- yt-dlp (for YouTube audio downloads — already in Dockerfile)
 
 ## Local Development Setup
 
@@ -241,6 +243,35 @@ SITE_URL=http://localhost:3000  # or your production URL
 6. Deleted tracks are displayed with visual indicators and cannot be played
 7. Manage your synced playlists from the interface
 
+## Audio Archiving
+
+The application includes a background worker that automatically downloads and archives YouTube audio tracks for offline playback.
+
+### Features
+- **Automatic Archiving**: Tracks imported from YouTube are automatically enqueued for audio download
+- **Background Worker**: Queue-based system processes downloads with configurable concurrency
+- **Cookie-Based YouTube Auth**: Supports authenticated downloads via YouTube cookies to bypass bot detection
+- **Tigris Storage**: Audio files stored in S3-compatible Tigris Object Storage
+- **Telegram Notifications**: Admin alerts for cookie expiry and permanent job failures
+- **Admin Dashboard**: Queue monitoring and worker control (pause/resume/long break) at `/admin/audio-queue`
+- **Error Categorization**: Automatic classification of failures (AUTH, RATE_LIMITED, GEO_BLOCKED, VIDEO_UNAVAILABLE, NETWORK, COOKIE_EXPIRED)
+- **Retry Logic**: Retriable errors re-queued up to 3 attempts; non-retriable errors fail permanently
+
+### How It Works
+1. When a YouTube track is imported, an `ArchiveJob` record is created automatically
+2. The background worker polls the queue at `AUDIO_ARCHIVE_INTERVAL_MS`
+3. Pending jobs are picked up (priority first, then oldest)
+4. `yt-dlp` downloads the audio as MP3 using optional cookie authentication
+5. The audio file is uploaded to Tigris Object Storage
+6. A `TrackAudioFile` record is created, linking the track to its stored audio
+7. On failure, errors are categorized and either retried or permanently failed
+
+### Configuration
+Enable audio archiving by setting the environment variables in the [Environment Variables Reference](#environment-variables-reference) section.
+
+### Cookie Management
+For authenticated downloads (age-restricted or bot-protected content), upload a YouTube cookies file at `/admin/youtube-cookies`. Set `COOKIE_FILE_PATH` to the file location. When cookies expire, all YouTube cookie records are automatically invalidated and the admin is notified via Telegram.
+
 ## Environment Variables Reference
 
 ### Required Variables
@@ -254,6 +285,12 @@ SITE_URL=http://localhost:3000  # or your production URL
 - `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
 - `RESEND_API_KEY` - Resend API key for email functionality
 - `ALLOW_INDEXING` - Allow search engine indexing (`true`/`false`, defaults to `true`)
+- `AUDIO_ARCHIVE_ENABLED` - Enable audio archiving worker (`true`/`false`, defaults to `false`)
+- `AUDIO_ARCHIVE_MAX_CONCURRENT` - Max concurrent downloads (defaults to `2`)
+- `AUDIO_ARCHIVE_INTERVAL_MS` - Worker polling interval in ms (defaults to `120000`)
+- `TELEGRAM_BOT_TOKEN` - Telegram bot token for admin notifications
+- `TELEGRAM_ADMIN_CHAT_ID` - Telegram chat ID for admin notifications
+- `COOKIE_FILE_PATH` - Path to YouTube cookies file for authenticated downloads (defaults to `/data/youtube-cookies.txt`)
 
 ## Database
 
