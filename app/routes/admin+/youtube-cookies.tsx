@@ -9,8 +9,8 @@ import { Label } from '#app/components/ui/label.tsx'
 import { Textarea } from '#app/components/ui/textarea.tsx'
 import {
 	parseCookieLine,
-	writeCookiesFile,
-	readCookiesFile,
+	writeCookies,
+	readCookies,
 	type NetscapeCookie,
 } from '#app/features/audio-archive/youtube-cookie.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
@@ -35,7 +35,7 @@ interface LoaderData {
 export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
 	await requireUserWithRole(request, 'admin')
 
-	const cookies = readCookiesFile()
+	const cookies = readCookies()
 	const lastUpload = await prisma.youtubeCookie.findFirst({
 		orderBy: { updatedAt: 'desc' },
 		select: { id: true, updatedAt: true, updatedBy: true, valid: true },
@@ -93,7 +93,7 @@ export async function action({ request }: Route.ActionArgs) {
 	// Write to cookie file (may fail on platforms without writable filesystem)
 	let fileWritten = false
 	try {
-		writeCookiesFile(cookies)
+		writeCookies(cookies)
 		fileWritten = true
 	} catch (err) {
 		// Log but continue — DB record is the source of truth
