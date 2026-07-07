@@ -71,15 +71,19 @@ test.describe('YouTube Cookies Admin', { tag: '@slow' }, () => {
 		await expect(page.getByText(/successfully imported/i)).toBeVisible({ timeout: 10000 })
 	})
 
-	test('shows error on empty paste submission', async ({ page, loginAsAdmin }) => {
+	test('shows error on invalid cookie content', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		await page.goto('/admin/youtube-cookies')
 
-		// Submit empty form
+		// Fill with junk text that contains no valid cookies
+		const textarea = page.getByLabel(/cookie content/i)
+		await textarea.fill('this is not valid cookie content')
+
+		// Click the import button
 		await page.getByRole('button', { name: /import cookies/i }).click()
 
-		// Should show error boundary or form validation
-		await expect(page.getByText(/no cookie text provided|no valid cookies|cannot be processed/i)).toBeVisible({ timeout: 10000 })
+		// Should show 400 error boundary
+		await expect(page.getByText(/no valid cookies|cannot be processed/i)).toBeVisible({ timeout: 10000 })
 	})
 
 	test('shows error on empty file upload', async ({ page, loginAsAdmin }) => {
