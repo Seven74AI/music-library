@@ -67,7 +67,7 @@ describe('enqueueArchiveJob', () => {
 			await enqueueArchiveJob(tx as any, 'track-1')
 
 			expect(mockArchiveJob.create).toHaveBeenCalledTimes(1)
-			const callArgs = mockArchiveJob.create.mock.calls[0][0]
+			const callArgs = mockArchiveJob.create.mock.calls[0]![0]
 			expect(callArgs.data.trackId).toBe('track-1')
 			expect(callArgs.data.status).toBe('pending')
 			expect(callArgs.data.priority).toBe(false)
