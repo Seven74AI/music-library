@@ -21,6 +21,18 @@ export const streamTimeout = 5000
 init()
 global.ENV = getEnv()
 
+// Start the audio-archive worker if enabled.
+// Runs as an in-process setInterval per ADR-011 — no separate process needed.
+if (process.env.AUDIO_ARCHIVE_ENABLED === 'true') {
+	const intervalMs = Number(process.env.AUDIO_ARCHIVE_INTERVAL_MS) || 120_000
+	import('./features/audio-archive/worker.server.ts').then(
+		({ processQueueTick }) => {
+			setInterval(processQueueTick, intervalMs)
+			console.log(`Audio archive worker started (interval: ${intervalMs}ms)`)
+		},
+	)
+}
+
 const MODE = process.env.NODE_ENV ?? 'development'
 
 type DocRequestArgs = Parameters<HandleDocumentRequestFunction>
