@@ -1,3 +1,4 @@
+import { enqueueArchiveJob } from '#app/features/audio-archive/auto-enqueue.server'
 import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
 import { prisma } from '#app/utils/db.server'
 import { getServiceByName } from './playlist-utils.server'
@@ -535,6 +536,14 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       })
 
     const tracks = await Promise.all(trackPromises)
+
+    // Auto-enqueue ArchiveJobs for tracks that have a serviceUrl
+    // (external service tracks, e.g. YouTube — not local uploads)
+    for (const track of tracks) {
+      if (track.serviceUrl) {
+        await enqueueArchiveJob(tx, track.id)
+      }
+    }
 
     // Batch upsert playlist tracks with deletion status
     const playlistTrackPromises = tracks.map(async (track, index) => {
