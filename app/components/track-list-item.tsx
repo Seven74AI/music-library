@@ -17,7 +17,7 @@ interface TrackListItemData {
 	artist: { id: string; name: string }
 	duration: number | null
 	coverImage: { objectKey: string } | null
-	thumbnailUrl?: string | null
+	thumbnailUrl?: string | null // Placeholder thumbnail URL (e.g., from YouTube) when coverImage is not available
 	serviceUrl: string | null
 	service?: { displayName: string; logoUrl: string | null } | null
 	audioFiles?: Array<{ id: string; format: string | null; objectKey: string }>
