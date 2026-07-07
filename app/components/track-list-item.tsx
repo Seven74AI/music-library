@@ -11,28 +11,16 @@ import { formatDuration } from '#app/utils/format-duration.ts'
 import { useIsMobile } from '#app/utils/use-mobile.ts'
 import { AddToPlaylistMenu } from './add-to-playlist-menu'
 
-interface Track {
+interface TrackListItemData {
 	id: string
 	title: string
-	artist: {
-		id: string
-		name: string
-	}
+	artist: { id: string; name: string }
 	duration: number | null
-	coverImage: {
-		objectKey: string
-	} | null
+	coverImage: { objectKey: string } | null
 	thumbnailUrl?: string | null // Placeholder thumbnail URL (e.g., from YouTube) when coverImage is not available
 	serviceUrl: string | null
-	service?: {
-		displayName: string
-		logoUrl: string | null
-	} | null
-	audioFiles?: Array<{
-		id: string
-		format: string | null
-		objectKey: string
-	}>
+	service?: { displayName: string; logoUrl: string | null } | null
+	audioFiles?: Array<{ id: string; format: string | null; objectKey: string }>
 }
 
 interface UserTrack {
@@ -40,7 +28,7 @@ interface UserTrack {
 }
 
 interface TrackListItemProps {
-	track: Track
+	track: TrackListItemData
 	userTrack: UserTrack
 	index: number
 	playlistContext?: {

@@ -8,7 +8,7 @@ import { useIsMobile } from '#app/utils/use-mobile.ts'
 import { EditableText } from './editable-text'
 import { PlaylistCover } from './playlist-cover'
 
-interface Track {
+interface PlaylistHeroTrack {
 	id: string
 	title: string
 	artist: { id: string; name: string }
@@ -20,7 +20,7 @@ interface PlaylistHeroProps {
 	id: string
 	title: string
 	description: string | null
-	tracks: Track[]
+	tracks: PlaylistHeroTrack[]
 	createdAt: string
 	updatedAt: string
 	onTitleUpdate: (newTitle: string) => void
