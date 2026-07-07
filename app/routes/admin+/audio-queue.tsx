@@ -482,13 +482,7 @@ export default function AudioQueueRoute({
 					</div>
 				</div>
 
-				{jobs.length === 0 ? (
-					<p className="text-muted-foreground py-8 text-center">
-						No {activeFilter === 'all' ? '' : activeFilter} jobs found.
-					</p>
-				) : (
-					<>
-						<Table>
+					<Table>
 							<TableHeader>
 								<TableRow>
 									<TableHead>Track</TableHead>
@@ -502,60 +496,68 @@ export default function AudioQueueRoute({
 								</TableRow>
 							</TableHeader>
 							<TableBody>
-								{jobs.map((job) => (
-									<TableRow key={job.id}>
-										<TableCell className="font-medium max-w-[200px] truncate">
-											{job.trackTitle}
-										</TableCell>
-										<TableCell>{job.artistName}</TableCell>
-										<TableCell>{job.serviceDisplayName}</TableCell>
-										<TableCell>
-											<StatusBadge status={job.status} />
-											{job.priority && (
-												<Badge variant="outline" className="ml-1 text-[10px]">
-													PRI
-												</Badge>
-											)}
-										</TableCell>
-										<TableCell className="font-mono">{job.retryCount}</TableCell>
-										<TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
-											{getLatestError(job.errorHistory)}
-										</TableCell>
-										<TableCell className="text-sm text-muted-foreground font-mono">
-											{formatDateTime(job.lastAttemptAt)}
-										</TableCell>
-										<TableCell>
-											<Form method="post" className="inline-flex gap-1">
-												{job.status === 'failed' && (
-													<Button
-														type="submit"
-														name="intent"
-														value="retry"
-														variant="outline"
-														size="sm"
-													>
-														<Icon name="arrow-path" className="mr-1" />
-														Retry
-														<input type="hidden" name="jobId" value={job.id} />
-													</Button>
-												)}
-												{job.status === 'completed' || job.status === 'failed' ? null : (
-													<Button
-														type="submit"
-														name="intent"
-														value="enqueue"
-														variant="ghost"
-														size="sm"
-														disabled
-													>
-														<Icon name="download" className="mr-1" />
-														Archive
-													</Button>
-												)}
-											</Form>
-										</TableCell>
+								{jobs.length === 0 ? (
+									<TableRow>
+										<td colSpan={8} className="text-center text-muted-foreground py-8">
+											No {activeFilter === 'all' ? '' : activeFilter} jobs found.
+										</td>
 									</TableRow>
-								))}
+								) : (
+									jobs.map((job) => (
+										<TableRow key={job.id}>
+											<TableCell className="font-medium max-w-[200px] truncate">
+												{job.trackTitle}
+											</TableCell>
+											<TableCell>{job.artistName}</TableCell>
+											<TableCell>{job.serviceDisplayName}</TableCell>
+											<TableCell>
+												<StatusBadge status={job.status} />
+												{job.priority && (
+													<Badge variant="outline" className="ml-1 text-[10px]">
+														PRI
+													</Badge>
+												)}
+											</TableCell>
+											<TableCell className="font-mono">{job.retryCount}</TableCell>
+											<TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
+												{getLatestError(job.errorHistory)}
+											</TableCell>
+											<TableCell className="text-sm text-muted-foreground font-mono">
+												{formatDateTime(job.lastAttemptAt)}
+											</TableCell>
+											<TableCell>
+												<Form method="post" className="inline-flex gap-1">
+													{job.status === 'failed' && (
+														<Button
+															type="submit"
+															name="intent"
+															value="retry"
+															variant="outline"
+															size="sm"
+														>
+															<Icon name="arrow-path" className="mr-1" />
+															Retry
+															<input type="hidden" name="jobId" value={job.id} />
+														</Button>
+													)}
+													{job.status === 'completed' || job.status === 'failed' ? null : (
+														<Button
+															type="submit"
+															name="intent"
+															value="enqueue"
+															variant="ghost"
+															size="sm"
+															disabled
+														>
+															<Icon name="download" className="mr-1" />
+															Archive
+														</Button>
+													)}
+												</Form>
+											</TableCell>
+										</TableRow>
+									))
+								)}
 							</TableBody>
 						</Table>
 
@@ -603,8 +605,6 @@ export default function AudioQueueRoute({
 								</div>
 							</div>
 						)}
-					</>
-				)}
 			</div>
 		</div>
 	)
