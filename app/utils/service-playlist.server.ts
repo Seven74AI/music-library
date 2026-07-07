@@ -93,7 +93,7 @@ export class ServicePlaylistService {
             serviceId,
             playlistId,
             tx,
-            provider as any,
+            provider,
             batchStart,
             accumulated.processedExternalIds,
             accumulated.processedTrackIds,
