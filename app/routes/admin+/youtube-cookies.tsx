@@ -150,12 +150,6 @@ export default function YoutubeCookiesAdminRoute({
 				</Alert>
 			) : null}
 
-			{actionData && 'error' in actionData ? (
-				<Alert variant="destructive" className="mb-4">
-					<AlertDescription>{actionData.error as string}</AlertDescription>
-				</Alert>
-			) : null}
-
 			<div className="mb-6 rounded-lg border p-4">
 				<h2 className="text-h3 mb-2">Current State</h2>
 				<p className="text-muted-foreground">
