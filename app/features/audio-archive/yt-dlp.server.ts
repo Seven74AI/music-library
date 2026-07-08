@@ -46,6 +46,41 @@ export interface YtDlpExecOptions {
 
 const DEFAULT_TIMEOUT = 300_000 // 5 minutes
 
+function buildJsRuntimeArgs(): string[] {
+	return ['--js-runtimes', `node:${process.execPath}`]
+}
+
+export function buildYtDlpSpawnArgs(
+	url: string,
+	options: YtDlpExecOptions = {},
+): string[] {
+	const {
+		outputDir,
+		outputTemplate = '%(title)s [%(id)s].%(ext)s',
+		cookieFile,
+	} = options
+
+	const args = [
+		'--extract-audio',
+		'--audio-format', 'mp3',
+		'--no-playlist',
+		...buildJsRuntimeArgs(),
+	]
+
+	if (outputDir) {
+		args.push('--paths', outputDir)
+	}
+
+	args.push('--output', outputTemplate)
+
+	if (cookieFile) {
+		args.push('--cookies', cookieFile)
+	}
+
+	args.push(url)
+	return args
+}
+
 /**
  * Execute yt-dlp to download audio from a YouTube URL.
  *
@@ -79,18 +114,11 @@ export async function executeYtDlp(
 	}
 
 	return new Promise((resolve) => {
-		const args = [
-			'--extract-audio',
-			'--audio-format', 'mp3',
-			'--no-playlist',
-			'--output', `${outputTemplate}`,
-			...cookieFile ? ['--cookies', cookieFile] : [],
-			url,
-		]
-
-		if (outputDir) {
-			args.splice(4, 0, '--paths', outputDir)
-		}
+		const args = buildYtDlpSpawnArgs(url, {
+			outputDir,
+			outputTemplate,
+			cookieFile,
+		})
 
 		const child = spawn('yt-dlp', args, {
 			stdio: ['ignore', 'pipe', 'pipe'],
@@ -290,23 +318,5 @@ export function parseYtDlpProgress(output: string): number | null {
  * Useful for debugging.
  */
 export function buildYtDlpArgs(url: string, options: YtDlpExecOptions = {}): string[] {
-	const args = [
-		'yt-dlp',
-		'--extract-audio',
-		'--audio-format', 'mp3',
-		'--no-playlist',
-	]
-
-	if (options.outputDir) {
-		args.push('--paths', options.outputDir)
-	}
-
-	args.push('--output', options.outputTemplate ?? '%(title)s [%(id)s].%(ext)s')
-
-	if (options.cookieFile) {
-		args.push('--cookies', options.cookieFile)
-	}
-
-	args.push(url)
-	return args
+	return ['yt-dlp', ...buildYtDlpSpawnArgs(url, options)]
 }

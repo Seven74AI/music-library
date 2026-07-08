@@ -1,5 +1,6 @@
 import { prisma } from '#app/utils/db.server.ts'
 import { executeYtDlp, ErrorCategory } from './yt-dlp.server'
+import { getCookieFilePath } from './youtube-cookie.server'
 import { uploadToTigris, buildObjectKey } from './tigris-upload.server'
 import { isWorkerActive } from './worker-control.server'
 import { notifyCookieExpired, notifyJobFailed } from './notification.server'
@@ -68,7 +69,7 @@ export async function processQueueTick(): Promise<void> {
 
 	if (jobs.length === 0) return
 
-	const cookieFile = process.env.COOKIE_FILE_PATH || undefined
+	const cookieFile = getCookieFilePath()
 
 	for (const job of jobs) {
 		await processJob(job.id, job.track.id, job.track.serviceUrl ?? '', cookieFile)

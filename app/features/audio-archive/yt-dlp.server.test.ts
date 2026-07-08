@@ -1,11 +1,51 @@
 import { describe, expect, it } from 'vitest'
 import {
+	buildYtDlpArgs,
+	buildYtDlpSpawnArgs,
 	categorizeStderr,
 	categorizeYtDlpError,
 	ErrorCategory,
 	parseYtDlpProgress,
 	type YtDlpExecResult,
 } from './yt-dlp.server.ts'
+
+describe('buildYtDlpSpawnArgs', () => {
+	const url = 'https://youtube.com/watch?v=abc123'
+
+	it('includes node JS runtime for YouTube challenge solving', () => {
+		const args = buildYtDlpSpawnArgs(url)
+		expect(args).toContain('--js-runtimes')
+		const runtimeIndex = args.indexOf('--js-runtimes')
+		expect(args[runtimeIndex + 1]).toBe(`node:${process.execPath}`)
+	})
+
+	it('passes cookie file when provided', () => {
+		const args = buildYtDlpSpawnArgs(url, {
+			cookieFile: '/data/youtube-cookies.txt',
+		})
+		expect(args).toContain('--cookies')
+		expect(args).toContain('/data/youtube-cookies.txt')
+	})
+
+	it('omits cookie flag when cookie file is not provided', () => {
+		const args = buildYtDlpSpawnArgs(url)
+		expect(args).not.toContain('--cookies')
+	})
+
+	it('includes output directory when provided', () => {
+		const args = buildYtDlpSpawnArgs(url, { outputDir: '/tmp/downloads' })
+		expect(args).toContain('--paths')
+		expect(args).toContain('/tmp/downloads')
+	})
+})
+
+describe('buildYtDlpArgs', () => {
+	it('prefixes spawn args with yt-dlp command', () => {
+		const url = 'https://youtube.com/watch?v=abc123'
+		expect(buildYtDlpArgs(url)[0]).toBe('yt-dlp')
+		expect(buildYtDlpArgs(url).slice(1)).toEqual(buildYtDlpSpawnArgs(url))
+	})
+})
 
 describe('ErrorCategory enum', () => {
 	it('has all expected categories', () => {

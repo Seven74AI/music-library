@@ -153,6 +153,7 @@ describe('processQueueTick', () => {
 
 	describe('successful job processing', () => {
 		it('processes pending jobs: download → upload → complete', async () => {
+			delete process.env.COOKIE_FILE_PATH
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
 			mockPrisma.archiveJob.findMany.mockResolvedValue([
 				{

@@ -27,8 +27,14 @@ const HEADER_LINES = ['# Netscape HTTP Cookie File', '# This is a generated file
 
 // ── Private helpers ──────────────────────────────────────────────
 
+export const DEFAULT_COOKIE_FILE_PATH = '/data/youtube-cookies.txt'
+
+export function getCookieFilePath(): string {
+	return process.env.COOKIE_FILE_PATH ?? DEFAULT_COOKIE_FILE_PATH
+}
+
 function cookieFilePath(): string {
-	return process.env.COOKIE_FILE_PATH ?? '/data/youtube-cookies.txt'
+	return getCookieFilePath()
 }
 
 function serializeLine(cookie: NetscapeCookie): string {

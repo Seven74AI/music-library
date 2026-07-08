@@ -1,8 +1,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+	DEFAULT_COOKIE_FILE_PATH,
+	getCookieFilePath,
 	parseCookieLine,
 	readCookies,
 	writeCookies,
@@ -11,6 +13,31 @@ import {
 function tmpPath(name: string): string {
 	return path.join(os.tmpdir(), `music-library-test-${name}`)
 }
+
+describe('getCookieFilePath', () => {
+	const originalPath = process.env.COOKIE_FILE_PATH
+
+	beforeEach(() => {
+		delete process.env.COOKIE_FILE_PATH
+	})
+
+	it('returns the default path when COOKIE_FILE_PATH is unset', () => {
+		expect(getCookieFilePath()).toBe(DEFAULT_COOKIE_FILE_PATH)
+	})
+
+	it('returns COOKIE_FILE_PATH when set', () => {
+		process.env.COOKIE_FILE_PATH = '/custom/cookies.txt'
+		expect(getCookieFilePath()).toBe('/custom/cookies.txt')
+	})
+
+	afterEach(() => {
+		if (originalPath === undefined) {
+			delete process.env.COOKIE_FILE_PATH
+		} else {
+			process.env.COOKIE_FILE_PATH = originalPath
+		}
+	})
+})
 
 describe('parseCookieLine', () => {
 	it('parses a valid Netscape-format line', () => {
