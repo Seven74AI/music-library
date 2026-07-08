@@ -14,7 +14,7 @@ const DIRECTIVES = {
 	'img-src': "'self' data:",
 	'connect-src': "'self'",
 	'font-src': "'self'",
-	'media-src': "'self' https://*.fly.storage.tigris.dev",
+	'media-src': "'self' https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",
 	'frame-ancestors': "'none'",
 } as const
 

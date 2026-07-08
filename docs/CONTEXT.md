@@ -118,7 +118,7 @@ These 21 decisions emerged from the audio archiving implementation, architecture
 
 ### Audio Serving
 
-22. **No redirect — direct presigned URL** — The audio resource route returns the presigned Tigris URL directly (no 302 redirect). Client fetches it and sets `<audio src>` to the S3 URL. Presigned URL exposes only the access key ID + signature — can only GET that single MP3 until expiry. CORS config on Tigris bucket enables Range-seeking directly against the CDN. CSP `media-src` must include the Tigris domain (`*.fly.storage.tigris.dev`).
+22. **No redirect — direct presigned URL** — The audio resource route returns the presigned Tigris URL directly (no 302 redirect). Client fetches it and sets `<audio src>` to the S3 URL. Presigned URL exposes only the access key ID + signature — can only GET that single MP3 until expiry. CORS config on Tigris bucket enables Range-seeking directly against the CDN. CSP `media-src` must include both `https://fly.storage.tigris.dev` (path-style presigned URLs) and `https://*.fly.storage.tigris.dev` (virtual-hosted-style URLs).
 
 ### Display & Navigation
 
