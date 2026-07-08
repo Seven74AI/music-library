@@ -3,6 +3,7 @@ import { executeYtDlp, ErrorCategory } from './yt-dlp.server'
 import { uploadToTigris, buildObjectKey } from './tigris-upload.server'
 import { isWorkerActive } from './worker-control.server'
 import { notifyCookieExpired, notifyJobFailed } from './notification.server'
+import { cookieFilePath } from './youtube-cookie.server'
 import type { ErrorCategory as ErrorCategoryType } from './yt-dlp.server'
 
 /**
@@ -68,7 +69,7 @@ export async function processQueueTick(): Promise<void> {
 
 	if (jobs.length === 0) return
 
-	const cookieFile = process.env.COOKIE_FILE_PATH || undefined
+	const cookieFile = cookieFilePath()
 
 	for (const job of jobs) {
 		await processJob(job.id, job.track.id, job.track.serviceUrl ?? '', cookieFile)

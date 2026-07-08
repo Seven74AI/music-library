@@ -27,7 +27,7 @@ const HEADER_LINES = ['# Netscape HTTP Cookie File', '# This is a generated file
 
 // ── Private helpers ──────────────────────────────────────────────
 
-function cookieFilePath(): string {
+export function cookieFilePath(): string {
 	return process.env.COOKIE_FILE_PATH ?? '/data/youtube-cookies.txt'
 }
 
