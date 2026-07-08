@@ -51,6 +51,8 @@ export interface TrackWithUserStatus {
     format: string | null
     objectKey: string
   }>
+  /** Whether the current user has this track in their personal library */
+  isInUserLibrary?: boolean
 }
 
 /**
