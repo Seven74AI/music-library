@@ -437,6 +437,18 @@ export class ServicePlaylistService {
     // Get playlist with tracks — use provided serviceName instead of hardcoded 'youtube'
     const result = await this.getPlaylistTracks(serviceName, playlistId, userId)
 
+    // Determine which tracks are in the user's personal library
+    const trackIds = result.tracks.map(t => t.id)
+    const userTracks = await prisma.userTrack.findMany({
+      where: {
+        userId,
+        trackId: { in: trackIds },
+        isActive: true,
+      },
+      select: { trackId: true },
+    })
+    const libraryTrackIds = new Set(userTracks.map(ut => ut.trackId))
+
     // Transform to type-safe frontend format
     const playlist: PlaylistWithTracks = {
       ...result.playlist,
@@ -466,6 +478,7 @@ export class ServicePlaylistService {
         format: af.format,
         objectKey: af.objectKey,
       })),
+      isInUserLibrary: libraryTrackIds.has(track.id),
     }))
 
     // Update playlist tracks
@@ -706,10 +719,84 @@ export class ServicePlaylistService {
   }> {
     return doConfirmMatches(playlistId, matches, userId)
   }
+
+  /**
+   * Add a track to the user's personal library.
+   * Creates a UserTrack record (idempotent — reactivates if already exists but inactive).
+   */
+  async addTrackToUserLibrary(
+    trackId: string,
+    userId: string,
+  ): Promise<{ success: boolean; message: string; error?: string }> {
+    try {
+      const existing = await prisma.userTrack.findUnique({
+        where: {
+          userId_trackId: { userId, trackId },
+        },
+      })
+
+      if (existing) {
+        if (existing.isActive) {
+          return { success: true, message: 'Track already in library' }
+        }
+        // Reactivate soft-deleted record
+        await prisma.userTrack.update({
+          where: { id: existing.id },
+          data: { isActive: true, deletedAt: null },
+        })
+        return { success: true, message: 'Track re-added to library' }
+      }
+
+      await prisma.userTrack.create({
+        data: { userId, trackId },
+      })
+      return { success: true, message: 'Track added to library' }
+    } catch (error) {
+      console.error('Error adding track to user library:', error)
+      return {
+        success: false,
+        message: 'Failed to add track to library',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
+
+  /**
+   * Remove a track from the user's personal library (soft delete).
+   */
+  async removeTrackFromUserLibrary(
+    trackId: string,
+    userId: string,
+  ): Promise<{ success: boolean; message: string; error?: string }> {
+    try {
+      const existing = await prisma.userTrack.findUnique({
+        where: {
+          userId_trackId: { userId, trackId },
+        },
+      })
+
+      if (!existing || !existing.isActive) {
+        return { success: false, message: 'Track not found in library' }
+      }
+
+      await prisma.userTrack.update({
+        where: { id: existing.id },
+        data: { isActive: false, deletedAt: new Date() },
+      })
+      return { success: true, message: 'Track removed from library' }
+    } catch (error) {
+      console.error('Error removing track from user library:', error)
+      return {
+        success: false,
+        message: 'Failed to remove track from library',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
 }
 
 /**
- * Factory function to create a new ServicePlaylistService instance
+   * Factory function to create a new ServicePlaylistService instance
  */
 export function createServicePlaylistService(): ServicePlaylistService {
   return new ServicePlaylistService()
