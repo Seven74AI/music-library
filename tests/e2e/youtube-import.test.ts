@@ -31,7 +31,7 @@ test.describe('YouTube Import Page', () => {
 		await expect(searchInput).toBeVisible()
 
 		// Search button should be visible
-		await expect(page.getByRole('button', { name: /search/i })).toBeVisible()
+		await expect(page.getByRole('button', { name: /search/i }).first()).toBeVisible()
 	})
 
 	test('can search and see results with mock data', async ({
@@ -46,7 +46,7 @@ test.describe('YouTube Import Page', () => {
 			/enter youtube url or search by artist/i,
 		)
 		await searchInput.fill('test song')
-		await page.getByRole('button', { name: /search/i }).click()
+		await page.getByRole('button', { name: /search/i }).first().click()
 
 		// Wait for results to load (mock data returns 5 results)
 		await page.waitForTimeout(1000)
@@ -72,7 +72,7 @@ test.describe('YouTube Import Page', () => {
 			/enter youtube url or search by artist/i,
 		)
 		await searchInput.fill('test')
-		await page.getByRole('button', { name: /search/i }).click()
+		await page.getByRole('button', { name: /search/i }).first().click()
 		await page.waitForTimeout(1000)
 
 		// Each result should have an Import button
