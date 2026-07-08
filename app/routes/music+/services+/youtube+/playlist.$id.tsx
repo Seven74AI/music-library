@@ -1,6 +1,6 @@
 import { formatDistanceToNow } from 'date-fns'
-import { useState, useEffect, useRef } from 'react'
-import { data, Form, useActionData, useLoaderData, Link, useNavigate, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { data, Form, useActionData, useFetcher, useLoaderData, Link, useNavigate, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router'
 
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs'
 import { DeletedVideoMatchDialog } from '#app/components/deleted-video-match-dialog'
@@ -190,6 +190,97 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 	const [showDialog, setShowDialog] = useState(false)
 	const [syncButtonDisabled, setSyncButtonDisabled] = useState(false)
 	const hadPendingMatchesRef = useRef(false)
+	
+	// Library fetcher + optimistic state
+	const libraryFetcher = useFetcher()
+	const [libraryStatus, setLibraryStatus] = useState<Record<string, boolean>>(() => {
+		const status: Record<string, boolean> = {}
+		for (const track of tracks) {
+			if (track.isInUserLibrary !== undefined) {
+				status[track.id] = track.isInUserLibrary
+			}
+		}
+		return status
+	})
+
+	// Sync library status when loader data changes (re-sync, refresh, etc.)
+	useEffect(() => {
+		setLibraryStatus(prev => {
+			const next = { ...prev }
+			for (const track of tracks) {
+				if (track.isInUserLibrary !== undefined) {
+					if (next[track.id] === undefined) {
+						next[track.id] = track.isInUserLibrary
+					}
+				}
+			}
+			return next
+		})
+	}, [tracks])
+
+	const handleToggleLibrary = useCallback((trackId: string, currentIsInLibrary: boolean) => {
+		const action = currentIsInLibrary ? 'remove' : 'add'
+		setLibraryStatus(prev => ({ ...prev, [trackId]: !currentIsInLibrary }))
+		void libraryFetcher.submit(
+			{ trackId, action },
+			{ method: 'post', action: '/resources/track-library' },
+		)
+	}, [libraryFetcher])
+
+	const itemActions = useCallback(({ trackId, isInLibrary, isDeleted }: { trackId: string; isInLibrary: boolean; isDeleted: boolean }) => {
+		const currentStatus = libraryStatus[trackId] !== undefined ? libraryStatus[trackId] : isInLibrary
+		if (isDeleted) return null
+		return (
+			<Button
+				variant="ghost"
+				size="sm"
+				className="h-8 w-8 p-0"
+				onClick={(e) => {
+					e.stopPropagation()
+					handleToggleLibrary(trackId, currentStatus)
+				}}
+				aria-label={currentStatus ? 'Remove from library' : 'Add to library'}
+				title={currentStatus ? 'Remove from library' : 'Add to library'}
+			>
+				<Icon
+					name={currentStatus ? 'check-circled' : 'plus'}
+					className={`h-4 w-4 ${currentStatus ? 'text-green-500' : 'text-muted-foreground'}`}
+				/>
+			</Button>
+		)
+	}, [libraryStatus, handleToggleLibrary])
+
+	const [isAddAllMissingDialogOpen, setIsAddAllMissingDialogOpen] = useState(false)
+
+	const handleAddAllMissing = () => setIsAddAllMissingDialogOpen(true)
+
+	const confirmAddAllMissing = () => {
+		const missingTracks = tracks.filter(track => {
+			const status = libraryStatus[track.id] !== undefined ? libraryStatus[track.id] : track.isInUserLibrary
+			return !status
+		})
+		if (missingTracks.length === 0) {
+			setIsAddAllMissingDialogOpen(false)
+			return
+		}
+		const updates: Record<string, boolean> = {}
+		for (const track of missingTracks) {
+			updates[track.id] = true
+		}
+		setLibraryStatus(prev => ({ ...prev, ...updates }))
+		for (const track of missingTracks) {
+			const formData = new FormData()
+			formData.append('trackId', track.id)
+			formData.append('action', 'add')
+			void fetch('/resources/track-library', { method: 'POST', body: formData })
+		}
+		setIsAddAllMissingDialogOpen(false)
+	}
+
+	const missingCount = tracks.filter(track => {
+		const status = libraryStatus[track.id] !== undefined ? libraryStatus[track.id] : track.isInUserLibrary
+		return !status
+	}).length
 	
 	// Detect when sync form is submitting
 	const isSyncing = useIsPending({ formMethod: 'POST' })
@@ -507,6 +598,16 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 										<div className="w-8 flex items-center justify-center">#</div>
 										<div className="flex-1 min-w-0">Title</div>
 										<div className="w-8 flex items-center justify-center"></div>
+										{missingCount > 0 && (
+											<Button
+												variant="outline"
+												size="sm"
+												onClick={handleAddAllMissing}
+											>
+												<Icon name="plus" className="h-4 w-4 mr-1" />
+												Add All Missing ({missingCount})
+											</Button>
+										)}
 									</div>
 									{tracks.map((track, index) => {
 										// Convert TrackWithUserStatus to TrackListItem format
@@ -532,23 +633,46 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 
 
 										return (
-											<TrackListItem
-												key={track.id}
-												track={trackForListItem}
+								<TrackListItem
+													key={track.id}
+													track={{
+														...trackForListItem,
+														isInUserLibrary: libraryStatus[track.id] !== undefined ? libraryStatus[track.id] : track.isInUserLibrary,
+													}}
 												userTrack={userTrack}
 												index={index}
 												playlistContext={{ type: 'playlist', playlistId: playlist.id }}
-												isDeleted={track.isDeleted}
-												showDuration={false} // Hide duration on YouTube playlist browsing
+										isDeleted={track.isDeleted}
+											showDuration={false} // Hide duration on YouTube playlist browsing
+											itemActions={itemActions}
 											/>
 										)
 									})}
 								</div>
 							)}
 						</CardContent>
-					</Card>
-				</div>
+				</Card>
 			</div>
+		</div>
+
+		{/* Add All Missing Confirmation Dialog */}
+			<AlertDialog open={isAddAllMissingDialogOpen} onOpenChange={setIsAddAllMissingDialogOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Add All Missing to Library</AlertDialogTitle>
+						<AlertDialogDescription>
+							Are you sure you want to add the {missingCount} track{missingCount !== 1 ? 's' : ''} from "{playlist.title}" that {missingCount !== 1 ? 'are' : 'is'} not yet in your library?
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={confirmAddAllMissing}>
+							<Icon name="plus" className="h-4 w-4 mr-2" />
+							Add {missingCount} Track{missingCount !== 1 ? 's' : ''}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	)
 }

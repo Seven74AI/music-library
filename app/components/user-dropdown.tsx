@@ -78,6 +78,15 @@ export function UserDropdown() {
 							</Link>
 						</DropdownMenuItem>
 					)}
+					{isAdmin && (
+						<DropdownMenuItem asChild>
+							<Link prefetch="intent" to="/admin/youtube-cookies">
+								<Icon className="text-body-md" name="file-text">
+									YouTube Cookies
+								</Icon>
+							</Link>
+						</DropdownMenuItem>
+					)}
 					<Form action="/logout" method="POST" ref={formRef}>
 						<DropdownMenuItem asChild>
 							<button type="submit" className="w-full">
