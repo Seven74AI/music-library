@@ -61,7 +61,7 @@ export async function executeYtDlp(
 ): Promise<YtDlpExecResult> {
 	const {
 		outputDir,
-		outputTemplate = '%(title)s.%(ext)s',
+		outputTemplate = '%(title)s [%(id)s].%(ext)s',
 		cookieFile,
 		timeout = DEFAULT_TIMEOUT,
 	} = options
@@ -83,7 +83,6 @@ export async function executeYtDlp(
 			'--extract-audio',
 			'--audio-format', 'mp3',
 			'--no-playlist',
-			'--no-warnings',
 			'--output', `${outputTemplate}`,
 			...cookieFile ? ['--cookies', cookieFile] : [],
 			url,
@@ -192,7 +191,16 @@ export function categorizeStderr(stderr: string): ErrorCategory | null {
 		return 'COOKIE_EXPIRED'
 	}
 
-	// Authentication errors
+	// CDN-level block (media download, not auth — e.g. "unable to download video data: HTTP Error 403")
+	// These are transient infrastructure blocks, not credential failures
+	if (
+		lower.includes('unable to download video data') ||
+		lower.includes('unable to extract video data')
+	) {
+		return 'NETWORK'
+	}
+
+	// Authentication errors (403/forbidden at the webpage/auth layer)
 	if (
 		lower.includes('http error 403') ||
 		lower.includes('forbidden') ||
@@ -287,14 +295,13 @@ export function buildYtDlpArgs(url: string, options: YtDlpExecOptions = {}): str
 		'--extract-audio',
 		'--audio-format', 'mp3',
 		'--no-playlist',
-		'--no-warnings',
 	]
 
 	if (options.outputDir) {
 		args.push('--paths', options.outputDir)
 	}
 
-	args.push('--output', options.outputTemplate ?? '%(title)s.%(ext)s')
+	args.push('--output', options.outputTemplate ?? '%(title)s [%(id)s].%(ext)s')
 
 	if (options.cookieFile) {
 		args.push('--cookies', options.cookieFile)
