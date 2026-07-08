@@ -25,6 +25,13 @@ vi.mock('#app/utils/db.server', () => ({
 			findUnique: vi.fn(),
 			upsert: vi.fn(),
 		},
+		userTrack: {
+			findUnique: vi.fn(),
+			findMany: vi.fn(),
+			create: vi.fn(),
+			update: vi.fn(),
+			delete: vi.fn(),
+		},
 		$transaction: vi.fn(),
 		$disconnect: vi.fn().mockResolvedValue(undefined),
 	},
@@ -850,6 +857,140 @@ describe('ServicePlaylistService - Batch Processing', () => {
 			expect(result.tracksAdded).toBe(5)
 			// Should have pending matches for the deleted video
 			expect(result.pendingMatches).toHaveLength(1)
+		})
+	})
+})
+
+describe('ServicePlaylistService - User Library', () => {
+	let service: ServicePlaylistService
+	let prisma: any
+
+	beforeEach(async () => {
+		service = createServicePlaylistService()
+		prisma = (await import('#app/utils/db.server')).prisma
+		vi.clearAllMocks()
+	})
+
+	const userId = 'user1'
+	const trackId = 'track1'
+
+	describe('addTrackToUserLibrary', () => {
+		test('creates a new UserTrack when track is not in library', async () => {
+			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue(null)
+			vi.mocked(prisma.userTrack.create).mockResolvedValue({
+				id: 'ut1', userId, trackId, isActive: true,
+				deletedAt: null, createdAt: new Date(), updatedAt: new Date(),
+			})
+
+			const result = await service.addTrackToUserLibrary(trackId, userId)
+
+			expect(result.success).toBe(true)
+			expect(result.message).toBe('Track added to library')
+			expect(prisma.userTrack.create).toHaveBeenCalledWith({
+				data: { userId, trackId },
+			})
+		})
+
+		test('returns success without creating when already in library', async () => {
+			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue({
+				id: 'ut1', userId, trackId, isActive: true, deletedAt: null,
+			})
+
+			const result = await service.addTrackToUserLibrary(trackId, userId)
+
+			expect(result.success).toBe(true)
+			expect(result.message).toBe('Track already in library')
+			expect(prisma.userTrack.create).not.toHaveBeenCalled()
+		})
+
+		test('reactivates soft-deleted record', async () => {
+			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue({
+				id: 'ut1', userId, trackId, isActive: false,
+				deletedAt: new Date(),
+			})
+			vi.mocked(prisma.userTrack.update).mockResolvedValue({
+				id: 'ut1', isActive: true, deletedAt: null,
+			} as any)
+
+			const result = await service.addTrackToUserLibrary(trackId, userId)
+
+			expect(result.success).toBe(true)
+			expect(result.message).toBe('Track re-added to library')
+			expect(prisma.userTrack.update).toHaveBeenCalledWith({
+				where: { id: 'ut1' },
+				data: { isActive: true, deletedAt: null },
+			})
+		})
+
+		test('handles database errors gracefully', async () => {
+			const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+			vi.mocked(prisma.userTrack.findUnique).mockRejectedValue(
+				new Error('DB connection failed'),
+			)
+
+			const result = await service.addTrackToUserLibrary(trackId, userId)
+
+			expect(result.success).toBe(false)
+			expect(result.message).toBe('Failed to add track to library')
+			expect(result.error).toBe('DB connection failed')
+			consoleError.mockRestore()
+		})
+	})
+
+	describe('removeTrackFromUserLibrary', () => {
+		test('soft-deletes an active user track', async () => {
+			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue({
+				id: 'ut1', userId, trackId, isActive: true, deletedAt: null,
+			})
+			vi.mocked(prisma.userTrack.update).mockResolvedValue({
+				id: 'ut1', isActive: false, deletedAt: new Date(),
+			} as any)
+
+			const result = await service.removeTrackFromUserLibrary(trackId, userId)
+
+			expect(result.success).toBe(true)
+			expect(result.message).toBe('Track removed from library')
+			expect(prisma.userTrack.update).toHaveBeenCalledWith({
+				where: { id: 'ut1' },
+				data: { isActive: false, deletedAt: expect.any(Date) },
+			})
+		})
+
+		test('returns failure when track not found', async () => {
+			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue(null)
+
+			const result = await service.removeTrackFromUserLibrary(trackId, userId)
+
+			expect(result.success).toBe(false)
+			expect(result.message).toBe('Track not found in library')
+			expect(prisma.userTrack.update).not.toHaveBeenCalled()
+		})
+
+		test('returns failure when track already inactive', async () => {
+			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue({
+				id: 'ut1', userId, trackId, isActive: false,
+				deletedAt: new Date(),
+			})
+
+			const result = await service.removeTrackFromUserLibrary(trackId, userId)
+
+			expect(result.success).toBe(false)
+			expect(result.message).toBe('Track not found in library')
+			expect(prisma.userTrack.update).not.toHaveBeenCalled()
+		})
+
+		test('handles database errors gracefully', async () => {
+			const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+			vi.mocked(prisma.userTrack.findUnique).mockRejectedValue(
+				new Error('DB connection failed'),
+			)
+
+			const result = await service.removeTrackFromUserLibrary(trackId, userId)
+
+			expect(result.success).toBe(false)
+			expect(result.message).toBe('Failed to remove track from library')
+			expect(result.error).toBe('DB connection failed')
+			consoleError.mockRestore()
 		})
 	})
 })

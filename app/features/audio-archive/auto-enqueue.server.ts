@@ -5,7 +5,7 @@
  * Creates a pending ArchiveJob for tracks that have a serviceUrl
  * (external service tracks, not local uploads).
  *
- * Only enqueues when AUDIO_ARCHIVE_ENABLED is true.
+ * No longer guarded by AUDIO_ARCHIVE_ENABLED — caller decides when to invoke.
  */
 
 /**
@@ -22,8 +22,6 @@ export async function enqueueArchiveJob(
 	tx: any,
 	trackId: string,
 ): Promise<void> {
-	if (process.env.AUDIO_ARCHIVE_ENABLED !== 'true') return
-
 	try {
 		await tx.archiveJob.create({
 			data: {

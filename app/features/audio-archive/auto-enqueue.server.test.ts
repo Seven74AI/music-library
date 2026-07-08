@@ -16,49 +16,8 @@ describe('enqueueArchiveJob', () => {
 		vi.clearAllMocks()
 	})
 
-	describe('AUDIO_ARCHIVE_ENABLED check', () => {
-		it('skips enqueue when AUDIO_ARCHIVE_ENABLED is not true', async () => {
-			process.env.AUDIO_ARCHIVE_ENABLED = 'false'
-			const { enqueueArchiveJob } = await import('./auto-enqueue.server.ts')
-
-			const tx = { archiveJob: mockArchiveJob }
-			await enqueueArchiveJob(tx as any, 'track-1')
-
-			expect(mockArchiveJob.create).not.toHaveBeenCalled()
-		})
-
-		it('skips enqueue when AUDIO_ARCHIVE_ENABLED is empty', async () => {
-			process.env.AUDIO_ARCHIVE_ENABLED = ''
-			const { enqueueArchiveJob } = await import('./auto-enqueue.server.ts')
-
-			const tx = { archiveJob: mockArchiveJob }
-			await enqueueArchiveJob(tx as any, 'track-1')
-
-			expect(mockArchiveJob.create).not.toHaveBeenCalled()
-		})
-
-		it('proceeds when AUDIO_ARCHIVE_ENABLED is true', async () => {
-			process.env.AUDIO_ARCHIVE_ENABLED = 'true'
-			const { enqueueArchiveJob } = await import('./auto-enqueue.server.ts')
-
-			mockArchiveJob.create.mockResolvedValue({ id: 'job-1', trackId: 'track-1' })
-
-			const tx = { archiveJob: mockArchiveJob }
-			await enqueueArchiveJob(tx as any, 'track-1')
-
-			expect(mockArchiveJob.create).toHaveBeenCalledWith({
-				data: {
-					trackId: 'track-1',
-					status: 'pending',
-					priority: false,
-				},
-			})
-		})
-	})
-
 	describe('job creation', () => {
 		it('creates ArchiveJob with pending status and auto-priority', async () => {
-			process.env.AUDIO_ARCHIVE_ENABLED = 'true'
 			const { enqueueArchiveJob } = await import('./auto-enqueue.server.ts')
 
 			mockArchiveJob.create.mockResolvedValue({ id: 'job-1', trackId: 'track-1' })
@@ -74,7 +33,6 @@ describe('enqueueArchiveJob', () => {
 		})
 
 		it('silently skips when ArchiveJob already exists (unique constraint)', async () => {
-			process.env.AUDIO_ARCHIVE_ENABLED = 'true'
 			const { enqueueArchiveJob } = await import('./auto-enqueue.server.ts')
 
 			// Simulate unique constraint violation
@@ -90,7 +48,6 @@ describe('enqueueArchiveJob', () => {
 		})
 
 		it('does not throw on any database error', async () => {
-			process.env.AUDIO_ARCHIVE_ENABLED = 'true'
 			const { enqueueArchiveJob } = await import('./auto-enqueue.server.ts')
 
 			mockArchiveJob.create.mockRejectedValue(new Error('Database connection lost'))
