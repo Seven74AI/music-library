@@ -37,12 +37,23 @@ export const YOUTUBE_SYNCED_PLAYLISTS_INTENTS = {
 export type YouTubeSyncedPlaylistsIntent = typeof YOUTUBE_SYNCED_PLAYLISTS_INTENTS[keyof typeof YOUTUBE_SYNCED_PLAYLISTS_INTENTS]
 
 /**
+ * Intent constants for import page actions
+ */
+export const YOUTUBE_IMPORT_INTENTS = {
+  SEARCH: 'search',
+  IMPORT: 'import',
+} as const
+
+export type YouTubeImportIntent = typeof YOUTUBE_IMPORT_INTENTS[keyof typeof YOUTUBE_IMPORT_INTENTS]
+
+/**
  * Union type for all YouTube intents
  */
 export type YouTubeIntent = 
   | YouTubePlaylistDiscoveryIntent 
   | YouTubePlaylistDetailIntent 
   | YouTubeSyncedPlaylistsIntent
+  | YouTubeImportIntent
 
 /**
  * Page type constants for better type safety
@@ -51,6 +62,7 @@ export const YOUTUBE_PAGE_TYPES = {
   DISCOVERY: 'discovery',
   DETAIL: 'detail', 
   SYNCED: 'synced',
+  IMPORT: 'import',
 } as const
 
 export type YouTubePageType = typeof YOUTUBE_PAGE_TYPES[keyof typeof YOUTUBE_PAGE_TYPES]
@@ -70,6 +82,10 @@ export function validateSyncedPlaylistsIntent(intent: unknown): intent is YouTub
   return typeof intent === 'string' && (Object.values(YOUTUBE_SYNCED_PLAYLISTS_INTENTS) as readonly string[]).includes(intent)
 }
 
+export function validateImportIntent(intent: unknown): intent is YouTubeImportIntent {
+  return typeof intent === 'string' && (Object.values(YOUTUBE_IMPORT_INTENTS) as readonly string[]).includes(intent)
+}
+
 /**
  * Get human-readable error messages for invalid intents
  */
@@ -81,6 +97,8 @@ export function getIntentErrorMessage(page: YouTubePageType): string {
       return `Invalid intent. Must be one of: ${Object.values(YOUTUBE_PLAYLIST_DETAIL_INTENTS).join(', ')}`
     case YOUTUBE_PAGE_TYPES.SYNCED:
       return `Invalid intent. Must be one of: ${Object.values(YOUTUBE_SYNCED_PLAYLISTS_INTENTS).join(', ')}`
+    case YOUTUBE_PAGE_TYPES.IMPORT:
+      return `Invalid intent. Must be one of: ${Object.values(YOUTUBE_IMPORT_INTENTS).join(', ')}`
     default:
       return 'Invalid intent'
   }
