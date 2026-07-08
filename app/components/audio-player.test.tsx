@@ -4,6 +4,7 @@
 import { type ReactNode } from 'react'
 import { render } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
+import type { FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayer } from './audio-player'
 
 // Mock the provider module to avoid the QueueSheet's useAudioPlayer requirement
@@ -17,17 +18,13 @@ vi.mock('#app/components/audio-player-provider', () => ({
 	AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
 }))
 
-const mockTrack = {
+const mockTrack: FullTrack = {
 	id: 'track-1',
 	title: 'Test Song',
 	artist: { id: 'artist-1', name: 'Test Artist' },
 	duration: 180,
-	coverImage: null,
-	thumbnailUrl: null,
-	serviceUrl: 'https://youtube.com/watch?v=test',
-	service: { displayName: 'YouTube', logoUrl: null },
-	audioFiles: [{ format: 'mp3', url: 'https://example.com/test.mp3' }],
-	isInUserLibrary: false,
+	coverImage: { objectKey: 'covers/test.jpg' },
+	audioFiles: [{ id: 'af-1', format: 'mp3', objectKey: 'audio/test.mp3' }],
 }
 
 const defaultProps = {
