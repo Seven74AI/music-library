@@ -11,7 +11,7 @@ test('createCSP generates header with default directives', () => {
 	expect(result).toContain("img-src 'self' data:")
 	expect(result).toContain("connect-src 'self'")
 	expect(result).toContain("font-src 'self'")
-	expect(result).toContain("media-src 'self'")
+	expect(result).toContain("media-src 'self' https://*.fly.storage.tigris.dev")
 })
 
 test('createCSP includes script-src with self and nonce', () => {
@@ -40,7 +40,7 @@ test('createCSP joins directives with semicolon and space', () => {
 	const result = createCSP('test')
 
 	expect(result).toBe(
-		"default-src 'none'; script-src 'self' 'nonce-test'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; media-src 'self'; frame-ancestors 'none'",
+		"default-src 'none'; script-src 'self' 'nonce-test'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; media-src 'self' https://*.fly.storage.tigris.dev; frame-ancestors 'none'",
 	)
 })
 
@@ -52,6 +52,6 @@ test('createCSP produces valid CSP string for different nonces', () => {
 		expect(result).toContain(`'nonce-${n}'`)
 		expect(result).toContain("default-src 'none'")
 		expect(result).toContain("style-src 'self' 'unsafe-inline'")
-		expect(result).toContain("media-src 'self'")
+		expect(result).toContain("media-src 'self' https://*.fly.storage.tigris.dev")
 	}
 })
