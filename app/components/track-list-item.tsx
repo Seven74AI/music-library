@@ -1,4 +1,4 @@
-import { useState, useCallback, memo } from 'react'
+import { useState, useCallback, memo, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { TrackThumbnail } from '#app/components/track-thumbnail'
 import { Button } from '#app/components/ui/button'
@@ -21,6 +21,7 @@ interface TrackListItemData {
 	serviceUrl: string | null
 	service?: { displayName: string; logoUrl: string | null } | null
 	audioFiles?: Array<{ id: string; format: string | null; objectKey: string }>
+	isInUserLibrary?: boolean
 }
 
 interface UserTrack {
@@ -42,6 +43,8 @@ interface TrackListItemProps {
 	onRemoveFromPlaylist?: (trackId: string) => void
 	playlists?: Array<{ id: string; title: string; description: string | null; _count: { tracks: number } }>
 	showDuration?: boolean // New prop to control duration display
+	/** Render prop for custom per-track action buttons. Receives trackId, isInLibrary, and isDeleted. */
+	itemActions?: (props: { trackId: string; isInLibrary: boolean; isDeleted: boolean }) => ReactNode
 }
 
 /**
@@ -64,6 +67,7 @@ interface TrackListItemProps {
  * @param showQueueActions - Whether to show queue-related actions
  * @param onRemoveFromQueue - Callback for removing track from queue
  * @param playlists - Available playlists for "Add to Playlist" functionality
+ * @param itemActions - Optional render prop for custom per-track action buttons
  * 
  * @example
  * ```tsx
@@ -75,7 +79,7 @@ interface TrackListItemProps {
  * />
  * ```
  */
-export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, isDeleted, showQueueActions, onRemoveFromQueue, showPlaylistActions, onRemoveFromPlaylist, playlists, showDuration = true }: TrackListItemProps) {
+export const TrackListItem = memo(function TrackListItem({ track, userTrack, index, playlistContext, isDeleted, showQueueActions, onRemoveFromQueue, showPlaylistActions, onRemoveFromPlaylist, playlists, showDuration = true, itemActions }: TrackListItemProps) {
 	const [isHovered, setIsHovered] = useState(false)
 	const [isActionsSheetOpen, setIsActionsSheetOpen] = useState(false)
 	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
@@ -344,6 +348,13 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 				)}
 			</div>
 			
+			{/* Custom actions from render prop */}
+			{itemActions?.({
+				trackId: track.id,
+				isInLibrary: !!track.isInUserLibrary,
+				isDeleted: !!isDeleted,
+			})}
+
 			{/* Mobile Sheets (rendered outside the button) */}
 			{isMobile && (
 				<>
