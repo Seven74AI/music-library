@@ -30,8 +30,8 @@ test.describe('YouTube Import Page', () => {
 		)
 		await expect(searchInput).toBeVisible()
 
-		// Search button should be visible
-		await expect(page.getByRole('button', { name: /search/i })).toBeVisible()
+		// Search button should be visible (use .first() — global nav bar also has a search button)
+		await expect(page.getByRole('button', { name: /search/i }).first()).toBeVisible()
 	})
 
 	test('can search and see results with mock data', async ({
