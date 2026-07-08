@@ -60,56 +60,70 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 
 ## Settled Decisions
 
-These 16 decisions emerged from the audio archiving implementation and architecture review phases.
+These 21 decisions emerged from the audio archiving implementation, architecture review, and subsequent feature work.
 
 ### Architecture
 
 1. **Feature in `app/features/audio-archive/`** — Audio archiving is a self-contained feature module, not scattered across `app/utils/`. All 14 files (7 source + 7 test) live under one directory.
 
-2. **yt-dlp as download tool** — Chosen over `youtube-dl` (unmaintained) and direct HTTP stream capture. yt-dlp is actively maintained, handles YouTube's anti-bot measures, and supports cookie-based authentication.
+2. **yt-dlp as download tool** — Chosen over `youtube-dl` (unmaintained) and direct HTTP stream capture. yt-dlp is actively maintained, handles YouTube's anti-bot measures, and supports cookie-based authentication. Defense strategy: cookies (auth) + sleep intervals / long breaks (rate limit). User-agent rotation dropped as redundant.
 
-3. **Background worker via setInterval** — The archive worker runs as an interval timer in the server process (configured by `AUDIO_ARCHIVE_INTERVAL_MS`) rather than a separate worker process. Simpler deployment, same process boundary as the app.
+3. **Background worker via setInterval** — The archive worker runs as an interval timer in the server process (configured by `AUDIO_ARCHIVE_INTERVAL_MS`, default 2 min) rather than a separate worker process. Simpler deployment, same process boundary as the app. Max 2 concurrent downloads.
 
-4. **WorkerState as singleton DB record** — Worker lifecycle (running/paused/long_break) stored in a singleton `WorkerState` database record rather than in-memory or a separate control file. Survives server restarts and is inspectable via the admin UI.
+4. **WorkerState as singleton DB record** — Worker lifecycle (running/paused/long_break) stored in a singleton `WorkerState` database record rather than in-memory or a separate control file. Survives server restarts and is inspectable via the admin UI. Long breaks: 1-2h every 6-8h, polling-based (30s DB checks, admin-interruptible).
 
-5. **Error categorization before retry** — yt-dlp stderr is pattern-matched into error categories. Retry logic is category-aware: non-retriable errors (AUTH, GEO_BLOCKED, VIDEO_UNAVAILABLE, COOKIE_EXPIRED) fail permanently on first occurrence; retriable errors (RATE_LIMITED, NETWORK, UNKNOWN) retry up to 3 times.
+5. **Error categorization before retry** — yt-dlp stderr is pattern-matched into error categories. Retry logic is category-aware: non-retriable errors (AUTH, GEO_BLOCKED, VIDEO_UNAVAILABLE, COOKIE_EXPIRED) fail permanently on first occurrence; retriable errors (RATE_LIMITED, NETWORK, UNKNOWN) retry up to 3 times. Exponential backoff: 1st retry 5min, 2nd 30min, 3rd 2h.
+
+6. **Dockerfile** — Add `pip install yt-dlp` and `apt-get install -y ffmpeg` to the base Docker image.
 
 ### Authentication
 
-6. **Cookie-based YouTube auth** — Cookies file (Netscape format) stored on the server filesystem and passed to yt-dlp via `--cookies`. Chosen over OAuth token passing (yt-dlp's built-in OAuth has intermittent breakage) and headless browser cookie extraction (too complex for a background worker).
+7. **Cookie-based YouTube auth** — Cookies file (Netscape format) stored on the server filesystem at `/data/youtube-cookies.txt` and passed to yt-dlp via `--cookies`. Chosen over OAuth token passing (yt-dlp's built-in OAuth has intermittent breakage) and headless browser cookie extraction (too complex for a background worker). DB for audit metadata (uploadedBy, updatedAt, valid flag).
 
-7. **Cookie invalidation on AUTH/COOKIE_EXPIRED** — When yt-dlp returns an AUTH or COOKIE_EXPIRED error, all `YoutubeCookie` records are immediately invalidated. This prevents the worker from burning retries on expired cookies across all jobs.
+8. **Cookie invalidation on AUTH/COOKIE_EXPIRED** — When yt-dlp returns an AUTH or COOKIE_EXPIRED error, all `YoutubeCookie` records are immediately invalidated. This prevents the worker from burning retries on expired cookies across all jobs.
+
+9. **Cookie upload UI** — Both file upload (drag-drop `cookies.txt`) and textarea paste on the admin panel. Both write to `/data/youtube-cookies.txt` and update the `YoutubeCookie` audit record.
+
+10. **Cookie refresh auto-reset** — When admin uploads new cookies, all `ArchiveJob`s whose latest error code is `AUTH_REQUIRED` are reset to `pending`. Jobs with `VIDEO_UNAVAILABLE` or other non-auth errors are left alone.
 
 ### Storage
 
-8. **Tigris Object Storage** — S3-compatible storage on Fly.io. Chosen over local filesystem (not durable across deploys), AWS S3 directly (vendor lock-in, separate billing), and database BLOBs (performance, size limits).
+11. **Tigris Object Storage** — S3-compatible storage on Fly.io. Chosen over local filesystem (not durable across deploys), AWS S3 directly (vendor lock-in, separate billing), and database BLOBs (performance, size limits).
 
-9. **Object key format: `audio/{trackId}/{filename}`** — Predictable, human-readable keys. No hashing — trackId is already unique.
+12. **Object key format: `audio/{serviceName}/{trackId}.mp3`** — Archive path from audio-archive-feature.md. User uploads use `audio/tracks/{trackId}/local/...` — no collision since uploads always use service `local`.
 
-10. **Multipart upload for files > 5MB** — Using `@aws-sdk/lib-storage` Upload class. Files ≤ 5MB use single-part PutObjectCommand (Tigris multipart minimum is 5MB per part).
+13. **Multipart upload for files > 5MB** — Using `@aws-sdk/lib-storage` Upload class. Files ≤ 5MB use single-part PutObjectCommand (Tigris multipart minimum is 5MB per part).
+
+14. **No `uploadAudioFile` wrapper** — Call `uploadFile` directly with `contentType: 'audio/mpeg'`. The wrapper adds no value — call site already has context, and generic `uploadFile` already accepts `contentType` and `metadata` cleanly.
 
 ### Notifications
 
-11. **Telegram Bot API for admin alerts** — Chosen over email (RESEND has deliverability issues for system alerts), Discord webhook (adds a dependency), and in-app notifications (admin might not be logged in). Telegram is reliable, free, and the admin already uses it.
+15. **Telegram Bot API for admin alerts** — Chosen over email (RESEND has deliverability issues for system alerts), Discord webhook (adds a dependency), and in-app notifications (admin might not be logged in). Telegram is reliable, free, and the admin already uses it. Direct `fetch()` to `https://api.telegram.org/bot{TOKEN}/sendMessage` from the worker. Two env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ADMIN_CHAT_ID`.
 
-12. **Fire-and-forget notification pattern** — `notifyCookieExpired()` and `notifyJobFailed()` are called with `void` — they never block the worker loop. If Telegram is unreachable, the job still completes/fails correctly.
+16. **Fire-and-forget notification pattern** — `notifyCookieExpired()` and `notifyJobFailed()` are called with `void` — they never block the worker loop. If Telegram is unreachable, the job still completes/fails correctly.
 
 ### Auto-Enqueue
 
-13. **Enqueue on import/sync** — `ArchiveJob` records are created during YouTube track import and playlist sync, NOT on a separate schedule. This ensures tracks are archived as soon as they enter the library.
+17. **Enqueue on import/sync** — `ArchiveJob` records are created during YouTube track import and playlist sync, NOT on a separate schedule. This ensures tracks are archived as soon as they enter the library. Gated behind `AUDIO_ARCHIVE_ENABLED=true`.
 
-14. **Idempotent enqueue** — `enqueueArchiveJob()` catches unique constraint violations (`trackId` is unique on `ArchiveJob`) and silently skips. A re-sync won't create duplicate jobs or disrupt existing ones.
+18. **Idempotent enqueue** — `enqueueArchiveJob()` catches unique constraint violations (`trackId` is unique on `ArchiveJob`) and silently skips. A re-sync won't create duplicate jobs or disrupt existing ones.
 
 ### Worker Behavior
 
-15. **Priority-based queue ordering** — Jobs are picked in order: `priority DESC, createdAt ASC`. Priority-flagged jobs (e.g., user-requested) are processed before auto-enqueued ones.
+19. **Priority-based queue ordering** — Jobs are picked in order: `priority DESC, createdAt ASC`. Priority-flagged jobs (e.g., admin-triggered) are processed before auto-enqueued ones. Admin-only manual priority — no auto-prioritization for new imports.
 
-16. **Long break auto-resume** — The `long_break` state auto-resumes after `nextLongBreakAt` is reached (default: 6 hours). No manual intervention needed. This prevents rate-limit bans by spacing out download sessions.
+20. **Long break auto-resume** — The `long_break` state auto-resumes after `nextLongBreakAt` is reached (default: 6 hours). No manual intervention needed. This prevents rate-limit bans by spacing out download sessions.
+
+21. **Worker lifecycle exports** — `startWorker()` and `stopWorker()` exported from the feature directory. `server/index.ts` imports and calls them on startup/graceful shutdown. Feature directory stays self-contained.
+
+### Audio Serving
+
+22. **No redirect — direct presigned URL** — The audio resource route returns the presigned Tigris URL directly (no 302 redirect). Client fetches it and sets `<audio src>` to the S3 URL. Presigned URL exposes only the access key ID + signature — can only GET that single MP3 until expiry. CORS config on Tigris bucket enables Range-seeking directly against the CDN. CSP `media-src` must include the Tigris domain (`*.fly.storage.tigris.dev`).
 
 ### Display & Navigation
 
-17. **Null durations display as `--:--`** — Tracks without duration data (e.g., synced YouTube playlist tracks whose video details were not fetched) show `--:--` rather than `0:00`. `formatDuration()` handles null natively; callers must not coerce null to 0 with `|| 0`.
+23. **Null durations display as `--:--`** — Tracks without duration data (e.g., synced YouTube playlist tracks whose video details were not fetched) show `--:--` rather than `0:00`. `formatDuration()` handles null natively; callers must not coerce null to 0 with `|| 0`.
 
-18. **Library add/remove on service playlist pages only** — The `itemActions` render prop (per-track add/remove library buttons) and "Add All Missing" bulk button belong on the YouTube playlist sync page (`playlist.$id.tsx`), NOT on user-created playlist pages (`playlists.$playlistId.tsx`). User playlist pages are for playlist management only (reorder, remove from playlist, add to queue).
+24. **Library add/remove on service playlist pages only** — The `itemActions` render prop (per-track add/remove library buttons) and "Add All Missing" bulk button belong on the YouTube playlist sync page (`playlist.$id.tsx`), NOT on user-created playlist pages (`playlists.$playlistId.tsx`). User playlist pages are for playlist management only (reorder, remove from playlist, add to queue).
 
-19. **Admin links in UserDropdown** — Admin-only pages (audio queue, YouTube cookies) are linked from the user dropdown menu, gated by `userHasRole(user, 'admin')`. No separate admin sidebar or nav — the dropdown pattern scales until admin pages outgrow it.
+25. **Admin links in UserDropdown** — Admin-only pages (audio queue, YouTube cookies) are linked from the user dropdown menu, gated by `userHasRole(user, 'admin')`. No separate admin sidebar or nav — the dropdown pattern scales until admin pages outgrow it.
