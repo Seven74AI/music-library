@@ -15,7 +15,7 @@ import {
 	useSortable
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { Button } from '#app/components/ui/button.tsx'
 import { Checkbox } from '#app/components/ui/checkbox.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
@@ -42,6 +42,7 @@ interface SortableListTrack {
 	serviceUrl: string | null
 	createdAt: string
 	service?: { displayName: string; logoUrl: string | null } | null
+	isInUserLibrary?: boolean
 }
 
 interface PlaylistTrack {
@@ -59,9 +60,11 @@ interface SortableTrackItemProps {
 	onSelectionChange: (trackId: string, selected: boolean) => void
 	showSelection: boolean
 	playlistId: string
+	/** Render prop for custom per-track action buttons (e.g., library toggle). */
+	itemActions?: (props: { trackId: string; isInLibrary: boolean; isDeleted: boolean }) => ReactNode
 }
 
-function SortableTrackItem({ track, index, playlists, onRemove, isSelected, onSelectionChange, showSelection, playlistId }: SortableTrackItemProps) {
+function SortableTrackItem({ track, index, playlists, onRemove, isSelected, onSelectionChange, showSelection, playlistId, itemActions }: SortableTrackItemProps) {
 	const {
 		attributes,
 		listeners,
@@ -134,6 +137,7 @@ function SortableTrackItem({ track, index, playlists, onRemove, isSelected, onSe
 					playlists={playlists}
 					showPlaylistActions={true}
 					onRemoveFromPlaylist={() => onRemove(track.id)}
+					itemActions={itemActions}
 				/>
 			</div>
 
@@ -152,6 +156,8 @@ interface SortableTrackListProps {
 	isRemoving?: boolean
 	className?: string
 	playlistId: string
+	/** Render prop for custom per-track action buttons (e.g., library toggle). */
+	itemActions?: (props: { trackId: string; isInLibrary: boolean; isDeleted: boolean }) => ReactNode
 }
 
 export function SortableTrackList({ 
@@ -164,7 +170,8 @@ export function SortableTrackList({
 	isReordering = false,
 	isRemoving = false,
 	className,
-	playlistId
+	playlistId,
+	itemActions,
 }: SortableTrackListProps) {
 	const [items, setItems] = useState(tracks)
 	const [selectedTracks, setSelectedTracks] = useState<Set<string>>(new Set())
@@ -366,6 +373,7 @@ export function SortableTrackList({
 								onSelectionChange={handleSelectionChange}
 								showSelection={showSelection}
 								playlistId={playlistId}
+								itemActions={itemActions}
 							/>
 						))}
 					</SortableContext>
