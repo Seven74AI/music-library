@@ -51,7 +51,32 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	}
 	
 	const audioFile = getBestAudioFile()
-	const audioUrl = audioFile && track ? `/resources/audio/${track.id}` : null
+	const audioRouteUrl = audioFile && track ? `/resources/audio/${track.id}` : null
+	const [audioSrc, setAudioSrc] = useState<string | null>(null)
+	
+	// Fetch presigned URL from server — no redirect, client talks to Tigris CDN directly
+	useEffect(() => {
+		if (!audioRouteUrl || !track) {
+			setAudioSrc(null)
+			return
+		}
+		
+		let cancelled = false
+		fetch(audioRouteUrl)
+			.then(res => {
+				if (!res.ok) throw new Error(`HTTP ${res.status}`)
+				return res.json() as Promise<{ url: string }>
+			})
+			.then(data => {
+				if (!cancelled) setAudioSrc(data.url)
+			})
+			.catch(err => {
+				console.error('Failed to fetch audio URL:', err)
+				if (!cancelled) setAudioSrc(null)
+			})
+		
+		return () => { cancelled = true }
+	}, [audioRouteUrl, track?.id])
 	
 	useEffect(() => {
 		if (audioRef.current) {
@@ -60,7 +85,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	}, [])
 
 	useEffect(() => {
-		if (audioRef.current && track && audioUrl && track.id !== previousTrackIdRef.current) {
+		if (audioRef.current && track && audioSrc && track.id !== previousTrackIdRef.current) {
 			previousTrackIdRef.current = track.id
 			setIsPlaying(false)
 			audioRef.current.volume = volume
@@ -80,7 +105,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			isManualPlayRef.current = false
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [track?.id, audioUrl, volume, loopMode])
+	}, [track?.id, audioSrc, volume, loopMode])
 	
 	useEffect(() => {
 		if (audioRef.current) {
@@ -241,7 +266,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		return `${mins}:${secs.toString().padStart(2, '0')}`
 	}
 	
-	if (!isVisible || !track || !audioUrl) {
+	if (!isVisible || !track || !audioRouteUrl) {
 		return null
 	}
 	
@@ -394,7 +419,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				
 				<audio
 					ref={audioRef}
-					src={audioUrl}
+					src={audioSrc}
 					loop={loopMode === 'one'}
 					preload="metadata"
 				/>

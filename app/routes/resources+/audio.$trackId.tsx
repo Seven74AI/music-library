@@ -1,7 +1,7 @@
 // @context7: React Router, Prisma, AWS S3
 import { readFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'fs'
 import { join } from 'path'
-import { type LoaderFunctionArgs, redirect } from 'react-router'
+import { type LoaderFunctionArgs } from 'react-router'
 import { getBestAudioFile } from '#app/utils/audio-file-selection.server'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
@@ -112,7 +112,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Use longer expiry for audio files (1 hour)
 	const { url } = await getFileUrl(audioFile.objectKey, 3600)
 
-	// Redirect to signed URL
-	return redirect(url)
+	// Return presigned URL directly — client sets it on <audio src>
+	// No redirect: per decision #22 in CONTEXT.md, the client talks to Tigris CDN directly.
+	// CORS on the Tigris bucket enables Range-seeking.
+	return Response.json({ url })
 }
 
