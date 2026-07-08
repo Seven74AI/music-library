@@ -278,6 +278,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 		toast({
 			title: 'Success',
 			description: `${missingTracks.length} track${missingTracks.length !== 1 ? 's' : ''} added to library`,
+			variant: 'success',
 		})
 		setIsAddAllMissingDialogOpen(false)
 	}
