@@ -9,6 +9,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { toast } from '#app/components/ui/use-toast'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { 
   isPlaylistWithTracks,
@@ -274,6 +275,11 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 			formData.append('action', 'add')
 			void fetch('/resources/track-library', { method: 'POST', body: formData })
 		}
+		toast({
+			title: 'Success',
+			description: `${missingTracks.length} track${missingTracks.length !== 1 ? 's' : ''} added to library`,
+			variant: 'success',
+		})
 		setIsAddAllMissingDialogOpen(false)
 	}
 
