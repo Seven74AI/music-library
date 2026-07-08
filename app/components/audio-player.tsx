@@ -52,12 +52,12 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	
 	const audioFile = getBestAudioFile()
 	const audioRouteUrl = audioFile && track ? `/resources/audio/${track.id}` : null
-	const [audioSrc, setAudioSrc] = useState<string | null>(null)
+	const [audioSrc, setAudioSrc] = useState<string | undefined>(undefined)
 	
 	// Fetch presigned URL from server — no redirect, client talks to Tigris CDN directly
 	useEffect(() => {
 		if (!audioRouteUrl || !track) {
-			setAudioSrc(null)
+			setAudioSrc(undefined)
 			return
 		}
 		
@@ -72,7 +72,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			})
 			.catch(err => {
 				console.error('Failed to fetch audio URL:', err)
-				if (!cancelled) setAudioSrc(null)
+				if (!cancelled) setAudioSrc(undefined)
 			})
 		
 		return () => { cancelled = true }
