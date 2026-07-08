@@ -62,7 +62,7 @@ export async function action({ request }: ActionFunctionArgs) {
 					)
 				}
 
-				const results = await searchYouTubeVideos(query.trim(), 5)
+				const results = await searchYouTubeVideos(query.trim(), 10)
 				return data({ status: 'success', results })
 			}
 
@@ -120,6 +120,11 @@ export default function YouTubeImportPage() {
 		: null
 	const importError =
 		actionData?.status === 'error' ? actionData : null
+
+	const errorMessage =
+		importError && 'message' in importError
+			? importError.message
+			: null
 
 	return (
 		<div className="py-8">
@@ -206,7 +211,7 @@ export default function YouTubeImportPage() {
 						<p className="text-sm text-destructive font-medium">Error</p>
 					</div>
 					<p className="text-sm text-destructive mt-1">
-						{importError.message}
+						{errorMessage}
 					</p>
 				</div>
 			)}
