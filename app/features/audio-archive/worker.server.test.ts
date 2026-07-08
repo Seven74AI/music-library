@@ -36,6 +36,7 @@ vi.mock('./yt-dlp.server', () => ({
 		NETWORK: 'NETWORK',
 		COOKIE_EXPIRED: 'COOKIE_EXPIRED',
 		UNKNOWN: 'UNKNOWN',
+		FILE_NOT_FOUND: 'FILE_NOT_FOUND',
 	},
 }))
 
@@ -231,6 +232,47 @@ describe('processQueueTick', () => {
 			)
 			expect(mockUploadToTigris).not.toHaveBeenCalled()
 			expect(mockPrisma.trackAudioFile.create).not.toHaveBeenCalled()
+		})
+
+		it('marks upload ENOENT as failed immediately without retrying', async () => {
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+			mockPrisma.archiveJob.findMany.mockResolvedValue([
+				{
+					id: 'job-enoent',
+					status: 'pending',
+					priority: false,
+					retryCount: 0,
+					errorHistory: '[]',
+					track: { id: 'track-enoent', serviceUrl: 'https://youtube.com/watch?v=abc' },
+				},
+			])
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
+			mockExecuteYtDlp.mockResolvedValue({
+				exitCode: 0,
+				stdout: '[ExtractAudio] Destination: /tmp/abc.mp3',
+				stderr: '',
+				filePath: '/tmp/abc.mp3',
+				errorCategory: null,
+				errorMessage: null,
+			})
+			const enoent = Object.assign(new Error("ENOENT: no such file or directory, stat 'abc.mp3'"), {
+				code: 'ENOENT',
+			})
+			mockUploadToTigris.mockRejectedValue(enoent)
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: { id: 'job-enoent' },
+					data: expect.objectContaining({
+						status: 'failed',
+						retryCount: 1,
+						errorHistory: expect.stringContaining('FILE_NOT_FOUND'),
+					}),
+				}),
+			)
 		})
 
 		it('resets to pending for retriable errors (under max retries)', async () => {

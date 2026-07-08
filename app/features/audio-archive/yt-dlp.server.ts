@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 /**
  * Error categories for yt-dlp failures.
@@ -13,6 +14,7 @@ export const ErrorCategory = {
 	VIDEO_UNAVAILABLE: 'VIDEO_UNAVAILABLE',
 	NETWORK: 'NETWORK',
 	COOKIE_EXPIRED: 'COOKIE_EXPIRED',
+	FILE_NOT_FOUND: 'FILE_NOT_FOUND',
 	UNKNOWN: 'UNKNOWN',
 } as const
 
@@ -36,7 +38,7 @@ export interface YtDlpExecResult {
 export interface YtDlpExecOptions {
 	/** Output directory for downloaded files. Default: os.tmpdir() */
 	outputDir?: string
-	/** Output template for yt-dlp. Default: '%(title)s.%(ext)s' */
+	/** Output template for yt-dlp. Default: '%(id)s.%(ext)s' */
 	outputTemplate?: string
 	/** Cookie file path for authenticated downloads */
 	cookieFile?: string
@@ -45,6 +47,7 @@ export interface YtDlpExecOptions {
 }
 
 const DEFAULT_TIMEOUT = 300_000 // 5 minutes
+export const DEFAULT_OUTPUT_TEMPLATE = '%(id)s.%(ext)s'
 
 function buildJsRuntimeArgs(): string[] {
 	return ['--js-runtimes', `node:${process.execPath}`]
@@ -56,7 +59,7 @@ export function buildYtDlpSpawnArgs(
 ): string[] {
 	const {
 		outputDir,
-		outputTemplate = '%(title)s [%(id)s].%(ext)s',
+		outputTemplate = DEFAULT_OUTPUT_TEMPLATE,
 		cookieFile,
 	} = options
 
@@ -95,19 +98,21 @@ export async function executeYtDlp(
 	options: YtDlpExecOptions = {},
 ): Promise<YtDlpExecResult> {
 	const {
-		outputDir,
-		outputTemplate = '%(title)s [%(id)s].%(ext)s',
+		outputDir: outputDirOption,
+		outputTemplate = DEFAULT_OUTPUT_TEMPLATE,
 		cookieFile,
 		timeout = DEFAULT_TIMEOUT,
 	} = options
+	const outputDir = outputDirOption ?? os.tmpdir()
 
 	// MOCKS mode: return simulated success
 	if (process.env.MOCKS === 'true') {
+		const mockFilePath = path.join(outputDir, 'abc123.mp3')
 		return {
 			exitCode: 0,
-			stdout: `[download] Destination: /tmp/test-audio.mp3\n[download] 100% of 10.00MiB\n[ExtractAudio] Destination: /tmp/test-audio.mp3`,
+			stdout: `[download] Destination: ${mockFilePath}\n[download] 100% of 10.00MiB\n[ExtractAudio] Destination: ${mockFilePath}`,
 			stderr: '',
-			filePath: '/tmp/test-audio.mp3',
+			filePath: mockFilePath,
 			errorCategory: null,
 			errorMessage: null,
 		}
@@ -141,7 +146,7 @@ export async function executeYtDlp(
 				exitCode,
 				stdout,
 				stderr,
-				filePath: extractFilePath(stdout),
+				filePath: extractFilePath(stdout, outputDir),
 			}
 
 			const categorized = categorizeYtDlpError(raw)
@@ -160,15 +165,27 @@ export async function executeYtDlp(
 	})
 }
 
+function resolveOutputPath(filePath: string, outputDir?: string): string {
+	if (path.isAbsolute(filePath)) return filePath
+	if (outputDir) return path.join(outputDir, filePath)
+	return path.resolve(filePath)
+}
+
 /**
  * Extract the downloaded file path from yt-dlp stdout.
+ * Prefers the final ExtractAudio destination (mp3) over the intermediate download (webm).
  */
-function extractFilePath(stdout: string): string | undefined {
-	const destMatch = stdout.match(/\[download\] Destination: (.+)/)
-	if (destMatch?.[1]) return destMatch[1].trim()
+export function extractFilePath(
+	stdout: string,
+	outputDir?: string,
+): string | undefined {
+	const extractMatches = [...stdout.matchAll(/\[ExtractAudio\] Destination: (.+)/g)]
+	const extractPath = extractMatches.at(-1)?.[1]?.trim()
+	if (extractPath) return resolveOutputPath(extractPath, outputDir)
 
-	const extractMatch = stdout.match(/\[ExtractAudio\] Destination: (.+)/)
-	if (extractMatch?.[1]) return extractMatch[1].trim()
+	const downloadMatches = [...stdout.matchAll(/\[download\] Destination: (.+)/g)]
+	const downloadPath = downloadMatches.at(-1)?.[1]?.trim()
+	if (downloadPath) return resolveOutputPath(downloadPath, outputDir)
 
 	return undefined
 }

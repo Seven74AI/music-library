@@ -20,7 +20,16 @@ const NON_RETRIABLE_ERRORS: ErrorCategoryType[] = [
 	ErrorCategory.GEO_BLOCKED,
 	ErrorCategory.VIDEO_UNAVAILABLE,
 	ErrorCategory.COOKIE_EXPIRED,
+	ErrorCategory.FILE_NOT_FOUND,
 ]
+
+function categorizeJobError(error: unknown): ErrorCategoryType {
+	if (error && typeof error === 'object' && 'code' in error) {
+		const code = (error as NodeJS.ErrnoException).code
+		if (code === 'ENOENT') return ErrorCategory.FILE_NOT_FOUND
+	}
+	return ErrorCategory.UNKNOWN
+}
 
 /**
  * Process a single tick of the archive queue.
@@ -140,7 +149,7 @@ async function processJob(
 		})
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
-		await handleJobError(jobId, 'UNKNOWN', message, url)
+		await handleJobError(jobId, categorizeJobError(error), message, url)
 	} finally {
 		// Clear currently processing
 		await prisma.workerState.upsert({

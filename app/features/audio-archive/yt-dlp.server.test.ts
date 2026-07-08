@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	buildYtDlpArgs,
 	buildYtDlpSpawnArgs,
+	extractFilePath,
 	categorizeStderr,
 	categorizeYtDlpError,
 	ErrorCategory,
@@ -37,6 +38,27 @@ describe('buildYtDlpSpawnArgs', () => {
 		expect(args).toContain('--paths')
 		expect(args).toContain('/tmp/downloads')
 	})
+
+	it('uses video id for the default output template', () => {
+		const outputIndex = buildYtDlpSpawnArgs(url).indexOf('--output')
+		expect(buildYtDlpSpawnArgs(url)[outputIndex + 1]).toBe('%(id)s.%(ext)s')
+	})
+})
+
+describe('extractFilePath', () => {
+	it('prefers the final ExtractAudio mp3 over the intermediate webm download', () => {
+		const stdout = [
+			"[download] Destination: A$AP Rocky - M'$ (Official Audio) [h_L3P4ddEsk].webm",
+			'[ExtractAudio] Destination: /tmp/h_L3P4ddEsk.mp3',
+		].join('\n')
+
+		expect(extractFilePath(stdout)).toBe('/tmp/h_L3P4ddEsk.mp3')
+	})
+
+	it('resolves relative ExtractAudio paths against the output directory', () => {
+		const stdout = '[ExtractAudio] Destination: h_L3P4ddEsk.mp3'
+		expect(extractFilePath(stdout, '/tmp/archive')).toBe('/tmp/archive/h_L3P4ddEsk.mp3')
+	})
 })
 
 describe('buildYtDlpArgs', () => {
@@ -56,6 +78,7 @@ describe('ErrorCategory enum', () => {
 		expect(categories).toContain('VIDEO_UNAVAILABLE')
 		expect(categories).toContain('NETWORK')
 		expect(categories).toContain('COOKIE_EXPIRED')
+		expect(categories).toContain('FILE_NOT_FOUND')
 		expect(categories).toContain('UNKNOWN')
 	})
 })
