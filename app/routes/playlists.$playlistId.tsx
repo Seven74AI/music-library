@@ -32,7 +32,7 @@
 
     ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
 */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { data, redirect, Link, useFetcher, useParams } from 'react-router'
 import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
@@ -445,35 +445,15 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	const reorderFetcher = useFetcher()
 	const removeTrackFetcher = useFetcher()
 	const updateFetcher = useFetcher()
-	const libraryFetcher = useFetcher()
 	
 	// Optimistic state for tracks
 	const [optimisticTracks, setOptimisticTracks] = useState(playlist.tracks)
 	const [optimisticPlaylist, setOptimisticPlaylist] = useState(playlist)
 	
-	// Optimistic library status cache (trackId -> boolean)
-	const [libraryStatus, setLibraryStatus] = useState<Record<string, boolean>>(() => {
-		const status: Record<string, boolean> = {}
-		for (const pt of playlist.tracks) {
-			if (pt.track.isInUserLibrary !== undefined) {
-				status[pt.track.id] = pt.track.isInUserLibrary
-			}
-		}
-		return status
-	})
-	
 	// Update optimistic state when loader data changes
 	useEffect(() => {
 		setOptimisticTracks(playlist.tracks)
 		setOptimisticPlaylist(playlist)
-		// Sync library status from fresh loader data
-		const status: Record<string, boolean> = {}
-		for (const pt of playlist.tracks) {
-			if (pt.track.isInUserLibrary !== undefined) {
-				status[pt.track.id] = pt.track.isInUserLibrary
-			}
-		}
-		setLibraryStatus(status)
 	}, [playlist])
 
 	// Handle success messages from fetchers
@@ -635,89 +615,6 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 		})
 	}
 
-	const handleToggleLibrary = useCallback((trackId: string, currentIsInLibrary: boolean) => {
-		const action = currentIsInLibrary ? 'remove' : 'add'
-		// Optimistic update
-		setLibraryStatus(prev => ({ ...prev, [trackId]: !currentIsInLibrary }))
-		// Also update optimisticTracks
-		setOptimisticTracks(prev => prev.map(pt =>
-			pt.track.id === trackId
-				? { ...pt, track: { ...pt.track, isInUserLibrary: !currentIsInLibrary } }
-				: pt
-		))
-		
-		void libraryFetcher.submit(
-			{ trackId, action },
-			{ method: 'post', action: '/resources/track-library' },
-		)
-	}, [libraryFetcher])
-
-	// itemActions render prop for per-track add/remove library buttons
-	const itemActions = useCallback(({ trackId, isInLibrary, isDeleted }: { trackId: string; isInLibrary: boolean; isDeleted: boolean }) => {
-		const currentStatus = libraryStatus[trackId] !== undefined ? libraryStatus[trackId] : isInLibrary
-		if (isDeleted) return null
-		return (
-			<Button
-				variant="ghost"
-				size="sm"
-				className="h-8 w-8 p-0"
-				onClick={(e) => {
-					e.stopPropagation()
-					handleToggleLibrary(trackId, currentStatus)
-				}}
-				aria-label={currentStatus ? 'Remove from library' : 'Add to library'}
-				title={currentStatus ? 'Remove from library' : 'Add to library'}
-			>
-				<Icon
-					name={currentStatus ? 'check-circled' : 'plus'}
-					className={`h-4 w-4 ${currentStatus ? 'text-green-500' : 'text-muted-foreground'}`}
-				/>
-			</Button>
-		)
-	}, [libraryStatus, handleToggleLibrary])
-
-	// "Add All Missing" — bulk add tracks not in library
-	const [isAddAllMissingDialogOpen, setIsAddAllMissingDialogOpen] = useState(false)
-
-	const handleAddAllMissing = () => {
-		setIsAddAllMissingDialogOpen(true)
-	}
-
-	const confirmAddAllMissing = () => {
-		const missingTracks = optimisticTracks.filter(pt => {
-			const status = libraryStatus[pt.track.id] !== undefined ? libraryStatus[pt.track.id] : pt.track.isInUserLibrary
-			return !status
-		})
-		if (missingTracks.length === 0) {
-			setIsAddAllMissingDialogOpen(false)
-			return
-		}
-		// Optimistically mark all as in library
-		const updates: Record<string, boolean> = {}
-		for (const pt of missingTracks) {
-			updates[pt.track.id] = true
-		}
-		setLibraryStatus(prev => ({ ...prev, ...updates }))
-		// Submit each track individually via fetch (fetcher would cancel previous submits)
-		for (const pt of missingTracks) {
-			const formData = new FormData()
-			formData.append('trackId', pt.track.id)
-			formData.append('action', 'add')
-			void fetch('/resources/track-library', { method: 'POST', body: formData })
-		}
-		toast({
-			title: 'Success',
-			description: `${missingTracks.length} track${missingTracks.length !== 1 ? 's' : ''} added to library`,
-			variant: 'success',
-		})
-		setIsAddAllMissingDialogOpen(false)
-	}
-
-	const missingCount = optimisticTracks.filter(pt => {
-		const status = libraryStatus[pt.track.id] !== undefined ? libraryStatus[pt.track.id] : pt.track.isInUserLibrary
-		return !status
-	}).length
-
 	return (
 		<div className="space-y-8">
 			{/* Back Button */}
@@ -753,19 +650,8 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 					<div className="flex items-center gap-2 text-sm text-muted-foreground">
 						<Icon name="file-text" className="h-4 w-4" />
 						<span>{optimisticTracks.length} track{optimisticTracks.length !== 1 ? 's' : ''}</span>
-						{(reorderFetcher.state === 'submitting' || removeTrackFetcher.state === 'submitting' || libraryFetcher.state === 'submitting') && (
+						{(reorderFetcher.state === 'submitting' || removeTrackFetcher.state === 'submitting') && (
 							<Icon name="update" className="h-3 w-3 animate-spin text-primary" />
-						)}
-						{missingCount > 0 && (
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={handleAddAllMissing}
-								className="ml-2"
-							>
-								<Icon name="plus" className="h-4 w-4 mr-1" />
-								Add All Missing
-							</Button>
 						)}
 					</div>
 				</div>
@@ -800,7 +686,6 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 						isReordering={reorderFetcher.state === 'submitting'}
 						isRemoving={removeTrackFetcher.state === 'submitting'}
 						playlistId={params.playlistId!}
-						itemActions={itemActions}
 					/>
 				)}
 			</div>
@@ -864,26 +749,7 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
-			</AlertDialog>
-
-			{/* Add All Missing Confirmation Dialog */}
-			<AlertDialog open={isAddAllMissingDialogOpen} onOpenChange={setIsAddAllMissingDialogOpen}>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Add All Missing to Library</AlertDialogTitle>
-						<AlertDialogDescription>
-							Are you sure you want to add the {missingCount} track{missingCount !== 1 ? 's' : ''} from "{optimisticPlaylist.title}" that {missingCount !== 1 ? 'are' : 'is'} not yet in your library?
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction onClick={confirmAddAllMissing}>
-							<Icon name="plus" className="h-4 w-4 mr-2" />
-							Add {missingCount} Track{missingCount !== 1 ? 's' : ''}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-		</div>
+		</AlertDialog>
+	</div>
 	)
 }
