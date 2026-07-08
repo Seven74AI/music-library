@@ -17,6 +17,7 @@ import {
   isErrorActionResult,
   isSuccessActionResult
 } from '#app/types/frontend'
+import { type TrackWithUserStatus } from '#app/types/frontend/shared'
 import { 
   YOUTUBE_PLAYLIST_DETAIL_INTENTS,
   YOUTUBE_PAGE_TYPES,
@@ -170,6 +171,29 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			status: 'error',
 			message: error instanceof Error ? error.message : 'An error occurred',
 		})
+	}
+}
+
+/**
+ * Maps a TrackWithUserStatus to the TrackListItemData shape expected by TrackListItem.
+ * Includes audioFiles so the list item can show playable/has-audio indicator.
+ */
+export function mapTrackToListItem(track: TrackWithUserStatus) {
+	return {
+		id: track.id,
+		title: track.title,
+		artist: track.artist && typeof track.artist === 'object' && 'name' in track.artist 
+			? track.artist 
+			: { id: '', name: 'Unknown Artist' },
+		duration: track.duration,
+		coverImage: track.coverImage,
+		thumbnailUrl: track.thumbnailUrl,
+		serviceUrl: track.serviceUrl,
+		service: track.service ? {
+			displayName: track.service.displayName,
+			logoUrl: track.service.logoUrl
+		} : null,
+		audioFiles: track.audioFiles
 	}
 }
 
@@ -615,22 +639,8 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 										)}
 									</div>
 									{tracks.map((track, index) => {
-										// Convert TrackWithUserStatus to TrackListItem format
-										const trackForListItem = {
-											id: track.id,
-											title: track.title,
-											artist: track.artist && typeof track.artist === 'object' && 'name' in track.artist 
-												? track.artist 
-												: { id: '', name: 'Unknown Artist' }, // Safety check: ensure artist is always an object
-											duration: track.duration,
-											coverImage: track.coverImage,
-											thumbnailUrl: track.thumbnailUrl, // Include thumbnailUrl for placeholder images
-											serviceUrl: track.serviceUrl,
-											service: track.service ? {
-												displayName: track.service.displayName,
-												logoUrl: track.service.logoUrl
-											} : null
-										}
+								// Convert TrackWithUserStatus to TrackListItem format
+								const trackForListItem = mapTrackToListItem(track)
 
 										const userTrack = {
 											createdAt: track.createdAt
