@@ -125,6 +125,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				onNext()
 			}
 		}
+		const handleError = () => {
+			const audio = audioRef.current
+			if (audio?.error) {
+				console.error(
+					`Audio load error: ${audio.error.message} (code: ${audio.error.code})`,
+				)
+			}
+		}
 		
 		audio.addEventListener('timeupdate', updateTime)
 		audio.addEventListener('loadedmetadata', handleLoadedMetadata)
@@ -133,6 +141,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		audio.addEventListener('seeking', handleSeeking)
 		audio.addEventListener('seeked', handleSeeked)
 		audio.addEventListener('ended', handleEnded)
+		audio.addEventListener('error', handleError)
 		
 		return () => {
 			audio.removeEventListener('timeupdate', updateTime)
@@ -142,6 +151,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			audio.removeEventListener('seeking', handleSeeking)
 			audio.removeEventListener('seeked', handleSeeked)
 			audio.removeEventListener('ended', handleEnded)
+			audio.removeEventListener('error', handleError)
 		}
 	}, [onNext, loopMode, track])
 	
