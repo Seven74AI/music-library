@@ -41,11 +41,20 @@ describe('categorizeYtDlpError', () => {
 		expect(result.errorMessage).toContain('something went wrong')
 	})
 
-	it('detects auth errors from stderr', () => {
+	it('detects CDN-level 403 as NETWORK (not AUTH)', () => {
 		const result = categorizeYtDlpError({
 			exitCode: 1,
 			stdout: '',
 			stderr: 'ERROR: unable to download video data: HTTP Error 403: Forbidden',
+		})
+		expect(result.errorCategory).toBe('NETWORK')
+	})
+
+	it('detects auth 403 from webpage fetch as AUTH', () => {
+		const result = categorizeYtDlpError({
+			exitCode: 1,
+			stdout: '',
+			stderr: 'ERROR: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)',
 		})
 		expect(result.errorCategory).toBe('AUTH')
 	})
@@ -123,8 +132,12 @@ describe('categorizeStderr', () => {
 		expect(categorizeStderr('   \n  \t  ')).toBeNull()
 	})
 
-	it('detects auth from 403 errors', () => {
+	it('detects auth from generic 403 errors', () => {
 		expect(categorizeStderr('HTTP Error 403: Forbidden')).toBe('AUTH')
+	})
+
+	it('detects CDN 403 as network (video data download blocked)', () => {
+		expect(categorizeStderr('ERROR: unable to download video data: HTTP Error 403: Forbidden')).toBe('NETWORK')
 	})
 
 	it('detects rate limiting from 429', () => {
