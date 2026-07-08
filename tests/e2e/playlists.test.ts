@@ -240,59 +240,16 @@ test.describe('Playlists', () => {
 		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
 	})
 
-	test('shows library toggle buttons on playlist tracks', async ({ page, login, insertNewTrack }) => {
+	test('does not show library toggle buttons on user playlist tracks', async ({ page, login, insertNewTrack }) => {
 		const user = await login()
 		
-		// Create tracks (without adding to library)
-		const track1 = await insertNewTrack({ title: 'Library Track 1' })
-		const track2 = await insertNewTrack({ title: 'Library Track 2' })
-		// Create a track that IS in the user's library
-		const track3 = await insertNewTrack({ title: 'Already In Library' }, user.id)
+		// Create tracks
+		const track1 = await insertNewTrack({ title: 'User Playlist Track 1' })
+		const track2 = await insertNewTrack({ title: 'User Playlist Track 2' }, user.id)
 		
-		// Create a playlist with all three tracks
+		// Create a user playlist with both tracks
 		const playlist = await prisma.userPlaylist.create({
-			data: { title: 'Library Test', description: 'Testing library buttons', ownerId: user.id },
-		})
-		await prisma.userPlaylistTrack.createMany({
-			data: [
-				{ playlistId: playlist.id, trackId: track1.id, position: 1 },
-				{ playlistId: playlist.id, trackId: track2.id, position: 2 },
-				{ playlistId: playlist.id, trackId: track3.id, position: 3 },
-			],
-		})
-
-		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
-
-		// Check that "Add to library" buttons exist for tracks not in library
-		await expect(page.getByLabel('Add to library').first()).toBeVisible({ timeout: 10000 })
-		
-		// Check that "Remove from library" button exists for track already in library
-		await expect(page.getByLabel('Remove from library').first()).toBeVisible({ timeout: 10000 })
-
-		// Click add on track1 — should change to minus
-		await page.getByLabel('Add to library').first().click()
-		await page.waitForTimeout(500) // Allow optimistic update
-		// After click, the first track should now show remove
-		const removeButtons = page.getByLabel('Remove from library')
-		await expect(removeButtons.first()).toBeVisible({ timeout: 5000 })
-
-		// Cleanup playlist-related data (track cleanup handled by fixture)
-		await prisma.userPlaylistTrack.deleteMany({ where: { playlistId: playlist.id } })
-		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
-		// Clean up userTrack for track3
-		await testPrisma.userTrack.deleteMany({ where: { userId: user.id } })
-	})
-
-	test('shows Add All Missing button when tracks not in library', async ({ page, login, insertNewTrack }) => {
-		const user = await login()
-		
-		// Create tracks not in library
-		const track1 = await insertNewTrack({ title: 'Missing Track 1' })
-		const track2 = await insertNewTrack({ title: 'Missing Track 2' })
-		
-		const playlist = await prisma.userPlaylist.create({
-			data: { title: 'Bulk Add Test', description: 'Testing bulk add', ownerId: user.id },
+			data: { title: 'No Library Buttons', description: 'Library buttons belong on service playlist page', ownerId: user.id },
 		})
 		await prisma.userPlaylistTrack.createMany({
 			data: [
@@ -304,19 +261,10 @@ test.describe('Playlists', () => {
 		await page.goto(`/playlists/${playlist.id}`)
 		await page.waitForLoadState('networkidle')
 
-		// "Add All Missing" button should be visible (tracks not in library)
-		await expect(page.getByRole('button', { name: /add all missing/i })).toBeVisible({ timeout: 10000 })
-
-		// Click it — confirmation dialog should appear
-		await page.getByRole('button', { name: /add all missing/i }).click()
-		await expect(page.getByRole('alertdialog', { name: /add all missing to library/i })).toBeVisible({ timeout: 5000 })
-
-		// Confirm
-		await page.getByRole('button', { name: /add 2 tracks/i }).click()
-		await page.waitForTimeout(500)
-
-		// After bulk add, the button should disappear (all tracks now in library)
-		await expect(page.getByRole('button', { name: /add all missing/i })).not.toBeVisible({ timeout: 5000 })
+		// Library add/remove buttons should NOT be on user playlist pages
+		// They belong on the YouTube service playlist page (playlist.$id.tsx)
+		await expect(page.getByLabel('Add to library')).not.toBeAttached({ timeout: 5000 })
+		await expect(page.getByLabel('Remove from library')).not.toBeAttached({ timeout: 5000 })
 
 		// Cleanup
 		await prisma.userPlaylistTrack.deleteMany({ where: { playlistId: playlist.id } })
@@ -324,15 +272,15 @@ test.describe('Playlists', () => {
 		await testPrisma.userTrack.deleteMany({ where: { userId: user.id } })
 	})
 
-	test('Add All Missing button not shown when all tracks are in library', async ({ page, login, insertNewTrack }) => {
+	test('does not show Add All Missing button on user playlist pages', async ({ page, login, insertNewTrack }) => {
 		const user = await login()
 		
-		// Create tracks already in library
-		const track1 = await insertNewTrack({ title: 'Lib Track A' }, user.id)
-		const track2 = await insertNewTrack({ title: 'Lib Track B' }, user.id)
+		// Create tracks not in library
+		const track1 = await insertNewTrack({ title: 'User Playlist Track A' })
+		const track2 = await insertNewTrack({ title: 'User Playlist Track B' })
 		
 		const playlist = await prisma.userPlaylist.create({
-			data: { title: 'All In Library', description: 'All tracks in library', ownerId: user.id },
+			data: { title: 'User Playlist Only', description: 'No library features here', ownerId: user.id },
 		})
 		await prisma.userPlaylistTrack.createMany({
 			data: [
@@ -344,8 +292,37 @@ test.describe('Playlists', () => {
 		await page.goto(`/playlists/${playlist.id}`)
 		await page.waitForLoadState('networkidle')
 
-		// "Add All Missing" should NOT be visible
-		await expect(page.getByRole('button', { name: /add all missing/i })).not.toBeVisible({ timeout: 5000 })
+		// "Add All Missing" should NOT appear on user playlist pages
+		// It belongs on the YouTube service playlist page (playlist.$id.tsx)
+		await expect(page.getByRole('button', { name: /add all missing/i })).not.toBeAttached({ timeout: 5000 })
+
+		// Cleanup
+		await prisma.userPlaylistTrack.deleteMany({ where: { playlistId: playlist.id } })
+		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
+		await testPrisma.userTrack.deleteMany({ where: { userId: user.id } })
+	})
+
+	test('does not show Add All Missing button when all tracks are in library on user playlist', async ({ page, login, insertNewTrack }) => {
+		const user = await login()
+		
+		const track1 = await insertNewTrack({ title: 'Lib Track A' }, user.id)
+		const track2 = await insertNewTrack({ title: 'Lib Track B' }, user.id)
+		
+		const playlist = await prisma.userPlaylist.create({
+			data: { title: 'All In Library', description: 'User playlist, no library buttons', ownerId: user.id },
+		})
+		await prisma.userPlaylistTrack.createMany({
+			data: [
+				{ playlistId: playlist.id, trackId: track1.id, position: 1 },
+				{ playlistId: playlist.id, trackId: track2.id, position: 2 },
+			],
+		})
+
+		await page.goto(`/playlists/${playlist.id}`)
+		await page.waitForLoadState('networkidle')
+
+		// "Add All Missing" should not appear on user playlist pages, regardless of library status
+		await expect(page.getByRole('button', { name: /add all missing/i })).not.toBeAttached({ timeout: 5000 })
 
 		// Cleanup
 		await prisma.userPlaylistTrack.deleteMany({ where: { playlistId: playlist.id } })
