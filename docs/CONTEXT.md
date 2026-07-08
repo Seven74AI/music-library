@@ -105,3 +105,11 @@ These 16 decisions emerged from the audio archiving implementation and architect
 15. **Priority-based queue ordering** — Jobs are picked in order: `priority DESC, createdAt ASC`. Priority-flagged jobs (e.g., user-requested) are processed before auto-enqueued ones.
 
 16. **Long break auto-resume** — The `long_break` state auto-resumes after `nextLongBreakAt` is reached (default: 6 hours). No manual intervention needed. This prevents rate-limit bans by spacing out download sessions.
+
+### Display & Navigation
+
+17. **Null durations display as `--:--`** — Tracks without duration data (e.g., synced YouTube playlist tracks whose video details were not fetched) show `--:--` rather than `0:00`. `formatDuration()` handles null natively; callers must not coerce null to 0 with `|| 0`.
+
+18. **Library add/remove on service playlist pages only** — The `itemActions` render prop (per-track add/remove library buttons) and "Add All Missing" bulk button belong on the YouTube playlist sync page (`playlist.$id.tsx`), NOT on user-created playlist pages (`playlists.$playlistId.tsx`). User playlist pages are for playlist management only (reorder, remove from playlist, add to queue).
+
+19. **Admin links in UserDropdown** — Admin-only pages (audio queue, YouTube cookies) are linked from the user dropdown menu, gated by `userHasRole(user, 'admin')`. No separate admin sidebar or nav — the dropdown pattern scales until admin pages outgrow it.

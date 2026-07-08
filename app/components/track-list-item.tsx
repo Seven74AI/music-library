@@ -216,7 +216,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 			{/* Duration */}
 			{showDuration && (
 				<div className="hidden md:flex text-xs text-muted-foreground w-12 text-center">
-					{formatDuration(track.duration || 0)}
+					{formatDuration(track.duration)}
 				</div>
 			)}
 
@@ -280,7 +280,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 											<div className="text-sm font-medium">Track Information</div>
 											<div className="text-sm text-muted-foreground space-y-1">
 												<div>Artist: {track.artist.name}</div>
-												<div>Duration: {formatDuration(track.duration || 0)}</div>
+												<div>Duration: {formatDuration(track.duration)}</div>
 												<div>Added: {new Date(userTrack.createdAt).toLocaleDateString()}</div>
 												{track.service?.displayName && (
 													<div>Source: {track.service.displayName}</div>
@@ -489,7 +489,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 									<div className="text-sm font-medium">Track Information</div>
 									<div className="text-sm text-muted-foreground space-y-1">
 										<div>Artist: {track.artist.name}</div>
-										<div>Duration: {formatDuration(track.duration || 0)}</div>
+										<div>Duration: {formatDuration(track.duration)}</div>
 										<div>Added: {new Date(userTrack.createdAt).toLocaleDateString()}</div>
 										{track.service?.displayName && (
 											<div>Source: {track.service.displayName}</div>
