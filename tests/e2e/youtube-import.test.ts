@@ -49,7 +49,7 @@ test.describe('YouTube Import Page', () => {
 		await page.getByRole('button', { name: /search/i }).first().click()
 
 		// Wait for results to load (mock data returns 5 results)
-		await page.waitForTimeout(1000)
+		// Wait for results — next expect auto-waits
 
 		// Should show search results heading
 		await expect(page.getByText(/search results/i)).toBeVisible()
@@ -73,7 +73,7 @@ test.describe('YouTube Import Page', () => {
 		)
 		await searchInput.fill('test')
 		await page.getByRole('button', { name: /search/i }).first().click()
-		await page.waitForTimeout(1000)
+		// Wait for results — next expect auto-waits
 
 		// Each result should have an Import button
 		const importButtons = page.getByRole('button', { name: /import/i })
