@@ -1,11 +1,18 @@
 import path from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
 
-// Set DATABASE_URL for the test process BEFORE any other imports
-// This ensures it's available when test files import prisma from db.server.ts
-// This must be set before 'dotenv/config' to ensure it takes precedence
+// Set env vars for the test process BEFORE any other imports
+// These must match what the webServer.env provides so that:
+// 1. Prisma connects to the same test database
+// 2. Session cookies created by the test fixtures are valid on the webServer
+// 3. env.server.ts validation passes for any in-process imports
 const BASE_DATABASE_PATH = path.join(process.cwd(), './tests/prisma/base.db')
 process.env.DATABASE_URL = `file:${BASE_DATABASE_PATH}`
+process.env.DATABASE_PATH = BASE_DATABASE_PATH
+process.env.CACHE_DATABASE_PATH = path.join(process.cwd(), './tests/prisma/cache.db')
+process.env.INTERNAL_COMMAND_TOKEN = 'test-internal-token'
+process.env.HONEYPOT_SECRET = 'test-honeypot-secret'
+process.env.SESSION_SECRET = 'test-session-secret'
 
 // Now load dotenv (which won't override DATABASE_URL if it's already set)
 import 'dotenv/config'
@@ -72,6 +79,12 @@ export default defineConfig({
 			// Use the test database created by global setup (absolute path)
 			// This ensures the webServer uses the same database as the global setup
 			DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
+			// Required by env.server.ts validation — test-safe dummy values
+			DATABASE_PATH: BASE_DATABASE_PATH,
+			CACHE_DATABASE_PATH: path.join(process.cwd(), './tests/prisma/cache.db'),
+			INTERNAL_COMMAND_TOKEN: 'test-internal-token',
+			HONEYPOT_SECRET: 'test-honeypot-secret',
+			SESSION_SECRET: 'test-session-secret',
 		},
 	},
 })
