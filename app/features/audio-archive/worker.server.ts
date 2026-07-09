@@ -1,4 +1,8 @@
 import { prisma } from '#app/utils/db.server.ts'
+import { readFileSync } from 'node:fs'
+import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
+import { getOrCreateArtist } from '#app/utils/artist-management.server'
+import { getOrCreateAlbum } from '#app/utils/cover-management.server'
 import { executeYtDlp, ErrorCategory } from './yt-dlp.server'
 import { getCookieFilePath } from './youtube-cookie.server'
 import { uploadToTigris, buildObjectKey } from './tigris-upload.server'
@@ -128,6 +132,8 @@ async function processJob(
 
 		// 2. Upload to Tigris
 		const key = buildObjectKey(trackId, result.filePath)
+		const audioBuffer = readFileSync(result.filePath)
+		const extractedMetadata = await extractAudioMetadata(audioBuffer, result.filePath)
 
 		const uploadResult = await uploadToTigris(result.filePath, key)
 
@@ -137,10 +143,25 @@ async function processJob(
 				trackId,
 				objectKey: uploadResult.key,
 				fileName: uploadResult.key.split('/').pop(),
-				format: 'mp3',
-				mimeType: 'audio/mpeg',
+				format: extractedMetadata.format || 'mp3',
+				mimeType: extractedMetadata.mimeType || 'audio/mpeg',
+				fileSize: audioBuffer.length,
+				bitrate: extractedMetadata.bitrate,
+				sampleRate: extractedMetadata.sampleRate,
 			},
 		})
+
+		// Metadata backfill is best-effort: the audio file is already uploaded and
+		// TrackAudioFile created, so failing the job here would cause a retry that
+		// re-downloads and creates a duplicate TrackAudioFile.
+		try {
+			await updateTrackMetadataFromAudioFile(trackId, extractedMetadata)
+		} catch (error) {
+			console.error(
+				`Failed to update track metadata from audio file for track ${trackId}:`,
+				error,
+			)
+		}
 
 		// 4. Mark job as completed
 		await prisma.archiveJob.update({
@@ -158,6 +179,67 @@ async function processJob(
 			create: { id: 'singleton', status: 'running' },
 		})
 	}
+}
+
+function parseOptionalDate(value?: string): Date | undefined {
+	if (!value) return undefined
+	const date = new Date(value)
+	return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+async function updateTrackMetadataFromAudioFile(
+	trackId: string,
+	metadata: Awaited<ReturnType<typeof extractAudioMetadata>>,
+): Promise<void> {
+	const trackUpdateData: Record<string, unknown> = {}
+	const existingTrack = await prisma.track.findUnique({
+		where: { id: trackId },
+		select: { artistId: true },
+	})
+
+	if (metadata.title) trackUpdateData.title = metadata.title
+	if (metadata.duration !== undefined) trackUpdateData.duration = metadata.duration
+	if (metadata.albumArtist) trackUpdateData.albumArtist = metadata.albumArtist
+	if (metadata.bpm !== undefined) trackUpdateData.bpm = metadata.bpm
+	if (metadata.label) trackUpdateData.label = metadata.label
+	if (metadata.isrc) trackUpdateData.isrc = metadata.isrc
+	if (metadata.originalYear !== undefined) trackUpdateData.originalYear = metadata.originalYear
+	if (metadata.totalTracks !== undefined) trackUpdateData.totalTracks = metadata.totalTracks
+	if (metadata.totalDiscs !== undefined) trackUpdateData.totalDiscs = metadata.totalDiscs
+	if (metadata.lyrics) trackUpdateData.lyrics = metadata.lyrics
+	if (metadata.track?.no !== undefined) trackUpdateData.trackNumber = metadata.track.no
+	if (metadata.genre && metadata.genre.length > 0) {
+		trackUpdateData.genre = metadata.genre[0]
+	}
+
+	const releaseDate = parseOptionalDate(metadata.releaseDate)
+	if (releaseDate) trackUpdateData.releaseDate = releaseDate
+
+	const originalDate = parseOptionalDate(metadata.originalDate)
+	if (originalDate) trackUpdateData.originalDate = originalDate
+
+	let artistId = existingTrack?.artistId
+	if (metadata.artist) {
+		const artist = await getOrCreateArtist(metadata.artist)
+		artistId = artist.id
+		trackUpdateData.artistId = artist.id
+	}
+
+	if (metadata.album && artistId) {
+		const album = await getOrCreateAlbum(artistId, metadata.album, metadata.year)
+		if (album) {
+			trackUpdateData.albumId = album.id
+		}
+	}
+
+	if (metadata.year !== undefined) trackUpdateData.year = metadata.year
+
+	if (Object.keys(trackUpdateData).length === 0) return
+
+	await prisma.track.update({
+		where: { id: trackId },
+		data: trackUpdateData,
+	})
 }
 
 /**

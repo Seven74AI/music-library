@@ -1,4 +1,5 @@
 import { enqueueArchiveJob } from '#app/features/audio-archive/auto-enqueue.server'
+import { pickCoverThumbnailUrl } from '#app/types/transformations'
 import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
 import { prisma } from '#app/utils/db.server'
 import { type Prisma } from '#prisma/client.js'
@@ -19,6 +20,7 @@ export interface SyncableItem {
     videoOwnerChannelTitle?: string
     channelTitle?: string
     thumbnails?: {
+      maxres?: { url?: string }
       medium?: { url?: string }
       default?: { url?: string }
     }
@@ -380,11 +382,12 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       }
 
       try {
-        // Get or create artist
+        // Get or create artist.
+        // videoOwnerChannelTitle = the channel that uploaded the video (the artist).
+        // snippet.channelTitle on a playlistItem is the PLAYLIST owner's channel —
+        // never use it as the artist name.
         const artistName =
-          item.snippet?.videoOwnerChannelTitle ||
-          item.snippet?.channelTitle ||
-          'Unknown Artist'
+          item.snippet?.videoOwnerChannelTitle || 'Unknown Artist'
         const artistRecord = await getOrCreateArtistTx(tx, artistName)
 
         // Determine if we should preserve existing track data
@@ -519,6 +522,15 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           )
         }
 
+        const updateData = Object.fromEntries(
+          Object.entries({
+            ...td,
+            serviceId: sid,
+            externalId: eid,
+            updatedAt: new Date(),
+          }).filter(([, value]) => value !== null && value !== undefined),
+        )
+
         return tx.track.upsert({
           where: {
             serviceId_externalId: {
@@ -526,12 +538,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
               externalId: eid,
             },
           },
-          update: {
-            ...td,
-            serviceId: sid, // Ensure update also has correct values
-            externalId: eid, // Ensure update also has correct values
-            updatedAt: new Date(),
-          },
+          update: updateData,
           create: createData,
         })
       })
@@ -556,10 +563,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       const isDeleted = item ? provider.isDeletedVideo(item) : false
 
       // Get thumbnailUrl from API response
-      const thumbnailUrl =
-        item?.snippet?.thumbnails?.medium?.url ||
-        item?.snippet?.thumbnails?.default?.url ||
-        null
+      const thumbnailUrl = pickCoverThumbnailUrl(item?.snippet?.thumbnails)
 
       // Check if this track was previously deleted
       const existingPlaylistTrack = await tx.servicePlaylistTrack.findUnique({

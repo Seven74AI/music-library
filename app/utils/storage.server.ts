@@ -124,6 +124,24 @@ async function uploadFileLocal(file: Buffer, key: string): Promise<string> {
   return key
 }
 
+/**
+ * Origins that presigned storage URLs can have.
+ * With virtual-hosted-style URLs (forcePathStyle: false) the bucket becomes a
+ * subdomain of the endpoint host, so both origins must be allowlisted when
+ * fetching presigned URLs server-side (e.g. the openimg image proxy).
+ */
+export function getStorageOrigins(): string[] {
+  if (!isStorageConfigured()) {
+    return []
+  }
+  const config = getStorageConfig()
+  const endpointUrl = new URL(config.endpoint)
+  return [
+    endpointUrl.origin,
+    `${endpointUrl.protocol}//${config.bucket}.${endpointUrl.host}`,
+  ]
+}
+
 // Singleton S3 client for connection pooling
 let s3ClientInstance: S3Client | null = null
 
@@ -142,7 +160,9 @@ export function getS3Client(): S3Client {
         accessKeyId: config.accessKey,
         secretAccessKey: config.secretKey,
       },
-      forcePathStyle: true, // Required for Tigris
+      // Virtual-hosted URLs (bucket.fly.storage.tigris.dev) — required for
+      // buckets created after 2025-02-19 and matches the *.fly.storage.tigris.dev cert.
+      forcePathStyle: false,
       maxAttempts: MAX_RETRY_ATTEMPTS,
       retryMode: RETRY_MODE,
       requestChecksumCalculation: 'WHEN_REQUIRED', // Only calculate checksums when required

@@ -4,7 +4,7 @@ import { invariantResponse } from '@epic-web/invariant'
 import { getImgResponse } from 'openimg/node'
 import { getDomainUrl } from '#app/utils/misc.tsx'
 import { validateStorageKey } from '#app/utils/path-validation.server'
-import { getFileUrl } from '#app/utils/storage.server.ts'
+import { getFileUrl, getStorageOrigins } from '#app/utils/storage.server.ts'
 import { type Route } from './+types/images'
 
 let cacheDir: string | null = null
@@ -58,7 +58,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 		headers,
 		allowlistedOrigins: [
 			getDomainUrl(request),
-			process.env.AWS_ENDPOINT_URL_S3,
+			// Presigned Tigris URLs use the virtual-hosted origin
+			// (https://{bucket}.fly.storage.tigris.dev) — openimg matches origins
+			// exactly, so both storage origins must be listed.
+			...getStorageOrigins(),
 			'https://i.ytimg.com',
 			'https://img.youtube.com',
 		].filter(Boolean),

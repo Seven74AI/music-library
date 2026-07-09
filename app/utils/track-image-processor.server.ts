@@ -1,9 +1,10 @@
-import { prisma } from '#app/utils/db.server'
+import { pickCoverThumbnailUrl } from '#app/types/transformations'
 import {
   downloadExternalImage,
   findOrCreateCoverImage,
 } from '#app/utils/cover-management.server'
-import type { SyncableItem } from './track-batch-processor.server'
+import { prisma } from '#app/utils/db.server'
+import { type SyncableItem } from './track-batch-processor.server'
 
 /** Maximum concurrent image downloads */
 const MAX_CONCURRENCY = 5
@@ -45,10 +46,7 @@ export async function preDownloadImages<TItem extends SyncableItem>(
 
     if (!externalId) return
 
-    const thumbnailUrl =
-      item.snippet?.thumbnails?.medium?.url ||
-      item.snippet?.thumbnails?.default?.url ||
-      null
+    const thumbnailUrl = pickCoverThumbnailUrl(item.snippet?.thumbnails)
     if (!thumbnailUrl) return
 
     try {

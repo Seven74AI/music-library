@@ -250,6 +250,7 @@ The application includes a background worker that automatically downloads and ar
 ### Features
 - **Automatic Archiving**: Tracks imported from YouTube are automatically enqueued for audio download
 - **Background Worker**: Queue-based system processes downloads with configurable concurrency
+- **Metadata Backfill**: Duration, title, artist, album, genre and more are extracted from the downloaded audio file and written to the track
 - **Cookie-Based YouTube Auth**: Supports authenticated downloads via YouTube cookies to bypass bot detection
 - **Tigris Storage**: Audio files stored in S3-compatible Tigris Object Storage
 - **Telegram Notifications**: Admin alerts for cookie expiry and permanent job failures
@@ -263,8 +264,9 @@ The application includes a background worker that automatically downloads and ar
 3. Pending jobs are picked up (priority first, then oldest)
 4. `yt-dlp` downloads the audio as MP3 using optional cookie authentication
 5. The audio file is uploaded to Tigris Object Storage
-6. A `TrackAudioFile` record is created, linking the track to its stored audio
-7. On failure, errors are categorized and either retried or permanently failed
+6. A `TrackAudioFile` record is created, linking the track to its stored audio (with real format, bitrate, sample rate, and file size)
+7. Metadata is extracted from the audio file and backfilled onto the track (duration, title, artist, album, genre, BPM, ISRC, ...) — best-effort, a failure here never fails the job
+8. On failure, errors are categorized and either retried or permanently failed
 
 ### Configuration
 Enable audio archiving by setting the environment variables in the [Environment Variables Reference](#environment-variables-reference) section.

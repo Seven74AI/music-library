@@ -48,7 +48,7 @@ async function resetStorage() {
       accessKeyId: config.accessKey,
       secretAccessKey: config.secretKey,
     },
-    forcePathStyle: true, // Required for Tigris
+    forcePathStyle: false,
   })
 
   console.log('🗑️  Starting storage reset...')

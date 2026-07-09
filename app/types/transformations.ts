@@ -3,6 +3,39 @@ import { parseDuration, type VideoData } from '#app/utils/youtube-utils'
 import { type Prisma } from '#prisma/client.js'
 
 /**
+ * Structural thumbnail type so callers with provider-agnostic item shapes
+ * (e.g. SyncableItem) can use the helper without depending on YouTube types.
+ */
+interface CoverThumbnails {
+  maxres?: { url?: string } | null
+  medium?: { url?: string } | null
+  default?: { url?: string } | null
+  // Present in YouTube responses but deliberately ignored (4:3 letterboxed)
+  high?: { url?: string } | null
+  standard?: { url?: string } | null
+}
+
+/**
+ * Pick the best thumbnail URL to use as a cover image source.
+ *
+ * Preference: maxres (1280x720) > medium (320x180) > default (120x90).
+ * maxres and medium are true 16:9 renditions; high (480x360) and
+ * standard (640x480) are 4:3 with black letterbox bars, so they are
+ * deliberately skipped — cropping them to a square cover would include
+ * the bars. maxres only exists for some videos.
+ */
+export function pickCoverThumbnailUrl(
+  thumbnails: CoverThumbnails | undefined,
+): string | null {
+  return (
+    thumbnails?.maxres?.url ||
+    thumbnails?.medium?.url ||
+    thumbnails?.default?.url ||
+    null
+  )
+}
+
+/**
  * Type-safe transformation from YouTube API to Prisma input types
  * 
  * This file contains transformation functions that convert validated YouTube API data
@@ -46,12 +79,19 @@ export function transformYouTubePlaylistItemToTrack(
   return {
     title: item.snippet?.title || 'Unknown Title',
     artistId,
-    duration: null, // Duration is not available in playlist items, need to fetch from video details
+    // Duration is not in playlistItems responses — the archive worker backfills
+    // it from the downloaded audio file (see worker.server.ts).
+    duration: null,
     externalId: item.snippet?.resourceId?.videoId || '',
     service: { connect: { id: serviceId } },
     serviceUrl: item.snippet?.resourceId?.videoId ? `https://youtube.com/watch?v=${item.snippet.resourceId.videoId}` : null,
-    thumbnailUrl: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || null,
-    releaseDate: null,
+    thumbnailUrl: pickCoverThumbnailUrl(item.snippet?.thumbnails),
+    // contentDetails.videoPublishedAt = when the video was published to YouTube.
+    // snippet.publishedAt = when the item was ADDED TO THE PLAYLIST — never use it
+    // as a release date.
+    releaseDate: item.contentDetails?.videoPublishedAt
+      ? new Date(item.contentDetails.videoPublishedAt)
+      : null,
   }
 }
 
@@ -112,7 +152,7 @@ export function transformYouTubeVideoToTrack(
     externalId: video.id || '',
     service: { connect: { id: serviceId } },
     serviceUrl: video.id ? `https://youtube.com/watch?v=${video.id}` : null,
-    thumbnailUrl: video.snippet?.thumbnails?.medium?.url || video.snippet?.thumbnails?.default?.url || null,
+    thumbnailUrl: pickCoverThumbnailUrl(video.snippet?.thumbnails),
     releaseDate: video.snippet?.publishedAt ? new Date(video.snippet.publishedAt) : null,
   }
 }
@@ -131,7 +171,7 @@ export function transformYouTubeVideoToVideoData(video: YouTubeVideo): VideoData
     title: video.snippet?.title || 'Unknown Title',
     artist: video.snippet?.channelTitle || 'Unknown Artist',
     duration,
-    thumbnailUrl: video.snippet?.thumbnails?.medium?.url || video.snippet?.thumbnails?.default?.url || '',
+    thumbnailUrl: pickCoverThumbnailUrl(video.snippet?.thumbnails) || '',
     serviceUrl: video.id ? `https://youtube.com/watch?v=${video.id}` : '',
     publishedAt: video.snippet?.publishedAt || '',
   }

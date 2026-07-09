@@ -1,0 +1,91 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { processTracksInBatches } from './track-batch-processor.server'
+import { createYouTubePlaylistProvider } from './youtube-playlist-provider.server'
+
+function createTxMock() {
+	const artistCreate = vi.fn().mockImplementation(({ data }: any) =>
+		Promise.resolve({ id: `artist-${data.name}`, name: data.name }),
+	)
+	return {
+		tx: {
+			track: {
+				findUnique: vi.fn().mockResolvedValue(null),
+				upsert: vi.fn().mockImplementation(({ create }: any) =>
+					Promise.resolve({ id: 'track-1', ...create }),
+				),
+			},
+			artist: {
+				findMany: vi.fn().mockResolvedValue([]),
+				findFirst: vi.fn().mockResolvedValue(null),
+				create: artistCreate,
+			},
+			servicePlaylistTrack: {
+				findUnique: vi.fn().mockResolvedValue(null),
+				upsert: vi.fn().mockResolvedValue({ id: 'spt-1' }),
+			},
+		},
+		artistCreate,
+	}
+}
+
+describe('processTracksInBatches - artist naming', () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	it('uses videoOwnerChannelTitle (the video uploader) as the artist', async () => {
+		const { tx, artistCreate } = createTxMock()
+
+		await processTracksInBatches(
+			[
+				{
+					snippet: {
+						title: 'Some Song',
+						resourceId: { videoId: 'video1' },
+						videoOwnerChannelTitle: 'Uploader Channel',
+						channelTitle: 'Playlist Owner Channel',
+						thumbnails: { default: { url: 'https://example.com/t.jpg' } },
+					},
+				},
+			],
+			'service-1',
+			'playlist-1',
+			tx,
+			createYouTubePlaylistProvider(),
+		)
+
+		expect(artistCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				data: expect.objectContaining({ name: 'Uploader Channel' }),
+			}),
+		)
+	})
+
+	it('falls back to Unknown Artist — never channelTitle, which is the playlist owner, not the uploader', async () => {
+		const { tx, artistCreate } = createTxMock()
+
+		await processTracksInBatches(
+			[
+				{
+					snippet: {
+						title: 'Some Song',
+						resourceId: { videoId: 'video2' },
+						// no videoOwnerChannelTitle
+						channelTitle: 'Playlist Owner Channel',
+						thumbnails: { default: { url: 'https://example.com/t.jpg' } },
+					},
+				},
+			],
+			'service-1',
+			'playlist-1',
+			tx,
+			createYouTubePlaylistProvider(),
+		)
+
+		expect(artistCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				data: expect.objectContaining({ name: 'Unknown Artist' }),
+			}),
+		)
+	})
+})

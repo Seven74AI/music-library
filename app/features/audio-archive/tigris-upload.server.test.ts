@@ -73,7 +73,7 @@ describe('getS3Client', () => {
 			expect.objectContaining({
 				region: expect.any(String),
 				endpoint: expect.any(String),
-				forcePathStyle: true,
+				forcePathStyle: false,
 			}),
 		)
 	})

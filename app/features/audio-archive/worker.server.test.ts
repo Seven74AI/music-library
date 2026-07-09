@@ -8,6 +8,17 @@ const mockPrisma = {
 		findUnique: vi.fn(),
 		update: vi.fn(),
 	},
+	track: {
+		findUnique: vi.fn(),
+		update: vi.fn(),
+	},
+	artist: {
+		findMany: vi.fn(),
+		create: vi.fn(),
+	},
+	album: {
+		upsert: vi.fn(),
+	},
 	workerState: {
 		upsert: vi.fn(),
 	},
@@ -62,6 +73,16 @@ vi.mock('./notification.server', () => ({
 	notifyJobFailed: mockNotifyJobFailed,
 }))
 
+const mockExtractAudioMetadata = vi.fn()
+vi.mock('#app/utils/audio-metadata.server.ts', () => ({
+	extractAudioMetadata: mockExtractAudioMetadata,
+}))
+
+const mockReadFileSync = vi.fn()
+vi.mock('node:fs', () => ({
+	readFileSync: mockReadFileSync,
+}))
+
 describe('processQueueTick', () => {
 	const originalEnv = { ...process.env }
 
@@ -90,6 +111,36 @@ describe('processQueueTick', () => {
 			errorCategory: null,
 			errorMessage: null,
 		})
+		mockReadFileSync.mockReturnValue(Buffer.from('fake-mp3'))
+		mockExtractAudioMetadata.mockResolvedValue({
+			duration: 253,
+			title: 'Embedded Title',
+			artist: 'Embedded Artist',
+			album: 'Embedded Album',
+			year: 2026,
+			releaseDate: '2026-01-15',
+			originalDate: '2025-12-01',
+			originalYear: 2025,
+			track: { no: 3, of: 12 },
+			disk: { no: 1, of: 2 },
+			// The real extractor derives these from track.of / disk.of
+			totalTracks: 12,
+			totalDiscs: 2,
+			genre: ['Rap'],
+			albumArtist: 'Embedded Album Artist',
+			bpm: 140,
+			label: 'Embedded Label',
+			isrc: 'USRC17607839',
+			lyrics: 'Embedded lyrics',
+			bitrate: 320,
+			sampleRate: 44100,
+			format: 'mp3',
+			mimeType: 'audio/mpeg',
+		})
+		mockPrisma.artist.findMany.mockResolvedValue([{ id: 'artist-embedded', name: 'Embedded Artist' }])
+		mockPrisma.track.findUnique.mockResolvedValue({ artistId: 'artist-existing' })
+		mockPrisma.track.update.mockResolvedValue({})
+		mockPrisma.album.upsert.mockResolvedValue({ id: 'album-1' })
 	})
 
 	describe('AUDIO_ARCHIVE_ENABLED check', () => {
@@ -182,12 +233,91 @@ describe('processQueueTick', () => {
 						trackId: 'track-1',
 						format: 'mp3',
 						mimeType: 'audio/mpeg',
+						bitrate: 320,
+						sampleRate: 44100,
+					}),
+				}),
+			)
+			expect(mockPrisma.track.update).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: { id: 'track-1' },
+					data: expect.objectContaining({
+						title: 'Embedded Title',
+						artistId: 'artist-embedded',
+						duration: 253,
+						genre: 'Rap',
+						albumArtist: 'Embedded Album Artist',
+						bpm: 140,
+						label: 'Embedded Label',
+						isrc: 'USRC17607839',
+						originalYear: 2025,
+						totalTracks: 12,
+						totalDiscs: 2,
+						lyrics: 'Embedded lyrics',
+						albumId: 'album-1',
 					}),
 				}),
 			)
 			expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
 				expect.objectContaining({
 					where: { id: 'job-1' },
+					data: { status: 'completed' },
+				}),
+			)
+		})
+
+		it('preserves existing track fields when extracted metadata is missing', async () => {
+			delete process.env.COOKIE_FILE_PATH
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+			mockPrisma.archiveJob.findMany.mockResolvedValue([
+				{
+					id: 'job-keep',
+					status: 'pending',
+					priority: true,
+					retryCount: 0,
+					errorHistory: '[]',
+					track: { id: 'track-keep', serviceUrl: 'https://youtube.com/watch?v=keep' },
+				},
+			])
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: 'track-keep' })
+			mockExtractAudioMetadata.mockResolvedValue({
+				format: 'mp3',
+				mimeType: 'audio/mpeg',
+			})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			expect(mockPrisma.track.update).not.toHaveBeenCalled()
+		})
+
+		it('still completes the job when the track metadata update fails', async () => {
+			const { consoleError } = await import('#tests/setup/setup-test-env.ts')
+			consoleError.mockImplementation(() => {})
+			delete process.env.COOKIE_FILE_PATH
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+			mockPrisma.archiveJob.findMany.mockResolvedValue([
+				{
+					id: 'job-meta-fail',
+					status: 'pending',
+					priority: true,
+					retryCount: 0,
+					errorHistory: '[]',
+					track: { id: 'track-meta-fail', serviceUrl: 'https://youtube.com/watch?v=meta' },
+				},
+			])
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: 'track-meta-fail' })
+			mockPrisma.track.update.mockRejectedValue(new Error('db write failed'))
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			// Audio file exists and was uploaded — the job must not be retried
+			// (a retry would re-download and create a duplicate TrackAudioFile)
+			expect(mockPrisma.trackAudioFile.create).toHaveBeenCalled()
+			expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: { id: 'job-meta-fail' },
 					data: { status: 'completed' },
 				}),
 			)

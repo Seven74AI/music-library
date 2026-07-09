@@ -27,7 +27,8 @@ export function buildObjectKey(trackId: string, filePath: string): string {
 
 /**
  * Get a configured S3Client for Tigris Object Storage.
- * Tigris requires forcePathStyle: true and a custom endpoint.
+ * Tigris uses a custom endpoint with virtual-hosted-style URLs
+ * (bucket.fly.storage.tigris.dev/key) for new buckets.
  */
 export function getS3Client(): S3Client {
 	return new S3Client({
@@ -37,7 +38,7 @@ export function getS3Client(): S3Client {
 			accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
 			secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
 		},
-		forcePathStyle: true, // Required for Tigris
+		forcePathStyle: false,
 	})
 }
 
