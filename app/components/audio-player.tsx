@@ -31,9 +31,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const [currentTime, setCurrentTime] = useState(0)
 	const [duration, setDuration] = useState(0)
 	const [volume] = useState(1)
-	const previousTrackIdRef = useRef<string | null>(null)
 	const isManualPlayRef = useRef(false)
 	const [isDownloading, setIsDownloading] = useState(false)
+	const urlReadyRef = useRef(false)
 	
 	const getBestAudioFile = () => {
 		if (!track?.audioFiles || track.audioFiles.length === 0) {
@@ -61,11 +61,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			return
 		}
 		
-		// Reset audioSrc immediately on track change — prevents the play effect
-		// from firing prematurely with the previous track's stale URL, which
-		// would burn previousTrackIdRef and block playback of the new track.
+		// Reset audioSrc and mark URL as not-ready on track change.
+		// Because React runs effects in declaration order within the same
+		// render, the play effect (below) would fire with the previous
+		// track's stale audioSrc before this setAudioSrc(undefined) flush.
+		// urlReadyRef gates the play effect so it only triggers when the
+		// fresh presigned URL actually arrives.
 		setAudioSrc(undefined)
-		
+		urlReadyRef.current = false
+
 		let cancelled = false
 		fetch(audioRouteUrl)
 			.then(res => {
@@ -73,7 +77,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				return res.json() as Promise<{ url: string }>
 			})
 			.then(data => {
-				if (!cancelled) setAudioSrc(data.url)
+				if (!cancelled) {
+					urlReadyRef.current = true
+					setAudioSrc(data.url)
+				}
 			})
 			.catch(err => {
 				console.error('Failed to fetch audio URL:', err)
@@ -90,8 +97,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	}, [])
 
 	useEffect(() => {
-		if (audioRef.current && track && audioSrc && track.id !== previousTrackIdRef.current) {
-			previousTrackIdRef.current = track.id
+		if (audioRef.current && track && audioSrc && urlReadyRef.current) {
+			urlReadyRef.current = false
 			setIsPlaying(false)
 			audioRef.current.volume = volume
 			// Only auto-play if not manually triggered (prevents double-click issue)
