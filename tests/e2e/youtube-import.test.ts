@@ -30,8 +30,11 @@ test.describe('YouTube Import Page', () => {
 		)
 		await expect(searchInput).toBeVisible()
 
-		// Search button should be visible
-		await expect(page.getByRole('button', { name: /search/i }).first()).toBeVisible()
+		// Search button should be visible — target the form's submit button,
+		// not the global header search button which also matches /search/i
+		await expect(
+			page.locator('form[method="post"]').getByRole('button', { name: /search/i }),
+		).toBeVisible()
 	})
 
 	test('can search and see results with mock data', async ({
@@ -46,7 +49,7 @@ test.describe('YouTube Import Page', () => {
 			/enter youtube url or search by artist/i,
 		)
 		await searchInput.fill('test song')
-		await page.getByRole('button', { name: /search/i }).first().click()
+		await page.locator('form[method="post"]').getByRole('button', { name: /search/i }).click()
 
 		// Wait for results to load (mock data returns 5 results)
 		// Wait for results — next expect auto-waits
@@ -72,16 +75,17 @@ test.describe('YouTube Import Page', () => {
 			/enter youtube url or search by artist/i,
 		)
 		await searchInput.fill('test')
-		await page.getByRole('button', { name: /search/i }).first().click()
-		// Wait for results — next expect auto-waits
+		await page.locator('form[method="post"]').getByRole('button', { name: /search/i }).click()
+
+		// Wait for results to appear — expect auto-waits
+		await expect(page.getByText(/search results/i)).toBeVisible()
 
 		// Each result should have an Import button
 		const importButtons = page.getByRole('button', { name: /import/i })
+		// Count only after confirming at least one is visible (auto-wait)
+		await expect(importButtons.first()).toBeVisible()
 		const count = await importButtons.count()
 		expect(count).toBeGreaterThan(0)
-
-		// First button should be "Import" (not "Importing...")
-		await expect(importButtons.first()).toBeVisible()
 	})
 
 	test('can navigate back to YouTube services', async ({
