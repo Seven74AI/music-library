@@ -34,7 +34,7 @@ function createAudioFixture(objectKey: string) {
 	mkdirSync(dir, { recursive: true })
 	// Write a tiny valid MPEG frame (44 bytes — minimal header)
 	writeFileSync(fixturePath, Buffer.from([0xFF, 0xFB, 0x90, 0x00, ...Array(40).fill(0)]))
-	fixtureDirs.push(join(process.cwd(), 'tests', 'fixtures', 'uploaded', objectKey.split('/')[0]))
+	fixtureDirs.push(join(process.cwd(), 'tests', 'fixtures', 'uploaded', objectKey.split('/')[0]!))
 }
 
 // Create a fresh set of test entities. Suffix ensures unique names across tests.
