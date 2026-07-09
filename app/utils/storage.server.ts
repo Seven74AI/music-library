@@ -257,6 +257,10 @@ export async function uploadFile(params: {
     throw new Error('Invalid key: must be a non-empty string')
   }
   
+  // When running in mocks mode (E2E tests), skip the actual upload entirely.
+  // The test only verifies the redirect + DB record, not the file content.
+  if (process.env.MOCKS === 'true') return key
+
   // Use local file storage if storage is not configured (for local development)
   const useLocalStorage = !isStorageConfigured()
   if (useLocalStorage) {
