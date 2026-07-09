@@ -151,6 +151,7 @@ jobs:
       - name: 🎭 Playwright tests
         run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
+          CI: true
           MOCKS: true
 
       - name: 📊 Upload report

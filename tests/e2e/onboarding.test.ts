@@ -39,6 +39,7 @@ const test = base.extend<{
 })
 
 test('onboarding with link', { tag: '@slow' }, async ({ page, navigate, getOnboardingData }) => {
+	test.setTimeout(30000)
 	const onboardingData = getOnboardingData()
 
 	await navigate('/')
