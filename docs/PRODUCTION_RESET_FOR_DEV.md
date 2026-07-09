@@ -48,18 +48,20 @@ This avoids:
 Discover the current machine ID and attached volume ID:
 
 ```bash
-fly machine list --app music-library-5a00
-fly volumes list --app music-library-5a00
+fly machine list --app [APP_NAME]
+fly volumes list --app [APP_NAME]
 ```
 
-From app config and current Fly state:
+From `fly.toml` and current Fly state:
 
-- app: `music-library-5a00`
-- volume name: `data`
-- region: `cdg`
+- app: `[APP_NAME]` (`app` in `fly.toml`)
+- volume name: `data` (`[mounts].source` in `fly.toml`)
+- region: `cdg` (`primary_region` in `fly.toml`)
 - volume size: `1GB`
 
-In the commands below, replace only:
+In the commands below, replace:
+
+- `[APP_NAME]` with your Fly app name
 
 - `<machine-id>` with the current Fly machine ID
 - `<new-machine-id>` with the ID returned by `fly machine clone`
@@ -72,12 +74,12 @@ In the commands below, replace only:
 Creates a new machine with a fresh empty `data` volume.
 
 ```bash
-fly machine clone <machine-id> --region cdg --app music-library-5a00
+fly machine clone <machine-id> --region cdg --app [APP_NAME]
 ```
 
 Add `--detach` to return immediately instead of waiting for health checks.
 
-Note the new machine ID from the output (e.g. `Machine d896675a335678 has been created`).
+Note the new machine ID from the output (e.g. `Machine <new-machine-id> has been created`).
 
 The clone command may block on health checks while the old machine still exists. That is expected — continue with step 2 in another terminal as soon as the clone is created.
 
@@ -88,7 +90,7 @@ Do this immediately after the clone is created. Destroying a machine does **not*
 LiteFS uses a Consul lease keyed by `other/litefs.yml` → `lease.consul.key`. While the old machine still exists (even stopped), the clone may fail health checks with `cannot become primary, local node has no cluster ID`.
 
 ```bash
-fly machine destroy <machine-id> --app music-library-5a00 --force
+fly machine destroy <machine-id> --app [APP_NAME] --force
 ```
 
 ### 3. Destroy the old volume
@@ -96,7 +98,7 @@ fly machine destroy <machine-id> --app music-library-5a00 --force
 Only works after the old machine is gone.
 
 ```bash
-fly volumes destroy <volume-id> --app music-library-5a00 --yes
+fly volumes destroy <volume-id> --app [APP_NAME] --yes
 ```
 
 Destroyed volumes may show as **pending destroy** in the Fly dashboard for a while before disappearing. `fly volumes list` should eventually show only the new volume attached to `<new-machine-id>`.
@@ -107,15 +109,15 @@ If the clone is still stuck in a `cannot become primary` / `no primary` loop aft
 
 **Option A — delete the stale Consul key (no redeploy)**
 
-The key path is `$PREFIX/$LITEFS_CONSUL_KEY/clusterid`, where `LITEFS_CONSUL_KEY` comes from `other/litefs.yml` → `lease.consul.key` (currently `epic-stack-litefs_20250222/music-library-5a00`).
+The key path is `$PREFIX/$LITEFS_CONSUL_KEY/clusterid`, where `LITEFS_CONSUL_KEY` comes from `other/litefs.yml` → `lease.consul.key` (uses `${FLY_APP_NAME}` at runtime).
 
 ```bash
-fly ssh console --app music-library-5a00 -C "node -e \"
+fly ssh console --app [APP_NAME] -C "node -e \"
 const url = new URL(process.env.FLY_CONSUL_URL);
 const token = url.password;
 const host = url.hostname;
 const prefix = url.pathname.replace(/^\\//, '').replace(/\\/$/, '');
-const litefsKey = 'epic-stack-litefs_20250222/music-library-5a00';
+const litefsKey = 'epic-stack-litefs_20250222/' + process.env.FLY_APP_NAME;
 fetch('https://' + host + '/v1/kv/' + prefix + '/' + litefsKey + '/clusterid?token=' + token, { method: 'DELETE' })
   .then(r => r.text())
   .then(console.log);
@@ -129,7 +131,7 @@ Fly's official docs use the `consul kv delete` CLI for this step if `consul` is 
 Change `lease.consul.key` in `other/litefs.yml` to a new unused value (e.g. add `-v2`), then redeploy:
 
 ```bash
-fly deploy --ha=false --app music-library-5a00
+fly deploy --ha=false --app [APP_NAME]
 ```
 
 The old Consul key remains but LiteFS ignores it.
@@ -137,7 +139,7 @@ The old Consul key remains but LiteFS ignores it.
 **Then restart the new machine:**
 
 ```bash
-fly machine restart <new-machine-id> --app music-library-5a00 --skip-health-checks
+fly machine restart <new-machine-id> --app [APP_NAME] --skip-health-checks
 ```
 
 On boot, LiteFS should acquire the primary lease, run `npx prisma migrate deploy`, and start the app.
@@ -145,7 +147,7 @@ On boot, LiteFS should acquire the primary lease, run `npx prisma migrate deploy
 ### 5. Verify migrations finished
 
 ```bash
-fly logs --app music-library-5a00 --no-tail | tail -30
+fly logs --app [APP_NAME] --no-tail | tail -30
 ```
 
 You want to see:
@@ -156,7 +158,7 @@ You want to see:
 Also confirm the new machine is using the normal startup path:
 
 ```bash
-fly machine status <new-machine-id> -a music-library-5a00
+fly machine status <new-machine-id> -a [APP_NAME]
 ```
 
 The `Command` field should be empty, meaning the machine is using the Dockerfile default startup.
@@ -174,7 +176,7 @@ npm run reset-storage
 Sign up again in the UI, then grant admin:
 
 ```bash
-fly ssh console --app music-library-5a00 -C "cd /myapp && npx tsx scripts/make-admin.ts <username>"
+fly ssh console --app [APP_NAME] -C "cd /myapp && npx tsx scripts/make-admin.ts <username>"
 ```
 
 Log out and back in so the session picks up the admin role.
@@ -203,24 +205,24 @@ Tracks will show `--:--` for duration until the archive worker downloads them ag
 ## Example flow
 
 ```bash
-fly machine list --app music-library-5a00
-fly volumes list --app music-library-5a00
+fly machine list --app [APP_NAME]
+fly volumes list --app [APP_NAME]
 
 # In terminal 1: clone (may block on health checks)
-fly machine clone <machine-id> --region cdg --app music-library-5a00
+fly machine clone <machine-id> --region cdg --app [APP_NAME]
 
 # In terminal 2: as soon as clone is created
-fly machine destroy <machine-id> --app music-library-5a00 --force
-fly volumes destroy <volume-id> --app music-library-5a00 --yes
+fly machine destroy <machine-id> --app [APP_NAME] --force
+fly volumes destroy <volume-id> --app [APP_NAME] --yes
 
 # If clone is stuck on LiteFS primary election, clear Consul cluster ID (step 4) then:
-fly machine restart <new-machine-id> --app music-library-5a00 --skip-health-checks
+fly machine restart <new-machine-id> --app [APP_NAME] --skip-health-checks
 
 # wait for migrations in logs
-fly logs --app music-library-5a00 --no-tail | tail -30
+fly logs --app [APP_NAME] --no-tail | tail -30
 
 npm run reset-storage
 
 # sign up again, then:
-fly ssh console --app music-library-5a00 -C "cd /myapp && npx tsx scripts/make-admin.ts <username>"
+fly ssh console --app [APP_NAME] -C "cd /myapp && npx tsx scripts/make-admin.ts <username>"
 ```

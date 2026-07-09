@@ -350,21 +350,21 @@ fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"INSERT INT
 fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT u.username, r.name FROM User u JOIN \\\"_RoleToUser\\\" ur ON u.id = ur.\\\"B\\\" JOIN Role r ON ur.\\\"A\\\" = r.id WHERE u.username = '<username>';\""
 ```
 
-**Example:**
+**Example** (replace placeholders with values from your `fly machine list` / queries above):
 
 ```bash
 # Find user and admin role IDs
-fly ssh console --app music-library-5a00 -C "sqlite3 /litefs/data/sqlite.db \"SELECT id, username FROM User WHERE username = 'lieutner';\""
-# Output: cmiopkumo0001lqnhn8b0yges|lieutner
+fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT id, username FROM User WHERE username = 'jane';\""
+# Output: clxxxxxxxxxxxxxxxxxxxxx|jane
 
-fly ssh console --app music-library-5a00 -C "sqlite3 /litefs/data/sqlite.db \"SELECT id, name FROM Role WHERE name = 'admin';\""
-# Output: clnf2zvlw000gpcour6dyyuh6|admin
+fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT id, name FROM Role WHERE name = 'admin';\""
+# Output: clxxxxxxxxxxxxxxxxxxxxx|admin
 
 # Add admin role (A = admin role ID, B = user ID)
-fly ssh console --app music-library-5a00 -C "sqlite3 /litefs/data/sqlite.db \"INSERT INTO \\\"_RoleToUser\\\" (\\\"A\\\", \\\"B\\\") VALUES ('clnf2zvlw000gpcour6dyyuh6', 'cmiopkumo0001lqnhn8b0yges');\""
+fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"INSERT INTO \\\"_RoleToUser\\\" (\\\"A\\\", \\\"B\\\") VALUES ('<role_id>', '<user_id>');\""
 
 # Verify
-fly ssh console --app music-library-5a00 -C "sqlite3 /litefs/data/sqlite.db \"SELECT u.username, r.name FROM User u JOIN \\\"_RoleToUser\\\" ur ON u.id = ur.\\\"B\\\" JOIN Role r ON ur.\\\"A\\\" = r.id WHERE u.username = 'lieutner';\""
+fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT u.username, r.name FROM User u JOIN \\\"_RoleToUser\\\" ur ON u.id = ur.\\\"B\\\" JOIN Role r ON ur.\\\"A\\\" = r.id WHERE u.username = 'jane';\""
 ```
 
 **Important Notes:**
