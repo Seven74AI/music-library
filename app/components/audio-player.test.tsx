@@ -82,3 +82,63 @@ test('does not log when audio error is null (element exists but no MediaError)',
 
 	consoleSpy.mockRestore()
 })
+
+test('calls onNext when audio ends and loopMode is off', () => {
+	const onNext = vi.fn()
+
+	const { container } = render(
+		<AudioPlayer {...defaultProps} onNext={onNext} loopMode="off" />,
+	)
+
+	const audioEl = container.querySelector('audio')
+	expect(audioEl).not.toBeNull()
+
+	audioEl!.dispatchEvent(new Event('ended'))
+
+	expect(onNext).toHaveBeenCalledOnce()
+})
+
+test('does NOT call onNext when audio ends and loopMode is one', () => {
+	const onNext = vi.fn()
+
+	const { container } = render(
+		<AudioPlayer {...defaultProps} onNext={onNext} loopMode="one" />,
+	)
+
+	const audioEl = container.querySelector('audio')
+	expect(audioEl).not.toBeNull()
+
+	audioEl!.dispatchEvent(new Event('ended'))
+
+	expect(onNext).not.toHaveBeenCalled()
+})
+
+test('calls onNext when next button is clicked', () => {
+	const onNext = vi.fn()
+
+	render(
+		<AudioPlayer {...defaultProps} onNext={onNext} hasNext={true} />,
+	)
+
+	const nextButton = document.querySelector('[aria-label="Next track"]')
+	expect(nextButton).not.toBeNull()
+
+	nextButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+	expect(onNext).toHaveBeenCalledOnce()
+})
+
+test('calls onPrevious when previous button is clicked', () => {
+	const onPrevious = vi.fn()
+
+	render(
+		<AudioPlayer {...defaultProps} onPrevious={onPrevious} hasPrevious={true} />,
+	)
+
+	const prevButton = document.querySelector('[aria-label="Previous track"]')
+	expect(prevButton).not.toBeNull()
+
+	prevButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+	expect(onPrevious).toHaveBeenCalledOnce()
+})
