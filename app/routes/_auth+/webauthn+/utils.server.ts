@@ -4,8 +4,8 @@ import {
 } from '@simplewebauthn/server'
 import { createCookie } from 'react-router'
 import { z } from 'zod'
-import { getDomainUrl } from '#app/utils/misc.tsx'
 import { getSessionSecret } from '#app/utils/env.server.ts'
+import { getDomainUrl } from '#app/utils/misc.tsx'
 
 export const passkeyCookie = createCookie('webauthn-challenge', {
 	path: '/',

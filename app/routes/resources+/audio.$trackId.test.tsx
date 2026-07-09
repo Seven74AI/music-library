@@ -2,8 +2,8 @@
  * @vitest-environment jsdom
  */
 import { vi, test, expect } from 'vitest'
-import { prisma } from '#app/utils/db.server.js'
 import { requireUserId } from '#app/utils/auth.server.js'
+import { prisma } from '#app/utils/db.server.js'
 import { loader as audioLoader } from './audio.$trackId.tsx'
 
 // Mock the auth — return values set dynamically in each test via vi.mocked

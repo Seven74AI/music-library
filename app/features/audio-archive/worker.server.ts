@@ -1,14 +1,13 @@
-import { prisma } from '#app/utils/db.server.ts'
 import { readFileSync } from 'node:fs'
-import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { getOrCreateArtist } from '#app/utils/artist-management.server'
+import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { getOrCreateAlbum } from '#app/utils/cover-management.server'
-import { executeYtDlp, ErrorCategory } from './yt-dlp.server'
-import { getCookieFilePath } from './youtube-cookie.server'
+import { prisma } from '#app/utils/db.server.ts'
+import { notifyCookieExpired, notifyJobFailed } from './notification.server'
 import { uploadToTigris, buildObjectKey } from './tigris-upload.server'
 import { isWorkerActive } from './worker-control.server'
-import { notifyCookieExpired, notifyJobFailed } from './notification.server'
-import type { ErrorCategory as ErrorCategoryType } from './yt-dlp.server'
+import { getCookieFilePath } from './youtube-cookie.server'
+import { executeYtDlp, ErrorCategory, type ErrorCategory as ErrorCategoryType  } from './yt-dlp.server'
 
 /**
  * Maximum number of retry attempts for retriable errors.

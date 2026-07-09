@@ -8,20 +8,18 @@ import {
 } from '#app/types/youtube-api'
 import { prisma } from '#app/utils/db.server'
 import { type PlaylistSyncProvider } from './playlist-sync-provider.server'
-import { createYouTubePlaylistProvider } from './youtube-playlist-provider.server'
 import { getServiceByName, getUserConnection, parseConnectionTokens } from './playlist-utils.server'
 import {
   processTracksInBatches,
   type ProcessTracksResult,
   type SyncTrackInfo,
   type PendingMatch,
+  confirmDeletedVideoMatches as doConfirmMatches
 } from './track-batch-processor.server'
 import {
   processTrackImagesAsync,
 } from './track-image-processor.server'
-import {
-  confirmDeletedVideoMatches as doConfirmMatches,
-} from './track-batch-processor.server'
+import { createYouTubePlaylistProvider } from './youtube-playlist-provider.server'
 
 /**
  * Extended playlist interface with sync status information

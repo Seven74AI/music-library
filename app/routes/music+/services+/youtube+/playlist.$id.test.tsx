@@ -2,8 +2,8 @@
  * @vitest-environment jsdom
  */
 import { test, expect } from 'vitest'
-import { mapTrackToListItem } from './playlist.$id'
 import { type TrackWithUserStatus } from '#app/types/frontend/shared'
+import { mapTrackToListItem } from './playlist.$id'
 
 test('mapTrackToListItem includes audioFiles when present', () => {
 	const track: TrackWithUserStatus = {

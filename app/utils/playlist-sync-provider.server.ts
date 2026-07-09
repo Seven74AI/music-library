@@ -1,5 +1,5 @@
-import type { YouTubePlaylist, YouTubePlaylistItem } from '#app/types/youtube-api'
-import type { Prisma } from '#prisma/client.js'
+import  { type YouTubePlaylist, type YouTubePlaylistItem } from '#app/types/youtube-api'
+import  { type Prisma } from '#prisma/client.js'
 
 /**
  * Interface for playlist sync providers.

@@ -1,6 +1,6 @@
-import { lazy, Suspense } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { OpenImgContextProvider } from 'openimg/react'
+import { lazy, Suspense } from 'react'
 import {
 	data,
 	Link,

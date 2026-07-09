@@ -1,10 +1,10 @@
 /**
  * @vitest-environment jsdom
  */
-import { type ReactNode } from 'react'
 import { render } from '@testing-library/react'
+import { type ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
-import type { FullTrack } from '#app/types/frontend/shared'
+import  { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayer } from './audio-player'
 
 // Mock the provider module to avoid the QueueSheet's useAudioPlayer requirement

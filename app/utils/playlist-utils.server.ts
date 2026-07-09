@@ -1,5 +1,5 @@
+import  { type YouTubeTokenData } from '#app/types/youtube'
 import { prisma } from '#app/utils/db.server'
-import type { YouTubeTokenData } from '#app/types/youtube'
 
 /**
  * Error class for when a service is not found in the database.
