@@ -298,7 +298,7 @@ For authenticated downloads (age-restricted or bot-protected content), upload a 
 
 This project uses SQLite with Prisma ORM. The database is automatically set up when you run `npm run setup`.
 
-For intentionally wiping the database and storage during development, see [docs/RESET_DURING_DEV.md](./docs/RESET_DURING_DEV.md).
+For intentionally wiping the production database and storage during development, see [docs/PRODUCTION_RESET_FOR_DEV.md](./docs/PRODUCTION_RESET_FOR_DEV.md).
 
 ### Database Commands
 ```bash
