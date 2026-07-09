@@ -61,6 +61,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			return
 		}
 		
+		// Reset audioSrc immediately on track change — prevents the play effect
+		// from firing prematurely with the previous track's stale URL, which
+		// would burn previousTrackIdRef and block playback of the new track.
+		setAudioSrc(undefined)
+		
 		let cancelled = false
 		fetch(audioRouteUrl)
 			.then(res => {

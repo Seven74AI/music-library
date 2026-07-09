@@ -27,8 +27,10 @@ test.describe('YouTube Cookies Admin', { tag: '@slow' }, () => {
 		await loginAsAdmin()
 		await page.goto('/admin/youtube-cookies')
 
+		// The "Current State" section should render — cookie count
+		// varies depending on whether other tests already imported cookies
+		await expect(page.getByText(/current state/i)).toBeVisible()
 		await expect(page.getByText(/cookies on disk/i)).toBeVisible()
-		await expect(page.getByText(/no cookies uploaded yet/i)).toBeVisible()
 	})
 
 	test('can paste cookies via textarea', async ({ page, loginAsAdmin }) => {

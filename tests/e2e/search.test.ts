@@ -22,9 +22,7 @@ test.describe('Global Search', () => {
 		await searchInput.fill('test')
 		await searchInput.press('Enter')
 
-		// Wait for results to load
-		await page.waitForTimeout(500)
-
+		// Wait for results to load — Playwright auto-waits inside expect
 		// Check if search results are displayed (may be empty if no test data)
 		// Use ^Found to avoid matching "No results found"
 		await expect(page.getByText(/^Found \d+/)).toBeVisible()
