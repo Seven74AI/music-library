@@ -1,7 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-import { vi, test, expect } from 'vitest'
+import { mkdirSync, writeFileSync, rmSync } from 'fs'
+import { join } from 'path'
+import { afterAll, vi, test, expect } from 'vitest'
 import { requireUserId } from '#app/utils/auth.server.js'
 import { prisma } from '#app/utils/db.server.js'
 import { loader as audioLoader } from './audio.$trackId.tsx'
@@ -15,6 +17,24 @@ vi.mock('#app/utils/auth.server.ts', () => ({
 function suppressConsoleErrors() {
 	vi.spyOn(console, 'error').mockImplementation(() => {})
 	vi.spyOn(console, 'warn').mockImplementation(() => {})
+}
+
+// Track fixture files for cleanup
+const fixtureDirs: string[] = []
+afterAll(() => {
+	for (const dir of fixtureDirs) {
+		try { rmSync(dir, { recursive: true, force: true }) } catch {}
+	}
+})
+
+/** Create a dummy audio fixture file so the loader can serve it locally (no S3 needed in tests) */
+function createAudioFixture(objectKey: string) {
+	const fixturePath = join(process.cwd(), 'tests', 'fixtures', 'uploaded', objectKey)
+	const dir = fixturePath.substring(0, fixturePath.lastIndexOf('/'))
+	mkdirSync(dir, { recursive: true })
+	// Write a tiny valid MPEG frame (44 bytes — minimal header)
+	writeFileSync(fixturePath, Buffer.from([0xFF, 0xFB, 0x90, 0x00, ...Array(40).fill(0)]))
+	fixtureDirs.push(join(process.cwd(), 'tests', 'fixtures', 'uploaded', objectKey.split('/')[0]!))
 }
 
 // Create a fresh set of test entities. Suffix ensures unique names across tests.
@@ -67,6 +87,9 @@ async function setupTestData() {
 			fileSize: 1024,
 		},
 	})
+
+	// Create local fixture so loader can serve it without S3 config
+	createAudioFixture(`audio/tracks/${track.id}/local/mp3/99-test.mp3`)
 
 	// Create an active service playlist owned by the user
 	const playlist = await prisma.servicePlaylist.create({

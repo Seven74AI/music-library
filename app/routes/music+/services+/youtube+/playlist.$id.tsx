@@ -656,7 +656,6 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 													}}
 												userTrack={userTrack}
 												index={index}
-												playlistContext={{ type: 'playlist', playlistId: playlist.id }}
 										isDeleted={track.isDeleted}
 											showDuration={false} // Hide duration on YouTube playlist browsing
 											itemActions={itemActions}

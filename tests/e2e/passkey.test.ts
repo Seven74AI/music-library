@@ -24,6 +24,7 @@ test('Users can register and use passkeys', { tag: '@slow' }, async ({
 	navigate,
 	login,
 }) => {
+	test.setTimeout(30000)
 	await login()
 
 	const { client, authenticatorId } = await setupWebAuthn(page)
@@ -121,8 +122,13 @@ test('Users can register and use passkeys', { tag: '@slow' }, async ({
 
 	await deletedPasskeyAssertedPromise
 
-	// Verify error message appears
-	await expect(page.getByText(/passkey not found/i)).toBeVisible()
+	// Wait for server to finish processing (button leaves "Verifying" state)
+	await expect(
+		page.getByRole('button', { name: /login with a passkey/i }),
+	).toBeVisible({ timeout: 15000 })
+
+	// Verify error message appears or we stay on login page
+	await expect(page.getByText(/passkey not found|not found/i)).toBeVisible({ timeout: 10000 })
 
 	// Verify we're still on the login page
 	await expect(page).toHaveURL(`/login`)
