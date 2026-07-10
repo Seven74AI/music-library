@@ -6,27 +6,12 @@ import { Input } from '#app/components/ui/input.tsx'
 import { Label } from '#app/components/ui/label.tsx'
 import { Textarea } from '#app/components/ui/textarea.tsx'
 import { requireUserId } from '#app/utils/auth.server.ts'
-import { prisma } from '#app/utils/db.server.ts'
-import { redirectWithToast } from '#app/utils/toast.server.ts'
-import { addTrackToUserPlaylist } from '#app/utils/user-playlist.server.ts'
+import { createToastHeaders } from '#app/utils/toast.server.ts'
+import { createUserPlaylist } from '#app/utils/user-playlist.server.ts'
 import { type Route } from './+types/playlists.new.ts'
 
 export const handle: BreadcrumbHandle = {
 	breadcrumb: <Icon name="plus">New Playlist</Icon>,
-}
-
-export async function loader({ request }: Route.LoaderArgs) {
-	const trackId = new URL(request.url).searchParams.get('trackId')
-	if (!trackId) {
-		return data({ track: null })
-	}
-
-	const track = await prisma.track.findUnique({
-		where: { id: trackId },
-		select: { id: true, title: true },
-	})
-
-	return data({ track })
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -34,7 +19,6 @@ export async function action({ request }: Route.ActionArgs) {
 	const formData = await request.formData()
 	const title = formData.get('title')
 	const description = formData.get('description')
-	const trackId = formData.get('trackId')
 
 	if (typeof title !== 'string' || !title.trim()) {
 		return data({ error: 'Title is required' }, { status: 400 })
@@ -44,59 +28,48 @@ export async function action({ request }: Route.ActionArgs) {
 		return data({ error: 'Description must be a string' }, { status: 400 })
 	}
 
-	const playlist = await prisma.userPlaylist.create({
-		data: {
-			title: title.trim(),
-			description: description.trim() || null,
-			ownerId: userId,
-		},
+	const result = await createUserPlaylist({
+		userId,
+		title,
+		description,
 	})
 
-	if (typeof trackId === 'string' && trackId.trim()) {
-		const track = await prisma.track.findUnique({
-			where: { id: trackId.trim() },
-			select: { id: true, title: true },
-		})
-
-		if (track) {
-			await addTrackToUserPlaylist({
-				userId,
-				playlistId: playlist.id,
-				trackId: track.id,
-			})
-
-			return redirectWithToast('/library', {
-				title: 'Success',
-				description: `Created "${playlist.title}" and added "${track.title}"`,
-				type: 'success',
-			})
-		}
+	if (result.status === 'duplicate_title') {
+		return data(
+			{ error: `You already have a playlist named "${result.existingTitle}"` },
+			{
+				status: 409,
+				headers: await createToastHeaders({
+					title: 'Duplicate playlist',
+					description: `You already have a playlist named "${result.existingTitle}"`,
+					type: 'error',
+				}),
+			},
+		)
 	}
 
-	return redirect(`/playlists/${playlist.id}`)
+	if (result.status === 'invalid_title') {
+		return data({ error: 'Title is required' }, { status: 400 })
+	}
+
+	return redirect(`/playlists/${result.playlist.id}`)
 }
 
-export default function PlaylistsNewRoute({ loaderData }: Route.ComponentProps) {
+export default function PlaylistsNewRoute({ loaderData: _loaderData }: Route.ComponentProps) {
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === 'submitting'
-	const track = loaderData?.track ?? null
-	const cancelHref = track ? '/library' : '/playlists'
 
 	return (
 		<div className="max-w-2xl mx-auto">
 			<div className="mb-6">
 				<h1 className="text-2xl font-bold">Create New Playlist</h1>
 				<p className="text-muted-foreground">
-					{track
-						? <>Create a playlist and add <span className="font-medium text-foreground">{track.title}</span>.</>
-						: 'Organize your music into custom playlists.'}
+					Organize your music into custom playlists.
 				</p>
 			</div>
 
 			<Form method="post" className="space-y-6">
-				{track && <input type="hidden" name="trackId" value={track.id} />}
-
 				<div className="space-y-2">
 					<Label htmlFor="title">Title</Label>
 					<Input
@@ -130,7 +103,7 @@ export default function PlaylistsNewRoute({ loaderData }: Route.ComponentProps) 
 						{isSubmitting ? 'Creating...' : 'Create Playlist'}
 					</Button>
 					<Button type="button" variant="outline" asChild>
-						<Link to={cancelHref}>Cancel</Link>
+						<Link to="/playlists">Cancel</Link>
 					</Button>
 				</div>
 			</Form>

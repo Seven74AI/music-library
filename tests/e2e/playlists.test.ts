@@ -49,6 +49,26 @@ test.describe('Playlists', () => {
 		await expect(page.getByRole('heading', { name: 'Create New Playlist' })).toBeVisible()
 	})
 
+	test('rejects duplicate playlist title on create', async ({ page, login }) => {
+		const user = await login()
+
+		await prisma.userPlaylist.create({
+			data: {
+				title: 'Unique Playlist',
+				ownerId: user.id,
+			},
+		})
+
+		await page.goto('/playlists/new')
+		await page.getByRole('textbox', { name: /title/i }).fill('unique playlist')
+		await page.getByRole('button', { name: /create playlist/i }).click()
+
+		await expect(page).toHaveURL('/playlists/new')
+		await expect(page.getByText(/already have a playlist named/i)).toBeVisible({ timeout: 10000 })
+
+		await prisma.userPlaylist.deleteMany({ where: { ownerId: user.id, title: 'Unique Playlist' } })
+	})
+
 	test('shows playlists in playlists page', async ({ page, login }) => {
 		const user = await login()
 		

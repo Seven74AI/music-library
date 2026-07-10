@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import { Link, useFetcher } from 'react-router'
+import { useFetcher, useRevalidator } from 'react-router'
 import { Icon } from './ui/icon'
+import { Button } from './ui/button'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog'
 import { Input } from './ui/input'
 import { ScrollArea } from './ui/scroll-area'
@@ -13,6 +14,13 @@ interface Playlist {
   title: string
   description: string | null
   _count: { tracks: number }
+}
+
+type CreatePlaylistResponse = {
+  status: string
+  message?: string
+  existingTitle?: string
+  playlist?: Playlist
 }
 
 /**
@@ -32,48 +40,29 @@ interface AddToPlaylistMenuProps {
 /**
  * Component for adding a track to a playlist with search functionality
  * Supports both dropdown (desktop) and sheet (mobile) contexts
- * 
- * Features:
- * - Real-time playlist search/filtering
- * - Duplicate track detection with confirmation dialog
- * - Server-side toast notifications for success/error states
- * - Accessibility support with proper ARIA labels
- * - Loading states and error handling
- * 
- * @param props - Component props
- * @returns JSX element for the add-to-playlist menu
- * 
- * @example
- * ```tsx
- * <AddToPlaylistMenu 
- *   trackId="track-123" 
- *   trackTitle="Song Title"
- *   playlists={userPlaylists}
- *   onSuccess={() => setIsSheetOpen(false)}
- * />
- * ```
  */
 export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }: AddToPlaylistMenuProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [duplicatePlaylist, setDuplicatePlaylist] = useState<Playlist | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [newPlaylistTitle, setNewPlaylistTitle] = useState('')
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [localPlaylists, setLocalPlaylists] = useState(playlists)
   const fetcher = useFetcher<{ status: string; message?: string; playlistId?: string }>()
-  
-  /**
-   * Filter playlists based on search query
-   * Case-insensitive search on playlist titles
-   */
+  const createFetcher = useFetcher<CreatePlaylistResponse>()
+  const { revalidate } = useRevalidator()
+
+  useEffect(() => {
+    setLocalPlaylists(playlists)
+  }, [playlists])
+
   const filteredPlaylists = useMemo(() => {
-    if (!searchQuery) return playlists
-    return playlists.filter(p => 
+    if (!searchQuery) return localPlaylists
+    return localPlaylists.filter(p =>
       p.title.toLowerCase().includes(searchQuery.toLowerCase())
     )
-  }, [playlists, searchQuery])
-  
-  /**
-   * Handle adding track to playlist using React Router v7 fetcher
-   * @param playlist - The playlist to add the track to
-   * @param force - Whether to force adding duplicate tracks
-   */
+  }, [localPlaylists, searchQuery])
+
   const handleAddToPlaylist = useCallback((playlist: Playlist, force = false) => {
     void fetcher.submit(
       {
@@ -88,33 +77,78 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
     )
   }, [fetcher, trackId])
 
-  /**
-   * Handle fetcher responses using React Router v7 idiomatic pattern
-   * Processes success, duplicate, and error states
-   */
+  const handleStartCreate = useCallback(() => {
+    setIsCreating(true)
+    setCreateError(null)
+    setNewPlaylistTitle('')
+  }, [])
+
+  const handleCancelCreate = useCallback(() => {
+    setIsCreating(false)
+    setCreateError(null)
+    setNewPlaylistTitle('')
+  }, [])
+
+  const handleCreatePlaylist = useCallback(() => {
+    const title = newPlaylistTitle.trim()
+    if (!title) {
+      setCreateError('Playlist name is required')
+      return
+    }
+
+    setCreateError(null)
+    void createFetcher.submit(
+      { title, trackId },
+      {
+        method: 'POST',
+        action: '/resources/create-playlist-with-track',
+      },
+    )
+  }, [createFetcher, newPlaylistTitle, trackId])
+
   useEffect(() => {
-    // Only process when fetcher transitions from submitting to idle
     if (fetcher.state === 'idle' && fetcher.data) {
       if (fetcher.data.status === 'success') {
         setDuplicatePlaylist(null)
-        // Call onSuccess callback if provided (for closing sheets on mobile)
         if (onSuccess) {
           onSuccess()
         }
       } else if (fetcher.data.status === 'duplicate') {
-        const playlist = playlists.find(p => p.id === fetcher.data?.playlistId)
+        const playlist = localPlaylists.find(p => p.id === fetcher.data?.playlistId)
         if (playlist) {
           setDuplicatePlaylist(playlist)
         }
       }
-      // Error handling is now done via server-side toasts
     }
-  }, [fetcher.state, fetcher.data, playlists, onSuccess])
-  
+  }, [fetcher.state, fetcher.data, localPlaylists, onSuccess])
+
+  useEffect(() => {
+    if (createFetcher.state === 'idle' && createFetcher.data) {
+      if (createFetcher.data.status === 'success' && createFetcher.data.playlist) {
+        setLocalPlaylists((current) => [createFetcher.data!.playlist!, ...current])
+        setIsCreating(false)
+        setNewPlaylistTitle('')
+        setCreateError(null)
+        void revalidate()
+        if (onSuccess) {
+          onSuccess()
+        }
+      } else if (createFetcher.data.status === 'duplicate_title') {
+        setCreateError(
+          createFetcher.data.message ??
+            `You already have a playlist named "${createFetcher.data.existingTitle ?? newPlaylistTitle}"`,
+        )
+      } else if (createFetcher.data.status === 'invalid_title') {
+        setCreateError('Playlist name is required')
+      }
+    }
+  }, [createFetcher.state, createFetcher.data, newPlaylistTitle, onSuccess, revalidate])
+
+  const isBusy = fetcher.state !== 'idle' || createFetcher.state !== 'idle'
+
   return (
     <>
       <div className="w-full p-2" role="dialog" aria-label="Add to playlist">
-        {/* Accessible search input */}
         <label htmlFor="playlist-search" className="sr-only">
           Search playlists
         </label>
@@ -124,18 +158,17 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="mb-2"
-          autoFocus
+          autoFocus={!isCreating}
           aria-describedby="playlist-count"
         />
-        
-        {/* Screen reader announcement for results count */}
+
         <div id="playlist-count" className="sr-only">
           {filteredPlaylists.length} {filteredPlaylists.length === 1 ? 'playlist' : 'playlists'} available
         </div>
-        
+
         <ScrollArea className="h-64">
           {filteredPlaylists.length === 0 ? (
-            <div 
+            <div
               className="py-8 text-center text-sm text-muted-foreground"
               role="status"
               aria-live="polite"
@@ -143,8 +176,8 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
               {searchQuery ? 'No playlists found' : 'No playlists yet'}
             </div>
           ) : (
-            <div 
-              role="list" 
+            <div
+              role="list"
               aria-label="Available playlists"
               className="space-y-1"
             >
@@ -152,14 +185,14 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
                 <button
                   key={playlist.id}
                   onClick={() => handleAddToPlaylist(playlist)}
-                  disabled={fetcher.state !== 'idle'}
+                  disabled={isBusy}
                   role="listitem"
                   aria-label={`Add "${trackTitle}" to ${playlist.title}`}
                   aria-describedby={`playlist-info-${playlist.id}`}
                   className="w-full text-left px-2 py-2 rounded hover:bg-accent transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 >
                   <div className="font-medium text-sm">{playlist.title}</div>
-                  <div 
+                  <div
                     id={`playlist-info-${playlist.id}`}
                     className="text-xs text-muted-foreground"
                   >
@@ -170,45 +203,104 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
             </div>
           )}
         </ScrollArea>
-        
+
         <div className="mt-2 border-t pt-2">
-          <Link
-            to={`/playlists/new?trackId=${trackId}`}
-            className="flex min-h-11 w-full items-center gap-2 rounded px-2 py-2 text-sm font-medium hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            onClick={onSuccess}
-          >
-            <Icon name="plus" className="h-4 w-4" />
-            Create new playlist
-          </Link>
+          {isCreating ? (
+            <div
+              className="space-y-2"
+              onPointerDown={(e) => e.preventDefault()}
+            >
+              <label htmlFor="new-playlist-title" className="sr-only">
+                New playlist name
+              </label>
+              <Input
+                id="new-playlist-title"
+                placeholder="Playlist name"
+                value={newPlaylistTitle}
+                onChange={(e) => {
+                  setNewPlaylistTitle(e.target.value)
+                  setCreateError(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleCreatePlaylist()
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    handleCancelCreate()
+                  }
+                }}
+                autoFocus
+                disabled={isBusy}
+                aria-invalid={!!createError}
+                aria-describedby={createError ? 'new-playlist-error' : undefined}
+              />
+              {createError && (
+                <p id="new-playlist-error" className="text-xs text-destructive" role="alert">
+                  {createError}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="flex-1"
+                  onClick={handleCreatePlaylist}
+                  disabled={isBusy}
+                >
+                  <Icon name="check" className="h-4 w-4 mr-1" />
+                  Create playlist
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCancelCreate}
+                  disabled={isBusy}
+                  aria-label="Cancel new playlist"
+                >
+                  <Icon name="cross-1" className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleStartCreate}
+              className="flex min-h-11 w-full items-center gap-2 rounded px-2 py-2 text-sm font-medium hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <Icon name="plus" className="h-4 w-4" />
+              New playlist
+            </button>
+          )}
         </div>
 
-        {/* Loading state announcement for screen readers */}
-        {fetcher.state !== 'idle' && (
+        {isBusy && (
           <div className="sr-only" role="status" aria-live="assertive">
-            Adding track to playlist...
+            {createFetcher.state !== 'idle' ? 'Creating playlist...' : 'Adding track to playlist...'}
           </div>
         )}
       </div>
-      
-      {/* Duplicate confirmation dialog - Radix UI AlertDialog is already accessible */}
+
       <AlertDialog open={!!duplicatePlaylist} onOpenChange={() => setDuplicatePlaylist(null)}>
         <AlertDialogContent className="z-[9999]">
           <AlertDialogHeader>
             <AlertDialogTitle>Track already in playlist</AlertDialogTitle>
             <AlertDialogDescription>
-              The track "{trackTitle}" is already in the playlist "{duplicatePlaylist?.title}". 
+              The track "{trackTitle}" is already in the playlist "{duplicatePlaylist?.title}".
               Do you want to add it again as a duplicate?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => {
-                    if (duplicatePlaylist) {
-                      void handleAddToPlaylist(duplicatePlaylist, true)
-                    }
-                  }}
-                >
+            <AlertDialogAction
+              onClick={() => {
+                if (duplicatePlaylist) {
+                  void handleAddToPlaylist(duplicatePlaylist, true)
+                }
+              }}
+            >
               Add Duplicate
             </AlertDialogAction>
           </AlertDialogFooter>

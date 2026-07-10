@@ -2,9 +2,25 @@
  * @vitest-environment jsdom
  */
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { AddToPlaylistMenu } from './add-to-playlist-menu'
+
+const mockSubmit = vi.fn()
+
+vi.mock('react-router', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('react-router')>()
+	return {
+		...actual,
+		useFetcher: () => ({
+			state: 'idle',
+			data: undefined,
+			submit: mockSubmit,
+		}),
+		useRevalidator: () => ({ revalidate: vi.fn() }),
+	}
+})
 
 function renderMenu(playlists: Array<{ id: string; title: string; description: string | null; _count: { tracks: number } }> = []) {
 	const router = createMemoryRouter(
@@ -19,10 +35,6 @@ function renderMenu(playlists: Array<{ id: string; title: string; description: s
 					/>
 				),
 			},
-			{
-				path: '/playlists/new',
-				element: <div>New playlist form</div>,
-			},
 		],
 		{ initialEntries: ['/'] },
 	)
@@ -30,15 +42,26 @@ function renderMenu(playlists: Array<{ id: string; title: string; description: s
 	return render(<RouterProvider router={router} />)
 }
 
-test('shows create new playlist link when user has no playlists', () => {
+test('shows new playlist button when user has no playlists', () => {
 	renderMenu([])
 
 	expect(screen.getByText('No playlists yet')).toBeDefined()
-	const createLink = screen.getByRole('link', { name: 'Create new playlist' })
-	expect(createLink.getAttribute('href')).toBe('/playlists/new?trackId=track-1')
+	expect(screen.getByRole('button', { name: 'New playlist' })).toBeDefined()
 })
 
-test('shows create new playlist link alongside existing playlists', () => {
+test('expands inline create form and submits playlist name', async () => {
+	const user = userEvent.setup()
+	renderMenu([])
+
+	await user.click(screen.getByRole('button', { name: 'New playlist' }))
+	const input = screen.getByPlaceholderText('Playlist name')
+	await user.type(input, 'Road Trip')
+	await user.click(screen.getByRole('button', { name: 'Create playlist' }))
+
+	expect(mockSubmit).toHaveBeenCalled()
+})
+
+test('shows new playlist button alongside existing playlists', () => {
 	renderMenu([
 		{
 			id: 'playlist-1',
@@ -49,5 +72,5 @@ test('shows create new playlist link alongside existing playlists', () => {
 	])
 
 	expect(screen.getByText('Favorites')).toBeDefined()
-	expect(screen.getByRole('link', { name: 'Create new playlist' })).toBeDefined()
+	expect(screen.getByRole('button', { name: 'New playlist' })).toBeDefined()
 })

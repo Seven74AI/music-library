@@ -47,6 +47,7 @@ import { getPlaylistTitle } from '#app/utils/breadcrumb-utils.ts'
 import { chunkArray } from '#app/utils/chunk-array.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
+import { userPlaylistTitleTaken } from '#app/utils/user-playlist.server.ts'
 import { type Route } from './+types/playlists.$playlistId.ts'
 
 export const handle: BreadcrumbHandle = {
@@ -190,6 +191,26 @@ export async function action({ request, params }: Route.ActionArgs) {
 					headers: await createToastHeaders({
 						title: 'Error',
 						description: 'Description must be a string',
+						type: 'error',
+					}),
+				}
+			)
+		}
+
+		const duplicate = await userPlaylistTitleTaken({
+			userId,
+			title: title.trim(),
+			excludePlaylistId: params.playlistId,
+		})
+
+		if (duplicate.taken) {
+			return data(
+				{ error: `You already have a playlist named "${duplicate.existingTitle}"` },
+				{
+					status: 409,
+					headers: await createToastHeaders({
+						title: 'Duplicate playlist',
+						description: `You already have a playlist named "${duplicate.existingTitle}"`,
 						type: 'error',
 					}),
 				}

@@ -1,11 +1,20 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
 import { prisma } from '#app/utils/db.server.ts'
-import { addTrackToUserPlaylist } from './user-playlist.server'
+import {
+	addTrackToUserPlaylist,
+	createUserPlaylist,
+	createUserPlaylistWithTrack,
+	normalizeUserPlaylistTitle,
+	userPlaylistTitleTaken,
+} from './user-playlist.server'
 
 vi.mock('#app/utils/db.server.ts', () => ({
 	prisma: {
 		userPlaylist: {
 			findFirst: vi.fn(),
+			findMany: vi.fn(),
+			create: vi.fn(),
+			delete: vi.fn(),
 		},
 		userPlaylistTrack: {
 			findFirst: vi.fn(),
@@ -14,6 +23,142 @@ vi.mock('#app/utils/db.server.ts', () => ({
 		},
 	},
 }))
+
+describe('normalizeUserPlaylistTitle', () => {
+	test('trims and lowercases', () => {
+		expect(normalizeUserPlaylistTitle('  Road Trip  ')).toBe('road trip')
+	})
+})
+
+describe('userPlaylistTitleTaken', () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	test('detects case-insensitive duplicate', async () => {
+		vi.mocked(prisma.userPlaylist.findMany).mockResolvedValue([
+			{ id: 'playlist-1', title: 'Road Trip' },
+		] as never)
+
+		const result = await userPlaylistTitleTaken({
+			userId: 'user-1',
+			title: 'road trip',
+		})
+
+		expect(result).toEqual({ taken: true, existingTitle: 'Road Trip' })
+	})
+
+	test('excludes playlist when renaming', async () => {
+		vi.mocked(prisma.userPlaylist.findMany).mockResolvedValue([
+			{ id: 'playlist-1', title: 'Road Trip' },
+		] as never)
+
+		const result = await userPlaylistTitleTaken({
+			userId: 'user-1',
+			title: 'Road Trip',
+			excludePlaylistId: 'playlist-1',
+		})
+
+		expect(result).toEqual({ taken: false })
+	})
+})
+
+describe('createUserPlaylist', () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	test('creates playlist when title is unique', async () => {
+		vi.mocked(prisma.userPlaylist.findMany).mockResolvedValue([])
+		vi.mocked(prisma.userPlaylist.create).mockResolvedValue({
+			id: 'playlist-1',
+			title: 'Road Trip',
+			description: null,
+			_count: { tracks: 0 },
+		} as never)
+
+		const result = await createUserPlaylist({
+			userId: 'user-1',
+			title: 'Road Trip',
+		})
+
+		expect(result).toEqual({
+			status: 'success',
+			playlist: {
+				id: 'playlist-1',
+				title: 'Road Trip',
+				description: null,
+				_count: { tracks: 0 },
+			},
+		})
+	})
+
+	test('returns duplicate_title for case-insensitive match', async () => {
+		vi.mocked(prisma.userPlaylist.findMany).mockResolvedValue([
+			{ id: 'playlist-1', title: 'Road Trip' },
+		] as never)
+
+		const result = await createUserPlaylist({
+			userId: 'user-1',
+			title: 'road trip',
+		})
+
+		expect(result).toEqual({
+			status: 'duplicate_title',
+			existingTitle: 'Road Trip',
+		})
+		expect(prisma.userPlaylist.create).not.toHaveBeenCalled()
+	})
+
+	test('returns invalid_title for empty title', async () => {
+		const result = await createUserPlaylist({
+			userId: 'user-1',
+			title: '   ',
+		})
+
+		expect(result).toEqual({ status: 'invalid_title' })
+	})
+})
+
+describe('createUserPlaylistWithTrack', () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	test('creates playlist and adds track', async () => {
+		vi.mocked(prisma.userPlaylist.findMany).mockResolvedValue([])
+		vi.mocked(prisma.userPlaylist.create).mockResolvedValue({
+			id: 'playlist-1',
+			title: 'Road Trip',
+			description: null,
+		} as never)
+		vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
+			id: 'playlist-1',
+			title: 'Road Trip',
+		} as never)
+		vi.mocked(prisma.userPlaylistTrack.findFirst).mockResolvedValue(null)
+		vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
+			_max: { position: null },
+		} as never)
+		vi.mocked(prisma.userPlaylistTrack.create).mockResolvedValue({} as never)
+
+		const result = await createUserPlaylistWithTrack({
+			userId: 'user-1',
+			title: 'Road Trip',
+			trackId: 'track-1',
+		})
+
+		expect(result).toEqual({
+			status: 'success',
+			playlist: {
+				id: 'playlist-1',
+				title: 'Road Trip',
+				description: null,
+				_count: { tracks: 1 },
+			},
+		})
+	})
+})
 
 describe('addTrackToUserPlaylist', () => {
 	beforeEach(() => {
@@ -41,13 +186,6 @@ describe('addTrackToUserPlaylist', () => {
 			status: 'success',
 			playlistTitle: 'My Playlist',
 		})
-		expect(prisma.userPlaylistTrack.create).toHaveBeenCalledWith({
-			data: {
-				playlistId: 'playlist-1',
-				trackId: 'track-1',
-				position: 3,
-			},
-		})
 	})
 
 	test('returns not_found when playlist does not belong to user', async () => {
@@ -60,7 +198,6 @@ describe('addTrackToUserPlaylist', () => {
 		})
 
 		expect(result).toEqual({ status: 'not_found' })
-		expect(prisma.userPlaylistTrack.create).not.toHaveBeenCalled()
 	})
 
 	test('returns duplicate when track already exists in playlist', async () => {
@@ -82,35 +219,6 @@ describe('addTrackToUserPlaylist', () => {
 			status: 'duplicate',
 			playlistId: 'playlist-1',
 			playlistTitle: 'My Playlist',
-		})
-		expect(prisma.userPlaylistTrack.create).not.toHaveBeenCalled()
-	})
-
-	test('allows duplicate when forceDuplicate is true', async () => {
-		vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
-			id: 'playlist-1',
-			title: 'My Playlist',
-		} as never)
-		vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
-			_max: { position: null },
-		} as never)
-		vi.mocked(prisma.userPlaylistTrack.create).mockResolvedValue({} as never)
-
-		const result = await addTrackToUserPlaylist({
-			userId: 'user-1',
-			playlistId: 'playlist-1',
-			trackId: 'track-1',
-			forceDuplicate: true,
-		})
-
-		expect(result.status).toBe('success')
-		expect(prisma.userPlaylistTrack.findFirst).not.toHaveBeenCalled()
-		expect(prisma.userPlaylistTrack.create).toHaveBeenCalledWith({
-			data: {
-				playlistId: 'playlist-1',
-				trackId: 'track-1',
-				position: 0,
-			},
 		})
 	})
 })

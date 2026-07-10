@@ -95,8 +95,9 @@ This document outlines a systematic testing plan for all routes and actions in t
   - [ ] Pagination
   - [ ] Track row menu: Add to Playlist (visible even with zero user playlists)
   - [ ] Add track to existing user playlist (search picker, duplicate confirmation)
-  - [ ] Create new playlist from track row → `/playlists/new?trackId=…` → auto-add → redirect `/library` with toast
-  - [ ] Automated: `tests/e2e/library.test.ts` — `can create playlist from library track row`
+  - [ ] Inline **+ New playlist** from track row (name only, stays in menu/sheet)
+  - [ ] Reject duplicate playlist names case-insensitively (inline + standalone create)
+  - [ ] Automated: `tests/e2e/library.test.ts` — inline create + duplicate rejection
 
 #### 3.2 Import Track from Services (`/music/services/youtube/import`)
 - **Actions to test**:
@@ -190,8 +191,7 @@ This document outlines a systematic testing plan for all routes and actions in t
 #### 5.2 New Playlist (`/playlists/new`)
 - **Actions to test**:
   - [ ] Create playlist with valid data (standalone — redirects to `/playlists/{id}`)
-  - [ ] Create playlist from track context (`?trackId=` — shows track name, hidden field, cancel → `/library`)
-  - [ ] Auto-add track on submit when `trackId` present (redirect `/library` + success toast)
+  - [ ] Reject duplicate title case-insensitively
   - [ ] Form validation
   - [ ] Error handling
 
@@ -201,6 +201,7 @@ This document outlines a systematic testing plan for all routes and actions in t
   - [ ] Add tracks to playlist
   - [ ] Remove tracks from playlist
   - [ ] Edit playlist metadata
+  - [ ] Reject rename to duplicate title case-insensitively
   - [ ] Delete playlist
 
 ### 6. Settings Routes (`settings+/`)

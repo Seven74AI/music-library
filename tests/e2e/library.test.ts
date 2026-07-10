@@ -54,26 +54,63 @@ test.describe('Music Library', () => {
 
 		await page.getByRole('button', { name: 'More actions' }).first().click()
 		await page.getByRole('menuitem', { name: 'Add to Playlist' }).click()
-		await page.getByRole('link', { name: 'Create new playlist' }).click()
+		await page.getByRole('button', { name: 'New playlist' }).click()
+		const playlistNameInput = page.getByPlaceholder('Playlist name')
+		await playlistNameInput.fill('From Library')
+		await Promise.all([
+			page.waitForResponse((response) =>
+				response.url().includes('/resources/create-playlist-with-track') && response.ok(),
+			),
+			playlistNameInput.press('Enter'),
+		])
 
-		await expect(page).toHaveURL(`/playlists/new?trackId=${track.id}`)
-		await page.getByRole('textbox', { name: /title/i }).fill('From Library')
-		await page.getByRole('button', { name: /create playlist/i }).click()
-
-		await expect(page).toHaveURL('/library', { timeout: 10000 })
+		await expect.poll(async () => {
+			const result = await prisma.userPlaylist.findFirst({
+				where: { ownerId: user.id, title: 'From Library' },
+			})
+			return result?.id ?? ''
+		}).not.toBe('')
 
 		const playlist = await prisma.userPlaylist.findFirst({
 			where: { ownerId: user.id, title: 'From Library' },
 			include: { tracks: true },
 		})
-		expect(playlist).not.toBeNull()
-		expect(playlist?.tracks).toHaveLength(1)
-		expect(playlist?.tracks[0]?.trackId).toBe(track.id)
 
-		if (playlist) {
-			await prisma.userPlaylistTrack.deleteMany({ where: { playlistId: playlist.id } })
-			await prisma.userPlaylist.delete({ where: { id: playlist.id } })
-		}
+		expect(playlist).not.toBeNull()
+		if (!playlist) return
+
+		expect(playlist.tracks).toHaveLength(1)
+		expect(playlist.tracks[0]?.trackId).toBe(track.id)
+
+		await prisma.userPlaylistTrack.deleteMany({ where: { playlistId: playlist.id } })
+		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
+	})
+
+	test('rejects duplicate playlist name inline from library track row', async ({ page, login, insertNewTrack }) => {
+		const user = await login()
+		await insertNewTrack({}, user.id)
+
+		const existing = await prisma.userPlaylist.create({
+			data: {
+				title: 'Road Trip',
+				ownerId: user.id,
+			},
+		})
+
+		await page.goto('/library')
+		await page.waitForLoadState('networkidle')
+
+		await page.getByRole('button', { name: 'More actions' }).first().click()
+		await page.getByRole('menuitem', { name: 'Add to Playlist' }).click()
+		await page.getByRole('button', { name: 'New playlist' }).click()
+		const playlistNameInput = page.getByPlaceholder('Playlist name')
+		await playlistNameInput.fill('road trip')
+		await playlistNameInput.press('Enter')
+
+		await expect(page.getByText(/already have a playlist named/i)).toBeVisible({ timeout: 10000 })
+		await expect(page).toHaveURL('/library')
+
+		await prisma.userPlaylist.delete({ where: { id: existing.id } })
 	})
 
 })

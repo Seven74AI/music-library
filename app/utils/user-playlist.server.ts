@@ -16,6 +16,149 @@ export type AddTrackToUserPlaylistResult =
 			playlistTitle: string
 	  }
 
+export type UserPlaylistSummary = {
+	id: string
+	title: string
+	description: string | null
+	_count: { tracks: number }
+}
+
+export type CreateUserPlaylistResult =
+	| { status: 'success'; playlist: UserPlaylistSummary }
+	| { status: 'invalid_title' }
+	| { status: 'duplicate_title'; existingTitle: string }
+
+export type CreateUserPlaylistWithTrackResult =
+	| { status: 'success'; playlist: UserPlaylistSummary }
+	| { status: 'invalid_title' }
+	| { status: 'duplicate_title'; existingTitle: string }
+
+export function normalizeUserPlaylistTitle(title: string): string {
+	return title.trim().toLowerCase()
+}
+
+export async function userPlaylistTitleTaken({
+	userId,
+	title,
+	excludePlaylistId,
+}: {
+	userId: string
+	title: string
+	excludePlaylistId?: string
+}): Promise<{ taken: boolean; existingTitle?: string }> {
+	const normalized = normalizeUserPlaylistTitle(title)
+	if (!normalized) {
+		return { taken: false }
+	}
+
+	const playlists = await prisma.userPlaylist.findMany({
+		where: { ownerId: userId },
+		select: { id: true, title: true },
+	})
+
+	const match = playlists.find(
+		(playlist) =>
+			playlist.id !== excludePlaylistId &&
+			normalizeUserPlaylistTitle(playlist.title) === normalized,
+	)
+
+	if (!match) {
+		return { taken: false }
+	}
+
+	return { taken: true, existingTitle: match.title }
+}
+
+export async function createUserPlaylist({
+	userId,
+	title,
+	description,
+}: {
+	userId: string
+	title: string
+	description?: string | null
+}): Promise<CreateUserPlaylistResult> {
+	const trimmedTitle = title.trim()
+	if (!trimmedTitle) {
+		return { status: 'invalid_title' }
+	}
+
+	const duplicate = await userPlaylistTitleTaken({ userId, title: trimmedTitle })
+	if (duplicate.taken) {
+		return {
+			status: 'duplicate_title',
+			existingTitle: duplicate.existingTitle ?? trimmedTitle,
+		}
+	}
+
+	const playlist = await prisma.userPlaylist.create({
+		data: {
+			title: trimmedTitle,
+			description: description?.trim() || null,
+			ownerId: userId,
+		},
+		select: {
+			id: true,
+			title: true,
+			description: true,
+			_count: { select: { tracks: true } },
+		},
+	})
+
+	return { status: 'success', playlist }
+}
+
+export async function createUserPlaylistWithTrack({
+	userId,
+	title,
+	trackId,
+}: {
+	userId: string
+	title: string
+	trackId: string
+}): Promise<CreateUserPlaylistWithTrackResult> {
+	const trimmedTitle = title.trim()
+	if (!trimmedTitle) {
+		return { status: 'invalid_title' }
+	}
+
+	const duplicate = await userPlaylistTitleTaken({ userId, title: trimmedTitle })
+	if (duplicate.taken) {
+		return {
+			status: 'duplicate_title',
+			existingTitle: duplicate.existingTitle ?? trimmedTitle,
+		}
+	}
+
+	const playlist = await prisma.userPlaylist.create({
+		data: {
+			title: trimmedTitle,
+			description: null,
+			ownerId: userId,
+		},
+		select: { id: true, title: true, description: true },
+	})
+
+	const addResult = await addTrackToUserPlaylist({
+		userId,
+		playlistId: playlist.id,
+		trackId,
+	})
+
+	if (addResult.status !== 'success') {
+		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
+		throw new Error(`Failed to add track after playlist create: ${addResult.status}`)
+	}
+
+	return {
+		status: 'success',
+		playlist: {
+			...playlist,
+			_count: { tracks: 1 },
+		},
+	}
+}
+
 export async function addTrackToUserPlaylist({
 	userId,
 	playlistId,
