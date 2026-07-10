@@ -18,6 +18,22 @@ vi.mock('#app/components/pwa/install-app-banner', () => ({
 vi.mock('#app/features/offline-storage/offline-storage.client.ts', () => ({
 	getOfflineStorage: () => ({
 		cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
+		listDownloaded: vi.fn().mockResolvedValue([
+			{
+				trackId: 'track-1',
+				title: 'Test Song',
+				artistId: 'artist-1',
+				artistName: 'Test Artist',
+				duration: 180,
+				coverObjectKey: 'covers/test.jpg',
+				audioFormat: 'mp3',
+				isPinned: true,
+				isQueueCached: false,
+				fileSizeBytes: 1000,
+				lastAccessedAt: Date.now(),
+			},
+		]),
+		listForPlaylist: vi.fn().mockResolvedValue([]),
 	}),
 }))
 
@@ -216,4 +232,24 @@ test('playUserPlaylist requests playlist tracks and starts playback', async () =
 	const requestUrl = String(fetchMock.mock.calls[0]?.[0])
 	expect(requestUrl).toContain('/api/playlist-tracks')
 	expect(requestUrl).toContain('playlistId=playlist-1')
+})
+
+test('playTrack uses offline downloads when navigator is offline', async () => {
+	const user = userEvent.setup()
+	const fetchMock = vi.mocked(fetch)
+	vi.stubGlobal('navigator', { onLine: false })
+
+	render(
+		<AudioPlayerProvider>
+			<PlayTrackProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Play library track' }))
+
+	await waitFor(() => {
+		expect(fetchMock).not.toHaveBeenCalled()
+	})
+
+	vi.unstubAllGlobals()
 })

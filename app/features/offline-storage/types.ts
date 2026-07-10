@@ -15,6 +15,7 @@ export type OfflineTrackRecord = {
 	duration: number | null
 	coverObjectKey: string | null
 	opfsPath: string
+	audioFormat: string | null
 	/** True when the user tapped download (track or playlist bulk). */
 	isPinned: boolean
 	/** True when auto-cached from the active queue. */
@@ -33,6 +34,7 @@ export type OfflineTrackSummary = Pick<
 	| 'artistName'
 	| 'duration'
 	| 'coverObjectKey'
+	| 'audioFormat'
 	| 'isPinned'
 	| 'isQueueCached'
 	| 'fileSizeBytes'
@@ -47,6 +49,7 @@ export function toOfflineTrackRecord(
 		isPinned: boolean
 		isQueueCached: boolean
 		playlistId?: string
+		audioFormat?: string | null
 	},
 ): OfflineTrackRecord {
 	const now = Date.now()
@@ -60,6 +63,7 @@ export function toOfflineTrackRecord(
 		duration: track.duration,
 		coverObjectKey: track.coverImage?.objectKey ?? null,
 		opfsPath: options.opfsPath,
+		audioFormat: options.audioFormat ?? null,
 		isPinned: options.isPinned,
 		isQueueCached: options.isQueueCached,
 		fileSizeBytes: options.fileSizeBytes,
@@ -74,7 +78,7 @@ export function mergeOfflineTrackRecord(
 	update: Partial<
 		Pick<
 			OfflineTrackRecord,
-			'isPinned' | 'isQueueCached' | 'fileSizeBytes' | 'lastAccessedAt' | 'pinnedAt'
+			'isPinned' | 'isQueueCached' | 'fileSizeBytes' | 'lastAccessedAt' | 'pinnedAt' | 'audioFormat'
 		>
 	> & { playlistId?: string },
 ): OfflineTrackRecord {

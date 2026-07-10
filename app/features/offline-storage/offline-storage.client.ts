@@ -18,6 +18,7 @@ import {
 	type OfflineTrackRecord,
 	type OfflineTrackSummary,
 } from './types.ts'
+import { getOfflineAudioFormat, mimeTypeForAudioFormat } from './offline-track-summary.client.ts'
 
 const DEFAULT_QUOTA_HEADROOM_BYTES = 50 * 1024 * 1024
 
@@ -126,6 +127,7 @@ export function createOfflineStorage(
 					lastAccessedAt: Date.now(),
 					pinnedAt: options.pin ? Date.now() : existing.pinnedAt,
 					playlistId: options.playlistId,
+					audioFormat: getOfflineAudioFormat(track),
 				}),
 			)
 			return
@@ -138,6 +140,7 @@ export function createOfflineStorage(
 				isPinned: options.pin,
 				isQueueCached: options.queue,
 				playlistId: options.playlistId,
+				audioFormat: getOfflineAudioFormat(track),
 			}),
 		)
 	}
@@ -170,7 +173,9 @@ export function createOfflineStorage(
 			const buffer = await audioStore.read(trackId)
 			if (!buffer) return null
 			await metadataStore.touch(trackId)
-			return new Blob([buffer], { type: 'audio/mpeg' })
+			return new Blob([buffer], {
+				type: mimeTypeForAudioFormat(record.audioFormat),
+			})
 		},
 		async hasTrack(trackId) {
 			return metadataStore.get(trackId).then(Boolean)

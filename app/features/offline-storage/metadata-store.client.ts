@@ -73,6 +73,7 @@ export function createOfflineMetadataStore(): OfflineMetadataStore {
 			artistName: record.artistName,
 			duration: record.duration,
 			coverObjectKey: record.coverObjectKey,
+			audioFormat: record.audioFormat,
 			isPinned: record.isPinned,
 			isQueueCached: record.isQueueCached,
 			fileSizeBytes: record.fileSizeBytes,

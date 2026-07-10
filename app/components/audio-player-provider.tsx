@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
+import { offlineSummaryToFullTrack } from '#app/features/offline-storage/offline-track-summary.client.ts'
 import { type FullTrack } from '#app/types/frontend/shared'
+import { isOfflineEnvironment } from '#app/utils/offline-route-loader.client.ts'
 import { filterPlayableTracks, isPlayableTrack } from '#app/utils/playable-track'
 import { AudioPlayer } from './audio-player'
 import { InstallAppBanner } from './pwa/install-app-banner'
@@ -138,6 +140,16 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		return filterPlayableTracks(allTracks)
 	}, [])
 
+	const fetchOfflineTracks = useCallback(async (context: PlaylistContext): Promise<Track[]> => {
+		const storage = getOfflineStorage()
+		const summaries =
+			context.type === 'playlist' && context.playlistId
+				? await storage.listForPlaylist(context.playlistId)
+				: await storage.listDownloaded()
+
+		return filterPlayableTracks(summaries.map(offlineSummaryToFullTrack))
+	}, [])
+
 	const findNextPlayableIndex = useCallback((tracks: Track[], startIndex: number, direction: 1 | -1) => {
 		if (tracks.length === 0) return -1
 
@@ -179,7 +191,9 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		const epoch = ++playlistFetchEpochRef.current
 		setIsLoadingNext(true)
 		try {
-			const tracks = await fetchAllTracks(context)
+			const tracks = isOfflineEnvironment()
+				? await fetchOfflineTracks(context)
+				: await fetchAllTracks(context)
 			if (epoch !== playlistFetchEpochRef.current) return
 
 			setPlaylist(tracks)
@@ -196,7 +210,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				setIsLoadingNext(false)
 			}
 		}
-	}, [fetchAllTracks, playContext, beginPlayback])
+	}, [fetchAllTracks, fetchOfflineTracks, playContext, beginPlayback])
 
 	const playPlaylist = useCallback((tracks: Track[], context: PlaylistContext, startIndex: number = 0) => {
 		const playableTracks = filterPlayableTracks(tracks)
@@ -223,22 +237,26 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const playLibrary = useCallback(async () => {
 		setIsLoadingNext(true)
 		try {
-			const tracks = await fetchAllTracks({ type: 'library' })
+			const tracks = isOfflineEnvironment()
+				? await fetchOfflineTracks({ type: 'library' })
+				: await fetchAllTracks({ type: 'library' })
 			playPlaylist(tracks, { type: 'library' }, 0)
 		} finally {
 			setIsLoadingNext(false)
 		}
-	}, [fetchAllTracks, playPlaylist])
+	}, [fetchAllTracks, fetchOfflineTracks, playPlaylist])
 
 	const playUserPlaylist = useCallback(async (playlistId: string) => {
 		setIsLoadingNext(true)
 		try {
-			const tracks = await fetchAllTracks({ type: 'playlist', playlistId })
+			const tracks = isOfflineEnvironment()
+				? await fetchOfflineTracks({ type: 'playlist', playlistId })
+				: await fetchAllTracks({ type: 'playlist', playlistId })
 			playPlaylist(tracks, { type: 'playlist', playlistId }, 0)
 		} finally {
 			setIsLoadingNext(false)
 		}
-	}, [fetchAllTracks, playPlaylist])
+	}, [fetchAllTracks, fetchOfflineTracks, playPlaylist])
 
 	const addTrackToPlaylist = useCallback((track: Track, position: 'next' | 'end' = 'end') => {
 		if (!isPlayableTrack(track)) return
@@ -372,7 +390,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	)
 
 	useEffect(() => {
-		if (!isPlayerVisible || !currentTrack) return
+		if (!isPlayerVisible || !currentTrack || isOfflineEnvironment()) return
 
 		const storage = getOfflineStorage()
 		const lookahead = [currentIndex, currentIndex + 1, currentIndex + 2, currentIndex + 3]

@@ -16,6 +16,7 @@ function record(
 		duration: 180,
 		coverObjectKey: null,
 		opfsPath: `audio/${overrides.trackId}.mp3`,
+		audioFormat: 'mp3',
 		isPinned: false,
 		isQueueCached: true,
 		fileSizeBytes: 1_000_000,
