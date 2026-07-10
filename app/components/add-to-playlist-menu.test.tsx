@@ -4,22 +4,51 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { expect, test, vi } from 'vitest'
+import { beforeEach, expect, test, vi } from 'vitest'
 import { AddToPlaylistMenu } from './add-to-playlist-menu'
 
 const mockSubmit = vi.fn()
+const mockRevalidate = vi.fn()
+
+const mockFetcher = {
+	state: 'idle' as const,
+	data: undefined as { status: string; message?: string; playlistId?: string } | undefined,
+	submit: mockSubmit,
+}
+
+const mockCreateFetcher = {
+	state: 'idle' as const,
+	data: undefined as {
+		status: string
+		message?: string
+		existingTitle?: string
+		playlist?: { id: string; title: string; description: string | null; _count: { tracks: number } }
+	} | undefined,
+	submit: vi.fn(),
+}
+
+let useFetcherCallCount = 0
 
 vi.mock('react-router', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('react-router')>()
 	return {
 		...actual,
-		useFetcher: () => ({
-			state: 'idle',
-			data: undefined,
-			submit: mockSubmit,
-		}),
-		useRevalidator: () => ({ revalidate: vi.fn() }),
+		useFetcher: () => {
+			useFetcherCallCount += 1
+			return useFetcherCallCount % 2 === 1 ? mockFetcher : mockCreateFetcher
+		},
+		useRevalidator: () => ({ revalidate: mockRevalidate }),
 	}
+})
+
+beforeEach(() => {
+	useFetcherCallCount = 0
+	mockFetcher.state = 'idle'
+	mockFetcher.data = undefined
+	mockCreateFetcher.state = 'idle'
+	mockCreateFetcher.data = undefined
+	mockSubmit.mockReset()
+	mockRevalidate.mockReset()
 })
 
 function renderMenu(playlists: Array<{ id: string; title: string; description: string | null; _count: { tracks: number } }> = []) {
@@ -58,7 +87,7 @@ test('expands inline create form and submits playlist name', async () => {
 	await user.type(input, 'Road Trip')
 	await user.click(screen.getByRole('button', { name: 'Create playlist' }))
 
-	expect(mockSubmit).toHaveBeenCalled()
+	expect(mockCreateFetcher.submit).toHaveBeenCalled()
 })
 
 test('shows new playlist button alongside existing playlists', () => {
@@ -73,4 +102,27 @@ test('shows new playlist button alongside existing playlists', () => {
 
 	expect(screen.getByText('Favorites')).toBeDefined()
 	expect(screen.getByRole('button', { name: 'New playlist' })).toBeDefined()
+})
+
+test('shows newly created playlist only once after inline create succeeds', () => {
+	mockCreateFetcher.data = {
+		status: 'success',
+		playlist: {
+			id: 'playlist-new',
+			title: 'test5',
+			description: null,
+			_count: { tracks: 1 },
+		},
+	}
+
+	renderMenu([
+		{
+			id: 'playlist-1',
+			title: 'test4',
+			description: null,
+			_count: { tracks: 1 },
+		},
+	])
+
+	expect(screen.getAllByText('test5')).toHaveLength(1)
 })

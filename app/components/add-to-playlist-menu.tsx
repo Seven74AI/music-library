@@ -125,7 +125,10 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
   useEffect(() => {
     if (createFetcher.state === 'idle' && createFetcher.data) {
       if (createFetcher.data.status === 'success' && createFetcher.data.playlist) {
-        setLocalPlaylists((current) => [createFetcher.data!.playlist!, ...current])
+        const playlist = createFetcher.data.playlist
+        setLocalPlaylists((current) =>
+          current.some((p) => p.id === playlist.id) ? current : [playlist, ...current],
+        )
         setIsCreating(false)
         setNewPlaylistTitle('')
         setCreateError(null)
@@ -136,13 +139,13 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
       } else if (createFetcher.data.status === 'duplicate_title') {
         setCreateError(
           createFetcher.data.message ??
-            `You already have a playlist named "${createFetcher.data.existingTitle ?? newPlaylistTitle}"`,
+            `You already have a playlist named "${createFetcher.data.existingTitle ?? 'this name'}"`,
         )
       } else if (createFetcher.data.status === 'invalid_title') {
         setCreateError('Playlist name is required')
       }
     }
-  }, [createFetcher.state, createFetcher.data, newPlaylistTitle, onSuccess, revalidate])
+  }, [createFetcher.state, createFetcher.data, onSuccess, revalidate])
 
   const isBusy = fetcher.state !== 'idle' || createFetcher.state !== 'idle'
 
