@@ -34,8 +34,19 @@ export type HomeRecentTrack = {
 export type HomeRecentPlaylist = {
 	id: string
 	title: string
+	description: string | null
+	createdAt: Date
 	updatedAt: Date
-	tracks: Array<{ id: string }>
+	tracks: Array<{
+		id: string
+		track: {
+			id: string
+			title: string
+			artist: { id: string; name: string }
+			duration: number | null
+			coverImage: { objectKey: string } | null
+		}
+	}>
 }
 
 export type HomeYoutubeData = {
@@ -184,13 +195,36 @@ export async function loadHomeData(request: Request) {
 			select: {
 				id: true,
 				title: true,
+				description: true,
+				createdAt: true,
 				updatedAt: true,
 				tracks: {
-					select: { id: true },
+					select: {
+						id: true,
+						track: {
+							select: {
+								id: true,
+								title: true,
+								artist: {
+									select: {
+										id: true,
+										name: true,
+									},
+								},
+								duration: true,
+								coverImage: {
+									select: {
+										objectKey: true,
+									},
+								},
+							},
+						},
+					},
+					orderBy: { position: 'asc' },
 				},
 			},
 			orderBy: { updatedAt: 'desc' },
-			take: 3,
+			take: 5,
 		}),
 	])
 

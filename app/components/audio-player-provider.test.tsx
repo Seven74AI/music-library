@@ -68,6 +68,16 @@ function PlayLibraryProbe() {
 	)
 }
 
+function PlayUserPlaylistProbe() {
+	const { playUserPlaylist } = useAudioPlayer()
+
+	return (
+		<button type="button" onClick={() => void playUserPlaylist('playlist-1')}>
+			Play user playlist
+		</button>
+	)
+}
+
 beforeEach(() => {
 	vi.stubGlobal('fetch', vi.fn())
 })
@@ -167,4 +177,33 @@ test('playLibrary requests playable library tracks and starts playback', async (
 
 	const requestUrl = String(fetchMock.mock.calls[0]?.[0])
 	expect(requestUrl).toContain('hasAudio=1')
+})
+
+test('playUserPlaylist requests playlist tracks and starts playback', async () => {
+	const user = userEvent.setup()
+	const fetchMock = vi.mocked(fetch)
+
+	fetchMock.mockResolvedValueOnce({
+		ok: true,
+		json: async () => ({
+			tracks: [playableTrack],
+			pagination: { hasNext: false, nextCursor: null, limit: 100 },
+		}),
+	} as Response)
+
+	render(
+		<AudioPlayerProvider>
+			<PlayUserPlaylistProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Play user playlist' }))
+
+	await waitFor(() => {
+		expect(fetchMock).toHaveBeenCalled()
+	})
+
+	const requestUrl = String(fetchMock.mock.calls[0]?.[0])
+	expect(requestUrl).toContain('/api/playlist-tracks')
+	expect(requestUrl).toContain('playlistId=playlist-1')
 })

@@ -2,6 +2,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { Await, Link } from 'react-router'
 import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
 import { ArchivingBanner } from '#app/components/home/archiving-banner.tsx'
+import { HomeRecentPlaylistRow } from '#app/components/home/home-recent-playlist-row.tsx'
 import { HomeRecentTrackRow } from '#app/components/home/home-recent-track-row.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card.tsx'
@@ -70,33 +71,7 @@ export function ListeningHome({
 						View all
 					</Link>
 				</div>
-				{recentPlaylists.length === 0 ? (
-					<div className="text-muted-foreground rounded-lg border py-8 text-center">
-						<p>No playlists yet</p>
-						<Button asChild variant="outline" size="sm" className="mt-3">
-							<Link to="/playlists/new">Create your first playlist</Link>
-						</Button>
-					</div>
-				) : (
-					<div className="space-y-2">
-						{recentPlaylists.map((playlist) => (
-							<Link
-								key={playlist.id}
-								to={`/playlists/${playlist.id}`}
-								className="flex items-center gap-3 rounded-lg border p-3 transition hover:bg-muted/50"
-							>
-								<Icon name="file-text" className="h-5 w-5 text-muted-foreground" />
-								<div className="min-w-0 flex-1">
-									<p className="truncate font-medium">{playlist.title}</p>
-									<p className="text-sm text-muted-foreground">
-										{playlist.tracks.length} tracks ·{' '}
-										{formatDistanceToNow(playlist.updatedAt, { addSuffix: true })}
-									</p>
-								</div>
-							</Link>
-						))}
-					</div>
-				)}
+				<HomeRecentPlaylistRow recentPlaylists={recentPlaylists} />
 			</section>
 
 			<section>

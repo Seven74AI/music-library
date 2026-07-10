@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
+import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Card, CardContent } from '#app/components/ui/card.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
@@ -23,6 +24,7 @@ interface PlaylistCardProps {
 	tracks: PlaylistCardTrack[]
 	createdAt: string
 	updatedAt: string
+	to?: string
 	className?: string
 }
 
@@ -55,17 +57,20 @@ export function PlaylistCard({
 	tracks, 
 	createdAt: _createdAt, 
 	updatedAt,
+	to,
 	className 
 }: PlaylistCardProps) {
 	const [isHovered, setIsHovered] = useState(false)
 	const isMobile = useIsMobile()
+	const { playUserPlaylist } = useAudioPlayer()
 	
 	const totalDuration = tracks.reduce((sum, track) => sum + (track.duration || 0), 0)
 	const gradientClass = getGradientFromTitle(title)
+	const canPlay = tracks.length > 0
 	
 	return (
 		<NavLink
-			to={id}
+			to={to ?? id}
 			preventScrollReset
 			prefetch="intent"
 			className={({ isActive }) =>
@@ -88,52 +93,43 @@ export function PlaylistCard({
 						<div className="absolute inset-0 bg-black/20" />
 						
 						{/* Play Button Overlay */}
-						<div className={cn(
-							'absolute inset-0 flex items-center justify-center transition-all duration-300 ease-out',
-							isHovered || isMobile ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
-						)}>
-							<Button
-								variant="secondary"
-								size={isMobile ? "default" : "lg"}
+						{canPlay ? (
+							<div
 								className={cn(
-									"rounded-full shadow-lg transition-all duration-200 ease-out hover:scale-110",
-									isMobile ? "h-10 w-10" : "h-12 w-12"
+									'absolute inset-0 flex items-center justify-center transition-all duration-300 ease-out',
+									isHovered || isMobile ? 'opacity-100 scale-100' : 'opacity-0 scale-95',
 								)}
-								onClick={(e) => {
-									e.preventDefault()
-									// TODO: Implement play all functionality
-								}}
 							>
-								<Icon name="play" className={cn("ml-0.5 transition-transform duration-200", isMobile ? "h-4 w-4" : "h-6 w-6")} />
-							</Button>
-						</div>
+								<Button
+									variant="secondary"
+									size={isMobile ? 'default' : 'lg'}
+									className={cn(
+										'rounded-full shadow-lg transition-all duration-200 ease-out hover:scale-110',
+										isMobile ? 'h-10 w-10' : 'h-12 w-12',
+									)}
+									aria-label={`Play ${title}`}
+									onClick={(e) => {
+										e.preventDefault()
+										e.stopPropagation()
+										void playUserPlaylist(id)
+									}}
+								>
+									<Icon
+										name="play"
+										className={cn(
+											'ml-0.5 transition-transform duration-200',
+											isMobile ? 'h-4 w-4' : 'h-6 w-6',
+										)}
+									/>
+								</Button>
+							</div>
+						) : null}
 
 						{/* Cover Image */}
 						<div className={cn(
 							"absolute bottom-2 left-2 md:bottom-4 md:left-4"
 						)}>
 							<PlaylistCover tracks={tracks} size="sm" />
-						</div>
-
-						{/* Quick Actions */}
-						<div className={cn(
-							'absolute top-2 right-2 md:top-3 md:right-3 flex gap-1 transition-all duration-300 ease-out',
-							isHovered || isMobile ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
-						)}>
-							<Button
-								variant="secondary"
-								size="sm"
-								className={cn(
-									"p-0 rounded-full transition-all duration-200 ease-out hover:scale-110",
-									isMobile ? "h-6 w-6" : "h-8 w-8"
-								)}
-								onClick={(e) => {
-									e.preventDefault()
-									// TODO: Implement edit functionality
-								}}
-							>
-								<Icon name="pencil-1" className={cn("transition-transform duration-200", isMobile ? "h-3 w-3" : "h-4 w-4")} />
-							</Button>
 						</div>
 					</div>
 

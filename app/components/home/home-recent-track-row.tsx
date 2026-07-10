@@ -1,4 +1,4 @@
-import { TrackListItem } from '#app/components/track-list-item.tsx'
+import { HomeRecentTrackCard } from '#app/components/home/home-recent-track-card.tsx'
 import { type HomeRecentTrack } from '#app/utils/home.server.ts'
 
 type HomeRecentTrackRowProps = {
@@ -15,19 +15,10 @@ export function HomeRecentTrackRow({ recentTracks }: HomeRecentTrackRowProps) {
 	}
 
 	return (
-		<div className="flex gap-3 overflow-x-auto pb-2">
+		<div className="-mx-1 flex gap-4 overflow-x-auto px-1 pb-2 snap-x snap-mandatory">
 			{recentTracks.map((userTrack, index) => (
-				<div
-					key={userTrack.id}
-					className="w-72 shrink-0 rounded-lg border bg-card"
-				>
-					<TrackListItem
-						track={userTrack.track}
-						userTrack={userTrack}
-						index={index}
-						playlistContext={{ type: 'library' }}
-						showDuration
-					/>
+				<div key={userTrack.id} className="snap-start">
+					<HomeRecentTrackCard userTrack={userTrack} index={index} />
 				</div>
 			))}
 		</div>

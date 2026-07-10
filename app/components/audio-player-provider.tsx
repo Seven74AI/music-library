@@ -50,6 +50,7 @@ interface AudioPlayerContextType {
 	playTrack: (track: Track, context: PlaylistContext, index?: number) => void
 	playPlaylist: (tracks: Track[], context: PlaylistContext, startIndex?: number) => void
 	playLibrary: () => Promise<void>
+	playUserPlaylist: (playlistId: string) => Promise<void>
 	playNext: () => void
 	playPrevious: () => void
 	toggleLoop: () => void
@@ -227,6 +228,16 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		}
 	}, [fetchAllTracks, playPlaylist])
 
+	const playUserPlaylist = useCallback(async (playlistId: string) => {
+		setIsLoadingNext(true)
+		try {
+			const tracks = await fetchAllTracks({ type: 'playlist', playlistId })
+			playPlaylist(tracks, { type: 'playlist', playlistId }, 0)
+		} finally {
+			setIsLoadingNext(false)
+		}
+	}, [fetchAllTracks, playPlaylist])
+
 	const addTrackToPlaylist = useCallback((track: Track, position: 'next' | 'end' = 'end') => {
 		if (!isPlayableTrack(track)) return
 
@@ -371,6 +382,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				playTrack,
 				playPlaylist,
 				playLibrary,
+				playUserPlaylist,
 				playNext,
 				playPrevious,
 				toggleLoop,
