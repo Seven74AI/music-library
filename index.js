@@ -2,6 +2,9 @@ import 'dotenv/config'
 import * as fs from 'node:fs'
 import sourceMapSupport from 'source-map-support'
 
+// Node 25 exposes a broken experimental localStorage; MSW needs a working Storage API.
+await import('./tests/setup/local-storage-polyfill.ts')
+
 sourceMapSupport.install({
 	retrieveSourceMap: function (source) {
 		// get source file without the `file://` prefix or `?t=...` suffix

@@ -1,7 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
-import { fireEvent, render, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { type ComponentProps, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import  { type FullTrack } from '#app/types/frontend/shared'
@@ -210,4 +211,35 @@ test('auto-plays after track change once the new audio URL has loaded', async ()
 		expect(playSpy).toHaveBeenCalled()
 		expect(wantsAutoPlayRef.current).toBe(false)
 	})
+})
+
+test('renders mobile mini bar with play and close controls', async () => {
+	await renderPlayer()
+
+	const miniBar = screen.getByTestId('player-mini-bar')
+	expect(within(miniBar).getByLabelText('Play')).toBeTruthy()
+	expect(within(miniBar).getByLabelText('Close player')).toBeTruthy()
+	expect(within(miniBar).getByLabelText('Open queue')).toBeTruthy()
+})
+
+test('shows shuffle and loop controls in the now playing sheet', async () => {
+	const user = userEvent.setup()
+	await renderPlayer()
+
+	await user.click(screen.getByLabelText('Open now playing'))
+
+	const sheet = await screen.findByTestId('player-now-playing-sheet')
+	expect(within(sheet).getByLabelText('Shuffle: off')).toBeTruthy()
+	expect(within(sheet).getByLabelText('Loop: off')).toBeTruthy()
+	expect(within(sheet).getByLabelText('Download track')).toBeTruthy()
+	expect(within(sheet).getByLabelText('Sleep timer')).toBeTruthy()
+})
+
+test('renders desktop bar with volume and transport controls', async () => {
+	await renderPlayer()
+
+	const desktopBar = screen.getByTestId('player-desktop-bar')
+	expect(within(desktopBar).getByLabelText('Volume')).toBeTruthy()
+	expect(within(desktopBar).getByLabelText('Next track')).toBeTruthy()
+	expect(within(desktopBar).getByLabelText('Shuffle: off')).toBeTruthy()
 })
