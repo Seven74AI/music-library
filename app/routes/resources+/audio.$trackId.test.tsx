@@ -19,13 +19,16 @@ function suppressConsoleErrors() {
 	vi.spyOn(console, 'warn').mockImplementation(() => {})
 }
 
-// Track fixture files for cleanup
-const fixtureDirs: string[] = []
+// Track fixture directories for cleanup (track-specific only — not the whole audio tree)
+const fixtureTrackDirs = new Set<string>()
+
 afterAll(() => {
-	for (const dir of fixtureDirs) {
-		try { rmSync(dir, { recursive: true, force: true }) } catch {}
+	for (const dir of fixtureTrackDirs) {
+		try {
+			rmSync(dir, { recursive: true, force: true })
+		} catch {}
 	}
-})
+}, 30_000)
 
 /** Create a dummy audio fixture file so the loader can serve it locally (no S3 needed in tests) */
 function createAudioFixture(objectKey: string) {
@@ -34,7 +37,13 @@ function createAudioFixture(objectKey: string) {
 	mkdirSync(dir, { recursive: true })
 	// Write a tiny valid MPEG frame (44 bytes — minimal header)
 	writeFileSync(fixturePath, Buffer.from([0xFF, 0xFB, 0x90, 0x00, ...Array(40).fill(0)]))
-	fixtureDirs.push(join(process.cwd(), 'tests', 'fixtures', 'uploaded', objectKey.split('/')[0]!))
+	// objectKey: audio/tracks/{trackId}/...
+	const trackId = objectKey.split('/')[2]
+	if (trackId) {
+		fixtureTrackDirs.add(
+			join(process.cwd(), 'tests', 'fixtures', 'uploaded', 'audio', 'tracks', trackId),
+		)
+	}
 }
 
 // Create a fresh set of test entities. Suffix ensures unique names across tests.

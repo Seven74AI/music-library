@@ -132,6 +132,28 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 26. **Admin links in UserDropdown** — Admin-only pages (audio queue, YouTube cookies) are linked from the user dropdown menu, gated by `userHasRole(user, 'admin')`. No separate admin sidebar or nav — the dropdown pattern scales until admin pages outgrow it.
 
+### Home Page (`/`)
+
+Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index.tsx`.
+
+33. **Auth-aware home** — `/` shows different content by auth state. Logged-out users see a marketing landing; logged-in users see the app home (not the Epic Stack placeholder). Logo in `root.tsx` continues to link to `/`.
+
+34. **State-aware hybrid (logged-in)** — Logged-in `/` has two modes: **onboarding** (guide the user to add music) and **listening hub** (feed the audio player). Mode is chosen server-side in the route loader from library/connection data.
+
+35. **Onboarding → listening hub threshold: any library track** — Switch to listening hub when the user has ≥1 active `UserTrack` (`isActive: true`, `deletedAt: null`). Do not wait for archived/playable audio.
+
+36. **Gray zone: archiving banner** — When the user is in listening-hub mode but has **zero playable tracks** (no `TrackAudioFile`), keep the listening-hub layout and show a prominent top banner (e.g. "12 tracks · 3 ready · 9 archiving") with a link to `/library`. Disable play actions on tracks without audio; do not revert to full onboarding.
+
+37. **Empty-state onboarding is context-aware** — When the user has **zero** library tracks, primary CTA depends on YouTube connection state: not connected → **Connect YouTube** (`/music/services/youtube/auth`); connected but no tracks → **Sync a playlist** (`/music/services/youtube/playlists` or synced-playlists flow). **Upload** (`/music/services/local/upload`) and **search** (global search bar) are always available as secondary paths below the primary CTA.
+
+38. **Logged-out landing is a minimal gate** — No feature pitch or screenshot sections. Show logo/product name, a one-liner (e.g. "Your personal music library"), and **Log in** / **Sign up** CTAs. Footer links to About · Privacy · Terms as today. Replace Epic Stack boilerplate entirely.
+
+39. **Listening hub hero: Play library + recently added** — When in listening-hub mode, hero is a **Play library** CTA (starts queue from all playable tracks; disabled in gray zone per #36). Below the hero, a **recently added** row of latest `UserTrack`s with per-track play. Below that: recent playlists, then compact stats / YouTube status (content currently on Music Hub). v1 does **not** add play-history or "continue listening" — defer `localStorage`/DB resume to a follow-up.
+
+40. **Remove Music Hub; no `/music` redirect** — Delete `music.index.tsx` (dashboard). Home is only `/`. Update internal links that pointed to `/music` (UserDropdown, `/music/services` back link) to `/`. Remove "Music Hub" from nav. **`/music/services/*` routes and `music.tsx` layout stay.** Bare `/music` may 404 — no redirect stub for bookmarks.
+
+41. **Single route, split components** — One route at `/` (`_marketing+/index.tsx` or equivalent). Loader branches on auth + library state and returns a `mode`: `marketing` | `onboarding` | `listening` | `gray` plus mode-specific data. UI lives in `app/components/home/` (`MarketingHome`, `OnboardingHome`, `ListeningHome` with gray-zone banner). No `/home` route, no loader redirect to a second URL.
+
 ### Track Metadata
 
 27. **Archive worker is the source of truth for track metadata** — When the worker downloads a track's audio, it extracts metadata from the file itself (`music-metadata`): duration, title, artist, album, genre, BPM, ISRC, label, track number, release date, lyrics, etc. Playlist sync does NOT hydrate metadata via `videos.list` — sync only creates tracks with the fields available in `playlistItems` responses, and duration stays `null` until the track is archived. One API call per track was rejected as wasteful; `--:--` in the meantime is acceptable. See [ADR-012](./decisions/012-track-metadata-from-audio-file.md).

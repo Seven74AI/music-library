@@ -42,13 +42,6 @@ export function UserDropdown() {
 						</Link>
 					</DropdownMenuItem>
 					<DropdownMenuItem asChild>
-						<Link prefetch="intent" to="/music">
-							<Icon className="text-body-md" name="file-text">
-								Music Hub
-							</Icon>
-						</Link>
-					</DropdownMenuItem>
-					<DropdownMenuItem asChild>
 						<Link prefetch="intent" to="/library">
 							<Icon className="text-body-md" name="file-text">
 								My Library

@@ -58,6 +58,16 @@ function PlayTrackProbe() {
 	)
 }
 
+function PlayLibraryProbe() {
+	const { playLibrary } = useAudioPlayer()
+
+	return (
+		<button type="button" onClick={() => void playLibrary()}>
+			Play library
+		</button>
+	)
+}
+
 beforeEach(() => {
 	vi.stubGlobal('fetch', vi.fn())
 })
@@ -120,6 +130,36 @@ test('library fetchAllTracks requests hasAudio=1 and filters non-playable tracks
 	)
 
 	await user.click(screen.getByRole('button', { name: 'Play library track' }))
+
+	await waitFor(() => {
+		expect(fetchMock).toHaveBeenCalled()
+	})
+
+	const requestUrl = String(fetchMock.mock.calls[0]?.[0])
+	expect(requestUrl).toContain('hasAudio=1')
+})
+
+test('playLibrary requests playable library tracks and starts playback', async () => {
+	const user = userEvent.setup()
+	const fetchMock = vi.mocked(fetch)
+
+	fetchMock.mockResolvedValueOnce({
+		ok: true,
+		json: async () => ({
+			userTracks: [
+				{ id: 'ut-1', createdAt: '2024-01-01', track: playableTrack },
+			],
+			pagination: { hasNext: false, nextCursor: null, limit: 100 },
+		}),
+	} as Response)
+
+	render(
+		<AudioPlayerProvider>
+			<PlayLibraryProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Play library' }))
 
 	await waitFor(() => {
 		expect(fetchMock).toHaveBeenCalled()

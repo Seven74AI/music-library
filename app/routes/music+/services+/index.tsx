@@ -58,7 +58,7 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 			<div className="mb-8">
 				<div className="flex items-center gap-4 mb-4">
 					<Button asChild variant="outline">
-						<Link to="/music">
+						<Link to="/">
 							<Icon name="arrow-left" className="mr-2" />
 							Back
 						</Link>

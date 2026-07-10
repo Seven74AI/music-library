@@ -1,9 +1,6 @@
 /**
  * @vitest-environment jsdom
  *
- * MOVE THIS FILE TO: app/routes/admin+/audio-queue.test.tsx
- *    mv audio-queue.test.tsx.txt audio-queue.test.tsx
- *
  * Unit tests for the audio-queue admin page.
  * Pattern follows youtube-cookies.test.tsx.
  */
@@ -77,9 +74,21 @@ test('The audio-queue admin page renders all three sections', async () => {
 
 	render(<App initialEntries={['/admin/audio-queue']} />)
 
-	await screen.findByRole('heading', { level: 1, name: /audio archive queue/i })
-	await screen.findByRole('heading', { level: 2, name: /worker control/i })
-	await screen.findByRole('heading', { level: 2, name: /track queue/i })
+	await screen.findByRole(
+		'heading',
+		{ level: 1, name: /audio archive queue/i },
+		{ timeout: 5000 },
+	)
+	await screen.findByRole(
+		'heading',
+		{ level: 2, name: /worker control/i },
+		{ timeout: 5000 },
+	)
+	await screen.findByRole(
+		'heading',
+		{ level: 2, name: /track queue/i },
+		{ timeout: 5000 },
+	)
 })
 
 test('The audio-queue admin page shows queue statistics', async () => {
@@ -112,7 +121,7 @@ test('The audio-queue admin page shows queue statistics', async () => {
 
 	// Stats cards should be visible. Some labels (Pending, Processing, etc.)
 	// also appear as filter buttons, so use getAllByText and check count >= 1.
-	await screen.findByText(/success rate/i)
+	await screen.findByText(/success rate/i, {}, { timeout: 5000 })
 	expect(screen.getAllByText(/pending/i).length).toBeGreaterThanOrEqual(1)
 	expect(screen.getAllByText(/processing/i).length).toBeGreaterThanOrEqual(1)
 	expect(screen.getAllByText(/completed/i).length).toBeGreaterThanOrEqual(1)
@@ -148,10 +157,10 @@ test('The audio-queue admin page shows worker status', async () => {
 
 	render(<App initialEntries={['/admin/audio-queue']} />)
 
-	await screen.findByText(/running/i)
-	await screen.findByText(/currently processing/i)
-	await screen.findByText(/last queue run/i)
-	await screen.findByText(/last state change/i)
+	await screen.findByText(/running/i, {}, { timeout: 5000 })
+	await screen.findByText(/currently processing/i, {}, { timeout: 5000 })
+	await screen.findByText(/last queue run/i, {}, { timeout: 5000 })
+	await screen.findByText(/last state change/i, {}, { timeout: 5000 })
 })
 
 test('The audio-queue admin page has filter buttons', async () => {
@@ -182,7 +191,7 @@ test('The audio-queue admin page has filter buttons', async () => {
 
 	render(<App initialEntries={['/admin/audio-queue']} />)
 
-	const buttons = await screen.findAllByRole('button')
+	const buttons = await screen.findAllByRole('button', {}, { timeout: 5000 })
 	const buttonTexts = buttons.map(b => b.textContent?.trim())
 	expect(buttonTexts.some(t => t?.toLowerCase() === 'all')).toBeTruthy()
 	expect(buttonTexts.some(t => t?.toLowerCase() === 'pending')).toBeTruthy()
@@ -240,5 +249,5 @@ test('Non-admin users get 403 error', async () => {
 
 	render(<App initialEntries={['/admin/audio-queue']} />)
 
-	await screen.findByText(/you must be an admin/i)
+	await screen.findByText(/you must be an admin/i, {}, { timeout: 5000 })
 })

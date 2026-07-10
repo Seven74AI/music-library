@@ -49,6 +49,7 @@ interface AudioPlayerContextType {
 	isShuffleEnabled: boolean
 	playTrack: (track: Track, context: PlaylistContext, index?: number) => void
 	playPlaylist: (tracks: Track[], context: PlaylistContext, startIndex?: number) => void
+	playLibrary: () => Promise<void>
 	playNext: () => void
 	playPrevious: () => void
 	toggleLoop: () => void
@@ -216,6 +217,16 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		playTrackAtIndex(playableTracks, resolvedStartIndex >= 0 ? resolvedStartIndex : 0)
 	}, [playContext, playTrackAtIndex])
 
+	const playLibrary = useCallback(async () => {
+		setIsLoadingNext(true)
+		try {
+			const tracks = await fetchAllTracks({ type: 'library' })
+			playPlaylist(tracks, { type: 'library' }, 0)
+		} finally {
+			setIsLoadingNext(false)
+		}
+	}, [fetchAllTracks, playPlaylist])
+
 	const addTrackToPlaylist = useCallback((track: Track, position: 'next' | 'end' = 'end') => {
 		if (!isPlayableTrack(track)) return
 
@@ -359,6 +370,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				isShuffleEnabled,
 				playTrack,
 				playPlaylist,
+				playLibrary,
 				playNext,
 				playPrevious,
 				toggleLoop,
