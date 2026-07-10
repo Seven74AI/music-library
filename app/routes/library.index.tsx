@@ -1,14 +1,20 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useVirtualizer, defaultRangeExtractor, type Range } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useRef } from 'react'
-import { data } from 'react-router'
+import { data, useSearchParams } from 'react-router'
 import { TrackListItem } from '#app/components/track-list-item'
+import { Checkbox } from '#app/components/ui/checkbox.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
+import { Label } from '#app/components/ui/label.tsx'
 import { ScrollArea } from '#app/components/ui/scroll-area'
 import { TrackListSkeleton } from '#app/components/ui/track-list-skeleton'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { LIBRARY_TRACKS_PAGE_SIZE } from '#app/utils/library-tracks-pagination.ts'
+import {
+	buildLibraryUserTracksWhere,
+	parseHasAudioOnlyParam,
+} from '#app/utils/library-user-tracks.server.ts'
 import { type Route } from './+types/library.index.ts'
 
 // Define the track type
@@ -44,15 +50,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 	const url = new URL(request.url)
 	const cursor = url.searchParams.get('cursor')
 	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || String(LIBRARY_TRACKS_PAGE_SIZE))))
+	const hasAudioOnly = parseHasAudioOnlyParam(url.searchParams)
 
 	// Get user's tracks with cursor-based pagination
-	// Filter out deleted tracks (isActive = false or deletedAt is set)
 	const userTracksRaw = await prisma.userTrack.findMany({
-		where: { 
-			userId,
-			isActive: true,
-			deletedAt: null,
-		},
+		where: buildLibraryUserTracksWhere({ userId, hasAudioOnly }),
 		select: {
 			id: true,
 			createdAt: true,
@@ -125,6 +127,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 			hasNext: !!nextCursor,
 			nextCursor,
 		},
+		hasAudioOnly,
 		playlists
 	})
 }
@@ -134,10 +137,31 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 	const safeLoaderData = loaderData || {
 		userTracks: [],
 		pagination: { hasNext: false, nextCursor: null, limit: LIBRARY_TRACKS_PAGE_SIZE },
+		hasAudioOnly: false,
 		playlists: []
 	}
-	const { userTracks, pagination, playlists } = safeLoaderData
+	const { userTracks, pagination, playlists, hasAudioOnly = false } = safeLoaderData
 	const pageSize = pagination?.limit ?? LIBRARY_TRACKS_PAGE_SIZE
+	const [searchParams, setSearchParams] = useSearchParams()
+	const parentRef = useRef<HTMLDivElement>(null)
+
+	const scrollLibraryToTop = useCallback(() => {
+		const viewport = parentRef.current?.querySelector('[data-radix-scroll-area-viewport]')
+		if (viewport instanceof HTMLElement) {
+			viewport.scrollTop = 0
+		}
+	}, [])
+
+	const handleHasAudioOnlyChange = useCallback((checked: boolean | 'indeterminate') => {
+		const nextParams = new URLSearchParams(searchParams)
+		if (checked === true) {
+			nextParams.set('hasAudio', '1')
+		} else {
+			nextParams.delete('hasAudio')
+		}
+		setSearchParams(nextParams, { preventScrollReset: true })
+		scrollLibraryToTop()
+	}, [searchParams, setSearchParams, scrollLibraryToTop])
 
 	// Use useInfiniteQuery for data fetching
 	const {
@@ -150,20 +174,25 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 		isPending,
 		status,
 	} = useInfiniteQuery({
-		queryKey: ['user-tracks'],
+		queryKey: ['user-tracks', { pageSize, hasAudioOnly }],
 		queryFn: async ({ pageParam }) => {
-			const url = pageParam 
-				? `/api/user-tracks?cursor=${pageParam}&limit=${pageSize}`
-				: `/api/user-tracks?limit=${pageSize}`
-			const res = await fetch(url)
+			const params = new URLSearchParams()
+			params.set('limit', String(pageSize))
+			if (pageParam) {
+				params.set('cursor', String(pageParam))
+			}
+			if (hasAudioOnly) {
+				params.set('hasAudio', '1')
+			}
+			const res = await fetch(`/api/user-tracks?${params}`)
 			const json = await res.json() as { userTracks: UserTrack[], pagination: { hasNext: boolean, nextCursor: string | null } }
 			return json
 		},
 		getNextPageParam: (lastPage) => lastPage.pagination.nextCursor || undefined,
-		initialPageParam: pagination?.nextCursor || undefined,
+		initialPageParam: undefined as string | undefined,
 		initialData: {
 			pages: [{ userTracks: userTracks || [], pagination: { hasNext: pagination?.hasNext || false, nextCursor: pagination?.nextCursor || null } }],
-			pageParams: [pagination?.nextCursor || undefined],
+			pageParams: [undefined],
 		},
 	})
 
@@ -171,7 +200,6 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 	const allItems = queryData?.pages.flatMap(page => page.userTracks) || []
 
 	// Virtualization setup with sticky header support
-	const parentRef = useRef<HTMLDivElement>(null)
 	const virtualizer = useVirtualizer({
 		count: 1 + allItems.length + (hasNextPage ? 1 : 0), // 1 for header + items + 1 for loading indicator
 		getScrollElement: () => parentRef.current?.querySelector('[data-radix-scroll-area-viewport]') || null,
@@ -239,8 +267,18 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 
 	return (
 		<div className="py-8">
-			<div className="flex items-center justify-between mb-6">
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
 				<h1 className="text-2xl font-bold">Music Library</h1>
+				<div className="flex items-center gap-2">
+					<Checkbox
+						id="has-audio-only"
+						checked={hasAudioOnly}
+						onCheckedChange={handleHasAudioOnlyChange}
+					/>
+					<Label htmlFor="has-audio-only" className="text-sm font-normal cursor-pointer">
+						Only tracks with audio
+					</Label>
+				</div>
 			</div>
 
 			{allItems.length === 0 && !isFetching ? (

@@ -35,6 +35,7 @@
 import { useState, useEffect } from 'react'
 import { data, redirect, Link, useFetcher, useParams } from 'react-router'
 import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
+import { filterPlayableTracks } from '#app/utils/playable-track.ts'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { PlaylistHero } from '#app/components/playlist-hero'
 import { SortableTrackList } from '#app/components/sortable-track-list'
@@ -524,17 +525,19 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	}
 
 	const confirmAddToQueue = () => {
-		// Add all tracks to the current playlist
 		const tracks = optimisticTracks.map(pt => pt.track)
-		tracks.forEach(track => addToCurrentPlaylist(track))
-		
-		// Show success toast
+		const playable = filterPlayableTracks(tracks)
+		playable.forEach(track => addToCurrentPlaylist(track))
+
+		const skippedCount = tracks.length - playable.length
 		toast({
 			title: 'Success',
-			description: `${tracks.length} tracks added to queue`,
+			description: skippedCount > 0
+				? `${playable.length} track(s) added to queue (${skippedCount} skipped — no audio)`
+				: `${playable.length} track(s) added to queue`,
 			variant: 'success',
 		})
-		
+
 		setIsAddToQueueDialogOpen(false)
 	}
 
@@ -623,22 +626,23 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	}
 
 	const handleBulkAddToQueue = (playlistTrackIds: string[]) => {
-		// Find the selected tracks
 		const selectedTracks = optimisticTracks.filter(pt => playlistTrackIds.includes(pt.id))
 		const tracks = selectedTracks.map(pt => pt.track)
-		
-		if (tracks.length === 0) {
-			console.warn('No tracks found in selection')
+		const playable = filterPlayableTracks(tracks)
+
+		if (playable.length === 0) {
+			console.warn('No playable tracks found in selection')
 			return
 		}
-		
-		// Add each track to the current playlist
-		tracks.forEach(track => addToCurrentPlaylist(track))
-		
-		// Show success toast
+
+		playable.forEach(track => addToCurrentPlaylist(track))
+
+		const skippedCount = tracks.length - playable.length
 		toast({
 			title: 'Success',
-			description: `${tracks.length} tracks added to queue`,
+			description: skippedCount > 0
+				? `${playable.length} track(s) added to queue (${skippedCount} skipped — no audio)`
+				: `${playable.length} track(s) added to queue`,
 			variant: 'success',
 		})
 	}

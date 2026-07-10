@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react'
 import { type FullTrack } from '#app/types/frontend/shared'
+import { filterPlayableTracks, isPlayableTrack } from '#app/utils/playable-track'
 import { AudioPlayer } from './audio-player'
 
 type Track = FullTrack
@@ -100,7 +101,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			try {
 				let url = ''
 				if (context.type === 'library') {
-					url = `/api/user-tracks?limit=${limit}&fields=full${cursor ? `&cursor=${cursor}` : ''}`
+					url = `/api/user-tracks?limit=${limit}&fields=full&hasAudio=1${cursor ? `&cursor=${cursor}` : ''}`
 				} else if (context.type === 'playlist' && context.playlistId) {
 					url = `/api/playlist-tracks?playlistId=${context.playlistId}&limit=${limit}&fields=full${cursor ? `&cursor=${cursor}` : ''}`
 				}
@@ -130,18 +131,32 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			}
 		}
 
-		return allTracks
+		return filterPlayableTracks(allTracks)
+	}, [])
+
+	const findNextPlayableIndex = useCallback((tracks: Track[], startIndex: number, direction: 1 | -1) => {
+		if (tracks.length === 0) return -1
+
+		for (let step = 1; step <= tracks.length; step++) {
+			const index = startIndex + direction * step
+			if (index < 0 || index >= tracks.length) break
+			if (isPlayableTrack(tracks[index]!)) return index
+		}
+
+		return -1
 	}, [])
 
 	const playTrackAtIndex = useCallback((tracks: Track[], index: number) => {
 		const track = tracks[index]
-		if (!track) return
+		if (!track || !isPlayableTrack(track)) return
 		beginPlayback()
 		setCurrentIndex(index)
 		setCurrentTrack(track)
 	}, [beginPlayback])
 
 	const playTrack = useCallback(async (track: Track, context: PlaylistContext, index?: number) => {
+		if (!isPlayableTrack(track)) return
+
 		if (playContext && (
 			playContext.type !== context.type ||
 			playContext.playlistId !== context.playlistId
@@ -180,6 +195,14 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	}, [fetchAllTracks, playContext, beginPlayback])
 
 	const playPlaylist = useCallback((tracks: Track[], context: PlaylistContext, startIndex: number = 0) => {
+		const playableTracks = filterPlayableTracks(tracks)
+		if (playableTracks.length === 0) return
+
+		const requestedTrack = tracks[startIndex]
+		const resolvedStartIndex = requestedTrack
+			? playableTracks.findIndex(track => track.id === requestedTrack.id)
+			: 0
+
 		if (playContext && (
 			playContext.type !== context.type ||
 			playContext.playlistId !== context.playlistId
@@ -187,13 +210,15 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			setPlaylist([])
 		}
 
-		setPlaylist(tracks)
+		setPlaylist(playableTracks)
 		setPlayContext(context)
 		setIsPlayerVisible(true)
-		playTrackAtIndex(tracks, startIndex)
+		playTrackAtIndex(playableTracks, resolvedStartIndex >= 0 ? resolvedStartIndex : 0)
 	}, [playContext, playTrackAtIndex])
 
 	const addTrackToPlaylist = useCallback((track: Track, position: 'next' | 'end' = 'end') => {
+		if (!isPlayableTrack(track)) return
+
 		if (position === 'next') {
 			setPlaylist(prev => {
 				if (prev.length === 0) return [track]
@@ -234,41 +259,34 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	}, [addTrackToPlaylist])
 
 	const playNext = useCallback(() => {
-		const findNextTrack = (startIndex: number) => {
-			if (startIndex + 1 < playlist.length) {
-				return startIndex + 1
-			}
-			return -1
-		}
-
 		if (loopMode === 'one') {
 			playTrackAtIndex(playlist, currentIndex)
 			return
 		}
 
 		if (isShuffleEnabled && playlist.length > 1) {
-			let nextTrack: Track | undefined
-			do {
-				nextTrack = playlist[Math.floor(Math.random() * playlist.length)]
-			} while (nextTrack?.id === playlist[currentIndex]?.id)
+			const playableIndices = playlist
+				.map((track, index) => (isPlayableTrack(track) ? index : -1))
+				.filter(index => index !== -1 && index !== currentIndex)
 
-			if (nextTrack) {
-				const nextIndex = playlist.findIndex(t => t.id === nextTrack.id)
-				if (nextIndex !== -1) {
-					playTrackAtIndex(playlist, nextIndex)
-				}
+			if (playableIndices.length > 0) {
+				const nextIndex = playableIndices[Math.floor(Math.random() * playableIndices.length)]!
+				playTrackAtIndex(playlist, nextIndex)
 			}
 			return
 		}
 
-		const nextIndex = findNextTrack(currentIndex)
+		const nextIndex = findNextPlayableIndex(playlist, currentIndex, 1)
 
 		if (nextIndex !== -1) {
 			playTrackAtIndex(playlist, nextIndex)
 		} else if (loopMode === 'all' && playlist.length > 0) {
-			playTrackAtIndex(playlist, 0)
+			const firstPlayable = playlist.findIndex(track => isPlayableTrack(track))
+			if (firstPlayable !== -1) {
+				playTrackAtIndex(playlist, firstPlayable)
+			}
 		}
-	}, [currentIndex, playlist, loopMode, isShuffleEnabled, playTrackAtIndex])
+	}, [currentIndex, playlist, loopMode, isShuffleEnabled, playTrackAtIndex, findNextPlayableIndex])
 
 	const playPrevious = useCallback(() => {
 		if (loopMode === 'one') {
@@ -276,21 +294,19 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			return
 		}
 
-		const findPreviousTrack = (startIndex: number) => {
-			if (startIndex > 0) {
-				return startIndex - 1
-			}
-			return -1
-		}
-
-		const prevIndex = findPreviousTrack(currentIndex)
+		const prevIndex = findNextPlayableIndex(playlist, currentIndex, -1)
 
 		if (prevIndex !== -1) {
 			playTrackAtIndex(playlist, prevIndex)
 		} else if (loopMode === 'all' && playlist.length > 0) {
-			playTrackAtIndex(playlist, playlist.length - 1)
+			for (let index = playlist.length - 1; index >= 0; index--) {
+				if (isPlayableTrack(playlist[index]!)) {
+					playTrackAtIndex(playlist, index)
+					break
+				}
+			}
 		}
-	}, [currentIndex, playlist, loopMode, playTrackAtIndex])
+	}, [currentIndex, playlist, loopMode, playTrackAtIndex, findNextPlayableIndex])
 
 	const toggleLoop = useCallback(() => {
 		setLoopMode(prev => {

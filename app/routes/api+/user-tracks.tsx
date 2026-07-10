@@ -1,6 +1,10 @@
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { LIBRARY_TRACKS_PAGE_SIZE } from '#app/utils/library-tracks-pagination.ts'
+import {
+	buildLibraryUserTracksWhere,
+	parseHasAudioOnlyParam,
+} from '#app/utils/library-user-tracks.server.ts'
 
 export async function loader({ request }: { request: Request }) {
 	try {
@@ -10,15 +14,21 @@ export async function loader({ request }: { request: Request }) {
 		const limitParam = url.searchParams.get('limit')
 		const limit = parseInt(limitParam || String(LIBRARY_TRACKS_PAGE_SIZE))
 		const fields = url.searchParams.get('fields') || 'full' // 'minimal' or 'full'
+		const hasAudioParam = url.searchParams.get('hasAudio')
 
 		if (isNaN(limit) || limit < 1 || limit > 100) {
 			return Response.json({ error: 'Invalid limit parameter' }, { status: 400 })
 		}
 
+		if (hasAudioParam !== null && hasAudioParam !== '1') {
+			return Response.json({ error: 'Invalid hasAudio parameter' }, { status: 400 })
+		}
+
+		const hasAudioOnly = parseHasAudioOnlyParam(url.searchParams)
 		const isMinimal = fields === 'minimal'
 
 		const userTracksRaw = await prisma.userTrack.findMany({
-			where: { userId },
+			where: buildLibraryUserTracksWhere({ userId, hasAudioOnly }),
 			include: {
 				track: isMinimal
 					? {

@@ -72,13 +72,15 @@ The queue system understands where the user clicked "Play" and loads tracks acco
 
 **Library Context**:
 - When a user clicks play from their music library
-- Queue resets and loads ALL tracks from the user's library
-- Maintains the order tracks appear in the library
+- Queue resets and loads all **playable** tracks from the user's library (tracks with at least one archived audio file)
+- Metadata-only library entries (no audio files) are excluded from the queue even when the list shows them
+- Maintains the order tracks appear in the library (among playable tracks)
 
 **Playlist Context**:
 - When a user clicks play from a specific playlist
-- Queue resets and loads ALL tracks from that playlist
-- Maintains the playlist's track order
+- Queue resets and loads all **playable** tracks from that playlist
+- Metadata-only playlist entries are excluded from the queue
+- Maintains the playlist's track order (among playable tracks)
 
 **Key Behavior**: The queue always resets when switching between contexts (library ↔ playlist), ensuring users get the expected set of tracks.
 

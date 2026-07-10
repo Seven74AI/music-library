@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { expect, test, vi } from 'vitest'
+import { expect, test, vi, beforeEach, afterEach } from 'vitest'
 import { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayerProvider, useAudioPlayer } from './audio-player-provider'
 
@@ -11,7 +11,7 @@ vi.mock('./audio-player', () => ({
 	AudioPlayer: () => null,
 }))
 
-const mockTrack: FullTrack = {
+const playableTrack: FullTrack = {
 	id: 'track-1',
 	title: 'Test Song',
 	artist: { id: 'artist-1', name: 'Test Artist' },
@@ -20,13 +20,23 @@ const mockTrack: FullTrack = {
 	audioFiles: [{ id: 'af-1', format: 'mp3', objectKey: 'audio/test.mp3' }],
 }
 
+const metadataTrack: FullTrack = {
+	...playableTrack,
+	id: 'track-2',
+	title: 'Metadata Only',
+	audioFiles: [],
+}
+
 function QueueProbe() {
-	const { playNextTrack, playlist } = useAudioPlayer()
+	const { playNextTrack, addToCurrentPlaylist, playlist } = useAudioPlayer()
 
 	return (
 		<>
-			<button type="button" onClick={() => playNextTrack(mockTrack)}>
+			<button type="button" onClick={() => playNextTrack(playableTrack)}>
 				Play next track
+			</button>
+			<button type="button" onClick={() => addToCurrentPlaylist(metadataTrack)}>
+				Add metadata track
 			</button>
 			<span data-testid="playlist-length">{playlist.length}</span>
 			<span data-testid="playlist-ids">{playlist.map((track) => track.id).join(',')}</span>
@@ -34,6 +44,28 @@ function QueueProbe() {
 		</>
 	)
 }
+
+function PlayTrackProbe() {
+	const { playTrack } = useAudioPlayer()
+
+	return (
+		<button
+			type="button"
+			onClick={() => playTrack(playableTrack, { type: 'library' }, 0)}
+		>
+			Play library track
+		</button>
+	)
+}
+
+beforeEach(() => {
+	vi.stubGlobal('fetch', vi.fn())
+})
+
+afterEach(() => {
+	vi.unstubAllGlobals()
+	vi.restoreAllMocks()
+})
 
 test('playNextTrack on empty playlist adds a single track without sparse holes', async () => {
 	const user = userEvent.setup()
@@ -49,4 +81,50 @@ test('playNextTrack on empty playlist adds a single track without sparse holes',
 	expect(screen.getByTestId('playlist-length').textContent).toBe('1')
 	expect(screen.getByTestId('playlist-ids').textContent).toBe('track-1')
 	expect(screen.getByTestId('has-holes').textContent).toBe('false')
+})
+
+test('addToCurrentPlaylist ignores metadata-only tracks', async () => {
+	const user = userEvent.setup()
+
+	render(
+		<AudioPlayerProvider>
+			<QueueProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Add metadata track' }))
+
+	expect(screen.getByTestId('playlist-length').textContent).toBe('0')
+	expect(screen.getByTestId('playlist-ids').textContent).toBe('')
+})
+
+test('library fetchAllTracks requests hasAudio=1 and filters non-playable tracks', async () => {
+	const user = userEvent.setup()
+	const fetchMock = vi.mocked(fetch)
+
+	fetchMock.mockResolvedValueOnce({
+		ok: true,
+		json: async () => ({
+			userTracks: [
+				{ id: 'ut-1', createdAt: '2024-01-01', track: playableTrack },
+				{ id: 'ut-2', createdAt: '2024-01-02', track: metadataTrack },
+			],
+			pagination: { hasNext: false, nextCursor: null, limit: 100 },
+		}),
+	} as Response)
+
+	render(
+		<AudioPlayerProvider>
+			<PlayTrackProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Play library track' }))
+
+	await waitFor(() => {
+		expect(fetchMock).toHaveBeenCalled()
+	})
+
+	const requestUrl = String(fetchMock.mock.calls[0]?.[0])
+	expect(requestUrl).toContain('hasAudio=1')
 })

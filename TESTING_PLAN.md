@@ -91,7 +91,7 @@ This document outlines a systematic testing plan for all routes and actions in t
 - **Actions to test**:
   - [ ] Display user's tracks
   - [ ] Search functionality
-  - [ ] Filter options
+  - [ ] **Only tracks with audio** checkbox (`?hasAudio=1`) — filters SSR and infinite scroll server-side; toggling resets to page 1 and scrolls to top
   - [ ] Pagination
   - [ ] Track row menu: Add to Playlist (visible even with zero user playlists)
   - [ ] Add track to existing user playlist (search picker, duplicate confirmation)
@@ -100,7 +100,7 @@ This document outlines a systematic testing plan for all routes and actions in t
   - [ ] Track row menu: **Play next** (starts playback when idle; inserts after current when playing)
   - [ ] Track row menu: **Add to Queue** (appends without auto-play; toast confirmation)
   - [ ] Queue actions hidden for tracks without archived audio
-  - [ ] Automated: `tests/e2e/library.test.ts` — inline create + duplicate rejection
+  - [ ] Automated: `tests/e2e/library.test.ts` — inline create, duplicate rejection, hasAudio filter
 
 #### 3.2 Import Track from Services (`/music/services/youtube/import`)
 - **Actions to test**:

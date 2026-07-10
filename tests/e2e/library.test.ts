@@ -1,5 +1,5 @@
 import { prisma } from '#app/utils/db.server.ts'
-import { test, expect } from '#tests/playwright-utils.ts'
+import { test, expect, testPrisma } from '#tests/playwright-utils.ts'
 
 test.describe('Music Library', () => {
 	test('can view library page', { tag: '@smoke' }, async ({ page, login }) => {
@@ -111,6 +111,39 @@ test.describe('Music Library', () => {
 		await expect(page).toHaveURL('/library')
 
 		await prisma.userPlaylist.delete({ where: { id: existing.id } })
+	})
+
+	test('filters library list to only tracks with audio', async ({ page, login, insertNewTrack }) => {
+		test.setTimeout(60_000)
+		const user = await login()
+
+		await insertNewTrack({ title: 'Metadata Only Track' }, user.id)
+		const playable = await insertNewTrack({ title: 'Playable Filter Track' }, user.id)
+
+		await testPrisma.trackAudioFile.create({
+			data: {
+				trackId: playable.id,
+				objectKey: 'audio/test-filter.mp3',
+				format: 'mp3',
+				mimeType: 'audio/mpeg',
+			},
+		})
+
+		await page.goto('/library', { waitUntil: 'domcontentloaded', timeout: 30_000 })
+		await page.waitForLoadState('networkidle')
+
+		await expect(page.getByText('Metadata Only Track')).toBeVisible({ timeout: 10000 })
+		await expect(page.getByText('Playable Filter Track')).toBeVisible({ timeout: 10000 })
+
+		await page.getByLabel('Only tracks with audio').click()
+		await expect(page).toHaveURL(/hasAudio=1/)
+		await expect(page.getByText('Playable Filter Track')).toBeVisible({ timeout: 10000 })
+		await expect(page.getByText('Metadata Only Track')).not.toBeVisible()
+
+		await page.getByLabel('Only tracks with audio').click()
+		await expect(page).not.toHaveURL(/hasAudio=1/)
+		await expect(page.getByText('Metadata Only Track')).toBeVisible({ timeout: 10000 })
+		await expect(page.getByText('Playable Filter Track')).toBeVisible({ timeout: 10000 })
 	})
 
 })
