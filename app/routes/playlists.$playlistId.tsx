@@ -44,6 +44,7 @@ import { Icon } from '#app/components/ui/icon.tsx'
 import { toast } from '#app/components/ui/use-toast.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { getPlaylistTitle } from '#app/utils/breadcrumb-utils.ts'
+import { chunkArray } from '#app/utils/chunk-array.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
 import { type Route } from './+types/playlists.$playlistId.ts'
@@ -365,15 +366,19 @@ export async function action({ request, params }: Route.ActionArgs) {
 			}
 
 			// First verify all playlist tracks exist and belong to the user
-			const playlistTracks = await prisma.userPlaylistTrack.findMany({
-				where: {
-					id: { in: trackIdArray },
-					playlist: {
-						ownerId: userId,
-						id: params.playlistId,
+			const playlistTracks = []
+			for (const idChunk of chunkArray(trackIdArray)) {
+				const batch = await prisma.userPlaylistTrack.findMany({
+					where: {
+						id: { in: idChunk },
+						playlist: {
+							ownerId: userId,
+							id: params.playlistId,
+						},
 					},
-				},
-			})
+				})
+				playlistTracks.push(...batch)
+			}
 
 			if (playlistTracks.length !== trackIdArray.length) {
 				return data(
@@ -390,11 +395,13 @@ export async function action({ request, params }: Route.ActionArgs) {
 			}
 
 			// Delete all playlist tracks
-			await prisma.userPlaylistTrack.deleteMany({
-				where: {
-					id: { in: trackIdArray },
-				},
-			})
+			for (const idChunk of chunkArray(trackIdArray)) {
+				await prisma.userPlaylistTrack.deleteMany({
+					where: {
+						id: { in: idChunk },
+					},
+				})
+			}
 
 			return data(
 				{ success: true, message: `${trackIdArray.length} tracks removed successfully` },

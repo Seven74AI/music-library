@@ -7,6 +7,7 @@ import {
   type YouTubePlaylist,
 } from '#app/types/youtube-api'
 import { prisma } from '#app/utils/db.server'
+import { chunkArray } from '#app/utils/chunk-array'
 import { type PlaylistSyncProvider } from './playlist-sync-provider.server'
 import { getServiceByName, getUserConnection, parseConnectionTokens } from './playlist-utils.server'
 import {
@@ -425,13 +426,16 @@ export class ServicePlaylistService {
     // Get playlist with tracks — use provided serviceName instead of hardcoded 'youtube'
     const result = await this.getPlaylistTracks(serviceName, playlistId, userId)
 
-    // Determine which tracks are in the user's personal library
-    const trackIds = result.tracks.map(t => t.id)
+    // Determine which tracks are in the user's personal library (relational query — no giant IN clause)
     const userTracks = await prisma.userTrack.findMany({
       where: {
         userId,
-        trackId: { in: trackIds },
         isActive: true,
+        track: {
+          servicePlaylistTracks: {
+            some: { playlistId },
+          },
+        },
       },
       select: { trackId: true },
     })
@@ -654,13 +658,13 @@ export class ServicePlaylistService {
 
     // Remove tracks that are no longer in the playlist
     if (tracksToRemove.length > 0) {
-      await prisma.servicePlaylistTrack.deleteMany({
-        where: {
-          id: {
-            in: tracksToRemove,
+      for (const idChunk of chunkArray(tracksToRemove)) {
+        await prisma.servicePlaylistTrack.deleteMany({
+          where: {
+            id: { in: idChunk },
           },
-        },
-      })
+        })
+      }
     }
 
     // Update playlist metadata
@@ -779,12 +783,16 @@ export class ServicePlaylistService {
     }
 
     try {
-      const existing = await prisma.userTrack.findMany({
-        where: {
-          userId,
-          trackId: { in: uniqueTrackIds },
-        },
-      })
+      const existing = []
+      for (const trackIdChunk of chunkArray(uniqueTrackIds)) {
+        const batch = await prisma.userTrack.findMany({
+          where: {
+            userId,
+            trackId: { in: trackIdChunk },
+          },
+        })
+        existing.push(...batch)
+      }
 
       const existingByTrackId = new Map(
         existing.map((userTrack) => [userTrack.trackId, userTrack]),
@@ -797,15 +805,15 @@ export class ServicePlaylistService {
       )
 
       await prisma.$transaction(async (tx) => {
-        if (toReactivate.length > 0) {
+        for (const idChunk of chunkArray(toReactivate)) {
           await tx.userTrack.updateMany({
-            where: { id: { in: toReactivate } },
+            where: { id: { in: idChunk } },
             data: { isActive: true, deletedAt: null },
           })
         }
-        if (toCreate.length > 0) {
+        for (const trackIdChunk of chunkArray(toCreate)) {
           await tx.userTrack.createMany({
-            data: toCreate.map((trackId) => ({ userId, trackId })),
+            data: trackIdChunk.map((trackId) => ({ userId, trackId })),
           })
         }
       })

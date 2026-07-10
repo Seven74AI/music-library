@@ -1004,6 +1004,24 @@ describe('ServicePlaylistService - User Library', () => {
 			})
 		})
 
+		test('chunks large bulk add queries to stay under SQLite bind limits', async () => {
+			const largeTrackIds = Array.from({ length: 1200 }, (_, i) => `track${i}`)
+			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([])
+			const createMany = vi.fn().mockResolvedValue({ count: 500 })
+			vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) =>
+				fn({ userTrack: { updateMany: vi.fn(), createMany } }),
+			)
+
+			const result = await service.addTracksToUserLibrary(largeTrackIds, userId)
+
+			expect(result.success).toBe(true)
+			expect(result.addedCount).toBe(1200)
+			expect(prisma.userTrack.findMany).toHaveBeenCalledTimes(3)
+			expect(createMany).toHaveBeenCalledTimes(3)
+			expect(createMany.mock.calls[0]?.[0]?.data).toHaveLength(500)
+			expect(createMany.mock.calls[2]?.[0]?.data).toHaveLength(200)
+		})
+
 		test('returns success with zero count for empty list', async () => {
 			const result = await service.addTracksToUserLibrary([], userId)
 
