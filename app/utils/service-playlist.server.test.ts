@@ -942,7 +942,7 @@ describe('ServicePlaylistService - User Library', () => {
 	describe('addTracksToUserLibrary', () => {
 		test('creates many UserTracks in one transaction', async () => {
 			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([])
-			vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
+			vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) =>
 				fn({
 					userTrack: {
 						updateMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -970,7 +970,7 @@ describe('ServicePlaylistService - User Library', () => {
 			])
 			const updateMany = vi.fn().mockResolvedValue({ count: 1 })
 			const createMany = vi.fn().mockResolvedValue({ count: 1 })
-			vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
+			vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) =>
 				fn({ userTrack: { updateMany, createMany } }),
 			)
 
@@ -993,7 +993,7 @@ describe('ServicePlaylistService - User Library', () => {
 		test('deduplicates track ids', async () => {
 			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([])
 			const createMany = vi.fn().mockResolvedValue({ count: 1 })
-			vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
+			vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) =>
 				fn({ userTrack: { updateMany: vi.fn(), createMany } }),
 			)
 
