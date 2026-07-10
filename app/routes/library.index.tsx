@@ -143,7 +143,7 @@ export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
 			const storage = getOfflineStorage()
 			return {
 				offline: true as const,
-				offlineTracks: await storage.listDownloaded(),
+				offlineTracks: await storage.listPinned(),
 				userTracks: [],
 				pagination: {
 					limit: LIBRARY_TRACKS_PAGE_SIZE,

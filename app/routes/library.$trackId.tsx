@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { data, Link } from 'react-router'
+import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
@@ -83,6 +84,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
 	}, [track.id])
 
 	return (
+		<OfflineRouteBlocker>
 		<div className="py-8">
 			<div className="flex flex-col gap-6">
 			<div className="flex items-center justify-between">
@@ -162,5 +164,6 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
 			</div>
 		</div>
 		</div>
+		</OfflineRouteBlocker>
 	)
 }

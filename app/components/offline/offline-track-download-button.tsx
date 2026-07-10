@@ -8,11 +8,13 @@ import { type FullTrack } from '#app/types/frontend/shared'
 
 type OfflineTrackDownloadButtonProps = {
 	track: Pick<FullTrack, 'id' | 'title' | 'artist' | 'duration' | 'coverImage' | 'audioFiles'>
+	playlistId?: string
 	size?: 'sm' | 'icon'
 }
 
 export function OfflineTrackDownloadButton({
 	track,
+	playlistId,
 	size = 'icon',
 }: OfflineTrackDownloadButtonProps) {
 	const { isDownloaded, isPinned, isBusy, setIsBusy, refresh } =
@@ -35,7 +37,7 @@ export function OfflineTrackDownloadButton({
 				await storage.removeTrack(track.id)
 				toast({ title: 'Removed download', description: track.title })
 			} else {
-				await storage.downloadTrack(track, { pin: true })
+				await storage.downloadTrack(track, { pin: true, playlistId })
 				toast({ title: 'Downloaded for offline', description: track.title })
 			}
 			await refresh()

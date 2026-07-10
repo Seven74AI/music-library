@@ -621,29 +621,41 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	
 	const audioFile = getBestAudioFile()
 	const [audioSrc, setAudioSrc] = useState<string | undefined>(undefined)
+	const [playbackError, setPlaybackError] = useState<string | null>(null)
 	
 	useEffect(() => {
 		if (!audioFile || !track) {
 			loadedTrackIdRef.current = null
 			setAudioSrc(undefined)
+			setPlaybackError(null)
 			return
 		}
 
 		const trackId = track.id
 		loadedTrackIdRef.current = null
 		setAudioSrc(undefined)
+		setPlaybackError(null)
 
 		let cancelled = false
 		void resolveTrackPlaybackSource(trackId)
 			.then((url) => {
-				if (!cancelled && url) {
+				if (cancelled) return
+				if (url) {
 					loadedTrackIdRef.current = trackId
 					setAudioSrc(url)
+					setPlaybackError(null)
+				} else {
+					setPlaybackError(
+						'This track is not available offline. Download it while you still have a connection.',
+					)
 				}
 			})
 			.catch((err) => {
 				console.error('Failed to resolve audio URL:', err)
-				if (!cancelled) setAudioSrc(undefined)
+				if (!cancelled) {
+					setAudioSrc(undefined)
+					setPlaybackError('Playback failed. Try downloading this track for offline listening.')
+				}
 			})
 
 		return () => {
@@ -1021,8 +1033,20 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		// The seeked event will fire when seeking completes
 	}
 
-	if (!isVisible || !track || !audioSrc) {
+	if (!isVisible || !track) {
 		return null
+	}
+
+	if (!audioSrc) {
+		if (!playbackError) return null
+		return (
+			<div
+				data-testid="player-playback-error"
+				className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 px-4 py-3 text-sm text-destructive backdrop-blur"
+			>
+				<p className="container">{playbackError}</p>
+			</div>
+		)
 	}
 
 	const isAudioLoading = !audioSrc

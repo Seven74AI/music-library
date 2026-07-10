@@ -19,13 +19,27 @@ import {
 	type OfflineTrackSummary,
 } from './types.ts'
 import { getOfflineAudioFormat, mimeTypeForAudioFormat } from './offline-track-summary.client.ts'
+import { cacheCoverImage } from './cover-cache.client.ts'
+import { coverImageUrl, trackThumbnailPixelSizes } from '#app/utils/cover-image-url.ts'
 
 const DEFAULT_QUOTA_HEADROOM_BYTES = 50 * 1024 * 1024
+
+export type OfflineStorageStats = {
+	trackCount: number
+	pinnedCount: number
+	totalBytes: number
+	usage: number
+	quota: number
+}
 
 export type OfflineStorage = {
 	downloadTrack: (
 		track: FullTrack,
-		options?: { pin?: boolean; playlistId?: string },
+		options?: {
+			pin?: boolean
+			playlistId?: string
+			onProgress?: (progress: { completed: number; total: number }) => void
+		},
 	) => Promise<void>
 	cacheQueueTrack: (track: FullTrack) => Promise<void>
 	removeTrack: (trackId: string) => Promise<void>
@@ -35,6 +49,7 @@ export type OfflineStorage = {
 	listPinned: () => Promise<OfflineTrackSummary[]>
 	listForPlaylist: (playlistId: string) => Promise<OfflineTrackSummary[]>
 	getRecord: (trackId: string) => Promise<OfflineTrackRecord | null>
+	getStorageStats: () => Promise<OfflineStorageStats>
 }
 
 export type OfflineStorageDependencies = {
@@ -107,6 +122,18 @@ export function createOfflineStorage(
 		}
 	}
 
+	async function cacheTrackCover(track: FullTrack) {
+		const objectKey = track.coverImage?.objectKey
+		if (!objectKey) return
+
+		const response = await fetch(
+			coverImageUrl(objectKey, trackThumbnailPixelSizes.sm),
+			{ credentials: 'same-origin' },
+		)
+		if (!response.ok) return
+		await cacheCoverImage(objectKey, await response.arrayBuffer())
+	}
+
 	async function storeTrack(
 		track: FullTrack,
 		buffer: ArrayBuffer,
@@ -154,6 +181,12 @@ export function createOfflineStorage(
 				queue: !pin,
 				playlistId: options.playlistId,
 			})
+			try {
+				await cacheTrackCover(track)
+			} catch {
+				// Cover caching is best-effort
+			}
+			options.onProgress?.({ completed: 1, total: 1 })
 		},
 		async cacheQueueTrack(track) {
 			if (await metadataStore.get(track.id)) {
@@ -164,21 +197,36 @@ export function createOfflineStorage(
 			await storeTrack(track, buffer, { pin: false, queue: true })
 		},
 		async removeTrack(trackId) {
+			const record = await metadataStore.get(trackId)
 			await audioStore.delete(trackId)
 			await metadataStore.delete(trackId)
+			if (record?.coverObjectKey) {
+				const { deleteCachedCover } = await import('./cover-cache.client.ts')
+				await deleteCachedCover(record.coverObjectKey)
+			}
 		},
 		async resolvePlaybackBlob(trackId) {
 			const record = await metadataStore.get(trackId)
 			if (!record) return null
 			const buffer = await audioStore.read(trackId)
-			if (!buffer) return null
+			if (!buffer) {
+				await metadataStore.delete(trackId)
+				return null
+			}
 			await metadataStore.touch(trackId)
 			return new Blob([buffer], {
 				type: mimeTypeForAudioFormat(record.audioFormat),
 			})
 		},
 		async hasTrack(trackId) {
-			return metadataStore.get(trackId).then(Boolean)
+			const record = await metadataStore.get(trackId)
+			if (!record) return false
+			const exists = await audioStore.has(trackId)
+			if (!exists) {
+				await metadataStore.delete(trackId)
+				return false
+			}
+			return true
 		},
 		listDownloaded() {
 			return metadataStore.listDownloaded()
@@ -191,6 +239,17 @@ export function createOfflineStorage(
 		},
 		getRecord(trackId) {
 			return metadataStore.get(trackId)
+		},
+		async getStorageStats() {
+			const tracks = await metadataStore.list()
+			const { usage, quota } = await readStorageEstimate()
+			return {
+				trackCount: tracks.length,
+				pinnedCount: tracks.filter((track) => track.isPinned).length,
+				totalBytes: tracks.reduce((sum, track) => sum + track.fileSizeBytes, 0),
+				usage,
+				quota,
+			}
 		},
 	}
 }

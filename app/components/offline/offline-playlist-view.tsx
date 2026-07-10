@@ -62,6 +62,7 @@ export function OfflinePlaylistView({
 							showPlaylistActions={false}
 							itemActions={({ trackId: _trackId }) => (
 								<OfflineTrackDownloadButton
+									playlistId={playlistId}
 									track={{
 										id: track.trackId,
 										title: track.title,

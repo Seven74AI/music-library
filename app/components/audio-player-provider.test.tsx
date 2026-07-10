@@ -33,6 +33,21 @@ vi.mock('#app/features/offline-storage/offline-storage.client.ts', () => ({
 				lastAccessedAt: Date.now(),
 			},
 		]),
+		listPinned: vi.fn().mockResolvedValue([
+			{
+				trackId: 'track-1',
+				title: 'Test Song',
+				artistId: 'artist-1',
+				artistName: 'Test Artist',
+				duration: 180,
+				coverObjectKey: 'covers/test.jpg',
+				audioFormat: 'mp3',
+				isPinned: true,
+				isQueueCached: false,
+				fileSizeBytes: 1000,
+				lastAccessedAt: Date.now(),
+			},
+		]),
 		listForPlaylist: vi.fn().mockResolvedValue([]),
 	}),
 }))

@@ -7,15 +7,20 @@ import { type Route } from './+types/downloads.ts'
 
 export async function clientLoader() {
 	const storage = getOfflineStorage()
-	const tracks = await storage.listDownloaded()
-	return { tracks }
+	const [tracks, stats] = await Promise.all([
+		storage.listDownloaded(),
+		storage.getStorageStats(),
+	])
+	return { tracks, stats }
 }
 
 clientLoader.hydrate = true
 
 export default function DownloadsRoute({ loaderData }: Route.ComponentProps) {
 	const revalidator = useRevalidator()
-	const tracks = loaderData.tracks
+	const { tracks, stats } = loaderData
+	const usedMb = (stats.totalBytes / (1024 * 1024)).toFixed(1)
+	const quotaMb = stats.quota ? (stats.quota / (1024 * 1024)).toFixed(0) : null
 
 	return (
 		<main className="py-8">
@@ -23,7 +28,8 @@ export default function DownloadsRoute({ loaderData }: Route.ComponentProps) {
 				<div>
 					<h1 className="text-3xl font-bold">Downloads</h1>
 					<p className="text-muted-foreground mt-2">
-						Tracks saved on this device for offline playback.
+						{stats.pinnedCount} pinned · {stats.trackCount} total cached · {usedMb} MB
+						{quotaMb ? ` of ~${quotaMb} MB` : ''} on this device.
 					</p>
 				</div>
 				<Button

@@ -1,4 +1,5 @@
 import {
+	OFFLINE_COVERS_STORE,
 	OFFLINE_DB_NAME,
 	OFFLINE_DB_VERSION,
 	OFFLINE_TRACKS_STORE,
@@ -20,6 +21,9 @@ function openOfflineDatabase(): Promise<IDBDatabase> {
 				})
 				store.createIndex('lastAccessedAt', 'lastAccessedAt', { unique: false })
 				store.createIndex('isPinned', 'isPinned', { unique: false })
+			}
+			if (!db.objectStoreNames.contains(OFFLINE_COVERS_STORE)) {
+				db.createObjectStore(OFFLINE_COVERS_STORE, { keyPath: 'objectKey' })
 			}
 		}
 	})

@@ -1,5 +1,6 @@
 import { Icon } from '#app/components/ui/icon'
-import { coverImageUrl, trackThumbnailPixelSizes } from '#app/utils/cover-image-url.ts'
+import { useOfflineCoverUrl } from '#app/hooks/use-offline-cover-url.ts'
+import { trackThumbnailPixelSizes } from '#app/utils/cover-image-url.ts'
 import { cn } from '#app/utils/misc'
 
 interface TrackThumbnailProps {
@@ -45,11 +46,9 @@ export function TrackThumbnail({
 	const sizeClass = sizeClasses[size]
 	const iconSizeClass = iconSizeClasses[size]
 	const requestedPixels = pixelSize ?? trackThumbnailPixelSizes[size]
-	
-	// Use optimized image URL if cover image exists, otherwise use thumbnailUrl as placeholder
-	const imageUrl = coverImage?.objectKey
-		? coverImageUrl(coverImage.objectKey, requestedPixels)
-		: thumbnailUrl || null
+	const offlineCoverUrl = useOfflineCoverUrl(coverImage?.objectKey, requestedPixels)
+
+	const imageUrl = offlineCoverUrl ?? (thumbnailUrl || null)
 
 	if (imageUrl) {
 		return (

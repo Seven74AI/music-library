@@ -4,6 +4,7 @@ import { data, Form, useActionData, useFetcher, useLoaderData, Link, useNavigate
 
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs'
 import { DeletedVideoMatchDialog } from '#app/components/deleted-video-match-dialog'
+import { OfflinePlaylistDownloadButton } from '#app/components/offline/offline-playlist-download-button.tsx'
 import { TrackListItem } from '#app/components/track-list-item'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '#app/components/ui/alert-dialog'
 import { Button } from '#app/components/ui/button'
@@ -25,6 +26,7 @@ import {
 } from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
 import { getPlaylistTitle } from '#app/utils/breadcrumb-utils'
+import { filterPlayableTracks } from '#app/utils/playable-track.ts'
 import { useIsPending } from '#app/utils/misc'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 import { redirectWithToast } from '#app/utils/toast.server'
@@ -524,6 +526,26 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 							<div className="h-px w-full bg-border" />
 							
 							<div className="space-y-3">
+								<OfflinePlaylistDownloadButton
+									playlistId={playlist.id}
+									title={playlist.title}
+									description={playlist.description}
+									tracks={filterPlayableTracks(
+										tracks.map((track) => ({
+											id: track.id,
+											title: track.title,
+											artist:
+												track.artist &&
+												typeof track.artist === 'object' &&
+												'name' in track.artist
+													? track.artist
+													: { id: '', name: 'Unknown Artist' },
+											duration: track.duration,
+											coverImage: track.coverImage,
+											audioFiles: track.audioFiles ?? [],
+										})),
+									)}
+								/>
 								<Button
 									variant="outline"
 									className="w-full"

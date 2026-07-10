@@ -42,6 +42,12 @@ import {
 import { type Theme, getTheme } from './utils/theme.server.ts'
 import { makeTimings, time } from './utils/timing.server.ts'
 import { getToast } from './utils/toast.server.ts'
+import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
+import {
+	createFallbackOfflineRootShell,
+	persistOfflineRootShell,
+} from '#app/utils/offline-root-shell.client.ts'
+import { OfflineStatusBanner } from './components/offline/offline-status-banner.tsx'
 import { useOptionalUser } from './utils/user.ts'
 
 // Lazy-loaded components — reduces initial bundle by deferring non-critical UI
@@ -169,6 +175,28 @@ export async function loader({ request }: Route.LoaderArgs) {
 	)
 }
 
+export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
+	return loadWithOfflineFallback(
+		async () => {
+			const shell = await serverLoader()
+			persistOfflineRootShell({
+				user: shell.user,
+				requestInfo: {
+					...shell.requestInfo,
+					userPrefs: {
+						theme: shell.requestInfo.userPrefs.theme ?? 'light',
+					},
+				},
+				ENV: shell.ENV,
+			})
+			return shell
+		},
+		async () => createFallbackOfflineRootShell(),
+	)
+}
+
+clientLoader.hydrate = true as const
+
 export const headers: Route.HeadersFunction = pipeHeaders
 
 function Document({
@@ -279,6 +307,7 @@ function App() {
 			>
 				<AudioPlayerProvider>
 					<div className="flex min-h-screen flex-col justify-between">
+				<OfflineStatusBanner />
 				<a
 					href="#main-content"
 					className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50"

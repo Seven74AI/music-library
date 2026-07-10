@@ -145,7 +145,9 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		const summaries =
 			context.type === 'playlist' && context.playlistId
 				? await storage.listForPlaylist(context.playlistId)
-				: await storage.listDownloaded()
+				: context.type === 'library'
+					? await storage.listPinned()
+					: await storage.listDownloaded()
 
 		return filterPlayableTracks(summaries.map(offlineSummaryToFullTrack))
 	}, [])

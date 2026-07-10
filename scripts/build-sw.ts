@@ -26,7 +26,13 @@ async function buildDevServiceWorker() {
 	if (!code.includes('self.__SW_MANIFEST')) {
 		throw new Error('Service worker is missing self.__SW_MANIFEST injection point')
 	}
-	code = code.replace(/self\.__SW_MANIFEST/g, '[]')
+	code = code.replace(
+		/self\.__SW_MANIFEST/g,
+		JSON.stringify([
+			{ url: '/site.webmanifest', revision: null },
+			{ url: '/index.html', revision: null },
+		]),
+	)
 	await fs.writeFile(path.join(root, 'public/sw.js'), code)
 }
 

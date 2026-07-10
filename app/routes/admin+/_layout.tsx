@@ -1,14 +1,10 @@
 import { Outlet } from 'react-router'
 import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 
-export default function MusicLayout() {
+export default function AdminLayout() {
 	return (
 		<OfflineRouteBlocker>
-			<main className="container flex min-h-[400px] flex-1 px-0 pb-12">
-				<div className="w-full">
-					<Outlet />
-				</div>
-			</main>
+			<Outlet />
 		</OfflineRouteBlocker>
 	)
 }

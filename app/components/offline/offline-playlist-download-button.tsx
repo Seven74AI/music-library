@@ -21,6 +21,9 @@ export function OfflinePlaylistDownloadButton({
 	tracks,
 }: OfflinePlaylistDownloadButtonProps) {
 	const [isWorking, setIsWorking] = useState(false)
+	const [progress, setProgress] = useState<{ completed: number; total: number } | null>(
+		null,
+	)
 	const playableTracks = filterPlayableTracks(tracks)
 
 	if (playableTracks.length === 0) return null
@@ -41,6 +44,7 @@ export function OfflinePlaylistDownloadButton({
 			for (const track of playableTracks) {
 				await storage.downloadTrack(track, { pin: true, playlistId })
 				downloaded += 1
+				setProgress({ completed: downloaded, total: playableTracks.length })
 			}
 
 			toast({
@@ -56,8 +60,14 @@ export function OfflinePlaylistDownloadButton({
 			})
 		} finally {
 			setIsWorking(false)
+			setProgress(null)
 		}
 	}
+
+	const label =
+		isWorking && progress
+			? `Downloading ${progress.completed}/${progress.total}`
+			: 'Download playlist'
 
 	return (
 		<Button
@@ -66,12 +76,13 @@ export function OfflinePlaylistDownloadButton({
 			size="sm"
 			onClick={() => void handleDownload()}
 			disabled={isWorking}
+			aria-label={label}
 		>
 			<Icon
 				name={isWorking ? 'arrow-path' : 'download'}
 				className={`mr-2 h-4 w-4 ${isWorking ? 'animate-spin' : ''}`}
 			/>
-			Download playlist
+			{label}
 		</Button>
 	)
 }
