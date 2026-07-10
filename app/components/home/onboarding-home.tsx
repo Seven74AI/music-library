@@ -1,7 +1,7 @@
 import { Link } from 'react-router'
+import { InstallAppHomePrompt } from '#app/components/pwa/install-app-home-prompt.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
-import { InstallAppHomePrompt } from '#app/components/pwa/install-app-home-prompt.tsx'
 
 type OnboardingHomeProps = {
 	youtubeConnected: boolean

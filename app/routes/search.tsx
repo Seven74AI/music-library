@@ -4,9 +4,9 @@
 
 import { useSearchParams } from 'react-router'
 import { z } from 'zod'
+import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { SearchBar } from '#app/components/search-bar.tsx'
 import { SearchResults } from '#app/components/search-results.tsx'
-import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { useDelayedIsPending } from '#app/utils/misc.tsx'
 import {
 	validateSearchQuery,

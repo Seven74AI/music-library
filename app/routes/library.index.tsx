@@ -2,23 +2,23 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { useVirtualizer, defaultRangeExtractor, type Range } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useRef } from 'react'
 import { data, useSearchParams } from 'react-router'
-import { TrackListItem } from '#app/components/track-list-item'
 import { OfflineLibraryView } from '#app/components/offline/offline-library-view.tsx'
 import { OfflineTrackDownloadButton } from '#app/components/offline/offline-track-download-button.tsx'
+import { TrackListItem } from '#app/components/track-list-item'
 import { Checkbox } from '#app/components/ui/checkbox.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { Label } from '#app/components/ui/label.tsx'
 import { ScrollArea } from '#app/components/ui/scroll-area'
 import { TrackListSkeleton } from '#app/components/ui/track-list-skeleton'
+import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { LIBRARY_TRACKS_PAGE_SIZE } from '#app/utils/library-tracks-pagination.ts'
-import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
-import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
 import {
 	buildLibraryUserTracksWhere,
 	parseHasAudioOnlyParam,
 } from '#app/utils/library-user-tracks.server.ts'
+import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
 import { type Route } from './+types/library.index.ts'
 
 // Define the track type

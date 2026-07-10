@@ -8,6 +8,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '#app/components/ui/popo
 import { ScrollArea } from '#app/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '#app/components/ui/sheet'
 import { toast } from '#app/components/ui/use-toast.ts'
+import {
+	resolveTrackPlaybackSource,
+	revokePlaybackAudioUrl,
+} from '#app/features/offline-storage/resolve-playback-url.client.ts'
 import { type FullTrack } from '#app/types/frontend/shared'
 import {
 	buildMediaSessionMetadata,
@@ -31,10 +35,6 @@ import {
 	isSleepTimerExpired,
 	SLEEP_TIMER_PRESETS_MINUTES,
 } from '#app/utils/sleep-timer.ts'
-import {
-	resolveTrackPlaybackSource,
-	revokePlaybackAudioUrl,
-} from '#app/features/offline-storage/resolve-playback-url.client.ts'
 
 type Track = FullTrack
 

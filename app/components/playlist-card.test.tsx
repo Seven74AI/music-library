@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-import { type ComponentProps } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { type ComponentProps } from 'react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { PlaylistCard } from './playlist-card.tsx'

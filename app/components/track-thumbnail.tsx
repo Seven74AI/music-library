@@ -1,6 +1,6 @@
 import { Icon } from '#app/components/ui/icon'
-import { cn } from '#app/utils/misc'
 import { coverImageUrl, trackThumbnailPixelSizes } from '#app/utils/cover-image-url.ts'
+import { cn } from '#app/utils/misc'
 
 interface TrackThumbnailProps {
 	coverImage: { objectKey: string } | null | undefined

@@ -4,7 +4,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, test, beforeEach } from 'vitest'
 import {
-	OfflineMetadataStore,
+	type OfflineMetadataStore,
 	createOfflineMetadataStore,
 } from './metadata-store.client.ts'
 import { toOfflineTrackRecord } from './types.ts'

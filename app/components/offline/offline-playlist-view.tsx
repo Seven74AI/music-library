@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
-import { TrackListItem } from '#app/components/track-list-item.tsx'
 import { OfflineTrackDownloadButton } from '#app/components/offline/offline-track-download-button.tsx'
+import { TrackListItem } from '#app/components/track-list-item.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { type OfflineTrackSummary } from '#app/features/offline-storage/types.ts'
 
