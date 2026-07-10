@@ -1,10 +1,13 @@
 import { type FullTrack } from '#app/types/frontend/shared'
+import { coverImageUrl, trackThumbnailPixelSizes } from '#app/utils/cover-image-url.ts'
+import { cacheCoverImage } from './cover-cache.client.ts'
 import {
 	createMemoryOfflineAudioStore,
 	type OfflineAudioStore,
 } from './memory-audio-store.ts'
 import { getOfflineMetadataStore } from './metadata-store.client.ts'
 import { offlineAudioOpfsPath } from './offline-audio-path.ts'
+import { getOfflineAudioFormat, mimeTypeForAudioFormat } from './offline-track-summary.client.ts'
 import {
 	createOpfsOfflineAudioStore,
 	isOpfsAudioStoreSupported,
@@ -18,9 +21,6 @@ import {
 	type OfflineTrackRecord,
 	type OfflineTrackSummary,
 } from './types.ts'
-import { getOfflineAudioFormat, mimeTypeForAudioFormat } from './offline-track-summary.client.ts'
-import { cacheCoverImage } from './cover-cache.client.ts'
-import { coverImageUrl, trackThumbnailPixelSizes } from '#app/utils/cover-image-url.ts'
 
 const DEFAULT_QUOTA_HEADROOM_BYTES = 50 * 1024 * 1024
 

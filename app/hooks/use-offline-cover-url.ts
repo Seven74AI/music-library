@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { resolveCachedCoverUrl } from '#app/features/offline-storage/cover-cache.client.ts'
-import { coverImageUrl } from '#app/utils/cover-image-url.ts'
 import { useOnlineStatus } from '#app/hooks/use-online-status.ts'
+import { coverImageUrl } from '#app/utils/cover-image-url.ts'
 
 export function useOfflineCoverUrl(
 	objectKey: string | null | undefined,

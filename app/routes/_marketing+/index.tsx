@@ -3,8 +3,8 @@ import { ListeningHome } from '#app/components/home/listening-home.tsx'
 import { MarketingHome } from '#app/components/home/marketing-home.tsx'
 import { OnboardingHome } from '#app/components/home/onboarding-home.tsx'
 import { OfflineHome } from '#app/components/offline/offline-home.tsx'
-import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
 import { loadHomeData } from '#app/utils/home.server.ts'
+import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
 import { type Route } from './+types/index.ts'
 
 export const meta: Route.MetaFunction = () => [{ title: 'Music Library' }]
