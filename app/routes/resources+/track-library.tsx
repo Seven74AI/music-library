@@ -8,16 +8,21 @@ import { type Route } from './+types/track-library'
  * Resource route for adding/removing tracks to/from the user's personal library.
  * 
  * POST /resources/track-library
- * Body: trackId (string), action ("add" | "remove")
+ * Body: trackId (string) OR trackIds (string[], repeated), action ("add" | "remove")
  */
 export async function action({ request }: Route.ActionArgs) {
   const userId = await requireUserId(request)
   const formData = await request.formData()
 
-  const trackId = formData.get('trackId')
   const actionType = formData.get('action')
+  const bulkTrackIds = formData
+    .getAll('trackIds')
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  const singleTrackId = formData.get('trackId')
+  const trackId =
+    typeof singleTrackId === 'string' && singleTrackId ? singleTrackId : null
 
-  if (typeof trackId !== 'string' || !trackId) {
+  if (bulkTrackIds.length === 0 && !trackId) {
     return data(
       { status: 'error', message: 'Invalid track ID' },
       {
@@ -49,7 +54,34 @@ export async function action({ request }: Route.ActionArgs) {
     const service = createServicePlaylistService()
 
     if (actionType === 'add') {
-      const result = await service.addTrackToUserLibrary(trackId, userId)
+      if (bulkTrackIds.length > 0) {
+        const result = await service.addTracksToUserLibrary(bulkTrackIds, userId)
+        if (!result.success) {
+          return data(
+            { status: 'error', message: result.message },
+            {
+              status: 500,
+              headers: await createToastHeaders({
+                title: 'Error',
+                description: result.message,
+                type: 'error',
+              }),
+            },
+          )
+        }
+        return data(
+          { status: 'success', message: result.message, addedCount: result.addedCount },
+          {
+            headers: await createToastHeaders({
+              title: 'Added to Library',
+              description: result.message,
+              type: 'success',
+            }),
+          },
+        )
+      }
+
+      const result = await service.addTrackToUserLibrary(trackId!, userId)
       if (!result.success) {
         return data(
           { status: 'error', message: result.message },
@@ -76,6 +108,20 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     // actionType === 'remove'
+    if (!trackId) {
+      return data(
+        { status: 'error', message: 'Invalid track ID' },
+        {
+          status: 400,
+          headers: await createToastHeaders({
+            title: 'Error',
+            description: 'Bulk remove is not supported. Provide a single trackId.',
+            type: 'error',
+          }),
+        },
+      )
+    }
+
     const result = await service.removeTrackFromUserLibrary(trackId, userId)
     if (!result.success) {
       return data(

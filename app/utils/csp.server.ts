@@ -11,7 +11,8 @@ const DIRECTIVES = {
 	'default-src': "'none'",
 	'script-src': "'self'",
 	'style-src': "'self' 'unsafe-inline'",
-	'img-src': "'self' data:",
+	'img-src':
+		"'self' data: blob: https://i.ytimg.com https://img.youtube.com",
 	'connect-src': "'self'",
 	'font-src': "'self'",
 	'media-src': "'self' https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",

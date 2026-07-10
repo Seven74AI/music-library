@@ -293,15 +293,14 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 			updates[track.id] = true
 		}
 		setLibraryStatus(prev => ({ ...prev, ...updates }))
+		const formData = new FormData()
+		formData.append('action', 'add')
 		for (const track of missingTracks) {
-			const formData = new FormData()
-			formData.append('trackId', track.id)
-			formData.append('action', 'add')
-			void fetch('/resources/track-library', { method: 'POST', body: formData })
+			formData.append('trackIds', track.id)
 		}
-		toast({
-			title: 'Success',
-			description: `${missingTracks.length} track${missingTracks.length !== 1 ? 's' : ''} added to library`,
+		void libraryFetcher.submit(formData, {
+			method: 'post',
+			action: '/resources/track-library',
 		})
 		setIsAddAllMissingDialogOpen(false)
 	}

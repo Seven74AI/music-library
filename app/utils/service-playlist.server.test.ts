@@ -29,7 +29,9 @@ vi.mock('#app/utils/db.server', () => ({
 			findUnique: vi.fn(),
 			findMany: vi.fn(),
 			create: vi.fn(),
+			createMany: vi.fn(),
 			update: vi.fn(),
+			updateMany: vi.fn(),
 			delete: vi.fn(),
 		},
 		$transaction: vi.fn(),
@@ -934,6 +936,80 @@ describe('ServicePlaylistService - User Library', () => {
 			expect(result.message).toBe('Failed to add track to library')
 			expect(result.error).toBe('DB connection failed')
 			consoleError.mockRestore()
+		})
+	})
+
+	describe('addTracksToUserLibrary', () => {
+		test('creates many UserTracks in one transaction', async () => {
+			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([])
+			vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
+				fn({
+					userTrack: {
+						updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+						createMany: vi.fn().mockResolvedValue({ count: 3 }),
+					},
+				}),
+			)
+
+			const result = await service.addTracksToUserLibrary(
+				['track1', 'track2', 'track3'],
+				userId,
+			)
+
+			expect(result.success).toBe(true)
+			expect(result.addedCount).toBe(3)
+			expect(prisma.userTrack.findMany).toHaveBeenCalledWith({
+				where: { userId, trackId: { in: ['track1', 'track2', 'track3'] } },
+			})
+		})
+
+		test('reactivates inactive tracks and creates only missing ones', async () => {
+			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([
+				{ id: 'ut1', userId, trackId: 'track1', isActive: true, deletedAt: null },
+				{ id: 'ut2', userId, trackId: 'track2', isActive: false, deletedAt: new Date() },
+			])
+			const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+			const createMany = vi.fn().mockResolvedValue({ count: 1 })
+			vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
+				fn({ userTrack: { updateMany, createMany } }),
+			)
+
+			const result = await service.addTracksToUserLibrary(
+				['track1', 'track2', 'track3'],
+				userId,
+			)
+
+			expect(result.success).toBe(true)
+			expect(result.addedCount).toBe(2)
+			expect(updateMany).toHaveBeenCalledWith({
+				where: { id: { in: ['ut2'] } },
+				data: { isActive: true, deletedAt: null },
+			})
+			expect(createMany).toHaveBeenCalledWith({
+				data: [{ userId, trackId: 'track3' }],
+			})
+		})
+
+		test('deduplicates track ids', async () => {
+			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([])
+			const createMany = vi.fn().mockResolvedValue({ count: 1 })
+			vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
+				fn({ userTrack: { updateMany: vi.fn(), createMany } }),
+			)
+
+			await service.addTracksToUserLibrary(['track1', 'track1'], userId)
+
+			expect(prisma.userTrack.findMany).toHaveBeenCalledWith({
+				where: { userId, trackId: { in: ['track1'] } },
+			})
+		})
+
+		test('returns success with zero count for empty list', async () => {
+			const result = await service.addTracksToUserLibrary([], userId)
+
+			expect(result.success).toBe(true)
+			expect(result.addedCount).toBe(0)
+			expect(prisma.userTrack.findMany).not.toHaveBeenCalled()
 		})
 	})
 

@@ -760,6 +760,84 @@ export class ServicePlaylistService {
   }
 
   /**
+   * Add multiple tracks to the user's personal library in one operation.
+   * Skips tracks already active; reactivates soft-deleted records.
+   */
+  async addTracksToUserLibrary(
+    trackIds: string[],
+    userId: string,
+  ): Promise<{
+    success: boolean
+    message: string
+    addedCount: number
+    error?: string
+  }> {
+    const uniqueTrackIds = [
+      ...new Set(
+        trackIds.filter(
+          (id): id is string => typeof id === 'string' && id.trim().length > 0,
+        ),
+      ),
+    ]
+
+    if (uniqueTrackIds.length === 0) {
+      return {
+        success: true,
+        message: 'No tracks to add',
+        addedCount: 0,
+      }
+    }
+
+    try {
+      const existing = await prisma.userTrack.findMany({
+        where: {
+          userId,
+          trackId: { in: uniqueTrackIds },
+        },
+      })
+
+      const existingByTrackId = new Map(
+        existing.map((userTrack) => [userTrack.trackId, userTrack]),
+      )
+      const toReactivate = existing
+        .filter((userTrack) => !userTrack.isActive)
+        .map((userTrack) => userTrack.id)
+      const toCreate = uniqueTrackIds.filter(
+        (trackId) => !existingByTrackId.has(trackId),
+      )
+
+      await prisma.$transaction(async (tx) => {
+        if (toReactivate.length > 0) {
+          await tx.userTrack.updateMany({
+            where: { id: { in: toReactivate } },
+            data: { isActive: true, deletedAt: null },
+          })
+        }
+        if (toCreate.length > 0) {
+          await tx.userTrack.createMany({
+            data: toCreate.map((trackId) => ({ userId, trackId })),
+          })
+        }
+      })
+
+      const addedCount = toReactivate.length + toCreate.length
+      return {
+        success: true,
+        message: `${addedCount} track${addedCount !== 1 ? 's' : ''} added to library`,
+        addedCount,
+      }
+    } catch (error) {
+      console.error('Error adding tracks to user library:', error)
+      return {
+        success: false,
+        message: 'Failed to add tracks to library',
+        addedCount: 0,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
+
+  /**
    * Remove a track from the user's personal library (soft delete).
    */
   async removeTrackFromUserLibrary(
