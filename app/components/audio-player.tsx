@@ -426,7 +426,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			audio.removeEventListener('ended', handleEnded)
 			audio.removeEventListener('error', handleError)
 		}
-	}, [onNext, loopMode, track])
+	}, [onNext, loopMode, track, audioSrc])
 	
 	const handleDownload = async () => {
 		if (!track) return

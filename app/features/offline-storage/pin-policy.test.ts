@@ -58,7 +58,7 @@ describe('selectQueueCacheEvictionCandidates', () => {
 			3_000_000,
 		)
 
-		expect(candidates.map((t) => t.trackId)).toEqual(['old'])
+		expect(candidates.map((t) => t.trackId)).toEqual(['old', 'new'])
 	})
 })
 

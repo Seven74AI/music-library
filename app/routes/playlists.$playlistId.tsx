@@ -42,7 +42,6 @@ import { OfflinePlaylistView } from '#app/components/offline/offline-playlist-vi
 import { OfflinePlaylistDownloadButton } from '#app/components/offline/offline-playlist-download-button.tsx'
 import { SortableTrackList } from '#app/components/sortable-track-list'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '#app/components/ui/alert-dialog'
-import { Button } from '#app/components/ui/button'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { toast } from '#app/components/ui/use-toast.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
@@ -507,26 +506,40 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	if ('offline' in loaderData && loaderData.offline === true) {
-		const offlineData = loaderData as {
-			offline: true
-			offlineTracks: import('#app/features/offline-storage/types.ts').OfflineTrackSummary[]
-			offlinePlaylistMeta: import('#app/features/offline-storage/offline-playlist-metadata.client.ts').CachedPlaylistMeta
-		}
 		return (
 			<OfflinePlaylistView
-				playlistId={offlineData.offlinePlaylistMeta.id}
-				title={offlineData.offlinePlaylistMeta.title}
-				description={offlineData.offlinePlaylistMeta.description}
-				tracks={offlineData.offlineTracks}
+				playlistId={loaderData.offlinePlaylistMeta.id}
+				title={loaderData.offlinePlaylistMeta.title}
+				description={loaderData.offlinePlaylistMeta.description}
+				tracks={loaderData.offlineTracks}
 			/>
 		)
 	}
 
+	return (
+		<OnlinePlaylistRoute
+			loaderData={
+				loaderData as Extract<
+					Route.ComponentProps['loaderData'],
+					{ playlist: object }
+				>
+			}
+		/>
+	)
+}
+
+type OnlinePlaylistLoaderData = Extract<
+	Route.ComponentProps['loaderData'],
+	{ playlist: object }
+>
+
+function OnlinePlaylistRoute({
+	loaderData,
+}: {
+	loaderData: OnlinePlaylistLoaderData
+}) {
 	const params = useParams()
-	const { playlist, playlists } = loaderData as Extract<
-		Route.ComponentProps['loaderData'],
-		{ playlist: object }
-	>
+	const { playlist, playlists } = loaderData
 	
 	// Audio player context (audio playback disabled)
 	const { addToCurrentPlaylist } = useAudioPlayer()

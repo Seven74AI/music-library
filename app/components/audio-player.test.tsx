@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, fireEvent, render, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 import { type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import  { type FullTrack } from '#app/types/frontend/shared'
@@ -9,6 +9,11 @@ import { AudioPlayer } from './audio-player'
 
 vi.mock('#app/components/ui/use-toast.ts', () => ({
 	toast: vi.fn(),
+}))
+
+vi.mock('#app/features/offline-storage/resolve-playback-url.client.ts', () => ({
+	resolveTrackPlaybackSource: vi.fn().mockResolvedValue('https://cdn.example/track-1.mp3'),
+	revokePlaybackAudioUrl: vi.fn(),
 }))
 
 // Mock the provider module to avoid the QueueSheet's useAudioPlayer requirement
@@ -47,23 +52,30 @@ const defaultProps = {
 	wantsAutoPlayRef: { current: false },
 }
 
-test('logs MediaError.code to console.error when <audio> fires error event', () => {
+async function renderPlayer(props: Partial<typeof defaultProps> = {}) {
+	const view = render(<AudioPlayer {...defaultProps} {...props} />)
+	const audioEl = await waitFor(() => {
+		const element = view.container.querySelector('audio')
+		if (!element) throw new Error('Audio element not mounted yet')
+		return element
+	})
+	return { ...view, audioEl }
+}
+
+test('logs MediaError.code to console.error when <audio> fires error event', async () => {
 	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-	const { container } = render(<AudioPlayer {...defaultProps} />)
-
-	const audioEl = container.querySelector('audio')
-	expect(audioEl).not.toBeNull()
+	const { audioEl } = await renderPlayer()
 
 	// Simulate a MediaError on the audio element
 	// MediaError codes: 1=MEDIA_ERR_ABORTED, 2=MEDIA_ERR_NETWORK, 3=MEDIA_ERR_DECODE, 4=MEDIA_ERR_SRC_NOT_SUPPORTED
-	Object.defineProperty(audioEl!, 'error', {
+	Object.defineProperty(audioEl, 'error', {
 		configurable: true,
 		value: { code: 4, message: 'MEDIA_ELEMENT_ERROR: Format error' },
 	})
 
 	// Dispatch the error event
-	audioEl!.dispatchEvent(new Event('error'))
+	audioEl.dispatchEvent(new Event('error'))
 
 	// Assert console.error was called with the MediaError.code
 	expect(consoleSpy).toHaveBeenCalledWith(
@@ -73,54 +85,41 @@ test('logs MediaError.code to console.error when <audio> fires error event', () 
 	consoleSpy.mockRestore()
 })
 
-test('does not log when audio error is null (element exists but no MediaError)', () => {
+test('does not log when audio error is null (element exists but no MediaError)', async () => {
 	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-	const { container } = render(<AudioPlayer {...defaultProps} />)
-
-	const audioEl = container.querySelector('audio')
-	expect(audioEl).not.toBeNull()
+	const { audioEl } = await renderPlayer()
 
 	// No error property set — error event without MediaError should not log
-	audioEl!.dispatchEvent(new Event('error'))
+	audioEl.dispatchEvent(new Event('error'))
 
 	expect(consoleSpy).not.toHaveBeenCalled()
 
 	consoleSpy.mockRestore()
 })
 
-test('calls onNext when audio ends and loopMode is off', () => {
+test('calls onNext when audio ends and loopMode is off', async () => {
 	const onNext = vi.fn()
 
-	const { container } = render(
-		<AudioPlayer {...defaultProps} onNext={onNext} loopMode="off" />,
-	)
+	const { audioEl } = await renderPlayer({ onNext, loopMode: 'off' })
 
-	const audioEl = container.querySelector('audio')
-	expect(audioEl).not.toBeNull()
-
-	audioEl!.dispatchEvent(new Event('ended'))
+	audioEl.dispatchEvent(new Event('ended'))
 
 	expect(onNext).toHaveBeenCalledOnce()
 })
 
-test('does NOT call onNext when audio ends and loopMode is one', () => {
+test('does NOT call onNext when audio ends and loopMode is one', async () => {
 	const onNext = vi.fn()
 
-	const { container } = render(
-		<AudioPlayer {...defaultProps} onNext={onNext} loopMode="one" />,
-	)
+	const { audioEl } = await renderPlayer({ onNext, loopMode: 'one' })
 
-	const audioEl = container.querySelector('audio')
-	expect(audioEl).not.toBeNull()
-
-	audioEl!.dispatchEvent(new Event('ended'))
+	audioEl.dispatchEvent(new Event('ended'))
 
 	expect(onNext).not.toHaveBeenCalled()
 })
 
 test('persists volume changes to localStorage', async () => {
-	render(<AudioPlayer {...defaultProps} />)
+	await renderPlayer()
 
 	const volumeSlider = document.querySelector('[aria-label="Volume"]')
 	expect(volumeSlider).not.toBeNull()
@@ -135,12 +134,10 @@ test('persists volume changes to localStorage', async () => {
 	})
 })
 
-test('calls onNext when next button is clicked', () => {
+test('calls onNext when next button is clicked', async () => {
 	const onNext = vi.fn()
 
-	render(
-		<AudioPlayer {...defaultProps} onNext={onNext} hasNext={true} />,
-	)
+	await renderPlayer({ onNext, hasNext: true })
 
 	const nextButton = document.querySelector('[aria-label="Next track"]')
 	expect(nextButton).not.toBeNull()
@@ -150,12 +147,10 @@ test('calls onNext when next button is clicked', () => {
 	expect(onNext).toHaveBeenCalledOnce()
 })
 
-test('calls onPrevious when previous button is clicked', () => {
+test('calls onPrevious when previous button is clicked', async () => {
 	const onPrevious = vi.fn()
 
-	render(
-		<AudioPlayer {...defaultProps} onPrevious={onPrevious} hasPrevious={true} />,
-	)
+	await renderPlayer({ onPrevious, hasPrevious: true })
 
 	const prevButton = document.querySelector('[aria-label="Previous track"]')
 	expect(prevButton).not.toBeNull()
@@ -172,22 +167,7 @@ const mockTrack2: FullTrack = {
 	audioFiles: [{ id: 'af-2', format: 'mp3', objectKey: 'audio/test2.mp3' }],
 }
 
-beforeEach(() => {
-	vi.stubGlobal(
-		'fetch',
-		vi.fn(async (input: RequestInfo | URL) => {
-			const url = String(input)
-			const trackId = url.match(/\/resources\/audio\/([^/?]+)/)?.[1] ?? 'track-1'
-			return {
-				ok: true,
-				json: async () => ({ url: `https://cdn.example/${trackId}.mp3` }),
-			}
-		}),
-	)
-})
-
 afterEach(() => {
-	vi.unstubAllGlobals()
 	vi.restoreAllMocks()
 	window.localStorage.clear()
 })
@@ -223,10 +203,6 @@ test('auto-plays after track change once the new audio URL has loaded', async ()
 			wantsAutoPlayRef={wantsAutoPlayRef}
 		/>,
 	)
-
-	await act(async () => {
-		await Promise.resolve()
-	})
 
 	await waitFor(() => {
 		expect(playSpy).toHaveBeenCalled()

@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import './local-storage-polyfill.ts'
 import './db-setup.ts'
 import '#app/utils/env.server.ts'
 // we need these to be imported first 👆

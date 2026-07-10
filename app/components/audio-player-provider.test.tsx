@@ -11,6 +11,16 @@ vi.mock('./audio-player', () => ({
 	AudioPlayer: () => null,
 }))
 
+vi.mock('#app/components/pwa/install-app-banner', () => ({
+	InstallAppBanner: () => null,
+}))
+
+vi.mock('#app/features/offline-storage/offline-storage.client.ts', () => ({
+	getOfflineStorage: () => ({
+		cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
+	}),
+}))
+
 const playableTrack: FullTrack = {
 	id: 'track-1',
 	title: 'Test Song',

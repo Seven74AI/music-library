@@ -39,7 +39,7 @@ describe('createOfflineStorage', () => {
 
 		const blob = await storage.resolvePlaybackBlob(track.id)
 		expect(blob).not.toBeNull()
-		expect(await blob!.arrayBuffer()).toHaveLength(3)
+		expect((await blob!.arrayBuffer()).byteLength).toBe(3)
 	})
 
 	test('evicts queue-only tracks before pinned ones when quota is tight', async () => {

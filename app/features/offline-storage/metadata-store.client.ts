@@ -99,11 +99,10 @@ export function createOfflineMetadataStore(): OfflineMetadataStore {
 			return records.map(toSummary)
 		},
 		async listPinned() {
-			const records = await withStore('readonly', async (store) => {
-				const index = store.index('isPinned')
-				return requestToPromise(index.getAll(IDBKeyRange.only(true)))
-			})
-			return records.map(toSummary)
+			const records = await withStore('readonly', (store) =>
+				requestToPromise(store.getAll()),
+			)
+			return records.filter((record) => record.isPinned).map(toSummary)
 		},
 		async listDownloaded() {
 			return this.list()

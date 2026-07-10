@@ -9,6 +9,13 @@ export default [
 		rules: { 'react-hooks/rules-of-hooks': 'off' },
 	},
 	{
-		ignores: ['.react-router/*', 'generated/**/*'],
+		ignores: [
+			'.react-router/*',
+			'generated/**/*',
+			'app/pwa/**',
+			'app/features/offline-storage/opfs.worker.ts',
+			'public/sw.js',
+			'.tmp/**',
+		],
 	},
 ]
