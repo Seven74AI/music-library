@@ -24,6 +24,7 @@ import {
 	adjustVolumeStep,
 	getPlayerKeyboardAction,
 } from '#app/utils/player-keyboard-shortcuts.ts'
+import { triggerBrowserDownload } from '#app/utils/download.ts'
 import {
 	DEFAULT_PLAYER_VOLUME,
 	readStoredVolume,
@@ -964,17 +965,19 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			if (!response.ok) {
 				throw new Error(`Failed to get download URL: ${response.status}`)
 			}
-			const { url, fileName } = await response.json() as { url: string; fileName: string }
+			const { fileName } = await response.json() as { fileName: string }
 
-			// Trigger browser download
-			const a = document.createElement('a')
-			a.href = url
-			a.download = fileName
-			document.body.appendChild(a)
-			a.click()
-			document.body.removeChild(a)
+			await triggerBrowserDownload(
+				`/resources/audio/${track.id}?stream=1`,
+				fileName,
+			)
 		} catch (error) {
 			console.error('Download failed:', error)
+			toast({
+				title: 'Download failed',
+				description: error instanceof Error ? error.message : 'Could not download track',
+				variant: 'destructive',
+			})
 		} finally {
 			setIsDownloading(false)
 		}

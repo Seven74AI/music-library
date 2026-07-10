@@ -373,6 +373,41 @@ export async function uploadFile(params: {
  * @param timings - Optional timing object for performance tracking
  * @returns Promise resolving to signed URL and headers
  */
+export async function getStorageObjectStream(
+  key: string,
+): Promise<{
+  body: ReadableStream<Uint8Array>
+  contentType: string
+  contentLength: number | undefined
+}> {
+  if (!key || typeof key !== 'string') {
+    throw new Error('Invalid key: must be a non-empty string')
+  }
+
+  if (!isStorageConfigured()) {
+    throw new Error('Storage is not configured. File should be served from local filesystem.')
+  }
+
+  const s3Client = getS3Client()
+  const config = getStorageConfig()
+  const response = await s3Client.send(
+    new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+    }),
+  )
+
+  if (!response.Body) {
+    throw new Error(`Empty storage body for ${key}`)
+  }
+
+  return {
+    body: response.Body.transformToWebStream(),
+    contentType: response.ContentType ?? 'application/octet-stream',
+    contentLength: response.ContentLength,
+  }
+}
+
 export async function getFileUrl(
   key: string, 
   expirySeconds: number = DEFAULT_EXPIRY_SECONDS,

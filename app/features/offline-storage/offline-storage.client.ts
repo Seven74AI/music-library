@@ -45,12 +45,9 @@ export type OfflineStorageDependencies = {
 }
 
 async function defaultFetchAudioBytes(trackId: string): Promise<ArrayBuffer> {
-	const routeResponse = await fetch(`/resources/audio/${trackId}`)
-	if (!routeResponse.ok) {
-		throw new Error(`Failed to resolve audio route for ${trackId}`)
-	}
-	const { url } = (await routeResponse.json()) as { url: string }
-	const audioResponse = await fetch(url)
+	const audioResponse = await fetch(`/resources/audio/${trackId}?stream=1`, {
+		credentials: 'same-origin',
+	})
 	if (!audioResponse.ok) {
 		throw new Error(`Failed to download audio for ${trackId}`)
 	}

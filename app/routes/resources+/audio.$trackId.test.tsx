@@ -183,6 +183,26 @@ test('200 OK — track in service playlist PLUS library', async () => {
 	expect([200, 302]).toContain(response.status)
 })
 
+test('streams local audio bytes when stream=1', async () => {
+	const { user, track } = await setupTestData()
+	vi.mocked(requireUserId).mockResolvedValue(user.id)
+
+	await prisma.userTrack.create({
+		data: { userId: user.id, trackId: track.id },
+	})
+
+	const response = await audioLoader({
+		request: new Request(`https://localhost/resources/audio/${track.id}?stream=1`),
+		params: { trackId: track.id },
+		context: {},
+	} as any)
+
+	expect(response.status).toBe(200)
+	expect(response.headers.get('Content-Type')).toContain('audio')
+	const body = await response.arrayBuffer()
+	expect(body.byteLength).toBeGreaterThan(0)
+})
+
 test('403 Forbidden — track not in library or any user-owned playlist', async () => {
 	suppressConsoleErrors()
 	const { user, track } = await setupTestData()

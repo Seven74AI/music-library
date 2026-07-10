@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach } from 'vitest'
+import { describe, expect, test, beforeEach, vi, afterEach } from 'vitest'
 import { createMemoryOfflineAudioStore } from './memory-audio-store.ts'
 import { createOfflineMetadataStore } from './metadata-store.client.ts'
 import { createOfflineStorage } from './offline-storage.client.ts'
@@ -40,6 +40,31 @@ describe('createOfflineStorage', () => {
 		const blob = await storage.resolvePlaybackBlob(track.id)
 		expect(blob).not.toBeNull()
 		expect((await blob!.arrayBuffer()).byteLength).toBe(3)
+	})
+
+	test('default fetch uses same-origin stream route', async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			arrayBuffer: async () => new Uint8Array([9, 8, 7]).buffer,
+		})
+		vi.stubGlobal('fetch', fetchMock)
+
+		const audioStore = createMemoryOfflineAudioStore()
+		const metadataStore = createOfflineMetadataStore()
+		const storage = createOfflineStorage({
+			audioStore,
+			metadataStore,
+			requestPersistentStorage: async () => {},
+			readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+		})
+
+		await storage.downloadTrack(track, { pin: true })
+
+		expect(fetchMock).toHaveBeenCalledWith('/resources/audio/track-1?stream=1', {
+			credentials: 'same-origin',
+		})
+
+		vi.unstubAllGlobals()
 	})
 
 	test('evicts queue-only tracks before pinned ones when quota is tight', async () => {

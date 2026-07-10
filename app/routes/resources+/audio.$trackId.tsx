@@ -5,7 +5,57 @@ import { type LoaderFunctionArgs } from 'react-router'
 import { getBestAudioFile } from '#app/utils/audio-file-selection.server'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
-import { getFileUrl } from '#app/utils/storage.server'
+import { getFileUrl, getStorageObjectStream } from '#app/utils/storage.server'
+
+function serveLocalAudioFile(
+	localFilePath: string,
+	audioFile: { mimeType: string | null },
+	request: Request,
+) {
+	const mimeType = audioFile.mimeType || 'audio/flac'
+	const fileStats = statSync(localFilePath)
+	const fileSize = fileStats.size
+
+	const rangeHeader = request.headers.get('Range')
+
+	if (rangeHeader) {
+		const rangeMatch = rangeHeader.match(/bytes=(\d+)-(\d*)/)
+		if (rangeMatch && rangeMatch[1]) {
+			const start = parseInt(rangeMatch[1], 10)
+			const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1
+			const chunkSize = end - start + 1
+
+			if (start >= 0 && start < fileSize && end < fileSize && start <= end) {
+				const fileBuffer = Buffer.allocUnsafe(chunkSize)
+				const fd = openSync(localFilePath, 'r')
+				readSync(fd, fileBuffer, 0, chunkSize, start)
+				closeSync(fd)
+
+				return new Response(fileBuffer, {
+					status: 206,
+					headers: {
+						'Content-Type': mimeType,
+						'Content-Length': chunkSize.toString(),
+						'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+						'Accept-Ranges': 'bytes',
+						'Cache-Control': 'public, max-age=3600',
+					},
+				})
+			}
+		}
+	}
+
+	const fileBuffer = readFileSync(localFilePath)
+
+	return new Response(fileBuffer, {
+		headers: {
+			'Content-Type': mimeType,
+			'Content-Length': fileSize.toString(),
+			'Accept-Ranges': 'bytes',
+			'Cache-Control': 'public, max-age=3600',
+		},
+	})
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
@@ -56,63 +106,30 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Check if file exists locally (for development)
 	const localFilePath = join(process.cwd(), 'tests', 'fixtures', 'uploaded', audioFile.objectKey)
 	const wantsStream = new URL(request.url).searchParams.has('stream')
-	if (existsSync(localFilePath) && !wantsStream) {
-		const streamUrl = new URL(request.url)
-		streamUrl.searchParams.set('stream', '1')
-		return Response.json({ url: streamUrl.toString() })
+
+	if (wantsStream) {
+		if (existsSync(localFilePath)) {
+			return serveLocalAudioFile(localFilePath, audioFile, request)
+		}
+
+		const { body, contentType, contentLength } = await getStorageObjectStream(
+			audioFile.objectKey,
+		)
+
+		return new Response(body, {
+			headers: {
+				'Content-Type': contentType,
+				...(contentLength ? { 'Content-Length': contentLength.toString() } : {}),
+				'Accept-Ranges': 'bytes',
+				'Cache-Control': 'private, max-age=3600',
+			},
+		})
 	}
 
 	if (existsSync(localFilePath)) {
-		const mimeType = audioFile.mimeType || 'audio/flac'
-		const fileStats = statSync(localFilePath)
-		const fileSize = fileStats.size
-		
-		// Check for Range header to support seeking
-		const rangeHeader = request.headers.get('Range')
-		
-		if (rangeHeader) {
-			// Parse range header (e.g., "bytes=0-1023" or "bytes=1024-")
-			const rangeMatch = rangeHeader.match(/bytes=(\d+)-(\d*)/)
-			if (rangeMatch && rangeMatch[1]) {
-				const start = parseInt(rangeMatch[1], 10)
-				const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1
-				const chunkSize = end - start + 1
-				
-				// Validate range
-				if (start >= 0 && start < fileSize && end < fileSize && start <= end) {
-					// Read only the requested byte range
-					const fileBuffer = Buffer.allocUnsafe(chunkSize)
-					const fd = openSync(localFilePath, 'r')
-					readSync(fd, fileBuffer, 0, chunkSize, start)
-					closeSync(fd)
-					
-					// Return 206 Partial Content
-					return new Response(fileBuffer, {
-						status: 206,
-						headers: {
-							'Content-Type': mimeType,
-							'Content-Length': chunkSize.toString(),
-							'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-							'Accept-Ranges': 'bytes',
-							'Cache-Control': 'public, max-age=3600',
-						},
-					})
-				}
-			}
-		}
-		
-		// No range request or invalid range - serve full file
-		// But include Accept-Ranges header so browser knows we support ranges
-		const fileBuffer = readFileSync(localFilePath)
-		
-		return new Response(fileBuffer, {
-			headers: {
-				'Content-Type': mimeType,
-				'Content-Length': fileSize.toString(),
-				'Accept-Ranges': 'bytes',
-				'Cache-Control': 'public, max-age=3600',
-			},
-		})
+		const streamUrl = new URL(request.url)
+		streamUrl.searchParams.set('stream', '1')
+		return Response.json({ url: streamUrl.toString() })
 	}
 
 	// Generate signed URL for remote storage (Tigris/S3)

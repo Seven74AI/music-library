@@ -7,6 +7,7 @@ import { requireUserId } from '#app/utils/auth.server.ts'
 import { getTrackTitle } from '#app/utils/breadcrumb-utils.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { formatDuration } from '#app/utils/format-duration.ts'
+import { triggerBrowserDownload } from '#app/utils/download.ts'
 import { type Route } from './+types/library.$trackId.ts'
 
 export const handle: BreadcrumbHandle = {
@@ -68,15 +69,12 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
 			if (!response.ok) {
 				throw new Error(`Failed to get download URL: ${response.status}`)
 			}
-			const { url, fileName } = await response.json() as { url: string; fileName: string }
+			const { fileName } = await response.json() as { fileName: string }
 
-			// Trigger browser download
-			const a = document.createElement('a')
-			a.href = url
-			a.download = fileName
-			document.body.appendChild(a)
-			a.click()
-			document.body.removeChild(a)
+			await triggerBrowserDownload(
+				`/resources/audio/${track.id}?stream=1`,
+				fileName,
+			)
 		} catch (error) {
 			console.error('Download failed:', error)
 		} finally {
