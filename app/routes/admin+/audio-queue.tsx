@@ -247,16 +247,50 @@ export async function action({ request }: Route.ActionArgs) {
 			if (typeof jobId !== 'string') {
 				return data({ success: false, error: 'Missing jobId' }, { status: 400 })
 			}
-			// Reset failed job to pending with priority
-			await prisma.archiveJob.update({
+			const existing = await prisma.archiveJob.findUnique({
 				where: { id: jobId },
-				data: {
-					status: 'pending',
-					priority: true,
-					retryCount: 0,
-					errorHistory: '[]',
-				},
+				select: { status: true, errorHistory: true },
 			})
+			if (!existing || (existing.status !== 'failed' && existing.status !== 'processing')) {
+				return data({ success: false, error: 'Job cannot be retried' }, { status: 400 })
+			}
+
+			if (existing.status === 'failed') {
+				await prisma.archiveJob.update({
+					where: { id: jobId },
+					data: {
+						status: 'pending',
+						priority: true,
+						retryCount: 0,
+						errorHistory: '[]',
+					},
+				})
+			} else {
+				let errorHistory: unknown[] = []
+				try {
+					errorHistory = JSON.parse(existing.errorHistory) as unknown[]
+				} catch {
+					errorHistory = []
+				}
+				errorHistory.push({
+					category: 'UNKNOWN',
+					message: 'Manually reset from processing by admin',
+					timestamp: new Date().toISOString(),
+				})
+				await prisma.archiveJob.update({
+					where: { id: jobId },
+					data: {
+						status: 'pending',
+						priority: true,
+						errorHistory: JSON.stringify(errorHistory),
+					},
+				})
+				await prisma.workerState.upsert({
+					where: { id: 'singleton' },
+					update: { currentlyProcessing: null },
+					create: { id: 'singleton', status: 'running' },
+				})
+			}
 			return data({ success: true, action: 'retry', jobId })
 		}
 
@@ -528,7 +562,7 @@ export default function AudioQueueRoute({
 											</TableCell>
 											<TableCell>
 												<Form method="post" className="inline-flex gap-1">
-													{job.status === 'failed' && (
+													{(job.status === 'failed' || job.status === 'processing') && (
 														<Button
 															type="submit"
 															name="intent"
@@ -537,7 +571,7 @@ export default function AudioQueueRoute({
 															size="sm"
 														>
 															<Icon name="arrow-path" className="mr-1" />
-															Retry
+															{job.status === 'processing' ? 'Reset' : 'Retry'}
 															<input type="hidden" name="jobId" value={job.id} />
 														</Button>
 													)}

@@ -88,6 +88,15 @@ vi.mock('node:fs', () => ({
 	readFileSync: mockReadFileSync,
 }))
 
+function mockPendingArchiveJobs(jobs: Array<Record<string, unknown>>) {
+	mockPrisma.archiveJob.findMany.mockImplementation((args) => {
+		if (args?.where?.status === 'processing') {
+			return Promise.resolve([])
+		}
+		return Promise.resolve(jobs)
+	})
+}
+
 describe('processQueueTick', () => {
 	const originalEnv = { ...process.env }
 
@@ -96,7 +105,12 @@ describe('processQueueTick', () => {
 		process.env.AUDIO_ARCHIVE_ENABLED = 'true'
 		mockIsWorkerActive.mockResolvedValue(true)
 		mockPrisma.archiveJob.count.mockResolvedValue(0)
-		mockPrisma.archiveJob.findMany.mockResolvedValue([])
+		mockPrisma.archiveJob.findMany.mockImplementation((args) => {
+			if (args?.where?.status === 'processing') {
+				return Promise.resolve([])
+			}
+			return Promise.resolve([])
+		})
 		mockPrisma.workerState.upsert.mockResolvedValue({})
 		mockPrisma.youtubeCookie.updateMany.mockResolvedValue({ count: 1 })
 
@@ -181,13 +195,18 @@ describe('processQueueTick', () => {
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
 
-			expect(mockPrisma.archiveJob.findMany).not.toHaveBeenCalled()
+			expect(mockPrisma.archiveJob.findMany).toHaveBeenCalledTimes(1)
+			expect(mockPrisma.archiveJob.findMany).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: expect.objectContaining({ status: 'processing' }),
+				}),
+			)
 		})
 
 		it('picks only available slots', async () => {
 			mockPrisma.archiveJob.count.mockResolvedValue(1)
 			process.env.AUDIO_ARCHIVE_MAX_CONCURRENT = '3'
-			mockPrisma.archiveJob.findMany.mockResolvedValue([])
+			mockPendingArchiveJobs([])
 
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
@@ -212,7 +231,7 @@ describe('processQueueTick', () => {
 		it('processes pending jobs: download → upload → complete', async () => {
 			delete process.env.COOKIE_FILE_PATH
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-1',
 					status: 'pending',
@@ -278,7 +297,7 @@ describe('processQueueTick', () => {
 		it('preserves existing track fields when extracted metadata is missing', async () => {
 			delete process.env.COOKIE_FILE_PATH
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-keep',
 					status: 'pending',
@@ -305,7 +324,7 @@ describe('processQueueTick', () => {
 			consoleError.mockImplementation(() => {})
 			delete process.env.COOKIE_FILE_PATH
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-meta-fail',
 					status: 'pending',
@@ -336,7 +355,7 @@ describe('processQueueTick', () => {
 	describe('error handling', () => {
 		it('handles yt-dlp failure: marks as failed for non-retriable errors', async () => {
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-2',
 					status: 'pending',
@@ -375,7 +394,7 @@ describe('processQueueTick', () => {
 
 		it('marks upload ENOENT as failed immediately without retrying', async () => {
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-enoent',
 					status: 'pending',
@@ -416,7 +435,7 @@ describe('processQueueTick', () => {
 
 		it('resets to pending for retriable errors (under max retries)', async () => {
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-3',
 					status: 'pending',
@@ -451,7 +470,7 @@ describe('processQueueTick', () => {
 
 		it('marks as failed when max retries exceeded', async () => {
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-4',
 					status: 'pending',
@@ -486,7 +505,7 @@ describe('processQueueTick', () => {
 
 		it('flags cookies invalid and notifies on AUTH error', async () => {
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-auth',
 					status: 'pending',
@@ -528,7 +547,7 @@ describe('processQueueTick', () => {
 
 		it('flags cookies invalid and notifies on COOKIE_EXPIRED error', async () => {
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-cookie',
 					status: 'pending',
@@ -565,7 +584,7 @@ describe('processQueueTick', () => {
 
 		it('notifies on GEO_BLOCKED permanent failure', async () => {
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-geo',
 					status: 'pending',
@@ -603,7 +622,7 @@ describe('processQueueTick', () => {
 
 		it('does not notify for retriable errors under max retries', async () => {
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
-			mockPrisma.archiveJob.findMany.mockResolvedValue([
+			mockPendingArchiveJobs([
 				{
 					id: 'job-net',
 					status: 'pending',
@@ -630,6 +649,59 @@ describe('processQueueTick', () => {
 			expect(mockNotifyCookieExpired).not.toHaveBeenCalled()
 			expect(mockNotifyJobFailed).not.toHaveBeenCalled()
 			expect(mockPrisma.youtubeCookie.updateMany).not.toHaveBeenCalled()
+		})
+	})
+
+	describe('stale processing recovery', () => {
+		it('requeues jobs stuck in processing past the stale threshold', async () => {
+			const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+			mockPrisma.archiveJob.findMany.mockImplementation((args) => {
+				if (args?.where?.status === 'processing') {
+					return Promise.resolve([
+						{
+							id: 'stale-job-1',
+							retryCount: 0,
+							errorHistory: '[]',
+						},
+					])
+				}
+				return Promise.resolve([])
+			})
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({
+				retryCount: 0,
+				errorHistory: '[]',
+			})
+
+			const { recoverStaleProcessingJobs } = await import('./worker.server.ts')
+			const recovered = await recoverStaleProcessingJobs()
+
+			expect(recovered).toBe(1)
+			expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: { id: 'stale-job-1' },
+					data: expect.objectContaining({ status: 'pending' }),
+				}),
+			)
+			expect(mockPrisma.workerState.upsert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					update: expect.objectContaining({ currentlyProcessing: null }),
+				}),
+			)
+			consoleWarn.mockRestore()
+		})
+
+		it('runs stale recovery before picking new jobs', async () => {
+			const findManyCalls: Array<{ where?: { status?: string } }> = []
+			mockPrisma.archiveJob.findMany.mockImplementation((args) => {
+				findManyCalls.push(args)
+				return Promise.resolve([])
+			})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			expect(findManyCalls[0]?.where?.status).toBe('processing')
+			expect(findManyCalls[1]?.where?.status).toBe('pending')
 		})
 	})
 })

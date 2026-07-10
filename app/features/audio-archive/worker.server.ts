@@ -15,6 +15,58 @@ import { executeYtDlp, ErrorCategory, type ErrorCategory as ErrorCategoryType  }
  */
 const MAX_RETRIES = 3
 
+/** Default stale threshold: 2× yt-dlp timeout (5 min each). */
+const DEFAULT_STALE_JOB_MS = 600_000
+
+let queueTickInFlight = false
+
+function getStaleJobThresholdMs(): number {
+	const parsed = Number.parseInt(
+		process.env.AUDIO_ARCHIVE_STALE_JOB_MS ?? String(DEFAULT_STALE_JOB_MS),
+		10,
+	)
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_STALE_JOB_MS
+}
+
+/**
+ * Reset archive jobs left in `processing` after a crash, deploy, or hung step.
+ * Without this, orphaned jobs fill all concurrency slots and the queue stalls.
+ */
+export async function recoverStaleProcessingJobs(): Promise<number> {
+	const cutoff = new Date(Date.now() - getStaleJobThresholdMs())
+
+	const staleJobs = await prisma.archiveJob.findMany({
+		where: {
+			status: 'processing',
+			OR: [
+				{ lastAttemptAt: { lt: cutoff } },
+				{ lastAttemptAt: null, updatedAt: { lt: cutoff } },
+			],
+		},
+		select: { id: true },
+	})
+
+	if (staleJobs.length === 0) return 0
+
+	for (const job of staleJobs) {
+		await handleJobError(
+			job.id,
+			ErrorCategory.UNKNOWN,
+			'Processing timed out (worker recovered stale job)',
+			'',
+		)
+	}
+
+	await prisma.workerState.upsert({
+		where: { id: 'singleton' },
+		update: { currentlyProcessing: null },
+		create: { id: 'singleton', status: 'running' },
+	})
+
+	console.warn(`Recovered ${staleJobs.length} stale archive job(s)`)
+	return staleJobs.length
+}
+
 /**
  * Error categories that should NOT be retried.
  * These are permanent failures (auth, geo, video removed, cookies).
@@ -48,9 +100,21 @@ function categorizeJobError(error: unknown): ErrorCategoryType {
  */
 export async function processQueueTick(): Promise<void> {
 	if (process.env.AUDIO_ARCHIVE_ENABLED !== 'true') return
+	if (queueTickInFlight) return
 
+	queueTickInFlight = true
+	try {
+		await processQueueTickInner()
+	} finally {
+		queueTickInFlight = false
+	}
+}
+
+async function processQueueTickInner(): Promise<void> {
 	const active = await isWorkerActive()
 	if (!active) return
+
+	await recoverStaleProcessingJobs()
 
 	const maxConcurrent = Number.parseInt(
 		process.env.AUDIO_ARCHIVE_MAX_CONCURRENT ?? '2',
@@ -84,9 +148,11 @@ export async function processQueueTick(): Promise<void> {
 
 	const cookieFile = getCookieFilePath()
 
-	for (const job of jobs) {
-		await processJob(job.id, job.track.id, job.track.serviceUrl ?? '', cookieFile)
-	}
+	await Promise.all(
+		jobs.map((job) =>
+			processJob(job.id, job.track.id, job.track.serviceUrl ?? '', cookieFile),
+		),
+	)
 
 	// Update last queue run timestamp
 	await prisma.workerState.upsert({

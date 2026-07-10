@@ -22,12 +22,19 @@ init()
 global.ENV = getEnv()
 
 // Start the audio-archive worker if enabled.
-// Runs as an in-process setInterval per ADR-011 — no separate process needed.
+// Runs as an in-process setInterval per ADR-011 — only on the LiteFS primary instance.
 if (process.env.AUDIO_ARCHIVE_ENABLED === 'true') {
 	const intervalMs = Number(process.env.AUDIO_ARCHIVE_INTERVAL_MS) || 120_000
 	void import('./features/audio-archive/worker.server.ts').then(
 		({ processQueueTick }) => {
-			setInterval(processQueueTick, intervalMs)
+			const runTick = async () => {
+				const { currentIsPrimary } = await getInstanceInfo()
+				if (!currentIsPrimary) return
+				await processQueueTick()
+			}
+
+			void runTick()
+			setInterval(runTick, intervalMs)
 			console.log(`Audio archive worker started (interval: ${intervalMs}ms)`)
 		},
 	)
