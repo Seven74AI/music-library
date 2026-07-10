@@ -27,7 +27,7 @@ describe('isPlayableTrack', () => {
 	})
 
 	test('returns false when audioFiles is missing', () => {
-		expect(isPlayableTrack({ id: 'track-4' })).toBe(false)
+		expect(isPlayableTrack({})).toBe(false)
 	})
 
 	test('returns false when track is deleted', () => {
