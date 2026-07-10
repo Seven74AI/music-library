@@ -45,7 +45,9 @@ test.describe('Offline mode', () => {
 		await expect(page.getByRole('heading', { name: 'Listening offline' })).toBeVisible({
 			timeout: 10000,
 		})
-		await expect(page.getByRole('link', { name: 'Downloads' })).toBeVisible()
+		await expect(
+			page.locator('#main-content').getByRole('link', { name: 'Downloads' }),
+		).toBeVisible()
 	})
 
 	test('shows offline banner on supported pages', async ({ page, login }) => {
