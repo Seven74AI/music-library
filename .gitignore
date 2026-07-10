@@ -28,6 +28,7 @@ data.db
 prompt.txt
 
 # generated files
+/public/sw.js
 /generated
 /app/components/ui/icons
 .react-router/

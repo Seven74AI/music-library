@@ -17,6 +17,17 @@ vi.mock('#app/components/audio-player-provider.tsx', () => ({
 	}),
 }))
 
+vi.mock('#app/hooks/use-pwa-install.ts', () => ({
+	usePwaInstall: () => ({
+		visible: false,
+		dismiss: vi.fn(),
+		install: vi.fn(),
+		isIos: false,
+		isAndroid: false,
+		canInstallNatively: false,
+	}),
+}))
+
 vi.mock('#app/components/home/home-recent-track-row.tsx', () => ({
 	HomeRecentTrackRow: () => <div>Recent tracks row</div>,
 }))

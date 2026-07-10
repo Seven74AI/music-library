@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react'
 import { type FullTrack } from '#app/types/frontend/shared'
 import { filterPlayableTracks, isPlayableTrack } from '#app/utils/playable-track'
+import { InstallAppBanner } from './pwa/install-app-banner'
 import { AudioPlayer } from './audio-player'
 
 type Track = FullTrack
@@ -398,6 +399,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			}}
 		>
 			{children}
+			<InstallAppBanner playerVisible={isPlayerVisible} />
 			<AudioPlayer
 				track={currentTrack}
 				isVisible={isPlayerVisible}

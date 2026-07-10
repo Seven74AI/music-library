@@ -4,6 +4,7 @@ import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
 import { ArchivingBanner } from '#app/components/home/archiving-banner.tsx'
 import { HomeRecentPlaylistRow } from '#app/components/home/home-recent-playlist-row.tsx'
 import { HomeRecentTrackRow } from '#app/components/home/home-recent-track-row.tsx'
+import { InstallAppHomePrompt } from '#app/components/pwa/install-app-home-prompt.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
@@ -28,6 +29,7 @@ export function ListeningHome({
 
 	return (
 		<main className="py-8">
+			<InstallAppHomePrompt />
 			{showArchivingBanner ? (
 				<ArchivingBanner
 					totalTracks={totalTracks}

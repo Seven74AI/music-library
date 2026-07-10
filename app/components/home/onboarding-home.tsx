@@ -1,6 +1,7 @@
 import { Link } from 'react-router'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
+import { InstallAppHomePrompt } from '#app/components/pwa/install-app-home-prompt.tsx'
 
 type OnboardingHomeProps = {
 	youtubeConnected: boolean
@@ -18,7 +19,9 @@ export function OnboardingHome({
 
 	return (
 		<main className="py-12">
-			<div className="mx-auto max-w-lg text-center">
+			<div className="mx-auto max-w-lg">
+				<InstallAppHomePrompt />
+				<div className="text-center">
 				<h1 className="text-3xl font-bold">Welcome to your music library</h1>
 				<p className="text-muted-foreground mt-3">
 					{youtubeConnected
@@ -47,6 +50,7 @@ export function OnboardingHome({
 						</p>
 					</div>
 				) : null}
+				</div>
 			</div>
 		</main>
 	)

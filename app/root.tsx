@@ -90,6 +90,10 @@ export const meta: Route.MetaFunction = ({ data }) => {
 	return [
 		{ title: data ? 'Music Library' : 'Error | Music Library' },
 		{ name: 'description', content: `Your personal music library` },
+		{ name: 'mobile-web-app-capable', content: 'yes' },
+		{ name: 'apple-mobile-web-app-capable', content: 'yes' },
+		{ name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+		{ name: 'apple-mobile-web-app-title', content: 'Music Library' },
 	]
 }
 

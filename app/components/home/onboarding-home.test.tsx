@@ -3,8 +3,19 @@
  */
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { OnboardingHome } from './onboarding-home.tsx'
+
+vi.mock('#app/hooks/use-pwa-install.ts', () => ({
+	usePwaInstall: () => ({
+		visible: false,
+		dismiss: vi.fn(),
+		install: vi.fn(),
+		isIos: false,
+		isAndroid: false,
+		canInstallNatively: false,
+	}),
+}))
 
 function renderOnboarding(youtubeConnected: boolean, isAdmin: boolean) {
 	const router = createMemoryRouter(
