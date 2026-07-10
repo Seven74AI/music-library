@@ -10,54 +10,64 @@
  * - No authentication required (public music library search)
  */
 
-import { z } from 'zod'
+import { type z } from 'zod'
 import {
-	validateSearchQuery,
-	validateSearchLimit,
-	validateSearchType,
-	validateCursor,
+	CursorSchema,
+	SearchLimitSchema,
+	SearchQuerySchema,
+	SearchTypeSchema,
 } from '#app/utils/search-validation.server.ts'
 import { searchAll } from '#app/utils/search.server.ts'
 import { type Route } from './+types/search.ts'
 
-export async function loader({ request }: Route.LoaderArgs) {
-	try {
-		const url = new URL(request.url)
-		
-		// Security: Validate and sanitize all input parameters
-		const rawQuery = url.searchParams.get('q') || ''
-		const query = validateSearchQuery(rawQuery)
-		
-		const rawType = url.searchParams.get('type') || 'all'
-		const type = validateSearchType(rawType)
-		
-		const limitParam = url.searchParams.get('limit')
-		const limit = validateSearchLimit(
-			limitParam ? parseInt(limitParam, 10) : 20,
-		)
-		
-		const rawCursor = url.searchParams.get('cursor')
-		// Convert null to undefined for cursor validation (url.searchParams.get returns null, not undefined)
-		const cursor = validateCursor(rawCursor === null ? undefined : rawCursor)
-		
-		// Enable prefix matching by default for better search experience
-		const usePrefix = url.searchParams.get('prefix') !== 'false'
+function invalidSearchParameters(error: z.ZodError) {
+	return Response.json(
+		{ error: 'Invalid search parameters', details: error.errors },
+		{ status: 400 },
+	)
+}
 
-		// Security: All inputs are now validated, safe to use
-		const results = await searchAll(query, limit, cursor, type, usePrefix)
+export async function loader({ request }: Route.LoaderArgs) {
+	const url = new URL(request.url)
+
+	const queryResult = SearchQuerySchema.safeParse(url.searchParams.get('q') ?? '')
+	if (!queryResult.success) {
+		return invalidSearchParameters(queryResult.error)
+	}
+
+	const typeResult = SearchTypeSchema.safeParse(url.searchParams.get('type') ?? 'all')
+	if (!typeResult.success) {
+		return invalidSearchParameters(typeResult.error)
+	}
+
+	const limitParam = url.searchParams.get('limit')
+	const limitResult = SearchLimitSchema.safeParse(
+		limitParam ? parseInt(limitParam, 10) : 20,
+	)
+	if (!limitResult.success) {
+		return invalidSearchParameters(limitResult.error)
+	}
+
+	const rawCursor = url.searchParams.get('cursor')
+	const cursorResult = CursorSchema.safeParse(
+		rawCursor === null ? undefined : rawCursor,
+	)
+	if (!cursorResult.success) {
+		return invalidSearchParameters(cursorResult.error)
+	}
+
+	const usePrefix = url.searchParams.get('prefix') !== 'false'
+
+	try {
+		const results = await searchAll(
+			queryResult.data,
+			limitResult.data,
+			cursorResult.data,
+			typeResult.data,
+			usePrefix,
+		)
 		return Response.json(results)
 	} catch (error) {
-		// Log all errors for debugging (including validation errors)
-		if (error instanceof z.ZodError) {
-			console.error('🚨 [SEARCH API] Validation error:', error.errors)
-			console.error('🚨 [SEARCH API] Full ZodError:', error)
-			// Security: Don't expose internal error details to clients
-			return Response.json(
-				{ error: 'Invalid search parameters', details: error.errors },
-				{ status: 400 },
-			)
-		}
-		
 		console.error('🚨 [SEARCH API] Unexpected error searching:', error)
 		if (error instanceof Error) {
 			console.error('🚨 [SEARCH API] Error stack:', error.stack)

@@ -38,7 +38,7 @@ import { useNonce } from './utils/nonce-provider.ts'
 import {
 	getRecentNotifications,
 	getUnreadNotificationCount,
-} from './utils/playlist-archive-ready.server.tsx'
+} from './utils/notifications.server.ts'
 import { type Theme, getTheme } from './utils/theme.server.ts'
 import { makeTimings, time } from './utils/timing.server.ts'
 import { getToast } from './utils/toast.server.ts'

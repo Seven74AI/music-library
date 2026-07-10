@@ -8,7 +8,7 @@ import {
 	clampVolume,
 	readStoredVolume,
 	writeStoredVolume,
-} from './player-preferences.client.ts'
+} from './player-preferences.ts'
 
 afterEach(() => {
 	window.localStorage.clear()

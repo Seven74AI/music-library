@@ -204,6 +204,7 @@ export const test = base.extend<{
 				expires: cookieConfig.expires?.getTime(),
 				sameSite: cookieConfig.sameSite as 'Strict' | 'Lax' | 'None',
 			}
+			await page.context().clearCookies()
 			await page.context().addCookies([newConfig])
 			return user
 		})
@@ -235,6 +236,7 @@ export const test = base.extend<{
 				expires: cookieConfig.expires?.getTime(),
 				sameSite: cookieConfig.sameSite as 'Strict' | 'Lax' | 'None',
 			}
+			await page.context().clearCookies()
 			await page.context().addCookies([newConfig])
 			return user
 		})

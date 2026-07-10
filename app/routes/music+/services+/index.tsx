@@ -7,22 +7,37 @@ import { YOUTUBE_SERVICE, LOCAL_SERVICE } from '#app/constants/services'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
-import { useUser, userHasRole } from '#app/utils/user'
 import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 import { type Route } from './+types/index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
 	const userId = await requireUserId(request)
-	
-	// Get all active services
-	const services = await prisma.service.findMany({
-		where: { isActive: true },
-		orderBy: { displayName: 'asc' }
-	})
+
+	const [services, user] = await Promise.all([
+		prisma.service.findMany({
+			where: { isActive: true },
+			orderBy: { displayName: 'asc' },
+		}),
+		prisma.user.findUnique({
+			where: { id: userId },
+			select: {
+				roles: {
+					select: { name: true },
+				},
+			},
+		}),
+	])
+
+	const isAdmin = user?.roles.some((role) => role.name === 'admin') ?? false
+	const visibleServices = services.filter(
+		(service) => isAdmin || service.name !== LOCAL_SERVICE.NAME,
+	)
 
 	// Get YouTube connection status
 	let youtubeConnectionStatus = null
-	const youtubeService = services.find(s => s.name === YOUTUBE_SERVICE.NAME)
+	const youtubeService = visibleServices.find(
+		(service) => service.name === YOUTUBE_SERVICE.NAME,
+	)
 	
 	if (youtubeService) {
 		const servicePlaylistService = createServicePlaylistService()
@@ -45,16 +60,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 		}
 	}
 
-	return data({ services, youtubeConnectionStatus })
+	return data({ services: visibleServices, youtubeConnectionStatus })
 }
 
 export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 	const { services, youtubeConnectionStatus } = loaderData
-	const user = useUser()
-	const isAdmin = userHasRole(user, 'admin')
-	const visibleServices = services.filter(
-		(service) => isAdmin || service.name !== LOCAL_SERVICE.NAME,
-	)
 
 	return (
 		<div className="py-8">
@@ -96,7 +106,7 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 			<div className="mb-8">
 				<h2 className="text-xl font-semibold mb-4">Available Services</h2>
 				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-					{visibleServices.map((service) => (
+					{services.map((service) => (
 						<ServiceCard 
 							key={service.id} 
 							service={service} 

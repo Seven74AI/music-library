@@ -106,6 +106,8 @@ export async function setup() {
 		// Try to query the User table to verify it exists
 		await prisma.user.findFirst({ take: 1 })
 		console.log('✅ Database schema verified - User table exists')
+		await prisma.userNotification.findFirst({ take: 1 })
+		console.log('✅ Database schema verified - UserNotification table exists')
 	} catch (error) {
 		console.error('❌ Database schema verification failed:', error)
 		throw new Error('Database schema verification failed - User table does not exist')

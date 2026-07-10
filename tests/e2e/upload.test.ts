@@ -106,8 +106,10 @@ test.describe('Local Upload Service', { tag: '@slow' }, () => {
 		await login()
 
 		await page.goto('/music/services')
+		await page.waitForLoadState('networkidle')
 
-		await expect(page.getByText('Local Upload')).not.toBeVisible()
+		await expect(page.getByRole('heading', { name: 'Available Services' })).toBeVisible()
+		await expect(page.getByRole('heading', { name: 'Local Upload' })).not.toBeVisible()
 	})
 
 	// Note: Full upload tests would require:

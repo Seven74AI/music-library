@@ -3,6 +3,7 @@
  */
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type * as ReactRouter from 'react-router'
 import { beforeEach, expect, test, vi } from 'vitest'
 import { NotificationBell, type NotificationItem } from './notification-bell.tsx'
 
@@ -29,7 +30,7 @@ const mockFetcher = {
 }
 
 vi.mock('react-router', async (importOriginal) => {
-	const actual = await importOriginal()
+	const actual = await importOriginal<typeof ReactRouter>()
 	return {
 		...actual,
 		useFetcher: () => mockFetcher,

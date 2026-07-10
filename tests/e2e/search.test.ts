@@ -71,7 +71,6 @@ test.describe('Global Search', () => {
 	test('search API validates query parameter', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 
-		// Test without query parameter
 		const response = await page.request.get('/api/search')
 		expect(response.status()).toBe(400)
 	})
@@ -79,10 +78,8 @@ test.describe('Global Search', () => {
 	test('search API handles invalid limit', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 
-		// Test with invalid limit
 		const response = await page.request.get('/api/search?q=test&limit=invalid')
-		// Should either return 400 or use default
-		expect([200, 400]).toContain(response.status())
+		expect(response.status()).toBe(400)
 	})
 })
 

@@ -3,7 +3,7 @@ import { requireUserId } from '#app/utils/auth.server.ts'
 import {
 	markAllNotificationsRead,
 	markNotificationRead,
-} from '#app/utils/playlist-archive-ready.server.tsx'
+} from '#app/utils/notifications.server.ts'
 import { type Route } from './+types/notifications.ts'
 
 export async function action({ request }: Route.ActionArgs) {

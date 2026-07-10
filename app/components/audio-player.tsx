@@ -21,7 +21,7 @@ import {
 	DEFAULT_PLAYER_VOLUME,
 	readStoredVolume,
 	writeStoredVolume,
-} from '#app/utils/player-preferences.client.ts'
+} from '#app/utils/player-preferences.ts'
 import {
 	createSleepTimerEndAt,
 	formatSleepTimerRemaining,
@@ -53,7 +53,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const [isPlaying, setIsPlaying] = useState(false)
 	const [currentTime, setCurrentTime] = useState(0)
 	const [duration, setDuration] = useState(0)
-	const [volume, setVolume] = useState(() => readStoredVolume())
+	const [volume, setVolume] = useState(DEFAULT_PLAYER_VOLUME)
 	const [isMuted, setIsMuted] = useState(false)
 	const preMuteVolumeRef = useRef(DEFAULT_PLAYER_VOLUME)
 	const [sleepTimerEndAt, setSleepTimerEndAt] = useState<number | null>(null)
@@ -63,6 +63,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const loadedTrackIdRef = useRef<string | null>(null)
 	const isManualPlayRef = useRef(false)
 	const [isDownloading, setIsDownloading] = useState(false)
+
+	useEffect(() => {
+		setVolume(readStoredVolume())
+	}, [])
 	
 	const getBestAudioFile = () => {
 		if (!track?.audioFiles || track.audioFiles.length === 0) {
