@@ -287,6 +287,39 @@ When playback starts, the selected track plays immediately while the full queue 
 
 ---
 
+## Offline playback (PWA)
+
+When the user has no network (`navigator.onLine === false`) or loader fetches fail, the player and queue use **device-local storage** (`app/features/offline-storage/`) instead of presigned Tigris URLs.
+
+### Playback source selection
+
+1. **Online** — `playTrack` / `playLibrary` / `playUserPlaylist` fetch playable tracks from the server, then set `src` from `/resources/audio/:trackId` (presigned stream).
+2. **Offline** — Same entry points call `fetchOfflineTracks` / `listPinned()` and build blob URLs from OPFS bytes. Correct MIME types come from stored `audioFormat` metadata.
+
+`loadWithOfflineFallback` (`app/utils/offline-route-loader.client.ts`) handles route data the same way: check offline first, then catch network errors.
+
+### Queue auto-cache
+
+While online and the player is visible, the provider caches the **current track and the next three** queue tracks via `storage.cacheQueueTrack()`. These are queue-cached (LRU-eligible), not pinned. Failures are logged and do not block playback.
+
+### Download button
+
+The player and track pages trigger downloads through `triggerBrowserDownload()` (`app/utils/download.ts`):
+
+- Fetches same-origin `/resources/audio/:trackId?stream=1` as a blob
+- Desktop/Android: programmatic `<a download>` click
+- iOS: `navigator.share({ files })` when supported
+
+Pinned downloads persist until removed; they appear in `/downloads` and offline `/library`. Queue-cached-only tracks appear on `/downloads` but not in offline `/library`.
+
+### Error UX
+
+When offline playback fails (missing file, corrupt blob), the audio player shows an error bar with a short message instead of failing silently.
+
+See [ADR-013](./decisions/013-pwa.md) and `docs/CONTEXT.md` (decisions #42–#57) for storage policy and route scope.
+
+---
+
 ## Edge Cases & Special Behaviors
 
 ### Duplicate Tracks

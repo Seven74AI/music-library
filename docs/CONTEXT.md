@@ -66,17 +66,17 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 
 - **Archived Audio** — Audio stored server-side in Tigris after the archive worker downloads it (`TrackAudioFile`). Playable over the network via presigned URLs — **not** the same as device-local storage.
 
-- **Cached Playback** — Audio files on the device (OPFS) plus track/playlist metadata (IndexedDB) so tracks play with no network. Phase 2 of the PWA rollout.
+- **Cached Playback** — Audio files on the device (OPFS) plus track/playlist metadata (IndexedDB) so tracks play with no network. Shipped in the PWA Phase 2 rollout.
 
-- **Offline Metadata Store** — IndexedDB records for downloaded tracks and playlists: title, artist, cover thumbnail, pinned vs queue-cached flag, playlist membership, and a pointer to the OPFS audio file path. Queried by Downloads, offline library, and offline playlist views.
+- **Offline Metadata Store** — IndexedDB records for downloaded tracks and playlists: title, artist, cover thumbnail (dedicated `covers` store), pinned vs queue-cached flag, playlist membership, and a pointer to the OPFS audio file path. Queried by Downloads, offline library, and offline playlist views.
 
-- **Offline Audio Store** — OPFS files holding MP3 bytes, one file per track (`audio/{trackId}.mp3`). Written via a dedicated Web Worker using `createSyncAccessHandle()` for iOS Safari compatibility. Read for playback without loading the full blob into memory on the main thread.
+- **Offline Audio Store** — OPFS files holding audio bytes, one file per track (`audio/{trackId}.mp3` or format-appropriate extension). Written via a dedicated Web Worker using `createSyncAccessHandle()` for iOS Safari compatibility.
 
-- **Pinned Download** — A track or playlist the user explicitly downloaded. Persisted in device storage until the user removes it; never LRU-evicted automatically.
+- **Pinned Download** — A track or playlist the user explicitly downloaded. Persisted in device storage until the user removes it; never LRU-evicted automatically. **Offline `/library` shows pinned tracks only** — queue-cached tracks appear on `/downloads` but not in the offline library view.
 
 - **Queue Cache** — Tracks auto-cached from the active queue for listening continuity. Stored in the same device storage as pinned downloads but eligible for LRU eviction when storage is tight. A track that is both pinned and queue-cached counts as pinned.
 
-- **Offline Shell** — Cached HTML, JS, CSS, and static assets so the app loads and navigates without network. Ships together with Cached Playback (Phase 2), not as a separate phase.
+- **Offline Shell** — Cached HTML, JS, CSS, and static assets so the app loads and navigates without network. Service-worker precache (`app/pwa/sw.ts`) plus a supplemental `localStorage` root shell (`offline-root-shell.client.ts`) for warm navigations.
 
 ## Settled Decisions
 
@@ -194,24 +194,34 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 
 ### PWA
 
-42. **PWA rollout order: Installed App → Offline Playback** — Phase 1: installable standalone app (manifest + service worker). Phase 2: cached audio on device **and** full offline app shell (cold start) — the original C-then-B split was dropped; both ship together because offline playback without cold start is too weak for an installed music app.
+42. **PWA rollout order: Installed App → Offline Playback** — Phase 1 (installable standalone app: manifest + service worker + install prompts) and Phase 2 (cached audio on device + full offline app shell) are **shipped**. The original C-then-B split was dropped; both ship together because offline playback without cold start is too weak for an installed music app.
 
 43. **PWA target platforms: iOS Safari and Android Chrome equally** — Mobile-first; desktop install is out of scope. Design for platform parity in UX copy and testing, accepting technical gaps (e.g. iOS has no install prompt, stricter service-worker limits, weaker background audio).
 
 44. **Install prompt: smart, dual placement** — Platform-aware install UX (Android `beforeinstallprompt` button; iOS Share → Add to Home Screen coach mark). Shown when not already in standalone mode; dismissible with `localStorage` so it does not nag. **Two surfaces:** (1) global bottom banner above the audio player, (2) contextual block on the logged-in home page. Hide both once installed or permanently dismissed.
 
-45. **Cached Playback: manual downloads + queue auto-cache** — Phase 2 stores audio on the device (not presigned URLs). Users can explicitly download tracks or playlists for planned offline listening; the app also auto-caches tracks in the active queue for mid-session continuity. **Hybrid storage:** track/playlist metadata in IndexedDB, MP3 bytes in OPFS (via a Web Worker on iOS). Request `navigator.storage.persist()` where supported. Do not store audio in the service-worker Cache API.
+45. **Cached Playback: manual downloads + queue auto-cache** — Device storage (not presigned URLs). Users can explicitly download tracks or playlists for planned offline listening; the app also auto-caches the current queue track plus the next three while online. **Hybrid storage:** track/playlist metadata in IndexedDB, audio bytes in OPFS (via a Web Worker on iOS). Request `navigator.storage.persist()` where supported. Do not store audio in the service-worker Cache API.
 
 46. **Manual offline downloads: per-track and per-playlist** — Download action on individual track rows plus bulk "Download playlist" on user playlists and synced YouTube playlists. No "download entire library" in v1.
 
-47. **Offline UX: player + downloads + read-only library & playlists** — When offline, users can open the installed app cold (no network), play cached audio, browse a Downloads view, browse `/library` filtered to downloaded tracks, and open user playlist pages (read-only — show cached tracks; hide add/remove/reorder/sync actions). The app shell is cached so boot works offline. YouTube sync, upload, search, settings, and admin routes show a friendly offline blocker.
+47. **Offline UX: player + downloads + read-only library & playlists** — When offline, users can open the installed app (cold start via SW precache in production), play cached audio, browse `/downloads`, browse `/library` filtered to **pinned** downloads, and open user playlist pages (read-only). `/` shows a dedicated offline home. YouTube sync, upload, search, settings, and admin routes show a friendly offline blocker via `OfflineRouteBlocker`. An offline status banner appears on supported pages.
 
-48. **Offline cold start requires full app shell in Phase 2** — Phase 2 includes service-worker caching of the app shell so cold start works on a plane/subway. This merges the previously separate "Cached Playback" and "Offline Shell" phases; a warm-only offline experience was rejected as too weak for an installed music PWA.
+48. **Offline cold start: SW precache + localStorage root shell** — Production builds precache the app shell via `@serwist/build` `injectManifest` into `app/pwa/sw.ts`. `offline-root-shell.client.ts` additionally caches user, theme, and ENV in `localStorage` for warm navigations when loader fetches fail. Dev mode has a minimal SW precache only; full cold-start offline requires a production build.
 
 49. **Offline auth: device-trusted cached playback** — Cached downloads remain playable offline even if the session cookie has expired. Server auth gates new content and network-backed features; already-cached bytes on the device do not require live session validation. Re-authenticate when back online for sync, upload, and non-cached browsing.
 
-50. **Service worker via manual esbuild bundle (`app/pwa/sw.ts`)** — React Router 7 framework mode is incompatible with `vite-plugin-pwa`'s build order, so the worker is hand-written and bundled to `/sw.js` after `react-router build`. Phase 2 adds Workbox precaching to the same entry. Offline audio bytes live in OPFS; metadata in IndexedDB (both separate from SW cache). Denylist `/resources/*` when adding navigation fallback. Do not cache presigned Tigris URLs in the SW.
+50. **Service worker via manual esbuild + Serwist injectManifest** — React Router 7 framework mode is incompatible with `vite-plugin-pwa`'s build order, so the worker is hand-written at `app/pwa/sw.ts`, bundled with esbuild, and precached via `@serwist/build` in `scripts/build-sw.ts` after `react-router build`. Offline audio bytes live in OPFS; metadata in IndexedDB (both separate from SW cache). `navigateFallback` denylist includes `/resources/*` and `*.data`. Do not cache presigned Tigris URLs in the SW.
 
 51. **Unified offline storage; manual downloads win** — Pinned downloads and queue auto-cache share one logical offline library. IndexedDB holds metadata and pin/cache flags; OPFS holds audio files. Pinned tracks persist until the user removes them. Queue-cached tracks are LRU-evicted under storage pressure (delete OPFS file + metadata row). A track that is both pinned and queue-cached is treated as pinned.
 
-52. **Hybrid IndexedDB + OPFS for offline audio** — IndexedDB for queryable metadata (Downloads list, offline library/playlist views). OPFS for MP3 bytes (streaming download, memory-efficient playback). OPFS writes go through a dedicated Web Worker with `createSyncAccessHandle()` because Safari/iOS does not reliably support `createWritable()` on the main thread. IndexedDB-only was rejected as simpler but weaker for large libraries; OPFS-only was rejected because metadata still needs a query layer.
+52. **Hybrid IndexedDB + OPFS for offline audio** — IndexedDB for queryable metadata (Downloads list, offline library/playlist views). OPFS for audio bytes (streamed download while online). OPFS writes go through a dedicated Web Worker with `createSyncAccessHandle()` because Safari/iOS does not reliably support `createWritable()` on the main thread.
+
+53. **Offline library shows pinned downloads only** — `/library` offline fallback uses `listPinned()`, not all cached tracks. Queue-cached-only tracks remain visible on `/downloads` and are playable offline but do not appear in the offline library browse view.
+
+54. **Cover art cached during download** — `cover-cache.client.ts` stores resized cover blobs in IndexedDB (`covers` store) when a track is downloaded. `useOfflineCoverUrl` serves cached covers when offline. Tracks downloaded before cover-cache shipped may show placeholders until re-downloaded.
+
+55. **iOS download via same-origin stream + Web Share** — Browser "save file" downloads use `/resources/audio/:trackId?stream=1` (same-origin proxy in production) fetched as a blob. iOS falls back to `navigator.share({ files })` when `canShare` supports files (`app/utils/download.ts`). Do not use presigned cross-origin URLs for mobile download triggers.
+
+56. **Offline route loaders fall back on network errors** — `loadWithOfflineFallback` checks `navigator.onLine` first, then catches fetch failures (`TypeError`, network message patterns) and runs route-specific offline loaders. Used by root, home, library, playlists, and downloads routes.
+
+57. **Offline integrity: prune stale metadata** — If IndexedDB references an OPFS file that no longer exists, metadata is pruned on read so Downloads and playback do not surface ghost tracks.

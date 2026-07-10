@@ -210,7 +210,7 @@ This music library application includes YouTube playlist integration features:
 ### Features
 - **List YouTube Playlists**: View all your YouTube playlists in one place
 - **Sync Playlists**: Connect your YouTube account and sync your playlists
-- **Store Playlist Data**: Save playlist metadata locally for offline access
+- **Store Playlist Data**: Save synced playlist metadata in the server database (not device-local PWA storage)
 - **Track Deleted Videos**: Preserve original titles and metadata when videos are deleted from YouTube
 - **Track Removed Videos**: Automatically remove tracks that are no longer in YouTube playlists
 - **Orphaned Track Confirmation**: When deleted videos can't be automatically matched, show candidate tracks for user confirmation
@@ -255,9 +255,36 @@ SITE_URL=http://localhost:3000  # or your production URL
 6. Deleted tracks are displayed with visual indicators and cannot be played
 7. Manage your synced playlists from the interface
 
+## PWA and device offline listening
+
+Music Library is a **Progressive Web App** — installable on iOS Safari and Android Chrome for standalone, mobile-first listening. This is separate from **server-side audio archiving** (below): archiving stores audio in Tigris for network playback; the PWA caches audio **on the device** for offline playback.
+
+### Terminology
+
+| Term | Meaning |
+|------|---------|
+| **Archived Audio** | Server-side copy in Tigris after the archive worker runs. Playable online via presigned URLs. |
+| **Cached Playback** | Device-local copy in OPFS + IndexedDB. Playable with no network. |
+
+### Features
+
+- **Install prompts** — Platform-aware UX (Android install button; iOS Share → Add to Home Screen coach mark)
+- **Downloads** — Per-track and per-playlist download actions; `/downloads` shows storage stats
+- **Offline playback** — Player reads device storage when offline; queue auto-caches the current track + next three while online
+- **Offline routes** — `/library` (pinned downloads only), playlists (read-only), dedicated offline home at `/`
+- **Service worker** — Production precache via `scripts/build-sw.ts`; see [ADR-013](./docs/decisions/013-pwa.md)
+
+### Local development notes
+
+- `npm run dev` builds a minimal dev service worker (`npm run build:sw:dev` runs automatically)
+- Full cold-start offline shell behavior matches production only after `npm run build` + `npm run start:mocks` (or deploy)
+- E2E offline tests live in `tests/e2e/offline.test.ts`
+
+See `docs/CONTEXT.md` (PWA glossary, decisions #42–#57) and [ADR-013](./docs/decisions/013-pwa.md) for architecture detail.
+
 ## Audio Archiving
 
-The application includes a background worker that automatically downloads and archives YouTube audio tracks for offline playback.
+The application includes a background worker that automatically downloads YouTube audio and stores it server-side in Tigris (**archived audio** — not the same as device PWA downloads).
 
 ### Features
 - **Automatic Archiving**: Tracks imported from YouTube are automatically enqueued for audio download
