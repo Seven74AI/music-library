@@ -20,7 +20,6 @@ import faviconAssetUrl from './assets/favicons/favicon.svg'
 import { AudioPlayerProvider } from './components/audio-player-provider'
 import { GeneralErrorBoundary } from './components/error-boundary.tsx'
 import { EpicProgress } from './components/progress-bar.tsx'
-import { Button } from './components/ui/button.tsx'
 import { href as iconsHref } from './components/ui/icon.tsx'
 import { Toaster } from './components/ui/toaster.tsx'
 import {
@@ -276,11 +275,7 @@ function App() {
 									<Suspense fallback={null}>
 										<LazyUserDropdown />
 									</Suspense>
-								) : (
-									<Button asChild variant="default" size="lg">
-										<Link to="/login">Log In</Link>
-									</Button>
-								)}
+								) : null}
 							</div>
 							<div className="block w-full sm:hidden">{searchBarEl}</div>
 						</nav>

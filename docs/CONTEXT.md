@@ -146,7 +146,7 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 
 37. **Empty-state onboarding is context-aware** — When the user has **zero** library tracks, primary CTA depends on YouTube connection state: not connected → **Connect YouTube** (`/music/services/youtube/auth`); connected but no tracks → **Sync a playlist** (`/music/services/youtube/playlists` or synced-playlists flow). **Upload** (`/music/services/local/upload`) and **search** (global search bar) are always available as secondary paths below the primary CTA.
 
-38. **Logged-out landing is a minimal gate** — No feature pitch or screenshot sections. Show logo/product name, a one-liner (e.g. "Your personal music library"), and **Log in** / **Sign up** CTAs. Footer links to About · Privacy · Terms as today. Replace Epic Stack boilerplate entirely.
+38. **Logged-out landing is a minimal gate** — No feature pitch or screenshot sections. Show logo/product name, a one-liner (e.g. "Your personal music library"), and **Log in** / **Sign up** CTAs in the page body. The global header does not show a login button when logged out (auth entry is via `/` or auth routes). Footer links to About · Privacy · Terms as today. Replace Epic Stack boilerplate entirely.
 
 39. **Listening hub hero: Play library + recently added** — When in listening-hub mode, hero is a **Play library** CTA (starts queue from all playable tracks; disabled in gray zone per #36). Below the hero, a **recently added** row of latest `UserTrack`s with per-track play. Below that: recent playlists, then compact stats / YouTube status (content currently on Music Hub). v1 does **not** add play-history or "continue listening" — defer `localStorage`/DB resume to a follow-up.
 
