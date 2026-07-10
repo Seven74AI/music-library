@@ -22,6 +22,7 @@ import {
 	TableHeader,
 	TableRow,
 } from '#app/components/ui/table.tsx'
+import { computeArchiveQueueSuccessRate } from '#app/features/audio-archive/queue-stats'
 import { prisma } from '#app/utils/db.server.ts'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
 import { type Route } from './+types/audio-queue.ts'
@@ -115,7 +116,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
 		prisma.archiveJob.count({ where: { status: 'failed' } }),
 	])
 	const total = pending + processing + completed + failed
-	const successRate = total > 0 ? Math.round((completed / total) * 100) : 0
+	const successRate = computeArchiveQueueSuccessRate(completed, failed)
 
 	// Jobs for the track table with pagination
 	const whereClause = filter === 'all' ? {} : { status: filter }
