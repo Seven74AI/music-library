@@ -87,7 +87,7 @@ The clone command may block on health checks while the old machine still exists.
 
 Do this immediately after the clone is created. Destroying a machine does **not** delete its volume — the volume stays until you destroy it explicitly.
 
-LiteFS uses a Consul lease keyed by `other/litefs.yml` → `lease.consul.key`. While the old machine still exists (even stopped), the clone may fail health checks with `cannot become primary, local node has no cluster ID`.
+While the old machine still exists, the clone may fail health checks while LiteFS tries to reach the old primary. Destroy the old machine as soon as the clone is created.
 
 ```bash
 fly machine destroy <machine-id> --app [APP_NAME] --force
@@ -103,46 +103,15 @@ fly volumes destroy <volume-id> --app [APP_NAME] --yes
 
 Destroyed volumes may show as **pending destroy** in the Fly dashboard for a while before disappearing. `fly volumes list` should eventually show only the new volume attached to `<new-machine-id>`.
 
-### 4. Clear the stale LiteFS Consul cluster ID (if needed)
+### 4. Start the new machine (if needed)
 
-If the clone is still stuck in a `cannot become primary` / `no primary` loop after steps 2–3, Consul still holds the old cluster ID from the previous volume ([Fly LiteFS disaster recovery](https://fly.io/docs/litefs/disaster-recovery/#resolve-consul-key-error)).
+Once the old machine and volume are gone, the clone should become the LiteFS primary, run `npx prisma migrate deploy`, and start the app.
 
-**Option A — delete the stale Consul key (no redeploy)**
-
-The key path is `$PREFIX/$LITEFS_CONSUL_KEY/clusterid`, where `LITEFS_CONSUL_KEY` comes from `other/litefs.yml` → `lease.consul.key` (uses `${FLY_APP_NAME}` at runtime).
-
-```bash
-fly ssh console --app [APP_NAME] -C "node -e \"
-const url = new URL(process.env.FLY_CONSUL_URL);
-const token = url.password;
-const host = url.hostname;
-const prefix = url.pathname.replace(/^\\//, '').replace(/\\/$/, '');
-const litefsKey = 'epic-stack-litefs_20250222/' + process.env.FLY_APP_NAME;
-fetch('https://' + host + '/v1/kv/' + prefix + '/' + litefsKey + '/clusterid?token=' + token, { method: 'DELETE' })
-  .then(r => r.text())
-  .then(console.log);
-\""
-```
-
-Fly's official docs use the `consul kv delete` CLI for this step if `consul` is installed in the image. Our production image does not include it, so the Node one-liner above works via the Consul HTTP API.
-
-**Option B — bump the Consul key and redeploy (Fly's easy option)**
-
-Change `lease.consul.key` in `other/litefs.yml` to a new unused value (e.g. add `-v2`), then redeploy:
-
-```bash
-fly deploy --ha=false --app [APP_NAME]
-```
-
-The old Consul key remains but LiteFS ignores it.
-
-**Then restart the new machine:**
+If health checks are still failing after a minute, restart the new machine:
 
 ```bash
 fly machine restart <new-machine-id> --app [APP_NAME] --skip-health-checks
 ```
-
-On boot, LiteFS should acquire the primary lease, run `npx prisma migrate deploy`, and start the app.
 
 ### 5. Verify migrations finished
 
@@ -198,7 +167,7 @@ Tracks will show `--:--` for duration until the archive worker downloads them ag
 | `prisma migrate reset` fails with `P3016` | LiteFS holds the DB open while the app runs | Replace the volume via clone instead of using `migrate reset` |
 | Deleting DB files while app is running | LiteFS may recreate or lock the file immediately | Replace the volume via clone instead of deleting files in place |
 | `prisma db seed` fails on production | Seed imports test-only files not present in the image | Skip seed entirely |
-| `cannot become primary, local node has no cluster ID` | Fresh volume has a new cluster ID but Consul still holds the old one | Clear the Consul `clusterid` key (step 4A) or bump `lease.consul.key` and redeploy (step 4B), then restart |
+| `cannot become primary` / `no primary` after clone | Old machine still exists or LiteFS has not re-elected primary yet | Destroy the old machine and volume (steps 2–3), wait a minute, then restart the new machine (step 4) |
 | Destroyed volume still visible in dashboard | Fly shows volumes as **pending destroy** briefly after deletion | Wait, or confirm with `fly volumes list` that only the new volume remains |
 | Two machines after reset | Clone creates a second machine before you destroy the old one | Destroy the old machine and its volume as soon as the clone is created |
 
@@ -215,7 +184,7 @@ fly machine clone <machine-id> --region cdg --app [APP_NAME]
 fly machine destroy <machine-id> --app [APP_NAME] --force
 fly volumes destroy <volume-id> --app [APP_NAME] --yes
 
-# If clone is stuck on LiteFS primary election, clear Consul cluster ID (step 4) then:
+# If health checks are still failing after the old machine is gone:
 fly machine restart <new-machine-id> --app [APP_NAME] --skip-health-checks
 
 # wait for migrations in logs
