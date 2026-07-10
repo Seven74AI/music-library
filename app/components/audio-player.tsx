@@ -31,6 +31,10 @@ import {
 	isSleepTimerExpired,
 	SLEEP_TIMER_PRESETS_MINUTES,
 } from '#app/utils/sleep-timer.ts'
+import {
+	resolveTrackPlaybackSource,
+	revokePlaybackAudioUrl,
+} from '#app/features/offline-storage/resolve-playback-url.client.ts'
 
 type Track = FullTrack
 
@@ -87,12 +91,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	}
 	
 	const audioFile = getBestAudioFile()
-	const audioRouteUrl = audioFile && track ? `/resources/audio/${track.id}` : null
 	const [audioSrc, setAudioSrc] = useState<string | undefined>(undefined)
 	
-	// Fetch presigned URL from server — no redirect, client talks to Tigris CDN directly
 	useEffect(() => {
-		if (!audioRouteUrl || !track) {
+		if (!audioFile || !track) {
 			loadedTrackIdRef.current = null
 			setAudioSrc(undefined)
 			return
@@ -103,24 +105,23 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		setAudioSrc(undefined)
 
 		let cancelled = false
-		fetch(audioRouteUrl)
-			.then(res => {
-				if (!res.ok) throw new Error(`HTTP ${res.status}`)
-				return res.json() as Promise<{ url: string }>
-			})
-			.then(data => {
-				if (!cancelled) {
+		void resolveTrackPlaybackSource(trackId)
+			.then((url) => {
+				if (!cancelled && url) {
 					loadedTrackIdRef.current = trackId
-					setAudioSrc(data.url)
+					setAudioSrc(url)
 				}
 			})
-			.catch(err => {
-				console.error('Failed to fetch audio URL:', err)
+			.catch((err) => {
+				console.error('Failed to resolve audio URL:', err)
 				if (!cancelled) setAudioSrc(undefined)
 			})
 
-		return () => { cancelled = true }
-	}, [audioRouteUrl, track?.id])
+		return () => {
+			cancelled = true
+			revokePlaybackAudioUrl(trackId)
+		}
+	}, [audioFile, track?.id])
 
 	useEffect(() => {
 		if (
@@ -496,7 +497,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		return `${mins}:${secs.toString().padStart(2, '0')}`
 	}
 	
-	if (!isVisible || !track || !audioRouteUrl) {
+	if (!isVisible || !track || !audioSrc) {
 		return null
 	}
 

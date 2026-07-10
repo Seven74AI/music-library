@@ -1,6 +1,6 @@
 {
 	"include": ["**/*.ts", "**/*.tsx", ".react-router/types/**/*"],
-	"exclude": ["app/pwa/**"],
+	"exclude": ["app/pwa/**", "app/features/offline-storage/opfs.worker.ts"],
 	"extends": ["@epic-web/config/typescript"],
 	"compilerOptions": {
 		// TODO: Probably should move this into epic-web/config

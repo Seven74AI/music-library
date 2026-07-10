@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { data, NavLink } from 'react-router'
 import { PlaylistCard } from '#app/components/playlist-card'
+import { OfflinePlaylistsIndexView } from '#app/components/offline/offline-playlists-index-view.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { Input } from '#app/components/ui/input.tsx'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#app/components/ui/select.tsx'
 import { requireUserId } from '#app/utils/auth.server.ts'
+import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
+import { listCachedPlaylists } from '#app/features/offline-storage/offline-playlist-metadata.client.ts'
+import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { cn } from '#app/utils/misc.tsx'
 import { type Route } from './+types/playlists.index.ts'
@@ -69,14 +73,58 @@ export async function loader({ request }: Route.LoaderArgs) {
 	})
 }
 
+export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
+	return loadWithOfflineFallback(
+		() => serverLoader(),
+		async () => {
+			const storage = getOfflineStorage()
+			const cachedPlaylists = listCachedPlaylists()
+			const offlinePlaylists = await Promise.all(
+				cachedPlaylists.map(async (playlist) => ({
+					...playlist,
+					trackCount: (await storage.listForPlaylist(playlist.id)).length,
+				})),
+			)
+
+			return {
+				offline: true as const,
+				offlinePlaylists,
+				playlists: [],
+				pagination: { limit: 12, hasNext: false, nextCursor: null },
+			}
+		},
+	)
+}
+
+clientLoader.hydrate = true as const
+
 type SortOption = 'name' | 'created' | 'updated' | 'tracks'
 type ViewMode = 'grid' | 'list'
 
 export default function PlaylistsIndexRoute({ loaderData }: Route.ComponentProps) {
 	const { playlists, pagination } = loaderData
+	const offline = 'offline' in loaderData && loaderData.offline === true
+	const offlinePlaylists =
+		'offlinePlaylists' in loaderData && Array.isArray(loaderData.offlinePlaylists)
+			? loaderData.offlinePlaylists
+			: []
 	const [searchQuery, setSearchQuery] = useState('')
 	const [sortBy, setSortBy] = useState<SortOption>('updated')
 	const [viewMode, setViewMode] = useState<ViewMode>('grid')
+
+	if (offline) {
+		return (
+			<div className="space-y-6">
+				<div>
+					<h1 className="text-3xl font-bold">My Playlists</h1>
+					<p className="text-muted-foreground mt-2">
+						Playlists with downloaded tracks, available offline.
+					</p>
+				</div>
+				<OfflinePlaylistsIndexView playlists={offlinePlaylists} />
+			</div>
+		)
+	}
 
 	// Filter and sort playlists
 	const filteredPlaylists = playlists

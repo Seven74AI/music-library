@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router'
 import { z } from 'zod'
 import { SearchBar } from '#app/components/search-bar.tsx'
 import { SearchResults } from '#app/components/search-results.tsx'
+import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { useDelayedIsPending } from '#app/utils/misc.tsx'
 import {
 	validateSearchQuery,
@@ -118,7 +119,8 @@ export default function SearchPage({ loaderData }: Route.ComponentProps) {
 	}
 
 	return (
-		<div className="py-8">
+		<OfflineRouteBlocker>
+			<div className="py-8">
 			<div className="mb-8">
 				<h1 className="text-3xl font-bold mb-2">Search</h1>
 				<p className="text-muted-foreground">
@@ -153,7 +155,8 @@ export default function SearchPage({ loaderData }: Route.ComponentProps) {
 				onLoadMore={handleLoadMore}
 				isLoading={isPending}
 			/>
-		</div>
+			</div>
+		</OfflineRouteBlocker>
 	)
 }
 

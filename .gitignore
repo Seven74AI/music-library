@@ -29,6 +29,7 @@ prompt.txt
 
 # generated files
 /public/sw.js
+/.tmp
 /generated
 /app/components/ui/icons
 .react-router/

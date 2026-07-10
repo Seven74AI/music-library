@@ -3,6 +3,7 @@ import { type SEOHandle } from '@nasa-gcn/remix-seo'
 import { Link, Outlet, useMatches } from 'react-router'
 import { z } from 'zod'
 import { Spacer } from '#app/components/spacer.tsx'
+import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
@@ -75,7 +76,9 @@ export default function EditUserProfile() {
 			</div>
 			<Spacer size="xs" />
 			<main className="bg-muted mx-auto px-6 py-8 md:container md:rounded-3xl">
-				<Outlet />
+				<OfflineRouteBlocker>
+					<Outlet />
+				</OfflineRouteBlocker>
 			</main>
 		</div>
 	)

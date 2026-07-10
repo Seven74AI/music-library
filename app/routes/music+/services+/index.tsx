@@ -1,5 +1,6 @@
 import { data, Link } from 'react-router'
 import { ServiceDisconnectButton } from '#app/components/service-disconnect-button'
+import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
@@ -67,7 +68,8 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 	const { services, youtubeConnectionStatus } = loaderData
 
 	return (
-		<div className="py-8">
+		<OfflineRouteBlocker>
+			<div className="py-8">
 			<div className="mb-8">
 				<div className="flex items-center gap-4 mb-4">
 					<Button asChild variant="outline">
@@ -179,6 +181,7 @@ export default function ServicesHub({ loaderData }: Route.ComponentProps) {
 				</div>
 			</div>
 		</div>
+		</OfflineRouteBlocker>
 	)
 }
 

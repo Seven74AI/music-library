@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import { type FullTrack } from '#app/types/frontend/shared'
+import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
 import { filterPlayableTracks, isPlayableTrack } from '#app/utils/playable-track'
 import { InstallAppBanner } from './pwa/install-app-banner'
 import { AudioPlayer } from './audio-player'
@@ -369,6 +370,25 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		isShuffleEnabled ||
 		currentIndex > 0
 	)
+
+	useEffect(() => {
+		if (!isPlayerVisible || !currentTrack) return
+
+		const storage = getOfflineStorage()
+		const lookahead = [currentIndex, currentIndex + 1, currentIndex + 2, currentIndex + 3]
+
+		void (async () => {
+			for (const index of lookahead) {
+				const queueTrack = playlist[index]
+				if (!queueTrack || !isPlayableTrack(queueTrack)) continue
+				try {
+					await storage.cacheQueueTrack(queueTrack)
+				} catch (error) {
+					console.warn('Queue auto-cache failed:', error)
+				}
+			}
+		})()
+	}, [currentTrack?.id, currentIndex, isPlayerVisible, playlist])
 
 	return (
 		<AudioPlayerContext.Provider

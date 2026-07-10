@@ -1,19 +1,20 @@
 /// <reference lib="webworker" />
 
-const CACHE_VERSION = 'music-library-pwa-v1'
+import { installSerwist } from 'serwist/legacy'
 
-self.addEventListener('install', (event: ExtendableEvent) => {
-	event.waitUntil(self.skipWaiting())
+declare const self: ServiceWorkerGlobalScope & {
+	__SW_MANIFEST: Array<{ url: string; revision: string | null }>
+}
+
+installSerwist({
+	precacheEntries: self.__SW_MANIFEST,
+	skipWaiting: true,
+	clientsClaim: true,
+	navigationPreload: true,
+	navigateFallback: '/index.html',
+	navigateFallbackDenylist: [
+		/^\/resources\//,
+		/^\/api\//,
+		/\.data$/,
+	],
 })
-
-self.addEventListener('activate', (event: ExtendableEvent) => {
-	event.waitUntil(self.clients.claim())
-})
-
-// Phase 1: minimal worker for installability. Phase 2 adds Workbox precaching here.
-self.addEventListener('fetch', (event: FetchEvent) => {
-	if (event.request.method !== 'GET') return
-	event.respondWith(fetch(event.request))
-})
-
-void CACHE_VERSION

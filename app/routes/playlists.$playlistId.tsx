@@ -38,6 +38,8 @@ import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
 import { filterPlayableTracks } from '#app/utils/playable-track.ts'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { PlaylistHero } from '#app/components/playlist-hero'
+import { OfflinePlaylistView } from '#app/components/offline/offline-playlist-view.tsx'
+import { OfflinePlaylistDownloadButton } from '#app/components/offline/offline-playlist-download-button.tsx'
 import { SortableTrackList } from '#app/components/sortable-track-list'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '#app/components/ui/alert-dialog'
 import { Button } from '#app/components/ui/button'
@@ -49,6 +51,12 @@ import { chunkArray } from '#app/utils/chunk-array.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
 import { userPlaylistTitleTaken } from '#app/utils/user-playlist.server.ts'
+import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
+import {
+	cachePlaylistMetadata,
+	getCachedPlaylistMetadata,
+} from '#app/features/offline-storage/offline-playlist-metadata.client.ts'
+import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
 import { type Route } from './+types/playlists.$playlistId.ts'
 
 export const handle: BreadcrumbHandle = {
@@ -150,6 +158,40 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	return data({ playlist: { ...playlist, tracks: tracksWithLibraryStatus }, playlists: userPlaylists })
 }
+
+export async function clientLoader({
+	serverLoader,
+	params,
+}: Route.ClientLoaderArgs) {
+	return loadWithOfflineFallback(
+		() => serverLoader(),
+		async () => {
+			const playlistId = params.playlistId
+			if (!playlistId) {
+				throw new Response('Playlist not found', { status: 404 })
+			}
+
+			const storage = getOfflineStorage()
+			const offlineTracks = await storage.listForPlaylist(playlistId)
+			const cachedMeta = getCachedPlaylistMetadata(playlistId)
+
+			return {
+				offline: true as const,
+				offlineTracks,
+				offlinePlaylistMeta: cachedMeta ?? {
+					id: playlistId,
+					title: 'Offline playlist',
+					description: null,
+					updatedAt: Date.now(),
+				},
+				playlist: null,
+				playlists: [],
+			}
+		},
+	)
+}
+
+clientLoader.hydrate = true as const
 
 export async function action({ request, params }: Route.ActionArgs) {
 	const userId = await requireUserId(request)
@@ -464,8 +506,27 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
+	if ('offline' in loaderData && loaderData.offline === true) {
+		const offlineData = loaderData as {
+			offline: true
+			offlineTracks: import('#app/features/offline-storage/types.ts').OfflineTrackSummary[]
+			offlinePlaylistMeta: import('#app/features/offline-storage/offline-playlist-metadata.client.ts').CachedPlaylistMeta
+		}
+		return (
+			<OfflinePlaylistView
+				playlistId={offlineData.offlinePlaylistMeta.id}
+				title={offlineData.offlinePlaylistMeta.title}
+				description={offlineData.offlinePlaylistMeta.description}
+				tracks={offlineData.offlineTracks}
+			/>
+		)
+	}
+
 	const params = useParams()
-	const { playlist, playlists } = loaderData
+	const { playlist, playlists } = loaderData as Extract<
+		Route.ComponentProps['loaderData'],
+		{ playlist: object }
+	>
 	
 	// Audio player context (audio playback disabled)
 	const { addToCurrentPlaylist } = useAudioPlayer()
@@ -483,6 +544,12 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	useEffect(() => {
 		setOptimisticTracks(playlist.tracks)
 		setOptimisticPlaylist(playlist)
+		cachePlaylistMetadata({
+			id: playlist.id,
+			title: playlist.title,
+			description: playlist.description,
+			updatedAt: Date.now(),
+		})
 	}, [playlist])
 
 	// Handle success messages from fetchers
@@ -661,19 +728,27 @@ export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 			</div>
 
 			{/* Hero Section */}
-			<PlaylistHero
-				id={optimisticPlaylist.id}
-				title={optimisticPlaylist.title}
-				description={optimisticPlaylist.description}
-				tracks={optimisticTracks.map(pt => pt.track)}
-				createdAt={optimisticPlaylist.createdAt.toISOString()}
-				updatedAt={optimisticPlaylist.updatedAt.toISOString()}
-				onTitleUpdate={handleTitleUpdate}
-				onDescriptionUpdate={handleDescriptionUpdate}
-				onAddAllToQueue={handleAddAllToQueue}
-				onDelete={handleDelete}
-				isUpdating={updateFetcher.state === 'submitting'}
-			/>
+			<div className="space-y-4">
+				<PlaylistHero
+					id={optimisticPlaylist.id}
+					title={optimisticPlaylist.title}
+					description={optimisticPlaylist.description}
+					tracks={optimisticTracks.map(pt => pt.track)}
+					createdAt={optimisticPlaylist.createdAt.toISOString()}
+					updatedAt={optimisticPlaylist.updatedAt.toISOString()}
+					onTitleUpdate={handleTitleUpdate}
+					onDescriptionUpdate={handleDescriptionUpdate}
+					onAddAllToQueue={handleAddAllToQueue}
+					onDelete={handleDelete}
+					isUpdating={updateFetcher.state === 'submitting'}
+				/>
+				<OfflinePlaylistDownloadButton
+					playlistId={optimisticPlaylist.id}
+					title={optimisticPlaylist.title}
+					description={optimisticPlaylist.description}
+					tracks={optimisticTracks.map((playlistTrack) => playlistTrack.track)}
+				/>
+			</div>
 
 			{/* Tracks Section */}
 			<div className="space-y-6">

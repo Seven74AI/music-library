@@ -3,6 +3,8 @@ import { useVirtualizer, defaultRangeExtractor, type Range } from '@tanstack/rea
 import { useCallback, useEffect, useRef } from 'react'
 import { data, useSearchParams } from 'react-router'
 import { TrackListItem } from '#app/components/track-list-item'
+import { OfflineLibraryView } from '#app/components/offline/offline-library-view.tsx'
+import { OfflineTrackDownloadButton } from '#app/components/offline/offline-track-download-button.tsx'
 import { Checkbox } from '#app/components/ui/checkbox.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { Label } from '#app/components/ui/label.tsx'
@@ -11,6 +13,8 @@ import { TrackListSkeleton } from '#app/components/ui/track-list-skeleton'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { LIBRARY_TRACKS_PAGE_SIZE } from '#app/utils/library-tracks-pagination.ts'
+import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
+import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
 import {
 	buildLibraryUserTracksWhere,
 	parseHasAudioOnlyParam,
@@ -132,15 +136,53 @@ export async function loader({ request }: Route.LoaderArgs) {
 	})
 }
 
+export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
+	return loadWithOfflineFallback(
+		() => serverLoader(),
+		async () => {
+			const storage = getOfflineStorage()
+			return {
+				offline: true as const,
+				offlineTracks: await storage.listDownloaded(),
+				userTracks: [],
+				pagination: {
+					limit: LIBRARY_TRACKS_PAGE_SIZE,
+					hasNext: false,
+					nextCursor: null,
+				},
+				hasAudioOnly: false,
+				playlists: [],
+			}
+		},
+	)
+}
+
+clientLoader.hydrate = true as const
+
+export function HydrateFallback() {
+	return (
+		<div className="py-8">
+			<TrackListSkeleton />
+		</div>
+	)
+}
+
 export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) {
 	// Ensure we have valid data structure
 	const safeLoaderData = loaderData || {
+		offline: false as const,
+		offlineTracks: [],
 		userTracks: [],
 		pagination: { hasNext: false, nextCursor: null, limit: LIBRARY_TRACKS_PAGE_SIZE },
 		hasAudioOnly: false,
 		playlists: []
 	}
 	const { userTracks, pagination, playlists, hasAudioOnly = false } = safeLoaderData
+	const offline = 'offline' in safeLoaderData && safeLoaderData.offline === true
+	const offlineTracks =
+		'offlineTracks' in safeLoaderData && Array.isArray(safeLoaderData.offlineTracks)
+			? safeLoaderData.offlineTracks
+			: []
 	const pageSize = pagination?.limit ?? LIBRARY_TRACKS_PAGE_SIZE
 	const [searchParams, setSearchParams] = useSearchParams()
 	const parentRef = useRef<HTMLDivElement>(null)
@@ -194,6 +236,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 			pages: [{ userTracks: userTracks || [], pagination: { hasNext: pagination?.hasNext || false, nextCursor: pagination?.nextCursor || null } }],
 			pageParams: [undefined],
 		},
+		enabled: !offline,
 	})
 
 	// Flatten all pages into a single array
@@ -244,6 +287,20 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 
 
 	// Show loading skeleton while data is being processed
+	if (offline) {
+		return (
+			<div className="py-8">
+				<div className="mb-6">
+					<h1 className="text-2xl font-bold">Music Library</h1>
+					<p className="text-muted-foreground mt-2">
+						Showing downloaded tracks available offline.
+					</p>
+				</div>
+				<OfflineLibraryView tracks={offlineTracks} />
+			</div>
+		)
+	}
+
 	if (isPending) {
 		return (
 			<div className="space-y-4">
@@ -377,6 +434,9 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 											userTrack={item}
 											index={itemIndex}
 											playlists={playlists}
+											itemActions={({ trackId: _trackId }) => (
+												<OfflineTrackDownloadButton track={item.track} />
+											)}
 										/>
 									</div>
 								)
