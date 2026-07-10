@@ -1,13 +1,13 @@
-type NavigatorLike = Pick<
-	Navigator,
-	'userAgent' | 'platform' | 'maxTouchPoints' | 'share' | 'canShare'
->
+type IOSNavigatorLike = Pick<Navigator, 'userAgent' | 'platform' | 'maxTouchPoints'>
+
+type ShareNavigatorLike = IOSNavigatorLike &
+	Pick<Navigator, 'share' | 'canShare'>
 
 type TriggerBlobDownloadOptions = {
-	navigatorLike?: NavigatorLike
+	navigatorLike?: ShareNavigatorLike
 }
 
-export function isIOSDevice(navigatorLike: NavigatorLike = navigator): boolean {
+export function isIOSDevice(navigatorLike: IOSNavigatorLike = navigator): boolean {
 	return (
 		/iPad|iPhone|iPod/.test(navigatorLike.userAgent) ||
 		(navigatorLike.platform === 'MacIntel' && navigatorLike.maxTouchPoints > 1)
