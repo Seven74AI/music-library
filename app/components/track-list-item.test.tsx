@@ -3,10 +3,41 @@
  */
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { type ReactNode } from 'react'
-import { expect, test, beforeAll } from 'vitest'
-import { AudioPlayerProvider } from './audio-player-provider'
+import { type ComponentProps, type ReactNode } from 'react'
+import { beforeAll, beforeEach, expect, test, vi } from 'vitest'
+import { type FullTrack } from '#app/types/frontend/shared'
 import { TrackListItem } from './track-list-item'
+
+const mockPlayTrack = vi.fn()
+const mockPlayNextTrack = vi.fn()
+const mockAddToCurrentPlaylist = vi.fn()
+const mockToast = vi.fn()
+
+let mockPlayerState: {
+	currentTrack: FullTrack | null
+	currentIndex: number
+	isPlayerVisible: boolean
+} = {
+	currentTrack: null,
+	currentIndex: 0,
+	isPlayerVisible: false,
+}
+
+vi.mock('./audio-player-provider', () => ({
+	AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
+	useAudioPlayer: () => ({
+		currentTrack: mockPlayerState.currentTrack,
+		currentIndex: mockPlayerState.currentIndex,
+		isPlayerVisible: mockPlayerState.isPlayerVisible,
+		playTrack: mockPlayTrack,
+		playNextTrack: mockPlayNextTrack,
+		addToCurrentPlaylist: mockAddToCurrentPlaylist,
+	}),
+}))
+
+vi.mock('#app/components/ui/use-toast.ts', () => ({
+	toast: (...args: unknown[]) => mockToast(...args),
+}))
 
 // jsdom doesn't implement matchMedia — stub it so useIsMobile() works
 beforeAll(() => {
@@ -38,27 +69,46 @@ const mockTrack = {
 	isInUserLibrary: true,
 }
 
+const playableTrack = {
+	...mockTrack,
+	audioFiles: [{ id: 'af-1', format: 'mp3', objectKey: 'audio/test.mp3' }],
+}
+
 const mockUserTrack = {
 	createdAt: new Date('2024-01-01').toISOString(),
 }
 
-function renderWithProvider(ui: ReactNode) {
-	return render(<AudioPlayerProvider>{ui}</AudioPlayerProvider>)
-}
-
-test('renders itemActions render prop when provided', () => {
-	renderWithProvider(
+function renderTrackListItem(props: Partial<ComponentProps<typeof TrackListItem>> = {}) {
+	return render(
 		<TrackListItem
 			track={mockTrack}
 			userTrack={mockUserTrack}
 			index={0}
-			itemActions={({ trackId, isInLibrary, isDeleted }) => (
-				<span data-testid="custom-action">
-					{trackId}-{isInLibrary ? 'lib' : 'nolib'}-{isDeleted ? 'del' : 'ok'}
-				</span>
-			)}
+			{...props}
 		/>,
 	)
+}
+
+beforeEach(() => {
+	mockPlayerState = {
+		currentTrack: null,
+		currentIndex: 0,
+		isPlayerVisible: false,
+	}
+	mockPlayTrack.mockReset()
+	mockPlayNextTrack.mockReset()
+	mockAddToCurrentPlaylist.mockReset()
+	mockToast.mockReset()
+})
+
+test('renders itemActions render prop when provided', () => {
+	renderTrackListItem({
+		itemActions: ({ trackId, isInLibrary, isDeleted }) => (
+			<span data-testid="custom-action">
+				{trackId}-{isInLibrary ? 'lib' : 'nolib'}-{isDeleted ? 'del' : 'ok'}
+			</span>
+		),
+	})
 
 	const el = screen.getByTestId('custom-action')
 	expect(el).toBeDefined()
@@ -68,18 +118,15 @@ test('renders itemActions render prop when provided', () => {
 test('itemActions receives correct props when track is deleted', () => {
 	let captured: { trackId: string; isInLibrary: boolean; isDeleted: boolean } | null = null
 
-	renderWithProvider(
-		<TrackListItem
-			track={{ ...mockTrack, isInUserLibrary: false }}
-			userTrack={mockUserTrack}
-			index={2}
-			isDeleted
-			itemActions={(props) => {
-				captured = props
-				return <span data-testid="deleted-action">deleted</span>
-			}}
-		/>,
-	)
+	renderTrackListItem({
+		track: { ...mockTrack, isInUserLibrary: false },
+		index: 2,
+		isDeleted: true,
+		itemActions: (props) => {
+			captured = props
+			return <span data-testid="deleted-action">deleted</span>
+		},
+	})
 
 	expect(screen.getByTestId('deleted-action')).toBeDefined()
 	expect(captured).toEqual({
@@ -92,17 +139,13 @@ test('itemActions receives correct props when track is deleted', () => {
 test('itemActions receives correct props when isInUserLibrary is undefined', () => {
 	let captured: { trackId: string; isInLibrary: boolean; isDeleted: boolean } | null = null
 
-	renderWithProvider(
-		<TrackListItem
-			track={{ ...mockTrack, isInUserLibrary: undefined }}
-			userTrack={mockUserTrack}
-			index={0}
-			itemActions={(props) => {
-				captured = props
-				return <span data-testid="nolib-action">nolib</span>
-			}}
-		/>,
-	)
+	renderTrackListItem({
+		track: { ...mockTrack, isInUserLibrary: undefined },
+		itemActions: (props) => {
+			captured = props
+			return <span data-testid="nolib-action">nolib</span>
+		},
+	})
 
 	expect(screen.getByTestId('nolib-action')).toBeDefined()
 	expect(captured!.isInLibrary).toBe(false)
@@ -110,13 +153,7 @@ test('itemActions receives correct props when isInUserLibrary is undefined', () 
 })
 
 test('does not render itemActions when not provided', () => {
-	renderWithProvider(
-		<TrackListItem
-			track={mockTrack}
-			userTrack={mockUserTrack}
-			index={0}
-		/>,
-	)
+	renderTrackListItem()
 
 	// Track title should still render
 	expect(screen.getByText('Test Song')).toBeDefined()
@@ -127,15 +164,79 @@ test('does not render itemActions when not provided', () => {
 test('shows Add to Playlist when playlists is an empty array', async () => {
 	const user = userEvent.setup()
 
-	renderWithProvider(
-		<TrackListItem
-			track={mockTrack}
-			userTrack={mockUserTrack}
-			index={0}
-			playlists={[]}
-		/>,
-	)
+	renderTrackListItem({ playlists: [] })
 
 	await user.click(screen.getByRole('button', { name: 'More actions' }))
 	expect(screen.getByText('Add to Playlist')).toBeDefined()
+})
+
+test('hides queue actions when track has no audio files', async () => {
+	const user = userEvent.setup()
+
+	renderTrackListItem()
+
+	await user.click(screen.getByRole('button', { name: 'More actions' }))
+	expect(screen.queryByText('Play next')).toBeNull()
+	expect(screen.queryByText('Add to Queue')).toBeNull()
+})
+
+test('shows queue actions when track has audio files', async () => {
+	const user = userEvent.setup()
+
+	renderTrackListItem({ track: playableTrack })
+
+	await user.click(screen.getByRole('button', { name: 'More actions' }))
+	expect(screen.getByText('Play next')).toBeDefined()
+	expect(screen.getByText('Add to Queue')).toBeDefined()
+})
+
+test('Add to Queue appends track and shows toast', async () => {
+	const user = userEvent.setup()
+
+	renderTrackListItem({ track: playableTrack })
+
+	await user.click(screen.getByRole('button', { name: 'More actions' }))
+	await user.click(screen.getByText('Add to Queue'))
+
+	expect(mockAddToCurrentPlaylist).toHaveBeenCalledWith(playableTrack)
+	expect(mockToast).toHaveBeenCalledWith({
+		title: 'Success',
+		description: '"Test Song" added to queue',
+		variant: 'success',
+	})
+})
+
+test('Play next starts playback when player is idle', async () => {
+	const user = userEvent.setup()
+
+	renderTrackListItem({ track: playableTrack, index: 2 })
+
+	await user.click(screen.getByRole('button', { name: 'More actions' }))
+	await user.click(screen.getByText('Play next'))
+
+	expect(mockPlayTrack).toHaveBeenCalledWith(playableTrack, { type: 'library' }, 2)
+	expect(mockPlayNextTrack).not.toHaveBeenCalled()
+	expect(mockToast).not.toHaveBeenCalled()
+})
+
+test('Play next inserts after current track when player is active', async () => {
+	const user = userEvent.setup()
+	mockPlayerState = {
+		currentTrack: playableTrack,
+		currentIndex: 0,
+		isPlayerVisible: true,
+	}
+
+	renderTrackListItem({ track: playableTrack })
+
+	await user.click(screen.getByRole('button', { name: 'More actions' }))
+	await user.click(screen.getByText('Play next'))
+
+	expect(mockPlayNextTrack).toHaveBeenCalledWith(playableTrack)
+	expect(mockPlayTrack).not.toHaveBeenCalled()
+	expect(mockToast).toHaveBeenCalledWith({
+		title: 'Success',
+		description: '"Test Song" will play next',
+		variant: 'success',
+	})
 })

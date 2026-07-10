@@ -196,6 +196,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const addTrackToPlaylist = useCallback((track: Track, position: 'next' | 'end' = 'end') => {
 		if (position === 'next') {
 			setPlaylist(prev => {
+				if (prev.length === 0) return [track]
 				const newPlaylist = [...prev]
 				newPlaylist.splice(currentIndex + 1, 0, track)
 				return newPlaylist

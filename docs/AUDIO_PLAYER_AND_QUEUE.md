@@ -117,6 +117,12 @@ When playback starts, the selected track plays immediately while the full queue 
 - Removing a track updates the queue immediately
 - If current track is removed, automatically plays next available track
 
+**Per-track queue actions** (library and user playlist track row menus):
+- **Play next**: When the player is active, inserts the track immediately after the currently playing track (no auto-play of the inserted track). When nothing is playing, starts playback of the selected track (same as clicking the row).
+- **Add to Queue**: Appends the track to the end of the queue without starting playback (same behavior as bulk "Add to Queue" on playlist pages).
+- Both actions are only shown for tracks with archived audio files (playable tracks).
+- Success toasts confirm the action; menu clicks do not trigger row click-to-play.
+
 **Track Identification**:
 - Tracks are identified by both ID and position
 - Allows the same track to appear multiple times in the queue

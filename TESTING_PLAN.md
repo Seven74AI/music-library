@@ -97,6 +97,9 @@ This document outlines a systematic testing plan for all routes and actions in t
   - [ ] Add track to existing user playlist (search picker, duplicate confirmation)
   - [ ] Inline **+ New playlist** from track row (name only, stays in menu/sheet)
   - [ ] Reject duplicate playlist names case-insensitively (inline + standalone create)
+  - [ ] Track row menu: **Play next** (starts playback when idle; inserts after current when playing)
+  - [ ] Track row menu: **Add to Queue** (appends without auto-play; toast confirmation)
+  - [ ] Queue actions hidden for tracks without archived audio
   - [ ] Automated: `tests/e2e/library.test.ts` — inline create + duplicate rejection
 
 #### 3.2 Import Track from Services (`/music/services/youtube/import`)
@@ -200,6 +203,7 @@ This document outlines a systematic testing plan for all routes and actions in t
   - [ ] Display playlist tracks
   - [ ] Add tracks to playlist
   - [ ] Remove tracks from playlist
+  - [ ] Track row menu: **Play next** and **Add to Queue** (same behavior as library)
   - [ ] Edit playlist metadata
   - [ ] Reject rename to duplicate title case-insensitively
   - [ ] Delete playlist

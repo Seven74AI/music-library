@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '#app/components/ui/dropdown-menu.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#app/components/ui/sheet.tsx'
+import { toast } from '#app/components/ui/use-toast.ts'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#app/components/ui/tooltip'
 import { formatDuration } from '#app/utils/format-duration.ts'
 import { useIsMobile } from '#app/utils/use-mobile.ts'
@@ -85,7 +86,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
 	const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false)
 	const isMobile = useIsMobile()
-	const { currentTrack, currentIndex, playTrack } = useAudioPlayer()
+	const { currentTrack, currentIndex, isPlayerVisible, playTrack, playNextTrack, addToCurrentPlaylist } = useAudioPlayer()
 
 	const handleRemoveFromQueue = useCallback(() => {
 		if (onRemoveFromQueue) {
@@ -107,6 +108,8 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 		setIsDetailsSheetOpen(true)
 	}, [])
 
+	const hasAudioFiles = track.audioFiles && track.audioFiles.length > 0 && !isDeleted
+
 	const handlePlayTrack = useCallback(() => {
 		if (!track.audioFiles || track.audioFiles.length === 0 || isDeleted) {
 			return
@@ -115,9 +118,38 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 		playTrack(track, context, index)
 	}, [track, playlistContext, index, playTrack, isDeleted])
 
+	const handlePlayNext = useCallback(() => {
+		if (!hasAudioFiles) return
+
+		if (isPlayerVisible && currentTrack) {
+			playNextTrack(track)
+			toast({
+				title: 'Success',
+				description: `"${track.title}" will play next`,
+				variant: 'success',
+			})
+		} else {
+			const context = playlistContext || { type: 'library' as const }
+			playTrack(track, context, index)
+		}
+
+		setIsActionsSheetOpen(false)
+	}, [hasAudioFiles, isPlayerVisible, currentTrack, playNextTrack, track, playlistContext, index, playTrack])
+
+	const handleAddToQueue = useCallback(() => {
+		if (!hasAudioFiles) return
+
+		addToCurrentPlaylist(track)
+		toast({
+			title: 'Success',
+			description: `"${track.title}" added to queue`,
+			variant: 'success',
+		})
+		setIsActionsSheetOpen(false)
+	}, [hasAudioFiles, addToCurrentPlaylist, track])
+
 	// Check if this track is currently playing (both ID and position must match for duplicates)
 	const isCurrentlyPlaying = currentTrack?.id === track.id && currentIndex === index
-	const hasAudioFiles = track.audioFiles && track.audioFiles.length > 0 && !isDeleted
 
 	return (
 		<div 
@@ -221,7 +253,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 			)}
 
 			{/* Actions */}
-			<div className="flex items-center gap-1 w-8">
+			<div className="flex items-center gap-1 w-8" onClick={(e) => e.stopPropagation()}>
 				{isMobile ? (
 					/* Mobile: Bottom Sheet */
 					<Button
@@ -331,6 +363,18 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 									</DropdownMenuSubContent>
 								</DropdownMenuSub>
 							)}
+							{hasAudioFiles && (
+								<>
+									<DropdownMenuItem onClick={handlePlayNext}>
+										<Icon name="arrow-right" className="h-4 w-4 mr-2" />
+										Play next
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={handleAddToQueue}>
+										<Icon name="list-bullet" className="h-4 w-4 mr-2" />
+										Add to Queue
+									</DropdownMenuItem>
+								</>
+							)}
 							{showQueueActions && (
 								<DropdownMenuItem onClick={handleRemoveFromQueue}>
 									<Icon name="trash" className="h-4 w-4 mr-2" />
@@ -414,6 +458,26 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										<Icon name="plus" className="h-5 w-5 mr-3" />
 										Add to Playlist
 									</Button>
+								)}
+								{hasAudioFiles && (
+									<>
+										<Button
+											variant="ghost"
+											className="w-full justify-start h-12 text-base"
+											onClick={handlePlayNext}
+										>
+											<Icon name="arrow-right" className="h-5 w-5 mr-3" />
+											Play next
+										</Button>
+										<Button
+											variant="ghost"
+											className="w-full justify-start h-12 text-base"
+											onClick={handleAddToQueue}
+										>
+											<Icon name="list-bullet" className="h-5 w-5 mr-3" />
+											Add to Queue
+										</Button>
+									</>
 								)}
 								{showQueueActions && (
 									<Button
