@@ -1,10 +1,29 @@
 import { test, expect } from '#tests/playwright-utils.ts'
 
-async function emulateOffline(page: import('@playwright/test').Page) {
+async function dispatchOffline(page: import('@playwright/test').Page) {
+	await page.evaluate(() => {
+		try {
+			Object.defineProperty(navigator, 'onLine', {
+				configurable: true,
+				get: () => false,
+			})
+		} catch {
+			// navigator.onLine may already be false via Playwright offline mode
+		}
+		window.dispatchEvent(new Event('offline'))
+	})
+}
+
+async function emulateOfflineUi(page: import('@playwright/test').Page) {
 	await page.context().setOffline(true)
-	// Playwright blocks localhost when offline, so we cannot reload/goto.
-	// Dispatch the browser offline event so client hooks pick up the change.
-	await page.evaluate(() => window.dispatchEvent(new Event('offline')))
+	await dispatchOffline(page)
+}
+
+async function emulateOfflineLoaderRequests(page: import('@playwright/test').Page) {
+	// setOffline blocks localhost and prevents client navigations from completing.
+	// Abort React Router data requests instead so clientLoaders fall back offline.
+	await page.route(/\.data(?:\?.*)?$/, (route) => route.abort('internetdisconnected'))
+	await dispatchOffline(page)
 }
 
 test.describe('Offline mode', () => {
@@ -16,8 +35,12 @@ test.describe('Offline mode', () => {
 		await page.goto('/downloads')
 		await page.waitForLoadState('networkidle')
 
-		await emulateOffline(page)
-		await page.getByRole('link', { name: /epic/i }).click()
+		await emulateOfflineLoaderRequests(page)
+
+		await Promise.all([
+			page.waitForURL('/'),
+			page.getByRole('link', { name: /epic/i }).click(),
+		])
 
 		await expect(page.getByRole('heading', { name: 'Listening offline' })).toBeVisible({
 			timeout: 10000,
@@ -30,7 +53,7 @@ test.describe('Offline mode', () => {
 		await page.goto('/downloads')
 		await page.waitForLoadState('networkidle')
 
-		await emulateOffline(page)
+		await emulateOfflineUi(page)
 
 		await expect(
 			page.getByText("You're offline. Showing downloaded music only."),
