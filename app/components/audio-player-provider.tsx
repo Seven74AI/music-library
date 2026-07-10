@@ -270,6 +270,11 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	}, [currentIndex, playlist, loopMode, isShuffleEnabled, playTrackAtIndex])
 
 	const playPrevious = useCallback(() => {
+		if (loopMode === 'one') {
+			playTrackAtIndex(playlist, currentIndex)
+			return
+		}
+
 		const findPreviousTrack = (startIndex: number) => {
 			if (startIndex > 0) {
 				return startIndex - 1

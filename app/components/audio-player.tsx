@@ -34,6 +34,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const [duration, setDuration] = useState(0)
 	const [volume] = useState(1)
 	const previousPlaybackTokenRef = useRef<number | null>(null)
+	const previousTrackIdRef = useRef<string | null>(null)
 	const loadedTrackIdRef = useRef<string | null>(null)
 	const isManualPlayRef = useRef(false)
 	const [isDownloading, setIsDownloading] = useState(false)
@@ -100,7 +101,16 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			previousPlaybackTokenRef.current = playbackToken
 			setIsPlaying(false)
 			setCurrentTime(0)
-			setDuration(0)
+			if (track.id !== previousTrackIdRef.current) {
+				previousTrackIdRef.current = track.id
+				setDuration(0)
+			} else if (
+				audioRef.current.duration &&
+				isFinite(audioRef.current.duration) &&
+				audioRef.current.duration > 0
+			) {
+				setDuration(audioRef.current.duration)
+			}
 			audioRef.current.volume = volume
 			const shouldAutoPlay = wantsAutoPlayRef?.current || !isManualPlayRef.current
 			if (wantsAutoPlayRef) {
@@ -122,7 +132,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			isManualPlayRef.current = false
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [track?.id, audioSrc, playbackToken, volume, loopMode])
+	}, [track?.id, audioSrc, playbackToken, volume])
 
 	useEffect(() => {
 		if (audioRef.current) {
