@@ -126,19 +126,9 @@ export class ServicePlaylistService {
    * Shared by addPlaylistToSync and syncPlaylistTracks.
    */
   private async triggerImageProcessing(playlistId: string): Promise<void> {
-    const playlistTrackIds = await prisma.servicePlaylistTrack.findMany({
-      where: {
-        playlistId,
-        thumbnailUrl: { not: null },
-      },
-      select: { id: true },
-    }).then(records => records.map(r => r.id))
-
-    if (playlistTrackIds.length > 0) {
-      void processTrackImagesAsync(playlistTrackIds).catch(error => {
-        console.error('Error processing track images in background:', error)
-      })
-    }
+    void processTrackImagesAsync(playlistId).catch(error => {
+      console.error('Error processing track images in background:', error)
+    })
   }
 
   /**

@@ -9,12 +9,25 @@ import { type SyncableItem } from './track-batch-processor.server'
 /** Maximum concurrent image downloads */
 const MAX_CONCURRENCY = 5
 
+/** Page size for playlist track queries (stays under SQLite bind-parameter limits) */
+const QUERY_PAGE_SIZE = 100
+
 /**
  * Provider contract needed for pre-downloading images.
  * Only needs `isDeletedVideo` — the image processor doesn't transform data.
  */
 interface ImageProcessorProvider<TItem extends SyncableItem = SyncableItem> {
   isDeletedVideo(item: TItem): boolean
+}
+
+type PlaylistTrackForProcessing = {
+  id: string
+  trackId: string
+  thumbnailUrl: string | null
+  track: {
+    id: string
+    coverImageId: string | null
+  }
 }
 
 /**
@@ -73,52 +86,49 @@ export async function preDownloadImages<TItem extends SyncableItem>(
  *
  * Standalone function — moved from ServicePlaylistService facade.
  *
- * @param playlistTrackIds - Array of ServicePlaylistTrack IDs to process images for
+ * @param playlistId - ServicePlaylist ID whose tracks should be processed
  */
 export async function processTrackImagesAsync(
-  playlistTrackIds: string[],
+  playlistId: string,
 ): Promise<void> {
-  // Server-side background processing - runs after response is sent
-  // Process images in batches with concurrency control
-  await processTrackImagesInBatches(playlistTrackIds)
-}
+  let cursor: string | undefined
 
-/**
- * Process images in batches with concurrency control.
- *
- * Standalone function — moved from ServicePlaylistService facade.
- *
- * @param playlistTrackIds - Array of ServicePlaylistTrack IDs to process
- */
-export async function processTrackImagesInBatches(
-  playlistTrackIds: string[],
-): Promise<void> {
-  // Fetch ServicePlaylistTrack records with thumbnailUrl and trackId
-  const playlistTracks = await prisma.servicePlaylistTrack.findMany({
-    where: {
-      id: { in: playlistTrackIds },
-      thumbnailUrl: { not: null },
-    },
-    include: {
-      track: {
-        select: {
-          id: true,
-          coverImageId: true,
+  while (true) {
+    const playlistTracks = await prisma.servicePlaylistTrack.findMany({
+      where: {
+        playlistId,
+        thumbnailUrl: { not: null },
+        track: { coverImageId: null },
+      },
+      take: QUERY_PAGE_SIZE,
+      orderBy: { id: 'asc' },
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      include: {
+        track: {
+          select: {
+            id: true,
+            coverImageId: true,
+          },
         },
       },
-    },
-  })
+    })
 
-  // Filter out tracks that already have cover images
-  const tracksToProcess = playlistTracks.filter(
-    (pt) => pt.thumbnailUrl && !pt.track.coverImageId,
-  )
+    if (playlistTracks.length === 0) {
+      return
+    }
 
-  if (tracksToProcess.length === 0) {
-    return
+    await processPlaylistTrackImages(playlistTracks)
+
+    cursor = playlistTracks[playlistTracks.length - 1]?.id
+    if (playlistTracks.length < QUERY_PAGE_SIZE) {
+      return
+    }
   }
+}
 
-  // Process images in parallel with concurrency limit
+async function processPlaylistTrackImages(
+  tracksToProcess: PlaylistTrackForProcessing[],
+): Promise<void> {
   for (let i = 0; i < tracksToProcess.length; i += MAX_CONCURRENCY) {
     const batch = tracksToProcess.slice(i, i + MAX_CONCURRENCY)
 
@@ -127,7 +137,6 @@ export async function processTrackImagesInBatches(
         if (!playlistTrack.thumbnailUrl) return
 
         try {
-          // Download image from thumbnailUrl
           const imageBuffer = await downloadExternalImage(
             playlistTrack.thumbnailUrl,
           )
@@ -138,26 +147,20 @@ export async function processTrackImagesInBatches(
             return
           }
 
-          // Process and create CoverImage
           const coverImage = await findOrCreateCoverImage({
             imageBuffer,
             trackId: playlistTrack.trackId,
           })
 
-          // Update Track.coverImageId
           await prisma.track.update({
             where: { id: playlistTrack.trackId },
             data: { coverImageId: coverImage.id },
           })
-
-          // Optionally clear thumbnailUrl from ServicePlaylistTrack (or keep as fallback)
-          // For now, we'll keep it as a fallback in case the processed image fails to load
         } catch (error) {
           console.error(
             `Error processing image for track ${playlistTrack.trackId}:`,
             error,
           )
-          // Continue processing other tracks even if one fails
         }
       }),
     )
