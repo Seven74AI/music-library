@@ -57,7 +57,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 		return redirectWithToast('/library', {
 			title: 'Track Removed',
 			description: `"${userTrack.track.title}" by ${artistName} has been removed from your library.`,
-			type: 'destructive',
+			type: 'success',
 		})
 	} catch (error) {
 		console.error('Error removing track:', error)

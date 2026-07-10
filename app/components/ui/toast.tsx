@@ -124,6 +124,13 @@ ToastDescription.displayName = ToastPrimitives.Description.displayName
  */
 type ToastVariant = "default" | "success" | "destructive" | "error"
 
+export const TOAST_ICON_BY_VARIANT: Record<ToastVariant, string> = {
+  default: "file-text",
+  success: "check-circled",
+  destructive: "x-mark",
+  error: "x-mark",
+} as const
+
 /**
  * Toast icon component that displays appropriate icon based on variant
  * @param variant - The toast variant determining which icon to show
@@ -133,20 +140,13 @@ const ToastIcon = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement> & { variant?: ToastVariant }
 >(({ className, variant = "default", ...props }, ref) => {
-  const iconMap: Record<ToastVariant, string> = {
-    default: "question-mark-circled",
-    success: "check-circled",
-    destructive: "x-mark",
-    error: "x-mark",
-  } as const
-  
   return (
     <div
       ref={ref}
       className={cn("flex-shrink-0", className)}
       {...props}
     >
-      <Icon name={iconMap[variant] as any} className="h-5 w-5" />
+      <Icon name={TOAST_ICON_BY_VARIANT[variant] as any} className="h-5 w-5" />
     </div>
   )
 })

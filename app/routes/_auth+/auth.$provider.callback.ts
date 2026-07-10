@@ -86,6 +86,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 				{
 					title: 'Already Connected',
 					description: `Your "${profile.username}" ${label} account is already connected.`,
+					type: 'message',
 				},
 				{ headers: destroyRedirectTo },
 			)
@@ -95,6 +96,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 				{
 					title: 'Already Connected',
 					description: `The "${profile.username}" ${label} account is already connected to another account.`,
+					type: 'message',
 				},
 				{ headers: destroyRedirectTo },
 			)
@@ -146,6 +148,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 				headers: await createToastHeaders({
 					title: 'Connected',
 					description: `Your "${profile.username}" ${label} account has been connected.`,
+					type: 'success',
 				}),
 			},
 		)

@@ -69,6 +69,7 @@ export async function requireRecentVerification(request: Request) {
 		throw await redirectWithToast(redirectUrl.toString(), {
 			title: 'Please Reverify',
 			description: 'Please reverify your account before proceeding',
+			type: 'message',
 		})
 	}
 }

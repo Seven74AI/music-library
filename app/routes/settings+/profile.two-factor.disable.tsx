@@ -30,6 +30,7 @@ export async function action({ request }: Route.ActionArgs) {
 	return redirectWithToast('/settings/profile/two-factor', {
 		title: '2FA Disabled',
 		description: 'Two factor authentication has been disabled.',
+		type: 'message',
 	})
 }
 
