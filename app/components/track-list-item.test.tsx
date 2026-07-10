@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { type ReactNode } from 'react'
 import { expect, test, beforeAll } from 'vitest'
 import { AudioPlayerProvider } from './audio-player-provider'
@@ -121,4 +122,20 @@ test('does not render itemActions when not provided', () => {
 	expect(screen.getByText('Test Song')).toBeDefined()
 	// No data-testid elements from our render prop
 	expect(screen.queryByTestId('custom-action')).toBeNull()
+})
+
+test('shows Add to Playlist when playlists is an empty array', async () => {
+	const user = userEvent.setup()
+
+	renderWithProvider(
+		<TrackListItem
+			track={mockTrack}
+			userTrack={mockUserTrack}
+			index={0}
+			playlists={[]}
+		/>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'More actions' }))
+	expect(screen.getByText('Add to Playlist')).toBeDefined()
 })

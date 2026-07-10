@@ -316,7 +316,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 									</a>
 								</DropdownMenuItem>
 							)}
-							{playlists && playlists.length > 0 && (
+							{playlists != null && (
 								<DropdownMenuSub>
 									<DropdownMenuSubTrigger>
 										<Icon name="plus" className="h-4 w-4 mr-2" />
@@ -405,7 +405,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										</a>
 									</Button>
 								)}
-								{playlists && playlists.length > 0 && (
+								{playlists != null && (
 									<Button
 										variant="ghost"
 										className="w-full justify-start h-12 text-base"

@@ -93,6 +93,10 @@ This document outlines a systematic testing plan for all routes and actions in t
   - [ ] Search functionality
   - [ ] Filter options
   - [ ] Pagination
+  - [ ] Track row menu: Add to Playlist (visible even with zero user playlists)
+  - [ ] Add track to existing user playlist (search picker, duplicate confirmation)
+  - [ ] Create new playlist from track row → `/playlists/new?trackId=…` → auto-add → redirect `/library` with toast
+  - [ ] Automated: `tests/e2e/library.test.ts` — `can create playlist from library track row`
 
 #### 3.2 Import Track from Services (`/music/services/youtube/import`)
 - **Actions to test**:
@@ -185,8 +189,9 @@ This document outlines a systematic testing plan for all routes and actions in t
 
 #### 5.2 New Playlist (`/playlists/new`)
 - **Actions to test**:
-  - [ ] Create playlist with valid data
-  - [ ] Add tracks to playlist
+  - [ ] Create playlist with valid data (standalone — redirects to `/playlists/{id}`)
+  - [ ] Create playlist from track context (`?trackId=` — shows track name, hidden field, cancel → `/library`)
+  - [ ] Auto-add track on submit when `trackId` present (redirect `/library` + success toast)
   - [ ] Form validation
   - [ ] Error handling
 

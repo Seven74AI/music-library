@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import { useFetcher } from 'react-router'
+import { Link, useFetcher } from 'react-router'
+import { Icon } from './ui/icon'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog'
 import { Input } from './ui/input'
 import { ScrollArea } from './ui/scroll-area'
@@ -170,6 +171,17 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
           )}
         </ScrollArea>
         
+        <div className="mt-2 border-t pt-2">
+          <Link
+            to={`/playlists/new?trackId=${trackId}`}
+            className="flex min-h-11 w-full items-center gap-2 rounded px-2 py-2 text-sm font-medium hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            onClick={onSuccess}
+          >
+            <Icon name="plus" className="h-4 w-4" />
+            Create new playlist
+          </Link>
+        </div>
+
         {/* Loading state announcement for screen readers */}
         {fetcher.state !== 'idle' && (
           <div className="sr-only" role="status" aria-live="assertive">

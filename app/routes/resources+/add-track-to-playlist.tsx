@@ -1,7 +1,7 @@
 import { data } from 'react-router'
 import { requireUserId } from '#app/utils/auth.server.ts'
-import { prisma } from '#app/utils/db.server.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
+import { addTrackToUserPlaylist } from '#app/utils/user-playlist.server.ts'
 import  { type Route } from './+types/add-track-to-playlist'
 
 /**
@@ -36,12 +36,14 @@ export async function action({ request }: Route.ActionArgs) {
   }
   
   try {
-    // Verify playlist ownership
-    const playlist = await prisma.userPlaylist.findFirst({
-      where: { id: playlistId, ownerId: userId }
+    const result = await addTrackToUserPlaylist({
+      userId,
+      playlistId,
+      trackId,
+      forceDuplicate,
     })
-    
-    if (!playlist) {
+
+    if (result.status === 'not_found') {
       return data(
         { status: 'error', message: 'Playlist not found' },
         {
@@ -54,59 +56,34 @@ export async function action({ request }: Route.ActionArgs) {
         }
       )
     }
-    
-    // Check if track already exists in playlist (only if not forcing duplicate)
-    if (!forceDuplicate) {
-      const existing = await prisma.userPlaylistTrack.findFirst({
-        where: { 
-          playlistId, 
-          trackId 
+
+    if (result.status === 'duplicate') {
+      return data(
+        { 
+          status: 'duplicate',
+          message: 'Track already in playlist',
+          playlistId: result.playlistId,
+          playlistTitle: result.playlistTitle,
+        },
+        {
+          headers: await createToastHeaders({
+            title: 'Duplicate Track',
+            description: `Track is already in "${result.playlistTitle}"`,
+            type: 'message',
+          }),
         }
-      })
-      
-      if (existing) {
-        return data(
-          { 
-            status: 'duplicate',
-            message: 'Track already in playlist',
-            playlistId,
-            playlistTitle: playlist.title
-          },
-          {
-            headers: await createToastHeaders({
-              title: 'Duplicate Track',
-              description: `Track is already in "${playlist.title}"`,
-              type: 'message',
-            }),
-          }
-        )
-      }
+      )
     }
-    
-    // Get max position
-    const maxPosition = await prisma.userPlaylistTrack.aggregate({
-      where: { playlistId },
-      _max: { position: true }
-    })
-    
-    // Add track
-    await prisma.userPlaylistTrack.create({
-      data: {
-        playlistId,
-        trackId,
-        position: (maxPosition._max.position ?? -1) + 1
-      }
-    })
     
     return data(
       { 
         status: 'success',
-        message: `Added to "${playlist.title}"`
+        message: `Added to "${result.playlistTitle}"`
       },
       {
         headers: await createToastHeaders({
           title: 'Success',
-          description: `Track added to "${playlist.title}"`,
+          description: `Track added to "${result.playlistTitle}"`,
           type: 'success',
         }),
       }
