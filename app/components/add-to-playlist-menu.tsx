@@ -208,6 +208,9 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
           {isCreating ? (
             <div
               className="space-y-2"
+              // Keep the Radix submenu open while focusing nested inputs; same pointerdown
+              // family of workarounds as track-list-item handleMenuPointerDown.
+              // See: https://github.com/radix-ui/primitives/issues/1242
               onPointerDown={(e) => e.preventDefault()}
             >
               <label htmlFor="new-playlist-title" className="sr-only">

@@ -1,4 +1,4 @@
-import { useState, useCallback, memo, type ReactNode } from 'react'
+import { useState, useCallback, memo, type PointerEvent, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { TrackThumbnail } from '#app/components/track-thumbnail'
 import { Button } from '#app/components/ui/button'
@@ -109,6 +109,22 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	}, [])
 
 	const hasAudioFiles = track.audioFiles && track.audioFiles.length > 0 && !isDeleted
+
+	// Radix dropdowns portal outside the row. When the menu closes, the browser can
+	// synthesize a click on the element underneath (this row's onClick=play). stopPropagation
+	// on the actions container does not help — portaled content is not a DOM child of the row.
+	// preventDefault on pointerdown stops that ghost click from being created.
+	// See: https://github.com/radix-ui/primitives/issues/1242
+	//      https://github.com/radix-ui/primitives/issues/2267
+	//      https://github.com/radix-ui/primitives/issues/3099
+	//      https://react.dev/reference/react-dom/createPortal#handling-events-from-a-portal
+	const handleMenuPointerDown = useCallback((event: PointerEvent) => {
+		const target = event.target
+		if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) {
+			return
+		}
+		event.preventDefault()
+	}, [])
 
 	const handlePlayTrack = useCallback(() => {
 		if (!track.audioFiles || track.audioFiles.length === 0 || isDeleted) {
@@ -278,7 +294,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 								<Icon name="dots-horizontal" className="h-4 w-4" />
 							</Button>
 						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
+						<DropdownMenuContent align="end" onPointerDown={handleMenuPointerDown}>
 							<Dialog>
 								<DialogTrigger asChild>
 									<DropdownMenuItem onSelect={(e) => e.preventDefault()}>
@@ -354,7 +370,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										<Icon name="plus" className="h-4 w-4 mr-2" />
 										Add to Playlist
 									</DropdownMenuSubTrigger>
-									<DropdownMenuSubContent>
+									<DropdownMenuSubContent onPointerDown={handleMenuPointerDown}>
 										<AddToPlaylistMenu 
 											trackId={track.id} 
 											trackTitle={track.title}
@@ -393,11 +409,13 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 			</div>
 			
 			{/* Custom actions from render prop */}
-			{itemActions?.({
-				trackId: track.id,
-				isInLibrary: !!track.isInUserLibrary,
-				isDeleted: !!isDeleted,
-			})}
+			<div onClick={(e) => e.stopPropagation()}>
+				{itemActions?.({
+					trackId: track.id,
+					isInLibrary: !!track.isInUserLibrary,
+					isDeleted: !!isDeleted,
+				})}
+			</div>
 
 			{/* Mobile Sheets (rendered outside the button) */}
 			{isMobile && (
