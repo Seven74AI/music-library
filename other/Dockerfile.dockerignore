@@ -37,8 +37,9 @@ prisma/seed-data/**
 *.md
 !README.md
 
-# Scripts (not needed in production)
-/scripts
+# Dev-only scripts (build-sw.ts is required during npm run build)
+/scripts/*
+!/scripts/build-sw.ts
 
 # Other development files
 prompt.txt

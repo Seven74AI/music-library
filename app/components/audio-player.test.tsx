@@ -2,10 +2,12 @@
  * @vitest-environment jsdom
  */
 import { fireEvent, render, waitFor } from '@testing-library/react'
-import { type ReactNode } from 'react'
+import { type ComponentProps, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import  { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayer } from './audio-player'
+
+type AudioPlayerTestProps = ComponentProps<typeof AudioPlayer>
 
 vi.mock('#app/components/ui/use-toast.ts', () => ({
 	toast: vi.fn(),
@@ -36,7 +38,7 @@ const mockTrack: FullTrack = {
 	audioFiles: [{ id: 'af-1', format: 'mp3', objectKey: 'audio/test.mp3' }],
 }
 
-const defaultProps = {
+const defaultProps: AudioPlayerTestProps = {
 	track: mockTrack,
 	isVisible: true,
 	onClose: vi.fn(),
@@ -46,13 +48,13 @@ const defaultProps = {
 	onToggleShuffle: vi.fn(),
 	hasNext: false,
 	hasPrevious: false,
-	loopMode: 'off' as const,
+	loopMode: 'off',
 	isShuffleEnabled: false,
 	playbackToken: 0,
 	wantsAutoPlayRef: { current: false },
 }
 
-async function renderPlayer(props: Partial<typeof defaultProps> = {}) {
+async function renderPlayer(props: Partial<AudioPlayerTestProps> = {}) {
 	const view = render(<AudioPlayer {...defaultProps} {...props} />)
 	const audioEl = await waitFor(() => {
 		const element = view.container.querySelector('audio')
