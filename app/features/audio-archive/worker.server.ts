@@ -3,6 +3,7 @@ import { getOrCreateArtist } from '#app/utils/artist-management.server'
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { getOrCreateAlbum } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server.ts'
+import { checkPlaylistArchiveReadyAfterTrackArchived } from '#app/utils/playlist-archive-ready.server.tsx'
 import { notifyCookieExpired, notifyJobFailed } from './notification.server'
 import { uploadToTigris, buildObjectKey } from './tigris-upload.server'
 import { isWorkerActive } from './worker-control.server'
@@ -166,6 +167,16 @@ async function processJob(
 		await prisma.archiveJob.update({
 			where: { id: jobId },
 			data: { status: 'completed' },
+		})
+
+		void checkPlaylistArchiveReadyAfterTrackArchived(
+			trackId,
+			process.env.SITE_URL,
+		).catch((error) => {
+			console.error(
+				`Failed to check playlist archive readiness for track ${trackId}:`,
+				error,
+			)
 		})
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)

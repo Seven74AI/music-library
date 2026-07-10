@@ -35,6 +35,10 @@ import { pipeHeaders } from './utils/headers.server.ts'
 import { honeypot } from './utils/honeypot.server.ts'
 import { combineHeaders, getDomainUrl, getImgSrc } from './utils/misc.tsx'
 import { useNonce } from './utils/nonce-provider.ts'
+import {
+	getRecentNotifications,
+	getUnreadNotificationCount,
+} from './utils/playlist-archive-ready.server.tsx'
 import { type Theme, getTheme } from './utils/theme.server.ts'
 import { makeTimings, time } from './utils/timing.server.ts'
 import { getToast } from './utils/toast.server.ts'
@@ -46,6 +50,12 @@ import { useOptionalUser } from './utils/user.ts'
 const LazyUserDropdown = lazy(() =>
 	import('./components/user-dropdown.tsx').then((m) => ({
 		default: m.UserDropdown,
+	})),
+)
+
+const LazyNotificationBell = lazy(() =>
+	import('./components/notification-bell.tsx').then((m) => ({
+		default: m.NotificationBell,
 	})),
 )
 
@@ -122,10 +132,18 @@ export async function loader({ request }: Route.LoaderArgs) {
 	}
 	const { toast, headers: toastHeaders } = await getToast(request)
 	const honeyProps = await honeypot.getInputProps()
+	const notifications = userId
+		? await getRecentNotifications(userId)
+		: []
+	const unreadNotificationCount = userId
+		? await getUnreadNotificationCount(userId)
+		: 0
 
 	return data(
 		{
 			user,
+			notifications,
+			unreadNotificationCount,
 			requestInfo: {
 				hints: getHints(request),
 				origin: getDomainUrl(request),
@@ -271,6 +289,14 @@ function App() {
 							</div>
 							<div className="flex items-center gap-4 sm:gap-6 md:gap-10">
 								<ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
+								{user ? (
+									<Suspense fallback={null}>
+										<LazyNotificationBell
+											notifications={data.notifications}
+											unreadCount={data.unreadNotificationCount}
+										/>
+									</Suspense>
+								) : null}
 								{user ? (
 									<Suspense fallback={null}>
 										<LazyUserDropdown />

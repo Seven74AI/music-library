@@ -1,11 +1,15 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import  { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayer } from './audio-player'
+
+vi.mock('#app/components/ui/use-toast.ts', () => ({
+	toast: vi.fn(),
+}))
 
 // Mock the provider module to avoid the QueueSheet's useAudioPlayer requirement
 vi.mock('#app/components/audio-player-provider', () => ({
@@ -115,6 +119,22 @@ test('does NOT call onNext when audio ends and loopMode is one', () => {
 	expect(onNext).not.toHaveBeenCalled()
 })
 
+test('persists volume changes to localStorage', async () => {
+	render(<AudioPlayer {...defaultProps} />)
+
+	const volumeSlider = document.querySelector('[aria-label="Volume"]')
+	expect(volumeSlider).not.toBeNull()
+	if (!(volumeSlider instanceof HTMLInputElement)) {
+		throw new TypeError('Expected volume control to be an HTMLInputElement')
+	}
+
+	fireEvent.change(volumeSlider, { target: { value: '0.4' } })
+
+	await waitFor(() => {
+		expect(window.localStorage.getItem('music-library:player-volume')).toBe('0.4')
+	})
+})
+
 test('calls onNext when next button is clicked', () => {
 	const onNext = vi.fn()
 
@@ -169,6 +189,7 @@ beforeEach(() => {
 afterEach(() => {
 	vi.unstubAllGlobals()
 	vi.restoreAllMocks()
+	window.localStorage.clear()
 })
 
 test('auto-plays after track change once the new audio URL has loaded', async () => {

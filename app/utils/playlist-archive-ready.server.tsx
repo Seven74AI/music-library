@@ -1,0 +1,187 @@
+import { prisma } from '#app/utils/db.server.ts'
+import { sendEmail } from '#app/utils/email.server.ts'
+import { PlaylistArchiveReadyEmail } from '#app/utils/playlist-archive-ready-email.tsx'
+
+export async function isServicePlaylistArchiveReady(
+	playlistId: string,
+): Promise<boolean> {
+	const playlistTracks = await prisma.servicePlaylistTrack.findMany({
+		where: {
+			playlistId,
+			isDeleted: false,
+		},
+		select: {
+			track: {
+				select: {
+					audioFiles: {
+						select: { id: true },
+						take: 1,
+					},
+				},
+			},
+		},
+	})
+
+	if (playlistTracks.length === 0) return false
+
+	return playlistTracks.every(
+		(playlistTrack) => playlistTrack.track.audioFiles.length > 0,
+	)
+}
+
+function resolveSiteOrigin(origin?: string): string {
+	const raw =
+		origin?.trim() || process.env.SITE_URL?.trim() || 'http://localhost:3000'
+	return raw.replace(/\/$/, '')
+}
+
+function sendPlaylistArchiveReadyEmail({
+	email,
+	userName,
+	playlistTitle,
+	playlistUrl,
+}: {
+	email: string
+	userName: string
+	playlistTitle: string
+	playlistUrl: string
+}) {
+	void sendEmail({
+		to: email,
+		subject: `Your playlist "${playlistTitle}" is ready to play`,
+		react: (
+			<PlaylistArchiveReadyEmail
+				playlistTitle={playlistTitle}
+				playlistUrl={playlistUrl}
+				userName={userName}
+			/>
+		),
+	})
+}
+
+export async function checkPlaylistArchiveReadyAfterTrackArchived(
+	trackId: string,
+	origin?: string,
+): Promise<void> {
+	const playlists = await prisma.servicePlaylist.findMany({
+		where: {
+			isActive: true,
+			archiveReadyNotifiedAt: null,
+			tracks: {
+				some: {
+					trackId,
+					isDeleted: false,
+				},
+			},
+		},
+		select: {
+			id: true,
+			title: true,
+			ownerId: true,
+			owner: {
+				select: {
+					email: true,
+					name: true,
+					username: true,
+				},
+			},
+		},
+	})
+
+	const siteOrigin = resolveSiteOrigin(origin)
+
+	for (const playlist of playlists) {
+		const ready = await isServicePlaylistArchiveReady(playlist.id)
+		if (!ready) continue
+
+		const playlistPath = `/music/services/youtube/playlist/${playlist.id}`
+		const playlistUrl = `${siteOrigin}${playlistPath}`
+
+		const notified = await prisma.$transaction(async (tx) => {
+			const claimResult = await tx.servicePlaylist.updateMany({
+				where: {
+					id: playlist.id,
+					archiveReadyNotifiedAt: null,
+				},
+				data: { archiveReadyNotifiedAt: new Date() },
+			})
+
+			if (claimResult.count === 0) return false
+
+			await tx.userNotification.create({
+				data: {
+					userId: playlist.ownerId,
+					type: 'playlist_archive_ready',
+					title: `"${playlist.title}" is ready to play`,
+					body: 'All tracks in this synced playlist have been archived.',
+					linkUrl: playlistPath,
+				},
+			})
+
+			return true
+		})
+
+		if (!notified) continue
+
+		sendPlaylistArchiveReadyEmail({
+			email: playlist.owner.email,
+			userName: playlist.owner.name ?? playlist.owner.username,
+			playlistTitle: playlist.title,
+			playlistUrl,
+		})
+	}
+}
+
+export async function getUnreadNotificationCount(userId: string): Promise<number> {
+	return prisma.userNotification.count({
+		where: {
+			userId,
+			readAt: null,
+		},
+	})
+}
+
+export async function getRecentNotifications(userId: string, limit = 10) {
+	return prisma.userNotification.findMany({
+		where: { userId },
+		orderBy: { createdAt: 'desc' },
+		take: limit,
+		select: {
+			id: true,
+			type: true,
+			title: true,
+			body: true,
+			linkUrl: true,
+			readAt: true,
+			createdAt: true,
+		},
+	})
+}
+
+export async function markNotificationRead(
+	notificationId: string,
+	userId: string,
+): Promise<boolean> {
+	const result = await prisma.userNotification.updateMany({
+		where: {
+			id: notificationId,
+			userId,
+			readAt: null,
+		},
+		data: { readAt: new Date() },
+	})
+
+	return result.count > 0
+}
+
+export async function markAllNotificationsRead(userId: string): Promise<number> {
+	const result = await prisma.userNotification.updateMany({
+		where: {
+			userId,
+			readAt: null,
+		},
+		data: { readAt: new Date() },
+	})
+
+	return result.count
+}

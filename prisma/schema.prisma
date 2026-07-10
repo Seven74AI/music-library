@@ -23,7 +23,23 @@ model User {
   image            UserImage?
   playlists        UserPlaylist[]
   userTracks       UserTrack[]
+  notifications    UserNotification[]
   roles            Role[]            @relation("RoleToUser")
+}
+
+model UserNotification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  linkUrl   String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
 }
 
 model UserImage {
@@ -305,8 +321,9 @@ model ServicePlaylist {
   channelTitle String?
   publishedAt  DateTime?
   itemCount    Int
-  lastSyncedAt DateTime?
-  isActive     Boolean                @default(true)
+  lastSyncedAt             DateTime?
+  archiveReadyNotifiedAt   DateTime?
+  isActive                 Boolean                @default(true)
   createdAt    DateTime               @default(now())
   updatedAt    DateTime               @updatedAt
   ownerId      String

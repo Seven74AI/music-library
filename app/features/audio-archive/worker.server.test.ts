@@ -73,6 +73,11 @@ vi.mock('./notification.server', () => ({
 	notifyJobFailed: mockNotifyJobFailed,
 }))
 
+const mockCheckPlaylistArchiveReady = vi.fn().mockResolvedValue(undefined)
+vi.mock('#app/utils/playlist-archive-ready.server.tsx', () => ({
+	checkPlaylistArchiveReadyAfterTrackArchived: mockCheckPlaylistArchiveReady,
+}))
+
 const mockExtractAudioMetadata = vi.fn()
 vi.mock('#app/utils/audio-metadata.server.ts', () => ({
 	extractAudioMetadata: mockExtractAudioMetadata,
@@ -263,6 +268,10 @@ describe('processQueueTick', () => {
 					where: { id: 'job-1' },
 					data: { status: 'completed' },
 				}),
+			)
+			expect(mockCheckPlaylistArchiveReady).toHaveBeenCalledWith(
+				'track-1',
+				process.env.SITE_URL,
 			)
 		})
 

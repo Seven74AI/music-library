@@ -673,6 +673,7 @@ export class ServicePlaylistService {
       data: {
         itemCount: playlistItems.length,
         lastSyncedAt: new Date(),
+        archiveReadyNotifiedAt: null,
       },
     })
 
