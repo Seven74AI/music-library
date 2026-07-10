@@ -139,8 +139,9 @@ export function createOfflineStorage(
 		buffer: ArrayBuffer,
 		options: { pin: boolean; queue: boolean; playlistId?: string },
 	) {
+		const fileSizeBytes = buffer.byteLength
 		await requestPersistentStorage()
-		await ensureCapacity(buffer.byteLength)
+		await ensureCapacity(fileSizeBytes)
 
 		const existing = await metadataStore.get(track.id)
 		await audioStore.write(track.id, buffer)
@@ -150,7 +151,7 @@ export function createOfflineStorage(
 				mergeOfflineTrackRecord(existing, {
 					isPinned: options.pin ? true : existing.isPinned,
 					isQueueCached: options.queue ? true : existing.isQueueCached,
-					fileSizeBytes: buffer.byteLength,
+					fileSizeBytes,
 					lastAccessedAt: Date.now(),
 					pinnedAt: options.pin ? Date.now() : existing.pinnedAt,
 					playlistId: options.playlistId,
@@ -163,7 +164,7 @@ export function createOfflineStorage(
 		await metadataStore.put(
 			toOfflineTrackRecord(track, {
 				opfsPath: offlineAudioOpfsPath(track.id),
-				fileSizeBytes: buffer.byteLength,
+				fileSizeBytes,
 				isPinned: options.pin,
 				isQueueCached: options.queue,
 				playlistId: options.playlistId,

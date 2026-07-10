@@ -67,6 +67,35 @@ describe('createOfflineStorage', () => {
 		vi.unstubAllGlobals()
 	})
 
+	test('records file size before OPFS write detaches the buffer', async () => {
+		const audioStore = createMemoryOfflineAudioStore()
+		const metadataStore = createOfflineMetadataStore()
+		const storage = createOfflineStorage({
+			audioStore,
+			metadataStore,
+			fetchAudioBytes: async () => new Uint8Array(3_538_581).buffer,
+			requestPersistentStorage: async () => {},
+			readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+		})
+
+		const originalWrite = audioStore.write.bind(audioStore)
+		audioStore.write = async (trackId, data) => {
+			const copy = data.slice(0)
+			const { port1, port2 } = new MessageChannel()
+			port1.postMessage(data, [data])
+			port2.onmessage = () => {}
+			await originalWrite(trackId, copy)
+		}
+
+		await storage.downloadTrack(track, { pin: true })
+
+		const record = await storage.getRecord(track.id)
+		expect(record?.fileSizeBytes).toBe(3_538_581)
+
+		const stats = await storage.getStorageStats()
+		expect(stats.totalBytes).toBe(3_538_581)
+	})
+
 	test('evicts queue-only tracks before pinned ones when quota is tight', async () => {
 		const audioStore = createMemoryOfflineAudioStore()
 		const metadataStore = createOfflineMetadataStore()
