@@ -16,6 +16,7 @@ const DIRECTIVES = {
 	'connect-src': "'self'",
 	'font-src': "'self'",
 	'media-src': "'self' https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",
+	'manifest-src': "'self'",
 	'frame-ancestors': "'none'",
 } as const
 
@@ -35,6 +36,7 @@ export function createCSP(nonce: string): string {
 		`connect-src ${DIRECTIVES['connect-src']}`,
 		`font-src ${DIRECTIVES['font-src']}`,
 		`media-src ${DIRECTIVES['media-src']}`,
+		`manifest-src ${DIRECTIVES['manifest-src']}`,
 		`frame-ancestors ${DIRECTIVES['frame-ancestors']}`,
 	].join('; ')
 }
