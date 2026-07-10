@@ -3,9 +3,31 @@
  */
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { expect, test } from 'vitest'
+import { beforeAll, expect, test, vi } from 'vitest'
 import { type HomeRecentPlaylist } from '#app/utils/home.server.ts'
 import { HomeRecentPlaylistRow } from './home-recent-playlist-row.tsx'
+
+vi.mock('#app/components/audio-player-provider.tsx', () => ({
+	useAudioPlayer: () => ({
+		playUserPlaylist: vi.fn(),
+	}),
+}))
+
+beforeAll(() => {
+	Object.defineProperty(window, 'matchMedia', {
+		writable: true,
+		value: (query: string) => ({
+			matches: false,
+			media: query,
+			onchange: null,
+			addListener: () => {},
+			removeListener: () => {},
+			addEventListener: () => {},
+			removeEventListener: () => {},
+			dispatchEvent: () => false,
+		}),
+	})
+})
 
 const makePlaylist = (
 	overrides: Partial<HomeRecentPlaylist> = {},

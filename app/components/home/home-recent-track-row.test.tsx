@@ -17,23 +17,32 @@ vi.mock('#app/components/audio-player-provider.tsx', () => ({
 	}),
 }))
 
+type MakeTrackOverrides = Omit<Partial<HomeRecentTrack>, 'track'> & {
+	track?: Partial<HomeRecentTrack['track']>
+}
+
 const makeTrack = (
-	overrides: Partial<HomeRecentTrack['track']> = {},
-): HomeRecentTrack => ({
-	id: 'user-track-1',
-	createdAt: new Date('2024-01-01'),
-	track: {
-		id: 'track-1',
-		title: 'Midnight City',
-		duration: 245,
-		serviceUrl: 'https://youtube.com/watch?v=test',
-		artist: { id: 'artist-1', name: 'M83' },
-		coverImage: { objectKey: 'covers/midnight-city.jpg' },
-		service: { name: 'youtube', displayName: 'YouTube', logoUrl: null },
-		audioFiles: [{ id: 'af-1', format: 'mp3', objectKey: 'audio/midnight.mp3' }],
-		...overrides,
-	},
-})
+	overrides: MakeTrackOverrides = {},
+): HomeRecentTrack => {
+	const { track: trackOverrides, ...userTrackOverrides } = overrides
+
+	return {
+		id: 'user-track-1',
+		createdAt: new Date('2024-01-01'),
+		track: {
+			id: 'track-1',
+			title: 'Midnight City',
+			duration: 245,
+			serviceUrl: 'https://youtube.com/watch?v=test',
+			artist: { id: 'artist-1', name: 'M83' },
+			coverImage: { objectKey: 'covers/midnight-city.jpg' },
+			service: { name: 'youtube', displayName: 'YouTube', logoUrl: null },
+			audioFiles: [{ id: 'af-1', format: 'mp3', objectKey: 'audio/midnight.mp3' }],
+			...trackOverrides,
+		},
+		...userTrackOverrides,
+	}
+}
 
 beforeEach(() => {
 	mockPlayTrack.mockClear()
@@ -51,9 +60,12 @@ test('renders track title and artist in compact cards', () => {
 			recentTracks={[
 				makeTrack(),
 				makeTrack({
-					id: 'track-2',
-					title: 'La Femme d\'argent',
-					artist: { id: 'artist-2', name: 'Air' },
+					id: 'user-track-2',
+					track: {
+						id: 'track-2',
+						title: 'La Femme d\'argent',
+						artist: { id: 'artist-2', name: 'Air' },
+					},
 				}),
 			]}
 		/>,
@@ -85,7 +97,7 @@ test('does not play tracks that are still archiving', async () => {
 
 	render(
 		<HomeRecentTrackRow
-			recentTracks={[makeTrack({ audioFiles: [] })]}
+			recentTracks={[makeTrack({ track: { audioFiles: [] } })]}
 		/>,
 	)
 

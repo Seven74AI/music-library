@@ -41,6 +41,15 @@ function unwrapHomeData(result: Awaited<ReturnType<typeof loadHomeData>>): HomeD
 	return (result as { data: HomeData }).data
 }
 
+const mockAdminUser = {
+	id: 'user-1',
+	email: 'admin@example.com',
+	username: 'admin',
+	name: 'Admin User',
+	createdAt: new Date('2024-01-01'),
+	updatedAt: new Date('2024-01-01'),
+}
+
 describe('resolveHomeMode', () => {
 	test('returns onboarding when there are no library tracks', () => {
 		expect(resolveHomeMode(0, 0)).toBe('onboarding')
@@ -72,7 +81,7 @@ describe('loadHomeData', () => {
 		vi.mocked(getUserId).mockResolvedValue('user-1')
 		vi.mocked(prisma.userTrack.count).mockResolvedValue(0)
 		vi.mocked(hasValidYouTubeOAuth).mockResolvedValue(true)
-		vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'user-1' })
+		vi.mocked(prisma.user.findFirst).mockResolvedValue(mockAdminUser)
 
 		const result = unwrapHomeData(await loadHomeData(new Request('http://localhost/')))
 
