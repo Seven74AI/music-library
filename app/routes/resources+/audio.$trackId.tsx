@@ -55,6 +55,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Check if file exists locally (for development)
 	const localFilePath = join(process.cwd(), 'tests', 'fixtures', 'uploaded', audioFile.objectKey)
+	const wantsStream = new URL(request.url).searchParams.has('stream')
+	if (existsSync(localFilePath) && !wantsStream) {
+		const streamUrl = new URL(request.url)
+		streamUrl.searchParams.set('stream', '1')
+		return Response.json({ url: streamUrl.toString() })
+	}
+
 	if (existsSync(localFilePath)) {
 		const mimeType = audioFile.mimeType || 'audio/flac'
 		const fileStats = statSync(localFilePath)

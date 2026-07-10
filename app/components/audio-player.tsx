@@ -6,7 +6,7 @@ import { Button } from '#app/components/ui/button'
 import { Icon } from '#app/components/ui/icon'
 import { ScrollArea } from '#app/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '#app/components/ui/sheet'
-import { type FullTrack, type QueueTrack } from '#app/types/frontend/shared'
+import { type FullTrack } from '#app/types/frontend/shared'
 
 type Track = FullTrack
 
@@ -22,16 +22,19 @@ interface AudioPlayerProps {
 	hasPrevious: boolean
 	loopMode: 'off' | 'all' | 'one'
 	isShuffleEnabled: boolean
+	playbackToken?: number
+	wantsAutoPlayRef?: React.MutableRefObject<boolean>
 }
 
 export function AudioPlayer(props: AudioPlayerProps) {
-	const { track, isVisible, onClose, onNext, onPrevious, onToggleLoop, onToggleShuffle, hasNext, hasPrevious, loopMode, isShuffleEnabled } = props
+	const { track, isVisible, onClose, onNext, onPrevious, onToggleLoop, onToggleShuffle, hasNext, hasPrevious, loopMode, isShuffleEnabled, playbackToken = 0, wantsAutoPlayRef } = props
 	const audioRef = useRef<HTMLAudioElement>(null)
 	const [isPlaying, setIsPlaying] = useState(false)
 	const [currentTime, setCurrentTime] = useState(0)
 	const [duration, setDuration] = useState(0)
 	const [volume] = useState(1)
-	const previousTrackIdRef = useRef<string | null>(null)
+	const previousPlaybackTokenRef = useRef<number | null>(null)
+	const loadedTrackIdRef = useRef<string | null>(null)
 	const isManualPlayRef = useRef(false)
 	const [isDownloading, setIsDownloading] = useState(false)
 	
@@ -57,15 +60,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	// Fetch presigned URL from server — no redirect, client talks to Tigris CDN directly
 	useEffect(() => {
 		if (!audioRouteUrl || !track) {
+			loadedTrackIdRef.current = null
 			setAudioSrc(undefined)
 			return
 		}
-		
-		// Reset audioSrc immediately on track change — prevents the play effect
-		// from firing prematurely with the previous track's stale URL, which
-		// would burn previousTrackIdRef and block playback of the new track.
+
+		const trackId = track.id
+		loadedTrackIdRef.current = null
 		setAudioSrc(undefined)
-		
+
 		let cancelled = false
 		fetch(audioRouteUrl)
 			.then(res => {
@@ -73,29 +76,38 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				return res.json() as Promise<{ url: string }>
 			})
 			.then(data => {
-				if (!cancelled) setAudioSrc(data.url)
+				if (!cancelled) {
+					loadedTrackIdRef.current = trackId
+					setAudioSrc(data.url)
+				}
 			})
 			.catch(err => {
 				console.error('Failed to fetch audio URL:', err)
 				if (!cancelled) setAudioSrc(undefined)
 			})
-		
+
 		return () => { cancelled = true }
 	}, [audioRouteUrl, track?.id])
-	
-	useEffect(() => {
-		if (audioRef.current) {
-			setIsPlaying(!audioRef.current.paused)
-		}
-	}, [])
 
 	useEffect(() => {
-		if (audioRef.current && track && audioSrc && track.id !== previousTrackIdRef.current) {
-			previousTrackIdRef.current = track.id
+		if (
+			audioRef.current &&
+			track &&
+			audioSrc &&
+			loadedTrackIdRef.current === track.id &&
+			playbackToken !== previousPlaybackTokenRef.current
+		) {
+			previousPlaybackTokenRef.current = playbackToken
 			setIsPlaying(false)
+			setCurrentTime(0)
+			setDuration(0)
 			audioRef.current.volume = volume
-			// Only auto-play if not manually triggered (prevents double-click issue)
-			if (!isManualPlayRef.current) {
+			const shouldAutoPlay = wantsAutoPlayRef?.current || !isManualPlayRef.current
+			if (wantsAutoPlayRef) {
+				wantsAutoPlayRef.current = false
+			}
+			if (shouldAutoPlay) {
+				audioRef.current.currentTime = 0
 				const playPromise = audioRef.current.play()
 				if (playPromise !== undefined) {
 					playPromise
@@ -110,7 +122,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			isManualPlayRef.current = false
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [track?.id, audioSrc, volume, loopMode])
+	}, [track?.id, audioSrc, playbackToken, volume, loopMode])
+
+	useEffect(() => {
+		if (audioRef.current) {
+			setIsPlaying(!audioRef.current.paused)
+		}
+	}, [])
 	
 	useEffect(() => {
 		if (audioRef.current) {
@@ -274,6 +292,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	if (!isVisible || !track || !audioRouteUrl) {
 		return null
 	}
+
+	const isAudioLoading = !audioSrc
 	
 	return (
 		<div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border shadow-lg z-50">
@@ -308,6 +328,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 								variant="default"
 								size="lg"
 								onClick={togglePlayPause}
+								disabled={isAudioLoading}
 								aria-label={isPlaying ? 'Pause' : 'Play'}
 								className="h-10 w-10 rounded-full p-0"
 							>
@@ -564,7 +585,7 @@ function QueueSheet() {
 	)
 }
 
-function QueueTrackItem({ track, isCurrentlyPlaying, onRemove }: { track: Track | QueueTrack, isCurrentlyPlaying: boolean, onRemove: () => void }) {
+function QueueTrackItem({ track, isCurrentlyPlaying, onRemove }: { track: Track, isCurrentlyPlaying: boolean, onRemove: () => void }) {
 	const coverImage = 'coverImage' in track ? track.coverImage : null
 
 	return (

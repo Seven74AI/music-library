@@ -49,6 +49,16 @@
    npm run setup
    ```
 
+   To reset and reseed from scratch:
+   ```bash
+   npm run db:reset   # migrations + generate (runs seed if configured)
+   npm run db:seed    # seed only
+   ```
+
+   **Local audio for playback testing**: place FLAC albums under `prisma/seed-data/audio/` (one folder per album). The seed script auto-imports them for the `kody` user when FLAC files are present. Set `SEED_AUDIO_TRACKS=false` to skip audio seeding.
+
+   **Dev login** (after seed): `kody` / `kodylovesyou`
+
 5. **Start the development server**
    ```bash
    # With mocks enabled (recommended for development)
@@ -77,6 +87,8 @@
 - `npm run lint` - Run ESLint
 - `npm run typecheck` - Run TypeScript type checking
 - `npm run validate` - Run all checks (tests, lint, typecheck)
+- `npm run db:reset` - Reset database (migrations + generate)
+- `npm run db:seed` - Run seed script
 
 ## Testing
 

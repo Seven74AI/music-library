@@ -5,6 +5,7 @@ import { createId } from '@paralleldrive/cuid2'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { LOCAL_SERVICE } from '#app/constants/services'
 import { getOrCreateArtistTx, extractArtistMetadata } from '#app/utils/artist-management.server'
+import { getDatabaseUrl } from '#app/utils/database-url.server.ts'
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { uploadFile } from '#app/utils/storage.server'
@@ -15,16 +16,34 @@ import {
 	getUserImages,
 } from '#tests/db-utils.ts'
 
+function getAudioSeedDataPath(): string {
+	return join(process.cwd(), 'prisma', 'seed-data', 'audio')
+}
+
+function hasAudioSeedData(): boolean {
+	const audioDataPath = getAudioSeedDataPath()
+	if (!existsSync(audioDataPath)) return false
+
+	return readdirSync(audioDataPath, { withFileTypes: true })
+		.filter(dirent => dirent.isDirectory())
+		.some(dirent => {
+			const albumPath = join(audioDataPath, dirent.name)
+			return readdirSync(albumPath).some(file => file.toLowerCase().endsWith('.flac'))
+		})
+}
+
+function shouldSeedAudioTracks(): boolean {
+	if (process.env.SEED_AUDIO_TRACKS === 'false') return false
+	if (process.env.SEED_AUDIO_TRACKS === 'true') return true
+	return hasAudioSeedData()
+}
+
 // Create Prisma Client directly using DATABASE_URL from environment
-// This ensures seed uses the same DATABASE_URL as migrations (both read from .env)
 const adapter = new PrismaBetterSqlite3({
-	url: process.env.DATABASE_URL || 'file:./prisma/data.db',
+	url: getDatabaseUrl(),
 })
 
 const prisma = new PrismaClient({ adapter })
-
-// Toggle to enable/disable track seeding
-const ENABLE_TRACK_SEEDING = false
 
 async function seed() {
 	console.log('🌱 Seeding...')
@@ -117,11 +136,11 @@ async function seed() {
 		},
 	})
 
-	// Seed audio files for kody (if enabled)
-	if (ENABLE_TRACK_SEEDING) {
+	// Seed real audio tracks from prisma/seed-data/audio/ when available
+	if (shouldSeedAudioTracks()) {
 		await seedAudioFiles(kody.id)
 	} else {
-		console.log('⏭️  Track seeding is disabled (ENABLE_TRACK_SEEDING = false)')
+		console.log('⏭️  No FLAC files in prisma/seed-data/audio — skipping track seeding')
 	}
 
 	console.time(`👤 Created regular user "kodyuser"`)
@@ -235,7 +254,7 @@ async function uploadFileLocal(file: Buffer, key: string): Promise<string> {
  * Seed audio files from all albums in prisma/seed-data/audio/
  */
 async function seedAudioFiles(userId: string) {
-	const audioDataPath = join(process.cwd(), 'prisma', 'seed-data', 'audio')
+	const audioDataPath = getAudioSeedDataPath()
 	
 	// Check if directory exists
 	if (!existsSync(audioDataPath)) {

@@ -1,12 +1,20 @@
+import { join } from 'node:path'
+
 /**
  * Centralized DATABASE_URL helper
- * 
+ *
  * Provides a single source of truth for the database URL across the application.
- * This ensures consistency between Prisma Client instances and Prisma CLI commands.
- * 
- * @returns The DATABASE_URL from environment variables or a sensible default
+ * Strips query params (e.g. ?connection_limit=1) that better-sqlite3 treats as
+ * part of the filename, and resolves relative file: paths to absolute paths.
  */
 export function getDatabaseUrl(): string {
-	return process.env.DATABASE_URL || 'file:./prisma/data.db'
+	const raw = process.env.DATABASE_URL || 'file:./data.db'
+	const withoutQuery = raw.split('?')[0] ?? raw
+
+	if (withoutQuery.startsWith('file:./')) {
+		return `file:${join(process.cwd(), withoutQuery.slice('file:'.length + 1))}`
+	}
+
+	return withoutQuery
 }
 

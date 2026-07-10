@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-import { render } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
 import { type ReactNode } from 'react'
-import { expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import  { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayer } from './audio-player'
 
@@ -39,6 +39,8 @@ const defaultProps = {
 	hasPrevious: false,
 	loopMode: 'off' as const,
 	isShuffleEnabled: false,
+	playbackToken: 0,
+	wantsAutoPlayRef: { current: false },
 }
 
 test('logs MediaError.code to console.error when <audio> fires error event', () => {
@@ -141,4 +143,72 @@ test('calls onPrevious when previous button is clicked', () => {
 	prevButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
 	expect(onPrevious).toHaveBeenCalledOnce()
+})
+
+const mockTrack2: FullTrack = {
+	...mockTrack,
+	id: 'track-2',
+	title: 'Second Song',
+	audioFiles: [{ id: 'af-2', format: 'mp3', objectKey: 'audio/test2.mp3' }],
+}
+
+beforeEach(() => {
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input)
+			const trackId = url.match(/\/resources\/audio\/([^/?]+)/)?.[1] ?? 'track-1'
+			return {
+				ok: true,
+				json: async () => ({ url: `https://cdn.example/${trackId}.mp3` }),
+			}
+		}),
+	)
+})
+
+afterEach(() => {
+	vi.unstubAllGlobals()
+	vi.restoreAllMocks()
+})
+
+test('auto-plays after track change once the new audio URL has loaded', async () => {
+	const wantsAutoPlayRef = { current: true }
+	const playSpy = vi
+		.spyOn(window.HTMLMediaElement.prototype, 'play')
+		.mockImplementation(function (this: HTMLMediaElement) {
+			Object.defineProperty(this, 'paused', { configurable: true, value: false })
+			return Promise.resolve()
+		})
+
+	const { rerender } = render(
+		<AudioPlayer
+			{...defaultProps}
+			playbackToken={1}
+			wantsAutoPlayRef={wantsAutoPlayRef}
+		/>,
+	)
+
+	await waitFor(() => {
+		expect(playSpy).toHaveBeenCalled()
+	})
+
+	playSpy.mockClear()
+
+	rerender(
+		<AudioPlayer
+			{...defaultProps}
+			track={mockTrack2}
+			playbackToken={2}
+			wantsAutoPlayRef={wantsAutoPlayRef}
+		/>,
+	)
+
+	await act(async () => {
+		await Promise.resolve()
+	})
+
+	await waitFor(() => {
+		expect(playSpy).toHaveBeenCalled()
+		expect(wantsAutoPlayRef.current).toBe(false)
+	})
 })

@@ -51,6 +51,11 @@ The audio player is a persistent, bottom-fixed control bar that appears when a u
 - Priority order: FLAC > WAV > MP3 > M4A > OGG > AAC
 - Ensures highest quality playback when multiple formats are available
 
+#### 6. **Audio URL loading (production & local dev)**
+- The player fetches `/resources/audio/:trackId` and receives a JSON `{ url }` (presigned Tigris URL in production; local stream URL in dev)
+- Auto-play only runs after the URL for the **current** track has loaded (avoids races when skipping tracks)
+- Navigation (next, previous, click another track) updates the current track immediately and keeps playback going when possible
+
 ---
 
 ## Queue System
@@ -77,30 +82,21 @@ The queue system understands where the user clicked "Play" and loads tracks acco
 
 **Key Behavior**: The queue always resets when switching between contexts (library ↔ playlist), ensuring users get the expected set of tracks.
 
-#### 2. **Performance Optimization for Large Libraries**
+#### 2. **Queue loading & navigation**
 
-To handle users with thousands of tracks efficiently, the system uses a two-tier loading strategy:
+When playback starts, the selected track plays immediately while the full queue loads in the background:
 
-**Initial Load (Minimal Data)**:
-- When queue is created, only essential data is loaded:
-  - Track ID
-  - Track Title
-  - Artist Name
-- This allows the queue to display instantly, even with 5,000+ tracks
-- Minimal memory footprint
+**Full-track queue load**:
+- Fetches all tracks for the context (`fields=full`) in pages of 100
+- Includes audio file metadata needed for playback and the queue UI
+- Runs after `setCurrentTrack` so the player appears without waiting for the full list
 
-**On-Demand Loading (Full Data)**:
-- Full track data is loaded only when needed:
-  - When a track is about to play
-  - When a track is displayed in the queue UI
-- Full data includes:
-  - Audio file information
-  - Thumbnail URL
-  - Duration
-  - Service information
-- Data is cached to avoid redundant API calls
+**Synchronous navigation**:
+- Next, previous, and clicking another track in the list update the current track immediately
+- No per-track async hop before switching — the queue is already in memory once loaded
+- An epoch guard cancels stale playlist fetches if the user switches context mid-load
 
-**Virtual Scrolling**:
+**Virtual Scrolling** (queue sheet only):
 - The queue UI uses virtual scrolling technology
 - Only visible tracks are rendered in the DOM
 - Enables smooth scrolling through thousands of tracks without performance degradation
@@ -131,7 +127,6 @@ To handle users with thousands of tracks efficiently, the system uses a two-tier
 **Next Track**:
 - Advances to the next track in the queue
 - Respects loop and shuffle modes
-- Automatically loads full track data if needed
 - If at end of queue:
   - Loop Off: Stops playback
   - Loop All: Wraps to first track
@@ -165,10 +160,9 @@ To handle users with thousands of tracks efficiently, the system uses a two-tier
 2. User clicks "Play" on any track
 3. **System Behavior**:
    - Audio player appears at bottom
+   - Selected track begins playing immediately
    - Queue resets (if previously had different context)
-   - All library tracks load with minimal data (fast)
-   - Selected track begins playing
-   - Full track data loads for current track
+   - All library tracks load in the background (`fields=full`, paginated)
 4. User can:
    - Navigate through entire library using next/previous
    - Open queue to see all library tracks
@@ -181,10 +175,9 @@ To handle users with thousands of tracks efficiently, the system uses a two-tier
 2. User clicks "Play" on any track in the playlist
 3. **System Behavior**:
    - Audio player appears at bottom
+   - Selected track begins playing immediately
    - Queue resets (if previously had different context)
-   - All playlist tracks load with minimal data (fast)
-   - Selected track begins playing
-   - Full track data loads for current track
+   - All playlist tracks load in the background (`fields=full`, paginated)
 4. User can:
    - Navigate through entire playlist using next/previous
    - Open queue to see all playlist tracks
@@ -198,9 +191,8 @@ To handle users with thousands of tracks efficiently, the system uses a two-tier
 3. **System Behavior**:
    - Queue resets completely
    - Library tracks are cleared
-   - Playlist tracks load (minimal data)
-   - New track begins playing
-   - Cache is cleared to free memory
+   - New track begins playing immediately
+   - Playlist tracks load in the background
 
 ### Flow 4: Queue Management
 
@@ -232,7 +224,7 @@ To handle users with thousands of tracks efficiently, the system uses a two-tier
 **Layout** (Left to Right):
 1. **Left Section**: Track thumbnail + title/artist
 2. **Center Section**: Playback controls + progress bar
-3. **Right Section**: Queue button + loop + shuffle + close
+3. **Right Section**: Queue button + loop + shuffle + download + close
 
 **Visual States**:
 - **Loop Button**:
@@ -264,36 +256,26 @@ To handle users with thousands of tracks efficiently, the system uses a two-tier
   - Play icon badge on thumbnail
 
 **Performance**:
-- Smooth scrolling even with 5,000+ tracks
-- Instant opening (minimal data loaded)
+- Smooth scrolling even with 5,000+ tracks (virtual list in the queue sheet)
 - Responsive interactions
 
 ---
 
 ## Technical Performance Features
 
-### 1. **Lazy Loading**
-- Only loads what's needed, when it's needed
-- Reduces initial load time
-- Minimizes memory usage
-- Improves application responsiveness
+### 1. **Paginated queue fetch**
+- Loads tracks in pages of 100 until the full context list is in memory
+- Playlist fetch uses an epoch guard so stale responses are ignored after context switches
 
-### 2. **Caching**
-- Full track data is cached after first load
-- Reduces redundant API calls
-- Faster subsequent track switches
-- Cache cleared when context changes
+### 2. **Presigned URL playback**
+- Audio `src` is set only after the server returns the stream URL for the current track
+- Prevents auto-play from firing on a previous track's URL during fast navigation (React `useEffect` cleanup / ignore-flag pattern)
 
 ### 3. **Virtual Scrolling**
 - Renders only visible items
 - Handles unlimited track counts
 - Smooth scrolling performance
 - Minimal DOM footprint
-
-### 4. **Batch Loading**
-- Loads tracks in batches when fetching full data
-- Caches entire batches for efficiency
-- Reduces API round trips
 
 ---
 
@@ -316,9 +298,9 @@ To handle users with thousands of tracks efficiently, the system uses a two-tier
 - User sees appropriate feedback
 
 ### Browser Autoplay Restrictions
-- Respects browser autoplay policies
-- Requires user interaction for initial play
-- Handles autoplay prevention gracefully
+- Respects browser autoplay policies (`play()` returns a Promise; may reject with `NotAllowedError`)
+- Requires user interaction for initial play in many browsers
+- Handles autoplay prevention gracefully (play button remains available)
 - Play button works immediately after user interaction
 
 ### Large Library Performance
@@ -332,7 +314,7 @@ To handle users with thousands of tracks efficiently, the system uses a two-tier
 ## User Benefits
 
 1. **Seamless Experience**: Play from anywhere, queue manages context automatically
-2. **Fast Performance**: Even with massive libraries, queue loads instantly
+2. **Fast start**: Playback begins on the selected track while the full queue loads in the background
 3. **Full Control**: Easy queue management, shuffle, loop modes
 4. **Visual Clarity**: Clear indicators for current track, loop/shuffle states
 5. **Efficient Navigation**: Auto-scroll to current track, easy browsing
