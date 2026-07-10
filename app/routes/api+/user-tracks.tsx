@@ -1,5 +1,6 @@
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
+import { LIBRARY_TRACKS_PAGE_SIZE } from '#app/utils/library-tracks-pagination.ts'
 
 export async function loader({ request }: { request: Request }) {
 	try {
@@ -7,7 +8,7 @@ export async function loader({ request }: { request: Request }) {
 		const url = new URL(request.url)
 		const cursor = url.searchParams.get('cursor')
 		const limitParam = url.searchParams.get('limit')
-		const limit = parseInt(limitParam || '5')
+		const limit = parseInt(limitParam || String(LIBRARY_TRACKS_PAGE_SIZE))
 		const fields = url.searchParams.get('fields') || 'full' // 'minimal' or 'full'
 
 		if (isNaN(limit) || limit < 1 || limit > 100) {

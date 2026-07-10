@@ -8,6 +8,7 @@ import { ScrollArea } from '#app/components/ui/scroll-area'
 import { TrackListSkeleton } from '#app/components/ui/track-list-skeleton'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
+import { LIBRARY_TRACKS_PAGE_SIZE } from '#app/utils/library-tracks-pagination.ts'
 import { type Route } from './+types/library.index.ts'
 
 // Define the track type
@@ -42,7 +43,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 	const userId = await requireUserId(request)
 	const url = new URL(request.url)
 	const cursor = url.searchParams.get('cursor')
-	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '5')))
+	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || String(LIBRARY_TRACKS_PAGE_SIZE))))
 
 	// Get user's tracks with cursor-based pagination
 	// Filter out deleted tracks (isActive = false or deletedAt is set)
@@ -132,10 +133,11 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 	// Ensure we have valid data structure
 	const safeLoaderData = loaderData || {
 		userTracks: [],
-		pagination: { hasNext: false, nextCursor: null, limit: 5 },
+		pagination: { hasNext: false, nextCursor: null, limit: LIBRARY_TRACKS_PAGE_SIZE },
 		playlists: []
 	}
 	const { userTracks, pagination, playlists } = safeLoaderData
+	const pageSize = pagination?.limit ?? LIBRARY_TRACKS_PAGE_SIZE
 
 	// Use useInfiniteQuery for data fetching
 	const {
@@ -151,8 +153,8 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
 		queryKey: ['user-tracks'],
 		queryFn: async ({ pageParam }) => {
 			const url = pageParam 
-				? `/api/user-tracks?cursor=${pageParam}&limit=5`
-				: `/api/user-tracks?limit=5`
+				? `/api/user-tracks?cursor=${pageParam}&limit=${pageSize}`
+				: `/api/user-tracks?limit=${pageSize}`
 			const res = await fetch(url)
 			const json = await res.json() as { userTracks: UserTrack[], pagination: { hasNext: boolean, nextCursor: string | null } }
 			return json
