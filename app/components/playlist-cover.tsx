@@ -1,4 +1,5 @@
 import { Icon } from '#app/components/ui/icon.tsx'
+import { coverImageUrl, playlistCoverPixelSizes } from '#app/utils/cover-image-url.ts'
 import { cn } from '#app/utils/misc.tsx'
 
 interface PlaylistCoverTrack {
@@ -19,12 +20,13 @@ const sizeClasses = {
 }
 
 export function PlaylistCover({ tracks, size = 'md', className }: PlaylistCoverProps) {
+	const requestedPixels = playlistCoverPixelSizes[size]
 	const thumbnails = tracks
 		.filter(track => track.coverImage?.objectKey)
 		.slice(0, 4)
 		.map(track => ({
 			id: track.id,
-			url: `/resources/images?src=${encodeURIComponent(track.coverImage!.objectKey)}&w=64&h=64&fit=cover&format=webp`
+			url: coverImageUrl(track.coverImage!.objectKey, requestedPixels),
 		}))
 
 	if (thumbnails.length === 0) {

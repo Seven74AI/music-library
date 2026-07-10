@@ -1,11 +1,14 @@
 import { Icon } from '#app/components/ui/icon'
 import { cn } from '#app/utils/misc'
+import { coverImageUrl, trackThumbnailPixelSizes } from '#app/utils/cover-image-url.ts'
 
 interface TrackThumbnailProps {
 	coverImage: { objectKey: string } | null | undefined
 	thumbnailUrl?: string | null // Placeholder thumbnail URL (e.g., from YouTube) when coverImage is not available
 	alt?: string
-	size?: 'xs' | 'sm' | 'md' | 'lg'
+	size?: keyof typeof sizeClasses
+	/** Override proxy resize dimensions (defaults to 2x the display size for retina). */
+	pixelSize?: number
 	className?: string
 }
 
@@ -36,14 +39,16 @@ export function TrackThumbnail({
 	thumbnailUrl,
 	alt = 'Track cover', 
 	size = 'md',
+	pixelSize,
 	className 
 }: TrackThumbnailProps) {
 	const sizeClass = sizeClasses[size]
 	const iconSizeClass = iconSizeClasses[size]
+	const requestedPixels = pixelSize ?? trackThumbnailPixelSizes[size]
 	
 	// Use optimized image URL if cover image exists, otherwise use thumbnailUrl as placeholder
 	const imageUrl = coverImage?.objectKey
-		? `/resources/images?src=${encodeURIComponent(coverImage.objectKey)}&w=${size === 'xs' ? 32 : size === 'sm' ? 40 : size === 'md' ? 48 : 56}&h=${size === 'xs' ? 32 : size === 'sm' ? 40 : size === 'md' ? 48 : 56}&fit=cover&format=webp`
+		? coverImageUrl(coverImage.objectKey, requestedPixels)
 		: thumbnailUrl || null
 
 	if (imageUrl) {

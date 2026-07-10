@@ -45,6 +45,7 @@ export function HomeRecentTrackCard({
 					coverImage={track.coverImage}
 					alt={track.title}
 					size="lg"
+					pixelSize={320}
 					className="h-full w-full rounded-lg"
 				/>
 
