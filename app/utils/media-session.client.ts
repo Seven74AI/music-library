@@ -1,19 +1,24 @@
 import { type FullTrack } from '#app/types/frontend/shared'
 import { coverImageUrl } from '#app/utils/cover-image-url.ts'
 
+/** Sizes recommended for MediaMetadata artwork (iOS lock screen through Android). */
+const MEDIA_SESSION_ARTWORK_SIZES = [96, 128, 192, 256, 384, 512] as const
+
+export function buildMediaSessionArtwork(objectKey: string) {
+	return MEDIA_SESSION_ARTWORK_SIZES.map((size) => ({
+		src: coverImageUrl(objectKey, size),
+		sizes: `${size}x${size}`,
+		type: 'image/webp',
+	}))
+}
+
 export function buildMediaSessionMetadata(track: FullTrack) {
 	return {
 		title: track.title,
 		artist: track.artist.name,
 		album: '',
 		artwork: track.coverImage
-			? [
-					{
-						src: coverImageUrl(track.coverImage.objectKey, 512),
-						sizes: '512x512',
-						type: 'image/webp',
-					},
-				]
+			? buildMediaSessionArtwork(track.coverImage.objectKey)
 			: [],
 	}
 }

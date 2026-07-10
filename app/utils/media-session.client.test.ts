@@ -21,7 +21,7 @@ test('buildMediaSessionMetadata uses track title and artist', () => {
 	expect(metadata.artwork).toEqual([])
 })
 
-test('buildMediaSessionMetadata includes cover artwork when available', () => {
+test('buildMediaSessionMetadata includes multiple artwork sizes when cover is available', () => {
 	const metadata = buildMediaSessionMetadata({
 		id: 'track-1',
 		title: 'Test Song',
@@ -31,7 +31,20 @@ test('buildMediaSessionMetadata includes cover artwork when available', () => {
 		audioFiles: [],
 	})
 
-	expect(metadata.artwork[0]?.src).toContain('/resources/images')
+	expect(metadata.artwork).toHaveLength(6)
+	expect(metadata.artwork.map((entry) => entry.sizes)).toEqual([
+		'96x96',
+		'128x128',
+		'192x192',
+		'256x256',
+		'384x384',
+		'512x512',
+	])
+	expect(metadata.artwork.every((entry) => entry.src.includes('/resources/images'))).toBe(
+		true,
+	)
+	expect(metadata.artwork[0]?.src).toContain('w=96')
+	expect(metadata.artwork.at(-1)?.src).toContain('w=512')
 })
 
 describe('updateMediaSessionPositionState', () => {
