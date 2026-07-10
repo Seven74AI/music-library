@@ -102,9 +102,8 @@ export function PlaylistCard({
 							>
 								<Button
 									variant="secondary"
-									size={isMobile ? 'default' : 'lg'}
 									className={cn(
-										'rounded-full shadow-lg transition-all duration-200 ease-out hover:scale-110',
+										'rounded-full p-0 shadow-lg transition-all duration-200 ease-out hover:scale-110',
 										isMobile ? 'h-10 w-10' : 'h-12 w-12',
 									)}
 									aria-label={`Play ${title}`}
@@ -117,7 +116,7 @@ export function PlaylistCard({
 									<Icon
 										name="play"
 										className={cn(
-											'ml-0.5 transition-transform duration-200',
+											'ml-0.5 text-secondary-foreground',
 											isMobile ? 'h-4 w-4' : 'h-6 w-6',
 										)}
 									/>
