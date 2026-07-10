@@ -18,7 +18,12 @@ export default function Index() {
 		case 'marketing':
 			return <MarketingHome />
 		case 'onboarding':
-			return <OnboardingHome youtubeConnected={data.youtubeConnected} />
+			return (
+				<OnboardingHome
+					youtubeConnected={data.youtubeConnected}
+					isAdmin={data.isAdmin}
+				/>
+			)
 		case 'gray':
 			return <ListeningHome {...data} showArchivingBanner />
 		case 'listening':

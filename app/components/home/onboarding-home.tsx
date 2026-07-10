@@ -4,9 +4,13 @@ import { Icon } from '#app/components/ui/icon.tsx'
 
 type OnboardingHomeProps = {
 	youtubeConnected: boolean
+	isAdmin: boolean
 }
 
-export function OnboardingHome({ youtubeConnected }: OnboardingHomeProps) {
+export function OnboardingHome({
+	youtubeConnected,
+	isAdmin,
+}: OnboardingHomeProps) {
 	const primaryHref = youtubeConnected
 		? '/music/services/youtube/playlists'
 		: '/music/services/youtube/auth'
@@ -27,20 +31,22 @@ export function OnboardingHome({ youtubeConnected }: OnboardingHomeProps) {
 						{primaryLabel}
 					</Link>
 				</Button>
-				<div className="mt-10 border-t pt-8">
-					<p className="text-muted-foreground mb-4 text-sm">or</p>
-					<div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-						<Button asChild variant="outline">
-							<Link to="/music/services/local/upload">
-								<Icon name="plus" className="mr-2 h-4 w-4" />
-								Upload your files
-							</Link>
-						</Button>
+				{isAdmin ? (
+					<div className="mt-10 border-t pt-8">
+						<p className="text-muted-foreground mb-4 text-sm">or</p>
+						<div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+							<Button asChild variant="outline">
+								<Link to="/music/services/local/upload">
+									<Icon name="plus" className="mr-2 h-4 w-4" />
+									Upload your files
+								</Link>
+							</Button>
+						</div>
+						<p className="text-muted-foreground mt-6 text-sm">
+							You can also search for tracks using the search bar above.
+						</p>
 					</div>
-					<p className="text-muted-foreground mt-6 text-sm">
-						You can also search for tracks using the search bar above.
-					</p>
-				</div>
+				) : null}
 			</div>
 		</main>
 	)

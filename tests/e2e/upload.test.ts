@@ -102,16 +102,12 @@ test.describe('Local Upload Service', { tag: '@slow' }, () => {
 		expect(response?.status()).toBe(403)
 	})
 
-	test('non-admin users see disabled upload button on services page', async ({ page, login }) => {
-		// Login as regular user (not admin)
+	test('non-admin users do not see local upload service on services page', async ({ page, login }) => {
 		await login()
-		
+
 		await page.goto('/music/services')
-		
-		// Check for disabled "Admin Only" button
-		const adminOnlyButton = page.getByRole('button', { name: /admin only/i })
-		await expect(adminOnlyButton).toBeVisible()
-		await expect(adminOnlyButton).toBeDisabled()
+
+		await expect(page.getByText('Local Upload')).not.toBeVisible()
 	})
 
 	// Note: Full upload tests would require:

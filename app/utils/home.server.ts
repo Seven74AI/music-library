@@ -13,6 +13,7 @@ export type HomeMarketingData = { mode: 'marketing' }
 export type HomeOnboardingData = {
 	mode: 'onboarding'
 	youtubeConnected: boolean
+	isAdmin: boolean
 }
 
 export type HomeRecentTrack = {
@@ -156,8 +157,18 @@ export async function loadHomeData(request: Request) {
 	const mode = resolveHomeMode(totalTracks, playableTracks)
 
 	if (mode === 'onboarding') {
-		const youtubeConnected = await hasValidYouTubeOAuth(userId)
-		return data<HomeOnboardingData>({ mode: 'onboarding', youtubeConnected })
+		const [youtubeConnected, adminUser] = await Promise.all([
+			hasValidYouTubeOAuth(userId),
+			prisma.user.findFirst({
+				select: { id: true },
+				where: { id: userId, roles: { some: { name: 'admin' } } },
+			}),
+		])
+		return data<HomeOnboardingData>({
+			mode: 'onboarding',
+			youtubeConnected,
+			isAdmin: adminUser !== null,
+		})
 	}
 
 	const [totalPlaylists, recentTracks, recentPlaylists] = await Promise.all([

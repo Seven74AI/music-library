@@ -10,6 +10,9 @@ vi.mock('#app/utils/auth.server.ts', () => ({
 
 vi.mock('#app/utils/db.server.ts', () => ({
 	prisma: {
+		user: {
+			findFirst: vi.fn(),
+		},
 		userTrack: {
 			count: vi.fn(),
 			findMany: vi.fn(),
@@ -69,12 +72,29 @@ describe('loadHomeData', () => {
 		vi.mocked(getUserId).mockResolvedValue('user-1')
 		vi.mocked(prisma.userTrack.count).mockResolvedValue(0)
 		vi.mocked(hasValidYouTubeOAuth).mockResolvedValue(true)
+		vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'user-1' })
 
 		const result = unwrapHomeData(await loadHomeData(new Request('http://localhost/')))
 
 		expect(result).toEqual({
 			mode: 'onboarding',
 			youtubeConnected: true,
+			isAdmin: true,
+		})
+	})
+
+	test('returns isAdmin false for non-admin users in onboarding mode', async () => {
+		vi.mocked(getUserId).mockResolvedValue('user-1')
+		vi.mocked(prisma.userTrack.count).mockResolvedValue(0)
+		vi.mocked(hasValidYouTubeOAuth).mockResolvedValue(false)
+		vi.mocked(prisma.user.findFirst).mockResolvedValue(null)
+
+		const result = unwrapHomeData(await loadHomeData(new Request('http://localhost/')))
+
+		expect(result).toEqual({
+			mode: 'onboarding',
+			youtubeConnected: false,
+			isAdmin: false,
 		})
 	})
 

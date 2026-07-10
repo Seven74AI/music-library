@@ -1,6 +1,6 @@
 // @context7: React Router, Server-Sent Events, Streaming
 import { data, type LoaderFunctionArgs } from 'react-router'
-import { requireUserId } from '#app/utils/auth.server'
+import { requireUserWithRole } from '#app/utils/permissions.server'
 
 // Type for file data stored for retry capability
 export interface StoredFileData {
@@ -330,7 +330,7 @@ export function cleanupOldProgress() {
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
-	await requireUserId(request)
+	await requireUserWithRole(request, 'admin')
 
 	const uploadId = params.uploadId
 	if (!uploadId) {

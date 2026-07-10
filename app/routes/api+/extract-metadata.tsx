@@ -2,7 +2,7 @@
 import { parseFormData } from '@mjackson/form-data-parser'
 import { data, type ActionFunctionArgs } from 'react-router'
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
-import { requireUserId } from '#app/utils/auth.server'
+import { requireUserWithRole } from '#app/utils/permissions.server'
 import { extractAudioFilesFromZip } from '#app/utils/zip-extraction.server'
 
 // Maximum file size: 100MB for single file, 500MB for ZIP
@@ -31,7 +31,7 @@ const ALLOWED_ZIP_MIME_TYPES = [
 ]
 
 export async function action({ request }: ActionFunctionArgs) {
-	await requireUserId(request)
+	await requireUserWithRole(request, 'admin')
 
 	// Parse form data with file size limit
 	const formData = await parseFormData(request, { maxFileSize: MAX_ZIP_SIZE })
