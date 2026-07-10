@@ -1,3 +1,5 @@
+
+import { S3Client } from '@aws-sdk/client-s3'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 // Mock the AWS SDK before importing the module
@@ -9,9 +11,6 @@ vi.mock('@aws-sdk/client-s3', () => ({
 vi.mock('@aws-sdk/lib-storage', () => ({
 	Upload: vi.fn(),
 }))
-
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
-import { Upload } from '@aws-sdk/lib-storage'
 
 // We need to re-import after mocking, but since the module already imported,
 // we'll test the functions by calling them after setting up the mocks.

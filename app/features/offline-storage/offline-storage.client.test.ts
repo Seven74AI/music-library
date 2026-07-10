@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, vi, afterEach } from 'vitest'
+import { describe, expect, test, beforeEach, vi } from 'vitest'
 import { createMemoryOfflineAudioStore } from './memory-audio-store.ts'
 import { createOfflineMetadataStore } from './metadata-store.client.ts'
 import { createOfflineStorage } from './offline-storage.client.ts'

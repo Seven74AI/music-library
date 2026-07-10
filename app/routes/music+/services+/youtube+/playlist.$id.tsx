@@ -9,7 +9,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
-import { toast } from '#app/components/ui/use-toast'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { 
   isPlaylistWithTracks,
@@ -484,10 +483,10 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 									<img 
 										src={playlist.thumbnailUrl} 
 										alt={playlist.title}
-										className="w-24 h-24 rounded object-cover flex-shrink-0"
+										className="w-24 h-24 rounded object-cover shrink-0"
 									/>
 								) : (
-									<div className="w-24 h-24 bg-muted rounded flex items-center justify-center flex-shrink-0">
+									<div className="w-24 h-24 bg-muted rounded flex items-center justify-center shrink-0">
 										<Icon name="file-text" className="h-12 w-12 text-muted-foreground" />
 									</div>
 								)}
@@ -522,7 +521,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 								</div>
 							)}
 
-							<div className="h-[1px] w-full bg-border" />
+							<div className="h-px w-full bg-border" />
 							
 							<div className="space-y-3">
 								<Button

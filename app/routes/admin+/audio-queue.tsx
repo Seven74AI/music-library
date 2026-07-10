@@ -336,7 +336,6 @@ function getLatestError(errorHistoryJson: string): string {
 
 export default function AudioQueueRoute({
 	loaderData,
-	actionData,
 }: Route.ComponentProps) {
 	const fetcher = useFetcher()
 	const [searchParams] = useSearchParams()

@@ -13,6 +13,7 @@ import {
 	revokePlaybackAudioUrl,
 } from '#app/features/offline-storage/resolve-playback-url.client.ts'
 import { type FullTrack } from '#app/types/frontend/shared'
+import { triggerBrowserDownload } from '#app/utils/download.ts'
 import {
 	buildMediaSessionMetadata,
 	clearMediaSessionPositionState,
@@ -20,11 +21,11 @@ import {
 	isMediaSessionSupported,
 	updateMediaSessionPositionState,
 } from '#app/utils/media-session.client.ts'
+import { cn } from '#app/utils/misc'
 import {
 	adjustVolumeStep,
 	getPlayerKeyboardAction,
 } from '#app/utils/player-keyboard-shortcuts.ts'
-import { triggerBrowserDownload } from '#app/utils/download.ts'
 import {
 	DEFAULT_PLAYER_VOLUME,
 	readStoredVolume,
@@ -36,7 +37,6 @@ import {
 	isSleepTimerExpired,
 	SLEEP_TIMER_PRESETS_MINUTES,
 } from '#app/utils/sleep-timer.ts'
-import { cn } from '#app/utils/misc'
 
 type Track = FullTrack
 

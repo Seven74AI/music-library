@@ -14,7 +14,6 @@ import { prisma } from '#app/utils/db.server'
 import { handleServiceError } from '#app/utils/error-handlers.server'
 import { getServiceByName } from '#app/utils/playlist-utils.server'
 import { getYouTubeVideoDetails } from '#app/utils/youtube-search.server'
-import { type Prisma } from '#prisma/client.js'
 
 /**
  * Result type for importTrackDirectly.

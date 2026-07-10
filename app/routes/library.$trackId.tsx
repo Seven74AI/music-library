@@ -6,8 +6,8 @@ import { Icon } from '#app/components/ui/icon.tsx'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { getTrackTitle } from '#app/utils/breadcrumb-utils.ts'
 import { prisma } from '#app/utils/db.server.ts'
-import { formatDuration } from '#app/utils/format-duration.ts'
 import { triggerBrowserDownload } from '#app/utils/download.ts'
+import { formatDuration } from '#app/utils/format-duration.ts'
 import { type Route } from './+types/library.$trackId.ts'
 
 export const handle: BreadcrumbHandle = {

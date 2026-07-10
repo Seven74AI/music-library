@@ -47,7 +47,7 @@ function stripMonitoringWhenNoDSN() {
 	}
 }
 
-export default defineConfig((config) => ({
+export default defineConfig(() => ({
 	build: {
 		target: 'es2022',
 		cssMinify: MODE === 'production',

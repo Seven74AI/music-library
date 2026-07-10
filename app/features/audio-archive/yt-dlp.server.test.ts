@@ -7,7 +7,6 @@ import {
 	categorizeYtDlpError,
 	ErrorCategory,
 	parseYtDlpProgress,
-	type YtDlpExecResult,
 } from './yt-dlp.server.ts'
 
 describe('buildYtDlpSpawnArgs', () => {
