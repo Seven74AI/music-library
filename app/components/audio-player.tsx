@@ -11,7 +11,10 @@ import { toast } from '#app/components/ui/use-toast.ts'
 import { type FullTrack } from '#app/types/frontend/shared'
 import {
 	buildMediaSessionMetadata,
+	clearMediaSessionPositionState,
+	clampMediaSessionSeekTime,
 	isMediaSessionSupported,
+	updateMediaSessionPositionState,
 } from '#app/utils/media-session.client.ts'
 import {
 	adjustVolumeStep,
@@ -257,12 +260,34 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		navigator.mediaSession.setActionHandler('nexttrack', () => {
 			if (hasNext) onNext()
 		})
+		navigator.mediaSession.setActionHandler('seekto', (details) => {
+			const audio = audioRef.current
+			if (!audio || details.seekTime == null) return
+
+			const trackDuration = audio.duration
+			if (!trackDuration || !isFinite(trackDuration) || trackDuration <= 0) {
+				return
+			}
+
+			audio.currentTime = clampMediaSessionSeekTime(
+				details.seekTime,
+				trackDuration,
+			)
+			updateMediaSessionPositionState(audio)
+		})
+
+		const audio = audioRef.current
+		if (audio) {
+			updateMediaSessionPositionState(audio)
+		}
 
 		return () => {
 			navigator.mediaSession.setActionHandler('play', null)
 			navigator.mediaSession.setActionHandler('pause', null)
 			navigator.mediaSession.setActionHandler('previoustrack', null)
 			navigator.mediaSession.setActionHandler('nexttrack', null)
+			navigator.mediaSession.setActionHandler('seekto', null)
+			clearMediaSessionPositionState()
 		}
 	}, [hasNext, hasPrevious, isPlaying, isVisible, onNext, onPrevious, track])
 
@@ -340,6 +365,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			// Don't update time while seeking to avoid conflicts
 			if (!audio.seeking) {
 				setCurrentTime(audio.currentTime)
+				updateMediaSessionPositionState(audio)
 			}
 		}
 		const handlePlay = () => setIsPlaying(true)
@@ -353,12 +379,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			if (!audio) return
 			// Sync time after seeking completes - this is the authoritative event
 			setCurrentTime(audio.currentTime)
+			updateMediaSessionPositionState(audio)
 		}
 		const handleLoadedMetadata = () => {
 			if (audioRef.current) {
 				const newDuration = audioRef.current.duration
 				if (!isNaN(newDuration) && isFinite(newDuration) && newDuration > 0) {
 					setDuration(newDuration)
+					updateMediaSessionPositionState(audioRef.current)
 				}
 			}
 		}
@@ -445,6 +473,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			// Optimistic update for smooth UI - seeked event will correct if needed
 			audio.currentTime = clampedTime
 			setCurrentTime(clampedTime)
+			updateMediaSessionPositionState(audio)
 		} catch (error) {
 			console.error('Seek failed:', error)
 		}
