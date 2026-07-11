@@ -15,6 +15,7 @@ export const ErrorCategory = {
 	NETWORK: 'NETWORK',
 	COOKIE_EXPIRED: 'COOKIE_EXPIRED',
 	FILE_NOT_FOUND: 'FILE_NOT_FOUND',
+	FORMAT_UNAVAILABLE: 'FORMAT_UNAVAILABLE',
 	UNKNOWN: 'UNKNOWN',
 } as const
 
@@ -67,6 +68,7 @@ export function buildYtDlpSpawnArgs(
 		'--extract-audio',
 		'--audio-format', 'mp3',
 		'--no-playlist',
+		'-f', 'bestaudio/best',
 		...buildJsRuntimeArgs(),
 	]
 
@@ -243,6 +245,14 @@ export function categorizeStderr(stderr: string): ErrorCategory | null {
 		lower.includes('unable to extract video data')
 	) {
 		return 'NETWORK'
+	}
+
+	// yt-dlp only saw storyboard/image formats — usually fixed by explicit -f bestaudio
+	if (
+		lower.includes('requested format is not available') ||
+		lower.includes('only images are available for download')
+	) {
+		return 'FORMAT_UNAVAILABLE'
 	}
 
 	// Authentication errors (403/forbidden at the webpage/auth layer)

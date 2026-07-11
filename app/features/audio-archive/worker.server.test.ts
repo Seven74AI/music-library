@@ -187,6 +187,42 @@ describe('processQueueTick', () => {
 
 			expect(mockPrisma.archiveJob.findMany).not.toHaveBeenCalled()
 		})
+
+		it('stops picking up new jobs when worker is paused mid-tick', async () => {
+			process.env.AUDIO_ARCHIVE_MAX_CONCURRENT = '1'
+
+			const pendingBatches = [
+				[
+					{
+						id: 'job-1',
+						track: { id: 'track-1', serviceUrl: 'https://youtube.com/watch?v=1' },
+					},
+				],
+				[
+					{
+						id: 'job-2',
+						track: { id: 'track-2', serviceUrl: 'https://youtube.com/watch?v=2' },
+					},
+				],
+			]
+
+			mockPrisma.archiveJob.findMany.mockImplementation((args) => {
+				if (args?.where?.status === 'processing') {
+					return Promise.resolve([])
+				}
+				return Promise.resolve(pendingBatches.shift() ?? [])
+			})
+
+			mockIsWorkerActive
+				.mockResolvedValueOnce(true)
+				.mockResolvedValueOnce(true)
+				.mockResolvedValueOnce(false)
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			expect(mockExecuteYtDlp).toHaveBeenCalledTimes(1)
+		})
 	})
 
 	describe('queue draining', () => {

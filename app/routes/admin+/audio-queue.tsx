@@ -1,6 +1,6 @@
 // TEST FILE — see audio-queue.test.tsx for unit tests
 import { type SEOHandle } from '@nasa-gcn/remix-seo'
-import { data, Form, useFetcher, useSearchParams } from 'react-router'
+import { data, Form, useSearchParams } from 'react-router'
 import { GeneralErrorBoundary } from '#app/components/error-boundary'
 import { Spacer } from '#app/components/spacer.tsx'
 import { Badge } from '#app/components/ui/badge.tsx'
@@ -23,6 +23,7 @@ import {
 	TableRow,
 } from '#app/components/ui/table.tsx'
 import { computeArchiveQueueSuccessRate } from '#app/features/audio-archive/queue-stats'
+import { isRecoverableArchiveFailure } from '#app/features/audio-archive/recoverable-failure.ts'
 import { scheduleQueueTick } from '#app/features/audio-archive/worker.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
@@ -68,6 +69,7 @@ interface LoaderData {
 		failed: number
 		total: number
 		successRate: number
+		recoverableFailed: number
 	}
 	jobs: Array<{
 		id: string
@@ -118,6 +120,16 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
 	])
 	const total = pending + processing + completed + failed
 	const successRate = computeArchiveQueueSuccessRate(completed, failed)
+
+	const failedJobsForRetry = failed
+		? await prisma.archiveJob.findMany({
+				where: { status: 'failed' },
+				select: { errorHistory: true },
+			})
+		: []
+	const recoverableFailed = failedJobsForRetry.filter((job) =>
+		isRecoverableArchiveFailure(job.errorHistory),
+	).length
 
 	// Jobs for the track table with pagination
 	const whereClause = filter === 'all' ? {} : { status: filter }
@@ -173,7 +185,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
 			nextLongBreakAt: workerState.nextLongBreakAt?.toISOString() ?? null,
 			lastStateChange: workerState.lastStateChange.toISOString(),
 		},
-		queueStats: { pending, processing, completed, failed, total, successRate },
+		queueStats: { pending, processing, completed, failed, total, successRate, recoverableFailed },
 		jobs: jobs.map((j) => ({
 			id: j.id,
 			status: j.status,
@@ -221,6 +233,7 @@ export async function action({ request }: Route.ActionArgs) {
 				},
 				create: { id: 'singleton', status: 'running' },
 			})
+			scheduleQueueTick()
 			return data({ success: true, action: 'resume' })
 		}
 
@@ -241,6 +254,35 @@ export async function action({ request }: Route.ActionArgs) {
 				},
 			})
 			return data({ success: true, action: 'long-break' })
+		}
+
+		case 'retry-recoverable-failures': {
+			const failedJobs = await prisma.archiveJob.findMany({
+				where: { status: 'failed' },
+				select: { id: true, errorHistory: true },
+			})
+			const recoverableIds = failedJobs
+				.filter((job) => isRecoverableArchiveFailure(job.errorHistory))
+				.map((job) => job.id)
+
+			if (recoverableIds.length > 0) {
+				await prisma.archiveJob.updateMany({
+					where: { id: { in: recoverableIds } },
+					data: {
+						status: 'pending',
+						priority: true,
+						retryCount: 0,
+						errorHistory: '[]',
+					},
+				})
+			}
+
+			scheduleQueueTick()
+			return data({
+				success: true,
+				action: 'retry-recoverable-failures',
+				count: recoverableIds.length,
+			})
 		}
 
 		case 'retry': {
@@ -340,7 +382,6 @@ function getLatestError(errorHistoryJson: string): string {
 export default function AudioQueueRoute({
 	loaderData,
 }: Route.ComponentProps) {
-	const fetcher = useFetcher()
 	const [searchParams] = useSearchParams()
 	const activeFilter = (searchParams.get('status') ?? 'all') as StatusFilter
 	const currentPage = Number(searchParams.get('page') ?? '1')
@@ -367,70 +408,32 @@ export default function AudioQueueRoute({
 						<StatusBadge status={workerState.status} />
 					</div>
 
-					{fetcher.Form ? (
-						<fetcher.Form method="post" className="flex gap-2">
-							{!isPaused && isRunning && (
-								<Button
-									type="submit"
-									name="intent"
-									value="pause"
-									variant="outline"
-									size="sm"
-									disabled={fetcher.state === 'submitting'}
-								>
-									<Icon name="pause" className="mr-1" />
-									Pause
-								</Button>
-							)}
-							{(isPaused || isLongBreak) && (
-								<Button
-									type="submit"
-									name="intent"
-									value="resume"
-									variant="default"
-									size="sm"
-									disabled={fetcher.state === 'submitting'}
-								>
-									<Icon name="play" className="mr-1" />
-									{isLongBreak ? 'Break Long Pause' : 'Resume'}
-								</Button>
-							)}
-							{isRunning && (
-								<Button
-									type="submit"
-									name="intent"
-									value="long-break"
-									variant="outline"
-									size="sm"
-									disabled={fetcher.state === 'submitting'}
-								>
-									<Icon name="clock" className="mr-1" />
-									Long Break (6h)
-								</Button>
-							)}
-						</fetcher.Form>
-					) : (
-						<Form method="post" className="flex gap-2">
-							{!isPaused && isRunning && (
-								<Button type="submit" name="intent" value="pause" variant="outline" size="sm">
-									<Icon name="pause" className="mr-1" />
-									Pause
-								</Button>
-							)}
-							{(isPaused || isLongBreak) && (
-								<Button type="submit" name="intent" value="resume" variant="default" size="sm">
-									<Icon name="play" className="mr-1" />
-									{isLongBreak ? 'Break Long Pause' : 'Resume'}
-								</Button>
-							)}
-							{isRunning && (
-								<Button type="submit" name="intent" value="long-break" variant="outline" size="sm">
-									<Icon name="clock" className="mr-1" />
-									Long Break (6h)
-								</Button>
-							)}
-						</Form>
-					)}
+					<Form method="post" className="flex gap-2">
+						{!isPaused && isRunning && (
+							<Button type="submit" name="intent" value="pause" variant="outline" size="sm">
+								<Icon name="pause" className="mr-1" />
+								Pause
+							</Button>
+						)}
+						{(isPaused || isLongBreak) && (
+							<Button type="submit" name="intent" value="resume" variant="default" size="sm">
+								<Icon name="play" className="mr-1" />
+								{isLongBreak ? 'Break Long Pause' : 'Resume'}
+							</Button>
+						)}
+						{isRunning && (
+							<Button
+								type="submit"
+								name="intent"
+								value="long-break"
+								variant="outline"
+								size="sm"
+							>
+								<Icon name="clock" className="mr-1" />
+								Long Break (6h)
+							</Button>
+						)}
+					</Form>
 				</div>
 
 				<div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -484,6 +487,22 @@ export default function AudioQueueRoute({
 						<CardDescription>Failed</CardDescription>
 						<CardTitle className="text-2xl text-destructive">{queueStats.failed}</CardTitle>
 					</CardHeader>
+					{queueStats.recoverableFailed > 0 && (
+						<CardContent className="pt-0">
+							<Form method="post">
+								<Button
+									type="submit"
+									name="intent"
+									value="retry-recoverable-failures"
+									variant="outline"
+									size="sm"
+								>
+									<Icon name="arrow-path" className="mr-1" />
+									Retry cookie & format failures ({queueStats.recoverableFailed})
+								</Button>
+							</Form>
+						</CardContent>
+					)}
 				</Card>
 				<Card>
 					<CardHeader className="pb-2">

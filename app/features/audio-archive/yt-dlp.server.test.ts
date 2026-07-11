@@ -42,6 +42,13 @@ describe('buildYtDlpSpawnArgs', () => {
 		const outputIndex = buildYtDlpSpawnArgs(url).indexOf('--output')
 		expect(buildYtDlpSpawnArgs(url)[outputIndex + 1]).toBe('%(id)s.%(ext)s')
 	})
+
+	it('prefers best audio format so yt-dlp resolves formats after JS challenge', () => {
+		const args = buildYtDlpSpawnArgs(url)
+		expect(args).toContain('-f')
+		const formatIndex = args.indexOf('-f')
+		expect(args[formatIndex + 1]).toBe('bestaudio/best')
+	})
 })
 
 describe('extractFilePath', () => {
@@ -78,6 +85,7 @@ describe('ErrorCategory enum', () => {
 		expect(categories).toContain('NETWORK')
 		expect(categories).toContain('COOKIE_EXPIRED')
 		expect(categories).toContain('FILE_NOT_FOUND')
+		expect(categories).toContain('FORMAT_UNAVAILABLE')
 		expect(categories).toContain('UNKNOWN')
 	})
 })
@@ -166,6 +174,19 @@ describe('categorizeYtDlpError', () => {
 		expect(result.errorCategory).toBe('COOKIE_EXPIRED')
 	})
 
+	it('detects missing audio formats before generic 403 auth errors', () => {
+		const result = categorizeYtDlpError({
+			exitCode: 1,
+			stdout: '',
+			stderr: [
+				'WARNING: Unable to download API page: HTTP Error 403: Forbidden',
+				'WARNING: Only images are available for download. use --list-formats to see them',
+				'ERROR: [youtube] LP8lXGHotpE: Requested format is not available. Use --list-formats for a list of available formats',
+			].join('\n'),
+		})
+		expect(result.errorCategory).toBe('FORMAT_UNAVAILABLE')
+	})
+
 	it('falls back to UNKNOWN for unrecognized errors', () => {
 		const result = categorizeYtDlpError({
 			exitCode: 1,
@@ -228,6 +249,14 @@ describe('categorizeStderr', () => {
 
 	it('detects cookie-expired from sign-in required', () => {
 		expect(categorizeStderr('Sign in to confirm')).toBe('COOKIE_EXPIRED')
+	})
+
+	it('detects format unavailable from storyboard-only responses', () => {
+		expect(
+			categorizeStderr(
+				'WARNING: Only images are available for download\nERROR: Requested format is not available',
+			),
+		).toBe('FORMAT_UNAVAILABLE')
 	})
 })
 

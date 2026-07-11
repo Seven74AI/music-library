@@ -138,6 +138,9 @@ async function processQueueTickInner(): Promise<void> {
 	const cookieFile = getCookieFilePath()
 
 	while (true) {
+		const stillActive = await isWorkerActive()
+		if (!stillActive) break
+
 		await recoverStaleProcessingJobs()
 
 		const processingCount = await prisma.archiveJob.count({
