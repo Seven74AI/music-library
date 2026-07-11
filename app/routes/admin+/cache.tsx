@@ -8,7 +8,7 @@ import {
 	useSearchParams,
 	useSubmit,
 } from 'react-router'
-import { GeneralErrorBoundary } from '#app/components/error-boundary'
+import { OfflineAwareErrorBoundary } from '#app/components/offline/offline-aware-error-boundary.tsx'
 import { Field } from '#app/components/forms.tsx'
 import { Spacer } from '#app/components/spacer.tsx'
 import { Button } from '#app/components/ui/button.tsx'
@@ -233,7 +233,7 @@ function CacheKeyRow({
 
 export function ErrorBoundary() {
 	return (
-		<GeneralErrorBoundary
+		<OfflineAwareErrorBoundary
 			statusHandlers={{
 				403: ({ error }) => (
 					<p>You are not allowed to do that: {error?.data.message}</p>

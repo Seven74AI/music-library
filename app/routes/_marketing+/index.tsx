@@ -3,6 +3,7 @@ import { ListeningHome } from '#app/components/home/listening-home.tsx'
 import { MarketingHome } from '#app/components/home/marketing-home.tsx'
 import { OnboardingHome } from '#app/components/home/onboarding-home.tsx'
 import { OfflineHome } from '#app/components/offline/offline-home.tsx'
+import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { loadHomeData } from '#app/utils/home.server.ts'
 import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
 import { type Route } from './+types/index.ts'
@@ -21,6 +22,10 @@ export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
 }
 
 clientLoader.hydrate = true as const
+
+export function HydrateFallback() {
+	return <RouteHydrateFallback />
+}
 
 export default function Index() {
 	const data = useLoaderData<typeof loader | { mode: 'offline' }>()

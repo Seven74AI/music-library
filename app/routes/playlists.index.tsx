@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { data, NavLink } from 'react-router'
 import { OfflinePlaylistsIndexView } from '#app/components/offline/offline-playlists-index-view.tsx'
+import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { PlaylistCard } from '#app/components/playlist-card'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
@@ -97,6 +98,10 @@ export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
 }
 
 clientLoader.hydrate = true as const
+
+export function HydrateFallback() {
+	return <RouteHydrateFallback />
+}
 
 type SortOption = 'name' | 'created' | 'updated' | 'tracks'
 type ViewMode = 'grid' | 'list'

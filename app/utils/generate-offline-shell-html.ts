@@ -42,6 +42,21 @@ window.__reactRouterContext.stream = new ReadableStream({
   },
 }).pipeThrough(new TextEncoderStream());`
 
+export const OFFLINE_SHELL_SPLASH_HTML = `<div id="offline-shell-splash" role="status" aria-live="polite" style="display:flex;min-height:100vh;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem;text-align:center;font-family:system-ui,-apple-system,sans-serif;color:inherit;background:inherit">
+  <div style="margin-bottom:1.5rem;line-height:1.1">
+    <span style="display:block;font-size:2.25rem;font-weight:300">epic</span>
+    <span style="display:block;font-size:2.25rem;font-weight:700">music</span>
+  </div>
+  <p id="offline-shell-status" style="margin:0;font-size:1rem;color:#737373">Loading…</p>
+</div>`
+
+export const OFFLINE_SHELL_SPLASH_SCRIPT = `(function(){
+  var status = document.getElementById('offline-shell-status');
+  if (status && typeof navigator !== 'undefined' && !navigator.onLine) {
+    status.textContent = "You're offline. Opening saved music…";
+  }
+})();`
+
 export function generateOfflineShellHtml(assets: OfflineShellAssets): string {
 	const lines = [
 		'<!DOCTYPE html>',
@@ -70,6 +85,8 @@ export function generateOfflineShellHtml(assets: OfflineShellAssets): string {
 	lines.push(
 		'</head>',
 		'<body class="bg-background text-foreground">',
+		`  ${OFFLINE_SHELL_SPLASH_HTML}`,
+		`  <script>${OFFLINE_SHELL_SPLASH_SCRIPT}</script>`,
 		`  <script>${OFFLINE_SHELL_ENV_BOOTSTRAP}</script>`,
 		`  <script>${OFFLINE_SHELL_ROUTER_CONTEXT_BOOTSTRAP}</script>`,
 	)

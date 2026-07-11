@@ -10,13 +10,13 @@ describe('useOnlineStatus', () => {
 		vi.unstubAllGlobals()
 	})
 
-	test('starts online and syncs to navigator.onLine after mount', () => {
+	test('reflects navigator.onLine on first render', () => {
 		vi.stubGlobal('navigator', { onLine: false })
 		const { result } = renderHook(() => useOnlineStatus())
 		expect(result.current).toBe(false)
 	})
 
-	test('stays online when navigator reports online after mount', () => {
+	test('starts online when navigator reports online on first render', () => {
 		vi.stubGlobal('navigator', { onLine: true })
 		const { result } = renderHook(() => useOnlineStatus())
 		expect(result.current).toBe(true)

@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 
+function readInitialOnlineStatus() {
+	if (typeof navigator === 'undefined') return true
+	return navigator.onLine
+}
+
 export function useOnlineStatus() {
-	// Assume online until mount — navigator.onLine can be stale before hydration
-	// and may recover without firing an "online" event.
-	const [isOnline, setIsOnline] = useState(true)
+	const [isOnline, setIsOnline] = useState(readInitialOnlineStatus)
 
 	useEffect(() => {
 		setIsOnline(navigator.onLine)

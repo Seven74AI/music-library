@@ -27,6 +27,7 @@ async function navigateOfflineClient(
 ) {
 	await navigate()
 	await page.waitForLoadState('domcontentloaded')
+	await dispatchOffline(page)
 }
 
 test.describe('Offline mode', () => {
@@ -94,6 +95,44 @@ test.describe('Offline mode', () => {
 					.getByRole('button', { name: 'Search' })
 					.click(),
 			])
+		})
+
+		await expect(page.getByRole('heading', { name: "You're offline" })).toBeVisible({
+			timeout: 10000,
+		})
+	})
+
+	test('shows offline blocker on settings instead of a blank page', async ({
+		page,
+		login,
+	}) => {
+		await login()
+		await page.goto('/library')
+		await page.waitForLoadState('networkidle')
+
+		await emulateOfflineLoaderRequests(page)
+
+		await navigateOfflineClient(page, async () => {
+			await page.goto('/settings/profile')
+		})
+
+		await expect(page.getByRole('heading', { name: "You're offline" })).toBeVisible({
+			timeout: 10000,
+		})
+	})
+
+	test('shows offline blocker on music services instead of a blank page', async ({
+		page,
+		login,
+	}) => {
+		await login()
+		await page.goto('/library')
+		await page.waitForLoadState('networkidle')
+
+		await emulateOfflineLoaderRequests(page)
+
+		await navigateOfflineClient(page, async () => {
+			await page.goto('/music/services')
 		})
 
 		await expect(page.getByRole('heading', { name: "You're offline" })).toBeVisible({

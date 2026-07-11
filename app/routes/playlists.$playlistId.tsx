@@ -38,6 +38,7 @@ import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { OfflinePlaylistDownloadButton } from '#app/components/offline/offline-playlist-download-button.tsx'
 import { OfflinePlaylistView } from '#app/components/offline/offline-playlist-view.tsx'
+import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { PlaylistHero } from '#app/components/playlist-hero'
 import { SortableTrackList } from '#app/components/sortable-track-list'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '#app/components/ui/alert-dialog'
@@ -191,6 +192,10 @@ export async function clientLoader({
 }
 
 clientLoader.hydrate = true as const
+
+export function HydrateFallback() {
+	return <RouteHydrateFallback />
+}
 
 export async function action({ request, params }: Route.ActionArgs) {
 	const userId = await requireUserId(request)

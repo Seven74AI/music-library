@@ -1,5 +1,6 @@
 import { Link, useRevalidator } from 'react-router'
 import { OfflineLibraryView } from '#app/components/offline/offline-library-view.tsx'
+import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
@@ -15,6 +16,10 @@ export async function clientLoader() {
 }
 
 clientLoader.hydrate = true
+
+export function HydrateFallback() {
+	return <RouteHydrateFallback />
+}
 
 export default function DownloadsRoute({ loaderData }: Route.ComponentProps) {
 	const revalidator = useRevalidator()

@@ -24,8 +24,9 @@ import { type Route } from './+types/root.ts'
 import appleTouchIconAssetUrl from './assets/favicons/apple-touch-icon.png'
 import faviconAssetUrl from './assets/favicons/favicon.svg'
 import { AudioPlayerProvider } from './components/audio-player-provider'
-import { GeneralErrorBoundary } from './components/error-boundary.tsx'
+import { OfflineAwareErrorBoundary } from './components/offline/offline-aware-error-boundary.tsx'
 import { OfflineStatusBanner } from './components/offline/offline-status-banner.tsx'
+import { RouteHydrateFallback } from './components/route-hydrate-fallback.tsx'
 import { EpicProgress } from './components/progress-bar.tsx'
 import { href as iconsHref } from './components/ui/icon.tsx'
 import { Toaster } from './components/ui/toaster.tsx'
@@ -197,6 +198,10 @@ export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
 }
 
 clientLoader.hydrate = true as const
+
+export function HydrateFallback() {
+	return <RouteHydrateFallback />
+}
 
 export const clientMiddleware: Route.ClientMiddlewareFunction[] = [
 	offlineClientMiddleware,
@@ -389,4 +394,4 @@ export default AppWithProviders
 
 // this is a last resort error boundary. There's not much useful information we
 // can offer at this level.
-export const ErrorBoundary = GeneralErrorBoundary
+export const ErrorBoundary = OfflineAwareErrorBoundary

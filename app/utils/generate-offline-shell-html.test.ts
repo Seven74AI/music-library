@@ -44,4 +44,16 @@ describe('generateOfflineShellHtml', () => {
 		expect(html).toContain('/assets/manifest-8c19c2c9.js')
 		expect(html).toContain('import("/assets/entry.client-DfG4YbEa.js")')
 	})
+
+	test('includes a visible splash before client JS loads', () => {
+		const html = generateOfflineShellHtml({
+			entryClient: '/assets/entry.client-DfG4YbEa.js',
+		})
+
+		expect(html).toContain('id="offline-shell-splash"')
+		expect(html).toContain('role="status"')
+		expect(html).toContain('Loading…')
+		expect(html).toContain("You're offline. Opening saved music")
+		expect(html).toContain('navigator.onLine')
+	})
 })

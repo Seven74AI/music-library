@@ -7,7 +7,7 @@ import {
 } from 'react-router'
 import { getErrorMessage } from '#app/utils/misc'
 
-type StatusHandler = (info: {
+export type StatusHandler = (info: {
 	error: ErrorResponse
 	params: Record<string, string | undefined>
 }) => ReactElement | null

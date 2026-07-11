@@ -2,13 +2,16 @@ import { invariantResponse } from '@epic-web/invariant'
 import { type SEOHandle } from '@nasa-gcn/remix-seo'
 import { Link, Outlet, useMatches } from 'react-router'
 import { z } from 'zod'
+import { OfflineAwareErrorBoundary } from '#app/components/offline/offline-aware-error-boundary.tsx'
 import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
+import { OfflineUnavailableView } from '#app/components/offline/offline-unavailable-view.tsx'
 import { Spacer } from '#app/components/spacer.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
+import { useOnlineStatus } from '#app/hooks/use-online-status.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { cn } from '#app/utils/misc.tsx'
-import { useUser } from '#app/utils/user.ts'
+import { useOptionalUser } from '#app/utils/user.ts'
 import { type Route } from './+types/profile.ts'
 
 export const BreadcrumbHandle = z.object({ breadcrumb: z.any() })
@@ -34,7 +37,19 @@ const BreadcrumbHandleMatch = z.object({
 })
 
 export default function EditUserProfile() {
-	const user = useUser()
+	const isOnline = useOnlineStatus()
+	const user = useOptionalUser()
+
+	if (!isOnline || !user) {
+		return (
+			<div className="m-auto mt-16 mb-24 max-w-3xl">
+				<main className="bg-muted mx-auto px-6 py-8 md:container md:rounded-3xl">
+					<OfflineUnavailableView />
+				</main>
+			</div>
+		)
+	}
+
 	const matches = useMatches()
 	const breadcrumbs = matches
 		.map((m) => {
@@ -82,4 +97,8 @@ export default function EditUserProfile() {
 			</main>
 		</div>
 	)
+}
+
+export function ErrorBoundary() {
+	return <OfflineAwareErrorBoundary />
 }
