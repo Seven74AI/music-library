@@ -82,7 +82,7 @@ app.use((_req, res, next) => {
 		content: {
 			crossOriginEmbedderPolicy: false,
 			contentSecurityPolicy: {
-				reportOnly: MODE !== 'production',
+				reportOnly: MODE !== 'production' || process.env.MOCKS === 'true',
 				directives: {
 					fetch: {
 						'default-src': ["'self'"],

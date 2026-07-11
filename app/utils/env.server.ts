@@ -130,6 +130,8 @@ export function getEnv() {
 	return {
 		MODE: process.env.NODE_ENV,
 		ALLOW_INDEXING: process.env.ALLOW_INDEXING,
+		DISABLE_SERVICE_WORKER:
+			process.env.PLAYWRIGHT_TEST_BASE_URL != null ? 'true' : undefined,
 	}
 }
 

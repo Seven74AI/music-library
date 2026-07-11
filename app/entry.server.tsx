@@ -67,6 +67,10 @@ export default async function handleRequest(...args: DocRequestArgs) {
 		createCSP(nonce),
 	)
 
+	if (process.env.MOCKS === 'true') {
+		responseHeaders.delete('Content-Security-Policy')
+	}
+
 	const callbackName = isbot(request.headers.get('user-agent'))
 		? 'onAllReady'
 		: 'onShellReady'

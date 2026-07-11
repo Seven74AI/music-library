@@ -40,15 +40,18 @@ export function patchOfflineDataStrategyResults(
 export const offlineClientMiddleware: MiddlewareFunction<
 	Record<string, DataStrategyResult>
 > = async ({ request }, next) => {
-	if (!isOfflineEnvironment()) {
-		return next()
-	}
-
-	const redirectTo = getOfflineRedirectTarget(request)
-	if (redirectTo) {
-		throw redirect(redirectTo)
+	if (isOfflineEnvironment()) {
+		const redirectTo = getOfflineRedirectTarget(request)
+		if (redirectTo) {
+			throw redirect(redirectTo)
+		}
 	}
 
 	const results = await next()
+
+	if (!isOfflineEnvironment()) {
+		return results
+	}
+
 	return patchOfflineDataStrategyResults(results, request)
 }

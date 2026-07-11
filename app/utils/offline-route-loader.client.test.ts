@@ -17,16 +17,28 @@ describe('loadWithOfflineFallback', () => {
 		vi.unstubAllGlobals()
 	})
 
-	test('uses offline loader when navigator is offline', async () => {
+	test('falls back to offline loader when navigator is offline and server fails', async () => {
 		vi.stubGlobal('navigator', { onLine: false })
-		const serverLoader = vi.fn()
+		const serverLoader = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
 		const offlineLoader = vi.fn().mockResolvedValue({ offline: true })
 
 		const result = await loadWithOfflineFallback(serverLoader, offlineLoader)
 
-		expect(serverLoader).not.toHaveBeenCalled()
+		expect(serverLoader).toHaveBeenCalled()
 		expect(offlineLoader).toHaveBeenCalled()
 		expect(result).toEqual({ offline: true })
+	})
+
+	test('uses server loader when navigator is offline but fetch succeeds', async () => {
+		vi.stubGlobal('navigator', { onLine: false })
+		const serverLoader = vi.fn().mockResolvedValue({ online: true })
+		const offlineLoader = vi.fn()
+
+		const result = await loadWithOfflineFallback(serverLoader, offlineLoader)
+
+		expect(serverLoader).toHaveBeenCalled()
+		expect(offlineLoader).not.toHaveBeenCalled()
+		expect(result).toEqual({ online: true })
 	})
 
 	test('falls back to offline loader when server loader fails while online', async () => {
@@ -48,6 +60,19 @@ describe('loadWithOfflineFallback', () => {
 
 		await expect(loadWithOfflineFallback(serverLoader, offlineLoader)).rejects.toThrow(
 			'Unauthorized',
+		)
+		expect(offlineLoader).not.toHaveBeenCalled()
+	})
+
+	test('does not treat unrelated TypeErrors as network failures', async () => {
+		vi.stubGlobal('navigator', { onLine: true })
+		const serverLoader = vi
+			.fn()
+			.mockRejectedValue(new TypeError("Cannot read properties of undefined (reading 'x')"))
+		const offlineLoader = vi.fn()
+
+		await expect(loadWithOfflineFallback(serverLoader, offlineLoader)).rejects.toThrow(
+			"Cannot read properties of undefined (reading 'x')",
 		)
 		expect(offlineLoader).not.toHaveBeenCalled()
 	})

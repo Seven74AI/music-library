@@ -16,8 +16,14 @@ async function dispatchOffline(page: import('@playwright/test').Page) {
 }
 
 async function emulateOfflineLoaderRequests(page: import('@playwright/test').Page) {
-	// Abort React Router data requests so root clientMiddleware can substitute offline fallbacks.
+	// Abort React Router data requests so client middleware can substitute offline fallbacks.
 	await page.route(/\.data(?:\?.*)?$/, (route) => route.abort('internetdisconnected'))
+	await dispatchOffline(page)
+}
+
+async function gotoOffline(page: import('@playwright/test').Page, url: string) {
+	await page.goto(url)
+	await page.waitForLoadState('domcontentloaded')
 	await dispatchOffline(page)
 }
 
@@ -32,8 +38,7 @@ test.describe('Offline mode', () => {
 
 		await emulateOfflineLoaderRequests(page)
 
-		await page.goto('/')
-		await page.waitForLoadState('domcontentloaded')
+		await gotoOffline(page, '/')
 
 		await expect(page.getByRole('status')).toContainText(
 			"You're offline. Showing downloaded music only.",
@@ -48,8 +53,7 @@ test.describe('Offline mode', () => {
 
 		await emulateOfflineLoaderRequests(page)
 
-		await page.goto('/search')
-		await page.waitForLoadState('domcontentloaded')
+		await gotoOffline(page, '/search')
 
 		await expect(page.getByRole('status')).toContainText(
 			"You're offline. Showing downloaded music only.",
@@ -67,8 +71,7 @@ test.describe('Offline mode', () => {
 
 		await emulateOfflineLoaderRequests(page)
 
-		await page.goto('/search')
-		await page.waitForLoadState('domcontentloaded')
+		await gotoOffline(page, '/search')
 
 		await expect(page.getByRole('heading', { name: "You're offline" })).toBeVisible({
 			timeout: 10000,

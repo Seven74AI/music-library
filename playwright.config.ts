@@ -18,6 +18,8 @@ process.env.SESSION_SECRET = 'test-session-secret'
 import 'dotenv/config'
 
 const PORT = process.env.PORT || '3000'
+const PLAYWRIGHT_TEST_BASE_URL = `http://localhost:${PORT}/`
+process.env.PLAYWRIGHT_TEST_BASE_URL = PLAYWRIGHT_TEST_BASE_URL
 
 export default defineConfig({
 	testDir: './tests/e2e',
@@ -34,7 +36,8 @@ export default defineConfig({
 	reporter: process.env.CI ? 'github' : 'html', // GitHub integration in CI, detailed reports locally
 	globalSetup: './tests/setup/global-setup.ts',
 	use: {
-		baseURL: `http://localhost:${PORT}/`,
+		baseURL: PLAYWRIGHT_TEST_BASE_URL,
+		serviceWorkers: 'block',
 		trace: 'on-first-retry',
 		// Performance optimizations
 		actionTimeout: 5 * 1000,
@@ -75,6 +78,7 @@ export default defineConfig({
 			PORT,
 			NODE_ENV: 'test',
 			MOCKS: 'true',
+			PLAYWRIGHT_TEST_BASE_URL,
 			YOUTUBE_MOCKS: 'true',
 			// Use the test database created by global setup (absolute path)
 			// This ensures the webServer uses the same database as the global setup

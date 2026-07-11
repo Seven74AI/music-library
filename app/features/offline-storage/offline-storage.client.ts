@@ -259,8 +259,12 @@ function createDefaultAudioStore(): OfflineAudioStore {
 	if (isOpfsAudioStoreSupported()) {
 		return createOpfsOfflineAudioStore()
 	}
-	if (import.meta.env.DEV) {
-		console.warn('OPFS unavailable — using in-memory offline audio store in dev')
+	if (
+		import.meta.env.DEV ||
+		(typeof window !== 'undefined' &&
+			window.ENV?.DISABLE_SERVICE_WORKER === 'true')
+	) {
+		console.warn('OPFS unavailable — using in-memory offline audio store')
 		return createMemoryOfflineAudioStore()
 	}
 	throw new Error('Offline audio storage is not supported in this browser')

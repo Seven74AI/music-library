@@ -1,7 +1,11 @@
 const SW_URL = '/sw.js'
 
 export function registerServiceWorker() {
-	if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+	if (
+		typeof window === 'undefined' ||
+		!('serviceWorker' in navigator) ||
+		window.ENV?.DISABLE_SERVICE_WORKER === 'true'
+	) {
 		return
 	}
 
