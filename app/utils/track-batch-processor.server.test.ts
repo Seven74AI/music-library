@@ -23,6 +23,10 @@ function createTxMock() {
 				findUnique: vi.fn().mockResolvedValue(null),
 				upsert: vi.fn().mockResolvedValue({ id: 'spt-1' }),
 			},
+			archiveJob: {
+				findMany: vi.fn().mockResolvedValue([]),
+				createMany: vi.fn().mockResolvedValue({ count: 0 }),
+			},
 		},
 		artistCreate,
 	}

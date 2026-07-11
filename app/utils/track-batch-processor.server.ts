@@ -1,4 +1,4 @@
-import { enqueueArchiveJob } from '#app/features/audio-archive/auto-enqueue.server'
+import { enqueueArchiveJobs } from '#app/features/audio-archive/auto-enqueue.server'
 import { pickCoverThumbnailUrl } from '#app/types/transformations'
 import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
 import { prisma } from '#app/utils/db.server'
@@ -550,11 +550,12 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
 
     // Auto-enqueue ArchiveJobs for tracks that have a serviceUrl
     // (external service tracks, e.g. YouTube — not local uploads)
-    for (const track of tracks) {
-      if (track.serviceUrl) {
-        await enqueueArchiveJob(tx, track.id)
-      }
-    }
+    // Batched: one findMany + one createMany instead of N create() calls
+    // that spam unique-constraint errors on re-syncs of large playlists.
+    await enqueueArchiveJobs(
+      tx,
+      tracks.filter((track) => track.serviceUrl).map((track) => track.id),
+    )
 
     // Batch upsert playlist tracks with deletion status
     const playlistTrackPromises = tracks.map(async (track, index) => {
