@@ -401,6 +401,7 @@ function PlayerNowPlayingSheet({
 						coverImage={track.coverImage}
 						alt={track.title}
 						size="lg"
+						pixelSize={320}
 						className="shadow-lg h-40 w-40"
 					/>
 					<div className="w-full text-center">
