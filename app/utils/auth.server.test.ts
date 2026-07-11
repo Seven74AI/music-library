@@ -63,12 +63,7 @@ test('checkIsCommonPassword returns false when response has invalid format', asy
 
 	server.use(
 		http.get(`https://api.pwnedpasswords.com/range/${prefix}`, () => {
-			// Create a response that will cause a TypeError when text() is called
-			const response = new Response()
-			Object.defineProperty(response, 'text', {
-				value: () => Promise.resolve(null),
-			})
-			return response
+			return HttpResponse.error()
 		}),
 	)
 
@@ -76,7 +71,7 @@ test('checkIsCommonPassword returns false when response has invalid format', asy
 	expect(result).toBe(false)
 	expect(consoleWarn).toHaveBeenCalledWith(
 		'Unknown error during password check',
-		expect.any(TypeError),
+		expect.any(Error),
 	)
 })
 

@@ -87,15 +87,18 @@ function QueueProbe() {
 }
 
 function PlayTrackProbe() {
-	const { playTrack } = useAudioPlayer()
+	const { playTrack, playlist } = useAudioPlayer()
 
 	return (
-		<button
-			type="button"
-			onClick={() => playTrack(playableTrack, { type: 'library' }, 0)}
-		>
-			Play library track
-		</button>
+		<>
+			<button
+				type="button"
+				onClick={() => playTrack(playableTrack, { type: 'library' }, 0)}
+			>
+				Play library track
+			</button>
+			<span data-testid="playlist-length">{playlist.length}</span>
+		</>
 	)
 }
 
@@ -249,10 +252,17 @@ test('playUserPlaylist requests playlist tracks and starts playback', async () =
 	expect(requestUrl).toContain('playlistId=playlist-1')
 })
 
-test('playTrack uses offline downloads when navigator is offline', async () => {
+test('playTrack falls back to offline downloads when online fetch returns nothing', async () => {
 	const user = userEvent.setup()
 	const fetchMock = vi.mocked(fetch)
+	const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 	vi.stubGlobal('navigator', { onLine: false })
+
+	fetchMock.mockResolvedValueOnce({
+		ok: false,
+		status: 503,
+		statusText: 'Service Unavailable',
+	} as Response)
 
 	render(
 		<AudioPlayerProvider>
@@ -263,8 +273,10 @@ test('playTrack uses offline downloads when navigator is offline', async () => {
 	await user.click(screen.getByRole('button', { name: 'Play library track' }))
 
 	await waitFor(() => {
-		expect(fetchMock).not.toHaveBeenCalled()
+		expect(fetchMock).toHaveBeenCalled()
+		expect(screen.getByTestId('playlist-length').textContent).toBe('1')
 	})
 
+	consoleError.mockRestore()
 	vi.unstubAllGlobals()
 })
