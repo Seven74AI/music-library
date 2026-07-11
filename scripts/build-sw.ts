@@ -2,6 +2,10 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { injectManifest } from '@serwist/build'
 import * as esbuild from 'esbuild'
+import {
+	findOfflineShellAssets,
+	generateOfflineShellHtml,
+} from '../app/utils/generate-offline-shell-html.ts'
 
 const isDev = process.argv.includes('--dev')
 const root = process.cwd()
@@ -20,8 +24,25 @@ async function bundleServiceWorker() {
 	})
 }
 
+async function writeDevOfflineShell() {
+	const html = generateOfflineShellHtml({
+		entryClient: '/app/entry.client.tsx',
+		stylesheet: '/app/styles/tailwind.css',
+	})
+	await fs.writeFile(path.join(root, 'public/index.html'), html)
+}
+
+async function writeProdOfflineShell(clientDir: string) {
+	const assetsDir = path.join(clientDir, 'assets')
+	const assetFileNames = await fs.readdir(assetsDir)
+	const assets = findOfflineShellAssets(assetFileNames)
+	const html = generateOfflineShellHtml(assets)
+	await fs.writeFile(path.join(clientDir, 'index.html'), html)
+}
+
 async function buildDevServiceWorker() {
 	await bundleServiceWorker()
+	await writeDevOfflineShell()
 	let code = await fs.readFile(bundledSw, 'utf8')
 	if (!code.includes('self.__SW_MANIFEST')) {
 		throw new Error('Service worker is missing self.__SW_MANIFEST injection point')
@@ -39,6 +60,7 @@ async function buildDevServiceWorker() {
 async function buildProdServiceWorker() {
 	await bundleServiceWorker()
 	const clientDir = path.join(root, 'build/client')
+	await writeProdOfflineShell(clientDir)
 	const { count, size, warnings } = await injectManifest({
 		swSrc: bundledSw,
 		swDest: path.join(clientDir, 'sw.js'),
