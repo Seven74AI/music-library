@@ -1,0 +1,54 @@
+import {
+	isRouteErrorResponse,
+	redirect,
+	type DataStrategyResult,
+	type MiddlewareFunction,
+} from 'react-router'
+import {
+	getOfflineRedirectTarget,
+	resolveOfflineFallbackForRoute,
+	shouldSkipOfflineMiddlewareRoute,
+} from '#app/utils/offline-route-middleware-registry.ts'
+import { isOfflineEnvironment } from '#app/utils/offline-route-loader.client.ts'
+
+export function shouldSubstituteOfflineResult(result: DataStrategyResult | undefined) {
+	if (!result) return true
+	if (result.type === 'data') return false
+	if (isRouteErrorResponse(result.result)) return false
+	return true
+}
+
+export function patchOfflineDataStrategyResults(
+	results: Record<string, DataStrategyResult>,
+	request: Request,
+) {
+	const patched: Record<string, DataStrategyResult> = { ...results }
+
+	for (const [routeId, result] of Object.entries(results)) {
+		if (shouldSkipOfflineMiddlewareRoute(routeId)) continue
+		if (!shouldSubstituteOfflineResult(result)) continue
+
+		patched[routeId] = {
+			type: 'data',
+			result: resolveOfflineFallbackForRoute(routeId, request),
+		}
+	}
+
+	return patched
+}
+
+export const offlineClientMiddleware: MiddlewareFunction<
+	Record<string, DataStrategyResult>
+> = async ({ request }, next) => {
+	if (!isOfflineEnvironment()) {
+		return next()
+	}
+
+	const redirectTo = getOfflineRedirectTarget(request)
+	if (redirectTo) {
+		throw redirect(redirectTo)
+	}
+
+	const results = await next()
+	return patchOfflineDataStrategyResults(results, request)
+}

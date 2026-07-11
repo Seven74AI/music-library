@@ -14,6 +14,7 @@ import { createCSP } from './utils/csp.server.ts'
 import { getEnv, init } from './utils/env.server.ts'
 import { getInstanceInfo } from './utils/litefs.server.ts'
 import { NonceProvider } from './utils/nonce-provider.ts'
+import { getServerAppContext } from './utils/router-context.server.ts'
 import { makeTimings } from './utils/timing.server.ts'
 
 export const streamTimeout = 5000
@@ -57,7 +58,9 @@ export default async function handleRequest(...args: DocRequestArgs) {
 		responseHeaders.append('Document-Policy', 'js-profiling')
 	}
 
-	const nonce = (loadContext as Record<string, unknown>)?.nonce as string || crypto.randomBytes(16).toString('hex')
+	const nonce =
+		getServerAppContext(loadContext)?.nonce ??
+		crypto.randomBytes(16).toString('hex')
 
 	responseHeaders.set(
 		'Content-Security-Policy',

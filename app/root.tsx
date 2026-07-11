@@ -19,6 +19,7 @@ import {
 	persistOfflineRootShell,
 } from '#app/utils/offline-root-shell.client.ts'
 import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
+import { offlineClientMiddleware } from './middleware/offline-client.middleware.client.ts'
 import { type Route } from './+types/root.ts'
 import appleTouchIconAssetUrl from './assets/favicons/apple-touch-icon.png'
 import faviconAssetUrl from './assets/favicons/favicon.svg'
@@ -196,6 +197,10 @@ export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
 }
 
 clientLoader.hydrate = true as const
+
+export const clientMiddleware: Route.ClientMiddlewareFunction[] = [
+	offlineClientMiddleware,
+]
 
 export const headers: Route.HeadersFunction = pipeHeaders
 

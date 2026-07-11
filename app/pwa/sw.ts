@@ -10,7 +10,10 @@ installSerwist({
 	precacheEntries: self.__SW_MANIFEST,
 	skipWaiting: true,
 	clientsClaim: true,
-	navigationPreload: true,
+	// Disabled: on iOS Safari/PWA, a failed preload fetch surfaces a native
+	// "not connected to the internet" error before navigateFallback can serve
+	// the cached app shell.
+	navigationPreload: false,
 	navigateFallback: '/index.html',
 	navigateFallbackDenylist: [
 		/^\/resources\//,

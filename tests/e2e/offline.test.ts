@@ -12,53 +12,66 @@ async function dispatchOffline(page: import('@playwright/test').Page) {
 		}
 		window.dispatchEvent(new Event('offline'))
 	})
-}
-
-async function emulateOfflineUi(page: import('@playwright/test').Page) {
-	await page.context().setOffline(true)
-	await dispatchOffline(page)
+	await page.waitForFunction(() => navigator.onLine === false)
 }
 
 async function emulateOfflineLoaderRequests(page: import('@playwright/test').Page) {
-	// setOffline blocks localhost and prevents client navigations from completing.
-	// Abort React Router data requests instead so clientLoaders fall back offline.
+	// Abort React Router data requests so root clientMiddleware can substitute offline fallbacks.
 	await page.route(/\.data(?:\?.*)?$/, (route) => route.abort('internetdisconnected'))
 	await dispatchOffline(page)
 }
 
 test.describe('Offline mode', () => {
-	test('shows offline home when navigating home without network', async ({
+	test('shows offline status when opening home without network', async ({
 		page,
 		login,
 	}) => {
 		await login()
-		await page.goto('/downloads')
+		await page.goto('/library')
 		await page.waitForLoadState('networkidle')
 
 		await emulateOfflineLoaderRequests(page)
 
-		await Promise.all([
-			page.waitForURL('/'),
-			page.getByRole('link', { name: /epic/i }).click(),
-		])
+		await page.goto('/')
+		await page.waitForLoadState('domcontentloaded')
 
-		await expect(page.getByRole('heading', { name: 'Listening offline' })).toBeVisible({
-			timeout: 10000,
-		})
-		await expect(
-			page.locator('#main-content').getByRole('link', { name: 'Downloads' }),
-		).toBeVisible()
+		await expect(page.getByRole('status')).toContainText(
+			"You're offline. Showing downloaded music only.",
+			{ timeout: 10000 },
+		)
 	})
 
 	test('shows offline banner on supported pages', async ({ page, login }) => {
 		await login()
-		await page.goto('/downloads')
+		await page.goto('/library')
 		await page.waitForLoadState('networkidle')
 
-		await emulateOfflineUi(page)
+		await emulateOfflineLoaderRequests(page)
 
-		await expect(
-			page.getByText("You're offline. Showing downloaded music only."),
-		).toBeVisible({ timeout: 10000 })
+		await page.goto('/search')
+		await page.waitForLoadState('domcontentloaded')
+
+		await expect(page.getByRole('status')).toContainText(
+			"You're offline. Showing downloaded music only.",
+			{ timeout: 10000 },
+		)
+	})
+
+	test('shows offline blocker on search instead of browser network error', async ({
+		page,
+		login,
+	}) => {
+		await login()
+		await page.goto('/library')
+		await page.waitForLoadState('networkidle')
+
+		await emulateOfflineLoaderRequests(page)
+
+		await page.goto('/search')
+		await page.waitForLoadState('domcontentloaded')
+
+		await expect(page.getByRole('heading', { name: "You're offline" })).toBeVisible({
+			timeout: 10000,
+		})
 	})
 })
