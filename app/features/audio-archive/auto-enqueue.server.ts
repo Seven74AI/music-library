@@ -4,9 +4,9 @@
  * Called from track-batch-processor during YouTube playlist sync.
  * Creates a pending ArchiveJob for tracks that have a serviceUrl
  * (external service tracks, not local uploads).
- *
- * No longer guarded by AUDIO_ARCHIVE_ENABLED — caller decides when to invoke.
  */
+
+import { scheduleQueueTick } from './worker.server.ts'
 
 /**
  * Ensure an ArchiveJob exists for a track after import/sync.
@@ -30,6 +30,7 @@ export async function enqueueArchiveJob(
 				priority: false, // auto-enqueued, not user-requested
 			},
 		})
+		scheduleQueueTick()
 	} catch {
 		// Unique constraint violation — job already exists for this track.
 		// Silently skip: the existing job (pending/processing/completed/failed)

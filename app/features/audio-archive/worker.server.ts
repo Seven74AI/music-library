@@ -20,6 +20,22 @@ const DEFAULT_STALE_JOB_MS = 600_000
 
 let queueTickInFlight = false
 
+const ENQUEUE_WAKE_DEBOUNCE_MS = 500
+let enqueueWakeTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * Wake the archive worker soon after new jobs are enqueued.
+ * Debounced so bulk imports schedule one tick instead of one per track.
+ */
+export function scheduleQueueTick(): void {
+	if (process.env.AUDIO_ARCHIVE_ENABLED !== 'true') return
+	if (enqueueWakeTimer) clearTimeout(enqueueWakeTimer)
+	enqueueWakeTimer = setTimeout(() => {
+		enqueueWakeTimer = null
+		void processQueueTick()
+	}, ENQUEUE_WAKE_DEBOUNCE_MS)
+}
+
 function getStaleJobThresholdMs(): number {
 	const parsed = Number.parseInt(
 		process.env.AUDIO_ARCHIVE_STALE_JOB_MS ?? String(DEFAULT_STALE_JOB_MS),
@@ -114,45 +130,45 @@ async function processQueueTickInner(): Promise<void> {
 	const active = await isWorkerActive()
 	if (!active) return
 
-	await recoverStaleProcessingJobs()
-
 	const maxConcurrent = Number.parseInt(
-		process.env.AUDIO_ARCHIVE_MAX_CONCURRENT ?? '2',
+		process.env.AUDIO_ARCHIVE_MAX_CONCURRENT ?? '3',
 		10,
 	)
 
-	// Check how many jobs are currently processing
-	const processingCount = await prisma.archiveJob.count({
-		where: { status: 'processing' },
-	})
-
-	const available = maxConcurrent - processingCount
-	if (available <= 0) return
-
-	// Pick pending jobs: priority first, then oldest first
-	const jobs = await prisma.archiveJob.findMany({
-		where: { status: 'pending' },
-		orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
-		take: available,
-		include: {
-			track: {
-				select: {
-					id: true,
-					serviceUrl: true,
-				},
-			},
-		},
-	})
-
-	if (jobs.length === 0) return
-
 	const cookieFile = getCookieFilePath()
 
-	await Promise.all(
-		jobs.map((job) =>
-			processJob(job.id, job.track.id, job.track.serviceUrl ?? '', cookieFile),
-		),
-	)
+	while (true) {
+		await recoverStaleProcessingJobs()
+
+		const processingCount = await prisma.archiveJob.count({
+			where: { status: 'processing' },
+		})
+
+		const available = maxConcurrent - processingCount
+		if (available <= 0) break
+
+		const jobs = await prisma.archiveJob.findMany({
+			where: { status: 'pending' },
+			orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+			take: available,
+			include: {
+				track: {
+					select: {
+						id: true,
+						serviceUrl: true,
+					},
+				},
+			},
+		})
+
+		if (jobs.length === 0) break
+
+		await Promise.all(
+			jobs.map((job) =>
+				processJob(job.id, job.track.id, job.track.serviceUrl ?? '', cookieFile),
+			),
+		)
+	}
 
 	// Update last queue run timestamp
 	await prisma.workerState.upsert({

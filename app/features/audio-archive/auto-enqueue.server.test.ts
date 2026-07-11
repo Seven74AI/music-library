@@ -11,6 +11,11 @@ vi.mock('#app/utils/db.server.ts', () => ({
 	prisma: {},
 }))
 
+const mockScheduleQueueTick = vi.fn()
+vi.mock('./worker.server.ts', () => ({
+	scheduleQueueTick: mockScheduleQueueTick,
+}))
+
 describe('enqueueArchiveJob', () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
@@ -30,6 +35,7 @@ describe('enqueueArchiveJob', () => {
 			expect(callArgs.data.trackId).toBe('track-1')
 			expect(callArgs.data.status).toBe('pending')
 			expect(callArgs.data.priority).toBe(false)
+			expect(mockScheduleQueueTick).toHaveBeenCalledTimes(1)
 		})
 
 		it('silently skips when ArchiveJob already exists (unique constraint)', async () => {
@@ -45,6 +51,7 @@ describe('enqueueArchiveJob', () => {
 			await expect(enqueueArchiveJob(tx as any, 'track-1')).resolves.toBeUndefined()
 
 			expect(mockArchiveJob.create).toHaveBeenCalledTimes(1)
+			expect(mockScheduleQueueTick).not.toHaveBeenCalled()
 		})
 
 		it('does not throw on any database error', async () => {
@@ -55,6 +62,7 @@ describe('enqueueArchiveJob', () => {
 			const tx = { archiveJob: mockArchiveJob }
 			// Should not throw — errors are caught silently
 			await expect(enqueueArchiveJob(tx as any, 'track-1')).resolves.toBeUndefined()
+			expect(mockScheduleQueueTick).not.toHaveBeenCalled()
 		})
 	})
 })

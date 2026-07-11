@@ -23,6 +23,7 @@ import {
 	TableRow,
 } from '#app/components/ui/table.tsx'
 import { computeArchiveQueueSuccessRate } from '#app/features/audio-archive/queue-stats'
+import { scheduleQueueTick } from '#app/features/audio-archive/worker.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
 import { type Route } from './+types/audio-queue.ts'
@@ -291,6 +292,7 @@ export async function action({ request }: Route.ActionArgs) {
 					create: { id: 'singleton', status: 'running' },
 				})
 			}
+			scheduleQueueTick()
 			return data({ success: true, action: 'retry', jobId })
 		}
 
@@ -307,6 +309,7 @@ export async function action({ request }: Route.ActionArgs) {
 					priority: true,
 				},
 			})
+			scheduleQueueTick()
 			return data({ success: true, action: 'enqueue', trackId })
 		}
 

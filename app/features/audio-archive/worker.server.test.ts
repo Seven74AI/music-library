@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 // Mock prisma
 const mockPrisma = {
@@ -89,11 +89,13 @@ vi.mock('node:fs', () => ({
 }))
 
 function mockPendingArchiveJobs(jobs: Array<Record<string, unknown>>) {
+	let remaining = [...jobs]
 	mockPrisma.archiveJob.findMany.mockImplementation((args) => {
 		if (args?.where?.status === 'processing') {
 			return Promise.resolve([])
 		}
-		return Promise.resolve(jobs)
+		const take = args?.take ?? remaining.length
+		return Promise.resolve(remaining.splice(0, take))
 	})
 }
 
@@ -184,6 +186,39 @@ describe('processQueueTick', () => {
 			await processQueueTick()
 
 			expect(mockPrisma.archiveJob.findMany).not.toHaveBeenCalled()
+		})
+	})
+
+	describe('queue draining', () => {
+		it('processes multiple batches in one tick until the queue is empty', async () => {
+			process.env.AUDIO_ARCHIVE_MAX_CONCURRENT = '1'
+
+			const pendingBatches = [
+				[
+					{
+						id: 'job-1',
+						track: { id: 'track-1', serviceUrl: 'https://youtube.com/watch?v=1' },
+					},
+				],
+				[
+					{
+						id: 'job-2',
+						track: { id: 'track-2', serviceUrl: 'https://youtube.com/watch?v=2' },
+					},
+				],
+			]
+
+			mockPrisma.archiveJob.findMany.mockImplementation((args) => {
+				if (args?.where?.status === 'processing') {
+					return Promise.resolve([])
+				}
+				return Promise.resolve(pendingBatches.shift() ?? [])
+			})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			expect(mockExecuteYtDlp).toHaveBeenCalledTimes(2)
 		})
 	})
 
@@ -703,6 +738,48 @@ describe('processQueueTick', () => {
 			expect(findManyCalls[0]?.where?.status).toBe('processing')
 			expect(findManyCalls[1]?.where?.status).toBe('pending')
 		})
+	})
+})
+
+describe('scheduleQueueTick', () => {
+	beforeEach(async () => {
+		vi.useFakeTimers()
+		vi.resetModules()
+		process.env.AUDIO_ARCHIVE_ENABLED = 'true'
+		mockIsWorkerActive.mockResolvedValue(true)
+		mockPrisma.archiveJob.count.mockResolvedValue(0)
+		mockPrisma.archiveJob.findMany.mockResolvedValue([])
+		mockPrisma.workerState.upsert.mockResolvedValue({})
+	})
+
+	afterEach(() => {
+		vi.clearAllTimers()
+		vi.useRealTimers()
+	})
+
+	it('debounces wake-ups and runs processQueueTick after the delay', async () => {
+		const { scheduleQueueTick } = await import('./worker.server.ts')
+
+		scheduleQueueTick()
+		scheduleQueueTick()
+
+		expect(mockExecuteYtDlp).not.toHaveBeenCalled()
+
+		await vi.advanceTimersByTimeAsync(500)
+
+		expect(mockPrisma.archiveJob.findMany).toHaveBeenCalled()
+	})
+
+	it('does nothing when AUDIO_ARCHIVE_ENABLED is not true', async () => {
+		process.env.AUDIO_ARCHIVE_ENABLED = 'false'
+		mockPrisma.archiveJob.findMany.mockClear()
+
+		const { scheduleQueueTick } = await import('./worker.server.ts')
+		scheduleQueueTick()
+
+		await vi.advanceTimersByTimeAsync(500)
+
+		expect(mockPrisma.archiveJob.findMany).not.toHaveBeenCalled()
 	})
 })
 
