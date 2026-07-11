@@ -29,6 +29,7 @@ prompt.txt
 
 # generated files
 /public/sw.js
+/public/index.html
 /.tmp
 /generated
 /app/components/ui/icons
