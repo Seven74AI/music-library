@@ -5,11 +5,29 @@
  * service worker navigateFallback expects /index.html to exist in precache.
  */
 
+import { encode } from 'turbo-stream'
+
 export type OfflineShellAssets = {
 	manifestScript?: string
 	entryClient: string
 	stylesheet?: string
 	sprite?: string
+}
+
+const OFFLINE_REACT_ROUTER_CONTEXT = {
+	basename: '/',
+	future: {
+		unstable_optimizeDeps: true,
+		v8_passThroughRequests: false,
+		v8_trailingSlashAwareDataRequests: false,
+		unstable_previewServerPrerendering: false,
+		v8_middleware: true,
+		v8_splitRouteModules: true,
+		v8_viteEnvironmentApi: false,
+	},
+	routeDiscovery: { mode: 'lazy' as const },
+	ssr: true,
+	isSpaMode: true,
 }
 
 export const OFFLINE_SHELL_ENV_BOOTSTRAP = `try {
@@ -18,29 +36,6 @@ export const OFFLINE_SHELL_ENV_BOOTSTRAP = `try {
 } catch {
   window.ENV = {};
 }`
-
-export const OFFLINE_SHELL_ROUTER_CONTEXT_BOOTSTRAP = `window.__reactRouterContext = ${JSON.stringify(
-	{
-		basename: '/',
-		future: {
-			unstable_optimizeDeps: true,
-			v8_passThroughRequests: false,
-			v8_trailingSlashAwareDataRequests: false,
-			unstable_previewServerPrerendering: false,
-			v8_middleware: true,
-			v8_splitRouteModules: true,
-			v8_viteEnvironmentApi: false,
-		},
-		routeDiscovery: { mode: 'lazy' },
-		ssr: true,
-		isSpaMode: false,
-	},
-)};
-window.__reactRouterContext.stream = new ReadableStream({
-  start(controller) {
-    controller.close();
-  },
-}).pipeThrough(new TextEncoderStream());`
 
 export const OFFLINE_SHELL_SPLASH_HTML = `<div id="offline-shell-splash" role="status" aria-live="polite" style="display:flex;min-height:100vh;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem;text-align:center;font-family:system-ui,-apple-system,sans-serif;color:inherit;background:inherit">
   <div style="margin-bottom:1.5rem;line-height:1.1">
@@ -57,7 +52,37 @@ export const OFFLINE_SHELL_SPLASH_SCRIPT = `(function(){
   }
 })();`
 
-export function generateOfflineShellHtml(assets: OfflineShellAssets): string {
+export async function encodeEmptyRouterState() {
+	const stream = encode({
+		loaderData: {},
+		actionData: {},
+		errors: {},
+	})
+	const reader = stream.getReader()
+	const decoder = new TextDecoder()
+	let line = ''
+
+	while (true) {
+		const { done, value } = await reader.read()
+		if (done) break
+		line += decoder.decode(value)
+	}
+
+	return line
+}
+
+export function buildOfflineRouterBootstrap(encodedStateLine: string) {
+	return `window.__reactRouterContext = ${JSON.stringify(OFFLINE_REACT_ROUTER_CONTEXT)};
+window.__reactRouterRouteModules = {};
+window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());
+window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedStateLine)});
+window.__reactRouterContext.streamController.close();`
+}
+
+export async function generateOfflineShellHtml(
+	assets: OfflineShellAssets,
+): Promise<string> {
+	const routerBootstrap = buildOfflineRouterBootstrap(await encodeEmptyRouterState())
 	const lines = [
 		'<!DOCTYPE html>',
 		'<html lang="en" class="light h-full overflow-x-hidden" data-offline-shell="true">',
@@ -88,7 +113,7 @@ export function generateOfflineShellHtml(assets: OfflineShellAssets): string {
 		`  ${OFFLINE_SHELL_SPLASH_HTML}`,
 		`  <script>${OFFLINE_SHELL_SPLASH_SCRIPT}</script>`,
 		`  <script>${OFFLINE_SHELL_ENV_BOOTSTRAP}</script>`,
-		`  <script>${OFFLINE_SHELL_ROUTER_CONTEXT_BOOTSTRAP}</script>`,
+		`  <script>${routerBootstrap}</script>`,
 	)
 
 	if (assets.manifestScript) {

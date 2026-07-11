@@ -1,10 +1,16 @@
 import { startTransition } from 'react'
-import { hydrateRoot } from 'react-dom/client'
+import { createRoot, hydrateRoot } from 'react-dom/client'
 import { HydratedRouter } from 'react-router/dom'
 import { registerServiceWorker } from './utils/pwa-register.client.ts'
 
 registerServiceWorker()
 
-startTransition(() => {
-	hydrateRoot(document, <HydratedRouter />)
-})
+const isOfflineShell = document.documentElement.dataset.offlineShell === 'true'
+
+if (isOfflineShell) {
+	createRoot(document).render(<HydratedRouter />)
+} else {
+	startTransition(() => {
+		hydrateRoot(document, <HydratedRouter />)
+	})
+}

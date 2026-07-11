@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
+	buildOfflineRouterBootstrap,
+	encodeEmptyRouterState,
 	findOfflineShellAssets,
 	generateOfflineShellHtml,
 } from './generate-offline-shell-html.ts'
@@ -28,9 +30,28 @@ describe('findOfflineShellAssets', () => {
 	})
 })
 
+describe('encodeEmptyRouterState', () => {
+	test('returns a turbo-stream payload for empty router state', async () => {
+		const line = await encodeEmptyRouterState()
+		expect(line).toContain('loaderData')
+		expect(line.endsWith('\n')).toBe(true)
+	})
+})
+
+describe('buildOfflineRouterBootstrap', () => {
+	test('bootstraps route modules and a valid stream handoff', async () => {
+		const bootstrap = buildOfflineRouterBootstrap(await encodeEmptyRouterState())
+
+		expect(bootstrap).toContain('window.__reactRouterRouteModules = {}')
+		expect(bootstrap).toContain('streamController.enqueue')
+		expect(bootstrap).toContain('"isSpaMode":true')
+		expect(bootstrap).toContain('streamController.close()')
+	})
+})
+
 describe('generateOfflineShellHtml', () => {
-	test('bootstraps ENV from localStorage and loads the client entry', () => {
-		const html = generateOfflineShellHtml({
+	test('bootstraps ENV from localStorage and loads the client entry', async () => {
+		const html = await generateOfflineShellHtml({
 			manifestScript: '/assets/manifest-8c19c2c9.js',
 			entryClient: '/assets/entry.client-DfG4YbEa.js',
 			stylesheet: '/assets/tailwind-BHgWvkYH.css',
@@ -40,13 +61,14 @@ describe('generateOfflineShellHtml', () => {
 		expect(html).toContain('data-offline-shell="true"')
 		expect(html).toContain("localStorage.getItem('music-library:offline-root-shell')")
 		expect(html).toContain('window.__reactRouterContext')
-		expect(html).toContain('controller.close()')
+		expect(html).toContain('window.__reactRouterRouteModules = {}')
+		expect(html).toContain('streamController.enqueue')
 		expect(html).toContain('/assets/manifest-8c19c2c9.js')
 		expect(html).toContain('import("/assets/entry.client-DfG4YbEa.js")')
 	})
 
-	test('includes a visible splash before client JS loads', () => {
-		const html = generateOfflineShellHtml({
+	test('includes a visible splash before client JS loads', async () => {
+		const html = await generateOfflineShellHtml({
 			entryClient: '/assets/entry.client-DfG4YbEa.js',
 		})
 

@@ -25,7 +25,7 @@ async function bundleServiceWorker() {
 }
 
 async function writeDevOfflineShell() {
-	const html = generateOfflineShellHtml({
+	const html = await generateOfflineShellHtml({
 		entryClient: '/app/entry.client.tsx',
 		stylesheet: '/app/styles/tailwind.css',
 	})
@@ -36,7 +36,7 @@ async function writeProdOfflineShell(clientDir: string) {
 	const assetsDir = path.join(clientDir, 'assets')
 	const assetFileNames = await fs.readdir(assetsDir)
 	const assets = findOfflineShellAssets(assetFileNames)
-	const html = generateOfflineShellHtml(assets)
+	const html = await generateOfflineShellHtml(assets)
 	await fs.writeFile(path.join(clientDir, 'index.html'), html)
 }
 
