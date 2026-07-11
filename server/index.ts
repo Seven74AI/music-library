@@ -110,7 +110,9 @@ if (viteDevServer) {
 
 	// Everything else (like favicon.ico) is cached for an hour. You may want to be
 	// more aggressive with this caching.
-	app.use(express.static('build/client', { maxAge: '1h' }))
+	// index: false — build/client/index.html is the PWA offline bootstrap shell;
+	// do not serve it for GET / or SSR routes (including /) never run.
+	app.use(express.static('build/client', { maxAge: '1h', index: false }))
 }
 
 app.get(['/img/*', '/favicons/*'], (_req, res) => {
