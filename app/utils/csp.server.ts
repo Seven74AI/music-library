@@ -15,7 +15,8 @@ const DIRECTIVES = {
 		"'self' data: blob: https://i.ytimg.com https://img.youtube.com",
 	'connect-src': "'self'",
 	'font-src': "'self'",
-	'media-src': "'self' https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",
+	'media-src':
+		"'self' blob: https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",
 	'manifest-src': "'self'",
 	'frame-ancestors': "'none'",
 } as const

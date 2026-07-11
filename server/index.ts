@@ -89,7 +89,12 @@ app.use((_req, res, next) => {
 							MODE === 'development' ? 'ws:' : undefined,
 							"'self'",
 						].filter(Boolean) as string[],
-						'media-src': ["'self'", 'https://fly.storage.tigris.dev', 'https://*.fly.storage.tigris.dev'],
+						'media-src': [
+							"'self'",
+							'blob:',
+							'https://fly.storage.tigris.dev',
+							'https://*.fly.storage.tigris.dev',
+						],
 						'img-src': [
 							"'self'",
 							'data:',
