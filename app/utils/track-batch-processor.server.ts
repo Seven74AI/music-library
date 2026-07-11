@@ -2,6 +2,7 @@ import { enqueueArchiveJob } from '#app/features/audio-archive/auto-enqueue.serv
 import { pickCoverThumbnailUrl } from '#app/types/transformations'
 import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
 import { prisma } from '#app/utils/db.server'
+import { findAllServicePlaylistTracks } from '#app/utils/service-playlist-track-queries.server'
 import { type Prisma } from '#prisma/client.js'
 import { getServiceByName } from './playlist-utils.server'
 
@@ -127,6 +128,59 @@ export interface ProcessTracksResult {
  * @param tx - Prisma transaction instance
  * @returns Array of orphaned tracks with metadata
  */
+type PlaylistTrackForOrphanDetection = {
+  track: {
+    id: string
+    title: string
+    artist: { id: string; name: string } | null
+    externalId: string | null
+  }
+  position: number
+  isDeleted: boolean
+}
+
+export function filterOrphanedTracks(
+  allPlaylistTracks: PlaylistTrackForOrphanDetection[],
+  processedExternalIds: Set<string>,
+  processedTrackIds: Set<string>,
+  pendingMatches: PendingMatch[],
+): Array<{
+  id: string
+  title: string
+  artist: string
+  externalId: string | null
+  position: number
+  isDeleted: boolean
+}> {
+  const claimedTrackIds = new Set<string>()
+  for (const match of pendingMatches) {
+    for (const candidate of match.candidateTracks) {
+      claimedTrackIds.add(candidate.id)
+    }
+  }
+
+  return allPlaylistTracks
+    .filter((playlistTrack) => {
+      const externalId = playlistTrack.track.externalId
+      const trackId = playlistTrack.track.id
+
+      if (externalId && processedExternalIds.has(externalId)) return false
+      if (processedTrackIds.has(trackId)) return false
+      if (playlistTrack.isDeleted) return false
+      if (claimedTrackIds.has(trackId)) return false
+
+      return true
+    })
+    .map((playlistTrack) => ({
+      id: playlistTrack.track.id,
+      title: playlistTrack.track.title,
+      artist: playlistTrack.track.artist?.name || 'Unknown Artist',
+      externalId: playlistTrack.track.externalId,
+      position: playlistTrack.position,
+      isDeleted: playlistTrack.isDeleted,
+    }))
+}
+
 export async function findOrphanedTracks(
   playlistId: string,
   processedExternalIds: Set<string>,
@@ -143,86 +197,35 @@ export async function findOrphanedTracks(
     isDeleted: boolean
   }>
 > {
-  // Get all tracks in the playlist
-  const allPlaylistTracks = await tx.servicePlaylistTrack.findMany({
-    where: {
-      playlistId: playlistId,
-    },
-    include: {
-      track: {
-        select: {
-          id: true,
-          title: true,
-          artist: {
-            select: {
-              id: true,
-              name: true,
+  const allPlaylistTracks = (
+    await findAllServicePlaylistTracks(tx, {
+      where: {
+        playlistId: playlistId,
+      },
+      include: {
+        track: {
+          select: {
+            id: true,
+            title: true,
+            artist: {
+              select: {
+                id: true,
+                name: true,
+              },
             },
+            externalId: true,
           },
-          externalId: true,
         },
       },
-    },
-    orderBy: {
-      position: 'asc',
-    },
-  })
+    })
+  ).sort((a, b) => a.position - b.position)
 
-  // Get track IDs already claimed in pending matches
-  const claimedTrackIds = new Set<string>()
-  for (const match of pendingMatches) {
-    for (const candidate of match.candidateTracks) {
-      claimedTrackIds.add(candidate.id)
-    }
-  }
-
-  // Filter orphaned tracks:
-  // 1. Not in processedExternalIds or processedTrackIds (not in current sync)
-  // 2. Not already deleted (isDeleted === false) - Edge Case 9
-  // 3. Not already claimed in pending matches
-  const orphanedTracks = allPlaylistTracks
-    .filter(
-      (playlistTrack: {
-        track: { externalId: string | null; id: string }
-        isDeleted: boolean
-      }) => {
-        const externalId = playlistTrack.track.externalId
-        const trackId = playlistTrack.track.id
-
-        // Skip if already processed in current sync
-        if (externalId && processedExternalIds.has(externalId)) return false
-        if (processedTrackIds.has(trackId)) return false
-
-        // Skip if already deleted - Edge Case 9
-        if (playlistTrack.isDeleted) return false
-
-        // Skip if already claimed in pending matches
-        if (claimedTrackIds.has(trackId)) return false
-
-        return true
-      },
-    )
-    .map(
-      (playlistTrack: {
-        track: {
-          id: string
-          title: string
-          artist: { id: string; name: string } | null
-          externalId: string | null
-        }
-        position: number
-        isDeleted: boolean
-      }) => ({
-        id: playlistTrack.track.id,
-        title: playlistTrack.track.title,
-        artist: playlistTrack.track.artist?.name || 'Unknown Artist',
-        externalId: playlistTrack.track.externalId,
-        position: playlistTrack.position,
-        isDeleted: playlistTrack.isDeleted,
-      }),
-    )
-
-  return orphanedTracks
+  return filterOrphanedTracks(
+    allPlaylistTracks,
+    processedExternalIds,
+    processedTrackIds,
+    pendingMatches,
+  )
 }
 
 /**
@@ -634,27 +637,46 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     // SECOND PASS: Find orphaned tracks for deleted videos without matches
     // This happens AFTER all tracks in the current batch are processed and added to processedTrackIds
     // This prevents false positives where tracks in the current batch are incorrectly marked as orphaned
-    for (const deletedVideo of deletedVideosWithoutMatch) {
-      // Find orphaned tracks (tracks in playlist but not in current sync)
-      // At this point, processedTrackIds includes all tracks from previous batches AND the current batch
-      const orphanedTracks = await findOrphanedTracks(
-        playlistId,
-        processedExternalIds,
-        processedTrackIds,
-        pendingMatches,
-        tx,
-      )
+    if (deletedVideosWithoutMatch.length > 0) {
+      const allPlaylistTracks = (
+        await findAllServicePlaylistTracks(tx, {
+          where: { playlistId },
+          include: {
+            track: {
+              select: {
+                id: true,
+                title: true,
+                artist: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+                externalId: true,
+              },
+            },
+          },
+        })
+      ).sort((a, b) => a.position - b.position)
 
-      // Add to pendingMatches for user confirmation
-      pendingMatches.push({
-        deletedVideo: {
-          position: deletedVideo.position,
-          itemId: deletedVideo.item.id,
-          title: deletedVideo.item.snippet?.title,
-          snippet: deletedVideo.item.snippet,
-        },
-        candidateTracks: orphanedTracks,
-      })
+      for (const deletedVideo of deletedVideosWithoutMatch) {
+        const orphanedTracks = filterOrphanedTracks(
+          allPlaylistTracks,
+          processedExternalIds,
+          processedTrackIds,
+          pendingMatches,
+        )
+
+        pendingMatches.push({
+          deletedVideo: {
+            position: deletedVideo.position,
+            itemId: deletedVideo.item.id,
+            title: deletedVideo.item.snippet?.title,
+            snippet: deletedVideo.item.snippet,
+          },
+          candidateTracks: orphanedTracks,
+        })
+      }
     }
   }
 

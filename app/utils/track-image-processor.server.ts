@@ -6,8 +6,11 @@ import {
 import { prisma } from '#app/utils/db.server'
 import { type SyncableItem } from './track-batch-processor.server'
 
-/** Maximum concurrent image downloads */
-const MAX_CONCURRENCY = 5
+/** Maximum concurrent image downloads — keep low to avoid overloading the server/YouTube */
+const MAX_CONCURRENCY = 3
+
+/** Pause between download batches to reduce timeout spikes on large playlists */
+const BATCH_DELAY_MS = 100
 
 /** Page size for playlist track queries (stays under SQLite bind-parameter limits) */
 const QUERY_PAGE_SIZE = 100
@@ -164,5 +167,10 @@ async function processPlaylistTrackImages(
         }
       }),
     )
+
+    const hasMoreBatches = i + MAX_CONCURRENCY < tracksToProcess.length
+    if (hasMoreBatches) {
+      await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS))
+    }
   }
 }

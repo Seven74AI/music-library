@@ -1,32 +1,53 @@
 import { prisma } from '#app/utils/db.server.ts'
 import { sendEmail } from '#app/utils/email.server.ts'
 import { PlaylistArchiveReadyEmail } from '#app/utils/playlist-archive-ready-email.tsx'
+import { SERVICE_PLAYLIST_TRACK_PAGE_SIZE } from '#app/utils/service-playlist-track-queries.server.ts'
 
 export async function isServicePlaylistArchiveReady(
 	playlistId: string,
 ): Promise<boolean> {
-	const playlistTracks = await prisma.servicePlaylistTrack.findMany({
-		where: {
-			playlistId,
-			isDeleted: false,
-		},
-		select: {
-			track: {
-				select: {
-					audioFiles: {
-						select: { id: true },
-						take: 1,
+	let skip = 0
+	let hasActiveTracks = false
+
+	while (true) {
+		const page = await prisma.servicePlaylistTrack.findMany({
+			where: {
+				playlistId,
+				isDeleted: false,
+			},
+			select: {
+				track: {
+					select: {
+						audioFiles: {
+							select: { id: true },
+							take: 1,
+						},
 					},
 				},
 			},
-		},
-	})
+			orderBy: { id: 'asc' },
+			take: SERVICE_PLAYLIST_TRACK_PAGE_SIZE,
+			skip,
+		})
 
-	if (playlistTracks.length === 0) return false
+		if (page.length === 0) {
+			return hasActiveTracks
+		}
 
-	return playlistTracks.every(
-		(playlistTrack) => playlistTrack.track.audioFiles.length > 0,
-	)
+		hasActiveTracks = true
+
+		if (
+			page.some((playlistTrack) => playlistTrack.track.audioFiles.length === 0)
+		) {
+			return false
+		}
+
+		if (page.length < SERVICE_PLAYLIST_TRACK_PAGE_SIZE) {
+			return true
+		}
+
+		skip += SERVICE_PLAYLIST_TRACK_PAGE_SIZE
+	}
 }
 
 function resolveSiteOrigin(origin?: string): string {

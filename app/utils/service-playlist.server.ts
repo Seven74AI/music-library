@@ -8,6 +8,7 @@ import {
 } from '#app/types/youtube-api'
 import { chunkArray } from '#app/utils/chunk-array'
 import { prisma } from '#app/utils/db.server'
+import { findAllServicePlaylistTracks } from '#app/utils/service-playlist-track-queries.server'
 import { type PlaylistSyncProvider } from './playlist-sync-provider.server'
 import { getServiceByName, getUserConnection, parseConnectionTokens } from './playlist-utils.server'
 import {
@@ -364,40 +365,39 @@ export class ServicePlaylistService {
       throw new Error('Playlist not found or access denied')
     }
 
-    // Get tracks with their details
-    const playlistTracks = await prisma.servicePlaylistTrack.findMany({
-      where: {
-        playlistId: playlist.id,
-      },
-      include: {
-        track: {
-          include: {
-            artist: {
-              select: {
-                id: true,
-                name: true,
+    // Paginate to stay under SQLite bind-parameter limits on large playlists
+    const playlistTracks = (
+      await findAllServicePlaylistTracks(prisma, {
+        where: {
+          playlistId: playlist.id,
+        },
+        include: {
+          track: {
+            include: {
+              artist: {
+                select: {
+                  id: true,
+                  name: true,
+                },
               },
-            },
-            coverImage: {
-              select: {
-                objectKey: true,
+              coverImage: {
+                select: {
+                  objectKey: true,
+                },
               },
-            },
-            service: {
-              select: {
-                name: true,
-                displayName: true,
-                logoUrl: true,
+              service: {
+                select: {
+                  name: true,
+                  displayName: true,
+                  logoUrl: true,
+                },
               },
+              audioFiles: true,
             },
-            audioFiles: true,
           },
         },
-      },
-      orderBy: {
-        position: 'asc',
-      },
-    })
+      })
+    ).sort((a, b) => a.position - b.position)
 
     return {
       playlist,
@@ -604,7 +604,7 @@ export class ServicePlaylistService {
     }
 
     // Find tracks that were removed from playlist (exist in DB but not in current sync)
-    const existingPlaylistTracks = await prisma.servicePlaylistTrack.findMany({
+    const existingPlaylistTracks = await findAllServicePlaylistTracks(prisma, {
       where: {
         playlistId: playlist.id,
       },

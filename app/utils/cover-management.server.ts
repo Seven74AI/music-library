@@ -4,53 +4,100 @@ import { prisma } from '#app/utils/db.server'
 import { type Prisma } from '#prisma/client.js'
 import { uploadFile } from './storage.server'
 
+/** Per-attempt timeout for external cover downloads (YouTube thumbnails, etc.) */
+export const IMAGE_DOWNLOAD_TIMEOUT_MS = 15_000
+
+/** Retry transient network/timeout failures a few times before giving up */
+export const IMAGE_DOWNLOAD_MAX_ATTEMPTS = 3
+
+const IMAGE_DOWNLOAD_RETRY_BASE_DELAY_MS = 1_000
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export function isRetriableImageDownloadError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false
+
+	const message = error.message.toLowerCase()
+	return (
+		message.includes('timeout') ||
+		message.includes('aborted') ||
+		message.includes('econnreset') ||
+		message.includes('econnrefused') ||
+		message.includes('network') ||
+		message.includes('fetch failed') ||
+		message.includes('failed to fetch')
+	)
+}
+
+async function downloadExternalImageOnce(
+	url: string,
+	maxSize: number,
+): Promise<Buffer | null> {
+	const response = await fetch(url, {
+		signal: AbortSignal.timeout(IMAGE_DOWNLOAD_TIMEOUT_MS),
+	})
+
+	if (!response.ok) {
+		console.warn(
+			`Failed to download image from ${url}: ${response.status} ${response.statusText}`,
+		)
+		return null
+	}
+
+	const contentType = response.headers.get('content-type')
+	if (!contentType || !contentType.startsWith('image/')) {
+		console.warn(`Invalid content type for image from ${url}: ${contentType}`)
+		return null
+	}
+
+	const contentLength = response.headers.get('content-length')
+	if (contentLength && parseInt(contentLength, 10) > maxSize) {
+		console.warn(`Image from ${url} exceeds max size: ${contentLength} bytes`)
+		return null
+	}
+
+	const arrayBuffer = await response.arrayBuffer()
+	const buffer = Buffer.from(arrayBuffer)
+
+	if (buffer.length > maxSize) {
+		console.warn(`Image from ${url} exceeds max size: ${buffer.length} bytes`)
+		return null
+	}
+
+	return buffer
+}
+
 /**
  * Download image from external URL
- * 
+ *
  * @param url - External image URL (e.g., YouTube thumbnail)
  * @param maxSize - Maximum file size in bytes (default: 5MB)
  * @returns Image buffer or null if download fails
  */
 export async function downloadExternalImage(
 	url: string,
-	maxSize: number = 5 * 1024 * 1024 // 5MB default
+	maxSize: number = 5 * 1024 * 1024, // 5MB default
 ): Promise<Buffer | null> {
-	try {
-		const response = await fetch(url, {
-			signal: AbortSignal.timeout(10000), // 10 second timeout
-		})
+	for (let attempt = 1; attempt <= IMAGE_DOWNLOAD_MAX_ATTEMPTS; attempt++) {
+		try {
+			return await downloadExternalImageOnce(url, maxSize)
+		} catch (error) {
+			const isLastAttempt = attempt === IMAGE_DOWNLOAD_MAX_ATTEMPTS
+			if (isLastAttempt || !isRetriableImageDownloadError(error)) {
+				console.warn(`Error downloading image from ${url}:`, error)
+				return null
+			}
 
-		if (!response.ok) {
-			console.warn(`Failed to download image from ${url}: ${response.status} ${response.statusText}`)
-			return null
+			console.warn(
+				`Retrying cover download for ${url} (attempt ${attempt}/${IMAGE_DOWNLOAD_MAX_ATTEMPTS})`,
+			)
+			await sleep(IMAGE_DOWNLOAD_RETRY_BASE_DELAY_MS * attempt)
 		}
-
-		const contentType = response.headers.get('content-type')
-		if (!contentType || !contentType.startsWith('image/')) {
-			console.warn(`Invalid content type for image from ${url}: ${contentType}`)
-			return null
-		}
-
-		const contentLength = response.headers.get('content-length')
-		if (contentLength && parseInt(contentLength, 10) > maxSize) {
-			console.warn(`Image from ${url} exceeds max size: ${contentLength} bytes`)
-			return null
-		}
-
-		const arrayBuffer = await response.arrayBuffer()
-		const buffer = Buffer.from(arrayBuffer)
-
-		// Check size after download (in case content-length header was missing)
-		if (buffer.length > maxSize) {
-			console.warn(`Image from ${url} exceeds max size: ${buffer.length} bytes`)
-			return null
-		}
-
-		return buffer
-	} catch (error) {
-		console.warn(`Error downloading image from ${url}:`, error)
-		return null
 	}
+
+	return null
 }
 
 /**
