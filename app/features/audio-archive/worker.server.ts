@@ -131,7 +131,7 @@ async function processQueueTickInner(): Promise<void> {
 	if (!active) return
 
 	const maxConcurrent = Number.parseInt(
-		process.env.AUDIO_ARCHIVE_MAX_CONCURRENT ?? '3',
+		process.env.AUDIO_ARCHIVE_MAX_CONCURRENT ?? '2',
 		10,
 	)
 

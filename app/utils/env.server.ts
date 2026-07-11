@@ -33,8 +33,8 @@ const createConditionalSchema = (): z.ZodObject<any> => {
 
     // Audio Archive Configuration
     AUDIO_ARCHIVE_ENABLED: z.enum(['true', 'false']).optional().default('false'),
-    AUDIO_ARCHIVE_MAX_CONCURRENT: z.coerce.number().optional().default(3),
-    AUDIO_ARCHIVE_INTERVAL_MS: z.coerce.number().optional().default(30000),
+    AUDIO_ARCHIVE_MAX_CONCURRENT: z.coerce.number().optional().default(2),
+    AUDIO_ARCHIVE_INTERVAL_MS: z.coerce.number().optional().default(60000),
     AUDIO_ARCHIVE_STALE_JOB_MS: z.coerce.number().optional().default(600000),
     TELEGRAM_BOT_TOKEN: z.string().optional(),
     TELEGRAM_ADMIN_CHAT_ID: z.string().optional(),
