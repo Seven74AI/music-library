@@ -4,8 +4,8 @@
 
 import { useSearchParams } from 'react-router'
 import { z } from 'zod'
-import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { OfflineAwareErrorBoundary } from '#app/components/offline/offline-aware-error-boundary.tsx'
+import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { SearchBar } from '#app/components/search-bar.tsx'
 import { SearchResults } from '#app/components/search-results.tsx'
 import { useDelayedIsPending } from '#app/utils/misc.tsx'

@@ -39,6 +39,7 @@ const BreadcrumbHandleMatch = z.object({
 export default function EditUserProfile() {
 	const isOnline = useOnlineStatus()
 	const user = useOptionalUser()
+	const matches = useMatches()
 
 	if (!isOnline || !user) {
 		return (
@@ -50,7 +51,6 @@ export default function EditUserProfile() {
 		)
 	}
 
-	const matches = useMatches()
 	const breadcrumbs = matches
 		.map((m) => {
 			const result = BreadcrumbHandleMatch.safeParse(m)

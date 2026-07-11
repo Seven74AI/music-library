@@ -8,8 +8,8 @@ import {
 	useSearchParams,
 	useSubmit,
 } from 'react-router'
-import { OfflineAwareErrorBoundary } from '#app/components/offline/offline-aware-error-boundary.tsx'
 import { Field } from '#app/components/forms.tsx'
+import { OfflineAwareErrorBoundary } from '#app/components/offline/offline-aware-error-boundary.tsx'
 import { Spacer } from '#app/components/spacer.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import {
