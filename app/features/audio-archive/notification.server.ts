@@ -50,6 +50,20 @@ export async function sendTelegramMessage(
 }
 
 /**
+ * Notify admin that the archive worker auto-paused after repeated cookie failures.
+ */
+export async function notifyWorkerPausedForCookies(
+	consecutiveFailures: number,
+): Promise<void> {
+	await sendTelegramMessage(
+		`⏸️ <b>Archive Queue Paused</b>\n\n` +
+			`The worker paused after ${consecutiveFailures} consecutive cookie expired errors.\n\n` +
+			`<i>Upload a fresh cookie at /admin/youtube-cookies,\n` +
+			`then resume the queue at /admin/audio-queue.</i>`,
+	)
+}
+
+/**
  * Notify admin that the YouTube cookie appears to be expired or invalid.
  * Triggered when yt-dlp returns a 403 AUTH error or COOKIE_EXPIRED error.
  */

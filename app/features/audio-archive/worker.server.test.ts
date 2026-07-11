@@ -61,16 +61,20 @@ vi.mock('./tigris-upload.server', () => ({
 
 // Mock worker control
 const mockIsWorkerActive = vi.fn()
+const mockPauseWorker = vi.fn()
 vi.mock('./worker-control.server', () => ({
 	isWorkerActive: mockIsWorkerActive,
+	pauseWorker: mockPauseWorker,
 }))
 
 // Mock notification service
 const mockNotifyCookieExpired = vi.fn().mockResolvedValue(undefined)
 const mockNotifyJobFailed = vi.fn().mockResolvedValue(undefined)
+const mockNotifyWorkerPausedForCookies = vi.fn().mockResolvedValue(undefined)
 vi.mock('./notification.server', () => ({
 	notifyCookieExpired: mockNotifyCookieExpired,
 	notifyJobFailed: mockNotifyJobFailed,
+	notifyWorkerPausedForCookies: mockNotifyWorkerPausedForCookies,
 }))
 
 const mockCheckPlaylistArchiveReady = vi.fn().mockResolvedValue(undefined)
@@ -102,10 +106,19 @@ function mockPendingArchiveJobs(jobs: Array<Record<string, unknown>>) {
 describe('processQueueTick', () => {
 	const originalEnv = { ...process.env }
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		vi.clearAllMocks()
+		const { resetCookieFailureStreak } = await import('./cookie-failure-streak.ts')
+		resetCookieFailureStreak()
 		process.env.AUDIO_ARCHIVE_ENABLED = 'true'
 		mockIsWorkerActive.mockResolvedValue(true)
+		mockPauseWorker.mockResolvedValue({
+			status: 'paused',
+			currentlyProcessing: null,
+			lastQueueRun: null,
+			nextLongBreakAt: null,
+			lastStateChange: new Date(),
+		})
 		mockPrisma.archiveJob.count.mockResolvedValue(0)
 		mockPrisma.archiveJob.findMany.mockImplementation((args) => {
 			if (args?.where?.status === 'processing') {
@@ -651,6 +664,147 @@ describe('processQueueTick', () => {
 				'Sign in required',
 			)
 			expect(mockNotifyJobFailed).not.toHaveBeenCalled()
+		})
+
+		it('pauses the worker after 3 consecutive COOKIE_EXPIRED failures', async () => {
+			process.env.AUDIO_ARCHIVE_MAX_CONCURRENT = '1'
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+
+			const cookieJobs = [
+				{
+					id: 'job-cookie-1',
+					track: { id: 'track-1', serviceUrl: 'https://youtube.com/watch?v=1' },
+				},
+				{
+					id: 'job-cookie-2',
+					track: { id: 'track-2', serviceUrl: 'https://youtube.com/watch?v=2' },
+				},
+				{
+					id: 'job-cookie-3',
+					track: { id: 'track-3', serviceUrl: 'https://youtube.com/watch?v=3' },
+				},
+			]
+
+			mockPrisma.archiveJob.findMany.mockImplementation((args) => {
+				if (args?.where?.status === 'processing') {
+					return Promise.resolve([])
+				}
+				return Promise.resolve(cookieJobs.splice(0, args?.take ?? cookieJobs.length))
+			})
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
+			mockExecuteYtDlp.mockResolvedValue({
+				exitCode: 1,
+				stdout: '',
+				stderr: 'ERROR: Sign in to confirm',
+				filePath: undefined,
+				errorCategory: 'COOKIE_EXPIRED',
+				errorMessage: 'Sign in required',
+			})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			expect(mockPauseWorker).toHaveBeenCalledTimes(1)
+			expect(mockNotifyWorkerPausedForCookies).toHaveBeenCalledWith(3)
+		})
+
+		it('does not pause the worker for AUTH failures without COOKIE_EXPIRED', async () => {
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+			mockPendingArchiveJobs([
+				{
+					id: 'job-auth',
+					status: 'pending',
+					priority: false,
+					retryCount: 0,
+					errorHistory: '[]',
+					track: { id: 'track-auth', serviceUrl: 'https://youtube.com/watch?v=403' },
+				},
+			])
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
+			mockExecuteYtDlp.mockResolvedValue({
+				exitCode: 1,
+				stdout: '',
+				stderr: 'HTTP Error 403: Forbidden',
+				filePath: undefined,
+				errorCategory: 'AUTH',
+				errorMessage: 'HTTP Error 403: Forbidden',
+			})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			expect(mockPauseWorker).not.toHaveBeenCalled()
+			expect(mockNotifyWorkerPausedForCookies).not.toHaveBeenCalled()
+		})
+
+		it('resets the cookie failure streak after a successful archive', async () => {
+			process.env.AUDIO_ARCHIVE_MAX_CONCURRENT = '1'
+			mockPrisma.archiveJob.count.mockResolvedValue(0)
+
+			const jobs = [
+				{
+					id: 'job-fail-1',
+					track: { id: 'track-1', serviceUrl: 'https://youtube.com/watch?v=fail1' },
+				},
+				{
+					id: 'job-fail-2',
+					track: { id: 'track-2', serviceUrl: 'https://youtube.com/watch?v=fail2' },
+				},
+				{
+					id: 'job-success',
+					track: { id: 'track-3', serviceUrl: 'https://youtube.com/watch?v=ok' },
+				},
+				{
+					id: 'job-fail-3',
+					track: { id: 'track-4', serviceUrl: 'https://youtube.com/watch?v=fail3' },
+				},
+			]
+
+			mockPrisma.archiveJob.findMany.mockImplementation((args) => {
+				if (args?.where?.status === 'processing') {
+					return Promise.resolve([])
+				}
+				return Promise.resolve(jobs.splice(0, args?.take ?? jobs.length))
+			})
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
+			mockExecuteYtDlp
+				.mockResolvedValueOnce({
+					exitCode: 1,
+					stdout: '',
+					stderr: 'ERROR: Sign in to confirm',
+					filePath: undefined,
+					errorCategory: 'COOKIE_EXPIRED',
+					errorMessage: 'Sign in required',
+				})
+				.mockResolvedValueOnce({
+					exitCode: 1,
+					stdout: '',
+					stderr: 'ERROR: Sign in to confirm',
+					filePath: undefined,
+					errorCategory: 'COOKIE_EXPIRED',
+					errorMessage: 'Sign in required',
+				})
+				.mockResolvedValueOnce({
+					exitCode: 0,
+					stdout: '[ExtractAudio] Destination: /tmp/test-audio.mp3',
+					stderr: '',
+					filePath: '/tmp/test-audio.mp3',
+					errorCategory: null,
+					errorMessage: null,
+				})
+				.mockResolvedValueOnce({
+					exitCode: 1,
+					stdout: '',
+					stderr: 'ERROR: Sign in to confirm',
+					filePath: undefined,
+					errorCategory: 'COOKIE_EXPIRED',
+					errorMessage: 'Sign in required',
+				})
+
+			const { processQueueTick } = await import('./worker.server.ts')
+			await processQueueTick()
+
+			expect(mockPauseWorker).not.toHaveBeenCalled()
 		})
 
 		it('notifies on GEO_BLOCKED permanent failure', async () => {

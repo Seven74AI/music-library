@@ -4,9 +4,16 @@ import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { getOrCreateAlbum } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server.ts'
 import { checkPlaylistArchiveReadyAfterTrackArchived } from '#app/utils/playlist-archive-ready.server.tsx'
-import { notifyCookieExpired, notifyJobFailed } from './notification.server'
+import {
+	recordArchiveSuccess,
+	recordCookieExpiredFailure,
+	resetCookieFailureStreak,
+	isCookieExpiredFailure,
+	COOKIE_FAILURE_PAUSE_THRESHOLD,
+} from './cookie-failure-streak.ts'
+import { notifyCookieExpired, notifyJobFailed, notifyWorkerPausedForCookies } from './notification.server'
 import { uploadToTigris, buildObjectKey } from './tigris-upload.server'
-import { isWorkerActive } from './worker-control.server'
+import { isWorkerActive, pauseWorker } from './worker-control.server'
 import { getCookieFilePath } from './youtube-cookie.server'
 import { executeYtDlp, ErrorCategory, type ErrorCategory as ErrorCategoryType  } from './yt-dlp.server'
 
@@ -254,6 +261,8 @@ async function processJob(
 			data: { status: 'completed' },
 		})
 
+		recordArchiveSuccess()
+
 		void checkPlaylistArchiveReadyAfterTrackArchived(
 			trackId,
 			process.env.SITE_URL,
@@ -393,6 +402,14 @@ async function handleJobError(
 		})
 
 		void notifyCookieExpired(jobId, trackUrl, message ?? 'Unknown error')
+
+		if (isCookieExpiredFailure(category)) {
+			const shouldPause = recordCookieExpiredFailure()
+			if (shouldPause) {
+				await pauseWorker()
+				void notifyWorkerPausedForCookies(COOKIE_FAILURE_PAUSE_THRESHOLD)
+			}
+		}
 	}
 
 	// Notify on other permanent failures (fire-and-forget)
@@ -400,6 +417,8 @@ async function handleJobError(
 		void notifyJobFailed(jobId, trackUrl, category, message ?? 'Unknown error')
 	}
 }
+
+export { resetCookieFailureStreak } from './cookie-failure-streak.ts'
 
 /**
  * Get the current queue stats for monitoring.

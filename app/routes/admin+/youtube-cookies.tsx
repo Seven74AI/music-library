@@ -13,6 +13,7 @@ import {
 	readCookies,
 	type NetscapeCookie,
 } from '#app/features/audio-archive/youtube-cookie.server.ts'
+import { resetCookieFailureStreak } from '#app/features/audio-archive/worker.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
 import { type Route } from './+types/youtube-cookies.ts'
@@ -116,6 +117,8 @@ export async function action({ request }: Route.ActionArgs) {
 		},
 		data: { valid: false },
 	})
+
+	resetCookieFailureStreak()
 
 	return data({
 		success: true,
