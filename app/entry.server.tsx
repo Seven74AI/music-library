@@ -62,9 +62,10 @@ export default async function handleRequest(...args: DocRequestArgs) {
 		getServerAppContext(loadContext)?.nonce ??
 		crypto.randomBytes(16).toString('hex')
 
-	const csp = createCSP(nonce)
-	// Test runs rely on report-only CSP from server/index.ts helmet.
-	if (process.env.MOCKS !== 'true') {
+	const csp = createCSP(nonce, { isDev: MODE === 'development' })
+	if (process.env.MOCKS === 'true') {
+		responseHeaders.set('Content-Security-Policy-Report-Only', csp)
+	} else {
 		responseHeaders.set('Content-Security-Policy', csp)
 	}
 

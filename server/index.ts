@@ -75,48 +75,13 @@ app.use((_req, res, next) => {
 })
 
 app.use((_req, res, next) => {
-	const nonce = res.locals.nonce as string
 	// The referrerPolicy breaks our redirectTo logic
 	helmet(res, {
 		general: { referrerPolicy: false },
 		content: {
 			crossOriginEmbedderPolicy: false,
-			contentSecurityPolicy: {
-				reportOnly: MODE !== 'production' || process.env.MOCKS === 'true',
-				directives: {
-					fetch: {
-						'default-src': ["'self'"],
-						'connect-src': [
-							MODE === 'development' ? 'ws:' : undefined,
-							"'self'",
-						].filter(Boolean) as string[],
-						'media-src': [
-							"'self'",
-							'blob:',
-							'https://fly.storage.tigris.dev',
-							'https://*.fly.storage.tigris.dev',
-						],
-						'img-src': [
-							"'self'",
-							'data:',
-							'blob:',
-							'https://i.ytimg.com',
-							'https://img.youtube.com',
-						],
-						'font-src': ["'self'"],
-						'frame-src': ["'self'"],
-						'script-src': [
-							"'strict-dynamic'",
-							"'self'",
-							`'nonce-${nonce}'`,
-						],
-						'script-src-attr': [`'nonce-${nonce}'`],
-					},
-					navigation: {
-						'frame-ancestors': ["'none'"],
-					},
-				},
-			},
+			// Document CSP is set in app/entry.server.tsx via createCSP().
+			contentSecurityPolicy: false,
 		},
 	})
 	next()

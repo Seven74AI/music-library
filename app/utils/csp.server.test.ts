@@ -41,6 +41,12 @@ test('createCSP handles special characters in nonce', () => {
 	expect(result).toContain("script-src 'self' 'nonce-a1b2c3d4e5f6=+/'")
 })
 
+test('createCSP allows vite HMR websockets in development', () => {
+	const result = createCSP('abc123', { isDev: true })
+
+	expect(result).toContain("connect-src 'self' ws: wss:")
+})
+
 test('createCSP joins directives with semicolon and space', () => {
 	const result = createCSP('test')
 

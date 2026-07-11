@@ -28,13 +28,18 @@ const DIRECTIVES = {
  * attribute are allowed to execute. Additional directives allow styles, images,
  * API connections, fonts, and media so the app functions correctly.
  */
-export function createCSP(nonce: string): string {
+export function createCSP(
+	nonce: string,
+	options: { isDev?: boolean } = {},
+): string {
+	const connectSrc = options.isDev ? "'self' ws: wss:" : "'self'"
+
 	return [
 		`default-src ${DIRECTIVES['default-src']}`,
 		`script-src ${DIRECTIVES['script-src']} 'nonce-${nonce}'`,
 		`style-src ${DIRECTIVES['style-src']}`,
 		`img-src ${DIRECTIVES['img-src']}`,
-		`connect-src ${DIRECTIVES['connect-src']}`,
+		`connect-src ${connectSrc}`,
 		`font-src ${DIRECTIVES['font-src']}`,
 		`media-src ${DIRECTIVES['media-src']}`,
 		`manifest-src ${DIRECTIVES['manifest-src']}`,
