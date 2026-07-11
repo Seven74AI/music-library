@@ -37,17 +37,9 @@ export async function resolveTrackPlaybackSource(
 	trackId: string,
 	options: { preferOffline?: boolean } = {},
 ): Promise<string | null> {
-	const preferOffline =
-		options.preferOffline ??
-		(typeof navigator !== 'undefined' && !navigator.onLine)
-
-	if (preferOffline) {
+	if (options.preferOffline) {
 		const offlineUrl = await resolvePlaybackAudioUrl(trackId)
 		if (offlineUrl) return offlineUrl
-	}
-
-	if (typeof navigator !== 'undefined' && !navigator.onLine) {
-		return resolvePlaybackAudioUrl(trackId)
 	}
 
 	try {

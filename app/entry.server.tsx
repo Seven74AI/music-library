@@ -62,13 +62,10 @@ export default async function handleRequest(...args: DocRequestArgs) {
 		getServerAppContext(loadContext)?.nonce ??
 		crypto.randomBytes(16).toString('hex')
 
-	responseHeaders.set(
-		'Content-Security-Policy',
-		createCSP(nonce),
-	)
-
-	if (process.env.MOCKS === 'true') {
-		responseHeaders.delete('Content-Security-Policy')
+	const csp = createCSP(nonce)
+	// Test runs rely on report-only CSP from server/index.ts helmet.
+	if (process.env.MOCKS !== 'true') {
+		responseHeaders.set('Content-Security-Policy', csp)
 	}
 
 	const callbackName = isbot(request.headers.get('user-agent'))

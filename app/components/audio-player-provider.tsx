@@ -152,6 +152,15 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		return filterPlayableTracks(summaries.map(offlineSummaryToFullTrack))
 	}, [])
 
+	const loadTracksForContext = useCallback(
+		async (context: PlaylistContext): Promise<Track[]> => {
+			const onlineTracks = await fetchAllTracks(context)
+			if (onlineTracks.length > 0) return onlineTracks
+			return fetchOfflineTracks(context)
+		},
+		[fetchAllTracks, fetchOfflineTracks],
+	)
+
 	const findNextPlayableIndex = useCallback((tracks: Track[], startIndex: number, direction: 1 | -1) => {
 		if (tracks.length === 0) return -1
 
@@ -193,9 +202,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		const epoch = ++playlistFetchEpochRef.current
 		setIsLoadingNext(true)
 		try {
-			const tracks = isOfflineEnvironment()
-				? await fetchOfflineTracks(context)
-				: await fetchAllTracks(context)
+			const tracks = await loadTracksForContext(context)
 			if (epoch !== playlistFetchEpochRef.current) return
 
 			setPlaylist(tracks)
@@ -212,7 +219,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				setIsLoadingNext(false)
 			}
 		}
-	}, [fetchAllTracks, fetchOfflineTracks, playContext, beginPlayback])
+	}, [fetchAllTracks, fetchOfflineTracks, loadTracksForContext, playContext, beginPlayback])
 
 	const playPlaylist = useCallback((tracks: Track[], context: PlaylistContext, startIndex: number = 0) => {
 		const playableTracks = filterPlayableTracks(tracks)
@@ -239,26 +246,25 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const playLibrary = useCallback(async () => {
 		setIsLoadingNext(true)
 		try {
-			const tracks = isOfflineEnvironment()
-				? await fetchOfflineTracks({ type: 'library' })
-				: await fetchAllTracks({ type: 'library' })
+			const tracks = await loadTracksForContext({ type: 'library' })
 			playPlaylist(tracks, { type: 'library' }, 0)
 		} finally {
 			setIsLoadingNext(false)
 		}
-	}, [fetchAllTracks, fetchOfflineTracks, playPlaylist])
+	}, [loadTracksForContext, playPlaylist])
 
 	const playUserPlaylist = useCallback(async (playlistId: string) => {
 		setIsLoadingNext(true)
 		try {
-			const tracks = isOfflineEnvironment()
-				? await fetchOfflineTracks({ type: 'playlist', playlistId })
-				: await fetchAllTracks({ type: 'playlist', playlistId })
+			const tracks = await loadTracksForContext({
+				type: 'playlist',
+				playlistId,
+			})
 			playPlaylist(tracks, { type: 'playlist', playlistId }, 0)
 		} finally {
 			setIsLoadingNext(false)
 		}
-	}, [fetchAllTracks, fetchOfflineTracks, playPlaylist])
+	}, [loadTracksForContext, playPlaylist])
 
 	const addTrackToPlaylist = useCallback((track: Track, position: 'next' | 'end' = 'end') => {
 		if (!isPlayableTrack(track)) return

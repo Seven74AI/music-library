@@ -64,6 +64,17 @@ describe('loadWithOfflineFallback', () => {
 		expect(offlineLoader).not.toHaveBeenCalled()
 	})
 
+	test('rethrows non-network server errors while navigator reports offline', async () => {
+		vi.stubGlobal('navigator', { onLine: false })
+		const serverLoader = vi.fn().mockRejectedValue(new Error('Unauthorized'))
+		const offlineLoader = vi.fn()
+
+		await expect(loadWithOfflineFallback(serverLoader, offlineLoader)).rejects.toThrow(
+			'Unauthorized',
+		)
+		expect(offlineLoader).not.toHaveBeenCalled()
+	})
+
 	test('does not treat unrelated TypeErrors as network failures', async () => {
 		vi.stubGlobal('navigator', { onLine: true })
 		const serverLoader = vi

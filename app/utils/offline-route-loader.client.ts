@@ -7,6 +7,8 @@ function isLikelyNetworkFailure(error: unknown) {
 	return /failed to fetch|network|load failed|networkerror/i.test(error.message)
 }
 
+export { isLikelyNetworkFailure }
+
 export async function loadWithOfflineFallback<TOnline, TOffline = TOnline>(
 	serverLoader: () => Promise<TOnline>,
 	offlineLoader: () => Promise<TOffline>,
@@ -14,7 +16,7 @@ export async function loadWithOfflineFallback<TOnline, TOffline = TOnline>(
 	try {
 		return await serverLoader()
 	} catch (error) {
-		if (isOfflineEnvironment() || isLikelyNetworkFailure(error)) {
+		if (isLikelyNetworkFailure(error)) {
 			return offlineLoader()
 		}
 		throw error

@@ -21,10 +21,12 @@ async function emulateOfflineLoaderRequests(page: import('@playwright/test').Pag
 	await dispatchOffline(page)
 }
 
-async function gotoOffline(page: import('@playwright/test').Page, url: string) {
-	await page.goto(url)
+async function navigateOfflineClient(
+	page: import('@playwright/test').Page,
+	navigate: () => Promise<void>,
+) {
+	await navigate()
 	await page.waitForLoadState('domcontentloaded')
-	await dispatchOffline(page)
 }
 
 test.describe('Offline mode', () => {
@@ -38,7 +40,12 @@ test.describe('Offline mode', () => {
 
 		await emulateOfflineLoaderRequests(page)
 
-		await gotoOffline(page, '/')
+		await navigateOfflineClient(page, async () => {
+			await Promise.all([
+				page.waitForURL('/'),
+				page.getByRole('link', { name: /epic/i }).click(),
+			])
+		})
 
 		await expect(page.getByRole('status')).toContainText(
 			"You're offline. Showing downloaded music only.",
@@ -53,7 +60,15 @@ test.describe('Offline mode', () => {
 
 		await emulateOfflineLoaderRequests(page)
 
-		await gotoOffline(page, '/search')
+		await navigateOfflineClient(page, async () => {
+			await Promise.all([
+				page.waitForURL(/\/search(?:\?.*)?$/),
+				page
+					.locator('header form[action="/search"]')
+					.getByRole('button', { name: 'Search' })
+					.click(),
+			])
+		})
 
 		await expect(page.getByRole('status')).toContainText(
 			"You're offline. Showing downloaded music only.",
@@ -71,7 +86,15 @@ test.describe('Offline mode', () => {
 
 		await emulateOfflineLoaderRequests(page)
 
-		await gotoOffline(page, '/search')
+		await navigateOfflineClient(page, async () => {
+			await Promise.all([
+				page.waitForURL(/\/search(?:\?.*)?$/),
+				page
+					.locator('header form[action="/search"]')
+					.getByRole('button', { name: 'Search' })
+					.click(),
+			])
+		})
 
 		await expect(page.getByRole('heading', { name: "You're offline" })).toBeVisible({
 			timeout: 10000,

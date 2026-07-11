@@ -60,6 +60,9 @@ const createConditionalSchema = (): z.ZodObject<any> => {
 
     // Playwright test base URL (test-only)
     PLAYWRIGHT_TEST_BASE_URL: z.string().optional(),
+
+    // Disable service worker registration (test-only)
+    DISABLE_SERVICE_WORKER: z.enum(['true', 'false']).optional(),
   })
 }
 
@@ -130,8 +133,7 @@ export function getEnv() {
 	return {
 		MODE: process.env.NODE_ENV,
 		ALLOW_INDEXING: process.env.ALLOW_INDEXING,
-		DISABLE_SERVICE_WORKER:
-			process.env.PLAYWRIGHT_TEST_BASE_URL != null ? 'true' : undefined,
+		DISABLE_SERVICE_WORKER: process.env.DISABLE_SERVICE_WORKER,
 	}
 }
 

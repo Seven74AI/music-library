@@ -78,6 +78,7 @@ export default defineConfig({
 			PORT,
 			NODE_ENV: 'test',
 			MOCKS: 'true',
+			DISABLE_SERVICE_WORKER: 'true',
 			PLAYWRIGHT_TEST_BASE_URL,
 			YOUTUBE_MOCKS: 'true',
 			// Use the test database created by global setup (absolute path)
