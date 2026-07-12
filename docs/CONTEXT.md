@@ -20,15 +20,19 @@ New contributors: read this before writing code.
 
 - **yt-dlp** — The CLI tool used to download YouTube audio. Spawned as a child process with `--extract-audio --audio-format mp3`. Supports cookie-based authentication for age-restricted or bot-protected content.
 
-- **Tigris** — S3-compatible object storage (Fly.io). Audio files are uploaded after yt-dlp download. Object key format: `audio/{trackId}/{filename}`.
+- **Tigris** — S3-compatible object storage (Fly.io) for server-side audio and cover images. All **TrackAudioFile** object keys use `audio/tracks/{serviceName}/{trackId}.{ext}` (e.g. `audio/tracks/youtube/clxyz123.mp3`, `audio/tracks/local/clabc456.flac`). `serviceName` is the track's service (`youtube`, `local`, …). Covers use a separate `images/…` namespace.
+
+- **TrackAudioFile** — Links a track to its stored audio file in Tigris. Stores the object key (`audio/tracks/{serviceName}/{trackId}.{ext}`), format, MIME type, file size, bitrate, sample rate, and upload metadata. A track may have multiple files (different formats); see **Preferred Audio Format**. Created by **Track Audio Persist** (archive worker or admin upload).
+
+- **Track Audio Persist** — The act of storing audio bytes in Tigris and linking them to a track: upload to object storage, create a `TrackAudioFile` row, then best-effort metadata backfill from the file. Used by the archive worker (existing track) and admin upload (new track, usually inside a DB transaction).
+
+- **Preferred Audio Format** — When a track has more than one `TrackAudioFile`, streaming, download, and offline caching pick the best available format in order: FLAC → WAV → MP3 → M4A → OGG → AAC → WebM → first available.
 
 - **COOKIE_FILE_PATH** — Environment variable pointing to a YouTube cookies.txt file. Used by yt-dlp with the `--cookies` flag for authenticated downloads.
 
 - **Telegram notification** — Admin alerts sent via Telegram Bot API when cookies expire or jobs fail permanently. Requires `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_CHAT_ID`.
 
-- **Auto-enqueue** — Automatic creation of `ArchiveJob` records when YouTube tracks are imported or synced. Implemented in `auto-enqueue.server.ts`, called from the track batch processor. Skips if AUDIO_ARCHIVE_ENABLED is not `true`. Idempotent (silently skips if job already exists).
-
-- **TrackAudioFile** — A Prisma model linking a track to its stored audio file in Tigris. Stores object key, format, MIME type, file size, bitrate, sample rate, and upload metadata.
+- **Auto-enqueue** — Automatic creation of `ArchiveJob` records when YouTube tracks are imported or synced during playlist sync. Skips if `AUDIO_ARCHIVE_ENABLED` is not `true`. Idempotent (silently skips if a job already exists for the track).
 
 ### Error Categories
 
@@ -46,13 +50,25 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 
 ### YouTube Integration
 
-- **ServicePlaylist** — A YouTube playlist synced to the user's library. Tracks are imported as `PlaylistTrack` records.
+- **ServicePlaylist** — A playlist imported from an external service (YouTube today). Owned by a user and kept in sync with the service's playlist state.
 
-- **PlaylistTrack** — A track within a synced playlist, with `isDeleted` flag for tracks removed from YouTube.
+- **ServicePlaylistTrack** — A track's membership in a synced playlist, including position and deletion status (`isDeleted`, `deletedAt`) when the YouTube video becomes unavailable.
 
-- **Orphaned Track** — A `PlaylistTrack` where the YouTube video was deleted but could not be automatically matched to an existing track. Requires user confirmation.
+- **Playlist Sync** — Fetching playlist state from an external service and updating `ServicePlaylist` / `ServicePlaylistTrack` records (and global `Track` rows where needed). Sync populates the synced-playlist catalog; it does **not** add tracks to the user's personal library.
 
-- **CoverImage** — A Prisma model for a processed, deduplicated cover image stored in Tigris. Keyed by SHA-256 `contentHash` so identical thumbnails are stored once and shared across tracks/albums. Created by the post-sync background image processor from YouTube thumbnails.
+- **Orphaned Track** — A deleted YouTube video in a synced playlist that could not be automatically matched to an existing `Track`. Sync pauses on ambiguous cases until the user confirms.
+
+- **Orphaned Track Confirmation** — A user-driven step separate from automatic playlist sync: the user chooses whether a deleted item matches an existing track, should become a new track, or should be skipped.
+
+- **CoverImage** — A processed, deduplicated cover image stored in Tigris. Keyed by SHA-256 `contentHash` so identical thumbnails are stored once and shared across tracks/albums. Populated by a post-sync background step from YouTube thumbnails.
+
+- **Service Connection** — OAuth link between a user and an external music service (YouTube today). Holds access and refresh tokens for API calls during playlist sync and browsing. **`resolveServiceAccessToken(serviceName, userId)`** returns a valid access token or `null`; expired tokens are refreshed automatically when a refresh token is available. **`hasServiceConnection(serviceName, userId)`** is the boolean check for UI ("connected or not").
+
+### Personal Library
+
+- **Personal Library** — The user's curated listening collection — what powers `/library`, onboarding, and "Play library". Distinct from synced ServicePlaylist catalogs.
+
+- **UserTrack** — A user's membership in their personal library: an active link between a user and a `Track`. Adding or removing a `UserTrack` is always an explicit user action; playlist sync never creates one.
 
 ### Generic
 
@@ -76,7 +92,11 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 
 - **Queue Cache** — Tracks auto-cached from the active queue for listening continuity. Stored in the same device storage as pinned downloads but eligible for LRU eviction when storage is tight. A track that is both pinned and queue-cached counts as pinned.
 
-- **Offline Shell** — Cached HTML, JS, CSS, and static assets so the app loads and navigates without network. Service-worker precache (`app/pwa/sw.ts`) plus a supplemental `localStorage` root shell (`offline-root-shell.client.ts`) for warm navigations.
+- **Offline Shell** — Cached HTML, JS, CSS, and static assets so the app loads and navigates without network. Service-worker precache plus a supplemental root shell cache (user, theme, ENV) for warm navigations when loader fetches fail.
+
+- **Offline Live Route** — A route that serves real Cached Playback data from device storage when offline (library, playlists, downloads, home).
+
+- **Offline Stub Route** — A route that loads offline with placeholder data or a blocker UI instead of network-backed content (YouTube sync, search, admin).
 
 ## Settled Decisions
 
@@ -110,7 +130,7 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 11. **Tigris Object Storage** — S3-compatible storage on Fly.io. Chosen over local filesystem (not durable across deploys), AWS S3 directly (vendor lock-in, separate billing), and database BLOBs (performance, size limits).
 
-12. **Object key format: `audio/{serviceName}/{trackId}.mp3`** — Archive path from audio-archive-feature.md. User uploads use `audio/tracks/{trackId}/local/...` — no collision since uploads always use service `local`.
+12. **Unified audio object key format** — All server-side audio in Tigris: `audio/tracks/{serviceName}/{trackId}.{ext}`. Applies to archived (YouTube worker) and uploaded (admin/local) audio alike. Legacy keys (`audio/{trackId}/{filename}` and older upload paths) were migrated once via copy-and-update; new code never writes them. Device-side OPFS paths (`audio/{trackId}.{ext}`) are a separate namespace — not Tigris keys.
 
 13. **Multipart upload for files > 5MB** — Using `@aws-sdk/lib-storage` Upload class. Files ≤ 5MB use single-part PutObjectCommand (Tigris multipart minimum is 5MB per part).
 

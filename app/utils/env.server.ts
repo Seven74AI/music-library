@@ -48,10 +48,6 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     // OAuth credentials (optional — only needed when using those providers)
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
-    GITHUB_CLIENT_ID: z.string().optional(),
-    GITHUB_CLIENT_SECRET: z.string().optional(),
-    GITHUB_TOKEN: z.string().optional(),
-    GITHUB_REDIRECT_URI: z.string().optional(),
 
     // Server / platform
     PORT: z.coerce.number().optional(),
