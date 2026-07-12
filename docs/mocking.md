@@ -81,13 +81,11 @@ NODE_ENV=production npm start
 - `searchYouTubeVideos()` - Returns mock search results
 - `getYouTubeVideoDetails()` - Returns mock video details
 
+#### Audio Archive — Storage upload (`app/utils/storage.server.ts`)
+- `uploadFile()` - When `MOCKS=true`, returns the object key without uploading. Used by archive worker and admin upload routes.
+
 #### Audio Archive — yt-dlp (`app/features/audio-archive/yt-dlp.server.ts`)
 - `executeYtDlp()` - When `MOCKS=true`, returns a simulated successful download result immediately without spawning yt-dlp. Returns a fake file path (`/tmp/test-audio.mp3`) and exit code 0. No real network calls, no child process.
-
-#### Audio Archive — Tigris Upload (`app/features/audio-archive/tigris-upload.server.ts`)
-- `uploadToTigris()` - When `MOCKS=true`, returns a simulated `UploadResult` with the expected key/bucket/location. No real S3 client usage, no file reads.
-- `uploadFileSimple()` - Same mock behavior as `uploadToTigris()`.
-- `getPresignedUrl()` - When `MOCKS=true`, returns a mock presigned URL with query parameters.
 
 #### Audio Archive — Telegram Notifications (`app/features/audio-archive/notification.server.ts`)
 - `sendTelegramMessage()` - When `MOCKS=true`, returns `true` without making HTTP calls. When `TELEGRAM_BOT_TOKEN` or `TELEGRAM_ADMIN_CHAT_ID` are empty (default in test/CI), silently returns `false`.

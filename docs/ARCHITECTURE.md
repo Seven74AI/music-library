@@ -30,8 +30,6 @@ app/features/audio-archive/
 ├── auto-enqueue.server.test.ts
 ├── notification.server.ts          # Telegram notifications
 ├── notification.server.test.ts
-├── tigris-upload.server.ts         # Tigris Object Storage upload
-├── tigris-upload.server.test.ts
 ├── worker-control.server.ts        # Worker state machine (run/pause/break)
 ├── worker-control.server.test.ts
 ├── worker.server.ts                # Queue processing loop

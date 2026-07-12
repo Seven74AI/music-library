@@ -8,7 +8,7 @@ import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server'
 import { requireUserWithRole } from '#app/utils/permissions.server'
-import { uploadFile } from '#app/utils/storage.server'
+import { buildAudioObjectKey, uploadFile } from '#app/utils/storage.server'
 
 // Maximum file size: 100MB
 const MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -26,21 +26,6 @@ const ALLOWED_MIME_TYPES = [
 	'audio/ogg',
 	'audio/webm',
 ]
-
-/**
- * Generate storage key for audio file
- */
-function generateAudioFileKey(
-	trackId: string,
-	serviceId: string | null,
-	format: string,
-	fileId: string,
-	extension: string
-): string {
-	const service = serviceId || 'local'
-	const timestamp = Date.now()
-	return `audio/tracks/${trackId}/${service}/${format}/${timestamp}-${fileId}.${extension}`
-}
 
 /**
  * Get file extension from filename or MIME type
@@ -155,13 +140,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		const fileId = createId()
 		const format = extractedMetadata.format || 'mp3'
 		const extension = getFileExtension(audioFile.name, audioFile.type)
-		const objectKey = generateAudioFileKey(
-			trackId,
-			localService.id,
-			format,
-			fileId,
-			extension
-		)
+		const objectKey = buildAudioObjectKey(LOCAL_SERVICE.NAME, trackId, extension)
 
 		// Upload file to storage (outside transaction - storage can't be rolled back)
 		await uploadFile({

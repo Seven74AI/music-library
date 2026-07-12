@@ -46,6 +46,7 @@
     "add-headers": "node scripts/add-context7-headers.js",
     "stop": "lsof -ti:3000 | xargs kill -9",
     "reset-storage": "tsx scripts/reset-storage.ts",
+    "migrate-audio-keys": "tsx scripts/migrate-audio-object-keys.ts",
     "db:manage": "tsx scripts/manage-db.ts",
     "make-admin": "tsx scripts/make-admin.ts"
   },

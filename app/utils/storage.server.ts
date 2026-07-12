@@ -14,6 +14,30 @@ const MAX_RETRY_ATTEMPTS = 3
 const RETRY_MODE = 'adaptive' as const
 const MAX_EXPIRY_SECONDS = 604800 // 7 days
 
+const UNIFIED_AUDIO_OBJECT_KEY_PATTERN =
+	/^audio\/tracks\/[^/]+\/[^/]+\.[^./]+$/
+
+/**
+ * Build the Tigris object key for a track audio file.
+ * Format: audio/tracks/{serviceName}/{trackId}.{ext}
+ */
+export function buildAudioObjectKey(
+	serviceName: string,
+	trackId: string,
+	extension: string,
+): string {
+	const ext = extension.replace(/^\./, '').toLowerCase()
+	if (!serviceName || !trackId || !ext) {
+		throw new Error('serviceName, trackId, and extension are required')
+	}
+	return `audio/tracks/${serviceName}/${trackId}.${ext}`
+}
+
+/** Whether an object key already uses the unified audio layout. */
+export function isUnifiedAudioObjectKey(objectKey: string): boolean {
+	return UNIFIED_AUDIO_OBJECT_KEY_PATTERN.test(objectKey)
+}
+
 /**
  * Check if storage is configured (all required env vars are set)
  */

@@ -37,11 +37,11 @@ function createAudioFixture(objectKey: string) {
 	mkdirSync(dir, { recursive: true })
 	// Write a tiny valid MPEG frame (44 bytes — minimal header)
 	writeFileSync(fixturePath, Buffer.from([0xFF, 0xFB, 0x90, 0x00, ...Array(40).fill(0)]))
-	// objectKey: audio/tracks/{trackId}/...
-	const trackId = objectKey.split('/')[2]
+	// objectKey: audio/tracks/{serviceName}/{trackId}.{ext}
+	const trackId = objectKey.split('/')[3]
 	if (trackId) {
 		fixtureTrackDirs.add(
-			join(process.cwd(), 'tests', 'fixtures', 'uploaded', 'audio', 'tracks', trackId),
+			join(process.cwd(), 'tests', 'fixtures', 'uploaded', 'audio', 'tracks', 'local', trackId),
 		)
 	}
 }
@@ -89,7 +89,7 @@ async function setupTestData() {
 	await prisma.trackAudioFile.create({
 		data: {
 			trackId: track.id,
-			objectKey: `audio/tracks/${track.id}/local/mp3/99-test.mp3`,
+			objectKey: `audio/tracks/local/${track.id}.mp3`,
 			fileName: 'test.mp3',
 			mimeType: 'audio/mpeg',
 			format: 'mp3',
@@ -98,7 +98,7 @@ async function setupTestData() {
 	})
 
 	// Create local fixture so loader can serve it without S3 config
-	createAudioFixture(`audio/tracks/${track.id}/local/mp3/99-test.mp3`)
+	createAudioFixture(`audio/tracks/local/${track.id}.mp3`)
 
 	// Create an active service playlist owned by the user
 	const playlist = await prisma.servicePlaylist.create({

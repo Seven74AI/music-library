@@ -1,7 +1,7 @@
 # ADR-010: Audio File Upload and Storage System
 
 ## Status
-Accepted
+Accepted (audio object key layout superseded by [ADR-014](./014-unified-audio-object-keys.md))
 
 ## Context
 

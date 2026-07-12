@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { getOrCreateArtist } from '#app/utils/artist-management.server'
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { getOrCreateAlbum } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server.ts'
 import { checkPlaylistArchiveReadyAfterTrackArchived } from '#app/utils/playlist-archive-ready.server.tsx'
+import { buildAudioObjectKey, uploadFile } from '#app/utils/storage.server'
 import {
 	recordArchiveSuccess,
 	recordCookieExpiredFailure,
@@ -12,7 +14,6 @@ import {
 	COOKIE_FAILURE_PAUSE_THRESHOLD,
 } from './cookie-failure-streak.ts'
 import { notifyCookieExpired, notifyJobFailed, notifyWorkerPausedForCookies } from './notification.server'
-import { uploadToTigris, buildObjectKey } from './tigris-upload.server'
 import { isWorkerActive, pauseWorker } from './worker-control.server'
 import { getCookieFilePath } from './youtube-cookie.server'
 import { executeYtDlp, ErrorCategory, type ErrorCategory as ErrorCategoryType  } from './yt-dlp.server'
@@ -166,6 +167,7 @@ async function processQueueTickInner(): Promise<void> {
 					select: {
 						id: true,
 						serviceUrl: true,
+						service: { select: { name: true } },
 					},
 				},
 			},
@@ -175,7 +177,13 @@ async function processQueueTickInner(): Promise<void> {
 
 		await Promise.all(
 			jobs.map((job) =>
-				processJob(job.id, job.track.id, job.track.serviceUrl ?? '', cookieFile),
+				processJob(
+					job.id,
+					job.track.id,
+					job.track.service.name,
+					job.track.serviceUrl ?? '',
+					cookieFile,
+				),
 			),
 		)
 	}
@@ -194,6 +202,7 @@ async function processQueueTickInner(): Promise<void> {
 async function processJob(
 	jobId: string,
 	trackId: string,
+	serviceName: string,
 	url: string,
 	cookieFile?: string,
 ): Promise<void> {
@@ -223,18 +232,26 @@ async function processJob(
 		}
 
 		// 2. Upload to Tigris
-		const key = buildObjectKey(trackId, result.filePath)
 		const audioBuffer = readFileSync(result.filePath)
 		const extractedMetadata = await extractAudioMetadata(audioBuffer, result.filePath)
+		const extension =
+			path.extname(result.filePath).slice(1) ||
+			extractedMetadata.format ||
+			'mp3'
+		const key = buildAudioObjectKey(serviceName, trackId, extension)
 
-		const uploadResult = await uploadToTigris(result.filePath, key)
+		await uploadFile({
+			file: audioBuffer,
+			key,
+			contentType: extractedMetadata.mimeType || 'audio/mpeg',
+		})
 
 		// 3. Create TrackAudioFile record
 		await prisma.trackAudioFile.create({
 			data: {
 				trackId,
-				objectKey: uploadResult.key,
-				fileName: uploadResult.key.split('/').pop(),
+				objectKey: key,
+				fileName: key.split('/').pop(),
 				format: extractedMetadata.format || 'mp3',
 				mimeType: extractedMetadata.mimeType || 'audio/mpeg',
 				fileSize: audioBuffer.length,

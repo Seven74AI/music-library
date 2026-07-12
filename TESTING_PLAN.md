@@ -322,14 +322,11 @@ These are unit tests in `app/features/audio-archive/`:
 - [ ] isWorkerActive returns false when on long_break (before expiry)
 - [ ] isWorkerActive returns true when long_break expires
 
-#### 10.4 Tigris Upload (`tigris-upload.server.test.ts`)
-- [ ] Mock mode returns simulated UploadResult
-- [ ] Object key format: audio/{trackId}/{filename}
-- [ ] Bucket name from environment
-- [ ] S3 client configuration (Tigris endpoint, forcePathStyle)
-- [ ] Upload to Tigris with multipart for large files
-- [ ] UploadFileSimple via PutObjectCommand
-- [ ] Presigned URL generation (mock mode)
+#### 10.4 Storage module (`storage.server.test.ts`)
+- [ ] `buildAudioObjectKey` for youtube/local provenances
+- [ ] Unified object key format: `audio/tracks/{serviceName}/{trackId}.{ext}`
+- [ ] `isUnifiedAudioObjectKey` detects legacy vs unified keys
+- [ ] Mock mode: `uploadFile` returns key without uploading when `MOCKS=true`
 
 #### 10.5 Auto-Enqueue (`auto-enqueue.server.test.ts`)
 - [ ] Creates ArchiveJob when AUDIO_ARCHIVE_ENABLED is true

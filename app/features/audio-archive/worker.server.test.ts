@@ -51,12 +51,12 @@ vi.mock('./yt-dlp.server', () => ({
 	},
 }))
 
-// Mock tigris upload
-const mockUploadToTigris = vi.fn()
-const mockBuildObjectKey = vi.fn()
-vi.mock('./tigris-upload.server', () => ({
-	uploadToTigris: mockUploadToTigris,
-	buildObjectKey: mockBuildObjectKey,
+// Mock storage upload
+const mockUploadFile = vi.fn()
+const mockBuildAudioObjectKey = vi.fn()
+vi.mock('#app/utils/storage.server', () => ({
+	uploadFile: mockUploadFile,
+	buildAudioObjectKey: mockBuildAudioObjectKey,
 }))
 
 // Mock worker control
@@ -129,14 +129,11 @@ describe('processQueueTick', () => {
 		mockPrisma.workerState.upsert.mockResolvedValue({})
 		mockPrisma.youtubeCookie.updateMany.mockResolvedValue({ count: 1 })
 
-		mockBuildObjectKey.mockImplementation(
-			(trackId: string, filePath: string) => `audio/${trackId}/${filePath.split('/').pop()}`,
+		mockBuildAudioObjectKey.mockImplementation(
+			(serviceName: string, trackId: string, extension: string) =>
+				`audio/tracks/${serviceName}/${trackId}.${extension}`,
 		)
-		mockUploadToTigris.mockResolvedValue({
-			key: 'audio/track-1/test.mp3',
-			bucket: 'mock-bucket',
-			location: 'https://mock-bucket.fly.storage.tigris.dev/audio/track-1/test.mp3',
-		})
+		mockUploadFile.mockResolvedValue('audio/tracks/youtube/track-1.mp3')
 		mockExecuteYtDlp.mockResolvedValue({
 			exitCode: 0,
 			stdout: '[download] Destination: /tmp/test-audio.mp3',
@@ -208,13 +205,13 @@ describe('processQueueTick', () => {
 				[
 					{
 						id: 'job-1',
-						track: { id: 'track-1', serviceUrl: 'https://youtube.com/watch?v=1' },
+						track: { id: 'track-1', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=1' },
 					},
 				],
 				[
 					{
 						id: 'job-2',
-						track: { id: 'track-2', serviceUrl: 'https://youtube.com/watch?v=2' },
+						track: { id: 'track-2', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=2' },
 					},
 				],
 			]
@@ -246,13 +243,13 @@ describe('processQueueTick', () => {
 				[
 					{
 						id: 'job-1',
-						track: { id: 'track-1', serviceUrl: 'https://youtube.com/watch?v=1' },
+						track: { id: 'track-1', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=1' },
 					},
 				],
 				[
 					{
 						id: 'job-2',
-						track: { id: 'track-2', serviceUrl: 'https://youtube.com/watch?v=2' },
+						track: { id: 'track-2', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=2' },
 					},
 				],
 			]
@@ -322,7 +319,11 @@ describe('processQueueTick', () => {
 					priority: true,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-1', serviceUrl: 'https://youtube.com/watch?v=abc123' },
+					track: {
+						id: 'track-1',
+						serviceUrl: 'https://youtube.com/watch?v=abc123',
+						service: { name: 'youtube' },
+					},
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: 'track-1' })
@@ -334,7 +335,7 @@ describe('processQueueTick', () => {
 				'https://youtube.com/watch?v=abc123',
 				expect.objectContaining({ cookieFile: '/data/youtube-cookies.txt' }),
 			)
-			expect(mockUploadToTigris).toHaveBeenCalled()
+			expect(mockUploadFile).toHaveBeenCalled()
 			expect(mockPrisma.trackAudioFile.create).toHaveBeenCalledWith(
 				expect.objectContaining({
 					data: expect.objectContaining({
@@ -388,7 +389,7 @@ describe('processQueueTick', () => {
 					priority: true,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-keep', serviceUrl: 'https://youtube.com/watch?v=keep' },
+					track: { id: 'track-keep', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=keep' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: 'track-keep' })
@@ -415,7 +416,7 @@ describe('processQueueTick', () => {
 					priority: true,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-meta-fail', serviceUrl: 'https://youtube.com/watch?v=meta' },
+					track: { id: 'track-meta-fail', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=meta' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: 'track-meta-fail' })
@@ -446,7 +447,7 @@ describe('processQueueTick', () => {
 					priority: false,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-2', serviceUrl: 'https://youtube.com/watch?v=xyz' },
+					track: { id: 'track-2', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=xyz' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
@@ -472,7 +473,7 @@ describe('processQueueTick', () => {
 					}),
 				}),
 			)
-			expect(mockUploadToTigris).not.toHaveBeenCalled()
+			expect(mockUploadFile).not.toHaveBeenCalled()
 			expect(mockPrisma.trackAudioFile.create).not.toHaveBeenCalled()
 		})
 
@@ -485,7 +486,7 @@ describe('processQueueTick', () => {
 					priority: false,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-enoent', serviceUrl: 'https://youtube.com/watch?v=abc' },
+					track: { id: 'track-enoent', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=abc' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
@@ -500,7 +501,7 @@ describe('processQueueTick', () => {
 			const enoent = Object.assign(new Error("ENOENT: no such file or directory, stat 'abc.mp3'"), {
 				code: 'ENOENT',
 			})
-			mockUploadToTigris.mockRejectedValue(enoent)
+			mockUploadFile.mockRejectedValue(enoent)
 
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
@@ -526,7 +527,7 @@ describe('processQueueTick', () => {
 					priority: false,
 					retryCount: 1,
 					errorHistory: '[]',
-					track: { id: 'track-3', serviceUrl: 'https://youtube.com/watch?v=net' },
+					track: { id: 'track-3', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=net' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 1, errorHistory: '[]' })
@@ -561,7 +562,7 @@ describe('processQueueTick', () => {
 					priority: false,
 					retryCount: 3,
 					errorHistory: '[]',
-					track: { id: 'track-4', serviceUrl: 'https://youtube.com/watch?v=max' },
+					track: { id: 'track-4', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=max' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 3, errorHistory: '[]' })
@@ -596,7 +597,7 @@ describe('processQueueTick', () => {
 					priority: false,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-auth', serviceUrl: 'https://youtube.com/watch?v=403' },
+					track: { id: 'track-auth', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=403' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
@@ -638,7 +639,7 @@ describe('processQueueTick', () => {
 					priority: false,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-cookie', serviceUrl: 'https://youtube.com/watch?v=cookie' },
+					track: { id: 'track-cookie', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=cookie' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
@@ -673,15 +674,15 @@ describe('processQueueTick', () => {
 			const cookieJobs = [
 				{
 					id: 'job-cookie-1',
-					track: { id: 'track-1', serviceUrl: 'https://youtube.com/watch?v=1' },
+					track: { id: 'track-1', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=1' },
 				},
 				{
 					id: 'job-cookie-2',
-					track: { id: 'track-2', serviceUrl: 'https://youtube.com/watch?v=2' },
+					track: { id: 'track-2', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=2' },
 				},
 				{
 					id: 'job-cookie-3',
-					track: { id: 'track-3', serviceUrl: 'https://youtube.com/watch?v=3' },
+					track: { id: 'track-3', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=3' },
 				},
 			]
 
@@ -717,7 +718,7 @@ describe('processQueueTick', () => {
 					priority: false,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-auth', serviceUrl: 'https://youtube.com/watch?v=403' },
+					track: { id: 'track-auth', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=403' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
@@ -744,19 +745,19 @@ describe('processQueueTick', () => {
 			const jobs = [
 				{
 					id: 'job-fail-1',
-					track: { id: 'track-1', serviceUrl: 'https://youtube.com/watch?v=fail1' },
+					track: { id: 'track-1', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=fail1' },
 				},
 				{
 					id: 'job-fail-2',
-					track: { id: 'track-2', serviceUrl: 'https://youtube.com/watch?v=fail2' },
+					track: { id: 'track-2', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=fail2' },
 				},
 				{
 					id: 'job-success',
-					track: { id: 'track-3', serviceUrl: 'https://youtube.com/watch?v=ok' },
+					track: { id: 'track-3', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=ok' },
 				},
 				{
 					id: 'job-fail-3',
-					track: { id: 'track-4', serviceUrl: 'https://youtube.com/watch?v=fail3' },
+					track: { id: 'track-4', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=fail3' },
 				},
 			]
 
@@ -816,7 +817,7 @@ describe('processQueueTick', () => {
 					priority: false,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-geo', serviceUrl: 'https://youtube.com/watch?v=geo' },
+					track: { id: 'track-geo', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=geo' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })
@@ -854,7 +855,7 @@ describe('processQueueTick', () => {
 					priority: false,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-net', serviceUrl: 'https://youtube.com/watch?v=net' },
+					track: { id: 'track-net', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=net' },
 				},
 			])
 			mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: '[]' })

@@ -8,7 +8,7 @@ import { extractAudioMetadata, type ExtractedAudioMetadata } from '#app/utils/au
 import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server'
 import { requireUserWithRole } from '#app/utils/permissions.server'
-import { uploadFile } from '#app/utils/storage.server'
+import { buildAudioObjectKey, uploadFile } from '#app/utils/storage.server'
 import { extractAudioFilesFromZip } from '#app/utils/zip-extraction.server'
 import {
 	initUploadProgress,
@@ -69,21 +69,6 @@ async function processWithConcurrency<T, R>(
 	}
 	
 	return results
-}
-
-/**
- * Generate storage key for audio file
- */
-function generateAudioFileKey(
-	trackId: string,
-	serviceId: string | null,
-	format: string,
-	fileId: string,
-	extension: string
-): string {
-	const service = serviceId || 'local'
-	const timestamp = Date.now()
-	return `audio/tracks/${trackId}/${service}/${format}/${timestamp}-${fileId}.${extension}`
 }
 
 /**
@@ -369,13 +354,7 @@ async function processFilesAsync(
 				const fileIdForStorage = createId()
 				const format = file.metadata.format || 'mp3'
 				const extension = getFileExtension(file.fileName, file.mimeType)
-				const objectKey = generateAudioFileKey(
-					trackId,
-					serviceId,
-					format,
-					fileIdForStorage,
-					extension
-				)
+				const objectKey = buildAudioObjectKey(LOCAL_SERVICE.NAME, trackId, extension)
 
 				updateFileProgress(uploadId, fileId, 10, 'uploading', undefined, file.buffer.length)
 

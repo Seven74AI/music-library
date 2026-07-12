@@ -8,7 +8,7 @@ import { getOrCreateArtistTx, extractArtistMetadata } from '#app/utils/artist-ma
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { getDatabaseUrl } from '#app/utils/database-url.server.ts'
-import { uploadFile } from '#app/utils/storage.server'
+import { uploadFile, buildAudioObjectKey } from '#app/utils/storage.server'
 import { PrismaClient } from '#prisma/client.js'
 import {
 	createPassword,
@@ -172,21 +172,6 @@ async function seed() {
 	console.timeEnd(`👤 Created regular user "kodyuser"`)
 
 	console.timeEnd(`🌱 Database has been seeded`)
-}
-
-/**
- * Generate storage key for audio file
- */
-function generateAudioFileKey(
-	trackId: string,
-	serviceId: string | null,
-	format: string,
-	fileId: string,
-	extension: string
-): string {
-	const service = serviceId || 'local'
-	const timestamp = Date.now()
-	return `audio/tracks/${trackId}/${service}/${format}/${timestamp}-${fileId}.${extension}`
 }
 
 /**
@@ -361,13 +346,7 @@ async function seedAudioFiles(userId: string) {
 				const fileId = createId()
 				const format = extractedMetadata.format || 'flac'
 				const extension = getFileExtension(fileName, extractedMetadata.mimeType)
-				const objectKey = generateAudioFileKey(
-					trackId,
-					localService.id,
-					format,
-					fileId,
-					extension
-				)
+				const objectKey = buildAudioObjectKey(LOCAL_SERVICE.NAME, trackId, extension)
 
 				// Upload file to storage (local or remote)
 				let uploadSuccess = false
