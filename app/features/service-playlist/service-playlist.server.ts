@@ -1,3 +1,21 @@
+/**
+ * Service Playlist — public API.
+ *
+ * External modules MUST import from this file only. Sibling modules in this
+ * feature are internal implementation details, not a stable public surface.
+ *
+ * Public exports:
+ * - createServicePlaylistService, ServicePlaylistService, SyncServicePlaylistResult
+ * - PendingMatch, SyncTrackInfo
+ * - getServiceByName — resolve a Service row by name (import flows)
+ * - SERVICE_PLAYLIST_TRACK_PAGE_SIZE — pagination size for playlist track queries
+ *
+ * Internal (do not import from outside this feature):
+ * - batch-processor.server.ts, playlist-utils.server.ts,
+ *   service-playlist-track-queries.server.ts, youtube-playlist-provider.server.ts,
+ *   youtube-track-sync.server.ts, image-processor.server.ts,
+ *   archive-enqueue-adapter.server.ts, playlist-sync-provider.server.ts
+ */
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { resolveServiceAccessToken } from '#app/features/service-connection/service-connection.server'
 import {
@@ -687,3 +705,5 @@ export function createServicePlaylistService(options?: {
 }
 
 export type { PendingMatch, SyncTrackInfo }
+export { getServiceByName } from './playlist-utils.server'
+export { SERVICE_PLAYLIST_TRACK_PAGE_SIZE } from './service-playlist-track-queries.server'

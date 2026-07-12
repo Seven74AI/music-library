@@ -1,7 +1,7 @@
 import { prisma } from '#app/utils/db.server.ts'
 import { sendEmail } from '#app/utils/email.server.ts'
 import { PlaylistArchiveReadyEmail } from '#app/utils/playlist-archive-ready-email.tsx'
-import { SERVICE_PLAYLIST_TRACK_PAGE_SIZE } from '#app/features/service-playlist/service-playlist-track-queries.server.ts'
+import { SERVICE_PLAYLIST_TRACK_PAGE_SIZE } from '#app/features/service-playlist/service-playlist.server.ts'
 
 export async function isServicePlaylistArchiveReady(
 	playlistId: string,

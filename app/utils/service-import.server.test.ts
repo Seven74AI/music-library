@@ -73,7 +73,7 @@ vi.mock('#app/utils/youtube-search.server.ts', () => ({
 	getYouTubeVideoDetails: vi.fn(),
 }))
 
-// Mock playlist-utils
+// Mock service-playlist public API
 const mockService = {
 	id: 'svc-youtube',
 	name: 'youtube',
@@ -84,7 +84,7 @@ const mockService = {
 	baseUrl: 'https://youtube.com',
 	logoUrl: null,
 }
-vi.mock('#app/features/service-playlist/playlist-utils.server.ts', () => ({
+vi.mock('#app/features/service-playlist/service-playlist.server.ts', () => ({
 	getServiceByName: vi.fn().mockResolvedValue(mockService),
 }))
 
@@ -122,7 +122,7 @@ describe('importTrackDirectly', () => {
 			'#app/utils/youtube-search.server.ts'
 		)
 		const { getServiceByName } = await import(
-			'#app/features/service-playlist/playlist-utils.server.ts'
+			'#app/features/service-playlist/service-playlist.server.ts'
 		)
 		const { getOrCreateArtistTx } = await import(
 			'#app/utils/artist-management.server.ts'
@@ -263,7 +263,7 @@ describe('importTrackDirectly', () => {
 
 		it('returns error when service is not found in database', async () => {
 			const { getServiceByName } = await import(
-				'#app/features/service-playlist/playlist-utils.server.ts'
+				'#app/features/service-playlist/service-playlist.server.ts'
 			)
 			vi.mocked(getServiceByName).mockRejectedValue(
 				new Error('Service not found: youtube'),
