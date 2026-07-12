@@ -37,11 +37,10 @@ This directory contains all type definitions with Zod validation for the Music L
 - **Usage**: Transform validated API data to Prisma input types
 
 ### `youtube.ts` - OAuth Types Only
-- **Purpose**: Contains only OAuth-related types (legacy file)
+- **Purpose**: Contains OAuth token shape types used by service-connection
 - **Contains**:
   - `YouTubeTokenData` - OAuth token structure
-  - `ValidatedOAuthConnection` - Validated OAuth connection
-- **Usage**: OAuth token handling and validation
+- **Usage**: Token JSON parsing in `app/features/service-connection/`
 
 ## Usage Patterns
 

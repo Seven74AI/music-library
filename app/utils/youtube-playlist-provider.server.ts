@@ -1,7 +1,6 @@
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { transformYouTubePlaylistItemToTrack, transformYouTubePlaylistToServicePlaylist } from '#app/types/transformations'
 import { type YouTubePlaylist, type YouTubePlaylistItem } from '#app/types/youtube-api'
-import { validateYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 import { type Prisma } from '#prisma/client.js'
 import { type PlaylistSyncProvider } from './playlist-sync-provider.server'
 import { createYouTubeService, type YouTubeService } from './youtube.server'
@@ -136,16 +135,6 @@ export class YouTubePlaylistProvider implements PlaylistSyncProvider {
     artistId: string,
   ): Omit<Prisma.TrackCreateInput, 'artist'> & { artistId: string; thumbnailUrl?: string | null } {
     return transformYouTubePlaylistItemToTrack(item, serviceId, artistId)
-  }
-
-  /**
-   * Validate the OAuth connection for a user.
-   * Delegates to validateYouTubeOAuth — returns null if no valid connection.
-   */
-  async validateConnection(userId: string): Promise<{ access_token: string } | null> {
-    const validation = await validateYouTubeOAuth(userId)
-    if (!validation) return null
-    return { access_token: validation.tokenData.access_token }
   }
 
   /**

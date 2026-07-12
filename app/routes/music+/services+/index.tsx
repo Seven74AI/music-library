@@ -5,10 +5,10 @@ import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
 import { YOUTUBE_SERVICE, LOCAL_SERVICE } from '#app/constants/services'
+import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
-import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 import { type Route } from './+types/index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -44,7 +44,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 		const servicePlaylistService = createServicePlaylistService()
 		try {
 			const [hasValidOAuth, syncedPlaylists] = await Promise.all([
-				hasValidYouTubeOAuth(userId),
+				hasServiceConnection(YOUTUBE_SERVICE.NAME, userId),
 				servicePlaylistService.getSyncedPlaylists(YOUTUBE_SERVICE.NAME, userId)
 			])
 			

@@ -23,16 +23,3 @@ export const YouTubeTokenDataSchema = z.object({
 
 // YouTube OAuth token types (inferred from Zod schema)
 export type YouTubeTokenData = z.infer<typeof YouTubeTokenDataSchema>
-
-export interface ValidatedOAuthConnection {
-  tokenData: YouTubeTokenData
-  connection: {
-    id: string
-    providerName: string
-    providerId: string
-    userId: string
-    tokens: string | null
-    createdAt: Date
-    updatedAt: Date
-  }
-}

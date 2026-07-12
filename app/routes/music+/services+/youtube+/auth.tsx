@@ -3,8 +3,9 @@ import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs, Form } from
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
+import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { requireUserId } from '#app/utils/auth.server'
-import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
 
 /**
@@ -17,7 +18,7 @@ import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	// Check if user already has valid OAuth
-	const hasValidOAuth = await hasValidYouTubeOAuth(userId)
+	const hasValidOAuth = await hasServiceConnection(YOUTUBE_SERVICE.NAME, userId)
 	
 	if (hasValidOAuth) {
 		// User is already connected, redirect to YouTube service page

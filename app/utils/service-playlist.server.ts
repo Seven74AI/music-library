@@ -10,7 +10,8 @@ import { chunkArray } from '#app/utils/chunk-array'
 import { prisma } from '#app/utils/db.server'
 import { findAllServicePlaylistTracks } from '#app/utils/service-playlist-track-queries.server'
 import { type PlaylistSyncProvider } from './playlist-sync-provider.server'
-import { getServiceByName, getUserConnection, parseConnectionTokens } from './playlist-utils.server'
+import { resolveServiceAccessToken } from '#app/features/service-connection/service-connection.server'
+import { getServiceByName } from './playlist-utils.server'
 import {
   processTracksInBatches,
   type ProcessTracksResult,
@@ -153,10 +154,9 @@ export class ServicePlaylistService {
       const service = await getServiceByName(serviceName)
       const provider = this.getProvider(serviceName)
 
-      // Validate OAuth connection via provider (not YouTube-specific)
-      const connectionValidation = await provider.validateConnection(userId)
+      const tokenData = await resolveServiceAccessToken(serviceName, userId)
 
-      if (!connectionValidation) {
+      if (!tokenData) {
         return {
           playlists: [],
           hasConnection: false,
@@ -165,7 +165,7 @@ export class ServicePlaylistService {
       }
 
       // Delegate to the appropriate service provider
-      const allPlaylists = await provider.fetchPlaylists(connectionValidation.access_token, userId)
+      const allPlaylists = await provider.fetchPlaylists(tokenData.access_token, userId)
 
       // Get already synced playlists
       const syncedPlaylists = await prisma.servicePlaylist.findMany({
@@ -219,8 +219,14 @@ export class ServicePlaylistService {
   }> {
     try {
       const service = await getServiceByName(serviceName)
-      const connection = await getUserConnection(serviceName, userId)
-      const tokenData = parseConnectionTokens(connection)
+      const tokenData = await resolveServiceAccessToken(serviceName, userId)
+      if (!tokenData) {
+        return {
+          success: false,
+          error: `No valid tokens found for service: ${serviceName}`,
+          message: `Failed to sync playlist: No valid tokens found for service: ${serviceName}`,
+        }
+      }
 
       // Delegate to the appropriate service provider
       const provider = this.getProvider(serviceName)
@@ -553,8 +559,10 @@ export class ServicePlaylistService {
     message: string
   }> {
     const service = await getServiceByName(serviceName)
-    const connection = await getUserConnection(serviceName, userId)
-    const tokenData = parseConnectionTokens(connection)
+    const tokenData = await resolveServiceAccessToken(serviceName, userId)
+    if (!tokenData) {
+      throw new Error(`No valid tokens found for service: ${serviceName}`)
+    }
 
     // Get playlist details
     const playlist = await prisma.servicePlaylist.findFirst({

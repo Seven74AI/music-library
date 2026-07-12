@@ -4,7 +4,7 @@ import { getUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { buildLibraryUserTracksWhere } from '#app/utils/library-user-tracks.server.ts'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server.ts'
-import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server.ts'
+import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 
 export type HomeMode = 'marketing' | 'onboarding' | 'gray' | 'listening'
 
@@ -125,7 +125,7 @@ async function loadYoutubeData(userId: string): Promise<HomeYoutubeData> {
 	try {
 		const [syncedPlaylists, hasValidOAuth] = await Promise.all([
 			servicePlaylistService.getSyncedPlaylists(YOUTUBE_SERVICE.NAME, userId),
-			hasValidYouTubeOAuth(userId),
+			hasServiceConnection(YOUTUBE_SERVICE.NAME, userId),
 		])
 
 		return {
@@ -169,7 +169,7 @@ export async function loadHomeData(request: Request) {
 
 	if (mode === 'onboarding') {
 		const [youtubeConnected, adminUser] = await Promise.all([
-			hasValidYouTubeOAuth(userId),
+			hasServiceConnection(YOUTUBE_SERVICE.NAME, userId),
 			prisma.user.findFirst({
 				select: { id: true },
 				where: { id: userId, roles: { some: { name: 'admin' } } },

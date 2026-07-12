@@ -52,8 +52,8 @@ vi.mock('./youtube.server', () => ({
 	})),
 }))
 
-vi.mock('#app/utils/youtube-oauth-validation.server', () => ({
-	validateYouTubeOAuth: vi.fn(),
+vi.mock('#app/features/service-connection/service-connection.server', () => ({
+	resolveServiceAccessToken: vi.fn(),
 }))
 
 vi.mock('#app/utils/cover-management.server', () => ({
@@ -67,11 +67,14 @@ vi.mock('#app/utils/cover-management.server', () => ({
 describe('ServicePlaylistService - Sync Logic', () => {
 	let service: ServicePlaylistService
 	let prisma: any
+	let resolveServiceAccessToken: ReturnType<typeof vi.fn>
 
 	beforeEach(async () => {
 		service = createServicePlaylistService()
 		prisma = (await import('#app/utils/db.server')).prisma
+		resolveServiceAccessToken = (await import('#app/features/service-connection/service-connection.server')).resolveServiceAccessToken as ReturnType<typeof vi.fn>
 		vi.clearAllMocks()
+		vi.mocked(resolveServiceAccessToken).mockResolvedValue({ access_token: 'token123' })
 	})
 
 	describe('syncPlaylistTracks - removed tracks cleanup', () => {
@@ -87,17 +90,6 @@ describe('ServicePlaylistService - Sync Logic', () => {
 				displayName: 'YouTube',
 				baseUrl: 'https://youtube.com',
 				isActive: true,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			} as any)
-
-			// Mock connection
-			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
-				id: 'conn123',
-				providerName: 'youtube',
-				providerId: 'provider123',
-				userId,
-				tokens: JSON.stringify({ access_token: 'token123' }),
 				createdAt: new Date(),
 				updatedAt: new Date(),
 			} as any)
@@ -226,17 +218,6 @@ describe('ServicePlaylistService - Sync Logic', () => {
 				updatedAt: new Date(),
 			} as any)
 
-			// Mock connection
-			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
-				id: 'conn123',
-				providerName: 'youtube',
-				providerId: 'provider123',
-				userId,
-				tokens: JSON.stringify({ access_token: 'token123' }),
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			} as any)
-
 			// Mock playlist
 			vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
 				id: playlistId,
@@ -345,17 +326,6 @@ describe('ServicePlaylistService - Batch Processing', () => {
 				updatedAt: new Date(),
 			} as any)
 
-			// Mock connection
-			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
-				id: 'conn123',
-				providerName: 'youtube',
-				providerId: 'provider123',
-				userId,
-				tokens: JSON.stringify({ access_token: 'token123' }),
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			} as any)
-
 			// Mock playlist
 			vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
 				id: playlistId,
@@ -455,17 +425,6 @@ describe('ServicePlaylistService - Batch Processing', () => {
 				displayName: 'YouTube',
 				baseUrl: 'https://youtube.com',
 				isActive: true,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			} as any)
-
-			// Mock connection
-			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
-				id: 'conn123',
-				providerName: 'youtube',
-				providerId: 'provider123',
-				userId,
-				tokens: JSON.stringify({ access_token: 'token123' }),
 				createdAt: new Date(),
 				updatedAt: new Date(),
 			} as any)
@@ -622,17 +581,6 @@ describe('ServicePlaylistService - Batch Processing', () => {
 				updatedAt: new Date(),
 			} as any)
 
-			// Mock connection
-			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
-				id: 'conn123',
-				providerName: 'youtube',
-				providerId: 'provider123',
-				userId,
-				tokens: JSON.stringify({ access_token: 'token123' }),
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			} as any)
-
 			// Mock playlist
 			vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
 				id: playlistId,
@@ -762,17 +710,6 @@ describe('ServicePlaylistService - Batch Processing', () => {
 				displayName: 'YouTube',
 				baseUrl: 'https://youtube.com',
 				isActive: true,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			} as any)
-
-			// Mock connection
-			vi.mocked(prisma.connection.findFirst).mockResolvedValue({
-				id: 'conn123',
-				providerName: 'youtube',
-				providerId: 'provider123',
-				userId,
-				tokens: JSON.stringify({ access_token: 'token123' }),
 				createdAt: new Date(),
 				updatedAt: new Date(),
 			} as any)

@@ -19,7 +19,7 @@ import  { type Prisma } from '#prisma/client.js'
  *
  * Non-goals (handled by facade):
  * - Database transactions (Prisma writes)
- * - OAuth token validation (handled by shared oauth-validation modules)
+ * - OAuth token resolution (service-connection module)
  * - Batch processing orchestration (processTracksInBatches stays in facade)
  * - Image processing (cover images handled by facade)
  *
@@ -107,15 +107,6 @@ export interface PlaylistSyncProvider {
     serviceId: string,
     artistId: string,
   ): Omit<Prisma.TrackCreateInput, 'artist'> & { artistId: string; thumbnailUrl?: string | null }
-
-  /**
-   * Validate the OAuth connection for a user and return the access token.
-   * Returns null if no valid connection exists.
-   *
-   * @param userId - The authenticated user's ID
-   * @returns Token data with access_token, or null if no valid connection
-   */
-  validateConnection(userId: string): Promise<{ access_token: string } | null>
 
   /**
    * Normalize a service-specific playlist into a provider-agnostic data shape.

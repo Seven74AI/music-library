@@ -6,10 +6,10 @@ import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { isErrorActionResult, isSuccessActionResult } from '#app/types/frontend'
 import { requireUserId } from '#app/utils/auth.server'
 import { createServicePlaylistService } from '#app/utils/service-playlist.server'
-import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server'
 import { type ServicePlaylist } from '#prisma/client.js'
 
 /**
@@ -25,7 +25,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	const [syncedPlaylists, hasConnection] = await Promise.all([
 		servicePlaylistService.getSyncedPlaylists(YOUTUBE_SERVICE.NAME, userId),
-		hasValidYouTubeOAuth(userId),
+		hasServiceConnection(YOUTUBE_SERVICE.NAME, userId),
 	])
 
 	return data({
@@ -57,7 +57,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		switch (intent) {
 			case 'sync': {
 				// Check if user already has valid YouTube OAuth
-				const hasValidOAuth = await hasValidYouTubeOAuth(userId)
+				const hasValidOAuth = await hasServiceConnection(YOUTUBE_SERVICE.NAME, userId)
 
 				if (hasValidOAuth) {
 					// User has valid OAuth, redirect to playlists page to sync

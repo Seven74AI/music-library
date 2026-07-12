@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { getUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
-import { hasValidYouTubeOAuth } from '#app/utils/youtube-oauth-validation.server.ts'
+import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { loadHomeData, resolveHomeMode, type HomeData } from './home.server.ts'
 
 vi.mock('#app/utils/auth.server.ts', () => ({
@@ -27,8 +27,8 @@ vi.mock('#app/utils/db.server.ts', () => ({
 	},
 }))
 
-vi.mock('#app/utils/youtube-oauth-validation.server.ts', () => ({
-	hasValidYouTubeOAuth: vi.fn(),
+vi.mock('#app/features/service-connection/service-connection.server', () => ({
+	hasServiceConnection: vi.fn(),
 }))
 
 vi.mock('#app/utils/service-playlist.server.ts', () => ({
@@ -80,7 +80,7 @@ describe('loadHomeData', () => {
 	test('returns onboarding mode with YouTube status when library is empty', async () => {
 		vi.mocked(getUserId).mockResolvedValue('user-1')
 		vi.mocked(prisma.userTrack.count).mockResolvedValue(0)
-		vi.mocked(hasValidYouTubeOAuth).mockResolvedValue(true)
+		vi.mocked(hasServiceConnection).mockResolvedValue(true)
 		vi.mocked(prisma.user.findFirst).mockResolvedValue(mockAdminUser)
 
 		const result = unwrapHomeData(await loadHomeData(new Request('http://localhost/')))
@@ -95,7 +95,7 @@ describe('loadHomeData', () => {
 	test('returns isAdmin false for non-admin users in onboarding mode', async () => {
 		vi.mocked(getUserId).mockResolvedValue('user-1')
 		vi.mocked(prisma.userTrack.count).mockResolvedValue(0)
-		vi.mocked(hasValidYouTubeOAuth).mockResolvedValue(false)
+		vi.mocked(hasServiceConnection).mockResolvedValue(false)
 		vi.mocked(prisma.user.findFirst).mockResolvedValue(null)
 
 		const result = unwrapHomeData(await loadHomeData(new Request('http://localhost/')))
