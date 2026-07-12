@@ -29,4 +29,10 @@ describe('shouldShowOfflineErrorFallback', () => {
 		expect(shouldShowOfflineErrorFallback(new Error('Cannot read user'))).toBe(false)
 		vi.unstubAllGlobals()
 	})
+
+	test('returns false during SSR when navigator is unavailable', () => {
+		vi.stubGlobal('navigator', undefined)
+		expect(shouldShowOfflineErrorFallback(new Error('Cannot read user'))).toBe(false)
+		vi.unstubAllGlobals()
+	})
 })

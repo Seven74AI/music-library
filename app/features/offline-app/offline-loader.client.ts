@@ -1,10 +1,10 @@
-import { isOfflineEnvironment } from './is-offline-environment.client.ts'
+import { isOfflineEnvironment } from './is-offline-environment.ts'
 import {
 	OFFLINE_ROUTE_POLICIES,
 	type OfflineClientLoaderArgs,
 } from './offline-route-policies.client.ts'
 
-export { isOfflineEnvironment } from './is-offline-environment.client.ts'
+export { isOfflineEnvironment } from './is-offline-environment.ts'
 
 function isLikelyNetworkFailure(error: unknown) {
 	if (!(error instanceof Error)) return false

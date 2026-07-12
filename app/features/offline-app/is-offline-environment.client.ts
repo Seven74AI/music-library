@@ -1,3 +1,1 @@
-export function isOfflineEnvironment() {
-	return typeof navigator !== 'undefined' && !navigator.onLine
-}
+export { isOfflineEnvironment } from './is-offline-environment.ts'

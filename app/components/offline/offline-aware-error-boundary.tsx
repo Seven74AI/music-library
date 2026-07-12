@@ -5,7 +5,7 @@ import {
 	type StatusHandler,
 } from '#app/components/error-boundary.tsx'
 import { OfflineUnavailableView } from '#app/components/offline/offline-unavailable-view.tsx'
-import { isOfflineEnvironment } from '#app/features/offline-app/is-offline-environment.client.ts'
+import { isOfflineEnvironment } from '#app/features/offline-app/is-offline-environment.ts'
 
 export function shouldShowOfflineErrorFallback(error: unknown) {
 	return isOfflineEnvironment() && !isRouteErrorResponse(error)
