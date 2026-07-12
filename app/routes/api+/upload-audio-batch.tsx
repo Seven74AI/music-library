@@ -3,12 +3,12 @@ import { parseFormData } from '@mjackson/form-data-parser'
 import { createId } from '@paralleldrive/cuid2'
 import { data, type ActionFunctionArgs } from 'react-router'
 import { LOCAL_SERVICE } from '#app/constants/services'
+import { persistTrackAudio } from '#app/features/track-audio-ingest/persist-track-audio.server.ts'
 import { getOrCreateArtistTx, extractArtistMetadata } from '#app/utils/artist-management.server'
 import { extractAudioMetadata, type ExtractedAudioMetadata } from '#app/utils/audio-metadata.server'
 import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server'
 import { requireUserWithRole } from '#app/utils/permissions.server'
-import { buildAudioObjectKey, uploadFile } from '#app/utils/storage.server'
 import { extractAudioFilesFromZip } from '#app/utils/zip-extraction.server'
 import {
 	initUploadProgress,
@@ -69,34 +69,6 @@ async function processWithConcurrency<T, R>(
 	}
 	
 	return results
-}
-
-/**
- * Get file extension from filename or MIME type
- */
-function getFileExtension(fileName: string, mimeType?: string | null): string {
-	const extFromName = fileName.split('.').pop()?.toLowerCase()
-	if (extFromName) {
-		return extFromName
-	}
-
-	if (mimeType) {
-		const mimeToExt: Record<string, string> = {
-			'audio/mpeg': 'mp3',
-			'audio/mp3': 'mp3',
-			'audio/flac': 'flac',
-			'audio/wav': 'wav',
-			'audio/wave': 'wav',
-			'audio/mp4': 'm4a',
-			'audio/m4a': 'm4a',
-			'audio/aac': 'aac',
-			'audio/ogg': 'ogg',
-			'audio/webm': 'webm',
-		}
-		return mimeToExt[mimeType] || 'mp3'
-	}
-
-	return 'mp3'
 }
 
 interface FileWithMetadata {
@@ -352,44 +324,10 @@ async function processFilesAsync(
 				// Generate IDs
 				const trackId = createId()
 				const fileIdForStorage = createId()
-				const format = file.metadata.format || 'mp3'
-				const extension = getFileExtension(file.fileName, file.mimeType)
-				const objectKey = buildAudioObjectKey(LOCAL_SERVICE.NAME, trackId, extension)
 
-				updateFileProgress(uploadId, fileId, 10, 'uploading', undefined, file.buffer.length)
+				updateFileProgress(uploadId, fileId, 5, 'uploading', undefined, file.buffer.length)
 
-				// Upload file to storage with real-time progress tracking
-				// Progress: 10% -> 50% (40% for file upload, updated in real-time)
-				const uploadStartProgress = 10
-				const uploadEndProgress = 50
-				const uploadProgressRange = uploadEndProgress - uploadStartProgress
-				
-				await uploadFile({
-					file: file.buffer,
-					key: objectKey,
-					contentType: file.metadata.mimeType || file.mimeType || 'audio/mpeg',
-					metadata: {
-						title,
-						artist,
-						album: album || '',
-						uploadedBy: userId,
-					},
-					onProgress: (progress) => {
-						// Calculate progress percentage based on bytes uploaded
-						if (progress.total && progress.total > 0) {
-							const uploadPercentage = (progress.loaded / progress.total) * uploadProgressRange
-							const currentProgress = Math.round(uploadStartProgress + uploadPercentage)
-							updateFileProgress(uploadId, fileId, currentProgress, 'uploading', undefined, file.buffer.length)
-						}
-					},
-				})
-				
-				// Ensure we're at 50% after upload completes
-				updateFileProgress(uploadId, fileId, 50, 'uploading', undefined, file.buffer.length)
-
-				// Create track and audio file in transaction
-				// All database operations (Artist, Album, CoverImage, Track) happen here
-				// Note: Increased timeout to 30s to accommodate image processing and file uploads
+				// Create track and persist audio in transaction
 				const result = await prisma.$transaction(async (tx) => {
 					// Get or create artist
 					const artistMetadata = extractArtistMetadata(file.metadata)
@@ -460,21 +398,49 @@ async function processFilesAsync(
 
 					updateFileProgress(uploadId, fileId, 75, 'uploading')
 
-					// Create audio file record
-					await tx.trackAudioFile.create({
-						data: {
-							trackId: track.id,
-							serviceId,
-							objectKey,
-							fileName: file.fileName,
-							fileSize: file.buffer.length,
-							mimeType: file.metadata.mimeType || file.mimeType,
-							format,
-							bitrate: file.metadata.bitrate || null,
-							sampleRate: file.metadata.sampleRate || null,
+					const uploadStartProgress = 10
+					const uploadEndProgress = 50
+					const uploadProgressRange = uploadEndProgress - uploadStartProgress
+
+					await persistTrackAudio({
+						trackId: track.id,
+						serviceName: LOCAL_SERVICE.NAME,
+						buffer: file.buffer,
+						metadata: file.metadata,
+						uploadedBy: userId,
+						serviceId,
+						fileName: file.fileName,
+						storageMetadata: {
+							title,
+							artist,
+							album: album || '',
 							uploadedBy: userId,
 						},
+						onProgress: (progress) => {
+							if (
+								progress.loaded !== undefined &&
+								progress.total &&
+								progress.total > 0
+							) {
+								const uploadPercentage =
+									(progress.loaded / progress.total) * uploadProgressRange
+								const currentProgress = Math.round(
+									uploadStartProgress + uploadPercentage,
+								)
+								updateFileProgress(
+									uploadId,
+									fileId,
+									currentProgress,
+									'uploading',
+									undefined,
+									file.buffer.length,
+								)
+							}
+						},
+						tx,
 					})
+
+					updateFileProgress(uploadId, fileId, 50, 'uploading', undefined, file.buffer.length)
 
 					updateFileProgress(uploadId, fileId, 85, 'uploading')
 

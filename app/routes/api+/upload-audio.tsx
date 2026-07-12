@@ -3,12 +3,12 @@ import { parseFormData } from '@mjackson/form-data-parser'
 import { createId } from '@paralleldrive/cuid2'
 import { data, type ActionFunctionArgs } from 'react-router'
 import { LOCAL_SERVICE } from '#app/constants/services'
+import { persistTrackAudio } from '#app/features/track-audio-ingest/persist-track-audio.server.ts'
 import { getOrCreateArtistTx, extractArtistMetadata } from '#app/utils/artist-management.server'
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from '#app/utils/cover-management.server'
 import { prisma } from '#app/utils/db.server'
 import { requireUserWithRole } from '#app/utils/permissions.server'
-import { buildAudioObjectKey, uploadFile } from '#app/utils/storage.server'
 
 // Maximum file size: 100MB
 const MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -26,36 +26,6 @@ const ALLOWED_MIME_TYPES = [
 	'audio/ogg',
 	'audio/webm',
 ]
-
-/**
- * Get file extension from filename or MIME type
- */
-function getFileExtension(fileName: string, mimeType?: string | null): string {
-	// Try filename first
-	const extFromName = fileName.split('.').pop()?.toLowerCase()
-	if (extFromName) {
-		return extFromName
-	}
-
-	// Fallback to MIME type
-	if (mimeType) {
-		const mimeToExt: Record<string, string> = {
-			'audio/mpeg': 'mp3',
-			'audio/mp3': 'mp3',
-			'audio/flac': 'flac',
-			'audio/wav': 'wav',
-			'audio/wave': 'wav',
-			'audio/mp4': 'm4a',
-			'audio/m4a': 'm4a',
-			'audio/aac': 'aac',
-			'audio/ogg': 'ogg',
-			'audio/webm': 'webm',
-		}
-		return mimeToExt[mimeType] || 'mp3'
-	}
-
-	return 'mp3' // Default fallback
-}
 
 export async function action({ request }: ActionFunctionArgs) {
 	const userId = await requireUserWithRole(request, 'admin')
@@ -135,28 +105,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
 		// Generate track ID
 		const trackId = createId()
-
-		// Generate file ID and key
 		const fileId = createId()
-		const format = extractedMetadata.format || 'mp3'
-		const extension = getFileExtension(audioFile.name, audioFile.type)
-		const objectKey = buildAudioObjectKey(LOCAL_SERVICE.NAME, trackId, extension)
 
-		// Upload file to storage (outside transaction - storage can't be rolled back)
-		await uploadFile({
-			file: buffer,
-			key: objectKey,
-			contentType: extractedMetadata.mimeType || audioFile.type,
-			metadata: {
-				title: title,
-				artist: artist,
-				album: album || '',
-				uploadedBy: userId,
-			},
-		})
-
-		// Create track and audio file in transaction
-		// All database operations (Artist, Album, CoverImage, Track) happen here
+		// Create track and persist audio in transaction
 		const result = await prisma.$transaction(async (tx) => {
 			// Get or create artist
 			const artistMetadata = extractArtistMetadata(extractedMetadata)
@@ -206,20 +157,21 @@ export async function action({ request }: ActionFunctionArgs) {
 				},
 			})
 
-			// Create audio file record
-			const audioFileRecord = await tx.trackAudioFile.create({
-				data: {
-					trackId: track.id,
-					serviceId: localService.id,
-					objectKey,
-					fileName: audioFile.name,
-					fileSize: audioFile.size,
-					mimeType: extractedMetadata.mimeType || audioFile.type,
-					format,
-					bitrate: extractedMetadata.bitrate || null,
-					sampleRate: extractedMetadata.sampleRate || null,
+			const { audioFile: audioFileRecord } = await persistTrackAudio({
+				trackId: track.id,
+				serviceName: LOCAL_SERVICE.NAME,
+				buffer,
+				metadata: extractedMetadata,
+				uploadedBy: userId,
+				serviceId: localService.id,
+				fileName: audioFile.name,
+				storageMetadata: {
+					title,
+					artist,
+					album: album || '',
 					uploadedBy: userId,
 				},
+				tx,
 			})
 
 			// Add track to user's library

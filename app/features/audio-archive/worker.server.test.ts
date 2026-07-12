@@ -51,12 +51,10 @@ vi.mock('./yt-dlp.server', () => ({
 	},
 }))
 
-// Mock storage upload
-const mockUploadFile = vi.fn()
-const mockBuildAudioObjectKey = vi.fn()
-vi.mock('#app/utils/storage.server', () => ({
-	uploadFile: mockUploadFile,
-	buildAudioObjectKey: mockBuildAudioObjectKey,
+// Mock track audio ingest
+const mockPersistTrackAudio = vi.fn()
+vi.mock('#app/features/track-audio-ingest/persist-track-audio.server.ts', () => ({
+	persistTrackAudio: mockPersistTrackAudio,
 }))
 
 // Mock worker control
@@ -129,11 +127,11 @@ describe('processQueueTick', () => {
 		mockPrisma.workerState.upsert.mockResolvedValue({})
 		mockPrisma.youtubeCookie.updateMany.mockResolvedValue({ count: 1 })
 
-		mockBuildAudioObjectKey.mockImplementation(
-			(serviceName: string, trackId: string, extension: string) =>
-				`audio/tracks/${serviceName}/${trackId}.${extension}`,
-		)
-		mockUploadFile.mockResolvedValue('audio/tracks/youtube/track-1.mp3')
+		mockPersistTrackAudio.mockResolvedValue({
+			audioFile: { id: 'audio-file-1', trackId: 'track-1', objectKey: 'audio/tracks/youtube/track-1.mp3' },
+			objectKey: 'audio/tracks/youtube/track-1.mp3',
+			created: true,
+		})
 		mockExecuteYtDlp.mockResolvedValue({
 			exitCode: 0,
 			stdout: '[download] Destination: /tmp/test-audio.mp3',
@@ -335,38 +333,21 @@ describe('processQueueTick', () => {
 				'https://youtube.com/watch?v=abc123',
 				expect.objectContaining({ cookieFile: '/data/youtube-cookies.txt' }),
 			)
-			expect(mockUploadFile).toHaveBeenCalled()
-			expect(mockPrisma.trackAudioFile.create).toHaveBeenCalledWith(
+			expect(mockPersistTrackAudio).toHaveBeenCalledWith(
 				expect.objectContaining({
-					data: expect.objectContaining({
-						trackId: 'track-1',
+					trackId: 'track-1',
+					serviceName: 'youtube',
+					buffer: expect.any(Buffer),
+					metadata: expect.objectContaining({
 						format: 'mp3',
 						mimeType: 'audio/mpeg',
 						bitrate: 320,
 						sampleRate: 44100,
 					}),
+					extension: 'mp3',
 				}),
 			)
-			expect(mockPrisma.track.update).toHaveBeenCalledWith(
-				expect.objectContaining({
-					where: { id: 'track-1' },
-					data: expect.objectContaining({
-						title: 'Embedded Title',
-						artistId: 'artist-embedded',
-						duration: 253,
-						genre: 'Rap',
-						albumArtist: 'Embedded Album Artist',
-						bpm: 140,
-						label: 'Embedded Label',
-						isrc: 'USRC17607839',
-						originalYear: 2025,
-						totalTracks: 12,
-						totalDiscs: 2,
-						lyrics: 'Embedded lyrics',
-						albumId: 'album-1',
-					}),
-				}),
-			)
+			expect(mockPrisma.track.update).not.toHaveBeenCalled()
 			expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
 				expect.objectContaining({
 					where: { id: 'job-1' },
@@ -401,36 +382,36 @@ describe('processQueueTick', () => {
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
 
-			expect(mockPrisma.track.update).not.toHaveBeenCalled()
+			expect(mockPersistTrackAudio).toHaveBeenCalled()
 		})
 
-		it('still completes the job when the track metadata update fails', async () => {
-			const { consoleError } = await import('#tests/setup/setup-test-env.ts')
-			consoleError.mockImplementation(() => {})
+		it('completes the job when persistTrackAudio succeeds', async () => {
 			delete process.env.COOKIE_FILE_PATH
 			mockPrisma.archiveJob.count.mockResolvedValue(0)
 			mockPendingArchiveJobs([
 				{
-					id: 'job-meta-fail',
+					id: 'job-persist-ok',
 					status: 'pending',
 					priority: true,
 					retryCount: 0,
 					errorHistory: '[]',
-					track: { id: 'track-meta-fail', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=meta' },
+					track: { id: 'track-persist-ok', service: { name: 'youtube' }, serviceUrl: 'https://youtube.com/watch?v=ok' },
 				},
 			])
-			mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: 'track-meta-fail' })
-			mockPrisma.track.update.mockRejectedValue(new Error('db write failed'))
+			mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: 'track-persist-ok' })
+			mockPersistTrackAudio.mockResolvedValue({
+				audioFile: { id: 'audio-1', trackId: 'track-persist-ok', objectKey: 'audio/tracks/youtube/track-persist-ok.mp3' },
+				objectKey: 'audio/tracks/youtube/track-persist-ok.mp3',
+				created: true,
+			})
 
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
 
-			// Audio file exists and was uploaded — the job must not be retried
-			// (a retry would re-download and create a duplicate TrackAudioFile)
-			expect(mockPrisma.trackAudioFile.create).toHaveBeenCalled()
+			expect(mockPersistTrackAudio).toHaveBeenCalled()
 			expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
 				expect.objectContaining({
-					where: { id: 'job-meta-fail' },
+					where: { id: 'job-persist-ok' },
 					data: { status: 'completed' },
 				}),
 			)
@@ -473,8 +454,7 @@ describe('processQueueTick', () => {
 					}),
 				}),
 			)
-			expect(mockUploadFile).not.toHaveBeenCalled()
-			expect(mockPrisma.trackAudioFile.create).not.toHaveBeenCalled()
+			expect(mockPersistTrackAudio).not.toHaveBeenCalled()
 		})
 
 		it('marks upload ENOENT as failed immediately without retrying', async () => {
@@ -501,7 +481,7 @@ describe('processQueueTick', () => {
 			const enoent = Object.assign(new Error("ENOENT: no such file or directory, stat 'abc.mp3'"), {
 				code: 'ENOENT',
 			})
-			mockUploadFile.mockRejectedValue(enoent)
+			mockPersistTrackAudio.mockRejectedValue(enoent)
 
 			const { processQueueTick } = await import('./worker.server.ts')
 			await processQueueTick()
