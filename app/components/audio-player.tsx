@@ -61,6 +61,21 @@ function getPlaybackProgressPercent(currentTime: number, duration: number) {
 	return Math.min(100, Math.max(0, (currentTime / duration) * 100))
 }
 
+function getMediaErrorMessage(code: number): string {
+	switch (code) {
+		case 1: // MEDIA_ERR_ABORTED
+			return 'Playback was interrupted.'
+		case 2: // MEDIA_ERR_NETWORK
+			return 'A network error prevented the audio from loading. Check your connection.'
+		case 3: // MEDIA_ERR_DECODE
+			return 'This audio format is not supported by your browser.'
+		case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+			return 'The audio source could not be found or is not supported.'
+		default:
+			return 'An unexpected playback error occurred. Please try again.'
+	}
+}
+
 interface PlayerSeekBarProps {
 	currentTime: number
 	duration: number
@@ -982,12 +997,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				console.error(
 					`Audio load error: ${audio.error.message} (code: ${audio.error.code})`,
 				)
+				setPlaybackError(getMediaErrorMessage(audio.error.code))
+				setAudioSrc(undefined)
 			}
 			setPlaybackError(
 				'Unable to play this track. The audio file may be blocked or unavailable.',
 			)
 		}
-		
+
 		audio.addEventListener('timeupdate', updateTime)
 		audio.addEventListener('loadedmetadata', handleLoadedMetadata)
 		audio.addEventListener('play', handlePlay)
