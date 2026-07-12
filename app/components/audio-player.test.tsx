@@ -24,6 +24,8 @@ function createAudioPlayerMock(overrides: Record<string, unknown> = {}) {
 		playContext: null,
 		removeTrackFromPlaylist: mockRemoveTrackFromPlaylist,
 		removeCurrentFromQueue: vi.fn(),
+		startQueuePlayback: vi.fn(),
+		hasQueuedPlayback: false,
 		...overrides,
 	}
 }
@@ -299,6 +301,41 @@ test('renders desktop bar with volume and transport controls', async () => {
 	expect(within(desktopBar).getByLabelText('Volume')).toBeTruthy()
 	expect(within(desktopBar).getByLabelText('Next track')).toBeTruthy()
 	expect(within(desktopBar).getByLabelText('Shuffle: off')).toBeTruthy()
+})
+
+test('renders queue-only player shell when visible without a current track', async () => {
+	const user = userEvent.setup()
+	const upNextTrack: FullTrack = {
+		...mockTrack,
+		id: 'queued-1',
+		title: 'Queued Track',
+	}
+
+	vi.mocked(useAudioPlayer).mockReturnValue(
+		createAudioPlayerMock({
+			upNext: [upNextTrack],
+			spineTotal: 0,
+			hasQueuedPlayback: true,
+			playContext: { type: 'library' },
+		}) as unknown as ReturnType<typeof useAudioPlayer>,
+	)
+
+	render(
+		<AudioPlayer
+			{...defaultProps}
+			track={null}
+			isVisible
+			hasQueuedPlayback
+			onStartQueuePlayback={vi.fn()}
+		/>,
+	)
+
+	expect(screen.getByTestId('player-queue-only-bar')).toBeTruthy()
+	const queueButtons = within(screen.getByTestId('player-queue-only-bar')).getAllByLabelText(
+		'Open queue',
+	)
+	await user.click(queueButtons[0]!)
+	expect(await screen.findByText('Queued Track')).toBeTruthy()
 })
 
 test('queue sheet shows three-zone sections and formatted title counts', async () => {

@@ -99,11 +99,13 @@ function QueueProbe() {
 		addToQueue,
 		addToCurrentPlaylist,
 		playTrack,
+		startQueuePlayback,
 		playlist,
 		upNext,
 		spine,
 		currentTrack,
 		isPlayerVisible,
+		hasQueuedPlayback,
 	} = useAudioPlayer()
 
 	return (
@@ -123,6 +125,9 @@ function QueueProbe() {
 			<button type="button" onClick={() => addToQueue(playableTrack)}>
 				Add to queue
 			</button>
+			<button type="button" onClick={() => void startQueuePlayback()}>
+				Start queue playback
+			</button>
 			<button type="button" onClick={() => addToCurrentPlaylist(metadataTrack)}>
 				Add metadata track
 			</button>
@@ -134,6 +139,7 @@ function QueueProbe() {
 			</button>
 			<span data-testid="current-track-id">{currentTrack?.id ?? ''}</span>
 			<span data-testid="player-visible">{String(isPlayerVisible)}</span>
+			<span data-testid="has-queued-playback">{String(hasQueuedPlayback)}</span>
 			<span data-testid="up-next-ids">{upNext.map(track => track.id).join(',')}</span>
 			<span data-testid="spine-ids">{spine.map(track => track.id).join(',')}</span>
 			<span data-testid="playlist-ids">{playlist.map(track => track.id).join(',')}</span>
@@ -235,6 +241,39 @@ test('playNextTrack stacks FIFO at the front of Up Next when playback is active'
 	await user.click(screen.getByRole('button', { name: 'Play third next' }))
 
 	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-2,track-3')
+})
+
+test('addToUpNext exposes queued playback while idle', async () => {
+	const user = userEvent.setup()
+
+	render(
+		<AudioPlayerProvider>
+			<QueueProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
+
+	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-1')
+	expect(screen.getByTestId('current-track-id').textContent).toBe('')
+	expect(screen.getByTestId('player-visible').textContent).toBe('true')
+	expect(screen.getByTestId('has-queued-playback').textContent).toBe('true')
+})
+
+test('startQueuePlayback plays the first Up Next track when idle', async () => {
+	const user = userEvent.setup()
+
+	render(
+		<AudioPlayerProvider>
+			<QueueProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
+	await user.click(screen.getByRole('button', { name: 'Start queue playback' }))
+
+	expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
+	expect(screen.getByTestId('up-next-ids').textContent).toBe('')
 })
 
 test('addToUpNext appends to the Up Next tail and opens the player when idle', async () => {

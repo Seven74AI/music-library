@@ -69,6 +69,8 @@ interface AudioPlayerContextType {
 	toggleLoop: () => void
 	toggleShuffle: () => void
 	closePlayer: () => void
+	startQueuePlayback: () => void
+	hasQueuedPlayback: boolean
 	hasNext: boolean
 	hasPrevious: boolean
 	isLoadingNext: boolean
@@ -645,25 +647,55 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		[addToUpNext],
 	)
 
+	const advanceToTarget = useCallback(
+		(target: QueueTarget) => {
+			const queueTrack = getTrackAtTarget(navigationState, target)
+			if (!queueTrack) return
+
+			const nextState = advanceAfterPlay(navigationState, target)
+			setUpNext(nextState.upNext)
+			if (target.zone === 'upNext' && target.index < upNextPlayNextCount) {
+				setUpNextPlayNextCount(count => {
+					const next = Math.max(0, count - 1)
+					upNextPlayNextCountRef.current = next
+					return next
+				})
+			}
+			setSpinePosition(nextState.spinePosition)
+			void playResolvedTrack(queueTrack)
+		},
+		[navigationState, playResolvedTrack, upNextPlayNextCount],
+	)
+
 	const playNext = useCallback(() => {
 		const target = resolveNextTrack(navigationState)
 		if (!target) return
+		advanceToTarget(target)
+	}, [advanceToTarget, navigationState])
 
-		const queueTrack = getTrackAtTarget(navigationState, target)
-		if (!queueTrack) return
+	const startQueuePlayback = useCallback(() => {
+		if (currentTrack) return
 
-		const nextState = advanceAfterPlay(navigationState, target)
-		setUpNext(nextState.upNext)
-		if (target.zone === 'upNext' && target.index < upNextPlayNextCount) {
-			setUpNextPlayNextCount(count => {
-				const next = Math.max(0, count - 1)
-				upNextPlayNextCountRef.current = next
-				return next
-			})
+		if (upNext.length > 0) {
+			advanceToTarget({ zone: 'upNext', index: 0 })
+			return
 		}
-		setSpinePosition(nextState.spinePosition)
-		void playResolvedTrack(queueTrack)
-	}, [navigationState, playResolvedTrack, upNextPlayNextCount])
+
+		const queueTrack = getTrackAtTarget(navigationState, {
+			zone: 'spine',
+			index: spinePosition,
+		})
+		if (queueTrack) {
+			void playResolvedTrack(queueTrack)
+		}
+	}, [
+		advanceToTarget,
+		currentTrack,
+		navigationState,
+		playResolvedTrack,
+		spinePosition,
+		upNext.length,
+	])
 
 	const playPrevious = useCallback(() => {
 		const target = resolvePreviousTrack(navigationState)
@@ -726,6 +758,10 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		setPlayContext(null)
 	}, [resetQueueState])
 
+	const hasQueuedPlayback =
+		upNext.length > 0 ||
+		getTrackAtTarget(navigationState, { zone: 'spine', index: spinePosition }) !==
+			null
 	const hasNext = hasNextTrack(navigationState)
 	const hasPrevious = hasPreviousTrack(navigationState)
 
@@ -773,6 +809,8 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				toggleLoop,
 				toggleShuffle,
 				closePlayer,
+				startQueuePlayback,
+				hasQueuedPlayback,
 				hasNext,
 				hasPrevious,
 				isLoadingNext,
@@ -791,6 +829,8 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				track={currentTrack}
 				isVisible={isPlayerVisible}
 				onClose={closePlayer}
+				onStartQueuePlayback={startQueuePlayback}
+				hasQueuedPlayback={hasQueuedPlayback}
 				onNext={playNext}
 				onPrevious={playPrevious}
 				onToggleLoop={toggleLoop}
