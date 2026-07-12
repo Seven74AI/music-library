@@ -329,3 +329,49 @@ test('403 Forbidden — track in service playlist but playlist is inactive', asy
 		expect((error as any).status).toBe(403)
 	}
 })
+
+test('403 Forbidden — UserTrack is inactive (isActive: false)', async () => {
+	suppressConsoleErrors()
+	const { user, track } = await setupTestData()
+	vi.mocked(requireUserId).mockResolvedValue(user.id)
+
+	// Add track to user library but mark as inactive
+	await prisma.userTrack.create({
+		data: { userId: user.id, trackId: track.id, isActive: false },
+	})
+
+	try {
+		await audioLoader({
+			request: new Request(`https://localhost/resources/audio/${track.id}`),
+			params: { trackId: track.id },
+			context: {},
+		} as any)
+		expect(true).toBe(false) // Should have thrown
+	} catch (error) {
+		expect(error).toBeDefined()
+		expect((error as any).status).toBe(403)
+	}
+})
+
+test('403 Forbidden — UserTrack is soft-deleted (deletedAt set)', async () => {
+	suppressConsoleErrors()
+	const { user, track } = await setupTestData()
+	vi.mocked(requireUserId).mockResolvedValue(user.id)
+
+	// Add track to user library but mark as soft-deleted
+	await prisma.userTrack.create({
+		data: { userId: user.id, trackId: track.id, deletedAt: new Date() },
+	})
+
+	try {
+		await audioLoader({
+			request: new Request(`https://localhost/resources/audio/${track.id}`),
+			params: { trackId: track.id },
+			context: {},
+		} as any)
+		expect(true).toBe(false) // Should have thrown
+	} catch (error) {
+		expect(error).toBeDefined()
+		expect((error as any).status).toBe(403)
+	}
+})

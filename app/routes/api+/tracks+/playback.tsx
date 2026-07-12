@@ -17,6 +17,7 @@ export async function loader({ request }: { request: Request }) {
 		const result = await fetchPlaybackTracks(userId, parsed.value)
 		return Response.json(result)
 	} catch (error) {
+		if (error instanceof Response) throw error
 		console.error('Error fetching playback tracks:', error)
 		return Response.json(
 			{ error: 'Failed to fetch playback tracks' },
