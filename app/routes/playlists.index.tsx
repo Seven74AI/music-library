@@ -8,9 +8,9 @@ import { Icon } from '#app/components/ui/icon.tsx'
 import { Input } from '#app/components/ui/input.tsx'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#app/components/ui/select.tsx'
 import {
-	createOfflineClientLoader,
-	type ServerLoaderData,
-} from '#app/features/offline-app/offline-loader.client.ts'
+	defineOfflineClientLoader,
+} from '#app/features/offline-app/define-offline-client-loader.ts'
+import { type ServerLoaderData } from '#app/features/offline-app/offline-loader.client.ts'
 import {
 	type PlaylistsIndexOfflineLoaderData,
 } from '#app/features/offline-app/offline-route-policies.client.ts'
@@ -78,7 +78,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 	})
 }
 
-export const clientLoader = createOfflineClientLoader<
+export const clientLoader = defineOfflineClientLoader<
 	ServerLoaderData<typeof loader>,
 	PlaylistsIndexOfflineLoaderData
 >('routes/playlists.index')

@@ -52,9 +52,9 @@ import { getPlaylistTitle } from '#app/utils/breadcrumb-utils.ts'
 import { chunkArray } from '#app/utils/chunk-array.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import {
-	createOfflineClientLoader,
-	type ServerLoaderData,
-} from '#app/features/offline-app/offline-loader.client.ts'
+	defineOfflineClientLoader,
+} from '#app/features/offline-app/define-offline-client-loader.ts'
+import { type ServerLoaderData } from '#app/features/offline-app/offline-loader.client.ts'
 import {
 	type PlaylistDetailOfflineLoaderData,
 } from '#app/features/offline-app/offline-route-policies.client.ts'
@@ -163,7 +163,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	return data({ playlist: { ...playlist, tracks: tracksWithLibraryStatus }, playlists: userPlaylists })
 }
 
-export const clientLoader = createOfflineClientLoader<
+export const clientLoader = defineOfflineClientLoader<
 	ServerLoaderData<typeof loader>,
 	PlaylistDetailOfflineLoaderData
 >('routes/playlists.$playlistId')

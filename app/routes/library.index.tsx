@@ -11,9 +11,9 @@ import { Label } from '#app/components/ui/label.tsx'
 import { ScrollArea } from '#app/components/ui/scroll-area'
 import { TrackListSkeleton } from '#app/components/ui/track-list-skeleton'
 import {
-	createOfflineClientLoader,
-	type ServerLoaderData,
-} from '#app/features/offline-app/offline-loader.client.ts'
+	defineOfflineClientLoader,
+} from '#app/features/offline-app/define-offline-client-loader.ts'
+import { type ServerLoaderData } from '#app/features/offline-app/offline-loader.client.ts'
 import {
 	type LibraryOfflineLoaderData,
 } from '#app/features/offline-app/offline-route-policies.client.ts'
@@ -141,7 +141,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 	})
 }
 
-export const clientLoader = createOfflineClientLoader<
+export const clientLoader = defineOfflineClientLoader<
 	ServerLoaderData<typeof loader>,
 	LibraryOfflineLoaderData
 >('routes/library.index')

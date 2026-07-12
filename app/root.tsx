@@ -15,9 +15,9 @@ import {
 import { HoneypotProvider } from 'remix-utils/honeypot/react'
 import { useToast } from '#app/components/toaster.tsx'
 import {
-	createOfflineClientLoader,
-	type ServerLoaderData,
-} from '#app/features/offline-app/offline-loader.client.ts'
+	defineOfflineClientLoader,
+} from '#app/features/offline-app/define-offline-client-loader.ts'
+import { type ServerLoaderData } from '#app/features/offline-app/offline-loader.client.ts'
 import { type OfflineRootShell } from '#app/features/offline-app/offline-root-shell.client.ts'
 import { offlineClientMiddleware } from './middleware/offline-client.middleware.client.ts'
 import { type Route } from './+types/root.ts'
@@ -177,7 +177,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 	)
 }
 
-export const clientLoader = createOfflineClientLoader<
+export const clientLoader = defineOfflineClientLoader<
 	ServerLoaderData<typeof loader>,
 	OfflineRootShell
 >('root')

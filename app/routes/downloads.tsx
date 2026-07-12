@@ -4,13 +4,13 @@ import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import {
-	createDeviceOnlyClientLoader,
-} from '#app/features/offline-app/offline-loader.client.ts'
+	defineDeviceOnlyClientLoader,
+} from '#app/features/offline-app/define-offline-client-loader.ts'
 import { type DownloadsOfflineLoaderData } from '#app/features/offline-app/offline-route-policies.client.ts'
 import { type Route } from './+types/downloads.ts'
 
 export const clientLoader =
-	createDeviceOnlyClientLoader<DownloadsOfflineLoaderData>('routes/downloads')
+	defineDeviceOnlyClientLoader<DownloadsOfflineLoaderData>('routes/downloads')
 
 export function HydrateFallback() {
 	return <RouteHydrateFallback />
