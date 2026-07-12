@@ -61,6 +61,7 @@ import {
 import { filterPlayableTracks } from '#app/utils/playable-track.ts'
 import { type FullTrack } from '#app/types/frontend/shared.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { userPlaylistTitleTaken } from '#app/utils/user-playlist.server.ts'
 import { type Route } from './+types/playlists.$playlistId.ts'
 
@@ -485,6 +486,10 @@ export async function action({ request, params }: Route.ActionArgs) {
 	)
 }
 
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
+}
+
 export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
 	if ('offline' in loaderData && loaderData.offline === true) {
 		return (
@@ -596,7 +601,7 @@ function OnlinePlaylistRoute({
 		if (tracks.length === 0) return
 
 		if (action === 'playNext') {
-			for (const track of tracks) {
+			for (const track of [...tracks].reverse()) {
 				playNextTrack(track)
 			}
 			return

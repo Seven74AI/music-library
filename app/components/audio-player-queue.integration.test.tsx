@@ -36,7 +36,7 @@ vi.mock('#app/features/offline-storage/offline-storage.client.ts', () => ({
 
 const trackA: FullTrack = {
 	id: 'track-a',
-	title: 'Alpha Song',
+	title: 'Spine-Alpha-Now',
 	artist: { id: 'artist-1', name: 'Artist One' },
 	duration: 180,
 	coverImage: { objectKey: 'covers/a.jpg' },
@@ -46,22 +46,41 @@ const trackA: FullTrack = {
 const trackB: FullTrack = {
 	...trackA,
 	id: 'track-b',
-	title: 'Bravo Song',
+	title: 'Spine-Bravo-Upcoming',
 	audioFiles: [{ id: 'af-b', format: 'mp3', objectKey: 'audio/b.mp3' }],
 }
 
 const trackC: FullTrack = {
 	...trackA,
 	id: 'track-c',
-	title: 'Charlie Song',
+	title: 'Spine-Charlie-Upcoming',
 	audioFiles: [{ id: 'af-c', format: 'mp3', objectKey: 'audio/c.mp3' }],
 }
 
+/** Not on the library spine — injected only via queue actions in tests. */
+const trackD: FullTrack = {
+	...trackA,
+	id: 'track-d',
+	title: 'Inject-Delta-99',
+	artist: { id: 'artist-2', name: 'Inject Artist' },
+	audioFiles: [{ id: 'af-d', format: 'mp3', objectKey: 'audio/d.mp3' }],
+}
+
+const trackE: FullTrack = {
+	...trackA,
+	id: 'track-e',
+	title: 'Inject-Echo-88',
+	artist: { id: 'artist-2', name: 'Inject Artist' },
+	audioFiles: [{ id: 'af-e', format: 'mp3', objectKey: 'audio/e.mp3' }],
+}
+
 const spineTracks = [
-	{ id: 'track-a', title: 'Alpha Song', artist: trackA.artist },
-	{ id: 'track-b', title: 'Bravo Song', artist: trackB.artist },
-	{ id: 'track-c', title: 'Charlie Song', artist: trackC.artist },
+	{ id: 'track-a', title: trackA.title, artist: trackA.artist },
+	{ id: 'track-b', title: trackB.title, artist: trackB.artist },
+	{ id: 'track-c', title: trackC.title, artist: trackC.artist },
 ]
+
+const allKnownTracks = [trackA, trackB, trackC, trackD, trackE]
 
 function mockSpineAndHydration(fetchMock: ReturnType<typeof vi.fn>) {
 	fetchMock.mockImplementation((input: RequestInfo | URL) => {
@@ -74,7 +93,7 @@ function mockSpineAndHydration(fetchMock: ReturnType<typeof vi.fn>) {
 		}
 		if (url.includes('/api/tracks/playback')) {
 			const ids = new URL(url, 'http://test').searchParams.get('ids')?.split(',') ?? []
-			const tracks = [trackA, trackB, trackC].filter(track => ids.includes(track.id))
+			const tracks = allKnownTracks.filter(track => ids.includes(track.id))
 			return Promise.resolve({
 				ok: true,
 				json: async () => ({ tracks }),
@@ -110,9 +129,11 @@ function WarmPlaybackControls() {
 					label: 'Start library playback',
 					onClick: () => playTrack(trackA, { type: 'library' }, 0),
 				},
-				{ label: 'Play next Bravo', onClick: () => playNextTrack(trackB) },
-				{ label: 'Play next Charlie', onClick: () => playNextTrack(trackC) },
+				{ label: 'Play next Delta', onClick: () => playNextTrack(trackD) },
+				{ label: 'Play next Echo', onClick: () => playNextTrack(trackE) },
 				{ label: 'Add Bravo to up next', onClick: () => addToUpNext(trackB) },
+				{ label: 'Add Charlie to up next', onClick: () => addToUpNext(trackC) },
+				{ label: 'Add Delta to up next', onClick: () => addToUpNext(trackD) },
 				{ label: 'Add Charlie to queue', onClick: () => addToQueue(trackC) },
 			]}
 		/>
@@ -125,9 +146,9 @@ function IdleQueueControls() {
 	return (
 		<QueueControls
 			actions={[
-				{ label: 'Add Bravo to up next', onClick: () => addToUpNext(trackB) },
+				{ label: 'Add Delta to up next', onClick: () => addToUpNext(trackD) },
 				{ label: 'Add Charlie to queue', onClick: () => addToQueue(trackC) },
-				{ label: 'Play next Charlie', onClick: () => playNextTrack(trackC) },
+				{ label: 'Play next Echo', onClick: () => playNextTrack(trackE) },
 			]}
 		/>
 	)
@@ -150,12 +171,12 @@ function libraryTrackListItem(
 	}
 }
 
-function LibraryRowPlayNext() {
+function LibraryRowPlayInjectDelta() {
 	return (
 		<TrackListItem
-			track={libraryTrackListItem(trackC, 2)}
+			track={libraryTrackListItem(trackD, 99)}
 			userTrack={{ createdAt: new Date().toISOString() }}
-			index={2}
+			index={99}
 			playlistContext={{ type: 'library' }}
 		/>
 	)
@@ -187,8 +208,44 @@ function buildPlayableTracks(count: number, titlePrefix: string): FullTrack[] {
 	}))
 }
 
+function QueueStateProbe() {
+	const { upNext, spine } = useAudioPlayer()
+	return (
+		<div
+			data-testid="queue-state-probe"
+			data-up-next-ids={upNext.map(track => track.id).join(',')}
+			data-spine-ids={spine.map(track => track.id).join(',')}
+		/>
+	)
+}
+
 function renderQueueApp(children: ReactNode) {
-	return render(<AudioPlayerProvider>{children}</AudioPlayerProvider>)
+	return render(
+		<AudioPlayerProvider>
+			<QueueStateProbe />
+			{children}
+		</AudioPlayerProvider>,
+	)
+}
+
+function queueProbe() {
+	return screen.getByTestId('queue-state-probe')
+}
+
+function upNextIdsFromProbe(): string[] {
+	const raw = queueProbe().getAttribute('data-up-next-ids') ?? ''
+	return raw ? raw.split(',') : []
+}
+
+function spineIdsFromProbe(): string[] {
+	const raw = queueProbe().getAttribute('data-spine-ids') ?? ''
+	return raw ? raw.split(',') : []
+}
+
+async function expectUpNextIds(ids: string[]) {
+	await waitFor(() => {
+		expect(upNextIdsFromProbe()).toEqual(ids)
+	})
 }
 
 async function openQueueSheet(user: ReturnType<typeof userEvent.setup>) {
@@ -213,7 +270,7 @@ async function startWarmLibraryPlayback(user: ReturnType<typeof userEvent.setup>
 	})
 	await waitFor(() => {
 		expect(
-			within(screen.getByTestId('player-desktop-bar')).getByText('Alpha Song'),
+			within(screen.getByTestId('player-desktop-bar')).getByText('Spine-Alpha-Now'),
 		).toBeTruthy()
 	})
 }
@@ -340,8 +397,8 @@ describe('queue sheet integration', () => {
 		expect(within(sheet).queryByText('Queue is Empty')).toBeNull()
 		expect(queueTrackRemoveButtonsInSheet(sheet).length).toBeGreaterThanOrEqual(3)
 		expect(within(sheet).getByText('Now playing')).toBeTruthy()
-		expect(within(sheet).getByText('Alpha Song')).toBeTruthy()
-		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(within(sheet).getByText('Spine-Alpha-Now')).toBeTruthy()
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming', 'Spine-Charlie-Upcoming'])
 	})
 
 	test('shows spine tracks when library has more than the virtual list threshold', async () => {
@@ -466,10 +523,16 @@ describe('queue sheet integration', () => {
 		await startWarmLibraryPlayback(user)
 		await user.click(screen.getByRole('button', { name: 'Add Bravo to up next' }))
 
+		await expectUpNextIds(['track-b'])
+		expect(spineIdsFromProbe()).toEqual(['track-b', 'track-c'])
+
 		const sheet = await openQueueSheet(user)
 
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Bravo Song'])
-		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(upNextTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming'])
+		expect(spineTitlesInSheet(sheet)).toEqual([
+			'Spine-Bravo-Upcoming',
+			'Spine-Charlie-Upcoming',
+		])
 	})
 
 	test('play next inserts at the front of Up Next, before add-to-up-next tail', async () => {
@@ -479,11 +542,16 @@ describe('queue sheet integration', () => {
 		renderQueueApp(<WarmPlaybackControls />)
 		await startWarmLibraryPlayback(user)
 		await user.click(screen.getByRole('button', { name: 'Add Bravo to up next' }))
-		await user.click(screen.getByRole('button', { name: 'Play next Charlie' }))
+		await user.click(screen.getByRole('button', { name: 'Play next Delta' }))
+
+		await expectUpNextIds(['track-d', 'track-b'])
 
 		const sheet = await openQueueSheet(user)
 
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Charlie Song', 'Bravo Song'])
+		expect(upNextTitlesInSheet(sheet)).toEqual([
+			'Inject-Delta-99',
+			'Spine-Bravo-Upcoming',
+		])
 	})
 
 	test('play next under StrictMode still inserts before add-to-up-next tail', async () => {
@@ -493,44 +561,86 @@ describe('queue sheet integration', () => {
 		render(
 			<StrictMode>
 				<AudioPlayerProvider>
+					<QueueStateProbe />
 					<WarmPlaybackControls />
 				</AudioPlayerProvider>
 			</StrictMode>,
 		)
 		await startWarmLibraryPlayback(user)
 		await user.click(screen.getByRole('button', { name: 'Add Bravo to up next' }))
-		await user.click(screen.getByRole('button', { name: 'Play next Charlie' }))
+		await user.click(screen.getByRole('button', { name: 'Play next Delta' }))
 
-		const sheet = await openQueueSheet(user)
-
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Charlie Song', 'Bravo Song'])
+		await expectUpNextIds(['track-d', 'track-b'])
 	})
 
 	test('play next on queue-only bar inserts at front of Up Next instead of replacing current', async () => {
 		const user = userEvent.setup()
 
 		renderQueueApp(<IdleQueueControls />)
-		await user.click(screen.getByRole('button', { name: 'Add Bravo to up next' }))
-		await user.click(screen.getByRole('button', { name: 'Play next Charlie' }))
+		await user.click(screen.getByRole('button', { name: 'Add Delta to up next' }))
+		await user.click(screen.getByRole('button', { name: 'Play next Echo' }))
+
+		await expectUpNextIds(['track-e', 'track-d'])
 
 		const sheet = await openQueueSheet(user)
 
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Charlie Song', 'Bravo Song'])
+		expect(upNextTitlesInSheet(sheet)).toEqual(['Inject-Echo-88', 'Inject-Delta-99'])
 		expect(within(sheet).queryByText('Now playing')).toBeNull()
 	})
 
-	test('stacked play next keeps FIFO order at the front of Up Next', async () => {
+	test('stacked play next puts the most recent track at the front of Up Next', async () => {
 		const user = userEvent.setup()
 		mockSpineAndHydration(vi.mocked(fetch))
 
 		renderQueueApp(<WarmPlaybackControls />)
 		await startWarmLibraryPlayback(user)
-		await user.click(screen.getByRole('button', { name: 'Play next Bravo' }))
-		await user.click(screen.getByRole('button', { name: 'Play next Charlie' }))
+		await user.click(screen.getByRole('button', { name: 'Play next Delta' }))
+		await user.click(screen.getByRole('button', { name: 'Play next Echo' }))
+
+		await expectUpNextIds(['track-e', 'track-d'])
 
 		const sheet = await openQueueSheet(user)
 
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(upNextTitlesInSheet(sheet)).toEqual(['Inject-Echo-88', 'Inject-Delta-99'])
+	})
+
+	test('play next inserts before add-to-up-next tail even after another play-next item', async () => {
+		const user = userEvent.setup()
+		mockSpineAndHydration(vi.mocked(fetch))
+
+		renderQueueApp(<WarmPlaybackControls />)
+		await startWarmLibraryPlayback(user)
+		await user.click(screen.getByRole('button', { name: 'Play next Delta' }))
+		await user.click(screen.getByRole('button', { name: 'Add Charlie to up next' }))
+		await user.click(screen.getByRole('button', { name: 'Play next Echo' }))
+
+		await expectUpNextIds(['track-e', 'track-d', 'track-c'])
+
+		const sheet = await openQueueSheet(user)
+
+		expect(upNextTitlesInSheet(sheet)).toEqual([
+			'Inject-Echo-88',
+			'Inject-Delta-99',
+			'Spine-Charlie-Upcoming',
+		])
+	})
+
+	test('player next control plays the play-next track before the spine', async () => {
+		const user = userEvent.setup()
+		mockSpineAndHydration(vi.mocked(fetch))
+
+		renderQueueApp(<WarmPlaybackControls />)
+		await startWarmLibraryPlayback(user)
+		await user.click(screen.getByRole('button', { name: 'Play next Delta' }))
+
+		await expectUpNextIds(['track-d'])
+		await clickNextTrack(user)
+
+		await waitFor(() => {
+			expect(
+				within(screen.getByTestId('player-desktop-bar')).getByText('Inject-Delta-99'),
+			).toBeTruthy()
+		})
 	})
 
 	test('add to queue appends after the spine and shows in the queue sheet', async () => {
@@ -544,9 +654,9 @@ describe('queue sheet integration', () => {
 		const sheet = await openQueueSheet(user)
 
 		expect(spineTitlesInSheet(sheet)).toEqual([
-			'Bravo Song',
-			'Charlie Song',
-			'Charlie Song',
+			'Spine-Bravo-Upcoming',
+			'Spine-Charlie-Upcoming',
+			'Spine-Charlie-Upcoming',
 		])
 	})
 
@@ -554,13 +664,14 @@ describe('queue sheet integration', () => {
 		const user = userEvent.setup()
 
 		renderQueueApp(<IdleQueueControls />)
-		await user.click(screen.getByRole('button', { name: 'Add Bravo to up next' }))
+		await user.click(screen.getByRole('button', { name: 'Add Delta to up next' }))
 
+		await expectUpNextIds(['track-d'])
 		expect(screen.getByTestId('player-queue-only-bar')).toBeTruthy()
 
 		const sheet = await openQueueSheet(user)
 
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Bravo Song'])
+		expect(upNextTitlesInSheet(sheet)).toEqual(['Inject-Delta-99'])
 	})
 
 	test('idle add to queue lists the track in the spine section', async () => {
@@ -572,7 +683,7 @@ describe('queue sheet integration', () => {
 		const sheet = await openQueueSheet(user)
 
 		expect(within(sheet).getByText('From Queue')).toBeTruthy()
-		expect(spineTitlesInSheet(sheet)).toEqual(['Charlie Song'])
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Charlie-Upcoming'])
 	})
 
 	test('next track updates now playing in the queue sheet', async () => {
@@ -583,20 +694,20 @@ describe('queue sheet integration', () => {
 		await startWarmLibraryPlayback(user)
 
 		let sheet = await openQueueSheet(user)
-		expect(nowPlayingTitleInSheet(sheet)).toBe('Alpha Song')
-		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(nowPlayingTitleInSheet(sheet)).toBe('Spine-Alpha-Now')
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming', 'Spine-Charlie-Upcoming'])
 
 		await user.keyboard('{Escape}')
 		await clickNextTrack(user)
 		await waitFor(() => {
 			expect(
-				within(screen.getByTestId('player-desktop-bar')).getByText('Bravo Song'),
+				within(screen.getByTestId('player-desktop-bar')).getByText('Spine-Bravo-Upcoming'),
 			).toBeTruthy()
 		})
 
 		sheet = await openQueueSheet(user)
-		expect(nowPlayingTitleInSheet(sheet)).toBe('Bravo Song')
-		expect(spineTitlesInSheet(sheet)).toEqual(['Charlie Song'])
+		expect(nowPlayingTitleInSheet(sheet)).toBe('Spine-Bravo-Upcoming')
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Charlie-Upcoming'])
 	})
 
 	test('removing an up next track updates the queue sheet', async () => {
@@ -608,14 +719,14 @@ describe('queue sheet integration', () => {
 		await user.click(screen.getByRole('button', { name: 'Add Bravo to up next' }))
 
 		const sheet = await openQueueSheet(user)
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Bravo Song'])
+		expect(upNextTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming'])
 
 		const upNextSection = within(sheet).getByText('Up Next').closest('section')
 		if (!upNextSection) throw new Error('Expected Up Next section')
-		await user.click(removeTrackInSection(upNextSection, 'Bravo Song'))
+		await user.click(removeTrackInSection(upNextSection, 'Spine-Bravo-Upcoming'))
 
 		expect(within(sheet).queryByText('Up Next')).toBeNull()
-		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming', 'Spine-Charlie-Upcoming'])
 	})
 
 	test('removing a spine track updates the queue sheet', async () => {
@@ -626,11 +737,11 @@ describe('queue sheet integration', () => {
 		await startWarmLibraryPlayback(user)
 
 		const sheet = await openQueueSheet(user)
-		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming', 'Spine-Charlie-Upcoming'])
 
-		await user.click(within(sheet).getByRole('button', { name: 'Remove Bravo Song from queue' }))
+		await user.click(within(sheet).getByRole('button', { name: 'Remove Spine-Bravo-Upcoming from queue' }))
 
-		expect(spineTitlesInSheet(sheet)).toEqual(['Charlie Song'])
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Charlie-Upcoming'])
 	})
 
 	test('shows up next tracks when more than the virtual list threshold', async () => {
@@ -651,7 +762,7 @@ describe('queue sheet integration', () => {
 					<button
 						type="button"
 						onClick={() => {
-							for (const track of bulkTracks) {
+							for (const track of [...bulkTracks].reverse()) {
 								playNextTrack(track)
 							}
 						}}
@@ -703,7 +814,7 @@ describe('queue sheet integration', () => {
 		const sheet = await openQueueSheet(user)
 
 		expect(within(sheet).queryByText('Queue is Empty')).toBeNull()
-		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming', 'Spine-Charlie-Upcoming'])
 	})
 })
 
@@ -713,16 +824,16 @@ describe('track list item queue integration', () => {
 		mockSpineAndHydration(vi.mocked(fetch))
 
 		renderQueueApp(<LibraryRowPlayAlpha />)
-		await user.click(screen.getByRole('gridcell', { name: /Track 1: Alpha Song/i }))
+		await user.click(screen.getByRole('gridcell', { name: /Track 1: Spine-Alpha-Now/i }))
 
 		await waitFor(() => {
-			expect(within(screen.getByTestId('player-desktop-bar')).getByText('Alpha Song')).toBeTruthy()
+			expect(within(screen.getByTestId('player-desktop-bar')).getByText('Spine-Alpha-Now')).toBeTruthy()
 		})
 
 		const sheet = await openQueueSheet(user)
 
-		expect(nowPlayingTitleInSheet(sheet)).toBe('Alpha Song')
-		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(nowPlayingTitleInSheet(sheet)).toBe('Spine-Alpha-Now')
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming', 'Spine-Charlie-Upcoming'])
 	})
 
 	test('Add to up next from track row menu shows the track in the queue sheet', async () => {
@@ -732,16 +843,18 @@ describe('track list item queue integration', () => {
 		renderQueueApp(
 			<>
 				<WarmPlaybackControls />
-				<LibraryRowPlayNext />
+				<LibraryRowPlayInjectDelta />
 			</>,
 		)
 		await startWarmLibraryPlayback(user)
 		await user.click(screen.getByRole('button', { name: 'More actions' }))
 		await user.click(screen.getByText('Add to up next'))
 
+		await expectUpNextIds(['track-d'])
+
 		const sheet = await openQueueSheet(user)
 
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Charlie Song'])
+		expect(upNextTitlesInSheet(sheet)).toEqual(['Inject-Delta-99'])
 	})
 
 	test('Play next from track row menu inserts at the front of Up Next', async () => {
@@ -751,7 +864,7 @@ describe('track list item queue integration', () => {
 		renderQueueApp(
 			<>
 				<WarmPlaybackControls />
-				<LibraryRowPlayNext />
+				<LibraryRowPlayInjectDelta />
 			</>,
 		)
 		await startWarmLibraryPlayback(user)
@@ -759,9 +872,14 @@ describe('track list item queue integration', () => {
 		await user.click(screen.getByRole('button', { name: 'More actions' }))
 		await user.click(screen.getByText('Play next'))
 
+		await expectUpNextIds(['track-d', 'track-b'])
+
 		const sheet = await openQueueSheet(user)
 
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Charlie Song', 'Bravo Song'])
+		expect(upNextTitlesInSheet(sheet)).toEqual([
+			'Inject-Delta-99',
+			'Spine-Bravo-Upcoming',
+		])
 	})
 
 	test('uses From Playlist heading when play context is a playlist', async () => {
@@ -796,7 +914,7 @@ describe('track list item queue integration', () => {
 		renderQueueApp(<PlaylistPlayback />)
 		await user.click(screen.getByRole('button', { name: 'Start playlist playback' }))
 		await waitFor(() => {
-			expect(within(screen.getByTestId('player-desktop-bar')).getByText('Alpha Song')).toBeTruthy()
+			expect(within(screen.getByTestId('player-desktop-bar')).getByText('Spine-Alpha-Now')).toBeTruthy()
 		})
 
 		const sheet = await openQueueSheet(user)
@@ -807,7 +925,7 @@ describe('track list item queue integration', () => {
 				name: 'Queue (3 from playlist)',
 			}),
 		).toBeTruthy()
-		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming', 'Spine-Charlie-Upcoming'])
 	})
 
 	test('playUserPlaylist loads playlist spine into the queue sheet', async () => {
@@ -826,14 +944,14 @@ describe('track list item queue integration', () => {
 		renderQueueApp(<PlaylistPlayAllControls />)
 		await user.click(screen.getByRole('button', { name: 'Play playlist' }))
 		await waitFor(() => {
-			expect(within(screen.getByTestId('player-desktop-bar')).getByText('Alpha Song')).toBeTruthy()
+			expect(within(screen.getByTestId('player-desktop-bar')).getByText('Spine-Alpha-Now')).toBeTruthy()
 		})
 
 		const sheet = await openQueueSheet(user)
 
 		expect(within(sheet).getByText('From Playlist')).toBeTruthy()
-		expect(nowPlayingTitleInSheet(sheet)).toBe('Alpha Song')
-		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+		expect(nowPlayingTitleInSheet(sheet)).toBe('Spine-Alpha-Now')
+		expect(spineTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming', 'Spine-Charlie-Upcoming'])
 	})
 
 	test('non-playable tracks are not added to up next', async () => {
@@ -874,6 +992,6 @@ describe('track list item queue integration', () => {
 
 		const sheet = await openQueueSheet(user)
 
-		expect(upNextTitlesInSheet(sheet)).toEqual(['Bravo Song'])
+		expect(upNextTitlesInSheet(sheet)).toEqual(['Spine-Bravo-Upcoming'])
 	})
 })

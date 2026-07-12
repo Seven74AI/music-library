@@ -495,14 +495,12 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			rememberTrack(track)
 
 			if (position === 'next') {
-				const insertAt = upNextPlayNextCountRef.current
-				upNextPlayNextCountRef.current = insertAt + 1
-				setUpNextPlayNextCount(insertAt + 1)
+				const nextCount = upNextPlayNextCountRef.current + 1
+				upNextPlayNextCountRef.current = nextCount
+				setUpNextPlayNextCount(nextCount)
 				setUpNext(prev => {
-					const at =
-						insertAt > prev.length ? 0 : Math.min(insertAt, prev.length)
 					const next = [...prev]
-					next.splice(at, 0, queueTrack)
+					next.splice(0, 0, queueTrack)
 					return next
 				})
 				return
@@ -529,13 +527,6 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	}, [])
 
 	const isWarmPlayback = isPlayerVisible && currentTrack !== null
-
-	const hasActiveQueueSession =
-		isPlayerVisible &&
-		(currentTrack !== null ||
-			upNext.length > 0 ||
-			getTrackAtTarget(navigationState, { zone: 'spine', index: spinePosition }) !==
-				null)
 
 	const removeTrackFromPlaylist = useCallback(
 		(target: QueueTarget) => {
@@ -634,7 +625,14 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		(track: Track) => {
 			if (!isPlayableTrack(track)) return
 
-			if (hasActiveQueueSession) {
+			const activeQueueSession =
+				isPlayerVisible &&
+				(currentTrack !== null ||
+					upNext.length > 0 ||
+					getTrackAtTarget(navigationState, { zone: 'spine', index: spinePosition }) !==
+						null)
+
+			if (activeQueueSession) {
 				addTrackToPlaylist(track, 'next')
 				return
 			}
@@ -644,7 +642,15 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			setCurrentTrack(track)
 			setIsPlayerVisible(true)
 		},
-		[addTrackToPlaylist, hasActiveQueueSession, rememberTrack],
+		[
+			addTrackToPlaylist,
+			currentTrack,
+			isPlayerVisible,
+			navigationState,
+			rememberTrack,
+			spinePosition,
+			upNext.length,
+		],
 	)
 
 	const addToUpNext = useCallback(
