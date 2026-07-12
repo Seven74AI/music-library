@@ -23,10 +23,11 @@ import { processTrackImagesAsync } from './image-processor.server'
 import { type PlaylistSyncProvider } from './playlist-sync-provider.server'
 import { getServiceByName } from './playlist-utils.server'
 import { findAllServicePlaylistTracks } from './service-playlist-track-queries.server'
+import { createYouTubePlaylistProvider } from './youtube-playlist-provider.server'
 import {
-	createYouTubePlaylistProvider,
+	createYouTubeTrackSyncProcessor,
 	type TrackSyncProcessor,
-} from './youtube-playlist-provider.server'
+} from './youtube-track-sync.server'
 
 interface PlaylistWithSyncStatus extends YouTubePlaylist {
 	isSynced: boolean
@@ -61,17 +62,21 @@ export class ServicePlaylistService {
 		this.archiveEnqueueAdapter =
 			options?.archiveEnqueueAdapter ?? createProductionArchiveEnqueueAdapter()
 
-		const youtubeProvider = createYouTubePlaylistProvider()
-		this.registerProvider(YOUTUBE_SERVICE.NAME, youtubeProvider)
+		this.registerProvider(
+			YOUTUBE_SERVICE.NAME,
+			createYouTubePlaylistProvider(),
+			createYouTubeTrackSyncProcessor(),
+		)
 	}
 
 	private registerProvider(
 		serviceName: string,
-		provider: PlaylistSyncProvider & TrackSyncProcessor,
+		syncProvider: PlaylistSyncProvider,
+		trackProcessor: TrackSyncProcessor,
 	): void {
 		this.providers.set(serviceName, {
-			syncProvider: provider,
-			trackProcessor: provider,
+			syncProvider,
+			trackProcessor,
 		})
 	}
 

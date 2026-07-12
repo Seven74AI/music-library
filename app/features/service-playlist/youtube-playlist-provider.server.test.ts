@@ -1,185 +1,93 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
-import { type YouTubePlaylistItem } from '#app/types/youtube-api'
-import { createYouTubePlaylistProvider, type YouTubePlaylistProvider } from './youtube-playlist-provider.server'
+import { YOUTUBE_SERVICE } from '#app/constants/services'
+import { type YouTubePlaylist } from '#app/types/youtube-api'
+import { createYouTubePlaylistProvider } from './youtube-playlist-provider.server'
 
-// Mock YouTube service internals — provider tests don't need real API calls
-vi.mock('./youtube.server', () => ({
+const mockGetPlaylistItems = vi.fn()
+const mockGetPlaylist = vi.fn()
+const mockGetUserPlaylists = vi.fn()
+
+vi.mock('#app/utils/youtube.server', () => ({
 	createYouTubeService: vi.fn(() => ({
-		getPlaylistItems: vi.fn(),
-		getPlaylist: vi.fn(),
-		getUserPlaylists: vi.fn(),
+		getPlaylistItems: mockGetPlaylistItems,
+		getPlaylist: mockGetPlaylist,
+		getUserPlaylists: mockGetUserPlaylists,
 	})),
 }))
 
-describe('YouTubePlaylistProvider - Deleted Video Detection', () => {
-	let provider: YouTubePlaylistProvider
-
+describe('YouTubePlaylistProvider - fetch and normalize', () => {
 	beforeEach(() => {
-		provider = createYouTubePlaylistProvider()
 		vi.clearAllMocks()
 	})
 
-	describe('isDeletedVideo', () => {
-		test('detects deleted video by title pattern', () => {
-			const item: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Deleted video',
-					resourceId: {
-						videoId: 'test123',
-					},
-				},
-			}
+	test('supportsService returns true only for youtube', () => {
+		const provider = createYouTubePlaylistProvider()
 
-			const result = provider.isDeletedVideo(item)
-			expect(result).toBe(true)
-		})
-
-		test('detects private video by title pattern', () => {
-			const item: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Private video',
-					resourceId: {
-						videoId: 'test123',
-					},
-				},
-			}
-
-			const result = provider.isDeletedVideo(item)
-			expect(result).toBe(true)
-		})
-
-		test('detects unavailable video by title pattern', () => {
-			const item: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Unavailable video',
-					resourceId: {
-						videoId: 'test123',
-					},
-				},
-			}
-
-			const result = provider.isDeletedVideo(item)
-			expect(result).toBe(true)
-		})
-
-		test('detects deleted video by missing video ID', () => {
-			const item: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Some Video Title',
-					resourceId: {
-						videoId: '',
-					},
-				},
-			}
-
-			const result = provider.isDeletedVideo(item)
-			expect(result).toBe(true)
-		})
-
-		test('detects deleted video by missing thumbnail', () => {
-			const item: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Some Video Title',
-					resourceId: {
-						videoId: 'test123',
-					},
-					thumbnails: {},
-				},
-			}
-
-			const result = provider.isDeletedVideo(item)
-			expect(result).toBe(true)
-		})
-
-		test('returns false for valid video', () => {
-			const item: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Valid Video Title',
-					resourceId: {
-						videoId: 'test123',
-					},
-					thumbnails: {
-						default: {
-							url: 'https://example.com/thumb.jpg',
-						},
-					},
-				},
-			}
-
-			const result = provider.isDeletedVideo(item)
-			expect(result).toBe(false)
-		})
+		expect(provider.supportsService(YOUTUBE_SERVICE.NAME)).toBe(true)
+		expect(provider.supportsService('spotify')).toBe(false)
 	})
 
-	describe('shouldPreserveTrackData', () => {
-		test('preserves data when video is deleted and has original title', () => {
-			const existingTrack = {
-				title: 'Original Video Title',
-			}
-			const newItem: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Deleted video',
-					resourceId: {
-						videoId: 'test123',
-					},
+	test('fetchPlaylists delegates to YouTube service', async () => {
+		const playlists = [{ id: 'pl1', snippet: { title: 'My Playlist' } }]
+		mockGetUserPlaylists.mockResolvedValue(playlists)
+
+		const provider = createYouTubePlaylistProvider()
+		const result = await provider.fetchPlaylists('token123', 'user1')
+
+		expect(mockGetUserPlaylists).toHaveBeenCalledWith('token123')
+		expect(result).toEqual(playlists)
+	})
+
+	test('fetchPlaylist delegates to YouTube service', async () => {
+		const playlist = { id: 'pl1', snippet: { title: 'My Playlist' } }
+		mockGetPlaylist.mockResolvedValue(playlist)
+
+		const provider = createYouTubePlaylistProvider()
+		const result = await provider.fetchPlaylist('pl1', 'token123')
+
+		expect(mockGetPlaylist).toHaveBeenCalledWith('pl1', 'token123')
+		expect(result).toEqual(playlist)
+	})
+
+	test('fetchPlaylistItems delegates to YouTube service', async () => {
+		const items = [{ snippet: { title: 'Track 1' } }]
+		mockGetPlaylistItems.mockResolvedValue(items)
+
+		const provider = createYouTubePlaylistProvider()
+		const result = await provider.fetchPlaylistItems('pl1', 'token123')
+
+		expect(mockGetPlaylistItems).toHaveBeenCalledWith('pl1', 'token123')
+		expect(result).toEqual(items)
+	})
+
+	test('normalizePlaylistData maps YouTube playlist fields', () => {
+		const provider = createYouTubePlaylistProvider()
+		const rawPlaylist: YouTubePlaylist = {
+			id: 'PLexternal123',
+			snippet: {
+				title: 'Summer Hits',
+				description: 'Best songs',
+				channelId: 'channel1',
+				channelTitle: 'My Channel',
+				thumbnails: {
+					medium: { url: 'https://example.com/playlist.jpg' },
 				},
-			}
+			},
+			contentDetails: {
+				itemCount: 42,
+			},
+		}
 
-			const result = provider.shouldPreserveTrackData(existingTrack, newItem)
-			expect(result).toBe(true)
-		})
+		const result = provider.normalizePlaylistData(rawPlaylist, 'service-id', 'user-id')
 
-		test('does not preserve data when existing track has "Deleted video" title', () => {
-			const existingTrack = {
-				title: 'Deleted video',
-			}
-			const newItem: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Deleted video',
-					resourceId: {
-						videoId: 'test123',
-					},
-				},
-			}
-
-			const result = provider.shouldPreserveTrackData(existingTrack, newItem)
-			expect(result).toBe(false)
-		})
-
-		test('does not preserve data when video is not deleted', () => {
-			const existingTrack = {
-				title: 'Original Video Title',
-			}
-			const newItem: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Updated Video Title',
-					resourceId: {
-						videoId: 'test123',
-					},
-					thumbnails: {
-						default: {
-							url: 'https://example.com/thumb.jpg',
-						},
-					},
-				},
-			}
-
-			const result = provider.shouldPreserveTrackData(existingTrack, newItem)
-			expect(result).toBe(false)
-		})
-
-		test('returns false when no existing track', () => {
-			const newItem: YouTubePlaylistItem = {
-				snippet: {
-					title: 'Deleted video',
-					resourceId: {
-						videoId: 'test123',
-					},
-				},
-			}
-
-			const result = provider.shouldPreserveTrackData(null, newItem)
-			expect(result).toBe(false)
+		expect(result).toEqual({
+			title: 'Summer Hits',
+			description: 'Best songs',
+			externalId: 'PLexternal123',
+			itemCount: 42,
+			channelId: 'channel1',
+			channelTitle: 'My Channel',
+			thumbnailUrl: 'https://example.com/playlist.jpg',
 		})
 	})
 })

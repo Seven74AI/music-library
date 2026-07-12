@@ -5,7 +5,7 @@ import { type Prisma } from '#prisma/client.js'
 import { type ArchiveEnqueueAdapter } from './archive-enqueue-adapter.server'
 import { getServiceByName } from './playlist-utils.server'
 import { findAllServicePlaylistTracks } from './service-playlist-track-queries.server'
-import { type TrackSyncProcessor } from './youtube-playlist-provider.server'
+import { type TrackSyncProcessor } from './youtube-track-sync.server'
 
 /**
  * Generic syncable item — normalized track data from any provider.

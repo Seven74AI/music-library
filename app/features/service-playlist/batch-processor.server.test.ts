@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { noopArchiveEnqueueAdapter } from './archive-enqueue-adapter.server'
 import { processTracksInBatches } from './batch-processor.server'
-import { createYouTubePlaylistProvider } from './youtube-playlist-provider.server'
+import { createYouTubeTrackSyncProcessor } from './youtube-track-sync.server'
 
 function createTxMock() {
 	const artistCreate = vi.fn().mockImplementation(({ data }: any) =>
@@ -56,7 +56,7 @@ describe('processTracksInBatches - artist naming', () => {
 			'service-1',
 			'playlist-1',
 			tx,
-			createYouTubePlaylistProvider(),
+			createYouTubeTrackSyncProcessor(),
 			noopArchiveEnqueueAdapter,
 		)
 
@@ -85,7 +85,7 @@ describe('processTracksInBatches - artist naming', () => {
 			'service-1',
 			'playlist-1',
 			tx,
-			createYouTubePlaylistProvider(),
+			createYouTubeTrackSyncProcessor(),
 			noopArchiveEnqueueAdapter,
 		)
 
