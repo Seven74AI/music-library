@@ -1,37 +1,40 @@
-import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from 'react'
 import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
 import { offlineSummaryToFullTrack } from '#app/features/offline-storage/offline-track-summary.client.ts'
-import { type FullTrack } from '#app/types/frontend/shared'
+import {
+	advanceAfterPlay,
+	buildFlatQueueView,
+	findSpinePositionForTrackId,
+	flatIndexForSpinePosition,
+	getTrackAtTarget,
+	hasNextTrack,
+	hasPreviousTrack,
+	resolveNextTrack,
+	resolvePreviousTrack,
+	type QueueNavigationState,
+} from '#app/features/queue/queue-navigation.ts'
+import {
+	collectHydrationIds,
+	PlaybackHydrationCache,
+	resolveFullTrack,
+	resolveFullTracks,
+} from '#app/features/queue/queue-hydration.ts'
+import {
+	createShuffledOrder,
+	reshuffleFromCurrent,
+} from '#app/features/queue/queue-shuffle.ts'
+import {
+	fetchQueueSpine,
+	queueTrackFromFullTrack,
+	type QueueSpineContext,
+} from '#app/features/queue/queue-spine.ts'
+import { type FullTrack, type QueueTrack } from '#app/types/frontend/shared'
 import { isOfflineEnvironment } from '#app/features/offline-app/is-offline-environment.client.ts'
-import { filterPlayableTracks, isPlayableTrack } from '#app/utils/playable-track'
+import { isPlayableTrack } from '#app/utils/playable-track'
 import { AudioPlayer } from './audio-player'
 import { InstallAppBanner } from './pwa/install-app-banner'
 
 type Track = FullTrack
-
-interface UserTrack {
-	id: string
-	createdAt: string
-	track: Track
-}
-
-interface UserTracksResponse {
-	userTracks: UserTrack[]
-	pagination: {
-		hasNext: boolean
-		nextCursor: string | null
-		limit: number
-	}
-}
-
-interface PlaylistTracksResponse {
-	tracks: Track[]
-	pagination: {
-		hasNext: boolean
-		nextCursor: string | null
-		limit: number
-	}
-}
 
 type PlayContext = 'library' | 'playlist' | 'music'
 
@@ -75,70 +78,82 @@ interface AudioPlayerProviderProps {
 	children: ReactNode
 }
 
+function toQueueSpineContext(context: PlaylistContext): QueueSpineContext | null {
+	if (context.type === 'library') return { type: 'library' }
+	if (context.type === 'playlist' && context.playlistId) {
+		return { type: 'playlist', playlistId: context.playlistId }
+	}
+	return null
+}
+
 export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const [currentTrack, setCurrentTrack] = useState<Track | null>(null)
 	const [isPlayerVisible, setIsPlayerVisible] = useState(false)
-	const [playlist, setPlaylist] = useState<Track[]>([])
-	const [currentIndex, setCurrentIndex] = useState(0)
+	const [upNext, setUpNext] = useState<QueueTrack[]>([])
+	const [spine, setSpine] = useState<QueueTrack[]>([])
+	const [spineOrder, setSpineOrder] = useState<number[]>([])
+	const [spinePosition, setSpinePosition] = useState(0)
 	const [playContext, setPlayContext] = useState<PlaylistContext | null>(null)
 	const [loopMode, setLoopMode] = useState<LoopMode>('off')
 	const [isShuffleEnabled, setIsShuffleEnabled] = useState(false)
 	const [isLoadingNext, setIsLoadingNext] = useState(false)
 	const [playbackToken, setPlaybackToken] = useState(0)
+	const [cacheVersion, setCacheVersion] = useState(0)
 
+	const playbackCacheRef = useRef(new PlaybackHydrationCache())
 	const playlistFetchEpochRef = useRef(0)
 	const wantsAutoPlayRef = useRef(false)
+
+	const navigationState = useMemo<QueueNavigationState>(
+		() => ({
+			upNext,
+			spine,
+			spineOrder,
+			spinePosition,
+			loopMode,
+		}),
+		[upNext, spine, spineOrder, spinePosition, loopMode],
+	)
+
+	const playlist = useMemo(() => {
+		void cacheVersion
+		return resolveFullTracks(
+			playbackCacheRef.current,
+			buildFlatQueueView(navigationState),
+		)
+	}, [navigationState, cacheVersion])
+
+	const currentIndex = useMemo(() => {
+		if (!currentTrack) return -1
+
+		const upNextIndex = upNext.findIndex(track => track.id === currentTrack.id)
+		if (upNextIndex >= 0) return upNextIndex
+
+		if (findSpinePositionForTrackId(navigationState, currentTrack.id) !== null) {
+			return flatIndexForSpinePosition(navigationState, spinePosition)
+		}
+
+		return -1
+	}, [currentTrack, upNext, navigationState, spinePosition])
 
 	const beginPlayback = useCallback(() => {
 		wantsAutoPlayRef.current = true
 		setPlaybackToken(token => token + 1)
 	}, [])
 
-	/**
-	 * Fetch full tracks for the queue — same shape the player had before lazy minimal loading.
-	 */
-	const fetchAllTracks = useCallback(async (context: PlaylistContext): Promise<Track[]> => {
-		const allTracks: Track[] = []
-		let cursor: string | null = null
-		let hasNext = true
-		const limit = 100
-
-		while (hasNext) {
-			try {
-				let url = ''
-				if (context.type === 'library') {
-					url = `/api/user-tracks?limit=${limit}&fields=full&hasAudio=1${cursor ? `&cursor=${cursor}` : ''}`
-				} else if (context.type === 'playlist' && context.playlistId) {
-					url = `/api/playlist-tracks?playlistId=${context.playlistId}&limit=${limit}&fields=full${cursor ? `&cursor=${cursor}` : ''}`
-				}
-
-				if (!url) break
-
-				const response = await fetch(url)
-				if (!response.ok) {
-					console.error('Failed to fetch tracks:', response.status, response.statusText)
-					break
-				}
-
-				let data: UserTracksResponse | PlaylistTracksResponse
-				if (context.type === 'library') {
-					data = await response.json() as UserTracksResponse
-					allTracks.push(...data.userTracks.map(userTrack => userTrack.track))
-				} else {
-					data = await response.json() as PlaylistTracksResponse
-					allTracks.push(...data.tracks)
-				}
-
-				hasNext = data.pagination.hasNext
-				cursor = data.pagination.nextCursor
-			} catch (error) {
-				console.error('Failed to fetch tracks:', error)
-				break
-			}
-		}
-
-		return filterPlayableTracks(allTracks)
+	const rememberTrack = useCallback((track: Track) => {
+		playbackCacheRef.current.set(track)
+		setCacheVersion(version => version + 1)
 	}, [])
+
+	const hydrateAround = useCallback(
+		async (trackId: string | null) => {
+			const ids = collectHydrationIds(navigationState, trackId)
+			await playbackCacheRef.current.hydrateMissing(ids)
+			setCacheVersion(version => version + 1)
+		},
+		[navigationState],
+	)
 
 	const fetchOfflineTracks = useCallback(async (context: PlaylistContext): Promise<Track[]> => {
 		const storage = getOfflineStorage()
@@ -149,263 +164,426 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 					? await storage.listPinned()
 					: await storage.listDownloaded()
 
-		return filterPlayableTracks(summaries.map(offlineSummaryToFullTrack))
+		return summaries
+			.map(offlineSummaryToFullTrack)
+			.filter(isPlayableTrack)
 	}, [])
 
-	const loadTracksForContext = useCallback(
-		async (context: PlaylistContext): Promise<Track[]> => {
-			const onlineTracks = await fetchAllTracks(context)
-			if (onlineTracks.length > 0) return onlineTracks
-			return fetchOfflineTracks(context)
+	const loadSpineForContext = useCallback(
+		async (context: PlaylistContext): Promise<QueueTrack[]> => {
+			const spineContext = toQueueSpineContext(context)
+
+			if (spineContext) {
+				try {
+					const result = await fetchQueueSpine(spineContext)
+					if (result.tracks.length > 0) return result.tracks
+				} catch (error) {
+					console.error('Failed to fetch queue spine:', error)
+				}
+			}
+
+			const offlineTracks = await fetchOfflineTracks(context)
+			for (const track of offlineTracks) {
+				playbackCacheRef.current.set(track)
+			}
+			setCacheVersion(version => version + 1)
+			return offlineTracks.map(queueTrackFromFullTrack)
 		},
-		[fetchAllTracks, fetchOfflineTracks],
+		[fetchOfflineTracks],
 	)
 
-	const findNextPlayableIndex = useCallback((tracks: Track[], startIndex: number, direction: 1 | -1) => {
-		if (tracks.length === 0) return -1
-
-		for (let step = 1; step <= tracks.length; step++) {
-			const index = startIndex + direction * step
-			if (index < 0 || index >= tracks.length) break
-			if (isPlayableTrack(tracks[index]!)) return index
-		}
-
-		return -1
+	const resetQueueState = useCallback(() => {
+		setUpNext([])
+		setSpine([])
+		setSpineOrder([])
+		setSpinePosition(0)
+		playbackCacheRef.current.clear()
+		setCacheVersion(version => version + 1)
 	}, [])
 
-	const playTrackAtIndex = useCallback((tracks: Track[], index: number) => {
-		const track = tracks[index]
-		if (!track || !isPlayableTrack(track)) return
-		beginPlayback()
-		setCurrentIndex(index)
-		setCurrentTrack(track)
-	}, [beginPlayback])
+	const startSpinePlayback = useCallback(
+		async (
+			track: Track,
+			context: PlaylistContext,
+			explicitIndex?: number,
+		) => {
+			const queueTrack = queueTrackFromFullTrack(track)
+			rememberTrack(track)
 
-	const playTrack = useCallback(async (track: Track, context: PlaylistContext, index?: number) => {
-		if (!isPlayableTrack(track)) return
+			beginPlayback()
+			setPlayContext(context)
+			setIsPlayerVisible(true)
+			setCurrentTrack(track)
 
-		if (playContext && (
-			playContext.type !== context.type ||
-			playContext.playlistId !== context.playlistId
-		)) {
-			setPlaylist([])
-		}
+			const epoch = ++playlistFetchEpochRef.current
+			setIsLoadingNext(true)
 
-		beginPlayback()
-		setPlayContext(context)
-		setIsPlayerVisible(true)
-		setCurrentTrack(track)
-		if (index !== undefined) {
-			setCurrentIndex(index)
-		}
+			try {
+				const loadedSpine = await loadSpineForContext(context)
+				if (epoch !== playlistFetchEpochRef.current) return
 
-		const epoch = ++playlistFetchEpochRef.current
-		setIsLoadingNext(true)
-		try {
-			const tracks = await loadTracksForContext(context)
-			if (epoch !== playlistFetchEpochRef.current) return
+				const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled)
+				const resolvedPosition = (() => {
+					if (
+						explicitIndex !== undefined &&
+						loadedSpine[explicitIndex]?.id === track.id
+					) {
+						return order.findIndex(index => index === explicitIndex)
+					}
+					return findSpinePositionForTrackId(
+						{ upNext: [], spine: loadedSpine, spineOrder: order, spinePosition: 0, loopMode: 'off' },
+						track.id,
+					) ?? 0
+				})()
 
-			setPlaylist(tracks)
-			const calculatedIndex = (() => {
-				if (index !== undefined && tracks[index]?.id === track.id) {
-					return index
+				setUpNext([])
+				setSpine(loadedSpine)
+				setSpineOrder(order)
+				setSpinePosition(resolvedPosition >= 0 ? resolvedPosition : 0)
+
+				await hydrateAround(track.id)
+			} finally {
+				if (epoch === playlistFetchEpochRef.current) {
+					setIsLoadingNext(false)
 				}
-				const idIndex = tracks.findIndex(t => t.id === track.id)
-				return idIndex >= 0 ? idIndex : 0
-			})()
-			setCurrentIndex(calculatedIndex)
-		} finally {
-			if (epoch === playlistFetchEpochRef.current) {
-				setIsLoadingNext(false)
 			}
-		}
-	}, [fetchAllTracks, fetchOfflineTracks, loadTracksForContext, playContext, beginPlayback])
+		},
+		[beginPlayback, hydrateAround, isShuffleEnabled, loadSpineForContext, rememberTrack],
+	)
 
-	const playPlaylist = useCallback((tracks: Track[], context: PlaylistContext, startIndex: number = 0) => {
-		const playableTracks = filterPlayableTracks(tracks)
-		if (playableTracks.length === 0) return
+	const playResolvedTrack = useCallback(
+		async (queueTrack: QueueTrack) => {
+			await hydrateAround(queueTrack.id)
+			const fullTrack = resolveFullTrack(playbackCacheRef.current, queueTrack)
+			if (!isPlayableTrack(fullTrack)) return
 
-		const requestedTrack = tracks[startIndex]
-		const resolvedStartIndex = requestedTrack
-			? playableTracks.findIndex(track => track.id === requestedTrack.id)
-			: 0
+			beginPlayback()
+			setCurrentTrack(fullTrack)
+		},
+		[beginPlayback, hydrateAround],
+	)
 
-		if (playContext && (
-			playContext.type !== context.type ||
-			playContext.playlistId !== context.playlistId
-		)) {
-			setPlaylist([])
-		}
+	const playTrack = useCallback(
+		async (track: Track, context: PlaylistContext, index?: number) => {
+			if (!isPlayableTrack(track)) return
 
-		setPlaylist(playableTracks)
-		setPlayContext(context)
-		setIsPlayerVisible(true)
-		playTrackAtIndex(playableTracks, resolvedStartIndex >= 0 ? resolvedStartIndex : 0)
-	}, [playContext, playTrackAtIndex])
+			if (
+				playContext &&
+				(playContext.type !== context.type ||
+					playContext.playlistId !== context.playlistId)
+			) {
+				resetQueueState()
+			}
+
+			await startSpinePlayback(track, context, index)
+		},
+		[playContext, resetQueueState, startSpinePlayback],
+	)
+
+	const playPlaylist = useCallback(
+		(tracks: Track[], context: PlaylistContext, startIndex: number = 0) => {
+			const playableTracks = tracks.filter(isPlayableTrack)
+			if (playableTracks.length === 0) return
+
+			const requestedTrack = tracks[startIndex]
+			const resolvedStartIndex = requestedTrack
+				? playableTracks.findIndex(track => track.id === requestedTrack.id)
+				: 0
+
+			if (
+				playContext &&
+				(playContext.type !== context.type ||
+					playContext.playlistId !== context.playlistId)
+			) {
+				resetQueueState()
+			}
+
+			const loadedSpine = playableTracks.map(queueTrackFromFullTrack)
+			const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled)
+			const startTrack = playableTracks[resolvedStartIndex >= 0 ? resolvedStartIndex : 0]
+			if (!startTrack) return
+
+			for (const track of playableTracks) {
+				playbackCacheRef.current.set(track)
+			}
+			setCacheVersion(version => version + 1)
+
+			const spinePosition = order.findIndex(
+				index => loadedSpine[index]?.id === startTrack.id,
+			)
+
+			setUpNext([])
+			setSpine(loadedSpine)
+			setSpineOrder(order)
+			setSpinePosition(spinePosition >= 0 ? spinePosition : 0)
+			setPlayContext(context)
+			setIsPlayerVisible(true)
+			beginPlayback()
+			setCurrentTrack(startTrack)
+			void hydrateAround(startTrack.id)
+		},
+		[beginPlayback, hydrateAround, isShuffleEnabled, playContext, resetQueueState],
+	)
 
 	const playLibrary = useCallback(async () => {
 		setIsLoadingNext(true)
 		try {
-			const tracks = await loadTracksForContext({ type: 'library' })
-			playPlaylist(tracks, { type: 'library' }, 0)
-		} finally {
-			setIsLoadingNext(false)
-		}
-	}, [loadTracksForContext, playPlaylist])
-
-	const playUserPlaylist = useCallback(async (playlistId: string) => {
-		setIsLoadingNext(true)
-		try {
-			const tracks = await loadTracksForContext({
-				type: 'playlist',
-				playlistId,
-			})
-			playPlaylist(tracks, { type: 'playlist', playlistId }, 0)
-		} finally {
-			setIsLoadingNext(false)
-		}
-	}, [loadTracksForContext, playPlaylist])
-
-	const addTrackToPlaylist = useCallback((track: Track, position: 'next' | 'end' = 'end') => {
-		if (!isPlayableTrack(track)) return
-
-		if (position === 'next') {
-			setPlaylist(prev => {
-				if (prev.length === 0) return [track]
-				const newPlaylist = [...prev]
-				newPlaylist.splice(currentIndex + 1, 0, track)
-				return newPlaylist
-			})
-		} else {
-			setPlaylist(prev => [...prev, track])
-		}
-	}, [currentIndex])
-
-	const removeTrackFromPlaylist = useCallback((index: number) => {
-		setPlaylist(prev => {
-			const newPlaylist = [...prev]
-			newPlaylist.splice(index, 1)
-
-			if (index < currentIndex) {
-				setCurrentIndex(prevIndex => prevIndex - 1)
-			} else if (index === currentIndex && newPlaylist.length > 0) {
-				const nextIndex = Math.min(currentIndex, newPlaylist.length - 1)
-				const nextTrack = newPlaylist[nextIndex]
-				if (nextTrack) {
-					playTrackAtIndex(newPlaylist, nextIndex)
-				}
+			if (playContext?.type !== 'library') {
+				resetQueueState()
 			}
 
-			return newPlaylist
-		})
-	}, [currentIndex, playTrackAtIndex])
+			const loadedSpine = await loadSpineForContext({ type: 'library' })
+			if (loadedSpine.length === 0) return
 
-	const playNextTrack = useCallback((track: Track) => {
-		addTrackToPlaylist(track, 'next')
-	}, [addTrackToPlaylist])
+			const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled)
+			const firstQueueTrack = loadedSpine[order[0] ?? 0]
+			if (!firstQueueTrack) return
 
-	const addToCurrentPlaylist = useCallback((track: Track) => {
-		addTrackToPlaylist(track, 'end')
-	}, [addTrackToPlaylist])
+			setUpNext([])
+			setSpine(loadedSpine)
+			setSpineOrder(order)
+			setSpinePosition(0)
+			setPlayContext({ type: 'library' })
+			setIsPlayerVisible(true)
+
+			await hydrateAround(firstQueueTrack.id)
+			const fullTrack = resolveFullTrack(
+				playbackCacheRef.current,
+				firstQueueTrack,
+			)
+			if (!isPlayableTrack(fullTrack)) return
+
+			beginPlayback()
+			setCurrentTrack(fullTrack)
+		} finally {
+			setIsLoadingNext(false)
+		}
+	}, [
+		beginPlayback,
+		hydrateAround,
+		isShuffleEnabled,
+		loadSpineForContext,
+		playContext?.type,
+		resetQueueState,
+	])
+
+	const playUserPlaylist = useCallback(
+		async (playlistId: string) => {
+			setIsLoadingNext(true)
+			try {
+				if (
+					playContext?.type !== 'playlist' ||
+					playContext.playlistId !== playlistId
+				) {
+					resetQueueState()
+				}
+
+				const loadedSpine = await loadSpineForContext({
+					type: 'playlist',
+					playlistId,
+				})
+				if (loadedSpine.length === 0) return
+
+				const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled)
+				const firstQueueTrack = loadedSpine[order[0] ?? 0]
+				if (!firstQueueTrack) return
+
+				setUpNext([])
+				setSpine(loadedSpine)
+				setSpineOrder(order)
+				setSpinePosition(0)
+				setPlayContext({ type: 'playlist', playlistId })
+				setIsPlayerVisible(true)
+
+				await hydrateAround(firstQueueTrack.id)
+				const fullTrack = resolveFullTrack(
+					playbackCacheRef.current,
+					firstQueueTrack,
+				)
+				if (!isPlayableTrack(fullTrack)) return
+
+				beginPlayback()
+				setCurrentTrack(fullTrack)
+			} finally {
+				setIsLoadingNext(false)
+			}
+		},
+		[
+			beginPlayback,
+			hydrateAround,
+			isShuffleEnabled,
+			loadSpineForContext,
+			playContext?.playlistId,
+			playContext?.type,
+			resetQueueState,
+		],
+	)
+
+	const addTrackToPlaylist = useCallback(
+		(track: Track, position: 'next' | 'end' = 'end') => {
+			if (!isPlayableTrack(track)) return
+
+			const queueTrack = queueTrackFromFullTrack(track)
+			rememberTrack(track)
+
+			if (position === 'next') {
+				setUpNext(prev => [queueTrack, ...prev])
+				return
+			}
+
+			setSpine(prev => {
+				const nextIndex = prev.length
+				setSpineOrder(order => [...order, nextIndex])
+				return [...prev, queueTrack]
+			})
+		},
+		[rememberTrack],
+	)
+
+	const removeTrackFromPlaylist = useCallback(
+		(index: number) => {
+			if (index < upNext.length) {
+				setUpNext(prev => prev.filter((_, itemIndex) => itemIndex !== index))
+				return
+			}
+
+			const spineFlatIndex = index - upNext.length
+			const orderIndex = spinePosition + spineFlatIndex
+			if (orderIndex < 0 || orderIndex >= spineOrder.length) return
+
+			const spineIndexToRemove = spineOrder[orderIndex]
+			if (spineIndexToRemove === undefined) return
+
+			setSpine(prev => prev.filter((_, itemIndex) => itemIndex !== spineIndexToRemove))
+			setSpineOrder(prev =>
+				prev
+					.filter((_, itemIndex) => itemIndex !== orderIndex)
+					.map(spineIndex => (spineIndex > spineIndexToRemove ? spineIndex - 1 : spineIndex)),
+			)
+
+			if (orderIndex < spinePosition) {
+				setSpinePosition(position => Math.max(0, position - 1))
+			} else if (orderIndex === spinePosition) {
+				const nextState = advanceAfterPlay(navigationState, {
+					zone: 'spine',
+					index: Math.min(spinePosition, spineOrder.length - 2),
+				})
+				const nextTrack = getTrackAtTarget(nextState, {
+					zone: 'spine',
+					index: nextState.spinePosition,
+				})
+				if (nextTrack) {
+					void playResolvedTrack(nextTrack)
+				} else {
+					setCurrentTrack(null)
+				}
+			}
+		},
+		[navigationState, playResolvedTrack, spineOrder.length, spinePosition, upNext.length],
+	)
+
+	const playNextTrack = useCallback(
+		(track: Track) => {
+			addTrackToPlaylist(track, 'next')
+		},
+		[addTrackToPlaylist],
+	)
+
+	const addToCurrentPlaylist = useCallback(
+		(track: Track) => {
+			addTrackToPlaylist(track, 'end')
+		},
+		[addTrackToPlaylist],
+	)
 
 	const playNext = useCallback(() => {
-		if (loopMode === 'one') {
-			playTrackAtIndex(playlist, currentIndex)
-			return
-		}
+		const target = resolveNextTrack(navigationState)
+		if (!target) return
 
-		if (isShuffleEnabled && playlist.length > 1) {
-			const playableIndices = playlist
-				.map((track, index) => (isPlayableTrack(track) ? index : -1))
-				.filter(index => index !== -1 && index !== currentIndex)
+		const queueTrack = getTrackAtTarget(navigationState, target)
+		if (!queueTrack) return
 
-			if (playableIndices.length > 0) {
-				const nextIndex = playableIndices[Math.floor(Math.random() * playableIndices.length)]!
-				playTrackAtIndex(playlist, nextIndex)
-			}
-			return
-		}
-
-		const nextIndex = findNextPlayableIndex(playlist, currentIndex, 1)
-
-		if (nextIndex !== -1) {
-			playTrackAtIndex(playlist, nextIndex)
-		} else if (loopMode === 'all' && playlist.length > 0) {
-			const firstPlayable = playlist.findIndex(track => isPlayableTrack(track))
-			if (firstPlayable !== -1) {
-				playTrackAtIndex(playlist, firstPlayable)
-			}
-		}
-	}, [currentIndex, playlist, loopMode, isShuffleEnabled, playTrackAtIndex, findNextPlayableIndex])
+		const nextState = advanceAfterPlay(navigationState, target)
+		setUpNext(nextState.upNext)
+		setSpinePosition(nextState.spinePosition)
+		void playResolvedTrack(queueTrack)
+	}, [navigationState, playResolvedTrack])
 
 	const playPrevious = useCallback(() => {
-		if (loopMode === 'one') {
-			playTrackAtIndex(playlist, currentIndex)
-			return
-		}
+		const target = resolvePreviousTrack(navigationState)
+		if (!target) return
 
-		const prevIndex = findNextPlayableIndex(playlist, currentIndex, -1)
+		const queueTrack = getTrackAtTarget(navigationState, target)
+		if (!queueTrack) return
 
-		if (prevIndex !== -1) {
-			playTrackAtIndex(playlist, prevIndex)
-		} else if (loopMode === 'all' && playlist.length > 0) {
-			for (let index = playlist.length - 1; index >= 0; index--) {
-				if (isPlayableTrack(playlist[index]!)) {
-					playTrackAtIndex(playlist, index)
-					break
-				}
-			}
-		}
-	}, [currentIndex, playlist, loopMode, playTrackAtIndex, findNextPlayableIndex])
+		setSpinePosition(target.index)
+		void playResolvedTrack(queueTrack)
+	}, [navigationState, playResolvedTrack])
 
 	const toggleLoop = useCallback(() => {
 		setLoopMode(prev => {
 			switch (prev) {
-				case 'off': return 'all'
-				case 'all': return 'one'
-				case 'one': return 'off'
-				default: return 'off'
+				case 'off':
+					return 'all'
+				case 'all':
+					return 'one'
+				case 'one':
+					return 'off'
+				default:
+					return 'off'
 			}
 		})
 	}, [])
 
 	const toggleShuffle = useCallback(() => {
-		setIsShuffleEnabled(prev => !prev)
-	}, [])
+		setIsShuffleEnabled(prev => {
+			const next = !prev
+
+			if (next) {
+				setSpineOrder(order =>
+					reshuffleFromCurrent(
+						order.length === spine.length
+							? order
+							: createShuffledOrder(spine.length, false),
+						spinePosition,
+					),
+				)
+			} else {
+				const currentSpineIndex = spineOrder[spinePosition]
+				const identityOrder = createShuffledOrder(spine.length, false)
+				setSpineOrder(identityOrder)
+				if (currentSpineIndex !== undefined) {
+					setSpinePosition(currentSpineIndex)
+				}
+			}
+
+			return next
+		})
+	}, [spine.length, spineOrder, spinePosition])
 
 	const closePlayer = useCallback(() => {
 		playlistFetchEpochRef.current += 1
 		wantsAutoPlayRef.current = false
 		setIsPlayerVisible(false)
 		setCurrentTrack(null)
-		setPlaylist([])
-		setCurrentIndex(0)
+		resetQueueState()
 		setPlayContext(null)
-	}, [])
+	}, [resetQueueState])
 
-	const hasNext = playlist.length > 0 && (
-		loopMode === 'one' ||
-		loopMode === 'all' ||
-		isShuffleEnabled ||
-		currentIndex < playlist.length - 1
-	)
-
-	const hasPrevious = playlist.length > 0 && (
-		loopMode === 'one' ||
-		loopMode === 'all' ||
-		isShuffleEnabled ||
-		currentIndex > 0
-	)
+	const hasNext = spine.length > 0 && hasNextTrack(navigationState)
+	const hasPrevious = spine.length > 0 && hasPreviousTrack(navigationState)
 
 	useEffect(() => {
 		if (!isPlayerVisible || !currentTrack || isOfflineEnvironment()) return
 
 		const storage = getOfflineStorage()
-		const lookahead = [currentIndex, currentIndex + 1, currentIndex + 2, currentIndex + 3]
 
 		void (async () => {
-			for (const index of lookahead) {
-				const queueTrack = playlist[index]
+			await hydrateAround(currentTrack.id)
+			const ids = collectHydrationIds(navigationState, currentTrack.id)
+
+			for (const id of ids) {
+				const queueTrack = playbackCacheRef.current.get(id)
 				if (!queueTrack || !isPlayableTrack(queueTrack)) continue
 				try {
 					await storage.cacheQueueTrack(queueTrack)
@@ -414,7 +592,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				}
 			}
 		})()
-	}, [currentTrack?.id, currentIndex, isPlayerVisible, playlist])
+	}, [currentTrack?.id, hydrateAround, isPlayerVisible, navigationState])
 
 	return (
 		<AudioPlayerContext.Provider

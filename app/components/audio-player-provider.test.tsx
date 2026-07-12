@@ -68,6 +68,12 @@ const metadataTrack: FullTrack = {
 	audioFiles: [],
 }
 
+const spineTrack = {
+	id: 'track-1',
+	title: 'Test Song',
+	artist: { id: 'artist-1', name: 'Test Artist' },
+}
+
 function QueueProbe() {
 	const { playNextTrack, addToCurrentPlaylist, playlist } = useAudioPlayer()
 
@@ -162,20 +168,22 @@ test('addToCurrentPlaylist ignores metadata-only tracks', async () => {
 	expect(screen.getByTestId('playlist-ids').textContent).toBe('')
 })
 
-test('library fetchAllTracks requests hasAudio=1 and filters non-playable tracks', async () => {
+test('playTrack loads queue spine and hydrates playback for the clicked track', async () => {
 	const user = userEvent.setup()
 	const fetchMock = vi.mocked(fetch)
 
-	fetchMock.mockResolvedValueOnce({
-		ok: true,
-		json: async () => ({
-			userTracks: [
-				{ id: 'ut-1', createdAt: '2024-01-01', track: playableTrack },
-				{ id: 'ut-2', createdAt: '2024-01-02', track: metadataTrack },
-			],
-			pagination: { hasNext: false, nextCursor: null, limit: 100 },
-		}),
-	} as Response)
+	fetchMock
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({
+				tracks: [spineTrack, { ...spineTrack, id: 'track-2', title: 'Other' }],
+				total: 2,
+			}),
+		} as Response)
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ tracks: [playableTrack] }),
+		} as Response)
 
 	render(
 		<AudioPlayerProvider>
@@ -189,23 +197,31 @@ test('library fetchAllTracks requests hasAudio=1 and filters non-playable tracks
 		expect(fetchMock).toHaveBeenCalled()
 	})
 
-	const requestUrl = String(fetchMock.mock.calls[0]?.[0])
-	expect(requestUrl).toContain('hasAudio=1')
+	const spineRequestUrl = String(fetchMock.mock.calls[0]?.[0])
+	expect(spineRequestUrl).toContain('/api/queue-spine')
+	expect(spineRequestUrl).toContain('context=library')
+	expect(spineRequestUrl).toContain('hasAudio=1')
+
+	const hydrationRequestUrl = String(fetchMock.mock.calls[1]?.[0])
+	expect(hydrationRequestUrl).toContain('/api/tracks/playback')
 })
 
-test('playLibrary requests playable library tracks and starts playback', async () => {
+test('playLibrary requests queue spine and hydrates the first track', async () => {
 	const user = userEvent.setup()
 	const fetchMock = vi.mocked(fetch)
 
-	fetchMock.mockResolvedValueOnce({
-		ok: true,
-		json: async () => ({
-			userTracks: [
-				{ id: 'ut-1', createdAt: '2024-01-01', track: playableTrack },
-			],
-			pagination: { hasNext: false, nextCursor: null, limit: 100 },
-		}),
-	} as Response)
+	fetchMock
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({
+				tracks: [spineTrack],
+				total: 1,
+			}),
+		} as Response)
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ tracks: [playableTrack] }),
+		} as Response)
 
 	render(
 		<AudioPlayerProvider>
@@ -219,21 +235,27 @@ test('playLibrary requests playable library tracks and starts playback', async (
 		expect(fetchMock).toHaveBeenCalled()
 	})
 
-	const requestUrl = String(fetchMock.mock.calls[0]?.[0])
-	expect(requestUrl).toContain('hasAudio=1')
+	const spineRequestUrl = String(fetchMock.mock.calls[0]?.[0])
+	expect(spineRequestUrl).toContain('/api/queue-spine')
+	expect(spineRequestUrl).toContain('hasAudio=1')
 })
 
-test('playUserPlaylist requests playlist tracks and starts playback', async () => {
+test('playUserPlaylist requests playlist queue spine and hydrates playback', async () => {
 	const user = userEvent.setup()
 	const fetchMock = vi.mocked(fetch)
 
-	fetchMock.mockResolvedValueOnce({
-		ok: true,
-		json: async () => ({
-			tracks: [playableTrack],
-			pagination: { hasNext: false, nextCursor: null, limit: 100 },
-		}),
-	} as Response)
+	fetchMock
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({
+				tracks: [spineTrack],
+				total: 1,
+			}),
+		} as Response)
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ tracks: [playableTrack] }),
+		} as Response)
 
 	render(
 		<AudioPlayerProvider>
@@ -247,12 +269,13 @@ test('playUserPlaylist requests playlist tracks and starts playback', async () =
 		expect(fetchMock).toHaveBeenCalled()
 	})
 
-	const requestUrl = String(fetchMock.mock.calls[0]?.[0])
-	expect(requestUrl).toContain('/api/playlist-tracks')
-	expect(requestUrl).toContain('playlistId=playlist-1')
+	const spineRequestUrl = String(fetchMock.mock.calls[0]?.[0])
+	expect(spineRequestUrl).toContain('/api/queue-spine')
+	expect(spineRequestUrl).toContain('context=playlist')
+	expect(spineRequestUrl).toContain('playlistId=playlist-1')
 })
 
-test('playTrack falls back to offline downloads when online fetch returns nothing', async () => {
+test('playTrack falls back to offline downloads when online spine fetch fails', async () => {
 	const user = userEvent.setup()
 	const fetchMock = vi.mocked(fetch)
 	const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
