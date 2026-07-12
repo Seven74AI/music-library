@@ -36,8 +36,9 @@ The audio player is a persistent, bottom-fixed control bar that appears when a u
   - Visual indicator: Button shows active state with "1" badge when looping one track
 
 **Shuffle Mode**:
-- Randomizes track order for playback
+- Permutes spine play order using Fisher-Yates shuffle
 - Visual indicator: Button highlights when active
+- When toggled on mid-playback, reshuffles spine order from the current position onward (Up Next untouched)
 - Works seamlessly with loop modes
 
 #### 4. **Track Information Display**
@@ -62,101 +63,133 @@ The audio player is a persistent, bottom-fixed control bar that appears when a u
 
 ### What It Is
 
-The queue is a context-aware playlist that automatically loads and manages tracks based on where the user initiated playback. It's designed to handle both small playlists and massive music libraries (5,000+ tracks) efficiently.
+The queue is a **three-zone**, context-aware playback model that scales from small playlists to massive libraries (5,000–15,000+ tracks). Instead of loading full track payloads for every row up front, the system loads a lightweight **spine** in one request and **hydrates** full playback data only for tracks about to play.
+
+```
+[ Now playing ] → [ Up Next (manual) ] → [ Spine (library or playlist) ]
+```
 
 ### Key Concepts
 
-#### 1. **Context-Aware Loading**
+#### 1. **Context-Aware Spine**
 
-The queue system understands where the user clicked "Play" and loads tracks accordingly:
+The spine is the ordered list of playable tracks for the active play context:
 
 **Library Context**:
-- When a user clicks play from their music library
-- Queue resets and loads all **playable** tracks from the user's library (tracks with at least one archived audio file)
-- Metadata-only library entries (no audio files) are excluded from the queue even when the list shows them
-- Maintains the order tracks appear in the library (among playable tracks)
+- When a user clicks play from their music library (or **Play library** on home)
+- Spine loads all **playable** tracks from the user's library (tracks with at least one archived audio file)
+- Metadata-only library entries (no audio files) are excluded
+- Maintains library order among playable tracks
 
 **Playlist Context**:
 - When a user clicks play from a specific playlist
-- Queue resets and loads all **playable** tracks from that playlist
-- Metadata-only playlist entries are excluded from the queue
-- Maintains the playlist's track order (among playable tracks)
+- Spine loads all **playable** tracks from that playlist
+- Metadata-only playlist entries are excluded
+- Maintains the playlist's track order among playable tracks
 
-**Key Behavior**: The queue always resets when switching between contexts (library ↔ playlist), ensuring users get the expected set of tracks.
+**Key Behavior**: The spine resets when switching contexts (library ↔ playlist). Up Next is cleared on a fresh play from a new context.
 
-#### 2. **Queue loading & navigation**
+**API**: `GET /api/queue-spine?context=library&hasAudio=1` or `GET /api/queue-spine?context=playlist&playlistId=…`. Returns `{ tracks: QueueTrack[], total: number }` where each `QueueTrack` has `id`, `title`, and `artist` only.
 
-When playback starts, the selected track plays immediately while the full queue loads in the background:
+#### 2. **Up Next (Manual Zone)**
 
-**Full-track queue load**:
-- Fetches all tracks for the context (`fields=full`) in pages of 100
-- Includes audio file metadata needed for playback and the queue UI
-- Runs after `setCurrentTrack` so the player appears without waiting for the full list
+User-injected tracks live in **Up Next** — an in-memory zone between now playing and the spine:
 
-**Synchronous navigation**:
-- Next, previous, and clicking another track in the list update the current track immediately
-- No per-track async hop before switching — the queue is already in memory once loaded
-- An epoch guard cancels stale playlist fetches if the user switches context mid-load
+- **Not persisted** across sessions
+- Drained **before** the spine advances on **Next**
+- Visible as its own section in the queue sheet
+- Supports duplicate tracks (identified by position)
 
-**Virtual Scrolling** (queue sheet only):
-- The queue UI uses virtual scrolling technology
+#### 3. **Hydration (Lazy Full-Track Load)**
+
+Full playback payloads (`FullTrack`: audioFiles, coverImage, duration) are fetched on demand:
+
+- **When**: Before playing a track and for a small **lookahead** (current + next four tracks)
+- **API**: `GET /api/tracks/playback?ids=…` (batch, max ~20 IDs)
+- **Cache**: In-memory `PlaybackHydrationCache` in the provider; stubs (`duration: null`, empty `audioFiles`) until hydrated
+- **UI**: Queue sheet and player show title/artist immediately; cover and duration fill in as hydration completes
+
+This replaces the previous paginated `fields=full` fetch of every track on play.
+
+#### 4. **Queue Loading & Navigation**
+
+**On play (warm start)**:
+1. Selected track begins playing immediately (using already-known or stub data)
+2. Spine loads in the background (single request)
+3. Provider hydrates current track + lookahead
+4. An epoch guard cancels stale spine fetches if the user switches context mid-load
+
+**Playback order on Next**:
+1. Drain **Up Next** front (FIFO among **Play next** inserts)
+2. Advance **spine pointer** (linear index or shuffled order)
+3. **Loop all** wraps to the start of the spine; **loop one** replays current
+
+**Previous** walks backward through spine play order (not into Up Next).
+
+**Virtual Scrolling** (queue sheet):
+- **Up Next**: virtual list when 20+ items
+- **From Library / From Playlist**: always virtualized for large spines
 - Only visible tracks are rendered in the DOM
-- Enables smooth scrolling through thousands of tracks without performance degradation
-- Automatically renders more items as user scrolls
 
-#### 3. **Queue Management Features**
+#### 5. **Queue Actions (Cold vs Warm)**
+
+Three per-track and bulk actions. Behavior depends on whether the player is already active (**warm**) or nothing is playing (**cold**):
+
+| Action | Warm (player active) | Cold (nothing playing) |
+|--------|----------------------|-------------------------|
+| **Play next** | Insert at **front** of Up Next (FIFO among play-next items); does not interrupt current playback | Cue track as **current (paused)**; open player; **no auto-play** |
+| **Add to up next** | Append to **end** of Up Next | Queue in Up Next; open player; **no auto-play** |
+| **Add to queue** | Append to **true end** (after entire spine) | Queue at true end; open player; **no auto-play** |
+
+- All three actions appear on library and user-playlist track row menus (playable tracks only)
+- Bulk playlist UI exposes all three; default / primary for "add whole playlist" is **Add to up next**
+- Success toasts confirm the action; menu clicks do not trigger row click-to-play
+
+#### 6. **Queue Management**
 
 **View Queue**:
 - Click the queue button (list icon) in the audio player
-- Opens a bottom sheet showing all tracks in the queue
-- Displays track count: "Queue (69 tracks)"
-- Auto-scrolls to currently playing track when opened
-- Highlights the current track with visual indicators
+- Opens a bottom sheet with three sections (see [Queue Sheet UI](#queue-sheet-ui))
+- Title summarizes counts, e.g. `Queue (2 up next · 14,832 from library)`
+- Highlights the current track in the **Now playing** section
 
 **Remove Tracks**:
-- Each track in the queue has a remove button
+- Each track in Up Next and the spine has a remove button
 - Supports duplicate tracks (same track can appear multiple times)
-- Removing a track updates the queue immediately
-- If current track is removed, automatically plays next available track
-
-**Per-track queue actions** (library and user playlist track row menus):
-- **Play next**: When the player is active, inserts the track immediately after the currently playing track (no auto-play of the inserted track). When nothing is playing, starts playback of the selected track (same as clicking the row).
-- **Add to Queue**: Appends the track to the end of the queue without starting playback (same behavior as bulk "Add to Queue" on playlist pages).
-- Both actions are only shown for tracks with archived audio files (playable tracks).
-- Success toasts confirm the action; menu clicks do not trigger row click-to-play.
+- If the current track is removed, automatically plays the next available track
 
 **Track Identification**:
-- Tracks are identified by both ID and position
-- Allows the same track to appear multiple times in the queue
-- Ensures accurate removal and navigation
+- Tracks are identified by both ID and position within their zone
+- Ensures accurate removal and navigation with duplicates
 
-#### 4. **Queue Navigation**
+#### 7. **Queue Navigation**
 
 **Next Track**:
-- Advances to the next track in the queue
+- Drains Up Next first, then advances the spine
 - Respects loop and shuffle modes
-- If at end of queue:
+- If at end of spine:
   - Loop Off: Stops playback
-  - Loop All: Wraps to first track
-  - Shuffle: Picks random track
+  - Loop All: Wraps to first spine track
+  - Loop One: Replays current track
 
 **Previous Track**:
-- Goes back to the previous track
-- Respects loop and shuffle modes
-- If at beginning of queue:
+- Goes back one step in spine play order
+- Respects loop modes
+- If at beginning of spine:
   - Loop Off: Does nothing
-  - Loop All: Wraps to last track
-  - Shuffle: Picks random track
+  - Loop All: Wraps to last spine track
+  - Loop One: Replays current track
 
 **Shuffle Mode**:
-- When enabled, next/previous buttons pick random tracks
-- Never repeats the current track
-- Works with all loop modes
+- Builds a Fisher-Yates permutation of spine indices when enabled
+- Next/previous walk the shuffled index list; hydrate full track before play
+- Toggling shuffle **on** mid-playback reshuffles from the current position onward; Up Next is untouched
+- Toggling shuffle **off** restores linear spine order while keeping the current track
 
 **Loop Modes**:
 - **Loop Off**: Normal sequential playback, stops at end
-- **Loop All**: Continuous playback, wraps to beginning when reaching end
-- **Loop One**: Repeats current track indefinitely (restarts on next/previous)
+- **Loop All**: Continuous playback, wraps spine when reaching end
+- **Loop One**: Repeats current track indefinitely
 
 ---
 
@@ -169,13 +202,15 @@ When playback starts, the selected track plays immediately while the full queue 
 3. **System Behavior**:
    - Audio player appears at bottom
    - Selected track begins playing immediately
-   - Queue resets (if previously had different context)
-   - All library tracks load in the background (`fields=full`, paginated)
+   - Spine resets (if previously had different context)
+   - Library spine loads in one request (`GET /api/queue-spine`)
+   - Current track + lookahead hydrate via `GET /api/tracks/playback`
 4. User can:
-   - Navigate through entire library using next/previous
-   - Open queue to see all library tracks
-   - Remove tracks from queue
+   - Navigate through the library using next/previous (Up Next drained first)
+   - Open queue sheet to see Now playing, Up Next, and From Library sections
+   - Remove tracks from Up Next or upcoming spine
    - Use shuffle/loop modes
+   - **Play next**, **Add to up next**, or **Add to queue** from track menus
 
 ### Flow 2: Playing from Playlist
 
@@ -184,44 +219,52 @@ When playback starts, the selected track plays immediately while the full queue 
 3. **System Behavior**:
    - Audio player appears at bottom
    - Selected track begins playing immediately
-   - Queue resets (if previously had different context)
-   - All playlist tracks load in the background (`fields=full`, paginated)
+   - Spine resets (if previously had different context)
+   - Playlist spine loads in one request
+   - Hydration runs for current + lookahead
 4. User can:
-   - Navigate through entire playlist using next/previous
-   - Open queue to see all playlist tracks
-   - Remove tracks from queue
-   - Use shuffle/loop modes
+   - Navigate through the playlist using next/previous
+   - Open queue sheet (sections: Now playing, Up Next, From Playlist)
+   - Remove tracks, use shuffle/loop modes
+   - Bulk-add the playlist via Play next / Add to up next / Add to queue
 
 ### Flow 3: Switching Contexts
 
-1. User is playing from library (queue has library tracks)
+1. User is playing from library (spine has library tracks)
 2. User opens a playlist and clicks "Play"
 3. **System Behavior**:
-   - Queue resets completely
-   - Library tracks are cleared
+   - Queue state resets (Up Next cleared, spine replaced)
    - New track begins playing immediately
-   - Playlist tracks load in the background
+   - New playlist spine loads in the background
 
-### Flow 4: Queue Management
+### Flow 4: Cold Queue Action (Nothing Playing)
 
-1. User has queue open (showing all tracks)
-2. User scrolls through queue (virtual scrolling handles large lists)
+1. User opens library or playlist without active playback
+2. User chooses **Add to up next** (or **Play next** / **Add to queue**) from a track menu
+3. **System Behavior**:
+   - Player opens
+   - Track is queued in Up Next or at spine end (or cued as current for **Play next**)
+   - **No auto-play** — user presses play when ready
+
+### Flow 5: Warm Queue Action (Player Active)
+
+1. User is listening to track A
+2. User chooses **Play next** on track B from a track menu
+3. **System Behavior**:
+   - Track B inserts at the front of Up Next
+   - Track A continues playing uninterrupted
+   - On **Next**, track B plays before the spine resumes
+
+### Flow 6: Queue Management
+
+1. User has queue sheet open
+2. User scrolls through Up Next or From Library / From Playlist (virtual scrolling)
 3. User clicks remove on a track
 4. **System Behavior**:
-   - Track is removed from queue
+   - Track is removed from its zone
    - If removed track was current: automatically plays next track
-   - If removed track was before current: current index adjusts
+   - If removed track was before current spine position: pointer adjusts
    - Queue updates immediately
-
-### Flow 5: Auto-Scroll to Current Track
-
-1. User is playing track #45 in a 100-track queue
-2. User opens queue
-3. **System Behavior**:
-   - Queue opens showing all tracks
-   - Automatically scrolls to track #45
-   - Centers current track in viewport
-   - Highlights current track visually
 
 ---
 
@@ -246,43 +289,52 @@ When playback starts, the selected track plays immediately while the full queue 
   - Large, prominent, always visible
   - Icon changes based on playback state
 
-### Queue UI
+### Queue Sheet UI
 
-**Queue Sheet**:
-- Opens from bottom (80% viewport height)
-- Shows track count in header
-- Empty state message when no tracks
-- Smooth scrolling with virtual list
+The queue opens as a bottom sheet (80% viewport height) with **three sections**:
 
-**Track Items**:
-- Thumbnail (or placeholder icon)
-- Title and artist
+1. **Now playing** — highlighted current track with remove action
+2. **Up Next** — manual zone; plain list below 20 items, virtual list at 20+
+3. **From Library** or **From Playlist** — upcoming spine tracks (virtual list); heading depends on play context
+
+**Header title** summarizes zone counts, e.g.:
+- `Queue (2 up next · 14,832 from library)`
+- `Queue (500 from playlist)` when Up Next is empty
+
+**Track Items** (all sections):
+- Thumbnail (or placeholder icon; fills in after hydration)
+- Title and artist (available immediately from spine)
 - Remove button (trash icon)
-- Current track highlighted:
+- Current track in **Now playing**:
   - Background color highlight
   - Left border accent
   - Play icon badge on thumbnail
 
+**Empty state**: "Queue is Empty" when no current track, Up Next, or spine.
+
 **Performance**:
-- Smooth scrolling even with 5,000+ tracks (virtual list in the queue sheet)
-- Responsive interactions
+- Spine section virtualizes regardless of size
+- Up Next virtualizes at 20+ items
+- Smooth scrolling through thousands of spine tracks
 
 ---
 
 ## Technical Performance Features
 
-### 1. **Paginated queue fetch**
-- Loads tracks in pages of 100 until the full context list is in memory
-- Playlist fetch uses an epoch guard so stale responses are ignored after context switches
+### 1. **Spine + hydration (replaces paginated full fetch)**
+- **Spine**: one `GET /api/queue-spine` response with minimal `QueueTrack[]` — no pagination
+- **Hydration**: batch `GET /api/tracks/playback` for current + four-track lookahead
+- Playlist/library fetch uses an epoch guard so stale responses are ignored after context switches
+- See [ADR-015](./decisions/015-queue-spine-architecture.md) and `docs/specs/queue-spine-system.md`
 
 ### 2. **Presigned URL playback**
 - Audio `src` is set only after the server returns the stream URL for the current track
 - Prevents auto-play from firing on a previous track's URL during fast navigation (React `useEffect` cleanup / ignore-flag pattern)
 
 ### 3. **Virtual Scrolling**
+- Spine section always virtualized; Up Next virtualizes at 20+ items
 - Renders only visible items
-- Handles unlimited track counts
-- Smooth scrolling performance
+- Handles unlimited spine counts
 - Minimal DOM footprint
 
 ---
@@ -345,28 +397,28 @@ See [ADR-013](./decisions/013-pwa.md) and `docs/CONTEXT.md` (decisions #42–#57
 - Play button works immediately after user interaction
 
 ### Large Library Performance
-- Tested with 5,000+ tracks
-- Queue loads in < 2 seconds
-- Smooth scrolling maintained
-- No performance degradation
+- Designed for 5,000–15,000+ track libraries
+- Playback starts after one spine request + a small hydration batch (not N paginated full-track pages)
+- Queue sheet scrolls smoothly via virtual lists
+- No performance degradation from loading full `audioFiles` for every library track up front
 
 ---
 
 ## User Benefits
 
-1. **Seamless Experience**: Play from anywhere, queue manages context automatically
-2. **Fast start**: Playback begins on the selected track while the full queue loads in the background
-3. **Full Control**: Easy queue management, shuffle, loop modes
-4. **Visual Clarity**: Clear indicators for current track, loop/shuffle states
-5. **Efficient Navigation**: Auto-scroll to current track, easy browsing
-6. **Flexible Playback**: Multiple loop modes, shuffle, easy track removal
+1. **Seamless Experience**: Play from anywhere; spine manages context automatically
+2. **Fast start**: Playback begins on the selected track while the spine loads in one request
+3. **Manual control**: Three queue actions (Play next, Add to up next, Add to queue) with clear cold/warm behavior
+4. **Visual Clarity**: Three-zone queue sheet; clear indicators for current track, loop/shuffle states
+5. **Scales to large libraries**: Spine + hydration avoids loading full payloads for tracks you never reach
+6. **Flexible Playback**: Fisher-Yates shuffle with reshuffle-on-toggle, multiple loop modes, easy track removal
 
 ---
 
 ## Future Enhancement Opportunities
 
-1. **Queue Persistence**: Save queue state across sessions
-2. **Queue Reordering**: Drag-and-drop to reorder tracks
+1. **Queue Persistence**: Save queue state (including Up Next) across sessions
+2. **Spine Reordering**: Drag-and-drop to reorder spine tracks
 3. **Queue History**: View recently played tracks
 4. **Smart Queue**: AI-suggested next tracks
 5. **Queue Sharing**: Share queue with other users
@@ -377,5 +429,5 @@ See [ADR-013](./decisions/013-pwa.md) and `docs/CONTEXT.md` (decisions #42–#57
 
 ## Summary
 
-The audio player and queue system provide a modern, efficient music playback experience that scales from small playlists to massive music libraries. The context-aware design ensures users always get the expected tracks when playing from different sources, while performance optimizations ensure smooth operation regardless of library size. The intuitive UI and comprehensive controls give users full control over their listening experience.
+The audio player and queue system provide a modern, efficient music playback experience built on a **three-zone model** (Now playing → Up Next → Spine). A lightweight spine fetch plus lazy hydration keeps playback fast even for libraries with tens of thousands of tracks, while Up Next gives users explicit control over what plays next. The queue sheet surfaces all three zones clearly, and Fisher-Yates shuffle with reshuffle-on-toggle preserves predictable navigation. See `docs/CONTEXT.md` (glossary) and [ADR-015](./decisions/015-queue-spine-architecture.md) for architecture details.
 

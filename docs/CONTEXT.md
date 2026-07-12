@@ -70,6 +70,14 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 
 - **UserTrack** — A user's membership in their personal library: an active link between a user and a `Track`. Adding or removing a `UserTrack` is always an explicit user action; playlist sync never creates one.
 
+### Audio Player & Queue
+
+- **Queue Spine** — Ordered playable tracks for the active play context (library or playlist). Loaded in one request as lightweight `QueueTrack` rows (id, title, artist). The spine is the automatic continuation after **Up Next** is drained; shuffle permutes spine play order client-side.
+
+- **Up Next** — Manual injection zone between now playing and the spine. User-added tracks via **Play next** or **Add to up next** live here in memory only (not persisted across sessions). **Play next** inserts at the front (FIFO among play-next items); **Add to up next** appends to the tail.
+
+- **Hydration** — Lazy fetch of the full playback payload (`FullTrack`: audioFiles, cover, duration) for tracks about to play. The provider hydrates the current track plus a small lookahead (four upcoming tracks) via `GET /api/tracks/playback`. Until hydrated, the UI uses minimal spine stubs.
+
 ### Generic
 
 - **Epic Stack** — The full-stack framework this project is built on (React Router v7, Prisma, SQLite, Tailwind, Fly.io).
