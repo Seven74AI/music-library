@@ -129,11 +129,6 @@ describe('clientAction audit', () => {
 			}
 		}
 
-		expect(
-			missing,
-			missing
-				.map(entry => `${entry.route} (from ${entry.referencedFrom.join(', ')})`)
-				.join('\n'),
-		).toEqual([])
+		expect(missing).toEqual([])
 	})
 })
