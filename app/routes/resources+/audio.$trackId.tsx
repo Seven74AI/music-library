@@ -71,7 +71,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		include: {
 			audioFiles: true,
 			userTracks: {
-				where: { userId },
+				where: { userId, isActive: true, deletedAt: null },
 				select: { id: true },
 			},
 		servicePlaylistTracks: {

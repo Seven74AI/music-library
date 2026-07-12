@@ -22,7 +22,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				select: { name: true },
 			},
 			userTracks: {
-				where: { userId },
+				where: { userId, isActive: true, deletedAt: null },
 				select: { id: true },
 			},
 		servicePlaylistTracks: {
