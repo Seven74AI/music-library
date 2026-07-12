@@ -107,6 +107,22 @@ describe('queue-spine API loader', () => {
 		expect(body).toEqual({ tracks: [], total: 0 })
 	})
 
+	test('redirects to login when unauthenticated', async () => {
+		vi.mocked(requireUserId).mockRejectedValue(
+			new Response(null, { status: 302 }),
+		)
+
+		await expect(
+			loader({
+				request: makeRequest(
+					'http://localhost/api/queue-spine?context=library&hasAudio=1',
+				),
+			} as never),
+		).rejects.toSatisfy(
+			(err: unknown) => err instanceof Response && err.status === 302,
+		)
+	})
+
 	test('returns playlist spine', async () => {
 		vi.mocked(parseQueueSpineParams).mockReturnValue({
 			ok: true,
