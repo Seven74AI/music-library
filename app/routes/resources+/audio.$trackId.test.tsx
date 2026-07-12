@@ -298,3 +298,33 @@ test('403 Forbidden — track in service playlist but playlist is inactive', asy
 		expect((error as any).status).toBe(403)
 	}
 })
+
+test('403 Forbidden — track in service playlist but playlist track is soft-deleted', async () => {
+	suppressConsoleErrors()
+	const { user, track, playlist } = await setupTestData()
+
+	// Add track to the playlist but mark as soft-deleted
+	await prisma.servicePlaylistTrack.create({
+		data: {
+			playlistId: playlist.id,
+			trackId: track.id,
+			position: 0,
+			isDeleted: true,
+			deletedAt: new Date(),
+		},
+	})
+
+	vi.mocked(requireUserId).mockResolvedValue(user.id)
+
+	try {
+		await audioLoader({
+			request: new Request(`https://localhost/resources/audio/${track.id}`),
+			params: { trackId: track.id },
+			context: {},
+		} as any)
+		expect(true).toBe(false) // Should have thrown
+	} catch (error) {
+		expect(error).toBeDefined()
+		expect((error as any).status).toBe(403)
+	}
+})
