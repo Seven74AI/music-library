@@ -323,10 +323,10 @@ These are unit tests in `app/features/audio-archive/`:
 - [ ] isWorkerActive returns true when long_break expires
 
 #### 10.4 Storage module (`storage.server.test.ts`)
-- [ ] `buildAudioObjectKey` for youtube/local provenances
-- [ ] Unified object key format: `audio/tracks/{serviceName}/{trackId}.{ext}`
-- [ ] `isUnifiedAudioObjectKey` detects legacy vs unified keys
-- [ ] Mock mode: `uploadFile` returns key without uploading when `MOCKS=true`
+- [x] `buildAudioObjectKey` for youtube/local provenances
+- [x] Unified object key format: `audio/tracks/{serviceName}/{trackId}.{ext}`
+- [x] `isUnifiedAudioObjectKey` detects legacy vs unified keys
+- [x] Mock mode: `uploadFile` returns key without uploading when `MOCKS=true`
 
 #### 10.5 Auto-Enqueue (`auto-enqueue.server.test.ts`)
 - [ ] Creates ArchiveJob when AUDIO_ARCHIVE_ENABLED is true

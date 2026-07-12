@@ -226,7 +226,7 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 
 47. **Offline UX: player + downloads + read-only library & playlists** — When offline, users can open the installed app (cold start via SW precache in production), play cached audio, browse `/downloads`, browse `/library` filtered to **pinned** downloads, and open user playlist pages (read-only). `/` shows a dedicated offline home. YouTube sync, upload, search, settings, and admin routes show a friendly offline blocker via `OfflineRouteBlocker`. An offline status banner appears on supported pages.
 
-48. **Offline cold start: SW precache + localStorage root shell** — Production builds precache the app shell via `@serwist/build` `injectManifest` into `app/pwa/sw.ts`. `offline-root-shell.client.ts` additionally caches user, theme, and ENV in `localStorage` for warm navigations when loader fetches fail. Dev mode has a minimal SW precache only; full cold-start offline requires a production build.
+48. **Offline cold start: SW precache + localStorage root shell** — Production builds precache the app shell via `@serwist/build` `injectManifest` into `app/pwa/sw.ts`. `app/features/offline-app/offline-root-shell.client.ts` additionally caches user, theme, and ENV in `localStorage` for warm navigations when loader fetches fail. Dev mode has a minimal SW precache only; full cold-start offline requires a production build.
 
 49. **Offline auth: device-trusted cached playback** — Cached downloads remain playable offline even if the session cookie has expired. Server auth gates new content and network-backed features; already-cached bytes on the device do not require live session validation. Re-authenticate when back online for sync, upload, and non-cached browsing.
 
@@ -242,6 +242,6 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 
 55. **iOS download via same-origin stream + Web Share** — Browser "save file" downloads use `/resources/audio/:trackId?stream=1` (same-origin proxy in production) fetched as a blob. iOS falls back to `navigator.share({ files })` when `canShare` supports files (`app/utils/download.ts`). Do not use presigned cross-origin URLs for mobile download triggers.
 
-56. **Offline route loaders fall back on network errors** — `loadWithOfflineFallback` checks `navigator.onLine` first, then catches fetch failures (`TypeError`, network message patterns) and runs route-specific offline loaders. Used by root, home, library, playlists, and downloads routes.
+56. **Offline route loaders fall back on network errors** — `createOfflineClientLoader` (from `app/features/offline-app/offline-loader.client.ts`) wraps `loadWithOfflineFallback`, which checks `navigator.onLine` first, then catches fetch failures (`TypeError`, network message patterns) and runs route-specific offline loaders from `OFFLINE_ROUTE_POLICIES`. Used by root, home, library, playlists, and downloads routes.
 
 57. **Offline integrity: prune stale metadata** — If IndexedDB references an OPFS file that no longer exists, metadata is pruned on read so Downloads and playback do not surface ghost tracks.

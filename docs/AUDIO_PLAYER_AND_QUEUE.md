@@ -296,7 +296,7 @@ When the user has no network (`navigator.onLine === false`) or loader fetches fa
 1. **Online** — `playTrack` / `playLibrary` / `playUserPlaylist` fetch playable tracks from the server, then set `src` from `/resources/audio/:trackId` (presigned stream).
 2. **Offline** — Same entry points call `fetchOfflineTracks` / `listPinned()` and build blob URLs from OPFS bytes. Correct MIME types come from stored `audioFormat` metadata.
 
-`loadWithOfflineFallback` (`app/utils/offline-route-loader.client.ts`) handles route data the same way: check offline first, then catch network errors.
+`createOfflineClientLoader` / `loadWithOfflineFallback` (`app/features/offline-app/offline-loader.client.ts`) handles route data the same way: check offline first, then catch network errors.
 
 ### Queue auto-cache
 

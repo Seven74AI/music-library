@@ -81,7 +81,7 @@ Run migration **before** resuming the worker on new code so in-flight jobs do no
 
 ## References
 
-- Spec: `docs/specs/architecture-deepening/issues/02-storage-unified-keys.md`
+- Tracking: [GitHub issue #48](https://github.com/mnlamart/music-library/issues/48) (closed)
 - Supersedes key layout in ADR-010 §12 (upload strategies and multipart rules unchanged)
 - Glossary: `docs/CONTEXT.md` settled decision #12
 - Implementation: `app/utils/storage.server.ts`, `scripts/migrate-audio-object-keys.ts`
