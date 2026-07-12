@@ -58,6 +58,22 @@ describe('tracks playback API loader', () => {
 		expect(body.error).toBe('Too many track IDs')
 	})
 
+	test('redirects to login when unauthenticated', async () => {
+		vi.mocked(requireUserId).mockRejectedValue(
+			new Response(null, { status: 302 }),
+		)
+
+		await expect(
+			loader({
+				request: makeRequest(
+					'http://localhost/api/tracks/playback?ids=track-1,track-2',
+				),
+			} as never),
+		).rejects.toSatisfy(
+			(err: unknown) => err instanceof Response && err.status === 302,
+		)
+	})
+
 	test('returns hydrated playback tracks', async () => {
 		vi.mocked(parsePlaybackIds).mockReturnValue({
 			ok: true,
