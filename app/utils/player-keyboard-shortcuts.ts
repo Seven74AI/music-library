@@ -16,6 +16,19 @@ export function shouldIgnoreKeyboardShortcut(target: EventTarget | null): boolea
 		return true
 	}
 
+	// P1: Range inputs use arrow keys for their own slider control
+	if (
+		target instanceof HTMLInputElement &&
+		target.type === 'range'
+	) {
+		return true
+	}
+
+	// P2: Buttons, links, and summary elements consume space/enter keys
+	if (tagName === 'BUTTON' || tagName === 'A' || tagName === 'SUMMARY') {
+		return true
+	}
+
 	return Boolean(target.closest('[contenteditable="true"]'))
 }
 
