@@ -729,7 +729,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const togglePlayPause = useCallback(async () => {
 		if (!audioRef.current) return
 
-		const wasPlaying = isPlaying
+		const wasPlaying = !audioRef.current.paused
 		isManualPlayRef.current = true
 
 		try {
@@ -739,10 +739,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				await audioRef.current.play()
 			}
 		} catch (error) {
-			setIsPlaying(wasPlaying)
+			setIsPlaying(!audioRef.current.paused)
 			console.error('Playback error:', error)
 		}
-	}, [isPlaying])
+	}, [])
 
 	useEffect(() => {
 		if (!isVisible) return
