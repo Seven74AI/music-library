@@ -341,48 +341,53 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
 	const playPlaylist = useCallback(
 		(tracks: Track[], context: PlaylistContext, startIndex: number = 0) => {
-			const playableTracks = tracks.filter(isPlayableTrack)
-			if (playableTracks.length === 0) return
+			setIsLoadingNext(true)
+			try {
+				const playableTracks = tracks.filter(isPlayableTrack)
+				if (playableTracks.length === 0) return
 
-			const requestedTrack = tracks[startIndex]
-			const resolvedStartIndex = requestedTrack
-				? playableTracks.findIndex(track => track.id === requestedTrack.id)
-				: 0
+				const requestedTrack = tracks[startIndex]
+				const resolvedStartIndex = requestedTrack
+					? playableTracks.findIndex(track => track.id === requestedTrack.id)
+					: 0
 
-			if (
-				playContext &&
-				(playContext.type !== context.type ||
-					playContext.playlistId !== context.playlistId)
-			) {
-				resetQueueState()
+				if (
+					playContext &&
+					(playContext.type !== context.type ||
+						playContext.playlistId !== context.playlistId)
+				) {
+					resetQueueState()
+				}
+
+				const loadedSpine = playableTracks.map(queueTrackFromFullTrack)
+				const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled)
+				const startTrack = playableTracks[resolvedStartIndex >= 0 ? resolvedStartIndex : 0]
+				if (!startTrack) return
+
+				for (const track of playableTracks) {
+					playbackCacheRef.current.set(track)
+				}
+				setCacheVersion(version => version + 1)
+
+				const spinePosition = order.findIndex(
+					index => loadedSpine[index]?.id === startTrack.id,
+				)
+
+				setUpNext([])
+				setUpNextPlayNextCount(0)
+				upNextPlayNextCountRef.current = 0
+				setSpine(loadedSpine)
+				setSpineTotal(loadedSpine.length)
+				setSpineOrder(order)
+				setSpinePosition(spinePosition >= 0 ? spinePosition : 0)
+				setPlayContext(context)
+				setIsPlayerVisible(true)
+				beginPlayback()
+				setCurrentTrack(startTrack)
+				void hydrateAround(startTrack.id)
+			} finally {
+				setIsLoadingNext(false)
 			}
-
-			const loadedSpine = playableTracks.map(queueTrackFromFullTrack)
-			const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled)
-			const startTrack = playableTracks[resolvedStartIndex >= 0 ? resolvedStartIndex : 0]
-			if (!startTrack) return
-
-			for (const track of playableTracks) {
-				playbackCacheRef.current.set(track)
-			}
-			setCacheVersion(version => version + 1)
-
-			const spinePosition = order.findIndex(
-				index => loadedSpine[index]?.id === startTrack.id,
-			)
-
-			setUpNext([])
-			setUpNextPlayNextCount(0)
-			upNextPlayNextCountRef.current = 0
-			setSpine(loadedSpine)
-			setSpineTotal(loadedSpine.length)
-			setSpineOrder(order)
-			setSpinePosition(spinePosition >= 0 ? spinePosition : 0)
-			setPlayContext(context)
-			setIsPlayerVisible(true)
-			beginPlayback()
-			setCurrentTrack(startTrack)
-			void hydrateAround(startTrack.id)
 		},
 		[beginPlayback, hydrateAround, isShuffleEnabled, playContext, resetQueueState],
 	)
