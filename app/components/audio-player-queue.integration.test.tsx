@@ -197,6 +197,48 @@ function spineTitlesInSheet(sheet: HTMLElement): string[] {
 		.map(button => button.getAttribute('aria-label')?.replace(/^Remove /, '').replace(/ from queue$/, '') ?? '')
 }
 
+function queueTrackRemoveButtonsInSheet(sheet: HTMLElement) {
+	return within(sheet).getAllByRole('button', { name: /Remove .+ from queue/ })
+}
+
+function buildLargeSpineTracks(count: number) {
+	return Array.from({ length: count }, (_, index) => ({
+		id: `track-${index}`,
+		title: `Library Track ${index + 1}`,
+		artist: { id: 'artist-1', name: 'Artist One' },
+	}))
+}
+
+function mockLargeLibrarySpine(fetchMock: ReturnType<typeof vi.fn>, spineCount: number) {
+	const largeSpine = buildLargeSpineTracks(spineCount)
+	fetchMock.mockImplementation((input: RequestInfo | URL) => {
+		const url = String(input)
+		if (url.includes('/api/queue-spine')) {
+			return Promise.resolve({
+				ok: true,
+				json: async () => ({ tracks: largeSpine, total: largeSpine.length }),
+			} as Response)
+		}
+		if (url.includes('/api/tracks/playback')) {
+			const ids = new URL(url, 'http://test').searchParams.get('ids')?.split(',') ?? []
+			const tracks = ids.map(id => {
+				const index = Number.parseInt(id.replace('track-', ''), 10)
+				return {
+					...trackA,
+					id,
+					title: `Library Track ${index + 1}`,
+				}
+			})
+			return Promise.resolve({
+				ok: true,
+				json: async () => ({ tracks }),
+			} as Response)
+		}
+		return Promise.reject(new Error(`Unexpected fetch: ${url}`))
+	})
+	return largeSpine
+}
+
 beforeAll(() => {
 	Object.defineProperty(window, 'matchMedia', {
 		writable: true,
@@ -240,9 +282,57 @@ describe('queue sheet integration', () => {
 
 		const sheet = await openQueueSheet(user)
 
+		expect(within(sheet).queryByText('Queue is Empty')).toBeNull()
+		expect(queueTrackRemoveButtonsInSheet(sheet).length).toBeGreaterThanOrEqual(3)
 		expect(within(sheet).getByText('Now playing')).toBeTruthy()
 		expect(within(sheet).getByText('Alpha Song')).toBeTruthy()
 		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
+	})
+
+	test('shows spine tracks when library has more than the virtual list threshold', async () => {
+		const user = userEvent.setup()
+		const largeSpine = mockLargeLibrarySpine(vi.mocked(fetch), 25)
+
+		function LargeLibraryPlayback() {
+			const { playTrack } = useAudioPlayer()
+			return (
+				<button
+					type="button"
+					onClick={() =>
+						playTrack(
+							{
+								...trackA,
+								id: largeSpine[0]!.id,
+								title: largeSpine[0]!.title,
+							},
+							{ type: 'library' },
+							0,
+						)
+					}
+				>
+					Start large library playback
+				</button>
+			)
+		}
+
+		renderQueueApp(<LargeLibraryPlayback />)
+		await user.click(screen.getByRole('button', { name: 'Start large library playback' }))
+		await waitFor(() => {
+			expect(within(screen.getByTestId('player-desktop-bar')).getByText('Library Track 1')).toBeTruthy()
+		})
+
+		const sheet = await openQueueSheet(user)
+
+		expect(within(sheet).queryByText('Queue is Empty')).toBeNull()
+		expect(within(sheet).getByText('Now playing')).toBeTruthy()
+		expect(within(sheet).getByText('Library Track 1')).toBeTruthy()
+		expect(within(sheet).getByText('From Library')).toBeTruthy()
+		expect(queueTrackRemoveButtonsInSheet(sheet).length).toBeGreaterThan(20)
+		expect(spineTitlesInSheet(sheet).slice(0, 3)).toEqual([
+			'Library Track 2',
+			'Library Track 3',
+			'Library Track 4',
+		])
 	})
 
 	test('add to up next shows track in Up Next while playing', async () => {

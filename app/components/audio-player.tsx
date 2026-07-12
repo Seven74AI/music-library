@@ -1,6 +1,6 @@
 import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import {
 	formatQueueSheetTitle,
@@ -11,7 +11,6 @@ import { TrackThumbnail } from '#app/components/track-thumbnail'
 import { Button } from '#app/components/ui/button'
 import { Icon } from '#app/components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '#app/components/ui/popover'
-import { ScrollArea } from '#app/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '#app/components/ui/sheet'
 import { toast } from '#app/components/ui/use-toast.ts'
 import {
@@ -1230,16 +1229,56 @@ function VirtualQueueTrackList({
 	onRemoveTrack: (index: number) => void
 	parentRef: React.RefObject<HTMLDivElement | null>
 }) {
+	const [scrollReadyEpoch, setScrollReadyEpoch] = useState(0)
+
+	useLayoutEffect(() => {
+		const scrollElement = parentRef.current
+		if (!scrollElement) return
+
+		let hasMeasured = scrollElement.clientHeight > 0
+		const markMeasured = () => {
+			if (hasMeasured) return
+			if ((parentRef.current?.clientHeight ?? 0) <= 0) return
+			hasMeasured = true
+			setScrollReadyEpoch(epoch => epoch + 1)
+		}
+
+		markMeasured()
+		const observer = new ResizeObserver(markMeasured)
+		observer.observe(scrollElement)
+		const frame = requestAnimationFrame(markMeasured)
+
+		return () => {
+			cancelAnimationFrame(frame)
+			observer.disconnect()
+		}
+	}, [parentRef, tracks.length])
+
 	const virtualizer = useVirtualizer({
 		count: tracks.length,
-		getScrollElement: () =>
-			parentRef.current?.querySelector(
-				'[data-radix-scroll-area-viewport]',
-			) ?? null,
+		getScrollElement: () => parentRef.current,
 		estimateSize: () => 60,
 		overscan: 10,
 		rangeExtractor: defaultRangeExtractor,
 	})
+	void scrollReadyEpoch
+
+	const virtualItems = virtualizer.getVirtualItems()
+
+	if (virtualItems.length === 0 && tracks.length > 0) {
+		return (
+			<>
+				{tracks.slice(0, 30).map((track, index) => (
+					<QueueTrackItem
+						key={`${track.id}-${index}`}
+						track={track}
+						isCurrentlyPlaying={false}
+						onRemove={() => onRemoveTrack(index)}
+					/>
+				))}
+			</>
+		)
+	}
 
 	return (
 		<div
@@ -1249,7 +1288,7 @@ function VirtualQueueTrackList({
 				position: 'relative',
 			}}
 		>
-			{virtualizer.getVirtualItems().map(virtualItem => {
+			{virtualItems.map(virtualItem => {
 				const track = tracks[virtualItem.index]
 				if (!track) return null
 
@@ -1371,13 +1410,18 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 								>
 									<QueueSectionHeading>Up Next</QueueSectionHeading>
 									{upNext.length >= UP_NEXT_VIRTUAL_THRESHOLD ? (
-										<ScrollArea className="flex-1 w-full min-h-0" ref={upNextScrollRef}>
-											<VirtualQueueTrackList
-												tracks={upNext}
-												onRemoveTrack={removeUpNextTrack}
-												parentRef={upNextScrollRef}
-											/>
-										</ScrollArea>
+										<div
+											ref={upNextScrollRef}
+											className="flex-1 w-full min-h-0 overflow-y-auto"
+										>
+											{isOpen ? (
+												<VirtualQueueTrackList
+													tracks={upNext}
+													onRemoveTrack={removeUpNextTrack}
+													parentRef={upNextScrollRef}
+												/>
+											) : null}
+										</div>
 									) : (
 										upNext.map((track, index) => (
 											<QueueTrackItem
@@ -1396,13 +1440,18 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 									<QueueSectionHeading>{spineHeading}</QueueSectionHeading>
 									{spine.length > 0 ? (
 										spine.length >= SPINE_VIRTUAL_THRESHOLD ? (
-											<ScrollArea className="flex-1 w-full min-h-0" ref={spineScrollRef}>
-												<VirtualQueueTrackList
-													tracks={spine}
-													onRemoveTrack={removeSpineTrack}
-													parentRef={spineScrollRef}
-												/>
-											</ScrollArea>
+											<div
+												ref={spineScrollRef}
+												className="flex-1 w-full min-h-0 overflow-y-auto"
+											>
+												{isOpen ? (
+													<VirtualQueueTrackList
+														tracks={spine}
+														onRemoveTrack={removeSpineTrack}
+														parentRef={spineScrollRef}
+													/>
+												) : null}
+											</div>
 										) : (
 											spine.map((track, index) => (
 												<QueueTrackItem
