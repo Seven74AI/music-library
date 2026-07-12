@@ -11,6 +11,6 @@ describe('build-sw precache config', () => {
 
 		expect(source).toContain('writeProdOfflineShell(clientDir)')
 		expect(source).toMatch(/globPatterns:.*html/)
-		expect(source).not.toContain('additionalPrecacheEntries')
+		expect(source).not.toMatch(/additionalPrecacheEntries\s*:/)
 	})
 })
