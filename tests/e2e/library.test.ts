@@ -182,16 +182,18 @@ test.describe('Music Library', () => {
 		await expect(page.getByText('Queue Alpha').first()).toBeVisible({ timeout: 10000 })
 		await expect(page.getByText('Queue Beta').first()).toBeVisible({ timeout: 10000 })
 
-		await page.getByRole('gridcell', { name: /Queue Beta by Test Artist/i }).click()
+		await Promise.all([
+			page.waitForResponse(
+				response =>
+					response.url().includes('/api/queue-spine') && response.status() === 200,
+				{ timeout: 15000 },
+			),
+			page.getByRole('gridcell', { name: /Queue Beta by Test Artist/i }).click(),
+		])
 
 		const playerBar = page.getByTestId('player-desktop-bar')
 		await expect(playerBar).toBeVisible({ timeout: 10000 })
 		await expect(playerBar.getByText('Queue Beta')).toBeVisible()
-		await page.waitForResponse(
-			response =>
-				response.url().includes('/api/queue-spine') && response.status() === 200,
-			{ timeout: 15000 },
-		)
 
 		const installBanner = page.getByRole('region', { name: 'Install app' })
 		if (await installBanner.isVisible().catch(() => false)) {
