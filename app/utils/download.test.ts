@@ -61,6 +61,7 @@ describe('triggerBrowserDownload', () => {
 
 		expect(fetch).toHaveBeenCalledWith('/resources/audio/track-1?stream=1', {
 			credentials: 'same-origin',
+			signal: expect.any(AbortSignal),
 		})
 		expect(createObjectURL).toHaveBeenCalled()
 		expect(click).toHaveBeenCalled()
@@ -71,6 +72,67 @@ describe('triggerBrowserDownload', () => {
 		removeChild.mockRestore()
 		revokeObjectURL.mockRestore()
 		createObjectURL.mockRestore()
+	})
+
+	test('throws error on non-OK HTTP response', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: false,
+				status: 404,
+				blob: async () => new Blob([]),
+			}),
+		)
+
+		await expect(
+			triggerBrowserDownload('/resources/audio/missing', 'Song.mp3'),
+		).rejects.toThrow('Download failed: 404')
+	})
+
+	test('passes AbortSignal to fetch with configurable timeout', async () => {
+		// Verify the signal is passed to fetch and timeout is configurable
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			blob: async () => new Blob(['audio-bytes'], { type: 'audio/mpeg' }),
+		})
+		vi.stubGlobal('fetch', fetchMock)
+
+		await triggerBrowserDownload('/file.mp3', 'test.mp3', { timeoutMs: 10_000 })
+
+		expect(fetchMock).toHaveBeenCalledWith('/file.mp3', {
+			credentials: 'same-origin',
+			signal: expect.any(AbortSignal),
+		})
+	})
+
+	test('throws descriptive error on AbortError (fetch timeout)', async () => {
+		const abortError = new DOMException('The operation was aborted', 'AbortError')
+		const fetchMock = vi.fn().mockRejectedValue(abortError)
+		vi.stubGlobal('fetch', fetchMock)
+
+		await expect(
+			triggerBrowserDownload('/resources/audio/slow', 'Song.mp3', { timeoutMs: 5000 }),
+		).rejects.toThrow('Download timed out after 5000ms')
+	})
+
+	test('uses default 30s timeout message when timeoutMs not specified', async () => {
+		const abortError = new DOMException('The operation was aborted', 'AbortError')
+		const fetchMock = vi.fn().mockRejectedValue(abortError)
+		vi.stubGlobal('fetch', fetchMock)
+
+		await expect(
+			triggerBrowserDownload('/resources/audio/slow', 'Song.mp3'),
+		).rejects.toThrow('Download timed out after 30000ms')
+	})
+
+	test('does not swallow non-AbortError exceptions', async () => {
+		const networkError = new TypeError('Failed to fetch')
+		const fetchMock = vi.fn().mockRejectedValue(networkError)
+		vi.stubGlobal('fetch', fetchMock)
+
+		await expect(
+			triggerBrowserDownload('/resources/audio/error', 'Song.mp3'),
+		).rejects.toThrow('Failed to fetch')
 	})
 })
 
