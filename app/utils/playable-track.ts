@@ -1,5 +1,5 @@
 export type PlayableTrackCandidate = {
-	audioFiles?: Array<unknown>
+	audioFiles?: Array<{ id: string; format: string | null; objectKey: string }>
 	isDeleted?: boolean
 }
 
