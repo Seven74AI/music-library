@@ -157,6 +157,37 @@ test('200 OK — track is in user-owned active service playlist (not in library)
 	expect([200, 302]).toContain(response.status)
 })
 
+test('200 OK — track is in user-created playlist (not in library or service playlist)', async () => {
+	const { user, track } = await setupTestData()
+	vi.mocked(requireUserId).mockResolvedValue(user.id)
+
+	// Create a user playlist (not a service playlist)
+	const userPlaylist = await prisma.userPlaylist.create({
+		data: {
+			title: 'My Playlist',
+			owner: { connect: { id: user.id } },
+		},
+	})
+
+	// Add track to the user playlist (NOT to library or service playlist)
+	await prisma.userPlaylistTrack.create({
+		data: {
+			playlistId: userPlaylist.id,
+			trackId: track.id,
+			position: 0,
+		},
+	})
+
+	const response = await audioLoader({
+		request: new Request(`https://localhost/resources/audio/${track.id}`),
+		params: { trackId: track.id },
+		context: {},
+	} as any)
+
+	// Access granted — returns 200 (local file) or 302 (remote redirect in MOCKS mode)
+	expect([200, 302]).toContain(response.status)
+})
+
 test('200 OK — track in service playlist PLUS library', async () => {
 	const { user, track, playlist } = await setupTestData()
 	vi.mocked(requireUserId).mockResolvedValue(user.id)

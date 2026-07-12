@@ -80,6 +80,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				},
 				take: 1,
 			},
+			playlists: {
+				where: {
+					playlist: { ownerId: userId },
+				},
+				take: 1,
+			},
 		},
 	})
 
@@ -87,8 +93,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw new Response('Track not found', { status: 404 })
 	}
 
-	// Check if user has access to this track (must be in their library or a user-owned active service playlist)
-	if (track.userTracks.length === 0 && track.servicePlaylistTracks.length === 0) {
+	// Check if user has access to this track (must be in their library, a user-owned active service playlist, or a user playlist)
+	if (track.userTracks.length === 0 && track.servicePlaylistTracks.length === 0 && track.playlists.length === 0) {
 		throw new Response('Access denied', { status: 403 })
 	}
 
