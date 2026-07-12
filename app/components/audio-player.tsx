@@ -716,8 +716,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			}
 			isManualPlayRef.current = false
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [track?.id, audioSrc, playbackToken, volume])
+	}, [track?.id, audioSrc, playbackToken, volume, isMuted])
 
 	useEffect(() => {
 		if (audioRef.current) {
