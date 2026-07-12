@@ -78,9 +78,39 @@ describe('fetchPlaybackTracks', () => {
 
 		expect(prisma.track.findMany).toHaveBeenCalledWith(
 			expect.objectContaining({
-				where: expect.objectContaining({
+				where: {
 					id: { in: ['track-1'] },
-				}),
+					OR: [
+						{
+							userTracks: {
+								some: {
+									userId: 'user-1',
+									isActive: true,
+									deletedAt: null,
+								},
+							},
+						},
+						{
+							servicePlaylistTracks: {
+								some: {
+									playlist: {
+										ownerId: 'user-1',
+										isActive: true,
+									},
+								},
+							},
+						},
+						{
+							playlists: {
+								some: {
+									playlist: {
+										ownerId: 'user-1',
+									},
+								},
+							},
+						},
+					],
+				},
 				select: PLAYBACK_TRACK_SELECT,
 			}),
 		)

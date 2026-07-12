@@ -75,7 +75,7 @@ function buildUserTrackAccessWhere(userId: string) {
 				},
 			},
 			{
-				userPlaylistTracks: {
+				playlists: {
 					some: {
 						playlist: {
 							ownerId: userId,
