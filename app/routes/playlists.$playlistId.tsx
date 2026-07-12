@@ -59,6 +59,7 @@ import {
 	type PlaylistDetailOfflineLoaderData,
 } from '#app/features/offline-app/offline-route-policies.client.ts'
 import { filterPlayableTracks } from '#app/utils/playable-track.ts'
+import { type FullTrack } from '#app/types/frontend/shared.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
 import { userPlaylistTitleTaken } from '#app/utils/user-playlist.server.ts'
 import { type Route } from './+types/playlists.$playlistId.ts'
@@ -522,7 +523,7 @@ function OnlinePlaylistRoute({
 	const { playlist, playlists } = loaderData
 	
 	// Audio player context (audio playback disabled)
-	const { addToCurrentPlaylist } = useAudioPlayer()
+	const { playNextTrack, addToUpNext, addToQueue } = useAudioPlayer()
 	
 	// Fetchers for progressive enhancement
 	const reorderFetcher = useFetcher()
@@ -578,27 +579,78 @@ function OnlinePlaylistRoute({
 		)
 	}
 
-	const [isAddToQueueDialogOpen, setIsAddToQueueDialogOpen] = useState(false)
+	const [bulkQueueDialogAction, setBulkQueueDialogAction] = useState<
+		'playNext' | 'addToUpNext' | 'addToQueue' | null
+	>(null)
 
-	const handleAddAllToQueue = () => {
-		setIsAddToQueueDialogOpen(true)
+	const bulkQueueActionLabels = {
+		playNext: 'Play next',
+		addToUpNext: 'Add to up next',
+		addToQueue: 'Add to queue',
+	} as const
+
+	const applyBulkQueueAction = (
+		tracks: FullTrack[],
+		action: 'playNext' | 'addToUpNext' | 'addToQueue',
+	) => {
+		if (tracks.length === 0) return
+
+		if (action === 'playNext') {
+			for (const track of tracks) {
+				playNextTrack(track)
+			}
+			return
+		}
+
+		if (action === 'addToUpNext') {
+			for (const track of tracks) {
+				addToUpNext(track)
+			}
+			return
+		}
+
+		for (const track of tracks) {
+			addToQueue(track)
+		}
 	}
 
-	const confirmAddToQueue = () => {
-		const tracks = optimisticTracks.map(pt => pt.track)
-		const playable = filterPlayableTracks(tracks)
-		playable.forEach(track => addToCurrentPlaylist(track))
-
-		const skippedCount = tracks.length - playable.length
+	const showBulkQueueToast = (
+		playableCount: number,
+		skippedCount: number,
+		action: 'playNext' | 'addToUpNext' | 'addToQueue',
+	) => {
+		const actionLabel = bulkQueueActionLabels[action].toLowerCase()
 		toast({
 			title: 'Success',
 			description: skippedCount > 0
-				? `${playable.length} track(s) added to queue (${skippedCount} skipped — no audio)`
-				: `${playable.length} track(s) added to queue`,
+				? `${playableCount} track(s) ${actionLabel} (${skippedCount} skipped — no audio)`
+				: `${playableCount} track(s) ${actionLabel}`,
 			variant: 'success',
 		})
+	}
 
-		setIsAddToQueueDialogOpen(false)
+	const handleBulkPlayNext = () => {
+		setBulkQueueDialogAction('playNext')
+	}
+
+	const handleBulkAddToUpNext = () => {
+		setBulkQueueDialogAction('addToUpNext')
+	}
+
+	const handleBulkAddToQueue = () => {
+		setBulkQueueDialogAction('addToQueue')
+	}
+
+	const confirmBulkQueueAction = () => {
+		if (!bulkQueueDialogAction) return
+
+		const tracks = optimisticTracks.map(pt => pt.track as FullTrack)
+		const playable = filterPlayableTracks(tracks)
+		applyBulkQueueAction(playable, bulkQueueDialogAction)
+
+		const skippedCount = tracks.length - playable.length
+		showBulkQueueToast(playable.length, skippedCount, bulkQueueDialogAction)
+		setBulkQueueDialogAction(null)
 	}
 
 
@@ -685,9 +737,9 @@ function OnlinePlaylistRoute({
 		setTracksToRemove([])
 	}
 
-	const handleBulkAddToQueue = (playlistTrackIds: string[]) => {
+	const handleBulkPlayNextSelection = (playlistTrackIds: string[]) => {
 		const selectedTracks = optimisticTracks.filter(pt => playlistTrackIds.includes(pt.id))
-		const tracks = selectedTracks.map(pt => pt.track)
+		const tracks = selectedTracks.map(pt => pt.track as FullTrack)
 		const playable = filterPlayableTracks(tracks)
 
 		if (playable.length === 0) {
@@ -695,16 +747,36 @@ function OnlinePlaylistRoute({
 			return
 		}
 
-		playable.forEach(track => addToCurrentPlaylist(track))
+		applyBulkQueueAction(playable, 'playNext')
+		showBulkQueueToast(playable.length, tracks.length - playable.length, 'playNext')
+	}
 
-		const skippedCount = tracks.length - playable.length
-		toast({
-			title: 'Success',
-			description: skippedCount > 0
-				? `${playable.length} track(s) added to queue (${skippedCount} skipped — no audio)`
-				: `${playable.length} track(s) added to queue`,
-			variant: 'success',
-		})
+	const handleBulkAddToUpNextSelection = (playlistTrackIds: string[]) => {
+		const selectedTracks = optimisticTracks.filter(pt => playlistTrackIds.includes(pt.id))
+		const tracks = selectedTracks.map(pt => pt.track as FullTrack)
+		const playable = filterPlayableTracks(tracks)
+
+		if (playable.length === 0) {
+			console.warn('No playable tracks found in selection')
+			return
+		}
+
+		applyBulkQueueAction(playable, 'addToUpNext')
+		showBulkQueueToast(playable.length, tracks.length - playable.length, 'addToUpNext')
+	}
+
+	const handleBulkAddToQueueSelection = (playlistTrackIds: string[]) => {
+		const selectedTracks = optimisticTracks.filter(pt => playlistTrackIds.includes(pt.id))
+		const tracks = selectedTracks.map(pt => pt.track as FullTrack)
+		const playable = filterPlayableTracks(tracks)
+
+		if (playable.length === 0) {
+			console.warn('No playable tracks found in selection')
+			return
+		}
+
+		applyBulkQueueAction(playable, 'addToQueue')
+		showBulkQueueToast(playable.length, tracks.length - playable.length, 'addToQueue')
 	}
 
 	return (
@@ -731,7 +803,9 @@ function OnlinePlaylistRoute({
 					updatedAt={optimisticPlaylist.updatedAt.toISOString()}
 					onTitleUpdate={handleTitleUpdate}
 					onDescriptionUpdate={handleDescriptionUpdate}
-					onAddAllToQueue={handleAddAllToQueue}
+					onBulkPlayNext={handleBulkPlayNext}
+					onBulkAddToUpNext={handleBulkAddToUpNext}
+					onBulkAddToQueue={handleBulkAddToQueue}
 					onDelete={handleDelete}
 					isUpdating={updateFetcher.state === 'submitting'}
 				/>
@@ -782,7 +856,9 @@ function OnlinePlaylistRoute({
 						onReorder={handleReorder}
 						onRemoveTrack={handleRemoveTrack}
 						onBulkRemove={handleBulkRemove}
-						onBulkAddToQueue={handleBulkAddToQueue}
+						onBulkPlayNext={handleBulkPlayNextSelection}
+						onBulkAddToUpNext={handleBulkAddToUpNextSelection}
+						onBulkAddToQueue={handleBulkAddToQueueSelection}
 						isReordering={reorderFetcher.state === 'submitting'}
 						isRemoving={removeTrackFetcher.state === 'submitting'}
 						playlistId={params.playlistId!}
@@ -791,19 +867,32 @@ function OnlinePlaylistRoute({
 			</div>
 
 
-			{/* Add to Queue Confirmation Dialog */}
-			<AlertDialog open={isAddToQueueDialogOpen} onOpenChange={setIsAddToQueueDialogOpen}>
+			{/* Bulk queue confirmation dialog */}
+			<AlertDialog
+				open={bulkQueueDialogAction !== null}
+				onOpenChange={(open) => {
+					if (!open) setBulkQueueDialogAction(null)
+				}}
+			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Add to Queue</AlertDialogTitle>
+						<AlertDialogTitle>
+							{bulkQueueDialogAction
+								? bulkQueueActionLabels[bulkQueueDialogAction]
+								: 'Queue playlist'}
+						</AlertDialogTitle>
 						<AlertDialogDescription>
-							Are you sure you want to add all playable tracks from "{optimisticPlaylist.title}" to the current queue?
+							Are you sure you want to {bulkQueueDialogAction
+								? bulkQueueActionLabels[bulkQueueDialogAction].toLowerCase()
+								: 'queue'} all playable tracks from "{optimisticPlaylist.title}"?
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction onClick={confirmAddToQueue}>
-							Add to Queue
+						<AlertDialogAction onClick={confirmBulkQueueAction}>
+							{bulkQueueDialogAction
+								? bulkQueueActionLabels[bulkQueueDialogAction]
+								: 'Confirm'}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

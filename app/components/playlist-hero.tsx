@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button } from '#app/components/ui/button.tsx'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '#app/components/ui/dropdown-menu.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#app/components/ui/sheet.tsx'
 import { formatDuration } from '#app/utils/format-duration.ts'
@@ -25,7 +26,9 @@ interface PlaylistHeroProps {
 	updatedAt: string
 	onTitleUpdate: (newTitle: string) => void
 	onDescriptionUpdate: (newDescription: string) => void
-	onAddAllToQueue: () => void
+	onBulkPlayNext: () => void
+	onBulkAddToUpNext: () => void
+	onBulkAddToQueue: () => void
 	onDelete: () => void
 	isUpdating?: boolean
 	className?: string
@@ -62,7 +65,9 @@ export function PlaylistHero({
 	updatedAt: _updatedAt,
 	onTitleUpdate,
 	onDescriptionUpdate,
-	onAddAllToQueue,
+	onBulkPlayNext,
+	onBulkAddToUpNext,
+	onBulkAddToQueue,
 	onDelete,
 	isUpdating = false,
 	className
@@ -144,15 +149,43 @@ export function PlaylistHero({
 							
 							{/* Actions */}
 							<div className="flex flex-wrap justify-center md:justify-start gap-2 md:gap-3">
-								<Button
-									variant="secondary"
-									size={isMobile ? "default" : "lg"}
-									onClick={onAddAllToQueue}
-									className="bg-white/20 hover:bg-white/30 text-white border-white/30"
-								>
-									<Icon name="plus" className="h-4 w-4 md:h-5 md:w-5 mr-2" />
-									Add to Queue
-								</Button>
+								<div className="flex">
+									<Button
+										variant="secondary"
+										size={isMobile ? "default" : "lg"}
+										onClick={onBulkAddToUpNext}
+										className="bg-white/20 hover:bg-white/30 text-white border-white/30 rounded-r-none"
+									>
+										<Icon name="list-bullet" className="h-4 w-4 md:h-5 md:w-5 mr-2" />
+										Add to up next
+									</Button>
+									<DropdownMenu>
+										<DropdownMenuTrigger asChild>
+											<Button
+												variant="secondary"
+												size={isMobile ? "default" : "lg"}
+												className="bg-white/20 hover:bg-white/30 text-white border-white/30 rounded-l-none border-l-white/20 px-2"
+												aria-label="More queue actions"
+											>
+												<Icon name="chevron-down" className="h-4 w-4 md:h-5 md:w-5" />
+											</Button>
+										</DropdownMenuTrigger>
+										<DropdownMenuContent align="start">
+											<DropdownMenuItem onClick={onBulkPlayNext}>
+												<Icon name="arrow-right" className="h-4 w-4 mr-2" />
+												Play next
+											</DropdownMenuItem>
+											<DropdownMenuItem onClick={onBulkAddToUpNext}>
+												<Icon name="list-bullet" className="h-4 w-4 mr-2" />
+												Add to up next
+											</DropdownMenuItem>
+											<DropdownMenuItem onClick={onBulkAddToQueue}>
+												<Icon name="plus" className="h-4 w-4 mr-2" />
+												Add to queue
+											</DropdownMenuItem>
+										</DropdownMenuContent>
+									</DropdownMenu>
+								</div>
 								<Button
 									variant="destructive"
 									size={isMobile ? "default" : "lg"}
@@ -180,12 +213,34 @@ export function PlaylistHero({
 								variant="ghost"
 								className="w-full justify-start h-12 text-base"
 								onClick={() => {
-									onAddAllToQueue()
+									onBulkPlayNext()
+									setIsActionsSheetOpen(false)
+								}}
+							>
+								<Icon name="arrow-right" className="h-5 w-5 mr-3" />
+								Play next
+							</Button>
+							<Button
+								variant="ghost"
+								className="w-full justify-start h-12 text-base"
+								onClick={() => {
+									onBulkAddToUpNext()
+									setIsActionsSheetOpen(false)
+								}}
+							>
+								<Icon name="list-bullet" className="h-5 w-5 mr-3" />
+								Add to up next
+							</Button>
+							<Button
+								variant="ghost"
+								className="w-full justify-start h-12 text-base"
+								onClick={() => {
+									onBulkAddToQueue()
 									setIsActionsSheetOpen(false)
 								}}
 							>
 								<Icon name="plus" className="h-5 w-5 mr-3" />
-								Add All to Queue
+								Add to queue
 							</Button>
 							<Button
 								variant="ghost"

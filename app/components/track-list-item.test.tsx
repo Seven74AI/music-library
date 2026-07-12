@@ -10,7 +10,8 @@ import { TrackListItem } from './track-list-item'
 
 const mockPlayTrack = vi.fn()
 const mockPlayNextTrack = vi.fn()
-const mockAddToCurrentPlaylist = vi.fn()
+const mockAddToUpNext = vi.fn()
+const mockAddToQueue = vi.fn()
 const mockToast = vi.fn()
 
 let mockPlayerState: {
@@ -31,7 +32,8 @@ vi.mock('./audio-player-provider', () => ({
 		isPlayerVisible: mockPlayerState.isPlayerVisible,
 		playTrack: mockPlayTrack,
 		playNextTrack: mockPlayNextTrack,
-		addToCurrentPlaylist: mockAddToCurrentPlaylist,
+		addToUpNext: mockAddToUpNext,
+		addToQueue: mockAddToQueue,
 	}),
 }))
 
@@ -97,7 +99,8 @@ beforeEach(() => {
 	}
 	mockPlayTrack.mockReset()
 	mockPlayNextTrack.mockReset()
-	mockAddToCurrentPlaylist.mockReset()
+	mockAddToUpNext.mockReset()
+	mockAddToQueue.mockReset()
 	mockToast.mockReset()
 })
 
@@ -177,7 +180,8 @@ test('hides queue actions when track has no audio files', async () => {
 
 	await user.click(screen.getByRole('button', { name: 'More actions' }))
 	expect(screen.queryByText('Play next')).toBeNull()
-	expect(screen.queryByText('Add to Queue')).toBeNull()
+	expect(screen.queryByText('Add to up next')).toBeNull()
+	expect(screen.queryByText('Add to queue')).toBeNull()
 })
 
 test('shows queue actions when track has audio files', async () => {
@@ -187,18 +191,35 @@ test('shows queue actions when track has audio files', async () => {
 
 	await user.click(screen.getByRole('button', { name: 'More actions' }))
 	expect(screen.getByText('Play next')).toBeDefined()
-	expect(screen.getByText('Add to Queue')).toBeDefined()
+	expect(screen.getByText('Add to up next')).toBeDefined()
+	expect(screen.getByText('Add to queue')).toBeDefined()
 })
 
-test('Add to Queue appends track and shows toast', async () => {
+test('Add to up next appends track and shows toast', async () => {
 	const user = userEvent.setup()
 
 	renderTrackListItem({ track: playableTrack })
 
 	await user.click(screen.getByRole('button', { name: 'More actions' }))
-	await user.click(screen.getByText('Add to Queue'))
+	await user.click(screen.getByText('Add to up next'))
 
-	expect(mockAddToCurrentPlaylist).toHaveBeenCalledWith(playableTrack)
+	expect(mockAddToUpNext).toHaveBeenCalledWith(playableTrack)
+	expect(mockToast).toHaveBeenCalledWith({
+		title: 'Success',
+		description: '"Test Song" added to up next',
+		variant: 'success',
+	})
+})
+
+test('Add to queue appends track and shows toast', async () => {
+	const user = userEvent.setup()
+
+	renderTrackListItem({ track: playableTrack })
+
+	await user.click(screen.getByRole('button', { name: 'More actions' }))
+	await user.click(screen.getByText('Add to queue'))
+
+	expect(mockAddToQueue).toHaveBeenCalledWith(playableTrack)
 	expect(mockToast).toHaveBeenCalledWith({
 		title: 'Success',
 		description: '"Test Song" added to queue',
@@ -206,7 +227,7 @@ test('Add to Queue appends track and shows toast', async () => {
 	})
 })
 
-test('Play next starts playback when player is idle', async () => {
+test('Play next cues via provider when player is idle', async () => {
 	const user = userEvent.setup()
 
 	renderTrackListItem({ track: playableTrack, index: 2 })
@@ -214,8 +235,8 @@ test('Play next starts playback when player is idle', async () => {
 	await user.click(screen.getByRole('button', { name: 'More actions' }))
 	await user.click(screen.getByText('Play next'))
 
-	expect(mockPlayTrack).toHaveBeenCalledWith(playableTrack, { type: 'library' }, 2)
-	expect(mockPlayNextTrack).not.toHaveBeenCalled()
+	expect(mockPlayNextTrack).toHaveBeenCalledWith(playableTrack)
+	expect(mockPlayTrack).not.toHaveBeenCalled()
 	expect(mockToast).not.toHaveBeenCalled()
 })
 

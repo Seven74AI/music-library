@@ -18,6 +18,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useState, useEffect, type ReactNode } from 'react'
 import { Button } from '#app/components/ui/button.tsx'
 import { Checkbox } from '#app/components/ui/checkbox.tsx'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '#app/components/ui/dropdown-menu.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { cn } from '#app/utils/misc.tsx'
 import { TrackListItem } from './track-list-item'
@@ -151,6 +152,8 @@ interface SortableTrackListProps {
 	onReorder: (newOrder: Array<{ id: string; position: number }>) => void
 	onRemoveTrack: (trackId: string) => void
 	onBulkRemove: (trackIds: string[]) => void
+	onBulkPlayNext: (trackIds: string[]) => void
+	onBulkAddToUpNext: (trackIds: string[]) => void
 	onBulkAddToQueue: (trackIds: string[]) => void
 	isReordering?: boolean
 	isRemoving?: boolean
@@ -166,6 +169,8 @@ export function SortableTrackList({
 	onReorder, 
 	onRemoveTrack,
 	onBulkRemove,
+	onBulkPlayNext,
+	onBulkAddToUpNext,
 	onBulkAddToQueue,
 	isReordering = false,
 	isRemoving = false,
@@ -246,6 +251,18 @@ export function SortableTrackList({
 		setShowSelection(false)
 	}
 
+	function handleBulkPlayNext() {
+		onBulkPlayNext(Array.from(selectedTracks))
+		setSelectedTracks(new Set())
+		setShowSelection(false)
+	}
+
+	function handleBulkAddToUpNext() {
+		onBulkAddToUpNext(Array.from(selectedTracks))
+		setSelectedTracks(new Set())
+		setShowSelection(false)
+	}
+
 	function handleBulkAddToQueue() {
 		onBulkAddToQueue(Array.from(selectedTracks))
 		setSelectedTracks(new Set())
@@ -293,17 +310,46 @@ export function SortableTrackList({
 						</span>
 					</div>
 					<div className="flex items-center gap-2">
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={handleBulkAddToQueue}
-							disabled={selectedTracks.size === 0 || isReordering || isRemoving}
-							className="transition-all duration-200 ease-out hover:scale-105"
-							aria-label={`Add ${selectedTracks.size} selected tracks to queue`}
-						>
-							<Icon name="plus" className="h-4 w-4 mr-2" aria-hidden="true" />
-							Add to Queue
-						</Button>
+						<div className="flex">
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleBulkAddToUpNext}
+								disabled={selectedTracks.size === 0 || isReordering || isRemoving}
+								className="transition-all duration-200 ease-out hover:scale-105 rounded-r-none"
+								aria-label={`Add ${selectedTracks.size} selected tracks to up next`}
+							>
+								<Icon name="list-bullet" className="h-4 w-4 mr-2" aria-hidden="true" />
+								Add to up next
+							</Button>
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button
+										variant="outline"
+										size="sm"
+										disabled={selectedTracks.size === 0 || isReordering || isRemoving}
+										className="transition-all duration-200 ease-out hover:scale-105 rounded-l-none px-2"
+										aria-label="More queue actions for selected tracks"
+									>
+										<Icon name="chevron-down" className="h-4 w-4" aria-hidden="true" />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<DropdownMenuItem onClick={handleBulkPlayNext}>
+										<Icon name="arrow-right" className="h-4 w-4 mr-2" />
+										Play next
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={handleBulkAddToUpNext}>
+										<Icon name="list-bullet" className="h-4 w-4 mr-2" />
+										Add to up next
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={handleBulkAddToQueue}>
+										<Icon name="plus" className="h-4 w-4 mr-2" />
+										Add to queue
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
 						<Button
 							variant="destructive"
 							size="sm"

@@ -8,7 +8,13 @@ import { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayerProvider, useAudioPlayer } from './audio-player-provider'
 
 vi.mock('./audio-player', () => ({
-	AudioPlayer: () => null,
+	AudioPlayer: ({
+		wantsAutoPlayRef,
+	}: {
+		wantsAutoPlayRef?: React.MutableRefObject<boolean>
+	}) => (
+		<span data-testid="wants-autoplay">{String(wantsAutoPlayRef?.current ?? false)}</span>
+	),
 }))
 
 vi.mock('#app/components/pwa/install-app-banner', () => ({
@@ -61,6 +67,18 @@ const playableTrack: FullTrack = {
 	audioFiles: [{ id: 'af-1', format: 'mp3', objectKey: 'audio/test.mp3' }],
 }
 
+const secondPlayableTrack: FullTrack = {
+	...playableTrack,
+	id: 'track-2',
+	title: 'Second Song',
+}
+
+const thirdPlayableTrack: FullTrack = {
+	...playableTrack,
+	id: 'track-3',
+	title: 'Third Song',
+}
+
 const metadataTrack: FullTrack = {
 	...playableTrack,
 	id: 'track-2',
@@ -75,19 +93,50 @@ const spineTrack = {
 }
 
 function QueueProbe() {
-	const { playNextTrack, addToCurrentPlaylist, playlist } = useAudioPlayer()
+	const {
+		playNextTrack,
+		addToUpNext,
+		addToQueue,
+		addToCurrentPlaylist,
+		playTrack,
+		playlist,
+		upNext,
+		spine,
+		currentTrack,
+		isPlayerVisible,
+	} = useAudioPlayer()
 
 	return (
 		<>
 			<button type="button" onClick={() => playNextTrack(playableTrack)}>
 				Play next track
 			</button>
+			<button type="button" onClick={() => playNextTrack(secondPlayableTrack)}>
+				Play second next
+			</button>
+			<button type="button" onClick={() => playNextTrack(thirdPlayableTrack)}>
+				Play third next
+			</button>
+			<button type="button" onClick={() => addToUpNext(playableTrack)}>
+				Add to up next
+			</button>
+			<button type="button" onClick={() => addToQueue(playableTrack)}>
+				Add to queue
+			</button>
 			<button type="button" onClick={() => addToCurrentPlaylist(metadataTrack)}>
 				Add metadata track
 			</button>
-			<span data-testid="playlist-length">{playlist.length}</span>
-			<span data-testid="playlist-ids">{playlist.map((track) => track.id).join(',')}</span>
-			<span data-testid="has-holes">{String(playlist.some((_, index) => !(index in playlist)))}</span>
+			<button
+				type="button"
+				onClick={() => playTrack(playableTrack, { type: 'library' }, 0)}
+			>
+				Play library track
+			</button>
+			<span data-testid="current-track-id">{currentTrack?.id ?? ''}</span>
+			<span data-testid="player-visible">{String(isPlayerVisible)}</span>
+			<span data-testid="up-next-ids">{upNext.map(track => track.id).join(',')}</span>
+			<span data-testid="spine-ids">{spine.map(track => track.id).join(',')}</span>
+			<span data-testid="playlist-ids">{playlist.map(track => track.id).join(',')}</span>
 		</>
 	)
 }
@@ -137,7 +186,7 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
-test('playNextTrack on empty playlist adds a single track without sparse holes', async () => {
+test('playNextTrack on cold start cues track as current without autoplay', async () => {
 	const user = userEvent.setup()
 
 	render(
@@ -148,12 +197,47 @@ test('playNextTrack on empty playlist adds a single track without sparse holes',
 
 	await user.click(screen.getByRole('button', { name: 'Play next track' }))
 
-	expect(screen.getByTestId('playlist-length').textContent).toBe('1')
-	expect(screen.getByTestId('playlist-ids').textContent).toBe('track-1')
-	expect(screen.getByTestId('has-holes').textContent).toBe('false')
+	expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
+	expect(screen.getByTestId('player-visible').textContent).toBe('true')
+	expect(screen.getByTestId('up-next-ids').textContent).toBe('')
+	expect(screen.getByTestId('wants-autoplay').textContent).toBe('false')
 })
 
-test('addToCurrentPlaylist ignores metadata-only tracks', async () => {
+test('playNextTrack stacks FIFO at the front of Up Next when playback is active', async () => {
+	const user = userEvent.setup()
+	const fetchMock = vi.mocked(fetch)
+
+	fetchMock
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({
+				tracks: [spineTrack, { ...spineTrack, id: 'track-2', title: 'Other' }],
+				total: 2,
+			}),
+		} as Response)
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ tracks: [playableTrack] }),
+		} as Response)
+
+	render(
+		<AudioPlayerProvider>
+			<QueueProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Play library track' }))
+	await waitFor(() => {
+		expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
+	})
+
+	await user.click(screen.getByRole('button', { name: 'Play second next' }))
+	await user.click(screen.getByRole('button', { name: 'Play third next' }))
+
+	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-2,track-3')
+})
+
+test('addToUpNext appends to the Up Next tail and opens the player when idle', async () => {
 	const user = userEvent.setup()
 
 	render(
@@ -162,10 +246,44 @@ test('addToCurrentPlaylist ignores metadata-only tracks', async () => {
 		</AudioPlayerProvider>,
 	)
 
+	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
+
+	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-1')
+	expect(screen.getByTestId('current-track-id').textContent).toBe('')
+	expect(screen.getByTestId('player-visible').textContent).toBe('true')
+	expect(screen.getByTestId('wants-autoplay').textContent).toBe('false')
+})
+
+test('addToQueue appends after the spine and opens the player when idle', async () => {
+	const user = userEvent.setup()
+
+	render(
+		<AudioPlayerProvider>
+			<QueueProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Add to queue' }))
+
+	expect(screen.getByTestId('playlist-ids').textContent).toBe('track-1')
+	expect(screen.getByTestId('up-next-ids').textContent).toBe('')
+	expect(screen.getByTestId('current-track-id').textContent).toBe('')
+	expect(screen.getByTestId('player-visible').textContent).toBe('true')
+})
+
+test('addToCurrentPlaylist maps to addToUpNext', async () => {
+	const user = userEvent.setup()
+
+	render(
+		<AudioPlayerProvider>
+			<QueueProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
 	await user.click(screen.getByRole('button', { name: 'Add metadata track' }))
 
-	expect(screen.getByTestId('playlist-length').textContent).toBe('0')
-	expect(screen.getByTestId('playlist-ids').textContent).toBe('')
+	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-1')
 })
 
 test('playTrack loads queue spine and hydrates playback for the clicked track', async () => {

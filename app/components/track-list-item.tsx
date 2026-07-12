@@ -86,7 +86,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
 	const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false)
 	const isMobile = useIsMobile()
-	const { currentTrack, currentIndex, isPlayerVisible, playTrack, playNextTrack, addToCurrentPlaylist } = useAudioPlayer()
+	const { currentTrack, currentIndex, isPlayerVisible, playTrack, playNextTrack, addToUpNext, addToQueue } = useAudioPlayer()
 
 	const handleRemoveFromQueue = useCallback(() => {
 		if (onRemoveFromQueue) {
@@ -137,32 +137,42 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	const handlePlayNext = useCallback(() => {
 		if (!hasAudioFiles) return
 
+		playNextTrack(track)
+
 		if (isPlayerVisible && currentTrack) {
-			playNextTrack(track)
 			toast({
 				title: 'Success',
 				description: `"${track.title}" will play next`,
 				variant: 'success',
 			})
-		} else {
-			const context = playlistContext || { type: 'library' as const }
-			playTrack(track, context, index)
 		}
 
 		setIsActionsSheetOpen(false)
-	}, [hasAudioFiles, isPlayerVisible, currentTrack, playNextTrack, track, playlistContext, index, playTrack])
+	}, [hasAudioFiles, isPlayerVisible, currentTrack, playNextTrack, track])
+
+	const handleAddToUpNext = useCallback(() => {
+		if (!hasAudioFiles) return
+
+		addToUpNext(track)
+		toast({
+			title: 'Success',
+			description: `"${track.title}" added to up next`,
+			variant: 'success',
+		})
+		setIsActionsSheetOpen(false)
+	}, [hasAudioFiles, addToUpNext, track])
 
 	const handleAddToQueue = useCallback(() => {
 		if (!hasAudioFiles) return
 
-		addToCurrentPlaylist(track)
+		addToQueue(track)
 		toast({
 			title: 'Success',
 			description: `"${track.title}" added to queue`,
 			variant: 'success',
 		})
 		setIsActionsSheetOpen(false)
-	}, [hasAudioFiles, addToCurrentPlaylist, track])
+	}, [hasAudioFiles, addToQueue, track])
 
 	// Check if this track is currently playing (both ID and position must match for duplicates)
 	const isCurrentlyPlaying = currentTrack?.id === track.id && currentIndex === index
@@ -385,9 +395,13 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										<Icon name="arrow-right" className="h-4 w-4 mr-2" />
 										Play next
 									</DropdownMenuItem>
-									<DropdownMenuItem onClick={handleAddToQueue}>
+									<DropdownMenuItem onClick={handleAddToUpNext}>
 										<Icon name="list-bullet" className="h-4 w-4 mr-2" />
-										Add to Queue
+										Add to up next
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={handleAddToQueue}>
+										<Icon name="plus" className="h-4 w-4 mr-2" />
+										Add to queue
 									</DropdownMenuItem>
 								</>
 							)}
@@ -490,10 +504,18 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										<Button
 											variant="ghost"
 											className="w-full justify-start h-12 text-base"
-											onClick={handleAddToQueue}
+											onClick={handleAddToUpNext}
 										>
 											<Icon name="list-bullet" className="h-5 w-5 mr-3" />
-											Add to Queue
+											Add to up next
+										</Button>
+										<Button
+											variant="ghost"
+											className="w-full justify-start h-12 text-base"
+											onClick={handleAddToQueue}
+										>
+											<Icon name="plus" className="h-5 w-5 mr-3" />
+											Add to queue
 										</Button>
 									</>
 								)}
