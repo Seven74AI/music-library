@@ -711,6 +711,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
 						})
 						.catch(() => {
 							setIsPlaying(false)
+							setPlaybackError(
+								'Autoplay was prevented by your browser. Press play to start.',
+							)
+							toast({
+								title: 'Autoplay blocked',
+								description: 'Your browser prevented automatic playback. Press play to start listening.',
+							})
 						})
 				}
 			}
@@ -740,7 +747,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			}
 		} catch (error) {
 			setIsPlaying(wasPlaying)
-			console.error('Playback error:', error)
+			setPlaybackError(
+				'Unable to play this track. Try again or check your connection.',
+			)
+			toast({
+				title: 'Playback failed',
+				description: 'Could not start playback. Please try again.',
+				variant: 'destructive',
+			})
 		}
 	}, [isPlaying])
 
