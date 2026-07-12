@@ -5,6 +5,7 @@ import { StatusButton } from '#app/components/ui/status-button.tsx'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { generateTOTP } from '#app/utils/totp.server.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { type Route } from './+types/profile.two-factor.index.ts'
 import { twoFAVerificationType } from './profile.two-factor.tsx'
 import { twoFAVerifyVerificationType } from './profile.two-factor.verify.tsx'
@@ -38,6 +39,10 @@ export async function action({ request }: Route.ActionArgs) {
 		update: verificationData,
 	})
 	return redirect('/settings/profile/two-factor/verify')
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
 
 export default function TwoFactorRoute({ loaderData }: Route.ComponentProps) {

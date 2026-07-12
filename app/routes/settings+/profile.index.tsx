@@ -14,6 +14,7 @@ import { prisma } from '#app/utils/db.server.ts'
 import { getUserImgSrc, useDoubleCheck } from '#app/utils/misc.tsx'
 import { authSessionStorage } from '#app/utils/session.server.ts'
 import { redirectWithToast } from '#app/utils/toast.server.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { NameSchema, UsernameSchema } from '#app/utils/user-validation.ts'
 import { type Route } from './+types/profile.index.ts'
 import { twoFAVerificationType } from './profile.two-factor.tsx'
@@ -95,6 +96,10 @@ export async function action({ request }: Route.ActionArgs) {
 			throw new Response(`Invalid intent "${intent}"`, { status: 400 })
 		}
 	}
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
 
 export default function EditUserProfile({ loaderData }: Route.ComponentProps) {

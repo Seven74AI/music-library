@@ -7,6 +7,7 @@ import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { useDoubleCheck } from '#app/utils/misc.tsx'
 import { redirectWithToast } from '#app/utils/toast.server.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { type Route } from './+types/profile.two-factor.disable.ts'
 import { type BreadcrumbHandle } from './profile.tsx'
 import { twoFAVerificationType } from './profile.two-factor.tsx'
@@ -32,6 +33,10 @@ export async function action({ request }: Route.ActionArgs) {
 		description: 'Two factor authentication has been disabled.',
 		type: 'message',
 	})
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
 
 export default function TwoFactorDisableRoute() {

@@ -25,6 +25,7 @@ import {
 } from '#app/utils/litefs.server.ts'
 import { useDebounce, useDoubleCheck } from '#app/utils/misc.tsx'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { type Route } from './+types/cache.ts'
 
 export const handle: SEOHandle = {
@@ -83,6 +84,10 @@ export async function action({ request }: Route.ActionArgs) {
 		}
 	}
 	return { success: true }
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
 
 export default function CacheAdminRoute({ loaderData }: Route.ComponentProps) {
