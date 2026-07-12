@@ -8,7 +8,7 @@ import { YOUTUBE_SERVICE, LOCAL_SERVICE } from '#app/constants/services'
 import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
-import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
 import { type Route } from './+types/index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {

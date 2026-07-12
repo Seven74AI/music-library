@@ -31,7 +31,7 @@ vi.mock('#app/features/service-connection/service-connection.server', () => ({
 	hasServiceConnection: vi.fn(),
 }))
 
-vi.mock('#app/utils/service-playlist.server.ts', () => ({
+vi.mock('#app/features/service-playlist/service-playlist.server.ts', () => ({
 	createServicePlaylistService: vi.fn(() => ({
 		getSyncedPlaylists: vi.fn().mockResolvedValue([]),
 	})),

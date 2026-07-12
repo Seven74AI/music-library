@@ -9,7 +9,7 @@ import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { isErrorActionResult, isSuccessActionResult } from '#app/types/frontend'
 import { requireUserId } from '#app/utils/auth.server'
-import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
 import { type ServicePlaylist } from '#prisma/client.js'
 
 /**

@@ -1,10 +1,11 @@
-import { enqueueArchiveJobs } from '#app/features/audio-archive/auto-enqueue.server'
 import { pickCoverThumbnailUrl } from '#app/types/transformations'
 import { getOrCreateArtistTx } from '#app/utils/artist-management.server'
 import { prisma } from '#app/utils/db.server'
-import { findAllServicePlaylistTracks } from '#app/utils/service-playlist-track-queries.server'
 import { type Prisma } from '#prisma/client.js'
+import { type ArchiveEnqueueAdapter } from './archive-enqueue-adapter.server'
 import { getServiceByName } from './playlist-utils.server'
+import { findAllServicePlaylistTracks } from './service-playlist-track-queries.server'
+import { type TrackSyncProcessor } from './youtube-playlist-provider.server'
 
 /**
  * Generic syncable item — normalized track data from any provider.
@@ -29,38 +30,6 @@ export interface SyncableItem {
 }
 
 /**
- * Provider contract required by the batch processor.
- *
- * The batch processor only needs three methods from the provider:
- * deleted-video detection, preservation decision, and item transformation.
- * Uses `any` for item types to be structurally compatible with any
- * concrete provider (YouTube, Spotify, etc.) — the caller passes the
- * right provider for their items.
- */
-export interface BatchProcessorProvider {
-  isDeletedVideo(item: any): boolean
-  shouldPreserveTrackData(
-    existingTrack: { title: string } | null,
-    item: any,
-  ): boolean
-  transformPlaylistItem(
-    item: any,
-    serviceId: string,
-    artistId: string,
-  ): {
-    title: string
-    duration?: number | null
-    externalUrl?: string | null
-    releaseDate?: Date | string | null
-    thumbnailUrl?: string | null
-    service?: Prisma.ServiceCreateNestedOneWithoutTracksInput
-    externalId: string
-    artistId: string
-    [key: string]: any
-  }
-}
-
-/**
  * Batch data structure for processing tracks in batches.
  * Used for efficient database operations during playlist sync.
  */
@@ -68,7 +37,7 @@ export interface TrackDataBatch<TItem extends SyncableItem = SyncableItem> {
   serviceId: string
   externalId: string
   trackData: Omit<
-    ReturnType<BatchProcessorProvider['transformPlaylistItem']>,
+    ReturnType<TrackSyncProcessor['transformPlaylistItem']>,
     'thumbnailUrl' | 'service' | 'externalId'
   > & { serviceId: string; externalId: string; coverImageId?: string | null }
   position: number
@@ -238,7 +207,8 @@ export async function findOrphanedTracks(
  * @param serviceId - The service ID
  * @param playlistId - The playlist ID
  * @param tx - Prisma transaction instance
- * @param provider - Service provider (structurally typed)
+ * @param trackProcessor - Service-specific track sync logic
+ * @param archiveEnqueueAdapter - Injected archive enqueue seam
  * @param globalStartPosition - Starting position offset (for paginated batches)
  * @param accumulatedProcessedExternalIds - External IDs already processed in prior batches
  * @param accumulatedProcessedTrackIds - Track IDs already processed in prior batches
@@ -249,7 +219,8 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
   serviceId: string,
   playlistId: string,
   tx: any,
-  provider: BatchProcessorProvider,
+  trackProcessor: TrackSyncProcessor,
+  archiveEnqueueAdapter: ArchiveEnqueueAdapter,
   globalStartPosition: number = 0,
   accumulatedProcessedExternalIds?: Set<string>,
   accumulatedProcessedTrackIds?: Set<string>,
@@ -291,7 +262,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       // This prevents multiple deleted videos from collapsing into a single track record
       let externalId = item.snippet?.resourceId?.videoId || ''
       const position = globalStartPosition + batchStart + i + 1
-      const isDeleted = provider.isDeletedVideo(item)
+      const isDeleted = trackProcessor.isDeletedVideo(item)
 
       // Try to find existing track by stable identifiers
       let existingTrack: {
@@ -394,7 +365,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
         const artistRecord = await getOrCreateArtistTx(tx, artistName)
 
         // Determine if we should preserve existing track data
-        const preserveData = provider.shouldPreserveTrackData(
+        const preserveData = trackProcessor.shouldPreserveTrackData(
           existingTrack,
           item,
         )
@@ -407,14 +378,14 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             : null
 
         let trackData: Omit<
-          ReturnType<BatchProcessorProvider['transformPlaylistItem']>,
+          ReturnType<TrackSyncProcessor['transformPlaylistItem']>,
           'thumbnailUrl' | 'service' | 'externalId'
         > & { serviceId: string; externalId: string; coverImageId?: string | null }
 
         if (preserveData && existingTrack) {
           // Preserve existing data, only update non-critical fields
           // Use existing artistId if preserving data
-          const transformed = provider.transformPlaylistItem(
+          const transformed = trackProcessor.transformPlaylistItem(
             item,
             serviceId,
             existingTrack.artistId,
@@ -434,7 +405,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             externalId, // Use the generated/actual externalId (explicitly set, not from transformation)
           }
         } else {
-          const transformed = provider.transformPlaylistItem(
+          const transformed = trackProcessor.transformPlaylistItem(
             item,
             serviceId,
             artistRecord.id,
@@ -552,7 +523,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     // (external service tracks, e.g. YouTube — not local uploads)
     // Batched: one findMany + one createMany instead of N create() calls
     // that spam unique-constraint errors on re-syncs of large playlists.
-    await enqueueArchiveJobs(
+    await archiveEnqueueAdapter.enqueueArchiveJobs(
       tx,
       tracks.filter((track) => track.serviceUrl).map((track) => track.id),
     )
@@ -564,7 +535,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
 
       // Use the item stored with trackData to avoid index mismatch when items are skipped
       const item = trackData.item
-      const isDeleted = item ? provider.isDeletedVideo(item) : false
+      const isDeleted = item ? trackProcessor.isDeletedVideo(item) : false
 
       // Get thumbnailUrl from API response
       const thumbnailUrl = pickCoverThumbnailUrl(item?.snippet?.thumbnails)
@@ -702,7 +673,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
  * @param userId - The user ID
  * @returns Result with success count and any errors
  */
-export async function confirmDeletedVideoMatches(
+export async function confirmOrphanedMatches(
   playlistId: string,
   matches: Array<{
     deletedItemId: string | undefined

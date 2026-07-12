@@ -19,10 +19,6 @@ type FindManyArgsWithoutPagination = Omit<
 	'take' | 'skip' | 'cursor' | 'orderBy'
 >
 
-/**
- * Load all playlist tracks in fixed-size pages so Prisma relation queries stay
- * within SQLite bind-parameter limits on large playlists.
- */
 export async function findAllServicePlaylistTracks<
 	T extends FindManyArgsWithoutPagination,
 >(

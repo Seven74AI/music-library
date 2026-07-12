@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { processTracksInBatches } from './track-batch-processor.server'
+import { noopArchiveEnqueueAdapter } from './archive-enqueue-adapter.server'
+import { processTracksInBatches } from './batch-processor.server'
 import { createYouTubePlaylistProvider } from './youtube-playlist-provider.server'
 
 function createTxMock() {
@@ -56,6 +57,7 @@ describe('processTracksInBatches - artist naming', () => {
 			'playlist-1',
 			tx,
 			createYouTubePlaylistProvider(),
+			noopArchiveEnqueueAdapter,
 		)
 
 		expect(artistCreate).toHaveBeenCalledWith(
@@ -84,6 +86,7 @@ describe('processTracksInBatches - artist naming', () => {
 			'playlist-1',
 			tx,
 			createYouTubePlaylistProvider(),
+			noopArchiveEnqueueAdapter,
 		)
 
 		expect(artistCreate).toHaveBeenCalledWith(

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { filterOrphanedTracks } from './track-batch-processor.server'
+import { filterOrphanedTracks } from './batch-processor.server'
 
 describe('filterOrphanedTracks', () => {
 	test('returns tracks missing from the current sync that are not deleted or claimed', () => {

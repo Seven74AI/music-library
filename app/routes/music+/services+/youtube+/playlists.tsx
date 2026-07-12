@@ -31,7 +31,7 @@ import {
 } from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
 import { handleLoaderError } from '#app/utils/error-handlers.server'
-import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
 
 export const handle: BreadcrumbHandle = {
 	breadcrumb: <Icon name="file-text">Playlists</Icon>,
@@ -102,7 +102,7 @@ export async function action({ request }: ActionFunctionArgs) {
 					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
 				}
 				
-				const result = await servicePlaylistService.addPlaylistToSync('youtube', playlistId, userId)
+				const result = await servicePlaylistService.syncServicePlaylist('youtube', playlistId, userId)
 				if (result.success) {
 					// Serialize pendingMatches to ensure all nested objects are properly converted
 					const serializedPendingMatches = result.pendingMatches?.map(match => ({

@@ -1,7 +1,7 @@
 /**
  * Auto-enqueue for audio archiving.
  *
- * Called from track-batch-processor during YouTube playlist sync.
+ * Called from service-playlist batch processor during YouTube playlist sync.
  * Creates a pending ArchiveJob for tracks that have a serviceUrl
  * (external service tracks, not local uploads).
  */

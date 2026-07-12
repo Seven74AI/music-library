@@ -1,5 +1,9 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
-import { createServicePlaylistService, type ServicePlaylistService } from './service-playlist.server'
+import {
+	createServicePlaylistService,
+	type ServicePlaylistService,
+} from './service-playlist.server'
+import { noopArchiveEnqueueAdapter } from './archive-enqueue-adapter.server'
 
 // Mock all external dependencies - must be defined inside factory functions
 vi.mock('#app/utils/db.server', () => ({
@@ -44,7 +48,7 @@ const mockGetPlaylistItems = vi.fn()
 const mockGetPlaylist = vi.fn()
 const mockGetUserPlaylists = vi.fn()
 
-vi.mock('./youtube.server', () => ({
+vi.mock('#app/utils/youtube.server', () => ({
 	createYouTubeService: vi.fn(() => ({
 		getPlaylistItems: mockGetPlaylistItems,
 		getPlaylist: mockGetPlaylist,
@@ -70,14 +74,16 @@ describe('ServicePlaylistService - Sync Logic', () => {
 	let resolveServiceAccessToken: ReturnType<typeof vi.fn>
 
 	beforeEach(async () => {
-		service = createServicePlaylistService()
+		service = createServicePlaylistService({
+			archiveEnqueueAdapter: noopArchiveEnqueueAdapter,
+		})
 		prisma = (await import('#app/utils/db.server')).prisma
 		resolveServiceAccessToken = (await import('#app/features/service-connection/service-connection.server')).resolveServiceAccessToken as ReturnType<typeof vi.fn>
 		vi.clearAllMocks()
 		vi.mocked(resolveServiceAccessToken).mockResolvedValue({ access_token: 'token123' })
 	})
 
-	describe('syncPlaylistTracks - removed tracks cleanup', () => {
+	describe('syncServicePlaylist - removed tracks cleanup', () => {
 		test('removes tracks that are no longer in YouTube playlist', async () => {
 			const userId = 'user123'
 			const playlistId = 'playlist123'
@@ -187,7 +193,7 @@ describe('ServicePlaylistService - Sync Logic', () => {
 			// Mock deleteMany for removed tracks
 			vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 1 } as any)
 
-			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+			const result = await service.syncServicePlaylist('youtube', playlistId, userId)
 
 			expect(result.success).toBe(true)
 			expect(result.removedTracks).toHaveLength(1)
@@ -289,7 +295,7 @@ describe('ServicePlaylistService - Sync Logic', () => {
 			// Mock playlist update
 			vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any)
 
-			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+			const result = await service.syncServicePlaylist('youtube', playlistId, userId)
 
 			expect(result.success).toBe(true)
 			expect(result.deletedTracks).toHaveLength(1)
@@ -304,7 +310,9 @@ describe('ServicePlaylistService - Batch Processing', () => {
 	let prisma: any
 
 	beforeEach(async () => {
-		service = createServicePlaylistService()
+		service = createServicePlaylistService({
+			archiveEnqueueAdapter: noopArchiveEnqueueAdapter,
+		})
 		prisma = (await import('#app/utils/db.server')).prisma
 		vi.clearAllMocks()
 	})
@@ -396,7 +404,7 @@ describe('ServicePlaylistService - Batch Processing', () => {
 			// Mock playlist update
 			vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any)
 
-			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+			const result = await service.syncServicePlaylist('youtube', playlistId, userId)
 
 			expect(result.success).toBe(true)
 			expect(result.tracksAdded).toBe(50)
@@ -537,7 +545,7 @@ describe('ServicePlaylistService - Batch Processing', () => {
 			// Mock playlist update
 			vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any)
 
-			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+			const result = await service.syncServicePlaylist('youtube', playlistId, userId)
 
 			expect(result.success).toBe(true)
 			
@@ -679,7 +687,7 @@ describe('ServicePlaylistService - Batch Processing', () => {
 			// Mock deleteMany
 			vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 2 } as any)
 
-			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+			const result = await service.syncServicePlaylist('youtube', playlistId, userId)
 
 			expect(result.success).toBe(true)
 			expect(result.removedTracks).toHaveLength(2)
@@ -789,239 +797,13 @@ describe('ServicePlaylistService - Batch Processing', () => {
 			// Mock playlist update
 			vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any)
 
-			const result = await service.syncPlaylistTracks('youtube', playlistId, userId)
+			const result = await service.syncServicePlaylist('youtube', playlistId, userId)
 
 			expect(result.success).toBe(true)
 			// Should count only the 5 successfully processed tracks, not the deleted video
 			expect(result.tracksAdded).toBe(5)
 			// Should have pending matches for the deleted video
 			expect(result.pendingMatches).toHaveLength(1)
-		})
-	})
-})
-
-describe('ServicePlaylistService - User Library', () => {
-	let service: ServicePlaylistService
-	let prisma: any
-
-	beforeEach(async () => {
-		service = createServicePlaylistService()
-		prisma = (await import('#app/utils/db.server')).prisma
-		vi.clearAllMocks()
-	})
-
-	const userId = 'user1'
-	const trackId = 'track1'
-
-	describe('addTrackToUserLibrary', () => {
-		test('creates a new UserTrack when track is not in library', async () => {
-			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue(null)
-			vi.mocked(prisma.userTrack.create).mockResolvedValue({
-				id: 'ut1', userId, trackId, isActive: true,
-				deletedAt: null, createdAt: new Date(), updatedAt: new Date(),
-			})
-
-			const result = await service.addTrackToUserLibrary(trackId, userId)
-
-			expect(result.success).toBe(true)
-			expect(result.message).toBe('Track added to library')
-			expect(prisma.userTrack.create).toHaveBeenCalledWith({
-				data: { userId, trackId },
-			})
-		})
-
-		test('returns success without creating when already in library', async () => {
-			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue({
-				id: 'ut1', userId, trackId, isActive: true, deletedAt: null,
-			})
-
-			const result = await service.addTrackToUserLibrary(trackId, userId)
-
-			expect(result.success).toBe(true)
-			expect(result.message).toBe('Track already in library')
-			expect(prisma.userTrack.create).not.toHaveBeenCalled()
-		})
-
-		test('reactivates soft-deleted record', async () => {
-			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue({
-				id: 'ut1', userId, trackId, isActive: false,
-				deletedAt: new Date(),
-			})
-			vi.mocked(prisma.userTrack.update).mockResolvedValue({
-				id: 'ut1', isActive: true, deletedAt: null,
-			} as any)
-
-			const result = await service.addTrackToUserLibrary(trackId, userId)
-
-			expect(result.success).toBe(true)
-			expect(result.message).toBe('Track re-added to library')
-			expect(prisma.userTrack.update).toHaveBeenCalledWith({
-				where: { id: 'ut1' },
-				data: { isActive: true, deletedAt: null },
-			})
-		})
-
-		test('handles database errors gracefully', async () => {
-			const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-			vi.mocked(prisma.userTrack.findUnique).mockRejectedValue(
-				new Error('DB connection failed'),
-			)
-
-			const result = await service.addTrackToUserLibrary(trackId, userId)
-
-			expect(result.success).toBe(false)
-			expect(result.message).toBe('Failed to add track to library')
-			expect(result.error).toBe('DB connection failed')
-			consoleError.mockRestore()
-		})
-	})
-
-	describe('addTracksToUserLibrary', () => {
-		test('creates many UserTracks in one transaction', async () => {
-			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([])
-			vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) =>
-				fn({
-					userTrack: {
-						updateMany: vi.fn().mockResolvedValue({ count: 0 }),
-						createMany: vi.fn().mockResolvedValue({ count: 3 }),
-					},
-				}),
-			)
-
-			const result = await service.addTracksToUserLibrary(
-				['track1', 'track2', 'track3'],
-				userId,
-			)
-
-			expect(result.success).toBe(true)
-			expect(result.addedCount).toBe(3)
-			expect(prisma.userTrack.findMany).toHaveBeenCalledWith({
-				where: { userId, trackId: { in: ['track1', 'track2', 'track3'] } },
-			})
-		})
-
-		test('reactivates inactive tracks and creates only missing ones', async () => {
-			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([
-				{ id: 'ut1', userId, trackId: 'track1', isActive: true, deletedAt: null },
-				{ id: 'ut2', userId, trackId: 'track2', isActive: false, deletedAt: new Date() },
-			])
-			const updateMany = vi.fn().mockResolvedValue({ count: 1 })
-			const createMany = vi.fn().mockResolvedValue({ count: 1 })
-			vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) =>
-				fn({ userTrack: { updateMany, createMany } }),
-			)
-
-			const result = await service.addTracksToUserLibrary(
-				['track1', 'track2', 'track3'],
-				userId,
-			)
-
-			expect(result.success).toBe(true)
-			expect(result.addedCount).toBe(2)
-			expect(updateMany).toHaveBeenCalledWith({
-				where: { id: { in: ['ut2'] } },
-				data: { isActive: true, deletedAt: null },
-			})
-			expect(createMany).toHaveBeenCalledWith({
-				data: [{ userId, trackId: 'track3' }],
-			})
-		})
-
-		test('deduplicates track ids', async () => {
-			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([])
-			const createMany = vi.fn().mockResolvedValue({ count: 1 })
-			vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) =>
-				fn({ userTrack: { updateMany: vi.fn(), createMany } }),
-			)
-
-			await service.addTracksToUserLibrary(['track1', 'track1'], userId)
-
-			expect(prisma.userTrack.findMany).toHaveBeenCalledWith({
-				where: { userId, trackId: { in: ['track1'] } },
-			})
-		})
-
-		test('chunks large bulk add queries to stay under SQLite bind limits', async () => {
-			const largeTrackIds = Array.from({ length: 1200 }, (_, i) => `track${i}`)
-			vi.mocked(prisma.userTrack.findMany).mockResolvedValue([])
-			const createMany = vi.fn().mockResolvedValue({ count: 500 })
-			vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) =>
-				fn({ userTrack: { updateMany: vi.fn(), createMany } }),
-			)
-
-			const result = await service.addTracksToUserLibrary(largeTrackIds, userId)
-
-			expect(result.success).toBe(true)
-			expect(result.addedCount).toBe(1200)
-			expect(prisma.userTrack.findMany).toHaveBeenCalledTimes(3)
-			expect(createMany).toHaveBeenCalledTimes(3)
-			expect(createMany.mock.calls[0]?.[0]?.data).toHaveLength(500)
-			expect(createMany.mock.calls[2]?.[0]?.data).toHaveLength(200)
-		})
-
-		test('returns success with zero count for empty list', async () => {
-			const result = await service.addTracksToUserLibrary([], userId)
-
-			expect(result.success).toBe(true)
-			expect(result.addedCount).toBe(0)
-			expect(prisma.userTrack.findMany).not.toHaveBeenCalled()
-		})
-	})
-
-	describe('removeTrackFromUserLibrary', () => {
-		test('soft-deletes an active user track', async () => {
-			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue({
-				id: 'ut1', userId, trackId, isActive: true, deletedAt: null,
-			})
-			vi.mocked(prisma.userTrack.update).mockResolvedValue({
-				id: 'ut1', isActive: false, deletedAt: new Date(),
-			} as any)
-
-			const result = await service.removeTrackFromUserLibrary(trackId, userId)
-
-			expect(result.success).toBe(true)
-			expect(result.message).toBe('Track removed from library')
-			expect(prisma.userTrack.update).toHaveBeenCalledWith({
-				where: { id: 'ut1' },
-				data: { isActive: false, deletedAt: expect.any(Date) },
-			})
-		})
-
-		test('returns failure when track not found', async () => {
-			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue(null)
-
-			const result = await service.removeTrackFromUserLibrary(trackId, userId)
-
-			expect(result.success).toBe(false)
-			expect(result.message).toBe('Track not found in library')
-			expect(prisma.userTrack.update).not.toHaveBeenCalled()
-		})
-
-		test('returns failure when track already inactive', async () => {
-			vi.mocked(prisma.userTrack.findUnique).mockResolvedValue({
-				id: 'ut1', userId, trackId, isActive: false,
-				deletedAt: new Date(),
-			})
-
-			const result = await service.removeTrackFromUserLibrary(trackId, userId)
-
-			expect(result.success).toBe(false)
-			expect(result.message).toBe('Track not found in library')
-			expect(prisma.userTrack.update).not.toHaveBeenCalled()
-		})
-
-		test('handles database errors gracefully', async () => {
-			const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-			vi.mocked(prisma.userTrack.findUnique).mockRejectedValue(
-				new Error('DB connection failed'),
-			)
-
-			const result = await service.removeTrackFromUserLibrary(trackId, userId)
-
-			expect(result.success).toBe(false)
-			expect(result.message).toBe('Failed to remove track from library')
-			expect(result.error).toBe('DB connection failed')
-			consoleError.mockRestore()
 		})
 	})
 })

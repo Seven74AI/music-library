@@ -26,7 +26,7 @@ import {
 } from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
 import { handleLoaderError } from '#app/utils/error-handlers.server'
-import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
 import { type ServicePlaylist } from '#prisma/client.js'
 
 export const handle: BreadcrumbHandle = {
@@ -84,7 +84,7 @@ export async function action({ request }: ActionFunctionArgs) {
 					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
 				}
 				
-				const result = await servicePlaylistService.resyncPlaylist(playlistId, userId)
+				const result = await servicePlaylistService.syncServicePlaylist('youtube', playlistId, userId)
 				if (result.success) {
 					return data({ status: 'success', ...result, playlistId })
 				}

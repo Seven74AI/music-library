@@ -1,14 +1,20 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
+import {
+	addTrackToUserLibrary,
+	addTracksToUserLibrary,
+	removeTrackFromUserLibrary,
+} from '#app/features/user-library/user-library.server'
 import { requireUserId } from '#app/utils/auth.server.ts'
-import { createServicePlaylistService } from '#app/utils/service-playlist.server'
 import { action } from './track-library.tsx'
 
 vi.mock('#app/utils/auth.server.ts', () => ({
 	requireUserId: vi.fn(),
 }))
 
-vi.mock('#app/utils/service-playlist.server', () => ({
-	createServicePlaylistService: vi.fn(),
+vi.mock('#app/features/user-library/user-library.server', () => ({
+	addTrackToUserLibrary: vi.fn(),
+	addTracksToUserLibrary: vi.fn(),
+	removeTrackFromUserLibrary: vi.fn(),
 }))
 
 vi.mock('#app/utils/toast.server.ts', () => ({
@@ -23,22 +29,13 @@ function makeRequest(formData: FormData) {
 }
 
 describe('track-library action', () => {
-	const mockAddTrack = vi.fn()
-	const mockAddTracks = vi.fn()
-	const mockRemoveTrack = vi.fn()
-
 	beforeEach(() => {
 		vi.clearAllMocks()
 		vi.mocked(requireUserId).mockResolvedValue('user-1')
-		vi.mocked(createServicePlaylistService).mockReturnValue({
-			addTrackToUserLibrary: mockAddTrack,
-			addTracksToUserLibrary: mockAddTracks,
-			removeTrackFromUserLibrary: mockRemoveTrack,
-		} as unknown as ReturnType<typeof createServicePlaylistService>)
 	})
 
 	test('adds a single track via trackId', async () => {
-		mockAddTrack.mockResolvedValue({
+		vi.mocked(addTrackToUserLibrary).mockResolvedValue({
 			success: true,
 			message: 'Track added to library',
 		})
@@ -51,15 +48,15 @@ describe('track-library action', () => {
 			request: makeRequest(formData),
 		} as never)
 
-		expect(mockAddTrack).toHaveBeenCalledWith('track-1', 'user-1')
-		expect(mockAddTracks).not.toHaveBeenCalled()
+		expect(addTrackToUserLibrary).toHaveBeenCalledWith('track-1', 'user-1')
+		expect(addTracksToUserLibrary).not.toHaveBeenCalled()
 		expect(response).toMatchObject({
 			data: { status: 'success' },
 		})
 	})
 
 	test('adds multiple tracks via trackIds in one call', async () => {
-		mockAddTracks.mockResolvedValue({
+		vi.mocked(addTracksToUserLibrary).mockResolvedValue({
 			success: true,
 			message: '3 tracks added to library',
 			addedCount: 3,
@@ -75,11 +72,11 @@ describe('track-library action', () => {
 			request: makeRequest(formData),
 		} as never)
 
-		expect(mockAddTracks).toHaveBeenCalledWith(
+		expect(addTracksToUserLibrary).toHaveBeenCalledWith(
 			['track-1', 'track-2', 'track-3'],
 			'user-1',
 		)
-		expect(mockAddTrack).not.toHaveBeenCalled()
+		expect(addTrackToUserLibrary).not.toHaveBeenCalled()
 		expect(response).toMatchObject({
 			data: { status: 'success', addedCount: 3 },
 		})

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { processTrackImagesAsync } from './track-image-processor.server'
+import { processTrackImagesAsync } from './image-processor.server'
 
 vi.mock('#app/utils/db.server', () => ({
 	prisma: {

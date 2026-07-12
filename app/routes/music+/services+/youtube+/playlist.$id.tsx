@@ -28,7 +28,7 @@ import { requireUserId } from '#app/utils/auth.server'
 import { getPlaylistTitle } from '#app/utils/breadcrumb-utils'
 import { useIsPending } from '#app/utils/misc'
 import { filterPlayableTracks } from '#app/utils/playable-track.ts'
-import { createServicePlaylistService } from '#app/utils/service-playlist.server'
+import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
 import { redirectWithToast } from '#app/utils/toast.server'
 
 export const handle: BreadcrumbHandle = {
@@ -93,7 +93,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	try {
 		switch (intent) {
 			case YOUTUBE_PLAYLIST_DETAIL_INTENTS.REFRESH: {
-				const result = await servicePlaylistService.resyncPlaylist(params.id!, userId)
+				const result = await servicePlaylistService.syncServicePlaylist('youtube', params.id!, userId)
 				if (result.success) {
 					return data({ 
 						status: 'success',
@@ -141,7 +141,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 						action: 'match' | 'new' | 'skip'
 					}>
 
-					const result = await servicePlaylistService.confirmDeletedVideoMatches(params.id!, matches, userId)
+					const result = await servicePlaylistService.confirmOrphanedMatches(params.id!, matches, userId)
 					
 					if (result.success) {
 						return data({ 
