@@ -16,15 +16,8 @@ export function shouldIgnoreKeyboardShortcut(target: EventTarget | null): boolea
 		return true
 	}
 
-	// P1: Range inputs use arrow keys for their own slider control
-	if (
-		target instanceof HTMLInputElement &&
-		target.type === 'range'
-	) {
-		return true
-	}
-
-	// P2: Buttons, links, and summary elements consume space/enter keys
+	// P1: Range inputs (covered by INPUT check above — belt-and-suspenders for clarity)
+	// P2: Buttons, links, and summary elements consume their own keyboard events
 	if (tagName === 'BUTTON' || tagName === 'A' || tagName === 'SUMMARY') {
 		return true
 	}
