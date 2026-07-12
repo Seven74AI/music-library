@@ -10,6 +10,24 @@ import { AudioPlayer } from './audio-player'
 
 type AudioPlayerTestProps = ComponentProps<typeof AudioPlayer>
 
+const mockRemoveTrackFromPlaylist = vi.fn()
+
+function createAudioPlayerMock(overrides: Record<string, unknown> = {}) {
+	return {
+		playlist: [],
+		upNext: [],
+		spine: [],
+		spineTotal: 0,
+		spinePosition: 0,
+		currentTrack: null,
+		currentIndex: -1,
+		playContext: null,
+		removeTrackFromPlaylist: mockRemoveTrackFromPlaylist,
+		removeCurrentFromQueue: vi.fn(),
+		...overrides,
+	}
+}
+
 vi.mock('#app/components/ui/use-toast.ts', () => ({
 	toast: vi.fn(),
 }))
@@ -19,16 +37,12 @@ vi.mock('#app/features/offline-storage/resolve-playback-url.client.ts', () => ({
 	revokePlaybackAudioUrl: vi.fn(),
 }))
 
-// Mock the provider module to avoid the QueueSheet's useAudioPlayer requirement
 vi.mock('#app/components/audio-player-provider', () => ({
-	useAudioPlayer: () => ({
-		playlist: [],
-		currentTrack: null,
-		currentIndex: -1,
-		removeTrackFromPlaylist: vi.fn(),
-	}),
+	useAudioPlayer: vi.fn(() => createAudioPlayerMock()),
 	AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
 }))
+
+import { useAudioPlayer } from '#app/components/audio-player-provider'
 
 const mockTrack: FullTrack = {
 	id: 'track-1',
@@ -172,7 +186,14 @@ const mockTrack2: FullTrack = {
 
 afterEach(() => {
 	vi.restoreAllMocks()
+	mockRemoveTrackFromPlaylist.mockReset()
 	window.localStorage.clear()
+})
+
+beforeEach(() => {
+	vi.mocked(useAudioPlayer).mockReturnValue(
+		createAudioPlayerMock() as unknown as ReturnType<typeof useAudioPlayer>,
+	)
 })
 
 test('auto-plays after track change once the new audio URL has loaded', async () => {
@@ -242,4 +263,61 @@ test('renders desktop bar with volume and transport controls', async () => {
 	expect(within(desktopBar).getByLabelText('Volume')).toBeTruthy()
 	expect(within(desktopBar).getByLabelText('Next track')).toBeTruthy()
 	expect(within(desktopBar).getByLabelText('Shuffle: off')).toBeTruthy()
+})
+
+test('queue sheet shows three-zone sections and formatted title counts', async () => {
+	const user = userEvent.setup()
+	const upNextTrack: FullTrack = {
+		...mockTrack,
+		id: 'up-next-1',
+		title: 'Queued Next',
+	}
+	const spineTrack: FullTrack = {
+		...mockTrack,
+		id: 'spine-1',
+		title: 'Library Track',
+	}
+
+	vi.mocked(useAudioPlayer).mockReturnValue(
+		createAudioPlayerMock({
+			currentTrack: mockTrack,
+			upNext: [upNextTrack],
+			spine: [spineTrack],
+			spineTotal: 14832,
+			playContext: { type: 'library' },
+		}) as unknown as ReturnType<typeof useAudioPlayer>,
+	)
+
+	await renderPlayer()
+	await user.click(within(screen.getByTestId('player-desktop-bar')).getByLabelText('Open queue'))
+
+	const sheetTitle = await screen.findByRole('heading', {
+		name: 'Queue (1 up next · 14,832 from library)',
+	})
+	const queueSheet = sheetTitle.closest('[role="dialog"]') ?? sheetTitle.parentElement!
+	expect(within(queueSheet as HTMLElement).getByText('Now playing')).toBeTruthy()
+	expect(within(queueSheet as HTMLElement).getByText('Up Next')).toBeTruthy()
+	expect(within(queueSheet as HTMLElement).getByText('From Library')).toBeTruthy()
+	expect(within(queueSheet as HTMLElement).getAllByText('Test Song').length).toBeGreaterThan(0)
+	expect(within(queueSheet as HTMLElement).getByText('Queued Next')).toBeTruthy()
+})
+
+test('queue sheet uses From Playlist heading for playlist context', async () => {
+	const user = userEvent.setup()
+
+	vi.mocked(useAudioPlayer).mockReturnValue(
+		createAudioPlayerMock({
+			currentTrack: mockTrack,
+			spineTotal: 42,
+			playContext: { type: 'playlist', playlistId: 'playlist-1' },
+		}) as unknown as ReturnType<typeof useAudioPlayer>,
+	)
+
+	await renderPlayer()
+	await user.click(within(screen.getByTestId('player-desktop-bar')).getByLabelText('Open queue'))
+
+	expect(
+		await screen.findByRole('heading', { name: 'Queue (42 from playlist)' }),
+	).toBeTruthy()
+	expect(screen.getByText('From Playlist')).toBeTruthy()
 })

@@ -1,7 +1,12 @@
 import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
+import {
+	formatQueueSheetTitle,
+	getSpineSectionHeading,
+	getSpineSectionLabel,
+} from '#app/components/queue-sheet-ui'
 import { TrackThumbnail } from '#app/components/track-thumbnail'
 import { Button } from '#app/components/ui/button'
 import { Icon } from '#app/components/ui/icon'
@@ -1095,67 +1100,115 @@ export function AudioPlayer(props: AudioPlayerProps) {
 }
 
 /**
- * Queue Sheet Component - Displays the current playlist queue
- * 
- * Features:
- * - Shows all tracks in the current playlist
- * - Highlights the currently playing track (by ID and position)
- * - Allows removal of specific tracks by position
- * - Supports duplicate tracks with unique keys
- * - Uses virtual scrolling for large queues (5k+ tracks)
+ * Bottom sheet showing the three-zone queue: Now playing, Up Next, and spine.
  */
-function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: string }) {
-	const { playlist, currentTrack, currentIndex, removeTrackFromPlaylist } = useAudioPlayer()
-	const parentRef = useRef<HTMLDivElement>(null)
-	const [isOpen, setIsOpen] = useState(false)
+const UP_NEXT_VIRTUAL_THRESHOLD = 20
 
+function QueueSectionHeading({ children }: { children: ReactNode }) {
+	return (
+		<h3 className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+			{children}
+		</h3>
+	)
+}
+
+function VirtualQueueTrackList({
+	tracks,
+	onRemoveTrack,
+	parentRef,
+}: {
+	tracks: Track[]
+	onRemoveTrack: (index: number) => void
+	parentRef: React.RefObject<HTMLDivElement | null>
+}) {
 	const virtualizer = useVirtualizer({
-		count: playlist.length,
-		getScrollElement: () => parentRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement || null,
+		count: tracks.length,
+		getScrollElement: () =>
+			parentRef.current?.querySelector(
+				'[data-radix-scroll-area-viewport]',
+			) as HTMLElement || null,
 		estimateSize: () => 60,
 		overscan: 10,
 		rangeExtractor: defaultRangeExtractor,
 	})
 
-	useEffect(() => {
-		if (!isOpen || currentIndex < 0 || currentIndex >= playlist.length) {
-			return undefined
-		}
+	return (
+		<div
+			style={{
+				height: `${virtualizer.getTotalSize()}px`,
+				width: '100%',
+				position: 'relative',
+			}}
+		>
+			{virtualizer.getVirtualItems().map(virtualItem => {
+				const track = tracks[virtualItem.index]
+				if (!track) return null
 
-		const scrollToCurrentTrack = (attempt = 0) => {
-			const scrollElement = parentRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
-			if (!scrollElement) {
-				if (attempt < 5) {
-					setTimeout(() => scrollToCurrentTrack(attempt + 1), 50)
-				}
-				return
-			}
+				return (
+					<div
+						key={`${track.id}-${virtualItem.index}`}
+						style={{
+							position: 'absolute',
+							top: 0,
+							left: 0,
+							width: '100%',
+							height: `${virtualItem.size}px`,
+							transform: `translateY(${virtualItem.start}px)`,
+						}}
+					>
+						<QueueTrackItem
+							track={track}
+							isCurrentlyPlaying={false}
+							onRemove={() => onRemoveTrack(virtualItem.index)}
+						/>
+					</div>
+				)
+			})}
+		</div>
+	)
+}
 
-			virtualizer.measure()
+function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: string }) {
+	const {
+		upNext,
+		spine,
+		spineTotal,
+		spinePosition,
+		currentTrack,
+		playContext,
+		removeTrackFromPlaylist,
+		removeCurrentFromQueue,
+	} = useAudioPlayer()
+	const upNextScrollRef = useRef<HTMLDivElement>(null)
+	const spineScrollRef = useRef<HTMLDivElement>(null)
+	const [isOpen, setIsOpen] = useState(false)
 
-			requestAnimationFrame(() => {
-				setTimeout(() => {
-					try {
-						virtualizer.scrollToIndex(currentIndex, {
-							align: 'center',
-							behavior: 'smooth',
-						})
-					} catch (error) {
-						console.warn('Failed to scroll to index, retrying...', error)
-						setTimeout(() => {
-							virtualizer.scrollToIndex(currentIndex, {
-								align: 'center',
-								behavior: 'smooth',
-							})
-						}, 100)
-					}
-				}, 100)
+	const spineLabel = getSpineSectionLabel(playContext)
+	const sheetTitle = formatQueueSheetTitle(upNext.length, spineTotal, spineLabel)
+	const spineHeading = getSpineSectionHeading(playContext)
+	const isEmpty =
+		!currentTrack && upNext.length === 0 && spine.length === 0 && spineTotal === 0
+
+	const removeUpNextTrack = useCallback(
+		(index: number) => {
+			removeTrackFromPlaylist({ zone: 'upNext', index })
+		},
+		[removeTrackFromPlaylist],
+	)
+
+	const removeSpineTrack = useCallback(
+		(displayIndex: number) => {
+			removeTrackFromPlaylist({
+				zone: 'spine',
+				index: spinePosition + 1 + displayIndex,
 			})
-		}
+		},
+		[removeTrackFromPlaylist, spinePosition],
+	)
 
-		const timeoutId = setTimeout(() => scrollToCurrentTrack(0), 200)
-		return () => clearTimeout(timeoutId)
-	}, [isOpen, currentIndex, playlist.length, virtualizer])
+	const removeCurrentTrack = useCallback(() => {
+		removeCurrentFromQueue()
+	}, [removeCurrentFromQueue])
 
 	return (
 		<Sheet open={isOpen} onOpenChange={setIsOpen}>
@@ -1172,10 +1225,10 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 			</SheetTrigger>
 			<SheetContent side="bottom" className="h-[80vh] flex flex-col">
 				<SheetHeader className="flex-shrink-0">
-					<SheetTitle>Queue ({playlist.length} tracks)</SheetTitle>
+					<SheetTitle>{sheetTitle}</SheetTitle>
 				</SheetHeader>
-				<div className="flex-1 mt-6 min-h-0">
-					{playlist.length === 0 ? (
+				<div className="flex-1 mt-6 min-h-0 flex flex-col gap-4">
+					{isEmpty ? (
 						<div className="text-center py-12">
 							<Icon name="file-text" className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
 							<h3 className="text-lg font-semibold mb-2">Queue is Empty</h3>
@@ -1184,40 +1237,67 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 							</p>
 						</div>
 					) : (
-						<ScrollArea className="h-full w-full" ref={parentRef}>
-							<div
-								style={{
-									height: `${virtualizer.getTotalSize()}px`,
-									width: '100%',
-									position: 'relative',
-								}}
-							>
-								{virtualizer.getVirtualItems().map((virtualItem) => {
-									const track = playlist[virtualItem.index]
-									if (!track) return null
+						<>
+							{currentTrack ? (
+								<section>
+									<QueueSectionHeading>Now playing</QueueSectionHeading>
+									<QueueTrackItem
+										track={currentTrack}
+										isCurrentlyPlaying
+										onRemove={removeCurrentTrack}
+									/>
+								</section>
+							) : null}
 
-									return (
-										<div
-											key={`${track.id}-${virtualItem.index}`}
-											style={{
-												position: 'absolute',
-												top: 0,
-												left: 0,
-												width: '100%',
-												height: `${virtualItem.size}px`,
-												transform: `translateY(${virtualItem.start}px)`,
-											}}
-										>
-											<QueueTrackItem
-												track={track}
-												isCurrentlyPlaying={currentTrack?.id === track.id && currentIndex === virtualItem.index}
-												onRemove={() => removeTrackFromPlaylist(virtualItem.index)}
+							{upNext.length > 0 ? (
+								<section
+									className={
+										upNext.length >= UP_NEXT_VIRTUAL_THRESHOLD
+											? 'flex-1 min-h-0 flex flex-col'
+											: undefined
+									}
+								>
+									<QueueSectionHeading>Up Next</QueueSectionHeading>
+									{upNext.length >= UP_NEXT_VIRTUAL_THRESHOLD ? (
+										<ScrollArea className="flex-1 w-full min-h-0" ref={upNextScrollRef}>
+											<VirtualQueueTrackList
+												tracks={upNext}
+												onRemoveTrack={removeUpNextTrack}
+												parentRef={upNextScrollRef}
 											/>
-										</div>
-									)
-								})}
-							</div>
-						</ScrollArea>
+										</ScrollArea>
+									) : (
+										upNext.map((track, index) => (
+											<QueueTrackItem
+												key={`${track.id}-${index}`}
+												track={track}
+												isCurrentlyPlaying={false}
+												onRemove={() => removeUpNextTrack(index)}
+											/>
+										))
+									)}
+								</section>
+							) : null}
+
+							{spine.length > 0 || spineTotal > 0 ? (
+								<section className="flex-1 min-h-0 flex flex-col">
+									<QueueSectionHeading>{spineHeading}</QueueSectionHeading>
+									{spine.length > 0 ? (
+										<ScrollArea className="flex-1 w-full min-h-0" ref={spineScrollRef}>
+											<VirtualQueueTrackList
+												tracks={spine}
+												onRemoveTrack={removeSpineTrack}
+												parentRef={spineScrollRef}
+											/>
+										</ScrollArea>
+									) : (
+										<p className="px-4 py-3 text-sm text-muted-foreground">
+											No more tracks in this queue.
+										</p>
+									)}
+								</section>
+							) : null}
+						</>
 					)}
 				</div>
 			</SheetContent>

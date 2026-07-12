@@ -7,11 +7,13 @@ import {
 	findSpinePositionForTrackId,
 	flatIndexForSpinePosition,
 	getTrackAtTarget,
+	getUpcomingSpinePlayOrder,
 	hasNextTrack,
 	hasPreviousTrack,
 	resolveNextTrack,
 	resolvePreviousTrack,
 	type QueueNavigationState,
+	type QueueTarget,
 } from '#app/features/queue/queue-navigation.ts'
 import {
 	collectHydrationIds,
@@ -50,6 +52,10 @@ interface AudioPlayerContextType {
 	currentTrack: Track | null
 	isPlayerVisible: boolean
 	playlist: Track[]
+	upNext: Track[]
+	spine: Track[]
+	spineTotal: number
+	spinePosition: number
 	currentIndex: number
 	playContext: PlaylistContext | null
 	loopMode: LoopMode
@@ -67,7 +73,8 @@ interface AudioPlayerContextType {
 	hasPrevious: boolean
 	isLoadingNext: boolean
 	addTrackToPlaylist: (track: Track, position?: 'next' | 'end') => void
-	removeTrackFromPlaylist: (index: number) => void
+	removeTrackFromPlaylist: (target: QueueTarget) => void
+	removeCurrentFromQueue: () => void
 	playNextTrack: (track: Track) => void
 	addToCurrentPlaylist: (track: Track) => void
 }
@@ -91,6 +98,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const [isPlayerVisible, setIsPlayerVisible] = useState(false)
 	const [upNext, setUpNext] = useState<QueueTrack[]>([])
 	const [spine, setSpine] = useState<QueueTrack[]>([])
+	const [spineTotal, setSpineTotal] = useState(0)
 	const [spineOrder, setSpineOrder] = useState<number[]>([])
 	const [spinePosition, setSpinePosition] = useState(0)
 	const [playContext, setPlayContext] = useState<PlaylistContext | null>(null)
@@ -120,6 +128,19 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		return resolveFullTracks(
 			playbackCacheRef.current,
 			buildFlatQueueView(navigationState),
+		)
+	}, [navigationState, cacheVersion])
+
+	const upNextView = useMemo(() => {
+		void cacheVersion
+		return resolveFullTracks(playbackCacheRef.current, upNext)
+	}, [upNext, cacheVersion])
+
+	const spineView = useMemo(() => {
+		void cacheVersion
+		return resolveFullTracks(
+			playbackCacheRef.current,
+			getUpcomingSpinePlayOrder(navigationState),
 		)
 	}, [navigationState, cacheVersion])
 
@@ -170,13 +191,13 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	}, [])
 
 	const loadSpineForContext = useCallback(
-		async (context: PlaylistContext): Promise<QueueTrack[]> => {
+		async (context: PlaylistContext): Promise<{ tracks: QueueTrack[]; total: number }> => {
 			const spineContext = toQueueSpineContext(context)
 
 			if (spineContext) {
 				try {
 					const result = await fetchQueueSpine(spineContext)
-					if (result.tracks.length > 0) return result.tracks
+					if (result.tracks.length > 0) return result
 				} catch (error) {
 					console.error('Failed to fetch queue spine:', error)
 				}
@@ -187,7 +208,8 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				playbackCacheRef.current.set(track)
 			}
 			setCacheVersion(version => version + 1)
-			return offlineTracks.map(queueTrackFromFullTrack)
+			const tracks = offlineTracks.map(queueTrackFromFullTrack)
+			return { tracks, total: tracks.length }
 		},
 		[fetchOfflineTracks],
 	)
@@ -195,6 +217,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const resetQueueState = useCallback(() => {
 		setUpNext([])
 		setSpine([])
+		setSpineTotal(0)
 		setSpineOrder([])
 		setSpinePosition(0)
 		playbackCacheRef.current.clear()
@@ -222,22 +245,23 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				const loadedSpine = await loadSpineForContext(context)
 				if (epoch !== playlistFetchEpochRef.current) return
 
-				const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled)
+				const order = createShuffledOrder(loadedSpine.tracks.length, isShuffleEnabled)
 				const resolvedPosition = (() => {
 					if (
 						explicitIndex !== undefined &&
-						loadedSpine[explicitIndex]?.id === track.id
+						loadedSpine.tracks[explicitIndex]?.id === track.id
 					) {
 						return order.findIndex(index => index === explicitIndex)
 					}
 					return findSpinePositionForTrackId(
-						{ upNext: [], spine: loadedSpine, spineOrder: order, spinePosition: 0, loopMode: 'off' },
+						{ upNext: [], spine: loadedSpine.tracks, spineOrder: order, spinePosition: 0, loopMode: 'off' },
 						track.id,
 					) ?? 0
 				})()
 
 				setUpNext([])
-				setSpine(loadedSpine)
+				setSpine(loadedSpine.tracks)
+				setSpineTotal(loadedSpine.total)
 				setSpineOrder(order)
 				setSpinePosition(resolvedPosition >= 0 ? resolvedPosition : 0)
 
@@ -314,6 +338,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
 			setUpNext([])
 			setSpine(loadedSpine)
+			setSpineTotal(loadedSpine.length)
 			setSpineOrder(order)
 			setSpinePosition(spinePosition >= 0 ? spinePosition : 0)
 			setPlayContext(context)
@@ -333,14 +358,15 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			}
 
 			const loadedSpine = await loadSpineForContext({ type: 'library' })
-			if (loadedSpine.length === 0) return
+			if (loadedSpine.tracks.length === 0) return
 
-			const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled)
-			const firstQueueTrack = loadedSpine[order[0] ?? 0]
+			const order = createShuffledOrder(loadedSpine.tracks.length, isShuffleEnabled)
+			const firstQueueTrack = loadedSpine.tracks[order[0] ?? 0]
 			if (!firstQueueTrack) return
 
 			setUpNext([])
-			setSpine(loadedSpine)
+			setSpine(loadedSpine.tracks)
+			setSpineTotal(loadedSpine.total)
 			setSpineOrder(order)
 			setSpinePosition(0)
 			setPlayContext({ type: 'library' })
@@ -382,14 +408,15 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 					type: 'playlist',
 					playlistId,
 				})
-				if (loadedSpine.length === 0) return
+				if (loadedSpine.tracks.length === 0) return
 
-				const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled)
-				const firstQueueTrack = loadedSpine[order[0] ?? 0]
+				const order = createShuffledOrder(loadedSpine.tracks.length, isShuffleEnabled)
+				const firstQueueTrack = loadedSpine.tracks[order[0] ?? 0]
 				if (!firstQueueTrack) return
 
 				setUpNext([])
-				setSpine(loadedSpine)
+				setSpine(loadedSpine.tracks)
+				setSpineTotal(loadedSpine.total)
 				setSpineOrder(order)
 				setSpinePosition(0)
 				setPlayContext({ type: 'playlist', playlistId })
@@ -436,19 +463,19 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				setSpineOrder(order => [...order, nextIndex])
 				return [...prev, queueTrack]
 			})
+			setSpineTotal(total => total + 1)
 		},
 		[rememberTrack],
 	)
 
 	const removeTrackFromPlaylist = useCallback(
-		(index: number) => {
-			if (index < upNext.length) {
-				setUpNext(prev => prev.filter((_, itemIndex) => itemIndex !== index))
+		(target: QueueTarget) => {
+			if (target.zone === 'upNext') {
+				setUpNext(prev => prev.filter((_, itemIndex) => itemIndex !== target.index))
 				return
 			}
 
-			const spineFlatIndex = index - upNext.length
-			const orderIndex = spinePosition + spineFlatIndex
+			const orderIndex = target.index
 			if (orderIndex < 0 || orderIndex >= spineOrder.length) return
 
 			const spineIndexToRemove = spineOrder[orderIndex]
@@ -460,6 +487,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 					.filter((_, itemIndex) => itemIndex !== orderIndex)
 					.map(spineIndex => (spineIndex > spineIndexToRemove ? spineIndex - 1 : spineIndex)),
 			)
+			setSpineTotal(total => Math.max(0, total - 1))
 
 			if (orderIndex < spinePosition) {
 				setSpinePosition(position => Math.max(0, position - 1))
@@ -479,8 +507,44 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				}
 			}
 		},
-		[navigationState, playResolvedTrack, spineOrder.length, spinePosition, upNext.length],
+		[navigationState, playResolvedTrack, spineOrder, spinePosition],
 	)
+
+	const removeCurrentFromQueue = useCallback(() => {
+		if (!currentTrack) return
+
+		const upNextIndex = upNext.findIndex(track => track.id === currentTrack.id)
+		if (upNextIndex >= 0) {
+			removeTrackFromPlaylist({ zone: 'upNext', index: upNextIndex })
+			return
+		}
+
+		if (findSpinePositionForTrackId(navigationState, currentTrack.id) === spinePosition) {
+			removeTrackFromPlaylist({ zone: 'spine', index: spinePosition })
+			return
+		}
+
+		const nextTarget = resolveNextTrack(navigationState)
+		if (nextTarget) {
+			const queueTrack = getTrackAtTarget(navigationState, nextTarget)
+			if (!queueTrack) return
+
+			const nextState = advanceAfterPlay(navigationState, nextTarget)
+			setUpNext(nextState.upNext)
+			setSpinePosition(nextState.spinePosition)
+			void playResolvedTrack(queueTrack)
+			return
+		}
+
+		setCurrentTrack(null)
+	}, [
+		currentTrack,
+		navigationState,
+		playResolvedTrack,
+		removeTrackFromPlaylist,
+		spinePosition,
+		upNext,
+	])
 
 	const playNextTrack = useCallback(
 		(track: Track) => {
@@ -600,6 +664,10 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				currentTrack,
 				isPlayerVisible,
 				playlist,
+				upNext: upNextView,
+				spine: spineView,
+				spineTotal,
+				spinePosition,
 				currentIndex,
 				playContext,
 				loopMode,
@@ -618,6 +686,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				isLoadingNext,
 				addTrackToPlaylist,
 				removeTrackFromPlaylist,
+				removeCurrentFromQueue,
 				playNextTrack,
 				addToCurrentPlaylist,
 			}}

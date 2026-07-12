@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { type QueueTrack } from '#app/types/frontend/shared.ts'
 import {
 	getSpinePlayOrder,
+	getUpcomingSpinePlayOrder,
 	hasNextTrack,
 	hasPreviousTrack,
 	resolveNextTrack,
@@ -142,5 +143,24 @@ describe('getSpinePlayOrder', () => {
 			's1',
 			's2',
 		])
+	})
+})
+
+describe('getUpcomingSpinePlayOrder', () => {
+	test('returns spine tracks after the current position only', () => {
+		const state = baseState({
+			spineOrder: [2, 0, 1],
+			spinePosition: 1,
+		})
+
+		expect(getUpcomingSpinePlayOrder(state).map(track => track.id)).toEqual([
+			's2',
+		])
+	})
+
+	test('returns empty when current track is last in spine order', () => {
+		const state = baseState({ spinePosition: 2 })
+
+		expect(getUpcomingSpinePlayOrder(state)).toEqual([])
 	})
 })

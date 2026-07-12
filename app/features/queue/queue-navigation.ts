@@ -24,6 +24,13 @@ export function getSpinePlayOrder(state: QueueNavigationState): QueueTrack[] {
 	return spineOrder.slice(spinePosition).map(index => spine[index]!)
 }
 
+export function getUpcomingSpinePlayOrder(
+	state: QueueNavigationState,
+): QueueTrack[] {
+	const { spine, spineOrder, spinePosition } = state
+	return spineOrder.slice(spinePosition + 1).map(index => spine[index]!)
+}
+
 export function resolveNextTrack(
 	state: QueueNavigationState,
 ): QueueTarget | null {
