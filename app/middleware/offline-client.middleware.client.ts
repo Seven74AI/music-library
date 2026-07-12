@@ -4,12 +4,12 @@ import {
 	type DataStrategyResult,
 	type MiddlewareFunction,
 } from 'react-router'
+import { isOfflineEnvironment } from '#app/features/offline-app/is-offline-environment.client.ts'
 import {
 	getOfflineRedirectTarget,
-	resolveOfflineFallbackForRoute,
+	resolveOfflineStubForRoute,
 	shouldSkipOfflineMiddlewareRoute,
-} from '#app/utils/offline-route-middleware-registry.ts'
-import { isOfflineEnvironment } from '#app/utils/offline-route-loader.client.ts'
+} from '#app/features/offline-app/offline-route-policies.client.ts'
 
 export function shouldSubstituteOfflineResult(result: DataStrategyResult | undefined) {
 	if (!result) return true
@@ -30,7 +30,7 @@ export function patchOfflineDataStrategyResults(
 
 		patched[routeId] = {
 			type: 'data',
-			result: resolveOfflineFallbackForRoute(routeId, request),
+			result: resolveOfflineStubForRoute(routeId, request),
 		}
 	}
 

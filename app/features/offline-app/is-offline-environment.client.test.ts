@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test, vi } from 'vitest'
-import { isOfflineEnvironment } from './is-offline-environment.ts'
+import { isOfflineEnvironment } from './is-offline-environment.client.ts'
 
 describe('isOfflineEnvironment', () => {
 	test('returns true when navigator reports offline', () => {

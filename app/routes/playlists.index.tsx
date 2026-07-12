@@ -7,12 +7,16 @@ import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { Input } from '#app/components/ui/input.tsx'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#app/components/ui/select.tsx'
-import { listCachedPlaylists } from '#app/features/offline-storage/offline-playlist-metadata.client.ts'
-import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
+import {
+	createOfflineClientLoader,
+	type ServerLoaderData,
+} from '#app/features/offline-app/offline-loader.client.ts'
+import {
+	type PlaylistsIndexOfflineLoaderData,
+} from '#app/features/offline-app/offline-route-policies.client.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { cn } from '#app/utils/misc.tsx'
-import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
 import { type Route } from './+types/playlists.index.ts'
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -74,30 +78,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 	})
 }
 
-export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
-	return loadWithOfflineFallback(
-		() => serverLoader(),
-		async () => {
-			const storage = getOfflineStorage()
-			const cachedPlaylists = listCachedPlaylists()
-			const offlinePlaylists = await Promise.all(
-				cachedPlaylists.map(async (playlist) => ({
-					...playlist,
-					trackCount: (await storage.listForPlaylist(playlist.id)).length,
-				})),
-			)
-
-			return {
-				offline: true as const,
-				offlinePlaylists,
-				playlists: [],
-				pagination: { limit: 12, hasNext: false, nextCursor: null },
-			}
-		},
-	)
-}
-
-clientLoader.hydrate = true as const
+export const clientLoader = createOfflineClientLoader<
+	ServerLoaderData<typeof loader>,
+	PlaylistsIndexOfflineLoaderData
+>('routes/playlists.index')
 
 export function HydrateFallback() {
 	return <RouteHydrateFallback />

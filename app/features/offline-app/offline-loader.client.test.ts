@@ -1,5 +1,6 @@
 import { describe, expect, test, vi, afterEach } from 'vitest'
-import { isOfflineEnvironment, loadWithOfflineFallback } from './offline-route-loader.client.ts'
+import { isOfflineEnvironment, loadWithOfflineFallback } from './offline-loader.client.ts'
+import { createOfflineClientLoader } from './offline-loader.client.ts'
 
 describe('isOfflineEnvironment', () => {
 	afterEach(() => {
@@ -87,5 +88,25 @@ describe('loadWithOfflineFallback', () => {
 			"Cannot read properties of undefined (reading 'x')",
 		)
 		expect(offlineLoader).not.toHaveBeenCalled()
+	})
+})
+
+describe('createOfflineClientLoader', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals()
+	})
+
+	test('uses policy offline loader on network failure', async () => {
+		vi.stubGlobal('navigator', { onLine: true })
+		const clientLoader = createOfflineClientLoader('routes/_marketing+/index')
+		const serverLoader = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+
+		const result = await clientLoader({
+			serverLoader,
+			params: {},
+			request: new Request('https://example.com/'),
+		})
+
+		expect(result).toEqual({ mode: 'offline' })
 	})
 })

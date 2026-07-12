@@ -15,10 +15,10 @@ import {
 import { HoneypotProvider } from 'remix-utils/honeypot/react'
 import { useToast } from '#app/components/toaster.tsx'
 import {
-	createFallbackOfflineRootShell,
-	persistOfflineRootShell,
-} from '#app/utils/offline-root-shell.client.ts'
-import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
+	createOfflineClientLoader,
+	type ServerLoaderData,
+} from '#app/features/offline-app/offline-loader.client.ts'
+import { type OfflineRootShell } from '#app/features/offline-app/offline-root-shell.client.ts'
 import { offlineClientMiddleware } from './middleware/offline-client.middleware.client.ts'
 import { type Route } from './+types/root.ts'
 import appleTouchIconAssetUrl from './assets/favicons/apple-touch-icon.png'
@@ -177,27 +177,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 	)
 }
 
-export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
-	return loadWithOfflineFallback(
-		async () => {
-			const shell = await serverLoader()
-			persistOfflineRootShell({
-				user: shell.user,
-				requestInfo: {
-					...shell.requestInfo,
-					userPrefs: {
-						theme: shell.requestInfo.userPrefs.theme ?? 'light',
-					},
-				},
-				ENV: shell.ENV,
-			})
-			return shell
-		},
-		async () => createFallbackOfflineRootShell(),
-	)
-}
-
-clientLoader.hydrate = true as const
+export const clientLoader = createOfflineClientLoader<
+	ServerLoaderData<typeof loader>,
+	OfflineRootShell
+>('root')
 
 export function HydrateFallback() {
 	return <RouteHydrateFallback />

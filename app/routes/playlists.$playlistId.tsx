@@ -46,14 +46,18 @@ import { Icon } from '#app/components/ui/icon.tsx'
 import { toast } from '#app/components/ui/use-toast.ts'
 import {
 	cachePlaylistMetadata,
-	getCachedPlaylistMetadata,
 } from '#app/features/offline-storage/offline-playlist-metadata.client.ts'
-import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { getPlaylistTitle } from '#app/utils/breadcrumb-utils.ts'
 import { chunkArray } from '#app/utils/chunk-array.ts'
 import { prisma } from '#app/utils/db.server.ts'
-import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
+import {
+	createOfflineClientLoader,
+	type ServerLoaderData,
+} from '#app/features/offline-app/offline-loader.client.ts'
+import {
+	type PlaylistDetailOfflineLoaderData,
+} from '#app/features/offline-app/offline-route-policies.client.ts'
 import { filterPlayableTracks } from '#app/utils/playable-track.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
 import { userPlaylistTitleTaken } from '#app/utils/user-playlist.server.ts'
@@ -159,39 +163,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	return data({ playlist: { ...playlist, tracks: tracksWithLibraryStatus }, playlists: userPlaylists })
 }
 
-export async function clientLoader({
-	serverLoader,
-	params,
-}: Route.ClientLoaderArgs) {
-	return loadWithOfflineFallback(
-		() => serverLoader(),
-		async () => {
-			const playlistId = params.playlistId
-			if (!playlistId) {
-				throw new Response('Playlist not found', { status: 404 })
-			}
-
-			const storage = getOfflineStorage()
-			const offlineTracks = await storage.listForPlaylist(playlistId)
-			const cachedMeta = getCachedPlaylistMetadata(playlistId)
-
-			return {
-				offline: true as const,
-				offlineTracks,
-				offlinePlaylistMeta: cachedMeta ?? {
-					id: playlistId,
-					title: 'Offline playlist',
-					description: null,
-					updatedAt: Date.now(),
-				},
-				playlist: null,
-				playlists: [],
-			}
-		},
-	)
-}
-
-clientLoader.hydrate = true as const
+export const clientLoader = createOfflineClientLoader<
+	ServerLoaderData<typeof loader>,
+	PlaylistDetailOfflineLoaderData
+>('routes/playlists.$playlistId')
 
 export function HydrateFallback() {
 	return <RouteHydrateFallback />

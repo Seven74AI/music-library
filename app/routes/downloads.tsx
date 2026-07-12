@@ -3,19 +3,14 @@ import { OfflineLibraryView } from '#app/components/offline/offline-library-view
 import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
-import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
+import {
+	createDeviceOnlyClientLoader,
+} from '#app/features/offline-app/offline-loader.client.ts'
+import { type DownloadsOfflineLoaderData } from '#app/features/offline-app/offline-route-policies.client.ts'
 import { type Route } from './+types/downloads.ts'
 
-export async function clientLoader() {
-	const storage = getOfflineStorage()
-	const [tracks, stats] = await Promise.all([
-		storage.listDownloaded(),
-		storage.getStorageStats(),
-	])
-	return { tracks, stats }
-}
-
-clientLoader.hydrate = true
+export const clientLoader =
+	createDeviceOnlyClientLoader<DownloadsOfflineLoaderData>('routes/downloads')
 
 export function HydrateFallback() {
 	return <RouteHydrateFallback />

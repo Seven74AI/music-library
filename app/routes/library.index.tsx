@@ -10,7 +10,13 @@ import { Icon } from '#app/components/ui/icon.tsx'
 import { Label } from '#app/components/ui/label.tsx'
 import { ScrollArea } from '#app/components/ui/scroll-area'
 import { TrackListSkeleton } from '#app/components/ui/track-list-skeleton'
-import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
+import {
+	createOfflineClientLoader,
+	type ServerLoaderData,
+} from '#app/features/offline-app/offline-loader.client.ts'
+import {
+	type LibraryOfflineLoaderData,
+} from '#app/features/offline-app/offline-route-policies.client.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { LIBRARY_TRACKS_PAGE_SIZE } from '#app/utils/library-tracks-pagination.ts'
@@ -18,7 +24,6 @@ import {
 	buildLibraryUserTracksWhere,
 	parseHasAudioOnlyParam,
 } from '#app/utils/library-user-tracks.server.ts'
-import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
 import { type Route } from './+types/library.index.ts'
 
 // Define the track type
@@ -136,28 +141,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 	})
 }
 
-export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
-	return loadWithOfflineFallback(
-		() => serverLoader(),
-		async () => {
-			const storage = getOfflineStorage()
-			return {
-				offline: true as const,
-				offlineTracks: await storage.listPinned(),
-				userTracks: [],
-				pagination: {
-					limit: LIBRARY_TRACKS_PAGE_SIZE,
-					hasNext: false,
-					nextCursor: null,
-				},
-				hasAudioOnly: false,
-				playlists: [],
-			}
-		},
-	)
-}
-
-clientLoader.hydrate = true as const
+export const clientLoader = createOfflineClientLoader<
+	ServerLoaderData<typeof loader>,
+	LibraryOfflineLoaderData
+>('routes/library.index')
 
 export function HydrateFallback() {
 	return (

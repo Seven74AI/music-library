@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback, useRef, useEffect, ty
 import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
 import { offlineSummaryToFullTrack } from '#app/features/offline-storage/offline-track-summary.client.ts'
 import { type FullTrack } from '#app/types/frontend/shared'
-import { isOfflineEnvironment } from '#app/utils/offline-route-loader.client.ts'
+import { isOfflineEnvironment } from '#app/features/offline-app/is-offline-environment.client.ts'
 import { filterPlayableTracks, isPlayableTrack } from '#app/utils/playable-track'
 import { AudioPlayer } from './audio-player'
 import { InstallAppBanner } from './pwa/install-app-banner'

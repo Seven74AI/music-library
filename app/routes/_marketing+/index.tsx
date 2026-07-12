@@ -5,7 +5,8 @@ import { OnboardingHome } from '#app/components/home/onboarding-home.tsx'
 import { OfflineHome } from '#app/components/offline/offline-home.tsx'
 import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { loadHomeData } from '#app/utils/home.server.ts'
-import { loadWithOfflineFallback } from '#app/utils/offline-route-loader.client.ts'
+import { createOfflineClientLoader, type ServerLoaderData } from '#app/features/offline-app/offline-loader.client.ts'
+import { type HomeOfflineLoaderData } from '#app/features/offline-app/offline-route-policies.client.ts'
 import { type Route } from './+types/index.ts'
 
 export const meta: Route.MetaFunction = () => [{ title: 'Music Library' }]
@@ -14,14 +15,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 	return loadHomeData(request)
 }
 
-export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
-	return loadWithOfflineFallback(
-		() => serverLoader(),
-		async () => ({ mode: 'offline' as const }),
-	)
-}
-
-clientLoader.hydrate = true as const
+export const clientLoader = createOfflineClientLoader<
+	ServerLoaderData<typeof loader>,
+	HomeOfflineLoaderData
+>('routes/_marketing+/index')
 
 export function HydrateFallback() {
 	return <RouteHydrateFallback />

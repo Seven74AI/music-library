@@ -4,21 +4,21 @@ import {
 	shouldSubstituteOfflineResult,
 } from './offline-client.middleware.client.ts'
 import {
-	resolveOfflineFallbackForRoute,
+	resolveOfflineStubForRoute,
 	shouldSkipOfflineMiddlewareRoute,
-} from '#app/utils/offline-route-middleware-registry.ts'
+} from '#app/features/offline-app/offline-route-policies.client.ts'
 
 describe('shouldSkipOfflineMiddlewareRoute', () => {
-	test('skips self-managed and auth routes', () => {
+	test('skips live routes and auth routes', () => {
 		expect(shouldSkipOfflineMiddlewareRoute('routes/library.index')).toBe(true)
 		expect(shouldSkipOfflineMiddlewareRoute('routes/_auth+/login')).toBe(true)
 		expect(shouldSkipOfflineMiddlewareRoute('routes/search')).toBe(false)
 	})
 })
 
-describe('resolveOfflineFallbackForRoute', () => {
+describe('resolveOfflineStubForRoute', () => {
 	test('returns shaped search fallback', () => {
-		const fallback = resolveOfflineFallbackForRoute(
+		const fallback = resolveOfflineStubForRoute(
 			'routes/search',
 			new Request('https://example.com/search?q=foo'),
 		)
@@ -26,7 +26,7 @@ describe('resolveOfflineFallbackForRoute', () => {
 	})
 
 	test('extracts track id from pathname', () => {
-		const fallback = resolveOfflineFallbackForRoute(
+		const fallback = resolveOfflineStubForRoute(
 			'routes/library.$trackId',
 			new Request('https://example.com/library/track-123'),
 		) as { track: { id: string } }
@@ -59,7 +59,7 @@ describe('shouldSubstituteOfflineResult', () => {
 })
 
 describe('patchOfflineDataStrategyResults', () => {
-	test('patches failed loader results for blocked routes', () => {
+	test('patches failed loader results for stub routes', () => {
 		const request = new Request('https://example.com/search')
 		const patched = patchOfflineDataStrategyResults(
 			{
