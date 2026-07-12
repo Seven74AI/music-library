@@ -234,6 +234,42 @@ test('auto-plays after track change once the new audio URL has loaded', async ()
 	})
 })
 
+test('keeps player chrome visible while the next track audio URL is loading', async () => {
+	const { resolveTrackPlaybackSource } = await import(
+		'#app/features/offline-storage/resolve-playback-url.client.ts'
+	)
+	const resolveMock = vi.mocked(resolveTrackPlaybackSource)
+	let resolveSecondTrack: ((url: string) => void) | undefined
+
+	resolveMock.mockImplementation((trackId: string) => {
+		if (trackId === 'track-2') {
+			return new Promise(resolve => {
+				resolveSecondTrack = resolve
+			})
+		}
+		return Promise.resolve('https://cdn.example/track-1.mp3')
+	})
+
+	const { rerender } = await renderPlayer()
+
+	rerender(
+		<AudioPlayer
+			{...defaultProps}
+			track={mockTrack2}
+			playbackToken={2}
+			wantsAutoPlayRef={{ current: true }}
+		/>,
+	)
+
+	expect(screen.getByTestId('player-desktop-bar')).toBeTruthy()
+
+	resolveSecondTrack?.('https://cdn.example/track-2.mp3')
+
+	await waitFor(() => {
+		expect(screen.getByTestId('player-desktop-bar')).toBeTruthy()
+	})
+})
+
 test('renders mobile mini bar with play and close controls', async () => {
 	await renderPlayer()
 
@@ -300,6 +336,7 @@ test('queue sheet shows three-zone sections and formatted title counts', async (
 	expect(within(queueSheet as HTMLElement).getByText('From Library')).toBeTruthy()
 	expect(within(queueSheet as HTMLElement).getAllByText('Test Song').length).toBeGreaterThan(0)
 	expect(within(queueSheet as HTMLElement).getByText('Queued Next')).toBeTruthy()
+	expect(within(queueSheet as HTMLElement).getByText('Library Track')).toBeTruthy()
 })
 
 test('queue sheet uses From Playlist heading for playlist context', async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { type QueueTrack } from '#app/types/frontend/shared.ts'
 import {
+	getQueueSpineDisplayTracks,
 	getSpinePlayOrder,
 	getUpcomingSpinePlayOrder,
 	hasNextTrack,
@@ -162,5 +163,35 @@ describe('getUpcomingSpinePlayOrder', () => {
 		const state = baseState({ spinePosition: 2 })
 
 		expect(getUpcomingSpinePlayOrder(state)).toEqual([])
+	})
+})
+
+describe('getQueueSpineDisplayTracks', () => {
+	test('shows upcoming spine when something is playing', () => {
+		const state = baseState({ spinePosition: 0 })
+
+		expect(getQueueSpineDisplayTracks(state, true).map(track => track.id)).toEqual([
+			's2',
+			's3',
+		])
+	})
+
+	test('shows full spine play order when nothing is playing', () => {
+		const state = baseState({ spinePosition: 0 })
+
+		expect(getQueueSpineDisplayTracks(state, false).map(track => track.id)).toEqual([
+			's1',
+			's2',
+			's3',
+		])
+	})
+
+	test('excludes tracks already listed in Up Next', () => {
+		const state = baseState({
+			upNext: [track('s2')],
+			spinePosition: 0,
+		})
+
+		expect(getQueueSpineDisplayTracks(state, true).map(t => t.id)).toEqual(['s3'])
 	})
 })

@@ -1,6 +1,6 @@
 import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import {
 	formatQueueSheetTitle,
@@ -1031,8 +1031,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		return null
 	}
 
-	if (!audioSrc) {
-		if (!playbackError) return null
+	if (!audioSrc && playbackError) {
 		return (
 			<div
 				data-testid="player-playback-error"
@@ -1103,6 +1102,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
  * Bottom sheet showing the three-zone queue: Now playing, Up Next, and spine.
  */
 const UP_NEXT_VIRTUAL_THRESHOLD = 20
+const SPINE_VIRTUAL_THRESHOLD = 20
 
 function QueueSectionHeading({ children }: { children: ReactNode }) {
 	return (
@@ -1121,16 +1121,48 @@ function VirtualQueueTrackList({
 	onRemoveTrack: (index: number) => void
 	parentRef: React.RefObject<HTMLDivElement | null>
 }) {
+	const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null)
+
+	useLayoutEffect(() => {
+		const viewport = parentRef.current?.querySelector(
+			'[data-radix-scroll-area-viewport]',
+		) as HTMLElement | null
+
+		setScrollElement(viewport)
+		if (!viewport) return
+
+		const observer = new ResizeObserver(() => {
+			setScrollElement(viewport)
+		})
+		observer.observe(viewport)
+
+		return () => observer.disconnect()
+	}, [parentRef, tracks.length])
+
 	const virtualizer = useVirtualizer({
 		count: tracks.length,
-		getScrollElement: () =>
-			parentRef.current?.querySelector(
-				'[data-radix-scroll-area-viewport]',
-			) as HTMLElement || null,
+		getScrollElement: () => scrollElement,
 		estimateSize: () => 60,
 		overscan: 10,
 		rangeExtractor: defaultRangeExtractor,
 	})
+
+	const virtualItems = virtualizer.getVirtualItems()
+
+	if (virtualItems.length === 0 && tracks.length > 0 && tracks.length < SPINE_VIRTUAL_THRESHOLD) {
+		return (
+			<>
+				{tracks.map((track, index) => (
+					<QueueTrackItem
+						key={`${track.id}-${index}`}
+						track={track}
+						isCurrentlyPlaying={false}
+						onRemove={() => onRemoveTrack(index)}
+					/>
+				))}
+			</>
+		)
+	}
 
 	return (
 		<div
@@ -1140,7 +1172,7 @@ function VirtualQueueTrackList({
 				position: 'relative',
 			}}
 		>
-			{virtualizer.getVirtualItems().map(virtualItem => {
+			{virtualItems.map(virtualItem => {
 				const track = tracks[virtualItem.index]
 				if (!track) return null
 
@@ -1286,13 +1318,24 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 								<section className="flex-1 min-h-0 flex flex-col">
 									<QueueSectionHeading>{spineHeading}</QueueSectionHeading>
 									{spine.length > 0 ? (
-										<ScrollArea className="flex-1 w-full min-h-0" ref={spineScrollRef}>
-											<VirtualQueueTrackList
-												tracks={spine}
-												onRemoveTrack={removeSpineTrack}
-												parentRef={spineScrollRef}
-											/>
-										</ScrollArea>
+										spine.length >= SPINE_VIRTUAL_THRESHOLD ? (
+											<ScrollArea className="flex-1 w-full min-h-0" ref={spineScrollRef}>
+												<VirtualQueueTrackList
+													tracks={spine}
+													onRemoveTrack={removeSpineTrack}
+													parentRef={spineScrollRef}
+												/>
+											</ScrollArea>
+										) : (
+											spine.map((track, index) => (
+												<QueueTrackItem
+													key={`${track.id}-${index}`}
+													track={track}
+													isCurrentlyPlaying={false}
+													onRemove={() => removeSpineTrack(index)}
+												/>
+											))
+										)
 									) : (
 										<p className="px-4 py-3 text-sm text-muted-foreground">
 											No more tracks in this queue.

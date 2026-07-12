@@ -7,7 +7,7 @@ import {
 	findSpinePositionForTrackId,
 	flatIndexForSpinePosition,
 	getTrackAtTarget,
-	getUpcomingSpinePlayOrder,
+	getQueueSpineDisplayTracks,
 	hasNextTrack,
 	hasPreviousTrack,
 	resolveNextTrack,
@@ -115,6 +115,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const playbackCacheRef = useRef(new PlaybackHydrationCache())
 	const playlistFetchEpochRef = useRef(0)
 	const wantsAutoPlayRef = useRef(false)
+	const upNextPlayNextCountRef = useRef(0)
 
 	const navigationState = useMemo<QueueNavigationState>(
 		() => ({
@@ -144,9 +145,9 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		void cacheVersion
 		return resolveFullTracks(
 			playbackCacheRef.current,
-			getUpcomingSpinePlayOrder(navigationState),
+			getQueueSpineDisplayTracks(navigationState, currentTrack !== null),
 		)
-	}, [navigationState, cacheVersion])
+	}, [navigationState, cacheVersion, currentTrack])
 
 	const currentIndex = useMemo(() => {
 		if (!currentTrack) return -1
@@ -221,6 +222,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const resetQueueState = useCallback(() => {
 		setUpNext([])
 		setUpNextPlayNextCount(0)
+		upNextPlayNextCountRef.current = 0
 		setSpine([])
 		setSpineTotal(0)
 		setSpineOrder([])
@@ -266,6 +268,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
 				setUpNext([])
 				setUpNextPlayNextCount(0)
+				upNextPlayNextCountRef.current = 0
 				setSpine(loadedSpine.tracks)
 				setSpineTotal(loadedSpine.total)
 				setSpineOrder(order)
@@ -344,6 +347,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
 			setUpNext([])
 			setUpNextPlayNextCount(0)
+			upNextPlayNextCountRef.current = 0
 			setSpine(loadedSpine)
 			setSpineTotal(loadedSpine.length)
 			setSpineOrder(order)
@@ -373,6 +377,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
 			setUpNext([])
 			setUpNextPlayNextCount(0)
+			upNextPlayNextCountRef.current = 0
 			setSpine(loadedSpine.tracks)
 			setSpineTotal(loadedSpine.total)
 			setSpineOrder(order)
@@ -424,6 +429,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
 				setUpNext([])
 				setUpNextPlayNextCount(0)
+				upNextPlayNextCountRef.current = 0
 				setSpine(loadedSpine.tracks)
 				setSpineTotal(loadedSpine.total)
 				setSpineOrder(order)
@@ -464,11 +470,13 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
 			if (position === 'next') {
 				setUpNext(prev => {
+					const insertAt = upNextPlayNextCountRef.current
 					const next = [...prev]
-					next.splice(upNextPlayNextCount, 0, queueTrack)
+					next.splice(insertAt, 0, queueTrack)
+					upNextPlayNextCountRef.current = insertAt + 1
 					return next
 				})
-				setUpNextPlayNextCount(count => count + 1)
+				setUpNextPlayNextCount(upNextPlayNextCountRef.current)
 				return
 			}
 
@@ -484,7 +492,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			})
 			setSpineTotal(total => total + 1)
 		},
-		[rememberTrack, upNextPlayNextCount],
+		[rememberTrack],
 	)
 
 	const openPlayerWithoutAutoplay = useCallback(() => {
@@ -499,7 +507,11 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			if (target.zone === 'upNext') {
 				setUpNext(prev => prev.filter((_, itemIndex) => itemIndex !== target.index))
 				if (target.index < upNextPlayNextCount) {
-					setUpNextPlayNextCount(count => Math.max(0, count - 1))
+					setUpNextPlayNextCount(count => {
+						const next = Math.max(0, count - 1)
+						upNextPlayNextCountRef.current = next
+						return next
+					})
 				}
 				return
 			}
@@ -561,7 +573,11 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			const nextState = advanceAfterPlay(navigationState, nextTarget)
 			setUpNext(nextState.upNext)
 			if (nextTarget.zone === 'upNext' && nextTarget.index < upNextPlayNextCount) {
-				setUpNextPlayNextCount(count => Math.max(0, count - 1))
+				setUpNextPlayNextCount(count => {
+					const next = Math.max(0, count - 1)
+					upNextPlayNextCountRef.current = next
+					return next
+				})
 			}
 			setSpinePosition(nextState.spinePosition)
 			void playResolvedTrack(queueTrack)
@@ -639,7 +655,11 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		const nextState = advanceAfterPlay(navigationState, target)
 		setUpNext(nextState.upNext)
 		if (target.zone === 'upNext' && target.index < upNextPlayNextCount) {
-			setUpNextPlayNextCount(count => Math.max(0, count - 1))
+			setUpNextPlayNextCount(count => {
+				const next = Math.max(0, count - 1)
+				upNextPlayNextCountRef.current = next
+				return next
+			})
 		}
 		setSpinePosition(nextState.spinePosition)
 		void playResolvedTrack(queueTrack)
@@ -706,8 +726,8 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		setPlayContext(null)
 	}, [resetQueueState])
 
-	const hasNext = spine.length > 0 && hasNextTrack(navigationState)
-	const hasPrevious = spine.length > 0 && hasPreviousTrack(navigationState)
+	const hasNext = hasNextTrack(navigationState)
+	const hasPrevious = hasPreviousTrack(navigationState)
 
 	useEffect(() => {
 		if (!isPlayerVisible || !currentTrack || isOfflineEnvironment()) return

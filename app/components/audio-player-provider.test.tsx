@@ -266,9 +266,49 @@ test('addToQueue appends after the spine and opens the player when idle', async 
 	await user.click(screen.getByRole('button', { name: 'Add to queue' }))
 
 	expect(screen.getByTestId('playlist-ids').textContent).toBe('track-1')
+	expect(screen.getByTestId('spine-ids').textContent).toBe('track-1')
 	expect(screen.getByTestId('up-next-ids').textContent).toBe('')
 	expect(screen.getByTestId('current-track-id').textContent).toBe('')
 	expect(screen.getByTestId('player-visible').textContent).toBe('true')
+})
+
+test('playNextTrack inserts before existing add-to-up-next items', async () => {
+	const user = userEvent.setup()
+	const fetchMock = vi.mocked(fetch)
+
+	fetchMock
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({
+				tracks: [spineTrack, { ...spineTrack, id: 'track-2', title: 'Other' }],
+				total: 2,
+			}),
+		} as Response)
+		.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ tracks: [playableTrack] }),
+		} as Response)
+
+	render(
+		<AudioPlayerProvider>
+			<QueueProbe />
+		</AudioPlayerProvider>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Play library track' }))
+	await waitFor(() => {
+		expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
+	})
+
+	fetchMock.mockResolvedValue({
+		ok: true,
+		json: async () => ({ tracks: [playableTrack, secondPlayableTrack] }),
+	} as Response)
+
+	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
+	await user.click(screen.getByRole('button', { name: 'Play second next' }))
+
+	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-2,track-1')
 })
 
 test('addToCurrentPlaylist maps to addToUpNext', async () => {
