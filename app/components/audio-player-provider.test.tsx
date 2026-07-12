@@ -1,8 +1,8 @@
 /**
  * @vitest-environment jsdom
  *
- * Provider state and fetch wiring. AudioPlayer is mocked for speed.
- * End-to-end queue UX (real player + queue sheet) is in audio-player-queue.integration.test.tsx.
+ * Provider fetch wiring and cold-start flags. AudioPlayer is mocked for speed.
+ * Queue ordering and queue sheet UX are covered in audio-player-queue.integration.test.tsx.
  */
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -70,25 +70,6 @@ const playableTrack: FullTrack = {
 	audioFiles: [{ id: 'af-1', format: 'mp3', objectKey: 'audio/test.mp3' }],
 }
 
-const secondPlayableTrack: FullTrack = {
-	...playableTrack,
-	id: 'track-2',
-	title: 'Second Song',
-}
-
-const thirdPlayableTrack: FullTrack = {
-	...playableTrack,
-	id: 'track-3',
-	title: 'Third Song',
-}
-
-const metadataTrack: FullTrack = {
-	...playableTrack,
-	id: 'track-2',
-	title: 'Metadata Only',
-	audioFiles: [],
-}
-
 const spineTrack = {
 	id: 'track-1',
 	title: 'Test Song',
@@ -99,16 +80,12 @@ function QueueProbe() {
 	const {
 		playNextTrack,
 		addToUpNext,
-		addToQueue,
-		addToCurrentPlaylist,
 		playTrack,
 		startQueuePlayback,
-		playlist,
-		upNext,
-		spine,
 		currentTrack,
 		isPlayerVisible,
 		hasQueuedPlayback,
+		upNext,
 	} = useAudioPlayer()
 
 	return (
@@ -116,23 +93,11 @@ function QueueProbe() {
 			<button type="button" onClick={() => playNextTrack(playableTrack)}>
 				Play next track
 			</button>
-			<button type="button" onClick={() => playNextTrack(secondPlayableTrack)}>
-				Play second next
-			</button>
-			<button type="button" onClick={() => playNextTrack(thirdPlayableTrack)}>
-				Play third next
-			</button>
 			<button type="button" onClick={() => addToUpNext(playableTrack)}>
 				Add to up next
 			</button>
-			<button type="button" onClick={() => addToQueue(playableTrack)}>
-				Add to queue
-			</button>
 			<button type="button" onClick={() => void startQueuePlayback()}>
 				Start queue playback
-			</button>
-			<button type="button" onClick={() => addToCurrentPlaylist(metadataTrack)}>
-				Add metadata track
 			</button>
 			<button
 				type="button"
@@ -143,9 +108,7 @@ function QueueProbe() {
 			<span data-testid="current-track-id">{currentTrack?.id ?? ''}</span>
 			<span data-testid="player-visible">{String(isPlayerVisible)}</span>
 			<span data-testid="has-queued-playback">{String(hasQueuedPlayback)}</span>
-			<span data-testid="up-next-titles">{upNext.map(track => track.title).join('|')}</span>
-			<span data-testid="spine-titles">{spine.map(track => track.title).join('|')}</span>
-			<span data-testid="playlist-ids">{playlist.map(track => track.id).join(',')}</span>
+			<span data-testid="up-next-count">{upNext.length}</span>
 		</>
 	)
 }
@@ -208,45 +171,11 @@ test('playNextTrack on cold start cues track as current without autoplay', async
 
 	expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
 	expect(screen.getByTestId('player-visible').textContent).toBe('true')
-	expect(screen.getByTestId('up-next-titles').textContent).toBe('')
+	expect(screen.getByTestId('up-next-count').textContent).toBe('0')
 	expect(screen.getByTestId('wants-autoplay').textContent).toBe('false')
 })
 
-test('playNextTrack stacks FIFO at the front of Up Next when playback is active', async () => {
-	const user = userEvent.setup()
-	const fetchMock = vi.mocked(fetch)
-
-	fetchMock
-		.mockResolvedValueOnce({
-			ok: true,
-			json: async () => ({
-				tracks: [spineTrack, { ...spineTrack, id: 'track-2', title: 'Other' }],
-				total: 2,
-			}),
-		} as Response)
-		.mockResolvedValueOnce({
-			ok: true,
-			json: async () => ({ tracks: [playableTrack] }),
-		} as Response)
-
-	render(
-		<AudioPlayerProvider>
-			<QueueProbe />
-		</AudioPlayerProvider>,
-	)
-
-	await user.click(screen.getByRole('button', { name: 'Play library track' }))
-	await waitFor(() => {
-		expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
-	})
-
-	await user.click(screen.getByRole('button', { name: 'Play second next' }))
-	await user.click(screen.getByRole('button', { name: 'Play third next' }))
-
-	expect(screen.getByTestId('up-next-titles').textContent).toBe('Second Song|Third Song')
-})
-
-test('addToUpNext appends to the Up Next tail and opens the player when idle', async () => {
+test('addToUpNext opens queue-only playback without autoplay when idle', async () => {
 	const user = userEvent.setup()
 
 	render(
@@ -257,7 +186,7 @@ test('addToUpNext appends to the Up Next tail and opens the player when idle', a
 
 	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
 
-	expect(screen.getByTestId('up-next-titles').textContent).toBe('Test Song')
+	expect(screen.getByTestId('up-next-count').textContent).toBe('1')
 	expect(screen.getByTestId('current-track-id').textContent).toBe('')
 	expect(screen.getByTestId('player-visible').textContent).toBe('true')
 	expect(screen.getByTestId('has-queued-playback').textContent).toBe('true')
@@ -277,79 +206,7 @@ test('startQueuePlayback plays the first Up Next track when idle', async () => {
 	await user.click(screen.getByRole('button', { name: 'Start queue playback' }))
 
 	expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
-	expect(screen.getByTestId('up-next-titles').textContent).toBe('')
-})
-
-test('addToQueue appends after the spine and opens the player when idle', async () => {
-	const user = userEvent.setup()
-
-	render(
-		<AudioPlayerProvider>
-			<QueueProbe />
-		</AudioPlayerProvider>,
-	)
-
-	await user.click(screen.getByRole('button', { name: 'Add to queue' }))
-
-	expect(screen.getByTestId('playlist-ids').textContent).toBe('track-1')
-	expect(screen.getByTestId('spine-titles').textContent).toBe('Test Song')
-	expect(screen.getByTestId('up-next-titles').textContent).toBe('')
-	expect(screen.getByTestId('current-track-id').textContent).toBe('')
-	expect(screen.getByTestId('player-visible').textContent).toBe('true')
-})
-
-test('playNextTrack inserts before existing add-to-up-next items', async () => {
-	const user = userEvent.setup()
-	const fetchMock = vi.mocked(fetch)
-
-	fetchMock
-		.mockResolvedValueOnce({
-			ok: true,
-			json: async () => ({
-				tracks: [spineTrack, { ...spineTrack, id: 'track-2', title: 'Other' }],
-				total: 2,
-			}),
-		} as Response)
-		.mockResolvedValueOnce({
-			ok: true,
-			json: async () => ({ tracks: [playableTrack] }),
-		} as Response)
-
-	render(
-		<AudioPlayerProvider>
-			<QueueProbe />
-		</AudioPlayerProvider>,
-	)
-
-	await user.click(screen.getByRole('button', { name: 'Play library track' }))
-	await waitFor(() => {
-		expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
-	})
-
-	fetchMock.mockResolvedValue({
-		ok: true,
-		json: async () => ({ tracks: [playableTrack, secondPlayableTrack] }),
-	} as Response)
-
-	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
-	await user.click(screen.getByRole('button', { name: 'Play second next' }))
-
-	expect(screen.getByTestId('up-next-titles').textContent).toBe('Second Song|Test Song')
-})
-
-test('addToCurrentPlaylist maps to addToUpNext', async () => {
-	const user = userEvent.setup()
-
-	render(
-		<AudioPlayerProvider>
-			<QueueProbe />
-		</AudioPlayerProvider>,
-	)
-
-	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
-	await user.click(screen.getByRole('button', { name: 'Add metadata track' }))
-
-	expect(screen.getByTestId('up-next-titles').textContent).toBe('Test Song')
+	expect(screen.getByTestId('up-next-count').textContent).toBe('0')
 })
 
 test('playTrack loads queue spine and hydrates playback for the clicked track', async () => {

@@ -153,4 +153,52 @@ test.describe('Music Library', () => {
 		await expect(page.getByText('Playable Filter Track')).toBeVisible({ timeout: 10000 })
 	})
 
+	test('playing from library shows upcoming tracks in the queue sheet', async ({
+		page,
+		login,
+		insertNewTrack,
+	}) => {
+		test.setTimeout(60_000)
+		const user = await login()
+		const firstTrack = await insertNewTrack({ title: 'Queue Alpha' }, user.id)
+		const secondTrack = await insertNewTrack({ title: 'Queue Beta' }, user.id)
+
+		for (const track of [firstTrack, secondTrack]) {
+			await testPrisma.trackAudioFile.create({
+				data: {
+					trackId: track.id,
+					objectKey: `audio/${track.id}.mp3`,
+					format: 'mp3',
+					mimeType: 'audio/mpeg',
+				},
+			})
+		}
+
+		await page.goto('/library')
+		await page.waitForLoadState('networkidle')
+		await expect(page.getByRole('heading', { name: /music library/i })).toBeVisible({
+			timeout: 10000,
+		})
+		await expect(page.getByText('Queue Alpha').first()).toBeVisible({ timeout: 10000 })
+		await expect(page.getByText('Queue Beta').first()).toBeVisible({ timeout: 10000 })
+
+		await page.getByRole('gridcell', { name: /Queue Beta by Test Artist/i }).click()
+
+		const playerBar = page.getByTestId('player-desktop-bar')
+		await expect(playerBar).toBeVisible({ timeout: 10000 })
+		await expect(playerBar.getByText('Queue Beta')).toBeVisible()
+
+		await page
+			.getByTestId('player-desktop-bar')
+			.getByLabel('Open queue')
+			.click()
+
+		const dialog = page.getByRole('dialog')
+		await expect(dialog.getByRole('heading', { name: 'Now playing' })).toBeVisible()
+		await expect(dialog.getByText('Queue Beta')).toBeVisible()
+		await expect(dialog.getByText('Queue Alpha')).toBeVisible()
+		await expect(dialog.getByRole('heading', { name: 'Queue (2 from library)' })).toBeVisible()
+		await expect(dialog.getByRole('heading', { name: 'From Library', exact: true })).toBeVisible()
+	})
+
 })
