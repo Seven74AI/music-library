@@ -1,15 +1,10 @@
+import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { type FullTrack } from '#app/types/frontend/shared'
 import { type OfflineTrackSummary } from './types.ts'
 
-const FORMAT_PRIORITY = ['flac', 'wav', 'mp3', 'm4a', 'ogg', 'aac', 'webm'] as const
-
 export function getOfflineAudioFormat(track: Pick<FullTrack, 'audioFiles'>): string {
-	for (const format of FORMAT_PRIORITY) {
-		if (track.audioFiles?.some((file) => file.format === format)) {
-			return format
-		}
-	}
-	return track.audioFiles?.[0]?.format ?? 'mp3'
+	const best = selectBestAudioFile(track.audioFiles ?? [])
+	return best?.format ?? 'mp3'
 }
 
 export function mimeTypeForAudioFormat(format: string | null | undefined): string {

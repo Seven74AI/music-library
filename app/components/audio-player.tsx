@@ -1,3 +1,4 @@
+import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
@@ -605,22 +606,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		setVolume(readStoredVolume())
 	}, [])
 	
-	const getBestAudioFile = () => {
-		if (!track?.audioFiles || track.audioFiles.length === 0) {
-			return null
-		}
-		
-		// Priority: FLAC > WAV > MP3 > M4A > OGG > AAC > WebM > others
-		// Matches server-side priority in audio-file-selection.server.ts
-		const priority = ['flac', 'wav', 'mp3', 'm4a', 'ogg', 'aac', 'webm']
-		for (const format of priority) {
-			const file = track.audioFiles.find(f => f.format === format)
-			if (file) return file
-		}
-		return track.audioFiles[0]
-	}
-	
-	const audioFile = getBestAudioFile()
+	const audioFile = track?.audioFiles?.length
+		? selectBestAudioFile(track.audioFiles)
+		: null
 	const [audioSrc, setAudioSrc] = useState<string | undefined>(undefined)
 	const [playbackError, setPlaybackError] = useState<string | null>(null)
 	

@@ -1,6 +1,6 @@
 // @context7: React Router, Prisma, AWS S3
 import { type LoaderFunctionArgs } from 'react-router'
-import { getBestAudioFile } from '#app/utils/audio-file-selection.server'
+import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { getFileUrl } from '#app/utils/storage.server'
@@ -44,7 +44,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	// Get best available audio file
-	const audioFile = getBestAudioFile(track.audioFiles)
+	const audioFile = selectBestAudioFile(track.audioFiles)
 
 	if (!audioFile) {
 		throw new Response('No audio file available for this track', { status: 404 })
