@@ -67,7 +67,8 @@ async function buildProdServiceWorker() {
 		globDirectory: clientDir,
 		globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2,webmanifest}'],
 		globIgnores: ['**/sw.js', '**/sw.bundled.js'],
-		additionalPrecacheEntries: [{ url: '/index.html', revision: null }],
+		// index.html is written above; glob picks it up with a content hash revision.
+		// Do not also pass additionalPrecacheEntries — Serwist rejects duplicate URLs.
 		maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
 	})
 
