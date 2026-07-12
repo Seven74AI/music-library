@@ -40,6 +40,7 @@ prisma/seed-data/**
 # Dev-only scripts (build-sw.ts is required during npm run build)
 /scripts/*
 !/scripts/build-sw.ts
+!/scripts/migrate-audio-object-keys.ts
 
 # Other development files
 prompt.txt
