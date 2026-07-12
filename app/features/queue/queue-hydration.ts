@@ -78,19 +78,28 @@ export function collectHydrationIds(
 	currentTrackId: string | null,
 	lookahead: number = PLAYBACK_LOOKAHEAD,
 ): string[] {
+	const target = lookahead + (currentTrackId ? 1 : 0)
+	const seen = new Set<string>()
 	const ids: string[] = []
 
-	if (currentTrackId) ids.push(currentTrackId)
+	function tryAdd(id: string): boolean {
+		if (seen.has(id)) return false
+		seen.add(id)
+		ids.push(id)
+		return ids.length >= target
+	}
+
+	if (currentTrackId && tryAdd(currentTrackId)) return ids
 
 	for (const track of state.upNext) {
-		ids.push(track.id)
+		if (tryAdd(track.id)) return ids
 	}
 
 	for (const track of getSpinePlayOrder(state)) {
-		ids.push(track.id)
+		if (tryAdd(track.id)) return ids
 	}
 
-	return [...new Set(ids)].slice(0, lookahead + (currentTrackId ? 1 : 0))
+	return ids
 }
 
 /** All track IDs shown in the queue sheet (no playback lookahead cap). */

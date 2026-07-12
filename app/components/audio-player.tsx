@@ -46,10 +46,14 @@ import {
 type Track = FullTrack
 
 function formatPlayerTime(seconds: number) {
-	if (isNaN(seconds)) return '0:00'
+	if (isNaN(seconds) || !isFinite(seconds)) return '0:00'
 	const mins = Math.floor(seconds / 60)
 	const secs = Math.floor(seconds % 60)
 	return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+function isDurationKnown(duration: number): boolean {
+	return duration > 0 && isFinite(duration) && !isNaN(duration)
 }
 
 function getPlaybackProgressPercent(currentTime: number, duration: number) {
@@ -82,7 +86,7 @@ function PlayerSeekBar({
 			<input
 				type="range"
 				min="0"
-				max={duration || 0}
+				max={isDurationKnown(duration) ? duration : Infinity}
 				step="0.1"
 				value={isNaN(currentTime) ? 0 : currentTime}
 				onChange={onSeek}
@@ -93,14 +97,14 @@ function PlayerSeekBar({
 				className="flex-1 h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
 				style={{
 					background:
-						duration > 0
+						isDurationKnown(duration)
 							? `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${getPlaybackProgressPercent(currentTime, duration)}%, hsl(var(--muted)) ${getPlaybackProgressPercent(currentTime, duration)}%, hsl(var(--muted)) 100%)`
 							: undefined,
 				}}
 				aria-label="Seek"
 			/>
 			<span className="text-xs text-muted-foreground tabular-nums min-w-[3rem]">
-				{formatPlayerTime(duration)}
+				{isDurationKnown(duration) ? formatPlayerTime(duration) : '--:--'}
 			</span>
 		</div>
 	)
@@ -711,6 +715,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
 						})
 						.catch(() => {
 							setIsPlaying(false)
+							setPlaybackError(
+								'Autoplay was prevented by your browser. Press play to start.',
+							)
+							toast({
+								title: 'Autoplay blocked',
+								description: 'Your browser prevented automatic playback. Press play to start listening.',
+							})
 						})
 				}
 			}
@@ -740,7 +751,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			}
 		} catch (error) {
 			setIsPlaying(!audioRef.current.paused)
-			console.error('Playback error:', error)
+			setPlaybackError(
+				'Unable to play this track. Try again or check your connection.',
+			)
+			toast({
+				title: 'Playback failed',
+				description: 'Could not start playback. Please try again.',
+				variant: 'destructive',
+			})
 		}
 	}, [])
 
