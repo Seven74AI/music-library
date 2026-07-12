@@ -1,6 +1,6 @@
 import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import {
 	formatQueueSheetTitle,
@@ -1230,48 +1230,16 @@ function VirtualQueueTrackList({
 	onRemoveTrack: (index: number) => void
 	parentRef: React.RefObject<HTMLDivElement | null>
 }) {
-	const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null)
-
-	useLayoutEffect(() => {
-		const viewport = parentRef.current?.querySelector(
-			'[data-radix-scroll-area-viewport]',
-		) as HTMLElement | null
-
-		setScrollElement(viewport)
-		if (!viewport) return
-
-		const observer = new ResizeObserver(() => {
-			setScrollElement(viewport)
-		})
-		observer.observe(viewport)
-
-		return () => observer.disconnect()
-	}, [parentRef, tracks.length])
-
 	const virtualizer = useVirtualizer({
 		count: tracks.length,
-		getScrollElement: () => scrollElement,
+		getScrollElement: () =>
+			parentRef.current?.querySelector(
+				'[data-radix-scroll-area-viewport]',
+			) ?? null,
 		estimateSize: () => 60,
 		overscan: 10,
 		rangeExtractor: defaultRangeExtractor,
 	})
-
-	const virtualItems = virtualizer.getVirtualItems()
-
-	if (virtualItems.length === 0 && tracks.length > 0 && tracks.length < SPINE_VIRTUAL_THRESHOLD) {
-		return (
-			<>
-				{tracks.map((track, index) => (
-					<QueueTrackItem
-						key={`${track.id}-${index}`}
-						track={track}
-						isCurrentlyPlaying={false}
-						onRemove={() => onRemoveTrack(index)}
-					/>
-				))}
-			</>
-		)
-	}
 
 	return (
 		<div
@@ -1281,7 +1249,7 @@ function VirtualQueueTrackList({
 				position: 'relative',
 			}}
 		>
-			{virtualItems.map(virtualItem => {
+			{virtualizer.getVirtualItems().map(virtualItem => {
 				const track = tracks[virtualItem.index]
 				if (!track) return null
 

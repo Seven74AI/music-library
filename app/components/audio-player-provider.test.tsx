@@ -1,5 +1,8 @@
 /**
  * @vitest-environment jsdom
+ *
+ * Provider state and fetch wiring. AudioPlayer is mocked for speed.
+ * End-to-end queue UX (real player + queue sheet) is in audio-player-queue.integration.test.tsx.
  */
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -140,8 +143,8 @@ function QueueProbe() {
 			<span data-testid="current-track-id">{currentTrack?.id ?? ''}</span>
 			<span data-testid="player-visible">{String(isPlayerVisible)}</span>
 			<span data-testid="has-queued-playback">{String(hasQueuedPlayback)}</span>
-			<span data-testid="up-next-ids">{upNext.map(track => track.id).join(',')}</span>
-			<span data-testid="spine-ids">{spine.map(track => track.id).join(',')}</span>
+			<span data-testid="up-next-titles">{upNext.map(track => track.title).join('|')}</span>
+			<span data-testid="spine-titles">{spine.map(track => track.title).join('|')}</span>
 			<span data-testid="playlist-ids">{playlist.map(track => track.id).join(',')}</span>
 		</>
 	)
@@ -205,7 +208,7 @@ test('playNextTrack on cold start cues track as current without autoplay', async
 
 	expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
 	expect(screen.getByTestId('player-visible').textContent).toBe('true')
-	expect(screen.getByTestId('up-next-ids').textContent).toBe('')
+	expect(screen.getByTestId('up-next-titles').textContent).toBe('')
 	expect(screen.getByTestId('wants-autoplay').textContent).toBe('false')
 })
 
@@ -240,10 +243,10 @@ test('playNextTrack stacks FIFO at the front of Up Next when playback is active'
 	await user.click(screen.getByRole('button', { name: 'Play second next' }))
 	await user.click(screen.getByRole('button', { name: 'Play third next' }))
 
-	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-2,track-3')
+	expect(screen.getByTestId('up-next-titles').textContent).toBe('Second Song|Third Song')
 })
 
-test('addToUpNext exposes queued playback while idle', async () => {
+test('addToUpNext appends to the Up Next tail and opens the player when idle', async () => {
 	const user = userEvent.setup()
 
 	render(
@@ -254,10 +257,11 @@ test('addToUpNext exposes queued playback while idle', async () => {
 
 	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
 
-	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-1')
+	expect(screen.getByTestId('up-next-titles').textContent).toBe('Test Song')
 	expect(screen.getByTestId('current-track-id').textContent).toBe('')
 	expect(screen.getByTestId('player-visible').textContent).toBe('true')
 	expect(screen.getByTestId('has-queued-playback').textContent).toBe('true')
+	expect(screen.getByTestId('wants-autoplay').textContent).toBe('false')
 })
 
 test('startQueuePlayback plays the first Up Next track when idle', async () => {
@@ -273,24 +277,7 @@ test('startQueuePlayback plays the first Up Next track when idle', async () => {
 	await user.click(screen.getByRole('button', { name: 'Start queue playback' }))
 
 	expect(screen.getByTestId('current-track-id').textContent).toBe('track-1')
-	expect(screen.getByTestId('up-next-ids').textContent).toBe('')
-})
-
-test('addToUpNext appends to the Up Next tail and opens the player when idle', async () => {
-	const user = userEvent.setup()
-
-	render(
-		<AudioPlayerProvider>
-			<QueueProbe />
-		</AudioPlayerProvider>,
-	)
-
-	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
-
-	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-1')
-	expect(screen.getByTestId('current-track-id').textContent).toBe('')
-	expect(screen.getByTestId('player-visible').textContent).toBe('true')
-	expect(screen.getByTestId('wants-autoplay').textContent).toBe('false')
+	expect(screen.getByTestId('up-next-titles').textContent).toBe('')
 })
 
 test('addToQueue appends after the spine and opens the player when idle', async () => {
@@ -305,8 +292,8 @@ test('addToQueue appends after the spine and opens the player when idle', async 
 	await user.click(screen.getByRole('button', { name: 'Add to queue' }))
 
 	expect(screen.getByTestId('playlist-ids').textContent).toBe('track-1')
-	expect(screen.getByTestId('spine-ids').textContent).toBe('track-1')
-	expect(screen.getByTestId('up-next-ids').textContent).toBe('')
+	expect(screen.getByTestId('spine-titles').textContent).toBe('Test Song')
+	expect(screen.getByTestId('up-next-titles').textContent).toBe('')
 	expect(screen.getByTestId('current-track-id').textContent).toBe('')
 	expect(screen.getByTestId('player-visible').textContent).toBe('true')
 })
@@ -347,7 +334,7 @@ test('playNextTrack inserts before existing add-to-up-next items', async () => {
 	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
 	await user.click(screen.getByRole('button', { name: 'Play second next' }))
 
-	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-2,track-1')
+	expect(screen.getByTestId('up-next-titles').textContent).toBe('Second Song|Test Song')
 })
 
 test('addToCurrentPlaylist maps to addToUpNext', async () => {
@@ -362,7 +349,7 @@ test('addToCurrentPlaylist maps to addToUpNext', async () => {
 	await user.click(screen.getByRole('button', { name: 'Add to up next' }))
 	await user.click(screen.getByRole('button', { name: 'Add metadata track' }))
 
-	expect(screen.getByTestId('up-next-ids').textContent).toBe('track-1')
+	expect(screen.getByTestId('up-next-titles').textContent).toBe('Test Song')
 })
 
 test('playTrack loads queue spine and hydrates playback for the clicked track', async () => {

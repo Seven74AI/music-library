@@ -1,5 +1,8 @@
 /**
  * @vitest-environment jsdom
+ *
+ * TrackListItem UI tests. Queue action *behavior* (order, queue sheet visibility) lives in
+ * audio-player-queue.integration.test.tsx — these tests only cover menu wiring and visibility.
  */
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -193,71 +196,4 @@ test('shows queue actions when track has audio files', async () => {
 	expect(screen.getByText('Play next')).toBeDefined()
 	expect(screen.getByText('Add to up next')).toBeDefined()
 	expect(screen.getByText('Add to queue')).toBeDefined()
-})
-
-test('Add to up next appends track and shows toast', async () => {
-	const user = userEvent.setup()
-
-	renderTrackListItem({ track: playableTrack })
-
-	await user.click(screen.getByRole('button', { name: 'More actions' }))
-	await user.click(screen.getByText('Add to up next'))
-
-	expect(mockAddToUpNext).toHaveBeenCalledWith(playableTrack)
-	expect(mockToast).toHaveBeenCalledWith({
-		title: 'Success',
-		description: '"Test Song" added to up next',
-		variant: 'success',
-	})
-})
-
-test('Add to queue appends track and shows toast', async () => {
-	const user = userEvent.setup()
-
-	renderTrackListItem({ track: playableTrack })
-
-	await user.click(screen.getByRole('button', { name: 'More actions' }))
-	await user.click(screen.getByText('Add to queue'))
-
-	expect(mockAddToQueue).toHaveBeenCalledWith(playableTrack)
-	expect(mockToast).toHaveBeenCalledWith({
-		title: 'Success',
-		description: '"Test Song" added to queue',
-		variant: 'success',
-	})
-})
-
-test('Play next cues via provider when player is idle', async () => {
-	const user = userEvent.setup()
-
-	renderTrackListItem({ track: playableTrack, index: 2 })
-
-	await user.click(screen.getByRole('button', { name: 'More actions' }))
-	await user.click(screen.getByText('Play next'))
-
-	expect(mockPlayNextTrack).toHaveBeenCalledWith(playableTrack)
-	expect(mockPlayTrack).not.toHaveBeenCalled()
-	expect(mockToast).not.toHaveBeenCalled()
-})
-
-test('Play next inserts after current track when player is active', async () => {
-	const user = userEvent.setup()
-	mockPlayerState = {
-		currentTrack: playableTrack,
-		currentIndex: 0,
-		isPlayerVisible: true,
-	}
-
-	renderTrackListItem({ track: playableTrack })
-
-	await user.click(screen.getByRole('button', { name: 'More actions' }))
-	await user.click(screen.getByText('Play next'))
-
-	expect(mockPlayNextTrack).toHaveBeenCalledWith(playableTrack)
-	expect(mockPlayTrack).not.toHaveBeenCalled()
-	expect(mockToast).toHaveBeenCalledWith({
-		title: 'Success',
-		description: '"Test Song" will play next',
-		variant: 'success',
-	})
 })

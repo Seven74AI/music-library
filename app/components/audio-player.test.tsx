@@ -1,5 +1,8 @@
 /**
  * @vitest-environment jsdom
+ *
+ * AudioPlayer chrome tests (transport, volume, loading states).
+ * Queue sheet behavior with real provider state is in audio-player-queue.integration.test.tsx.
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -301,97 +304,4 @@ test('renders desktop bar with volume and transport controls', async () => {
 	expect(within(desktopBar).getByLabelText('Volume')).toBeTruthy()
 	expect(within(desktopBar).getByLabelText('Next track')).toBeTruthy()
 	expect(within(desktopBar).getByLabelText('Shuffle: off')).toBeTruthy()
-})
-
-test('renders queue-only player shell when visible without a current track', async () => {
-	const user = userEvent.setup()
-	const upNextTrack: FullTrack = {
-		...mockTrack,
-		id: 'queued-1',
-		title: 'Queued Track',
-	}
-
-	vi.mocked(useAudioPlayer).mockReturnValue(
-		createAudioPlayerMock({
-			upNext: [upNextTrack],
-			spineTotal: 0,
-			hasQueuedPlayback: true,
-			playContext: { type: 'library' },
-		}) as unknown as ReturnType<typeof useAudioPlayer>,
-	)
-
-	render(
-		<AudioPlayer
-			{...defaultProps}
-			track={null}
-			isVisible
-			hasQueuedPlayback
-			onStartQueuePlayback={vi.fn()}
-		/>,
-	)
-
-	expect(screen.getByTestId('player-queue-only-bar')).toBeTruthy()
-	const queueButtons = within(screen.getByTestId('player-queue-only-bar')).getAllByLabelText(
-		'Open queue',
-	)
-	await user.click(queueButtons[0]!)
-	expect(await screen.findByText('Queued Track')).toBeTruthy()
-})
-
-test('queue sheet shows three-zone sections and formatted title counts', async () => {
-	const user = userEvent.setup()
-	const upNextTrack: FullTrack = {
-		...mockTrack,
-		id: 'up-next-1',
-		title: 'Queued Next',
-	}
-	const spineTrack: FullTrack = {
-		...mockTrack,
-		id: 'spine-1',
-		title: 'Library Track',
-	}
-
-	vi.mocked(useAudioPlayer).mockReturnValue(
-		createAudioPlayerMock({
-			currentTrack: mockTrack,
-			upNext: [upNextTrack],
-			spine: [spineTrack],
-			spineTotal: 14832,
-			playContext: { type: 'library' },
-		}) as unknown as ReturnType<typeof useAudioPlayer>,
-	)
-
-	await renderPlayer()
-	await user.click(within(screen.getByTestId('player-desktop-bar')).getByLabelText('Open queue'))
-
-	const sheetTitle = await screen.findByRole('heading', {
-		name: 'Queue (1 up next · 14,832 from library)',
-	})
-	const queueSheet = sheetTitle.closest('[role="dialog"]') ?? sheetTitle.parentElement!
-	expect(within(queueSheet as HTMLElement).getByText('Now playing')).toBeTruthy()
-	expect(within(queueSheet as HTMLElement).getByText('Up Next')).toBeTruthy()
-	expect(within(queueSheet as HTMLElement).getByText('From Library')).toBeTruthy()
-	expect(within(queueSheet as HTMLElement).getAllByText('Test Song').length).toBeGreaterThan(0)
-	expect(within(queueSheet as HTMLElement).getByText('Queued Next')).toBeTruthy()
-	expect(within(queueSheet as HTMLElement).getByText('Library Track')).toBeTruthy()
-})
-
-test('queue sheet uses From Playlist heading for playlist context', async () => {
-	const user = userEvent.setup()
-
-	vi.mocked(useAudioPlayer).mockReturnValue(
-		createAudioPlayerMock({
-			currentTrack: mockTrack,
-			spineTotal: 42,
-			playContext: { type: 'playlist', playlistId: 'playlist-1' },
-		}) as unknown as ReturnType<typeof useAudioPlayer>,
-	)
-
-	await renderPlayer()
-	await user.click(within(screen.getByTestId('player-desktop-bar')).getByLabelText('Open queue'))
-
-	expect(
-		await screen.findByRole('heading', { name: 'Queue (42 from playlist)' }),
-	).toBeTruthy()
-	expect(screen.getByText('From Playlist')).toBeTruthy()
 })
