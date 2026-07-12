@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { vi, test, expect } from 'vitest'
+import { requireUserId } from '#app/utils/auth.server.js'
 import { prisma } from '#app/utils/db.server.ts'
 import { loader as downloadUrlLoader } from './audio.$trackId.download-url.tsx'
 
@@ -81,5 +82,125 @@ test('returns 400 for missing trackId', async () => {
 		expect(true).toBe(false) // Should have thrown
 	} catch (error) {
 		expect(error).toBeDefined()
+	}
+})
+
+test('403 Forbidden — UserTrack is inactive (isActive: false)', async () => {
+	const username = `dl-inactive-${Date.now()}`
+	const user = await prisma.user.create({
+		data: {
+			email: `${username}@test.dev`,
+			username,
+			name: 'DL Inactive Test',
+		},
+	})
+	const service = await prisma.service.create({
+		data: {
+			name: `dl-svc-${Date.now()}`,
+			displayName: 'DL Test Service',
+			baseUrl: 'https://test.example.com',
+		},
+	})
+	const track = await prisma.track.create({
+		data: {
+			title: 'DL Inactive Track',
+			externalId: `ext-dl-inactive-${Date.now()}`,
+			service: { connect: { id: service.id } },
+			artist: {
+				create: {
+					name: 'DL Artist',
+					normalizedName: 'dl artist',
+				},
+			},
+		},
+	})
+	await prisma.trackAudioFile.create({
+		data: {
+			trackId: track.id,
+			objectKey: `audio/tracks/local/${track.id}.mp3`,
+			fileName: 'test.mp3',
+			mimeType: 'audio/mpeg',
+			format: 'mp3',
+			fileSize: 1024,
+		},
+	})
+	// Inactive UserTrack
+	await prisma.userTrack.create({
+		data: { userId: user.id, trackId: track.id, isActive: false },
+	})
+
+	vi.mocked(requireUserId).mockResolvedValue(user.id)
+	try {
+		await downloadUrlLoader({
+			request: new Request(`https://localhost/resources/audio/${track.id}/download-url`),
+			params: { trackId: track.id },
+			context: {},
+			url: new URL(`https://localhost/resources/audio/${track.id}/download-url`),
+			pattern: { path: '/resources/audio/:trackId/download-url' },
+		} as any)
+		expect(true).toBe(false) // Should have thrown
+	} catch (error) {
+		expect(error).toBeDefined()
+		expect((error as any).status).toBe(403)
+	}
+})
+
+test('403 Forbidden — UserTrack is soft-deleted (deletedAt set)', async () => {
+	const username = `dl-deleted-${Date.now()}`
+	const user = await prisma.user.create({
+		data: {
+			email: `${username}@test.dev`,
+			username,
+			name: 'DL Deleted Test',
+		},
+	})
+	const service = await prisma.service.create({
+		data: {
+			name: `dl-svc2-${Date.now()}`,
+			displayName: 'DL Test Service 2',
+			baseUrl: 'https://test.example.com',
+		},
+	})
+	const track = await prisma.track.create({
+		data: {
+			title: 'DL Soft-Deleted Track',
+			externalId: `ext-dl-deleted-${Date.now()}`,
+			service: { connect: { id: service.id } },
+			artist: {
+				create: {
+					name: 'DL Artist 2',
+					normalizedName: 'dl artist 2',
+				},
+			},
+		},
+	})
+	await prisma.trackAudioFile.create({
+		data: {
+			trackId: track.id,
+			objectKey: `audio/tracks/local/${track.id}.mp3`,
+			fileName: 'test.mp3',
+			mimeType: 'audio/mpeg',
+			format: 'mp3',
+			fileSize: 1024,
+		},
+	})
+	// Soft-deleted UserTrack
+	await prisma.userTrack.create({
+		data: { userId: user.id, trackId: track.id, deletedAt: new Date() },
+	})
+
+	vi.mocked(requireUserId).mockResolvedValue(user.id)
+	try {
+		await downloadUrlLoader({
+			request: new Request(`https://localhost/resources/audio/${track.id}/download-url`),
+			params: { trackId: track.id },
+			context: {},
+			url: new URL(`https://localhost/resources/audio/${track.id}/download-url`),
+			pattern: { path: '/resources/audio/:trackId/download-url' },
+		} as any)
+		expect(true).toBe(false) // Should have thrown
+	} catch (error) {
+		expect(error).toBeDefined()
+		expect((error as any).status).toBe(403)
 	}
 })
