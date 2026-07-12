@@ -957,6 +957,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
 					`Audio load error: ${audio.error.message} (code: ${audio.error.code})`,
 				)
 			}
+			setAudioSrc(undefined)
+			setPlaybackError(
+				'Unable to play this track. The audio file may be blocked or unavailable.',
+			)
 		}
 		
 		audio.addEventListener('timeupdate', updateTime)
@@ -1058,7 +1062,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		)
 	}
 
-	if (!audioSrc && playbackError) {
+	if (playbackError) {
 		return (
 			<div
 				data-testid="player-playback-error"
