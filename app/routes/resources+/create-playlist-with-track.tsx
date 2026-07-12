@@ -2,6 +2,7 @@ import { data } from 'react-router'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
 import { createUserPlaylistWithTrack } from '#app/utils/user-playlist.server.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { type Route } from './+types/create-playlist-with-track'
 
 export async function action({ request }: Route.ActionArgs) {
@@ -91,4 +92,8 @@ export async function action({ request }: Route.ActionArgs) {
 			},
 		)
 	}
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }

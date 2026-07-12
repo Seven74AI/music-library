@@ -6,7 +6,7 @@
  */
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { type ComponentProps, type ReactNode } from 'react'
+import { type ComponentProps, StrictMode, type ReactNode } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayerProvider, useAudioPlayer } from './audio-player-provider'
@@ -120,13 +120,14 @@ function WarmPlaybackControls() {
 }
 
 function IdleQueueControls() {
-	const { addToUpNext, addToQueue } = useAudioPlayer()
+	const { addToUpNext, addToQueue, playNextTrack } = useAudioPlayer()
 
 	return (
 		<QueueControls
 			actions={[
 				{ label: 'Add Bravo to up next', onClick: () => addToUpNext(trackB) },
 				{ label: 'Add Charlie to queue', onClick: () => addToQueue(trackC) },
+				{ label: 'Play next Charlie', onClick: () => playNextTrack(trackC) },
 			]}
 		/>
 	)
@@ -389,6 +390,74 @@ describe('queue sheet integration', () => {
 		])
 	})
 
+	test('hydrates cover art for queue tracks beyond playback lookahead', async () => {
+		const user = userEvent.setup()
+		const spineCount = 8
+		const largeSpine = buildLargeSpineTracks(spineCount)
+		const fetchMock = vi.mocked(fetch)
+		fetchMock.mockImplementation((input: RequestInfo | URL) => {
+			const url = String(input)
+			if (url.includes('/api/queue-spine')) {
+				return Promise.resolve({
+					ok: true,
+					json: async () => ({ tracks: largeSpine, total: largeSpine.length }),
+				} as Response)
+			}
+			if (url.includes('/api/tracks/playback')) {
+				const ids = new URL(url, 'http://test').searchParams.get('ids')?.split(',') ?? []
+				const tracks = ids.map(id => {
+					const index = Number.parseInt(id.replace('track-', ''), 10)
+					return {
+						...trackA,
+						id,
+						title: `Library Track ${index + 1}`,
+						coverImage: { objectKey: `covers/${id}.jpg` },
+					}
+				})
+				return Promise.resolve({
+					ok: true,
+					json: async () => ({ tracks }),
+				} as Response)
+			}
+			return Promise.reject(new Error(`Unexpected fetch: ${url}`))
+		})
+
+		function LargeLibraryPlayback() {
+			const { playTrack } = useAudioPlayer()
+			return (
+				<button
+					type="button"
+					onClick={() =>
+						playTrack(
+							{
+								...trackA,
+								id: largeSpine[0]!.id,
+								title: largeSpine[0]!.title,
+								coverImage: { objectKey: 'covers/track-0.jpg' },
+							},
+							{ type: 'library' },
+							0,
+						)
+					}
+				>
+					Start library playback
+				</button>
+			)
+		}
+
+		renderQueueApp(<LargeLibraryPlayback />)
+		await user.click(screen.getByRole('button', { name: 'Start library playback' }))
+		await waitFor(() => {
+			expect(within(screen.getByTestId('player-desktop-bar')).getByText('Library Track 1')).toBeTruthy()
+		})
+
+		const sheet = await openQueueSheet(user)
+
+		await waitFor(() => {
+			expect(within(sheet).getAllByRole('img').length).toBeGreaterThanOrEqual(6)
+		})
+	})
+
 	test('add to up next shows track in Up Next while playing', async () => {
 		const user = userEvent.setup()
 		mockSpineAndHydration(vi.mocked(fetch))
@@ -415,6 +484,39 @@ describe('queue sheet integration', () => {
 		const sheet = await openQueueSheet(user)
 
 		expect(upNextTitlesInSheet(sheet)).toEqual(['Charlie Song', 'Bravo Song'])
+	})
+
+	test('play next under StrictMode still inserts before add-to-up-next tail', async () => {
+		const user = userEvent.setup()
+		mockSpineAndHydration(vi.mocked(fetch))
+
+		render(
+			<StrictMode>
+				<AudioPlayerProvider>
+					<WarmPlaybackControls />
+				</AudioPlayerProvider>
+			</StrictMode>,
+		)
+		await startWarmLibraryPlayback(user)
+		await user.click(screen.getByRole('button', { name: 'Add Bravo to up next' }))
+		await user.click(screen.getByRole('button', { name: 'Play next Charlie' }))
+
+		const sheet = await openQueueSheet(user)
+
+		expect(upNextTitlesInSheet(sheet)).toEqual(['Charlie Song', 'Bravo Song'])
+	})
+
+	test('play next on queue-only bar inserts at front of Up Next instead of replacing current', async () => {
+		const user = userEvent.setup()
+
+		renderQueueApp(<IdleQueueControls />)
+		await user.click(screen.getByRole('button', { name: 'Add Bravo to up next' }))
+		await user.click(screen.getByRole('button', { name: 'Play next Charlie' }))
+
+		const sheet = await openQueueSheet(user)
+
+		expect(upNextTitlesInSheet(sheet)).toEqual(['Charlie Song', 'Bravo Song'])
+		expect(within(sheet).queryByText('Now playing')).toBeNull()
 	})
 
 	test('stacked play next keeps FIFO order at the front of Up Next', async () => {

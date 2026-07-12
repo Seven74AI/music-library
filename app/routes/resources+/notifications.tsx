@@ -4,6 +4,7 @@ import {
 	markAllNotificationsRead,
 	markNotificationRead,
 } from '#app/utils/notifications.server.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { type Route } from './+types/notifications.ts'
 
 export async function action({ request }: Route.ActionArgs) {
@@ -31,4 +32,8 @@ export async function action({ request }: Route.ActionArgs) {
 	}
 
 	return data({ ok: false }, { status: 400 })
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }

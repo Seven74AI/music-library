@@ -2,6 +2,8 @@ import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest'
 import { type FullTrack } from '#app/types/frontend/shared.ts'
 import {
 	collectHydrationIds,
+	collectQueueDisplayHydrationIds,
+	hydratePlaybackCacheInBatches,
 	PlaybackHydrationCache,
 	resolveFullTrack,
 } from './queue-hydration.ts'
@@ -60,6 +62,44 @@ describe('collectHydrationIds', () => {
 		)
 
 		expect(ids).toEqual(['s1', 'u1', 's2', 's3'])
+	})
+})
+
+describe('collectQueueDisplayHydrationIds', () => {
+	test('includes now playing, Up Next, and upcoming spine without a lookahead cap', () => {
+		const ids = collectQueueDisplayHydrationIds(
+			{
+				upNext: [{ id: 'u1', title: 'U1', artist: { id: 'a', name: 'A' } }],
+				spine: [
+					{ id: 's1', title: 'S1', artist: { id: 'a', name: 'A' } },
+					{ id: 's2', title: 'S2', artist: { id: 'a', name: 'A' } },
+					{ id: 's3', title: 'S3', artist: { id: 'a', name: 'A' } },
+				],
+				spineOrder: [0, 1, 2],
+				spinePosition: 0,
+				loopMode: 'off',
+			},
+			's1',
+		)
+
+		expect(ids).toEqual(['s1', 'u1', 's2', 's3'])
+	})
+})
+
+describe('hydratePlaybackCacheInBatches', () => {
+	test('fetches playback data in batches of 20', async () => {
+		const fetchMock = vi.mocked(fetch)
+		fetchMock.mockResolvedValue({
+			ok: true,
+			json: async () => ({ tracks: [] }),
+		} as Response)
+
+		const cache = new PlaybackHydrationCache()
+		const ids = Array.from({ length: 25 }, (_, index) => `track-${index}`)
+
+		await hydratePlaybackCacheInBatches(cache, ids)
+
+		expect(fetchMock).toHaveBeenCalledTimes(2)
 	})
 })
 

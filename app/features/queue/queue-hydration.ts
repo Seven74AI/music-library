@@ -1,5 +1,9 @@
 import { type FullTrack, type QueueTrack } from '#app/types/frontend/shared.ts'
-import { getSpinePlayOrder, type QueueNavigationState } from './queue-navigation.ts'
+import {
+	getQueueSpineDisplayTracks,
+	getSpinePlayOrder,
+	type QueueNavigationState,
+} from './queue-navigation.ts'
 import { fullTrackStubFromQueueTrack } from './queue-spine.ts'
 
 export const PLAYBACK_LOOKAHEAD = 4
@@ -77,6 +81,36 @@ export function collectHydrationIds(
 	}
 
 	return [...new Set(ids)].slice(0, lookahead + (currentTrackId ? 1 : 0))
+}
+
+/** All track IDs shown in the queue sheet (no playback lookahead cap). */
+export function collectQueueDisplayHydrationIds(
+	state: QueueNavigationState,
+	currentTrackId: string | null,
+): string[] {
+	const ids: string[] = []
+
+	if (currentTrackId) ids.push(currentTrackId)
+
+	for (const track of state.upNext) {
+		ids.push(track.id)
+	}
+
+	for (const track of getQueueSpineDisplayTracks(state, currentTrackId !== null)) {
+		ids.push(track.id)
+	}
+
+	return [...new Set(ids)]
+}
+
+export async function hydratePlaybackCacheInBatches(
+	cache: PlaybackHydrationCache,
+	ids: string[],
+): Promise<void> {
+	const uniqueIds = [...new Set(ids)]
+	for (let index = 0; index < uniqueIds.length; index += PLAYBACK_BATCH_MAX_IDS) {
+		await cache.hydrateMissing(uniqueIds.slice(index, index + PLAYBACK_BATCH_MAX_IDS))
+	}
 }
 
 export function resolveFullTrack(

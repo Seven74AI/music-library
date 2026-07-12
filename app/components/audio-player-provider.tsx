@@ -17,6 +17,7 @@ import {
 } from '#app/features/queue/queue-navigation.ts'
 import {
 	collectHydrationIds,
+	hydratePlaybackCacheInBatches,
 	PlaybackHydrationCache,
 	resolveFullTrack,
 	resolveFullTracks,
@@ -80,6 +81,7 @@ interface AudioPlayerContextType {
 	playNextTrack: (track: Track) => void
 	addToUpNext: (track: Track) => void
 	addToQueue: (track: Track) => void
+	hydrateTracksForDisplay: (ids: string[]) => void
 	/** @deprecated Use addToUpNext instead */
 	addToCurrentPlaylist: (track: Track) => void
 }
@@ -182,6 +184,25 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		},
 		[navigationState],
 	)
+
+	const hydrateTracksForDisplay = useCallback((ids: string[]) => {
+		if (ids.length === 0 || isOfflineEnvironment()) return
+
+		const needsHydration = [...new Set(ids)].filter(id => {
+			const cached = playbackCacheRef.current.get(id)
+			return !cached?.coverImage
+		})
+
+		if (needsHydration.length === 0) return
+
+		void (async () => {
+			await hydratePlaybackCacheInBatches(
+				playbackCacheRef.current,
+				needsHydration,
+			)
+			setCacheVersion(version => version + 1)
+		})()
+	}, [])
 
 	const fetchOfflineTracks = useCallback(async (context: PlaylistContext): Promise<Track[]> => {
 		const storage = getOfflineStorage()
@@ -471,14 +492,16 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			rememberTrack(track)
 
 			if (position === 'next') {
+				const insertAt = upNextPlayNextCountRef.current
+				upNextPlayNextCountRef.current = insertAt + 1
+				setUpNextPlayNextCount(insertAt + 1)
 				setUpNext(prev => {
-					const insertAt = upNextPlayNextCountRef.current
+					const at =
+						insertAt > prev.length ? 0 : Math.min(insertAt, prev.length)
 					const next = [...prev]
-					next.splice(insertAt, 0, queueTrack)
-					upNextPlayNextCountRef.current = insertAt + 1
+					next.splice(at, 0, queueTrack)
 					return next
 				})
-				setUpNextPlayNextCount(upNextPlayNextCountRef.current)
 				return
 			}
 
@@ -503,6 +526,13 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	}, [])
 
 	const isWarmPlayback = isPlayerVisible && currentTrack !== null
+
+	const hasActiveQueueSession =
+		isPlayerVisible &&
+		(currentTrack !== null ||
+			upNext.length > 0 ||
+			getTrackAtTarget(navigationState, { zone: 'spine', index: spinePosition }) !==
+				null)
 
 	const removeTrackFromPlaylist = useCallback(
 		(target: QueueTarget) => {
@@ -601,7 +631,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		(track: Track) => {
 			if (!isPlayableTrack(track)) return
 
-			if (isWarmPlayback) {
+			if (hasActiveQueueSession) {
 				addTrackToPlaylist(track, 'next')
 				return
 			}
@@ -611,7 +641,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 			setCurrentTrack(track)
 			setIsPlayerVisible(true)
 		},
-		[addTrackToPlaylist, isWarmPlayback, rememberTrack],
+		[addTrackToPlaylist, hasActiveQueueSession, rememberTrack],
 	)
 
 	const addToUpNext = useCallback(
@@ -820,6 +850,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				playNextTrack,
 				addToUpNext,
 				addToQueue,
+				hydrateTracksForDisplay,
 				addToCurrentPlaylist,
 			}}
 		>

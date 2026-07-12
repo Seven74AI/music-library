@@ -1224,10 +1224,12 @@ function VirtualQueueTrackList({
 	tracks,
 	onRemoveTrack,
 	parentRef,
+	hydrateTracksForDisplay,
 }: {
 	tracks: Track[]
 	onRemoveTrack: (index: number) => void
 	parentRef: React.RefObject<HTMLDivElement | null>
+	hydrateTracksForDisplay: (ids: string[]) => void
 }) {
 	const [scrollReadyEpoch, setScrollReadyEpoch] = useState(0)
 
@@ -1264,6 +1266,17 @@ function VirtualQueueTrackList({
 	void scrollReadyEpoch
 
 	const virtualItems = virtualizer.getVirtualItems()
+
+	useEffect(() => {
+		const visibleTracks =
+			virtualItems.length > 0
+				? virtualItems
+						.map(item => tracks[item.index])
+						.filter((track): track is Track => track !== undefined)
+				: tracks.slice(0, 30)
+
+		hydrateTracksForDisplay(visibleTracks.map(track => track.id))
+	}, [virtualItems, tracks, hydrateTracksForDisplay, scrollReadyEpoch])
 
 	if (virtualItems.length === 0 && tracks.length > 0) {
 		return (
@@ -1326,10 +1339,25 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 		playContext,
 		removeTrackFromPlaylist,
 		removeCurrentFromQueue,
+		hydrateTracksForDisplay,
 	} = useAudioPlayer()
 	const upNextScrollRef = useRef<HTMLDivElement>(null)
 	const spineScrollRef = useRef<HTMLDivElement>(null)
 	const [isOpen, setIsOpen] = useState(false)
+
+	useEffect(() => {
+		if (!isOpen) return
+
+		const ids: string[] = []
+		if (currentTrack) ids.push(currentTrack.id)
+		ids.push(...upNext.map(track => track.id))
+
+		if (spine.length < SPINE_VIRTUAL_THRESHOLD) {
+			ids.push(...spine.map(track => track.id))
+		}
+
+		hydrateTracksForDisplay(ids)
+	}, [isOpen, currentTrack, upNext, spine, hydrateTracksForDisplay])
 
 	const spineLabel = getSpineSectionLabel(playContext)
 	const sheetTitle = formatQueueSheetTitle(upNext.length, spineTotal, spineLabel)
@@ -1419,6 +1447,7 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 													tracks={upNext}
 													onRemoveTrack={removeUpNextTrack}
 													parentRef={upNextScrollRef}
+													hydrateTracksForDisplay={hydrateTracksForDisplay}
 												/>
 											) : null}
 										</div>
@@ -1449,6 +1478,7 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 														tracks={spine}
 														onRemoveTrack={removeSpineTrack}
 														parentRef={spineScrollRef}
+														hydrateTracksForDisplay={hydrateTracksForDisplay}
 													/>
 												) : null}
 											</div>
