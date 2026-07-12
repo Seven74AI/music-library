@@ -187,11 +187,18 @@ test.describe('Music Library', () => {
 		const playerBar = page.getByTestId('player-desktop-bar')
 		await expect(playerBar).toBeVisible({ timeout: 10000 })
 		await expect(playerBar.getByText('Queue Beta')).toBeVisible()
+		await page.waitForResponse(
+			response =>
+				response.url().includes('/api/queue-spine') && response.status() === 200,
+			{ timeout: 15000 },
+		)
 
-		await page
-			.getByTestId('player-desktop-bar')
-			.getByLabel('Open queue')
-			.click()
+		const installBanner = page.getByRole('region', { name: 'Install app' })
+		if (await installBanner.isVisible().catch(() => false)) {
+			await page.getByRole('button', { name: 'Not now' }).click()
+		}
+
+		await playerBar.getByLabel('Open queue').click()
 
 		const dialog = page.getByRole('dialog')
 		await expect(dialog.getByRole('heading', { name: 'Now playing' })).toBeVisible()

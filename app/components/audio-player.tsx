@@ -1,6 +1,6 @@
 import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import {
 	formatQueueSheetTitle,
@@ -1267,16 +1267,28 @@ function VirtualQueueTrackList({
 
 	const virtualItems = virtualizer.getVirtualItems()
 
+	const visibleTrackKey = useMemo(() => {
+		if (virtualItems.length > 0) {
+			return virtualItems.map(item => item.index).join(',')
+		}
+		return tracks
+			.slice(0, 30)
+			.map((_, index) => index)
+			.join(',')
+	}, [virtualItems, tracks.length])
+
 	useEffect(() => {
-		const visibleTracks =
-			virtualItems.length > 0
-				? virtualItems
-						.map(item => tracks[item.index])
-						.filter((track): track is Track => track !== undefined)
-				: tracks.slice(0, 30)
+		const indices =
+			visibleTrackKey.length > 0
+				? visibleTrackKey.split(',').map(index => Number.parseInt(index, 10))
+				: tracks.slice(0, 30).map((_, index) => index)
+
+		const visibleTracks = indices
+			.map(index => tracks[index])
+			.filter((track): track is Track => track !== undefined)
 
 		hydrateTracksForDisplay(visibleTracks.map(track => track.id))
-	}, [virtualItems, tracks, hydrateTracksForDisplay, scrollReadyEpoch])
+	}, [visibleTrackKey, tracks, hydrateTracksForDisplay, scrollReadyEpoch])
 
 	if (virtualItems.length === 0 && tracks.length > 0) {
 		return (
@@ -1345,19 +1357,20 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 	const spineScrollRef = useRef<HTMLDivElement>(null)
 	const [isOpen, setIsOpen] = useState(false)
 
-	useEffect(() => {
-		if (!isOpen) return
-
+	const queueSheetTrackIds = useMemo(() => {
 		const ids: string[] = []
 		if (currentTrack) ids.push(currentTrack.id)
 		ids.push(...upNext.map(track => track.id))
-
 		if (spine.length < SPINE_VIRTUAL_THRESHOLD) {
 			ids.push(...spine.map(track => track.id))
 		}
+		return ids.join(',')
+	}, [currentTrack?.id, upNext, spine])
 
-		hydrateTracksForDisplay(ids)
-	}, [isOpen, currentTrack, upNext, spine, hydrateTracksForDisplay])
+	useEffect(() => {
+		if (!isOpen || queueSheetTrackIds.length === 0) return
+		hydrateTracksForDisplay(queueSheetTrackIds.split(','))
+	}, [isOpen, queueSheetTrackIds, hydrateTracksForDisplay])
 
 	const spineLabel = getSpineSectionLabel(playContext)
 	const sheetTitle = formatQueueSheetTitle(upNext.length, spineTotal, spineLabel)

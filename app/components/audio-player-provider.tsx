@@ -196,11 +196,14 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		if (needsHydration.length === 0) return
 
 		void (async () => {
-			await hydratePlaybackCacheInBatches(
+			const updated = await hydratePlaybackCacheInBatches(
 				playbackCacheRef.current,
 				needsHydration,
+				{ refetchIncomplete: true },
 			)
-			setCacheVersion(version => version + 1)
+			if (updated > 0) {
+				setCacheVersion(version => version + 1)
+			}
 		})()
 	}, [])
 

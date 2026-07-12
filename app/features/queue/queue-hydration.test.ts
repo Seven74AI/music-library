@@ -97,9 +97,34 @@ describe('hydratePlaybackCacheInBatches', () => {
 		const cache = new PlaybackHydrationCache()
 		const ids = Array.from({ length: 25 }, (_, index) => `track-${index}`)
 
-		await hydratePlaybackCacheInBatches(cache, ids)
+		const updated = await hydratePlaybackCacheInBatches(cache, ids)
 
 		expect(fetchMock).toHaveBeenCalledTimes(2)
+		expect(updated).toBe(0)
+	})
+
+	test('refetches cached stubs missing cover art when refetchIncomplete is set', async () => {
+		const fetchMock = vi.mocked(fetch)
+		const cache = new PlaybackHydrationCache()
+		cache.set({
+			...fullTrack,
+			id: 'track-1',
+			coverImage: null,
+		})
+
+		fetchMock.mockResolvedValue({
+			ok: true,
+			json: async () => ({
+				tracks: [{ ...fullTrack, id: 'track-1', coverImage: { objectKey: 'covers/1.jpg' } }],
+			}),
+		} as Response)
+
+		const updated = await hydratePlaybackCacheInBatches(cache, ['track-1'], {
+			refetchIncomplete: true,
+		})
+
+		expect(updated).toBe(1)
+		expect(cache.get('track-1')?.coverImage).toEqual({ objectKey: 'covers/1.jpg' })
 	})
 })
 

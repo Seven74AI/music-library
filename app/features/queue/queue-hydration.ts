@@ -52,14 +52,24 @@ export class PlaybackHydrationCache {
 		return new Map(this.cache)
 	}
 
-	async hydrateMissing(ids: string[]): Promise<void> {
-		const missingIds = ids.filter(id => !this.cache.has(id))
-		if (missingIds.length === 0) return
+	async hydrateMissing(
+		ids: string[],
+		options?: { refetchIncomplete?: boolean },
+	): Promise<number> {
+		const targetIds = ids.filter(id => {
+			if (!this.cache.has(id)) return true
+			if (options?.refetchIncomplete) {
+				return !this.cache.get(id)?.coverImage
+			}
+			return false
+		})
+		if (targetIds.length === 0) return 0
 
-		const tracks = await fetchPlaybackBatch(missingIds)
+		const tracks = await fetchPlaybackBatch(targetIds)
 		for (const track of tracks) {
 			this.cache.set(track.id, track)
 		}
+		return tracks.length
 	}
 }
 
@@ -106,11 +116,17 @@ export function collectQueueDisplayHydrationIds(
 export async function hydratePlaybackCacheInBatches(
 	cache: PlaybackHydrationCache,
 	ids: string[],
-): Promise<void> {
+	options?: { refetchIncomplete?: boolean },
+): Promise<number> {
 	const uniqueIds = [...new Set(ids)]
+	let updated = 0
 	for (let index = 0; index < uniqueIds.length; index += PLAYBACK_BATCH_MAX_IDS) {
-		await cache.hydrateMissing(uniqueIds.slice(index, index + PLAYBACK_BATCH_MAX_IDS))
+		updated += await cache.hydrateMissing(
+			uniqueIds.slice(index, index + PLAYBACK_BATCH_MAX_IDS),
+			options,
+		)
 	}
+	return updated
 }
 
 export function resolveFullTrack(
