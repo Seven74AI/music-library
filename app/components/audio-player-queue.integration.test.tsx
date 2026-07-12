@@ -234,6 +234,10 @@ function queueTrackRemoveButtonsInSheet(sheet: HTMLElement) {
 	return within(sheet).getAllByRole('button', { name: /Remove .+ from queue/ })
 }
 
+function removeTrackInSection(section: HTMLElement, title: string) {
+	return within(section).getByRole('button', { name: `Remove ${title} from queue` })
+}
+
 function nowPlayingTitleInSheet(sheet: HTMLElement): string | null {
 	const heading = within(sheet).queryByText('Now playing')
 	if (!heading) return null
@@ -396,6 +400,7 @@ describe('queue sheet integration', () => {
 		const sheet = await openQueueSheet(user)
 
 		expect(upNextTitlesInSheet(sheet)).toEqual(['Bravo Song'])
+		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])
 	})
 
 	test('play next inserts at the front of Up Next, before add-to-up-next tail', async () => {
@@ -503,7 +508,9 @@ describe('queue sheet integration', () => {
 		const sheet = await openQueueSheet(user)
 		expect(upNextTitlesInSheet(sheet)).toEqual(['Bravo Song'])
 
-		await user.click(within(sheet).getByRole('button', { name: 'Remove Bravo Song from queue' }))
+		const upNextSection = within(sheet).getByText('Up Next').closest('section')
+		if (!upNextSection) throw new Error('Expected Up Next section')
+		await user.click(removeTrackInSection(upNextSection, 'Bravo Song'))
 
 		expect(within(sheet).queryByText('Up Next')).toBeNull()
 		expect(spineTitlesInSheet(sheet)).toEqual(['Bravo Song', 'Charlie Song'])

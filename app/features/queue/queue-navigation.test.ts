@@ -186,12 +186,12 @@ describe('getQueueSpineDisplayTracks', () => {
 		])
 	})
 
-	test('excludes tracks already listed in Up Next', () => {
+	test('keeps spine tracks visible even when the same track is also in Up Next', () => {
 		const state = baseState({
 			upNext: [track('s2')],
 			spinePosition: 0,
 		})
 
-		expect(getQueueSpineDisplayTracks(state, true).map(t => t.id)).toEqual(['s3'])
+		expect(getQueueSpineDisplayTracks(state, true).map(t => t.id)).toEqual(['s2', 's3'])
 	})
 })

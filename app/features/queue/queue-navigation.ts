@@ -132,17 +132,12 @@ export function flatIndexForSpinePosition(
 	return state.upNext.length + Math.max(0, spinePosition - state.spinePosition)
 }
 
-/** Spine tracks shown in the queue sheet (excludes now playing and Up Next duplicates). */
+/** Spine tracks shown in the queue sheet (excludes now playing only). */
 export function getQueueSpineDisplayTracks(
 	state: QueueNavigationState,
 	hasCurrentTrack: boolean,
 ): QueueTrack[] {
-	const spineTracks = hasCurrentTrack
+	return hasCurrentTrack
 		? getUpcomingSpinePlayOrder(state)
 		: getSpinePlayOrder(state)
-
-	if (state.upNext.length === 0) return spineTracks
-
-	const upNextIds = new Set(state.upNext.map(track => track.id))
-	return spineTracks.filter(track => !upNextIds.has(track.id))
 }
