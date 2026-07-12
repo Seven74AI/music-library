@@ -1226,6 +1226,9 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 			<SheetContent side="bottom" className="h-[80vh] flex flex-col">
 				<SheetHeader className="flex-shrink-0">
 					<SheetTitle>{sheetTitle}</SheetTitle>
+					<SheetDescription className="sr-only">
+						Upcoming tracks grouped by now playing, up next, and library or playlist source
+					</SheetDescription>
 				</SheetHeader>
 				<div className="flex-1 mt-6 min-h-0 flex flex-col gap-4">
 					{isEmpty ? (
