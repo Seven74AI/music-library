@@ -18,7 +18,8 @@ export type NotificationItem = {
 	title: string
 	body: string
 	linkUrl: string | null
-	readAt: Date | string | null
+	/** Prisma returns Date objects; JSON serialization over the wire produces ISO strings. */
+	readAt: Date | null
 	createdAt: Date | string
 }
 

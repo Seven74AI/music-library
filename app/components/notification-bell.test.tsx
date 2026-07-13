@@ -98,7 +98,7 @@ const notificationWithoutLinkTwo: NotificationItem[] = [
 		title: 'Already read',
 		body: 'This one is read.',
 		linkUrl: null,
-		readAt: '2026-01-02T00:00:00.000Z',
+		readAt: new Date('2026-01-02T00:00:00.000Z'),
 		createdAt: '2026-01-02T00:00:00.000Z',
 	},
 ]
@@ -193,7 +193,7 @@ test('uses fresh fetcher data when available, falls back to props', () => {
 
 	// Simulate the refresh fetcher returning updated data
 	refreshFetcherData = {
-		notifications: [{ ...notificationWithoutLink[0]!, readAt: new Date().toISOString() }],
+		notifications: [{ ...notificationWithoutLink[0]!, readAt: new Date() }],
 		unreadCount: 0,
 	}
 	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
