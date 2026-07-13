@@ -193,7 +193,7 @@ test('uses fresh fetcher data when available, falls back to props', () => {
 
 	// Simulate the refresh fetcher returning updated data
 	refreshFetcherData = {
-		notifications: [{ ...notificationWithoutLink[0]!, readAt: new Date().toISOString() }],
+		notifications: [{ ...notificationWithoutLink[0]!, readAt: new Date() }],
 		unreadCount: 0,
 	}
 	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
