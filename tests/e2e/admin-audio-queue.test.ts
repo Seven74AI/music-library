@@ -1,8 +1,5 @@
 /**
- * MOVE THIS FILE TO: tests/e2e/audio-queue.test.ts
- *    mv audio-queue.e2e.test.ts.txt tests/e2e/audio-queue.test.ts
- *
- * E2E tests for the audio-queue admin page.
+ * E2E tests for the admin audio-queue dashboard.
  * Pattern follows tests/e2e/youtube-cookies.test.ts.
  */
 import { test, expect } from '#tests/playwright-utils.ts'

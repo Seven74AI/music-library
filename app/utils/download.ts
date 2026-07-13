@@ -7,6 +7,12 @@ type TriggerBlobDownloadOptions = {
 	navigatorLike?: ShareNavigatorLike
 }
 
+type TriggerBrowserDownloadOptions = {
+	timeoutMs?: number
+}
+
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 30_000
+
 export function isIOSDevice(navigatorLike: IOSNavigatorLike = navigator): boolean {
 	return (
 		/iPad|iPhone|iPod/.test(navigatorLike.userAgent) ||
@@ -14,14 +20,35 @@ export function isIOSDevice(navigatorLike: IOSNavigatorLike = navigator): boolea
 	)
 }
 
-export async function triggerBrowserDownload(url: string, filename: string): Promise<void> {
-	const response = await fetch(url, { credentials: 'same-origin' })
-	if (!response.ok) {
-		throw new Error(`Download failed: ${response.status}`)
-	}
+export async function triggerBrowserDownload(
+	url: string,
+	filename: string,
+	options: TriggerBrowserDownloadOptions = {},
+): Promise<void> {
+	const timeoutMs = options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS
+	const controller = new AbortController()
+	const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
-	const blob = await response.blob()
-	await triggerBlobDownload(blob, filename)
+	try {
+		const response = await fetch(url, {
+			credentials: 'same-origin',
+			signal: controller.signal,
+		})
+		clearTimeout(timeoutId)
+
+		if (!response.ok) {
+			throw new Error(`Download failed: ${response.status}`)
+		}
+
+		const blob = await response.blob()
+		await triggerBlobDownload(blob, filename)
+	} catch (error) {
+		clearTimeout(timeoutId)
+		if (error instanceof DOMException && error.name === 'AbortError') {
+			throw new Error(`Download timed out after ${timeoutMs}ms`)
+		}
+		throw error
+	}
 }
 
 export async function triggerBlobDownload(
@@ -64,14 +91,4 @@ export async function triggerBlobDownload(
 	}
 }
 
-/**
- * @deprecated Use triggerBrowserDownload for cross-platform downloads.
- */
-export function downloadFile(url: string, filename?: string) {
-	const link = document.createElement('a')
-	link.href = url
-	link.download = filename || 'download'
-	document.body.appendChild(link)
-	link.click()
-	document.body.removeChild(link)
-}
+

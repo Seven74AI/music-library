@@ -3,22 +3,36 @@
  */
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import type * as ReactRouter from 'react-router'
 import { beforeEach, expect, test, vi } from 'vitest'
 import { NotificationBell, type NotificationItem } from './notification-bell.tsx'
 
 const mockSubmit = vi.fn()
-const mockRevalidate = vi.fn()
+const mockLoad = vi.fn()
 
-let fetcherState: 'idle' | 'submitting' = 'idle'
-let fetcherData: { ok: boolean } | undefined
+const { mockToast } = vi.hoisted(() => ({
+	mockToast: vi.fn(),
+}))
 
-const mockFetcher = {
+vi.mock('#app/components/ui/use-toast.ts', () => ({
+	toast: mockToast,
+}))
+
+let submitFetcherState: 'idle' | 'submitting' = 'idle'
+let submitFetcherData: { ok: boolean } | undefined
+
+let refreshFetcherState: 'idle' | 'loading' = 'idle'
+let refreshFetcherData:
+	| { notifications: NotificationItem[]; unreadCount: number }
+	| undefined
+
+const mockSubmitFetcher = {
 	get state() {
-		return fetcherState
+		return submitFetcherState
 	},
 	get data() {
-		return fetcherData
+		return submitFetcherData
 	},
 	submit: mockSubmit,
 	Form: ({
@@ -29,16 +43,42 @@ const mockFetcher = {
 	),
 }
 
+const mockRefreshFetcher = {
+	get state() {
+		return refreshFetcherState
+	},
+	get data() {
+		return refreshFetcherData
+	},
+	load: mockLoad,
+	Form: ({
+		children,
+		...props
+	}: React.FormHTMLAttributes<HTMLFormElement>) => (
+		<form {...props}>{children}</form>
+	),
+}
+
+// Return different mock fetchers based on call position within each render.
+// useFetcher is called twice per render (submit fetcher first, refresh fetcher second).
+// Since React hooks must be called in the same order every render, position % 2
+// reliably distinguishes them across re-renders.
+let fetcherCallCount = 0
 vi.mock('react-router', async (importOriginal) => {
 	const actual = await importOriginal<typeof ReactRouter>()
 	return {
 		...actual,
-		useFetcher: () => mockFetcher,
-		useRevalidator: () => ({ revalidate: mockRevalidate }),
+		useFetcher: vi.fn().mockImplementation(() => {
+			fetcherCallCount++
+			// Odd calls = submit fetcher, even calls = refresh fetcher
+			return fetcherCallCount % 2 === 1
+				? mockSubmitFetcher
+				: mockRefreshFetcher
+		}),
 	}
 })
 
-const notifications: NotificationItem[] = [
+const notificationWithoutLink: NotificationItem[] = [
 	{
 		id: 'notif-1',
 		type: 'playlist_archive_ready',
@@ -50,17 +90,63 @@ const notifications: NotificationItem[] = [
 	},
 ]
 
+const notificationWithoutLinkTwo: NotificationItem[] = [
+	{
+		id: 'notif-1',
+		type: 'playlist_archive_ready',
+		title: 'Playlist ready',
+		body: 'All tracks archived.',
+		linkUrl: null,
+		readAt: null,
+		createdAt: '2026-01-01T00:00:00.000Z',
+	},
+	{
+		id: 'notif-2',
+		type: 'playlist_archive_ready',
+		title: 'Already read',
+		body: 'This one is read.',
+		linkUrl: null,
+		readAt: new Date('2026-01-02T00:00:00.000Z'),
+		createdAt: '2026-01-02T00:00:00.000Z',
+	},
+]
+
+const notificationWithLink: NotificationItem[] = [
+	{
+		id: 'notif-1',
+		type: 'playlist_archive_ready',
+		title: 'Playlist ready',
+		body: 'All tracks archived.',
+		linkUrl: null,
+		readAt: null,
+		createdAt: '2026-01-01T00:00:00.000Z',
+	},
+	{
+		id: 'notif-2',
+		type: 'playlist_archive_ready',
+		title: 'Another playlist',
+		body: 'More tracks archived.',
+		linkUrl: '/playlists/123',
+		readAt: null,
+		createdAt: '2026-01-02T00:00:00.000Z',
+	},
+]
+
 beforeEach(() => {
-	fetcherState = 'idle'
-	fetcherData = undefined
+	submitFetcherState = 'idle'
+	submitFetcherData = undefined
+	refreshFetcherState = 'idle'
+	refreshFetcherData = undefined
 	mockSubmit.mockReset()
-	mockRevalidate.mockReset()
+	mockLoad.mockReset()
+	mockToast.mockReset()
+	fetcherCallCount = 0
 })
 
 test('mark all read submits through fetcher instead of navigating', async () => {
 	const user = userEvent.setup()
 
-	render(<NotificationBell notifications={notifications} unreadCount={1} />)
+	render(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
 
 	await user.click(screen.getByRole('button', { name: '1 unread notifications' }))
 	await user.click(screen.getByRole('button', { name: 'Mark all read' }))
@@ -71,10 +157,10 @@ test('mark all read submits through fetcher instead of navigating', async () => 
 	)
 })
 
-test('mark single notification read revalidates loader data', async () => {
+test('mark single notification read submits through fetcher', async () => {
 	const user = userEvent.setup()
 
-	render(<NotificationBell notifications={notifications} unreadCount={1} />)
+	render(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
 
 	await user.click(screen.getByRole('button', { name: '1 unread notifications' }))
 	await user.click(screen.getByText('Playlist ready'))
@@ -85,18 +171,202 @@ test('mark single notification read revalidates loader data', async () => {
 	)
 })
 
-test('revalidates root loader after a successful notifications response', () => {
+test('fetches fresh notification data after a successful mark-read instead of full revalidation', () => {
 	const { rerender } = render(
-		<NotificationBell notifications={notifications} unreadCount={1} />,
+		<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />,
 	)
 
-	fetcherState = 'submitting'
-	fetcherData = undefined
-	rerender(<NotificationBell notifications={notifications} unreadCount={1} />)
+	// Simulate submission in progress
+	submitFetcherState = 'submitting'
+	submitFetcherData = undefined
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
 
-	fetcherState = 'idle'
-	fetcherData = { ok: true }
-	rerender(<NotificationBell notifications={notifications} unreadCount={1} />)
+	// Simulate submission complete with success
+	submitFetcherState = 'idle'
+	submitFetcherData = { ok: true }
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
 
-	expect(mockRevalidate).toHaveBeenCalled()
+	// Should call load on the refresh fetcher to fetch fresh data
+	// instead of calling revalidate (which would trigger full root loader reload)
+	expect(mockLoad).toHaveBeenCalledWith('/resources/notifications')
+})
+
+test('uses fresh fetcher data when available, falls back to props', () => {
+	// Render with stale props — 1 unread
+	const { rerender } = render(
+		<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />,
+	)
+
+	// No fresh data yet — should show stale count
+	expect(screen.getByLabelText('1 unread notifications')).toBeInTheDocument()
+
+	// Simulate the refresh fetcher returning updated data
+	refreshFetcherData = {
+		notifications: [{ ...notificationWithoutLink[0]!, readAt: new Date() }],
+		unreadCount: 0,
+	}
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	// Should show updated count from fetcher, not stale props
+	expect(screen.getByLabelText('Notifications')).toBeInTheDocument()
+})
+
+test('shows spinner on bell icon and disables mark-all-read while submitting', async () => {
+	const user = userEvent.setup()
+	submitFetcherState = 'submitting'
+
+	render(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
+
+	// Bell has loading aria-label
+	const bell = screen.getByRole('button', { name: 'Processing notifications...' })
+	expect(bell).toBeDefined()
+
+	// Open dropdown
+	await user.click(bell)
+
+	// Mark all read button is disabled
+	const markAllButton = screen.getByRole('button', { name: 'Mark all read' })
+	expect(markAllButton).toBeDefined()
+	expect(markAllButton).toBeDisabled()
+
+	// sr-only status text is present
+	expect(screen.getByText('Processing notifications...')).toBeDefined()
+})
+
+test('does not submit mark-all-read when already submitting', async () => {
+	const user = userEvent.setup()
+
+	const { rerender } = render(
+		<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />,
+	)
+
+	await user.click(screen.getByRole('button', { name: '2 unread notifications' }))
+
+	// First submit
+	await user.click(screen.getByRole('button', { name: 'Mark all read' }))
+	expect(mockSubmit).toHaveBeenCalledTimes(1)
+
+	// Simulate still submitting — re-render with submitting state
+	submitFetcherState = 'submitting'
+	mockSubmit.mockReset()
+	rerender(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
+
+	// Button should be disabled now after re-render
+	const markAllButton = screen.getByRole('button', { name: 'Mark all read' })
+	expect(markAllButton).toBeDisabled()
+	expect(mockSubmit).not.toHaveBeenCalled()
+})
+
+test('does not submit mark-single-read when already submitting', async () => {
+	const user = userEvent.setup()
+	submitFetcherState = 'submitting'
+
+	render(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
+
+	await user.click(screen.getByRole('button', { name: 'Processing notifications...' }))
+
+	// Try clicking a notification row — should be disabled
+	const item = screen.getByText('Playlist ready')
+	await user.click(item)
+
+	expect(mockSubmit).not.toHaveBeenCalled()
+})
+
+test('notification row with link is disabled when submitting', async () => {
+	const user = userEvent.setup()
+	submitFetcherState = 'submitting'
+
+	render(
+		<MemoryRouter>
+			<NotificationBell notifications={notificationWithLink} unreadCount={2} />
+		</MemoryRouter>,
+	)
+
+	await user.click(screen.getByRole('button', { name: 'Processing notifications...' }))
+
+	// The second notification has a linkUrl — clicking should not submit
+	const linkItem = screen.getByText('Another playlist')
+	await user.click(linkItem)
+
+	expect(mockSubmit).not.toHaveBeenCalled()
+})
+
+test('removes loading state when fetcher returns to idle', () => {
+	const { rerender } = render(
+		<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />,
+	)
+
+	// Start submitting
+	submitFetcherState = 'submitting'
+	rerender(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
+
+	expect(
+		screen.getByRole('button', { name: 'Processing notifications...' }),
+	).toBeDefined()
+
+	// Return to idle
+	submitFetcherState = 'idle'
+	rerender(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
+
+	expect(
+		screen.getByRole('button', { name: '2 unread notifications' }),
+	).toBeDefined()
+})
+
+test('shows error toast when mark-read server response is not ok', () => {
+	const { rerender } = render(
+		<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />,
+	)
+
+	submitFetcherState = 'submitting'
+	submitFetcherData = undefined
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	submitFetcherState = 'idle'
+	submitFetcherData = { ok: false }
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	expect(mockToast).toHaveBeenCalledWith({
+		title: 'Failed to mark notification as read',
+		variant: 'destructive',
+	})
+})
+
+test('shows error toast with mark-all-read message when mark-all-read fails', async () => {
+	const user = userEvent.setup()
+
+	const { rerender } = render(
+		<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />,
+	)
+
+	// Click mark-all-read — the real handleMarkAllRead sets lastIntentRef
+	await user.click(screen.getByRole('button', { name: '1 unread notifications' }))
+	await user.click(screen.getByRole('button', { name: 'Mark all read' }))
+
+	// Simulate server failure response on same component instance
+	submitFetcherState = 'idle'
+	submitFetcherData = { ok: false }
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	expect(mockToast).toHaveBeenCalledWith({
+		title: 'Failed to mark all notifications as read',
+		variant: 'destructive',
+	})
+})
+
+test('does not show error toast on successful mark-read', () => {
+	const { rerender } = render(
+		<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />,
+	)
+
+	submitFetcherState = 'submitting'
+	submitFetcherData = undefined
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	submitFetcherState = 'idle'
+	submitFetcherData = { ok: true }
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	expect(mockToast).not.toHaveBeenCalled()
+	expect(mockLoad).toHaveBeenCalledWith('/resources/notifications')
 })

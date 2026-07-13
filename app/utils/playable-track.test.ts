@@ -40,3 +40,26 @@ describe('filterPlayableTracks', () => {
 		expect(filterPlayableTracks([playable, metadataOnly, deletedWithAudio])).toEqual([playable])
 	})
 })
+
+describe('edge cases: audioFiles with empty objectKey or null entries', () => {
+	test('treats track with empty objectKey audioFiles entry as playable', () => {
+		// isPlayableTrack only checks audioFiles.length > 0 — individual entry
+		// validity (empty objectKey) is not validated here. This test documents
+		// the current contract.
+		const emptyKey = {
+			id: 'track-empty-key',
+			audioFiles: [{ id: 'af-e1', format: 'mp3', objectKey: '' }],
+		}
+		expect(isPlayableTrack(emptyKey)).toBe(true)
+	})
+
+	test('treats track with null format in audioFiles as playable', () => {
+		// isPlayableTrack only checks audioFiles.length — null format entries
+		// still count toward the length. This test documents the current contract.
+		const nullFormat = {
+			id: 'track-null-format',
+			audioFiles: [{ id: 'af-n1', format: null, objectKey: 'audio/nullfmt.mp3' }],
+		}
+		expect(isPlayableTrack(nullFormat)).toBe(true)
+	})
+})

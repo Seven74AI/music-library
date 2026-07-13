@@ -78,6 +78,14 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 
 - **Hydration** — Lazy fetch of the full playback payload (`FullTrack`: audioFiles, cover, duration) for tracks about to play. The provider hydrates the current track plus a small lookahead (four upcoming tracks) via `GET /api/tracks/playback`. Until hydrated, the UI uses minimal spine stubs.
 
+- **QueueNavigationState** — The in-memory state machine that drives queue positioning and next-track resolution. Contains five fields: `upNext` (the manual injection queue, held in memory only), `spine` (the full ordered list of `QueueTrack` rows for the active play context), `spineOrder` (a permutation of spine indices defining linear or shuffle play order), `spinePosition` (the current position within `spineOrder` — not the raw spine index), and `loopMode` (the current repeat mode). Created on play from a spine fetch and updated immutably by navigation functions — never mutated in place. See `app/features/queue/queue-navigation.ts`.
+
+- **QueueZone** — One of the two zones in the queue architecture: `'upNext'` or `'spine'`. The upNext zone is the manual injection area between the now-playing track and the spine; the spine zone is the automatic continuation (library or playlist). Navigation always drains upNext before advancing the spine pointer.
+
+- **QueueTarget** — A `{ zone, index }` pair that unambiguously identifies a specific track position in the queue. `zone` is a `QueueZone`; `index` is the position within that zone. For upNext targets, `index` is the array index into `upNext`. For spine targets, `index` is the position in `spineOrder` (not the raw spine index) — use `getTrackAtTarget()` to resolve a target to the actual `QueueTrack`.
+
+- **LoopMode** — Controls playback repetition when the spine pointer reaches either end: `'off'` (playback stops when no next/previous track exists), `'all'` (wraps the spine — next from end goes to start, previous from start goes to end), `'one'` (repeats the current track indefinitely — both `resolveNextTrack` and `resolvePreviousTrack` return the current spine position). Up Next is never affected by loop mode; it drains independently.
+
 ### Generic
 
 - **Epic Stack** — The full-stack framework this project is built on (React Router v7, Prisma, SQLite, Tailwind, Fly.io).

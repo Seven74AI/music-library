@@ -1,11 +1,22 @@
 import { data } from 'react-router'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import {
+	getRecentNotifications,
+	getUnreadNotificationCount,
 	markAllNotificationsRead,
 	markNotificationRead,
 } from '#app/utils/notifications.server.ts'
 import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { type Route } from './+types/notifications.ts'
+
+export async function loader({ request }: Route.LoaderArgs) {
+	const userId = await requireUserId(request)
+	const [notifications, unreadCount] = await Promise.all([
+		getRecentNotifications(userId),
+		getUnreadNotificationCount(userId),
+	])
+	return data({ notifications, unreadCount })
+}
 
 export async function action({ request }: Route.ActionArgs) {
 	const userId = await requireUserId(request)

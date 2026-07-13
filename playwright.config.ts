@@ -13,6 +13,7 @@ process.env.CACHE_DATABASE_PATH = path.join(process.cwd(), './tests/prisma/cache
 process.env.INTERNAL_COMMAND_TOKEN = 'test-internal-token'
 process.env.HONEYPOT_SECRET = 'test-honeypot-secret'
 process.env.SESSION_SECRET = 'test-session-secret'
+process.env.LITEFS_DIR = '/tmp/litefs-test'
 
 // Now load dotenv (which won't override DATABASE_URL if it's already set)
 import 'dotenv/config'
@@ -61,6 +62,7 @@ export default defineConfig({
 						'--disable-backgrounding-occluded-windows',
 						'--disable-renderer-backgrounding',
 						'--disable-gpu',
+						'--autoplay-policy=no-user-gesture-required',
 					],
 				},
 			},
@@ -83,6 +85,13 @@ export default defineConfig({
 			YOUTUBE_MOCKS: 'true',
 			// Use the test database created by global setup (absolute path)
 			// This ensures the webServer uses the same database as the global setup
+			LITEFS_DIR: '/tmp/litefs-test',
+			// AWS / Tigris storage mock values for E2E tests
+			AWS_ACCESS_KEY_ID: 'mock-access-key',
+			AWS_SECRET_ACCESS_KEY: 'mock-secret-key',
+			AWS_REGION: 'auto',
+			AWS_ENDPOINT_URL_S3: 'https://fly.storage.tigris.dev',
+			BUCKET_NAME: 'mock-bucket',
 			DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
 			// Required by env.server.ts validation — test-safe dummy values
 			DATABASE_PATH: BASE_DATABASE_PATH,

@@ -28,6 +28,13 @@ describe('isIOSDevice', () => {
 })
 
 describe('triggerBrowserDownload', () => {
+	let click: ReturnType<typeof vi.fn<() => void>>
+	let createElement: ReturnType<typeof vi.spyOn>
+	let appendChild: ReturnType<typeof vi.spyOn>
+	let removeChild: ReturnType<typeof vi.spyOn>
+	let revokeObjectURL: ReturnType<typeof vi.spyOn>
+	let createObjectURL: ReturnType<typeof vi.spyOn>
+
 	beforeEach(() => {
 		vi.stubGlobal(
 			'fetch',
@@ -36,6 +43,19 @@ describe('triggerBrowserDownload', () => {
 				blob: async () => new Blob(['audio-bytes'], { type: 'audio/mpeg' }),
 			}),
 		)
+
+		click = vi.fn()
+		const link = document.createElement('a')
+		link.click = click
+		createElement = vi
+			.spyOn(document, 'createElement')
+			.mockReturnValue(link as HTMLAnchorElement)
+		appendChild = vi.spyOn(document.body, 'appendChild').mockImplementation(() => link)
+		removeChild = vi.spyOn(document.body, 'removeChild').mockImplementation(() => link)
+		revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+		createObjectURL = vi
+			.spyOn(URL, 'createObjectURL')
+			.mockReturnValue('blob:https://app.test/audio')
 	})
 
 	afterEach(() => {
@@ -44,6 +64,88 @@ describe('triggerBrowserDownload', () => {
 	})
 
 	test('fetches same-origin stream URL and triggers blob download', async () => {
+		await triggerBrowserDownload('/resources/audio/track-1?stream=1', 'Song.mp3')
+
+		expect(fetch).toHaveBeenCalledWith('/resources/audio/track-1?stream=1', {
+			credentials: 'same-origin',
+			signal: expect.any(AbortSignal),
+		})
+		expect(createObjectURL).toHaveBeenCalled()
+		expect(click).toHaveBeenCalled()
+		expect(revokeObjectURL).toHaveBeenCalledWith('blob:https://app.test/audio')
+	})
+
+	test('throws error on non-OK HTTP response', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: false,
+				status: 404,
+				blob: async () => new Blob([]),
+			}),
+		)
+
+		await expect(
+			triggerBrowserDownload('/resources/audio/missing', 'Song.mp3'),
+		).rejects.toThrow('Download failed: 404')
+	})
+
+	test('passes AbortSignal to fetch with configurable timeout', async () => {
+		// Verify the signal is passed to fetch and timeout is configurable
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			blob: async () => new Blob(['audio-bytes'], { type: 'audio/mpeg' }),
+		})
+		vi.stubGlobal('fetch', fetchMock)
+
+		await triggerBrowserDownload('/file.mp3', 'test.mp3', { timeoutMs: 10_000 })
+
+		expect(fetchMock).toHaveBeenCalledWith('/file.mp3', {
+			credentials: 'same-origin',
+			signal: expect.any(AbortSignal),
+		})
+	})
+
+	test('throws descriptive error on AbortError (fetch timeout)', async () => {
+		const abortError = new DOMException('The operation was aborted', 'AbortError')
+		const fetchMock = vi.fn().mockRejectedValue(abortError)
+		vi.stubGlobal('fetch', fetchMock)
+
+		await expect(
+			triggerBrowserDownload('/resources/audio/slow', 'Song.mp3', { timeoutMs: 5000 }),
+		).rejects.toThrow('Download timed out after 5000ms')
+	})
+
+	test('uses default 30s timeout message when timeoutMs not specified', async () => {
+		const abortError = new DOMException('The operation was aborted', 'AbortError')
+		const fetchMock = vi.fn().mockRejectedValue(abortError)
+		vi.stubGlobal('fetch', fetchMock)
+
+		await expect(
+			triggerBrowserDownload('/resources/audio/slow', 'Song.mp3'),
+		).rejects.toThrow('Download timed out after 30000ms')
+	})
+
+	test('does not swallow non-AbortError exceptions', async () => {
+		const networkError = new TypeError('Failed to fetch')
+		const fetchMock = vi.fn().mockRejectedValue(networkError)
+		vi.stubGlobal('fetch', fetchMock)
+
+		await expect(
+			triggerBrowserDownload('/resources/audio/error', 'Song.mp3'),
+		).rejects.toThrow('Failed to fetch')
+	})
+
+	test('handles large file download (100MB blob) without error', async () => {
+		const largeBlob = new Blob([new Uint8Array(100_000_000)], {
+			type: 'audio/mpeg',
+		})
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			blob: async () => largeBlob,
+		})
+		vi.stubGlobal('fetch', fetchMock)
+
 		const click = vi.fn()
 		const link = document.createElement('a')
 		link.click = click
@@ -55,16 +157,13 @@ describe('triggerBrowserDownload', () => {
 		const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
 		const createObjectURL = vi
 			.spyOn(URL, 'createObjectURL')
-			.mockReturnValue('blob:https://app.test/audio')
+			.mockReturnValue('blob:https://app.test/large-audio')
 
-		await triggerBrowserDownload('/resources/audio/track-1?stream=1', 'Song.mp3')
+		await triggerBrowserDownload('/resources/audio/large.mp3', 'Large.mp3')
 
-		expect(fetch).toHaveBeenCalledWith('/resources/audio/track-1?stream=1', {
-			credentials: 'same-origin',
-		})
-		expect(createObjectURL).toHaveBeenCalled()
+		expect(fetchMock).toHaveBeenCalledTimes(1)
+		expect(createObjectURL).toHaveBeenCalledTimes(1)
 		expect(click).toHaveBeenCalled()
-		expect(revokeObjectURL).toHaveBeenCalledWith('blob:https://app.test/audio')
 
 		createElement.mockRestore()
 		appendChild.mockRestore()
