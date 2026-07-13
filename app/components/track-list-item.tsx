@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#app/components/ui
 import { Tooltip, TooltipContent, TooltipTrigger } from '#app/components/ui/tooltip'
 import { toast } from '#app/components/ui/use-toast.ts'
 import { formatDuration } from '#app/utils/format-duration.ts'
+import { isPlayableTrack } from '#app/utils/playable-track'
 import { useIsMobile } from '#app/utils/use-mobile.ts'
 import { AddToPlaylistMenu } from './add-to-playlist-menu'
 
@@ -108,7 +109,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 		setIsDetailsSheetOpen(true)
 	}, [])
 
-	const hasAudioFiles = track.audioFiles && track.audioFiles.length > 0 && !isDeleted
+	const hasAudioFiles = isPlayableTrack({ audioFiles: track.audioFiles, isDeleted })
 
 	// Radix dropdowns portal outside the row. When the menu closes, the browser can
 	// synthesize a click on the element underneath (this row's onClick=play). stopPropagation
@@ -127,12 +128,12 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	}, [])
 
 	const handlePlayTrack = useCallback(() => {
-		if (!track.audioFiles || track.audioFiles.length === 0 || isDeleted) {
+		if (!hasAudioFiles) {
 			return
 		}
 		const context = playlistContext || { type: 'library' as const }
 		playTrack(track, context, index)
-	}, [track, playlistContext, index, playTrack, isDeleted])
+	}, [hasAudioFiles, track, playlistContext, index, playTrack])
 
 	const handlePlayNext = useCallback(() => {
 		if (!hasAudioFiles) return
