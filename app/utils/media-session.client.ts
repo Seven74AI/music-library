@@ -16,7 +16,7 @@ export function buildMediaSessionMetadata(track: FullTrack) {
 	return {
 		title: track.title,
 		artist: track.artist.name,
-		album: '',
+		album: 'Unknown Album',
 		artwork: track.coverImage
 			? buildMediaSessionArtwork(track.coverImage.objectKey)
 			: [],
