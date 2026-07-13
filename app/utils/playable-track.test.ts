@@ -53,13 +53,13 @@ describe('edge cases: audioFiles with empty objectKey or null entries', () => {
 		expect(isPlayableTrack(emptyKey)).toBe(true)
 	})
 
-	test('treats track with null entry in audioFiles as playable', () => {
-		// isPlayableTrack only checks audioFiles.length — null entries
+	test('treats track with null format in audioFiles as playable', () => {
+		// isPlayableTrack only checks audioFiles.length — null format entries
 		// still count toward the length. This test documents the current contract.
-		const nullEntry = {
-			id: 'track-null-entry',
-			audioFiles: [null],
+		const nullFormat = {
+			id: 'track-null-format',
+			audioFiles: [{ id: 'af-n1', format: null, objectKey: 'audio/nullfmt.mp3' }],
 		}
-		expect(isPlayableTrack(nullEntry)).toBe(true)
+		expect(isPlayableTrack(nullFormat)).toBe(true)
 	})
 })
