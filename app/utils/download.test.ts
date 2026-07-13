@@ -28,7 +28,7 @@ describe('isIOSDevice', () => {
 })
 
 describe('triggerBrowserDownload', () => {
-	let click: ReturnType<typeof vi.fn>
+	let click: ReturnType<typeof vi.fn<() => void>>
 	let createElement: ReturnType<typeof vi.spyOn>
 	let appendChild: ReturnType<typeof vi.spyOn>
 	let removeChild: ReturnType<typeof vi.spyOn>
