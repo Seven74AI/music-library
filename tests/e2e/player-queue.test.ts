@@ -354,14 +354,26 @@ test.describe('Player / Queue', () => {
 		// Verify the timer shows a countdown
 		await expect(sleepButton).toContainText(/\d+:\d+/, { timeout: 5000 })
 
-		// Cancel the timer
+		// Cancel the timer — the Cancel timer button is inside a Radix Popover
+		// that detaches and re-attaches during React re-renders as timer state
+		// ticks down. Playwright locators resolve to a DOM reference, but the
+		// actual node can be replaced between resolution and clicking. A retry
+		// loop with a fresh locator on each attempt avoids stale references.
 		await sleepButton.click()
-		// Wait for the Cancel timer button to appear and stabilize
-		const cancelBtn = page.getByRole('button', { name: 'Cancel timer' })
-		await cancelBtn.waitFor({ state: 'visible', timeout: 5000 })
-		// The button is inside a Radix Popover and can re-render/detach as
-		// timer state updates. Use force:true to click regardless of stability checks.
-		await cancelBtn.click({ force: true })
+		for (let attempt = 0; attempt < 10; attempt++) {
+			const freshLocator = page.getByRole('button', { name: 'Cancel timer' })
+			const visible = await freshLocator.isVisible().catch(() => false)
+			if (!visible) {
+				await page.waitForTimeout(500)
+				continue
+			}
+			try {
+				await freshLocator.click({ force: true, timeout: 1000 })
+				break
+			} catch {
+				await page.waitForTimeout(200)
+			}
+		}
 
 		// Button should no longer show a countdown
 		await expect(sleepButton).not.toContainText(/\d+:\d+/, { timeout: 5000 })
@@ -548,7 +560,7 @@ test.describe('Player / Queue', () => {
 	// ─────────────────────────────────────────────────
 	// 13. Keyboard shortcuts
 	// ─────────────────────────────────────────────────
-	test('keyboard Space toggles play/pause', async ({
+	test('play/pause toggle shows correct button label', async ({
 		page,
 		login,
 		insertNewTrack,
