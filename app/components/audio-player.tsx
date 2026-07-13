@@ -1467,7 +1467,7 @@ function QueueSheet({ triggerClassName = 'h-8 w-8 p-0' }: { triggerClassName?: s
 						Upcoming tracks grouped by now playing, up next, and library or playlist source
 					</SheetDescription>
 				</SheetHeader>
-				<div className="flex-1 mt-6 min-h-0 flex flex-col gap-4">
+				<div className="flex-1 mt-6 min-h-0 flex flex-col gap-4 overflow-y-auto">
 					{isEmpty ? (
 						<div className="text-center py-12">
 							<Icon name="file-text" className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
