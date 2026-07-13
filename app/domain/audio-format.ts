@@ -14,7 +14,7 @@ export function selectBestAudioFile<T extends AudioFileWithFormat>(
 	}
 
 	for (const format of FORMAT_PRIORITY) {
-		const file = audioFiles.find((f) => f.format === format)
+		const file = audioFiles.find((f) => f.format?.toLowerCase() === format)
 		if (file) {
 			return file
 		}
