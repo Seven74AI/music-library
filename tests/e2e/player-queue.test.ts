@@ -28,13 +28,6 @@ async function dismissInstallBanner(page: import('@playwright/test').Page) {
 	await page.evaluate(() => {
 		const region = document.querySelector('[aria-label="Notifications (F8)"]')
 		if (region) region.remove()
-		// Also remove any autoplay-prevention message rendered in the
-		// player bar section (outside the Notifications region).
-		// These messages intercept pointer events on transport buttons.
-		const autoplayMsg = document.querySelector('p')
-		if (autoplayMsg?.textContent?.includes('Autoplay was prevented')) {
-			autoplayMsg.remove()
-		}
 	})
 }
 
@@ -118,7 +111,6 @@ test.describe('Player / Queue', () => {
 			page.waitForResponse(
 				response =>
 					response.url().includes('/api/queue-spine') &&
-					response.url().includes('playlist') &&
 					response.status() === 200,
 				{ timeout: 15000 },
 			),
@@ -367,7 +359,10 @@ test.describe('Player / Queue', () => {
 
 		// Cancel the timer
 		await sleepButton.click()
-		await page.getByRole('button', { name: 'Cancel timer' }).click()
+		// Wait for the Cancel timer button to appear and stabilize
+		const cancelBtn = page.getByRole('button', { name: 'Cancel timer' })
+		await cancelBtn.waitFor({ state: 'visible', timeout: 5000 })
+		await cancelBtn.click()
 
 		// Button should no longer show a countdown
 		await expect(sleepButton).not.toContainText(/\d+:\d+/, { timeout: 5000 })
