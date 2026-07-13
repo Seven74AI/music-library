@@ -428,5 +428,27 @@ describe('extractAudioMetadata', () => {
 		expect(result.totalDiscs).toBe(2)
 		expect(result.lyrics).toBe('These are the lyrics\nMore lyrics here')
 	})
+	test('detects WebM container format from metadata', async () => {
+		const { parseBuffer } = await import('music-metadata')
+		
+		const mockMetadata = {
+			format: { container: 'Matroska' },
+			common: {
+				title: 'WebM Test',
+				artist: 'Test Artist',
+			},
+			native: {},
+			quality: { warnings: [] },
+		} as unknown as IAudioMetadata
+
+		vi.mocked(parseBuffer).mockResolvedValue(mockMetadata)
+
+		const buffer = Buffer.from('fake webm audio data')
+		const result = await extractAudioMetadata(buffer)
+
+		expect(result.format).toBe('webm')
+		expect(result.mimeType).toBe('audio/webm')
+	})
+
 })
 

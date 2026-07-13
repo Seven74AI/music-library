@@ -276,6 +276,9 @@ function getFormatFromMetadata(
 		if (container.includes('aac')) {
 			return 'aac'
 		}
+		if (container.includes('webm') || container.includes('matroska')) {
+			return 'webm'
+		}
 	}
 
 	// Fallback to filename extension
