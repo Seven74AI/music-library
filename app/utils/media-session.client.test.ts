@@ -19,6 +19,7 @@ test('buildMediaSessionMetadata uses track title and artist', () => {
 
 	expect(metadata.title).toBe('Test Song')
 	expect(metadata.artist).toBe('Test Artist')
+	expect(metadata.album).toBe('Unknown Album')
 	expect(metadata.artwork).toEqual([])
 })
 
