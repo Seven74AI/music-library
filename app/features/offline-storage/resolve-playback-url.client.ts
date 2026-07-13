@@ -35,6 +35,13 @@ export function revokePlaybackAudioUrl(trackId: string) {
 	blobUrlCache.delete(trackId)
 }
 
+export function clearBlobUrlCache() {
+	for (const url of blobUrlCache.values()) {
+		URL.revokeObjectURL(url)
+	}
+	blobUrlCache.clear()
+}
+
 export async function fetchRemotePlaybackAudioUrl(
 	trackId: string,
 ): Promise<string | null> {
