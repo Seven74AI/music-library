@@ -369,9 +369,9 @@ describe('blob URL cache', () => {
 
 		// Verify revoke happened before create
 		const revokeCallIdx =
-			mockRevokeObjectURL.mock.invocationCallOrder[0]
+			mockRevokeObjectURL.mock.invocationCallOrder[0]!
 		const createCallIdx =
-			mockCreateObjectURL.mock.invocationCallOrder[0]
+			mockCreateObjectURL.mock.invocationCallOrder[0]!
 		expect(revokeCallIdx).toBeLessThan(createCallIdx)
 	})
 })
