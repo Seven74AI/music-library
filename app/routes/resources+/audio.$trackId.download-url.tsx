@@ -39,6 +39,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				},
 				take: 1,
 			},
+		},
 	})
 
 	if (!track) {
