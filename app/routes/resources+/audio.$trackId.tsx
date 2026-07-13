@@ -74,20 +74,20 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				where: { userId, isActive: true, deletedAt: null },
 				select: { id: true },
 			},
-		servicePlaylistTracks: {
-			where: {
-				isDeleted: false,
-				deletedAt: null,
-				playlist: { ownerId: userId, isActive: true },
+			servicePlaylistTracks: {
+				where: {
+					isDeleted: false,
+					deletedAt: null,
+					playlist: { ownerId: userId, isActive: true },
+				},
+				take: 1,
 			},
-			take: 1,
-		},
-		playlists: {
-			where: {
-				playlist: { ownerId: userId },
+			playlists: {
+				where: {
+					playlist: { ownerId: userId },
+				},
+				take: 1,
 			},
-			take: 1,
-		},
 	})
 
 	if (!track) {
