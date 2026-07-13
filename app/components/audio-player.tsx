@@ -46,10 +46,14 @@ import {
 type Track = FullTrack
 
 function formatPlayerTime(seconds: number) {
-	if (isNaN(seconds)) return '0:00'
+	if (isNaN(seconds) || !isFinite(seconds)) return '0:00'
 	const mins = Math.floor(seconds / 60)
 	const secs = Math.floor(seconds % 60)
 	return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+function isDurationKnown(duration: number): boolean {
+	return duration > 0 && isFinite(duration) && !isNaN(duration)
 }
 
 function getPlaybackProgressPercent(currentTime: number, duration: number) {
@@ -82,7 +86,7 @@ function PlayerSeekBar({
 			<input
 				type="range"
 				min="0"
-				max={duration || 0}
+				max={isDurationKnown(duration) ? duration : Infinity}
 				step="0.1"
 				value={isNaN(currentTime) ? 0 : currentTime}
 				onChange={onSeek}
@@ -93,14 +97,14 @@ function PlayerSeekBar({
 				className="flex-1 h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
 				style={{
 					background:
-						duration > 0
+						isDurationKnown(duration)
 							? `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${getPlaybackProgressPercent(currentTime, duration)}%, hsl(var(--muted)) ${getPlaybackProgressPercent(currentTime, duration)}%, hsl(var(--muted)) 100%)`
 							: undefined,
 				}}
 				aria-label="Seek"
 			/>
 			<span className="text-xs text-muted-foreground tabular-nums min-w-[3rem]">
-				{formatPlayerTime(duration)}
+				{isDurationKnown(duration) ? formatPlayerTime(duration) : '--:--'}
 			</span>
 		</div>
 	)
@@ -711,6 +715,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
 						})
 						.catch(() => {
 							setIsPlaying(false)
+							setPlaybackError(
+								'Autoplay was prevented by your browser. Press play to start.',
+							)
+							toast({
+								title: 'Autoplay blocked',
+								description: 'Your browser prevented automatic playback. Press play to start listening.',
+							})
 						})
 				}
 			}
@@ -729,7 +740,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const togglePlayPause = useCallback(async () => {
 		if (!audioRef.current) return
 
-		const wasPlaying = isPlaying
+		const wasPlaying = !audioRef.current.paused
 		isManualPlayRef.current = true
 
 		try {
@@ -739,10 +750,17 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				await audioRef.current.play()
 			}
 		} catch (error) {
-			setIsPlaying(wasPlaying)
-			console.error('Playback error:', error)
+			setIsPlaying(!audioRef.current.paused)
+			setPlaybackError(
+				'Unable to play this track. Try again or check your connection.',
+			)
+			toast({
+				title: 'Playback failed',
+				description: 'Could not start playback. Please try again.',
+				variant: 'destructive',
+			})
 		}
-	}, [isPlaying])
+	}, [])
 
 	useEffect(() => {
 		if (!isVisible) return
@@ -957,6 +975,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
 					`Audio load error: ${audio.error.message} (code: ${audio.error.code})`,
 				)
 			}
+			setPlaybackError(
+				'Unable to play this track. The audio file may be blocked or unavailable.',
+			)
 		}
 		
 		audio.addEventListener('timeupdate', updateTime)
@@ -1056,20 +1077,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				hasQueuedPlayback={hasQueuedPlayback}
 			/>
 		)
-	}
+}
 
-	if (!audioSrc && playbackError) {
-		return (
-			<div
-				data-testid="player-playback-error"
-				className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 px-4 py-3 text-sm text-destructive backdrop-blur"
-			>
-				<p className="container">{playbackError}</p>
-			</div>
-		)
-	}
-
-	const isAudioLoading = !audioSrc
+const isAudioLoading = !audioSrc
 	const chromeProps: PlayerChromeProps = {
 		track,
 		isPlaying,
@@ -1102,6 +1112,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
 	return (
 		<div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)]">
+			{playbackError ? (
+				<div
+					data-testid="player-playback-error"
+					className="px-4 py-3 text-sm text-destructive"
+				>
+					<p className="container">{playbackError}</p>
+				</div>
+			) : null}
 			<PlayerMiniBar
 				{...chromeProps}
 				onOpenNowPlaying={() => setIsNowPlayingOpen(true)}

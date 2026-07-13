@@ -84,7 +84,7 @@ async function renderPlayer(props: Partial<AudioPlayerTestProps> = {}) {
 	return { ...view, audioEl }
 }
 
-test('logs MediaError.code to console.error when <audio> fires error event', async () => {
+test('logs MediaError.code to console.error and shows playback error when <audio> fires error event', async () => {
 	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
 	const { audioEl } = await renderPlayer()
@@ -104,10 +104,17 @@ test('logs MediaError.code to console.error when <audio> fires error event', asy
 		'Audio load error: MEDIA_ELEMENT_ERROR: Format error (code: 4)',
 	)
 
+	// Assert the playback error UI is shown
+	await waitFor(() => {
+		expect(
+			screen.getByTestId('player-playback-error'),
+		).toBeInTheDocument()
+	})
+
 	consoleSpy.mockRestore()
 })
 
-test('does not log when audio error is null (element exists but no MediaError)', async () => {
+test('shows playback error even when audio error is null (no MediaError)', async () => {
 	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
 	const { audioEl } = await renderPlayer()
@@ -116,6 +123,13 @@ test('does not log when audio error is null (element exists but no MediaError)',
 	audioEl.dispatchEvent(new Event('error'))
 
 	expect(consoleSpy).not.toHaveBeenCalled()
+
+	// But the playback error UI should still appear
+	await waitFor(() => {
+		expect(
+			screen.getByTestId('player-playback-error'),
+		).toBeInTheDocument()
+	})
 
 	consoleSpy.mockRestore()
 })

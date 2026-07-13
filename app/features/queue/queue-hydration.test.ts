@@ -63,6 +63,51 @@ describe('collectHydrationIds', () => {
 
 		expect(ids).toEqual(['s1', 'u1', 's2', 's3'])
 	})
+
+	test('returns at most lookahead tracks when no current track', () => {
+		const ids = collectHydrationIds(
+			{
+				upNext: [{ id: 'u1', title: 'U1', artist: { id: 'a', name: 'A' } }],
+				spine: [
+					{ id: 's1', title: 'S1', artist: { id: 'a', name: 'A' } },
+					{ id: 's2', title: 'S2', artist: { id: 'a', name: 'A' } },
+					{ id: 's3', title: 'S3', artist: { id: 'a', name: 'A' } },
+					{ id: 's4', title: 'S4', artist: { id: 'a', name: 'A' } },
+					{ id: 's5', title: 'S5', artist: { id: 'a', name: 'A' } },
+				],
+				spineOrder: [0, 1, 2, 3, 4],
+				spinePosition: 0,
+				loopMode: 'off',
+			},
+			null,
+		)
+
+		expect(ids).toHaveLength(4) // lookahead = 4
+	})
+
+	test('early-terminates on large queues without materializing full array', () => {
+		// Simulate a 15K+ library: one upNext + 15K spine tracks
+		const largeSpine = Array.from({ length: 15_000 }, (_, i) => ({
+			id: `s${i}`,
+			title: `Track ${i}`,
+			artist: { id: 'a', name: 'A' },
+		}))
+
+		const ids = collectHydrationIds(
+			{
+				upNext: [{ id: 'u0', title: 'UpNext', artist: { id: 'a', name: 'A' } }],
+				spine: largeSpine,
+				spineOrder: Array.from({ length: 15_000 }, (_, i) => i),
+				spinePosition: 0,
+				loopMode: 'off',
+			},
+			null,
+		)
+
+		// Should only return lookahead (4) tracks, not 15K
+		expect(ids).toHaveLength(4)
+		expect(ids).toEqual(['u0', 's0', 's1', 's2'])
+	})
 })
 
 describe('collectQueueDisplayHydrationIds', () => {
