@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Link, useFetcher } from 'react-router'
+import { toast } from '#app/components/ui/use-toast.ts'
 import { Button } from '#app/components/ui/button.tsx'
 import {
 	DropdownMenu,
@@ -40,11 +41,22 @@ export function NotificationBell({
 	const fetcher = useFetcher<{ ok: boolean }>()
 	const isSubmitting = fetcher.state !== 'idle'
 	const refreshFetcher = useFetcher<NotificationLoaderData>()
+	const lastIntentRef = useRef<'mark-read' | 'mark-all-read' | null>(null)
 
 	useEffect(() => {
-		if (fetcher.state === 'idle' && fetcher.data?.ok) {
+		if (fetcher.state !== 'idle' || !fetcher.data) return
+
+		if (fetcher.data.ok) {
 			void refreshFetcher.load('/resources/notifications')
+			return
 		}
+
+		// Show error toast on failure
+		const label =
+			lastIntentRef.current === 'mark-all-read'
+				? 'Failed to mark all notifications as read'
+				: 'Failed to mark notification as read'
+		toast({ title: label, variant: 'destructive' })
 	}, [fetcher.data, fetcher.state])
 
 	const displayNotifications =
@@ -54,6 +66,7 @@ export function NotificationBell({
 
 	const markNotificationRead = (notificationId: string) => {
 		if (isSubmitting) return
+		lastIntentRef.current = 'mark-read'
 		void fetcher.submit(
 			{ intent: 'mark-read', notificationId },
 			{ method: 'POST', action: '/resources/notifications' },
@@ -62,6 +75,7 @@ export function NotificationBell({
 
 	const handleMarkAllRead = () => {
 		if (isSubmitting) return
+		lastIntentRef.current = 'mark-all-read'
 		void fetcher.submit(
 			{ intent: 'mark-all-read' },
 			{ method: 'POST', action: '/resources/notifications' },
