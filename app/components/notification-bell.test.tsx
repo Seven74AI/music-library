@@ -11,6 +11,14 @@ import { NotificationBell, type NotificationItem } from './notification-bell.tsx
 const mockSubmit = vi.fn()
 const mockLoad = vi.fn()
 
+const { mockToast } = vi.hoisted(() => ({
+	mockToast: vi.fn(),
+}))
+
+vi.mock('#app/components/ui/use-toast.ts', () => ({
+	toast: mockToast,
+}))
+
 let submitFetcherState: 'idle' | 'submitting' = 'idle'
 let submitFetcherData: { ok: boolean } | undefined
 
@@ -131,6 +139,7 @@ beforeEach(() => {
 	refreshFetcherData = undefined
 	mockSubmit.mockReset()
 	mockLoad.mockReset()
+	mockToast.mockReset()
 	fetcherCallCount = 0
 })
 
@@ -302,4 +311,62 @@ test('removes loading state when fetcher returns to idle', () => {
 	expect(
 		screen.getByRole('button', { name: '2 unread notifications' }),
 	).toBeDefined()
+})
+
+test('shows error toast when mark-read server response is not ok', () => {
+	const { rerender } = render(
+		<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />,
+	)
+
+	submitFetcherState = 'submitting'
+	submitFetcherData = undefined
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	submitFetcherState = 'idle'
+	submitFetcherData = { ok: false }
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	expect(mockToast).toHaveBeenCalledWith({
+		title: 'Failed to mark notification as read',
+		variant: 'destructive',
+	})
+})
+
+test('shows error toast with mark-all-read message when mark-all-read fails', async () => {
+	const user = userEvent.setup()
+
+	const { rerender } = render(
+		<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />,
+	)
+
+	// Click mark-all-read — the real handleMarkAllRead sets lastIntentRef
+	await user.click(screen.getByRole('button', { name: '1 unread notifications' }))
+	await user.click(screen.getByRole('button', { name: 'Mark all read' }))
+
+	// Simulate server failure response on same component instance
+	submitFetcherState = 'idle'
+	submitFetcherData = { ok: false }
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	expect(mockToast).toHaveBeenCalledWith({
+		title: 'Failed to mark all notifications as read',
+		variant: 'destructive',
+	})
+})
+
+test('does not show error toast on successful mark-read', () => {
+	const { rerender } = render(
+		<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />,
+	)
+
+	submitFetcherState = 'submitting'
+	submitFetcherData = undefined
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	submitFetcherState = 'idle'
+	submitFetcherData = { ok: true }
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
+
+	expect(mockToast).not.toHaveBeenCalled()
+	expect(mockLoad).toHaveBeenCalledWith('/resources/notifications')
 })

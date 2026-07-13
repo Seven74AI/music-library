@@ -2,6 +2,7 @@ import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
+import { useOnlineStatus } from '#app/hooks/use-online-status.ts'
 import {
 	formatQueueSheetTitle,
 	getSpineSectionHeading,
@@ -14,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '#app/components/ui/popo
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '#app/components/ui/sheet'
 import { toast } from '#app/components/ui/use-toast.ts'
 import {
+	clearBlobUrlCache,
 	resolveTrackPlaybackSource,
 	revokePlaybackAudioUrl,
 } from '#app/features/offline-storage/resolve-playback-url.client.ts'
@@ -642,9 +644,16 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const isManualPlayRef = useRef(false)
 	const [isDownloading, setIsDownloading] = useState(false)
 	const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false)
+	const isOnline = useOnlineStatus()
 
 	useEffect(() => {
 		setVolume(readStoredVolume())
+	}, [])
+
+	useEffect(() => {
+		return () => {
+			clearBlobUrlCache()
+		}
 	}, [])
 	
 	const audioFile = track?.audioFiles?.length
@@ -692,7 +701,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			cancelled = true
 			revokePlaybackAudioUrl(trackId)
 		}
-	}, [audioFile, track?.id])
+	}, [audioFile, track?.id, isOnline])
 
 	useEffect(() => {
 		if (
@@ -742,8 +751,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			}
 			isManualPlayRef.current = false
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [track?.id, audioSrc, playbackToken, volume])
+	}, [track?.id, audioSrc, playbackToken, volume, isMuted])
 
 	useEffect(() => {
 		if (audioRef.current) {

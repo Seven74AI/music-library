@@ -1,7 +1,6 @@
 import { prisma } from '#app/utils/db.server.ts'
 import { type FullTrack } from '#app/types/frontend/shared.ts'
-
-export const PLAYBACK_TRACK_MAX_IDS = 20
+import { PLAYBACK_BATCH_MAX_IDS } from './constants.ts'
 
 export const PLAYBACK_TRACK_SELECT = {
 	id: true,
@@ -45,7 +44,7 @@ export function parsePlaybackIds(idsParam: string | null): ParseResult {
 		return { ok: false, error: 'Track IDs are required' }
 	}
 
-	if (ids.length > PLAYBACK_TRACK_MAX_IDS) {
+	if (ids.length > PLAYBACK_BATCH_MAX_IDS) {
 		return { ok: false, error: 'Too many track IDs' }
 	}
 

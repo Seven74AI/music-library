@@ -1,7 +1,13 @@
 const COVER_IMAGE_PARAMS = 'fit=cover&format=webp'
 
-/** Build a proxied cover image URL at the requested square size. */
-export function coverImageUrl(objectKey: string, pixelSize: number) {
+/**
+ * Build a proxied cover image URL at the requested square size.
+ *
+ * Returns an empty string when objectKey is null, undefined, or empty
+ * so callers don't have to guard at every call site.
+ */
+export function coverImageUrl(objectKey: string | null | undefined, pixelSize: number): string {
+	if (!objectKey) return ''
 	return `/resources/images?src=${encodeURIComponent(objectKey)}&w=${pixelSize}&h=${pixelSize}&${COVER_IMAGE_PARAMS}`
 }
 
