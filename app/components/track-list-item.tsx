@@ -138,17 +138,13 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 		if (!hasAudioFiles) return
 
 		playNextTrack(track)
-
-		if (isPlayerVisible && currentTrack) {
-			toast({
-				title: 'Success',
-				description: `"${track.title}" will play next`,
-				variant: 'success',
-			})
-		}
-
+		toast({
+			title: 'Success',
+			description: `"${track.title}" will play next`,
+			variant: 'success',
+		})
 		setIsActionsSheetOpen(false)
-	}, [hasAudioFiles, isPlayerVisible, currentTrack, playNextTrack, track])
+	}, [hasAudioFiles, playNextTrack, track])
 
 	const handleAddToUpNext = useCallback(() => {
 		if (!hasAudioFiles) return
