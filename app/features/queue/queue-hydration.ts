@@ -6,8 +6,9 @@ import {
 } from './queue-navigation.ts'
 import { fullTrackStubFromQueueTrack } from './queue-spine.ts'
 
+import { PLAYBACK_BATCH_MAX_IDS } from './constants.ts'
+
 export const PLAYBACK_LOOKAHEAD = 4
-export const PLAYBACK_BATCH_MAX_IDS = 20
 
 export type PlaybackBatchResponse = {
 	tracks: FullTrack[]
