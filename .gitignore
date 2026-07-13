@@ -16,6 +16,7 @@ data.db
 /playwright/.cache/
 /tests/fixtures/email/
 /tests/fixtures/uploaded/
+!/tests/fixtures/uploaded/audio/
 /tests/fixtures/openimg/
 /coverage
 
