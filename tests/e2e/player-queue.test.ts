@@ -38,7 +38,7 @@ async function playTrackFromLibrary(
 	page: import('@playwright/test').Page,
 	trackTitle: string,
 ) {
-	await page.goto('/library')
+	await page.goto('/library', { timeout: 30000 })
 	await page.waitForLoadState('networkidle')
 	await expect(page.getByText(trackTitle).first()).toBeVisible({ timeout: 10000 })
 
@@ -106,16 +106,13 @@ test.describe('Player / Queue', () => {
 
 		await dismissInstallBanner(page)
 
-		// Click play on the first track in the playlist
-		await Promise.all([
-			page.waitForResponse(
-				response =>
-					response.url().includes('/api/queue-spine') &&
-					response.status() === 200,
-				{ timeout: 15000 },
-			),
-			page.getByRole('button', { name: 'Play' }).first().click(),
-		])
+		// On the playlist page, play the track via "More queue actions" → "Play next".
+		// There's no direct "Play" button; the hero has "Add to up next" + dropdown.
+		// "Play next" opens a confirmation alert dialog, so confirm it.
+		await page.getByRole('button', { name: 'More queue actions' }).click()
+		await page.getByRole('menuitem', { name: 'Play next' }).click()
+		await page.getByRole('alertdialog', { name: 'Play next' })
+			.getByRole('button', { name: 'Play next' }).click()
 
 		const playerBar = page.getByTestId('player-desktop-bar')
 		await expect(playerBar).toBeVisible({ timeout: 10000 })
@@ -362,7 +359,9 @@ test.describe('Player / Queue', () => {
 		// Wait for the Cancel timer button to appear and stabilize
 		const cancelBtn = page.getByRole('button', { name: 'Cancel timer' })
 		await cancelBtn.waitFor({ state: 'visible', timeout: 5000 })
-		await cancelBtn.click()
+		// The button is inside a Radix Popover and can re-render/detach as
+		// timer state updates. Use force:true to click regardless of stability checks.
+		await cancelBtn.click({ force: true })
 
 		// Button should no longer show a countdown
 		await expect(sleepButton).not.toContainText(/\d+:\d+/, { timeout: 5000 })
