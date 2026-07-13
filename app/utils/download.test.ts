@@ -28,6 +28,13 @@ describe('isIOSDevice', () => {
 })
 
 describe('triggerBrowserDownload', () => {
+	let click: ReturnType<typeof vi.fn<() => void>>
+	let createElement: ReturnType<typeof vi.spyOn>
+	let appendChild: ReturnType<typeof vi.spyOn>
+	let removeChild: ReturnType<typeof vi.spyOn>
+	let revokeObjectURL: ReturnType<typeof vi.spyOn>
+	let createObjectURL: ReturnType<typeof vi.spyOn>
+
 	beforeEach(() => {
 		vi.stubGlobal(
 			'fetch',
@@ -36,6 +43,19 @@ describe('triggerBrowserDownload', () => {
 				blob: async () => new Blob(['audio-bytes'], { type: 'audio/mpeg' }),
 			}),
 		)
+
+		click = vi.fn()
+		const link = document.createElement('a')
+		link.click = click
+		createElement = vi
+			.spyOn(document, 'createElement')
+			.mockReturnValue(link as HTMLAnchorElement)
+		appendChild = vi.spyOn(document.body, 'appendChild').mockImplementation(() => link)
+		removeChild = vi.spyOn(document.body, 'removeChild').mockImplementation(() => link)
+		revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+		createObjectURL = vi
+			.spyOn(URL, 'createObjectURL')
+			.mockReturnValue('blob:https://app.test/audio')
 	})
 
 	afterEach(() => {
@@ -44,19 +64,6 @@ describe('triggerBrowserDownload', () => {
 	})
 
 	test('fetches same-origin stream URL and triggers blob download', async () => {
-		const click = vi.fn()
-		const link = document.createElement('a')
-		link.click = click
-		const createElement = vi
-			.spyOn(document, 'createElement')
-			.mockReturnValue(link as HTMLAnchorElement)
-		const appendChild = vi.spyOn(document.body, 'appendChild').mockImplementation(() => link)
-		const removeChild = vi.spyOn(document.body, 'removeChild').mockImplementation(() => link)
-		const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-		const createObjectURL = vi
-			.spyOn(URL, 'createObjectURL')
-			.mockReturnValue('blob:https://app.test/audio')
-
 		await triggerBrowserDownload('/resources/audio/track-1?stream=1', 'Song.mp3')
 
 		expect(fetch).toHaveBeenCalledWith('/resources/audio/track-1?stream=1', {
@@ -66,12 +73,6 @@ describe('triggerBrowserDownload', () => {
 		expect(createObjectURL).toHaveBeenCalled()
 		expect(click).toHaveBeenCalled()
 		expect(revokeObjectURL).toHaveBeenCalledWith('blob:https://app.test/audio')
-
-		createElement.mockRestore()
-		appendChild.mockRestore()
-		removeChild.mockRestore()
-		revokeObjectURL.mockRestore()
-		createObjectURL.mockRestore()
 	})
 
 	test('throws error on non-OK HTTP response', async () => {
