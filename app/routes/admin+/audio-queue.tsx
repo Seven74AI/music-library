@@ -28,6 +28,7 @@ import { scheduleQueueTick, resetCookieFailureStreak } from '#app/features/audio
 import { prisma } from '#app/utils/db.server.ts'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
 import { type Route } from './+types/audio-queue.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 
 export const handle: SEOHandle = {
 	getSitemapEntries: () => null,
@@ -677,4 +678,8 @@ export function ErrorBoundary() {
 			}}
 		/>
 	)
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }

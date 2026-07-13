@@ -28,6 +28,8 @@ import { requireUserId } from '#app/utils/auth.server'
 import { handleLoaderError } from '#app/utils/error-handlers.server'
 import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
 import { type ServicePlaylist } from '#prisma/client.js'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { type Route } from './+types/synced-playlists.ts'
 
 export const handle: BreadcrumbHandle = {
 	breadcrumb: <Icon name="file-text">Synced Playlists</Icon>,
@@ -369,4 +371,8 @@ export default function YouTubeSyncedPlaylistsPage() {
 			)}
 		</div>
 	)
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
