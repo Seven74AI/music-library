@@ -3,6 +3,7 @@ import {
 	buildMediaSessionMetadata,
 	clearMediaSessionPositionState,
 	clampMediaSessionSeekTime,
+	isMediaSessionSupported,
 	updateMediaSessionPositionState,
 } from './media-session.client.ts'
 
@@ -119,4 +120,48 @@ test('clampMediaSessionSeekTime keeps seek within track bounds', () => {
 	expect(clampMediaSessionSeekTime(-5, 120)).toBe(0)
 	expect(clampMediaSessionSeekTime(45, 120)).toBe(45)
 	expect(clampMediaSessionSeekTime(200, 120)).toBe(120)
+})
+
+describe('SSR safety (no navigator / MediaMetadata)', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals()
+	})
+
+	test('isMediaSessionSupported returns false when navigator is undefined', () => {
+		vi.stubGlobal('navigator', undefined)
+		expect(isMediaSessionSupported()).toBe(false)
+	})
+
+	test('updateMediaSessionPositionState returns early when navigator is undefined', () => {
+		vi.stubGlobal('navigator', undefined)
+		// Should not throw
+		expect(() =>
+			updateMediaSessionPositionState({
+				duration: 120,
+				currentTime: 30,
+				playbackRate: 1,
+			}),
+		).not.toThrow()
+	})
+
+	test('clearMediaSessionPositionState returns early when navigator is undefined', () => {
+		vi.stubGlobal('navigator', undefined)
+		expect(() => clearMediaSessionPositionState()).not.toThrow()
+	})
+
+	test('buildMediaSessionMetadata works without MediaMetadata constructor', () => {
+		// MediaMetadata constructor does not exist in SSR (it is a browser-only API).
+		// buildMediaSessionMetadata returns a plain object — no constructor dependency.
+		const metadata = buildMediaSessionMetadata({
+			id: 'track-ssr',
+			title: 'SSR Song',
+			artist: { id: 'artist-ssr', name: 'SSR Artist' },
+			duration: 200,
+			coverImage: null,
+			audioFiles: [],
+		})
+		expect(metadata.title).toBe('SSR Song')
+		expect(metadata.artist).toBe('SSR Artist')
+		expect(metadata.artwork).toEqual([])
+	})
 })

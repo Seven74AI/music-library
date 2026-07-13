@@ -135,6 +135,42 @@ describe('triggerBrowserDownload', () => {
 			triggerBrowserDownload('/resources/audio/error', 'Song.mp3'),
 		).rejects.toThrow('Failed to fetch')
 	})
+
+	test('handles large file download (100MB blob) without error', async () => {
+		const largeBlob = new Blob([new Uint8Array(100_000_000)], {
+			type: 'audio/mpeg',
+		})
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			blob: async () => largeBlob,
+		})
+		vi.stubGlobal('fetch', fetchMock)
+
+		const click = vi.fn()
+		const link = document.createElement('a')
+		link.click = click
+		const createElement = vi
+			.spyOn(document, 'createElement')
+			.mockReturnValue(link as HTMLAnchorElement)
+		const appendChild = vi.spyOn(document.body, 'appendChild').mockImplementation(() => link)
+		const removeChild = vi.spyOn(document.body, 'removeChild').mockImplementation(() => link)
+		const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+		const createObjectURL = vi
+			.spyOn(URL, 'createObjectURL')
+			.mockReturnValue('blob:https://app.test/large-audio')
+
+		await triggerBrowserDownload('/resources/audio/large.mp3', 'Large.mp3')
+
+		expect(fetchMock).toHaveBeenCalledTimes(1)
+		expect(createObjectURL).toHaveBeenCalledTimes(1)
+		expect(click).toHaveBeenCalled()
+
+		createElement.mockRestore()
+		appendChild.mockRestore()
+		removeChild.mockRestore()
+		revokeObjectURL.mockRestore()
+		createObjectURL.mockRestore()
+	})
 })
 
 describe('triggerBlobDownload', () => {
