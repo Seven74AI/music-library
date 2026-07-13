@@ -1,5 +1,12 @@
 import { type FullTrack, type QueueTrack } from '#app/types/frontend/shared.ts'
 
+export class AuthExpiredError extends Error {
+	constructor() {
+		super('Auth session expired')
+		this.name = 'AuthExpiredError'
+	}
+}
+
 export type QueueSpineContext =
 	| { type: 'library' }
 	| { type: 'playlist'; playlistId: string }
@@ -20,7 +27,10 @@ export async function fetchQueueSpine(
 		url = `/api/queue-spine?context=playlist&playlistId=${encodeURIComponent(context.playlistId)}`
 	}
 
-	const response = await fetch(url)
+	const response = await fetch(url, { redirect: 'manual' })
+	if (response.status >= 300 && response.status < 400) {
+		throw new AuthExpiredError()
+	}
 	if (!response.ok) {
 		throw new Error(`Failed to fetch queue spine: ${response.status}`)
 	}

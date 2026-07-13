@@ -26,6 +26,15 @@ export async function getRecentNotifications(userId: string, limit = 10) {
 	})
 }
 
+/**
+ * Marks a single notification as read.
+ *
+ * Concurrency safety: the `readAt: null` guard in the `where` clause makes
+ * this operation idempotent. If two concurrent calls target the same
+ * notification, only the first one matches (readAt is still null); the
+ * second call sees readAt already set and matches zero rows, returning
+ * false. No double-update is possible.
+ */
 export async function markNotificationRead(
 	notificationId: string,
 	userId: string,
