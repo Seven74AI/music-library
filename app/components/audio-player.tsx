@@ -669,7 +669,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 		setPlaybackError(null)
 
 		let cancelled = false
-		void resolveTrackPlaybackSource(trackId, { preferOffline: !isOnline })
+		void resolveTrackPlaybackSource(trackId)
 			.then((url) => {
 				if (cancelled) return
 				if (url) {
