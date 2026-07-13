@@ -1,6 +1,7 @@
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest'
 import { type FullTrack } from '#app/types/frontend/shared.ts'
 import {
+	AuthExpiredError,
 	fetchQueueSpine,
 	fullTrackStubFromQueueTrack,
 	queueTrackFromFullTrack,
@@ -59,6 +60,30 @@ describe('fetchQueueSpine', () => {
 
 		expect(String(fetchMock.mock.calls[0]?.[0])).toContain('context=playlist')
 		expect(String(fetchMock.mock.calls[0]?.[0])).toContain('playlistId=pl-1')
+	})
+
+	test('throws AuthExpiredError on redirect (302) response', async () => {
+		const fetchMock = vi.mocked(fetch)
+		fetchMock.mockResolvedValueOnce({
+			ok: false,
+			status: 302,
+		} as Response)
+
+		await expect(fetchQueueSpine({ type: 'library' })).rejects.toThrow(
+			AuthExpiredError,
+		)
+	})
+
+	test('throws generic Error on non-redirect error response (500)', async () => {
+		const fetchMock = vi.mocked(fetch)
+		fetchMock.mockResolvedValueOnce({
+			ok: false,
+			status: 500,
+		} as Response)
+
+		await expect(fetchQueueSpine({ type: 'library' })).rejects.toThrow(
+			'Failed to fetch queue spine: 500',
+		)
 	})
 })
 

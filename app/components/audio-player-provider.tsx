@@ -27,6 +27,7 @@ import {
 	reshuffleFromCurrent,
 } from '#app/features/queue/queue-shuffle.ts'
 import {
+	AuthExpiredError,
 	fetchQueueSpine,
 	queueTrackFromFullTrack,
 	type QueueSpineContext,
@@ -230,6 +231,10 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 					const result = await fetchQueueSpine(spineContext)
 					if (result.tracks.length > 0) return result
 				} catch (error) {
+					if (error instanceof AuthExpiredError) {
+						window.location.href = '/login'
+						return { tracks: [], total: 0 }
+					}
 					console.error('Failed to fetch queue spine:', error)
 				}
 			}

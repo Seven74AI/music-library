@@ -46,27 +46,16 @@ export async function fetchRemotePlaybackAudioUrl(
 
 export async function resolveTrackPlaybackSource(
 	trackId: string,
-	options: { preferOffline?: boolean } = {},
 ): Promise<string | null> {
-	if (options.preferOffline) {
-		try {
-			const offlineUrl = await resolvePlaybackAudioUrl(trackId)
-			if (offlineUrl) return offlineUrl
-		} catch {
-			// resolvePlaybackAudioUrl now catches internally, safety net
-		}
-		// preferOffline was set but offline data is unavailable or corrupted
-		throw new OfflineDataCorruptedError(
-			'Offline data is corrupted or unavailable',
-		)
-	}
+	const offlineUrl = await resolvePlaybackAudioUrl(trackId)
+	if (offlineUrl) return offlineUrl
 
 	try {
 		const remoteUrl = await fetchRemotePlaybackAudioUrl(trackId)
 		if (remoteUrl) return remoteUrl
 	} catch {
-		// fall through to offline blob
+		// no-op: offline blob already checked above
 	}
 
-	return resolvePlaybackAudioUrl(trackId)
+	return null
 }
