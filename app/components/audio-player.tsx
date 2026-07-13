@@ -2,6 +2,7 @@ import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
+import { useOnlineStatus } from '#app/hooks/use-online-status.ts'
 import {
 	formatQueueSheetTitle,
 	getSpineSectionHeading,
@@ -642,6 +643,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const isManualPlayRef = useRef(false)
 	const [isDownloading, setIsDownloading] = useState(false)
 	const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false)
+	const isOnline = useOnlineStatus()
 
 	useEffect(() => {
 		setVolume(readStoredVolume())
@@ -692,7 +694,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			cancelled = true
 			revokePlaybackAudioUrl(trackId)
 		}
-	}, [audioFile, track?.id])
+	}, [audioFile, track?.id, isOnline])
 
 	useEffect(() => {
 		if (
