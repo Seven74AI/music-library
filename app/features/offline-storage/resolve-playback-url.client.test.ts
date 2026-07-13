@@ -9,7 +9,6 @@ const mockGetOfflineStorage = vi.fn(() => ({
 // ── Dynamically imported module references ─────────────────────────────────
 let resolveTrackPlaybackSource: (
 	trackId: string,
-	options?: { preferOffline?: boolean },
 ) => Promise<string | null>
 let resolvePlaybackAudioUrl: (trackId: string) => Promise<string | null>
 let fetchRemotePlaybackAudioUrl: (trackId: string) => Promise<string | null>
@@ -112,44 +111,36 @@ describe('resolveTrackPlaybackSource', () => {
 		).resolves.toMatch(/^blob:/)
 	})
 
-	// ── F7#1: preferOffline path ─────────────────────────────────────────
+	// ── F7#1: Offline-first path (always checks blob first) ──────────────
 
-	test('preferOffline returns blob URL immediately when offline store has blob', async () => {
+	test('returns blob URL when offline store has blob (offline-first)', async () => {
 		mockResolvePlaybackBlob.mockResolvedValue(blob())
 		// fetch should NOT be called — stub to throw so we catch accidental calls
 		stubFetchError(new Error('fetch should not have been called'))
 
-		const result = await resolveTrackPlaybackSource('track-1', {
-			preferOffline: true,
-		})
+		const result = await resolveTrackPlaybackSource('track-1')
 
 		expect(result).toMatch(/^blob:/)
 		expect(result).toBe('blob:mock-url')
 	})
 
-	test('preferOffline falls through to remote when offline store has no blob', async () => {
+	test('falls through to remote when offline store has no blob', async () => {
 		mockResolvePlaybackBlob.mockResolvedValue(null)
 		stubFetchOk('https://cdn.example/track-1.mp3')
 
-		const result = await resolveTrackPlaybackSource('track-1', {
-			preferOffline: true,
-		})
+		const result = await resolveTrackPlaybackSource('track-1')
 
 		expect(result).toBe('https://cdn.example/track-1.mp3')
 	})
 
-	test('preferOffline falls through to remote, then offline when both first two fail', async () => {
-		// First call (preferOffline): resolvePlaybackBlob → null
-		// Second call (fallback at end): resolvePlaybackBlob → blob
-		mockResolvePlaybackBlob.mockResolvedValueOnce(null) // preferOffline check
-		stubFetchError() // remote fetch throws
-		mockResolvePlaybackBlob.mockResolvedValueOnce(blob()) // final fallback
+	test('returns null when remote fetch fails and no offline blob available', async () => {
+		// In offline-first mode: resolvePlaybackBlob returns null → remote fails → return null
+		mockResolvePlaybackBlob.mockResolvedValue(null)
+		stubFetchError()
 
-		const result = await resolveTrackPlaybackSource('track-1', {
-			preferOffline: true,
-		})
+		const result = await resolveTrackPlaybackSource('track-1')
 
-		expect(result).toMatch(/^blob:/)
+		expect(result).toBeNull()
 	})
 
 	// ── F7#2: Remote fetch non‑ok → fallback to offline ──────────────────
@@ -187,15 +178,15 @@ describe('resolveTrackPlaybackSource', () => {
 
 	// ── F7#8: Online but offline store has blob → remote tried first ────
 
-	test('returns remote URL when online and remote succeeds, even with offline blob available', async () => {
+	test('returns offline blob when online and offline blob available (offline-first)', async () => {
 		stubNavigatorOnline(true)
 		stubFetchOk('https://cdn.example/track-1.mp3')
 		mockResolvePlaybackBlob.mockResolvedValue(blob())
 
 		const result = await resolveTrackPlaybackSource('track-1')
 
-		// remote is tried first (no preferOffline), so remote URL should win
-		expect(result).toBe('https://cdn.example/track-1.mp3')
+		// In offline-first mode, blob always wins — even when online
+		expect(result).toMatch(/^blob:/)
 	})
 
 	test('falls back to offline when online but remote fetch fails', async () => {
