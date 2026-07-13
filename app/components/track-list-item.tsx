@@ -125,6 +125,13 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 			return
 		}
 		event.preventDefault()
+		event.stopPropagation()
+	}, [])
+
+	// Backup click guard — some Radix/browser combos fire ghost clicks
+	// even after pointerdown preventDefault, especially with nested portals.
+	const handleMenuClick = useCallback((event: React.MouseEvent) => {
+		event.stopPropagation()
 	}, [])
 
 	const handlePlayTrack = useCallback(() => {
@@ -301,7 +308,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 								<Icon name="dots-horizontal" className="h-4 w-4" />
 							</Button>
 						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" onPointerDown={handleMenuPointerDown}>
+						<DropdownMenuContent align="end" onPointerDown={handleMenuPointerDown} onClick={handleMenuClick}>
 							<Dialog>
 								<DialogTrigger asChild>
 									<DropdownMenuItem onSelect={(e) => e.preventDefault()}>
@@ -377,7 +384,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 										<Icon name="plus" className="h-4 w-4 mr-2" />
 										Add to Playlist
 									</DropdownMenuSubTrigger>
-									<DropdownMenuSubContent onPointerDown={handleMenuPointerDown}>
+									<DropdownMenuSubContent onPointerDown={handleMenuPointerDown} onClick={handleMenuClick}>
 										<AddToPlaylistMenu 
 											trackId={track.id} 
 											trackTitle={track.title}
@@ -433,7 +440,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 				<>
 					{/* Actions Sheet */}
 					<Sheet open={isActionsSheetOpen} onOpenChange={setIsActionsSheetOpen}>
-						<SheetContent side="bottom" className="h-[60vh]">
+						<SheetContent side="bottom" className="h-[60vh]" onPointerDown={handleMenuPointerDown} onClick={handleMenuClick}>
 							<SheetHeader>
 								<SheetTitle className="text-left">
 									<div className="flex items-center gap-3">
@@ -549,7 +556,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 
 					{/* Playlist Selection Sheet */}
 					<Sheet open={isPlaylistSheetOpen} onOpenChange={setIsPlaylistSheetOpen}>
-						<SheetContent side="bottom" className="h-[80vh]">
+						<SheetContent side="bottom" className="h-[80vh]" onPointerDown={handleMenuPointerDown} onClick={handleMenuClick}>
 							<SheetHeader>
 								<SheetTitle>Add to Playlist</SheetTitle>
 							</SheetHeader>
@@ -566,7 +573,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 
 					{/* Track Details Sheet (mobile) */}
 					<Sheet open={isDetailsSheetOpen} onOpenChange={setIsDetailsSheetOpen}>
-						<SheetContent side="bottom" className="h-[80vh]">
+						<SheetContent side="bottom" className="h-[80vh]" onPointerDown={handleMenuPointerDown} onClick={handleMenuClick}>
 							<SheetHeader>
 								<SheetTitle className="text-left">
 									<div className="flex items-center gap-3">
