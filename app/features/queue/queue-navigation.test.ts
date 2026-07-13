@@ -71,6 +71,16 @@ describe('resolveNextTrack', () => {
 		expect(resolveNextTrack(state)).toEqual({ zone: 'spine', index: 1 })
 	})
 
+	test('drains Up Next first when loop one is enabled and Up Next has items', () => {
+		const state = baseState({
+			upNext: [track('u1'), track('u2')],
+			spinePosition: 1,
+			loopMode: 'one',
+		})
+
+		expect(resolveNextTrack(state)).toEqual({ zone: 'upNext', index: 0 })
+	})
+
 	test('returns null at end of spine with loop off', () => {
 		const state = baseState({ spinePosition: 2 })
 

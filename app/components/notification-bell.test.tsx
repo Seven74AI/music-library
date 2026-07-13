@@ -8,17 +8,22 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { NotificationBell, type NotificationItem } from './notification-bell.tsx'
 
 const mockSubmit = vi.fn()
-const mockRevalidate = vi.fn()
+const mockLoad = vi.fn()
 
-let fetcherState: 'idle' | 'submitting' = 'idle'
-let fetcherData: { ok: boolean } | undefined
+let submitFetcherState: 'idle' | 'submitting' = 'idle'
+let submitFetcherData: { ok: boolean } | undefined
 
-const mockFetcher = {
+let refreshFetcherState: 'idle' | 'loading' = 'idle'
+let refreshFetcherData:
+	| { notifications: NotificationItem[]; unreadCount: number }
+	| undefined
+
+const mockSubmitFetcher = {
 	get state() {
-		return fetcherState
+		return submitFetcherState
 	},
 	get data() {
-		return fetcherData
+		return submitFetcherData
 	},
 	submit: mockSubmit,
 	Form: ({
@@ -29,12 +34,38 @@ const mockFetcher = {
 	),
 }
 
+const mockRefreshFetcher = {
+	get state() {
+		return refreshFetcherState
+	},
+	get data() {
+		return refreshFetcherData
+	},
+	load: mockLoad,
+	Form: ({
+		children,
+		...props
+	}: React.FormHTMLAttributes<HTMLFormElement>) => (
+		<form {...props}>{children}</form>
+	),
+}
+
+// Return different mock fetchers based on call position within each render.
+// useFetcher is called twice per render (submit fetcher first, refresh fetcher second).
+// Since React hooks must be called in the same order every render, position % 2
+// reliably distinguishes them across re-renders.
+let fetcherCallCount = 0
 vi.mock('react-router', async (importOriginal) => {
 	const actual = await importOriginal<typeof ReactRouter>()
 	return {
 		...actual,
-		useFetcher: () => mockFetcher,
-		useRevalidator: () => ({ revalidate: mockRevalidate }),
+		useFetcher: vi.fn().mockImplementation(() => {
+			fetcherCallCount++
+			// Odd calls = submit fetcher, even calls = refresh fetcher
+			return fetcherCallCount % 2 === 1
+				? mockSubmitFetcher
+				: mockRefreshFetcher
+		}),
 	}
 })
 
@@ -51,10 +82,13 @@ const notifications: NotificationItem[] = [
 ]
 
 beforeEach(() => {
-	fetcherState = 'idle'
-	fetcherData = undefined
+	submitFetcherState = 'idle'
+	submitFetcherData = undefined
+	refreshFetcherState = 'idle'
+	refreshFetcherData = undefined
 	mockSubmit.mockReset()
-	mockRevalidate.mockReset()
+	mockLoad.mockReset()
+	fetcherCallCount = 0
 })
 
 test('mark all read submits through fetcher instead of navigating', async () => {
@@ -71,7 +105,7 @@ test('mark all read submits through fetcher instead of navigating', async () => 
 	)
 })
 
-test('mark single notification read revalidates loader data', async () => {
+test('mark single notification read submits through fetcher', async () => {
 	const user = userEvent.setup()
 
 	render(<NotificationBell notifications={notifications} unreadCount={1} />)
@@ -85,18 +119,42 @@ test('mark single notification read revalidates loader data', async () => {
 	)
 })
 
-test('revalidates root loader after a successful notifications response', () => {
+test('fetches fresh notification data after a successful mark-read instead of full revalidation', () => {
 	const { rerender } = render(
 		<NotificationBell notifications={notifications} unreadCount={1} />,
 	)
 
-	fetcherState = 'submitting'
-	fetcherData = undefined
+	// Simulate submission in progress
+	submitFetcherState = 'submitting'
+	submitFetcherData = undefined
 	rerender(<NotificationBell notifications={notifications} unreadCount={1} />)
 
-	fetcherState = 'idle'
-	fetcherData = { ok: true }
+	// Simulate submission complete with success
+	submitFetcherState = 'idle'
+	submitFetcherData = { ok: true }
 	rerender(<NotificationBell notifications={notifications} unreadCount={1} />)
 
-	expect(mockRevalidate).toHaveBeenCalled()
+	// Should call load on the refresh fetcher to fetch fresh data
+	// instead of calling revalidate (which would trigger full root loader reload)
+	expect(mockLoad).toHaveBeenCalledWith('/resources/notifications')
+})
+
+test('uses fresh fetcher data when available, falls back to props', () => {
+	// Render with stale props — 1 unread
+	const { rerender } = render(
+		<NotificationBell notifications={notifications} unreadCount={1} />,
+	)
+
+	// No fresh data yet — should show stale count
+	expect(screen.getByLabelText('1 unread notifications')).toBeInTheDocument()
+
+	// Simulate the refresh fetcher returning updated data
+	refreshFetcherData = {
+		notifications: [{ ...notifications[0]!, readAt: new Date().toISOString() }],
+		unreadCount: 0,
+	}
+	rerender(<NotificationBell notifications={notifications} unreadCount={1} />)
+
+	// Should show updated count from fetcher, not stale props
+	expect(screen.getByLabelText('Notifications')).toBeInTheDocument()
 })

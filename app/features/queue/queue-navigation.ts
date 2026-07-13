@@ -34,12 +34,12 @@ export function getUpcomingSpinePlayOrder(
 export function resolveNextTrack(
 	state: QueueNavigationState,
 ): QueueTarget | null {
-	if (state.loopMode === 'one') {
-		return { zone: 'spine', index: state.spinePosition }
-	}
-
 	if (state.upNext.length > 0) {
 		return { zone: 'upNext', index: 0 }
+	}
+
+	if (state.loopMode === 'one') {
+		return { zone: 'spine', index: state.spinePosition }
 	}
 
 	const nextSpinePosition = state.spinePosition + 1

@@ -740,7 +740,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const togglePlayPause = useCallback(async () => {
 		if (!audioRef.current) return
 
-		const wasPlaying = isPlaying
+		const wasPlaying = !audioRef.current.paused
 		isManualPlayRef.current = true
 
 		try {
@@ -750,7 +750,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				await audioRef.current.play()
 			}
 		} catch (error) {
-			setIsPlaying(wasPlaying)
+			setIsPlaying(!audioRef.current.paused)
 			setPlaybackError(
 				'Unable to play this track. Try again or check your connection.',
 			)
@@ -760,7 +760,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				variant: 'destructive',
 			})
 		}
-	}, [isPlaying])
+	}, [])
 
 	useEffect(() => {
 		if (!isVisible) return
@@ -975,6 +975,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
 					`Audio load error: ${audio.error.message} (code: ${audio.error.code})`,
 				)
 			}
+			setPlaybackError(
+				'Unable to play this track. The audio file may be blocked or unavailable.',
+			)
 		}
 		
 		audio.addEventListener('timeupdate', updateTime)
@@ -1074,20 +1077,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				hasQueuedPlayback={hasQueuedPlayback}
 			/>
 		)
-	}
+}
 
-	if (!audioSrc && playbackError) {
-		return (
-			<div
-				data-testid="player-playback-error"
-				className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 px-4 py-3 text-sm text-destructive backdrop-blur"
-			>
-				<p className="container">{playbackError}</p>
-			</div>
-		)
-	}
-
-	const isAudioLoading = !audioSrc
+const isAudioLoading = !audioSrc
 	const chromeProps: PlayerChromeProps = {
 		track,
 		isPlaying,
@@ -1120,6 +1112,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
 	return (
 		<div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)]">
+			{playbackError ? (
+				<div
+					data-testid="player-playback-error"
+					className="px-4 py-3 text-sm text-destructive"
+				>
+					<p className="container">{playbackError}</p>
+				</div>
+			) : null}
 			<PlayerMiniBar
 				{...chromeProps}
 				onOpenNowPlaying={() => setIsNowPlayingOpen(true)}

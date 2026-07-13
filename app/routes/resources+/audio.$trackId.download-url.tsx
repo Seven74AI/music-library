@@ -25,12 +25,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				where: { userId, isActive: true, deletedAt: null },
 				select: { id: true },
 			},
-			servicePlaylistTracks: {
-				where: {
-					playlist: { ownerId: userId, isActive: true },
-				},
-				take: 1,
+		servicePlaylistTracks: {
+			where: {
+				isDeleted: false,
+				deletedAt: null,
+				playlist: { ownerId: userId, isActive: true },
 			},
+			take: 1,
+		},
 		},
 	})
 

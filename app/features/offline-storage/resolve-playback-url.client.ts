@@ -2,19 +2,30 @@ import { getOfflineStorage } from '#app/features/offline-storage/offline-storage
 
 const blobUrlCache = new Map<string, string>()
 
+export class OfflineDataCorruptedError extends Error {
+	constructor(message = 'Offline data is corrupted or unavailable') {
+		super(message)
+		this.name = 'OfflineDataCorruptedError'
+	}
+}
+
 export async function resolvePlaybackAudioUrl(trackId: string): Promise<string | null> {
 	const storage = getOfflineStorage()
-	const blob = await storage.resolvePlaybackBlob(trackId)
-	if (!blob) return null
+	try {
+		const blob = await storage.resolvePlaybackBlob(trackId)
+		if (!blob) return null
 
-	const existing = blobUrlCache.get(trackId)
-	if (existing) {
-		URL.revokeObjectURL(existing)
+		const existing = blobUrlCache.get(trackId)
+		if (existing) {
+			URL.revokeObjectURL(existing)
+		}
+
+		const url = URL.createObjectURL(blob)
+		blobUrlCache.set(trackId, url)
+		return url
+	} catch {
+		return null
 	}
-
-	const url = URL.createObjectURL(blob)
-	blobUrlCache.set(trackId, url)
-	return url
 }
 
 export function revokePlaybackAudioUrl(trackId: string) {
@@ -38,8 +49,16 @@ export async function resolveTrackPlaybackSource(
 	options: { preferOffline?: boolean } = {},
 ): Promise<string | null> {
 	if (options.preferOffline) {
-		const offlineUrl = await resolvePlaybackAudioUrl(trackId)
-		if (offlineUrl) return offlineUrl
+		try {
+			const offlineUrl = await resolvePlaybackAudioUrl(trackId)
+			if (offlineUrl) return offlineUrl
+		} catch {
+			// resolvePlaybackAudioUrl now catches internally, safety net
+		}
+		// preferOffline was set but offline data is unavailable or corrupted
+		throw new OfflineDataCorruptedError(
+			'Offline data is corrupted or unavailable',
+		)
 	}
 
 	try {

@@ -516,12 +516,9 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 				return
 			}
 
-			setSpine(prev => {
-				const nextIndex = prev.length
-				setSpineOrder(order => [...order, nextIndex])
-				return [...prev, queueTrack]
-			})
-			setSpineTotal(total => total + 1)
+		setSpine(prev => [...prev, queueTrack])
+		setSpineOrder(prev => [...prev, prev.length])
+		setSpineTotal(total => total + 1)
 		},
 		[rememberTrack],
 	)
