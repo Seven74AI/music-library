@@ -10,6 +10,7 @@ import {
 	DropdownMenuTrigger,
 } from '#app/components/ui/dropdown-menu.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
+import { toast } from '#app/components/ui/use-toast.ts'
 import { cn } from '#app/utils/misc.tsx'
 
 export type NotificationItem = {
@@ -39,6 +40,16 @@ export function NotificationBell({
 			void revalidate()
 		}
 	}, [fetcher.data, fetcher.state, revalidate])
+
+	useEffect(() => {
+		if (fetcher.state === 'idle' && fetcher.data && fetcher.data.ok === false) {
+			toast({
+				title: 'Failed to mark as read',
+				description: 'Please try again later.',
+				variant: 'destructive',
+			})
+		}
+	}, [fetcher.data, fetcher.state])
 
 	const markNotificationRead = (notificationId: string) => {
 		void fetcher.submit(
