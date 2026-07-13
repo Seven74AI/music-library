@@ -20,21 +20,15 @@ async function dismissInstallBanner(page: import('@playwright/test').Page) {
 		await page.getByRole('button', { name: 'Not now' }).click()
 	}
 
-	// Dismiss any Radix Toast notifications that might block player bar clicks.
-	// The toast viewport has aria-label="Notifications (F8)" and each toast
-	// has a close button with opacity-0 (only visible on hover/focus).
-	const toastRegion = page.locator('[aria-label="Notifications (F8)"]')
-	if (await toastRegion.isVisible({ timeout: 2000 }).catch(() => false)) {
-		// Click the close button with force:true — bypasses opacity-0 check
-		const closeBtn = toastRegion.locator('button').first()
-		await closeBtn.click({ force: true, timeout: 2000 }).catch(() => {})
-		// Fallback: trigger click event via evaluate
-		await page.evaluate(() => {
-			const btns = document.querySelectorAll('[aria-label="Notifications (F8)"] button')
-			btns.forEach((b) => (b as HTMLButtonElement).click())
-		})
-		await page.waitForTimeout(300)
-	}
+	// Remove any Radix Toast notifications from the DOM entirely.
+	// The toast viewport has aria-label="Notifications (F8)" and intercepts
+	// pointer events on the player bar. Radix Toast close buttons have
+	// opacity-0 and force:true clicks are unreliable in headless Chromium.
+	// Direct DOM removal is the only reliable approach.
+	await page.evaluate(() => {
+		const region = document.querySelector('[aria-label="Notifications (F8)"]')
+		if (region) region.remove()
+	})
 }
 
 /**
@@ -101,8 +95,13 @@ test.describe('Player / Queue', () => {
 			},
 		})
 
-		await page.goto(`/playlists/${playlist.id}`, { timeout: 30000 })
-		await page.waitForLoadState('networkidle')
+		await page.goto(`/playlists/${playlist.id}`, {
+			timeout: 30000,
+			waitUntil: 'domcontentloaded',
+		})
+
+		// Verify the playlist page loaded
+		await expect(page.getByText('Test Playlist Context')).toBeVisible({ timeout: 10000 })
 
 		await dismissInstallBanner(page)
 
@@ -358,7 +357,9 @@ test.describe('Player / Queue', () => {
 		// Verify the timer shows a countdown
 		await expect(sleepButton).toContainText(/\d+:\d+/, { timeout: 5000 })
 
-		// Cancel the timer
+		// Cancel the timer — dismiss any toast first (sleep timer notification
+		// creates a toast that intercepts pointer events)
+		await dismissInstallBanner(page)
 		await sleepButton.click()
 		await page.getByRole('button', { name: 'Cancel timer' }).click()
 
