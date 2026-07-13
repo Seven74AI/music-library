@@ -9,6 +9,7 @@ import { requireUserId } from '#app/utils/auth.server.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
 import { createUserPlaylist } from '#app/utils/user-playlist.server.ts'
 import { type Route } from './+types/playlists.new.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 
 export const handle: BreadcrumbHandle = {
 	breadcrumb: <Icon name="plus">New Playlist</Icon>,
@@ -109,4 +110,8 @@ export default function PlaylistsNewRoute({ loaderData: _loaderData }: Route.Com
 			</Form>
 		</div>
 	)
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }

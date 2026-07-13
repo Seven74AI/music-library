@@ -30,6 +30,8 @@ import { useIsPending } from '#app/utils/misc'
 import { filterPlayableTracks } from '#app/utils/playable-track.ts'
 import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
 import { redirectWithToast } from '#app/utils/toast.server'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { type Route } from './+types/playlist.$id.ts'
 
 export const handle: BreadcrumbHandle = {
 	breadcrumb: ({ data }) => getPlaylistTitle(data),
@@ -709,4 +711,8 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 			</AlertDialog>
 		</div>
 	)
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
