@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Link, useFetcher, useRevalidator } from 'react-router'
+import { Link, useFetcher } from 'react-router'
 import { Button } from '#app/components/ui/button.tsx'
 import {
 	DropdownMenu,
@@ -37,7 +37,6 @@ export function NotificationBell({
 	unreadCount,
 }: NotificationBellProps) {
 	const fetcher = useFetcher<{ ok: boolean }>()
-	const { revalidate } = useRevalidator()
 	const isSubmitting = fetcher.state !== 'idle'
 	const refreshFetcher = useFetcher<NotificationLoaderData>()
 
