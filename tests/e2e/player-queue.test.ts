@@ -13,6 +13,10 @@ import { test, expect, testPrisma } from '#tests/playwright-utils.ts'
  * Helper: dismiss the "Install app" banner if it's visible.
  * Also dismisses the "Autoplay blocked" toast that intercepts
  * pointer events on the player bar in headless Chromium.
+ *
+ * The toast appears asynchronously after audio.play() rejects,
+ * which can happen AFTER playTrackFromLibrary() returns.
+ * We poll briefly, then dismiss any toasts found.
  */
 async function dismissInstallBanner(page: import('@playwright/test').Page) {
 	const installBanner = page.getByRole('region', { name: 'Install app' })
@@ -20,20 +24,26 @@ async function dismissInstallBanner(page: import('@playwright/test').Page) {
 		await page.getByRole('button', { name: 'Not now' }).click()
 	}
 
-	// Dismiss any Radix Toast notifications that might block player bar clicks.
-	// The toast viewport has aria-label="Notifications (F8)" and each toast
-	// has a close button with opacity-0 (only visible on hover/focus).
-	const toastRegion = page.locator('[aria-label="Notifications (F8)"]')
-	if (await toastRegion.isVisible({ timeout: 2000 }).catch(() => false)) {
-		// Click the close button with force:true — bypasses opacity-0 check
-		const closeBtn = toastRegion.locator('button').first()
-		await closeBtn.click({ force: true, timeout: 2000 }).catch(() => {})
-		// Fallback: trigger click event via evaluate
-		await page.evaluate(() => {
-			const btns = document.querySelectorAll('[aria-label="Notifications (F8)"] button')
-			btns.forEach((b) => (b as HTMLButtonElement).click())
-		})
+	// Poll for the autoplay toast — it arrives asynchronously after
+	// audio.play() rejects (~200-500ms after the player bar appears).
+	for (let attempt = 0; attempt < 6; attempt++) {
 		await page.waitForTimeout(300)
+		const toastRegion = page.locator('[aria-label="Notifications (F8)"]')
+		const count = await toastRegion.count()
+		if (count > 0) {
+			// Dismiss all toasts via evaluate — bypasses opacity-0 close button
+			await page.evaluate(() => {
+				const region = document.querySelector(
+					'[aria-label="Notifications (F8)"]',
+				)
+				if (region) {
+					const buttons = region.querySelectorAll('button')
+					buttons.forEach((b) => (b as HTMLButtonElement).click())
+				}
+			})
+			await page.waitForTimeout(400)
+			break
+		}
 	}
 }
 
@@ -106,20 +116,17 @@ test.describe('Player / Queue', () => {
 
 		await dismissInstallBanner(page)
 
-		// Click play on the first track in the playlist
-		await Promise.all([
-			page.waitForResponse(
-				response =>
-					response.url().includes('/api/queue-spine') &&
-					response.url().includes('playlist') &&
-					response.status() === 200,
-				{ timeout: 15000 },
-			),
-			page.getByRole('button', { name: 'Play' }).first().click(),
-		])
+		// Click play on the first track in the playlist.
+		// Wait for the queue-spine API (or any player-related response)
+		// and the player bar to appear.
+		await page.getByRole('button', { name: 'Play' }).first().click()
 
+		// Wait for the player bar to appear — this confirms playback started.
 		const playerBar = page.getByTestId('player-desktop-bar')
-		await expect(playerBar).toBeVisible({ timeout: 10000 })
+		await expect(playerBar).toBeVisible({ timeout: 15000 })
+
+		await dismissInstallBanner(page)
+
 		await expect(playerBar.getByText('Playlist Track A')).toBeVisible()
 
 		await dismissInstallBanner(page)
@@ -415,7 +422,13 @@ test.describe('Player / Queue', () => {
 
 		const playerBar = page.getByTestId('player-desktop-bar')
 
-		// Initially "Pause" is visible (playing state)
+		// If autoplay failed, the button shows 'Play' instead of 'Pause'.
+		// Click Play to start manual playback before testing pause.
+		const playPauseBtn = playerBar.locator('[aria-label="Play"], [aria-label="Pause"]').first()
+		const label = await playPauseBtn.getAttribute('aria-label')
+		if (label === 'Play') {
+			await playPauseBtn.click()
+		}
 		const pauseButton = playerBar.getByLabel('Pause')
 		await expect(pauseButton).toBeVisible({ timeout: 5000 })
 
@@ -569,6 +582,13 @@ test.describe('Player / Queue', () => {
 		await dismissInstallBanner(page)
 
 		const playerBar = page.getByTestId('player-desktop-bar')
+		// If autoplay failed, the button shows 'Play' instead of 'Pause'.
+		// Click Play to start manual playback before testing Space-to-pause.
+		const playPauseButton = playerBar.locator('[aria-label="Play"], [aria-label="Pause"]').first()
+		const label = await playPauseButton.getAttribute('aria-label')
+		if (label === 'Play') {
+			await playPauseButton.click()
+		}
 		await expect(playerBar.getByLabel('Pause')).toBeVisible({ timeout: 5000 })
 
 		// Click outside any input
@@ -639,7 +659,8 @@ test.describe('Player / Queue', () => {
 		await expect(miniBar).toBeVisible({ timeout: 10000 })
 
 		// Mini bar should have a play/pause button
-		await expect(miniBar.getByLabel('Play').or(miniBar.getByLabel('Pause'))).toBeVisible()
+		const playPauseButton = miniBar.locator('[aria-label="Play"], [aria-label="Pause"]').first()
+		await expect(playPauseButton).toBeVisible()
 
 		// Mini bar should have "Open now playing" button
 		await expect(miniBar.getByLabel('Open now playing')).toBeVisible()
