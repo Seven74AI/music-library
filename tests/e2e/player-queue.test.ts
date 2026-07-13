@@ -24,26 +24,38 @@ async function dismissInstallBanner(page: import('@playwright/test').Page) {
 		await page.getByRole('button', { name: 'Not now' }).click()
 	}
 
-	// Poll for the autoplay toast — it arrives asynchronously after
-	// audio.play() rejects (~200-500ms after the player bar appears).
-	for (let attempt = 0; attempt < 6; attempt++) {
-		await page.waitForTimeout(300)
-		const toastRegion = page.locator('[aria-label="Notifications (F8)"]')
-		const count = await toastRegion.count()
-		if (count > 0) {
-			// Dismiss all toasts via evaluate — bypasses opacity-0 close button
-			await page.evaluate(() => {
-				const region = document.querySelector(
-					'[aria-label="Notifications (F8)"]',
-				)
-				if (region) {
-					const buttons = region.querySelectorAll('button')
-					buttons.forEach((b) => (b as HTMLButtonElement).click())
-				}
-			})
-			await page.waitForTimeout(400)
-			break
-		}
+	// Wait for the autoplay toast — it arrives asynchronously after
+	// audio.play() rejects. The audio URL fetch can take 1-3s, then
+	// the play() rejection fires the toast. We wait for a toast <li>
+	// to appear inside the viewport (the viewport itself is always
+	// present in the DOM, so we must wait for children).
+	const toastViewport = page.locator('[aria-label="Notifications (F8)"]')
+	try {
+		// Wait for at least one toast item (<li>) to appear
+		await toastViewport.locator('li').first().waitFor({
+			state: 'attached',
+			timeout: 6000,
+		})
+		// Toast appeared — dismiss it.
+		// First try: click the close button via Playwright (handles React events).
+		const closeBtn = toastViewport.locator('li button').first()
+		await closeBtn.click({ force: true, timeout: 2000 }).catch(() => {})
+		// Fallback: DOM removal in case the click didn't trigger Radix dismiss
+		await page.evaluate(() => {
+			const region = document.querySelector(
+				'[aria-label="Notifications (F8)"]',
+			)
+			if (region) {
+				region.innerHTML = ''
+			}
+		})
+		// Wait for toast items to be removed
+		await toastViewport.locator('li').first().waitFor({
+			state: 'detached',
+			timeout: 3000,
+		}).catch(() => {})
+	} catch {
+		// No toast appeared within 6s — proceed
 	}
 }
 
@@ -111,8 +123,11 @@ test.describe('Player / Queue', () => {
 			},
 		})
 
-		await page.goto(`/playlists/${playlist.id}`, { timeout: 30000 })
-		await page.waitForLoadState('networkidle')
+		await page.goto(`/playlists/${playlist.id}`, { timeout: 30000, waitUntil: 'domcontentloaded' })
+		// Wait for playlist content to render
+		await expect(
+			page.getByRole('heading', { name: 'Test Playlist Context' }),
+		).toBeVisible({ timeout: 15000 })
 
 		await dismissInstallBanner(page)
 
