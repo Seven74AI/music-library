@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { prisma } from '#app/utils/db.server.ts'
-import { markAllNotificationsRead } from './notifications.server.ts'
+import { markAllNotificationsRead, markNotificationRead } from './notifications.server.ts'
 
 vi.mock('#app/utils/db.server.ts', () => ({
 	prisma: {
@@ -91,3 +91,60 @@ describe('markAllNotificationsRead', () => {
 		expect(result).toBe(1)
 	})
 })
+
+describe('markNotificationRead', () => {
+	test('returns true when marking an unread notification', async () => {
+		mockUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+		const result = await markNotificationRead('notif-1', 'user-1')
+
+		expect(mockUpdateMany).toHaveBeenCalledWith({
+			where: { id: 'notif-1', userId: 'user-1', readAt: null },
+			data: { readAt: expect.any(Date) },
+		})
+		expect(result).toBe(true)
+	})
+
+	test('returns false when notification is already read (double-update guard)', async () => {
+		// Simulate: the notification was already marked read by a prior call
+		mockUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+		const result = await markNotificationRead('notif-1', 'user-1')
+
+		expect(result).toBe(false)
+	})
+
+	test('concurrent calls: only the first succeeds, second returns false', async () => {
+		// First call: notification is unread → updateMany matches 1 row
+		mockUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+		const first = await markNotificationRead('notif-1', 'user-1')
+		expect(first).toBe(true)
+
+		// Second (concurrent) call: readAt is now set → updateMany matches 0 rows
+		mockUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+		const second = await markNotificationRead('notif-1', 'user-1')
+		expect(second).toBe(false)
+	})
+
+	test('scopes the update to the correct user', async () => {
+		mockUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+		await markNotificationRead('notif-1', 'user-42')
+
+		expect(mockUpdateMany).toHaveBeenCalledWith({
+			where: { id: 'notif-1', userId: 'user-42', readAt: null },
+			data: { readAt: expect.any(Date) },
+		})
+	})
+
+	test('returns false for a non-existent notification', async () => {
+		mockUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+		const result = await markNotificationRead('nonexistent', 'user-1')
+
+		expect(result).toBe(false)
+	})
+})
+
