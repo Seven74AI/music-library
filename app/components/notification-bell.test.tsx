@@ -9,6 +9,7 @@ import { NotificationBell, type NotificationItem } from './notification-bell.tsx
 
 const mockSubmit = vi.fn()
 const mockRevalidate = vi.fn()
+const mockToast = vi.fn()
 
 let fetcherState: 'idle' | 'submitting' = 'idle'
 let fetcherData: { ok: boolean } | undefined
@@ -38,6 +39,10 @@ vi.mock('react-router', async (importOriginal) => {
 	}
 })
 
+vi.mock('#app/components/ui/use-toast.ts', () => ({
+	toast: (...args: unknown[]) => mockToast(...args),
+}))
+
 const notifications: NotificationItem[] = [
 	{
 		id: 'notif-1',
@@ -55,6 +60,7 @@ beforeEach(() => {
 	fetcherData = undefined
 	mockSubmit.mockReset()
 	mockRevalidate.mockReset()
+	mockToast.mockReset()
 })
 
 test('mark all read submits through fetcher instead of navigating', async () => {
@@ -99,4 +105,24 @@ test('revalidates root loader after a successful notifications response', () => 
 	rerender(<NotificationBell notifications={notifications} unreadCount={1} />)
 
 	expect(mockRevalidate).toHaveBeenCalled()
+})
+
+test('shows error toast when mark-read fails', () => {
+	const { rerender } = render(
+		<NotificationBell notifications={notifications} unreadCount={1} />,
+	)
+
+	fetcherState = 'submitting'
+	fetcherData = undefined
+	rerender(<NotificationBell notifications={notifications} unreadCount={1} />)
+
+	fetcherState = 'idle'
+	fetcherData = { ok: false }
+	rerender(<NotificationBell notifications={notifications} unreadCount={1} />)
+
+	expect(mockToast).toHaveBeenCalledWith({
+		title: 'Failed to mark as read',
+		description: 'Please try again later.',
+		variant: 'destructive',
+	})
 })
