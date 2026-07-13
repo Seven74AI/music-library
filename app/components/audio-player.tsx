@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '#app/components/ui/popo
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '#app/components/ui/sheet'
 import { toast } from '#app/components/ui/use-toast.ts'
 import {
+	clearBlobUrlCache,
 	resolveTrackPlaybackSource,
 	revokePlaybackAudioUrl,
 } from '#app/features/offline-storage/resolve-playback-url.client.ts'
@@ -630,6 +631,12 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
 	useEffect(() => {
 		setVolume(readStoredVolume())
+	}, [])
+
+	useEffect(() => {
+		return () => {
+			clearBlobUrlCache()
+		}
 	}, [])
 	
 	const audioFile = track?.audioFiles?.length
