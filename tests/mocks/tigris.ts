@@ -103,6 +103,69 @@ export const handlers = [
 		},
 	),
 
+	// Virtual-hosted-style URLs (bucket.endpoint/key) — used by S3Client with
+	// forcePathStyle: false. Tigris requires this for buckets created after 2025-02-19.
+	http.put(
+		`https://${STORAGE_BUCKET}.${new URL(STORAGE_ENDPOINT!).host}/:key*`,
+		async ({ request, params }) => {
+			if (!validateAuth(request.headers)) {
+				return new HttpResponse('Unauthorized', { status: 401 })
+			}
+			const { key } = params
+			if (!key || !Array.isArray(key) || !key.length) {
+				return new HttpResponse('Key must contain a directory', { status: 400 })
+			}
+
+			const filePath = path.join(MOCK_STORAGE_DIR, ...key)
+			const parentDir = path.dirname(filePath)
+			await fs.mkdir(parentDir, { recursive: true })
+
+			const fileBuffer = Buffer.from(await request.arrayBuffer())
+			await fs.writeFile(filePath, fileBuffer)
+
+			return new HttpResponse(null, { status: 201 })
+		},
+	),
+
+	http.get(
+		`https://${STORAGE_BUCKET}.${new URL(STORAGE_ENDPOINT!).host}/:key*`,
+		async ({ params }) => {
+			const { key } = params
+			if (!key || !Array.isArray(key) || !key.length) {
+				return new HttpResponse('Key must contain a directory', { status: 400 })
+			}
+
+			const filePath = path.join(MOCK_STORAGE_DIR, ...key)
+			try {
+				const testFixturesPath = path.join(FIXTURES_IMAGES_DIR, ...key)
+				let file: Buffer
+				try {
+					file = await fs.readFile(testFixturesPath)
+				} catch {
+					file = await fs.readFile(filePath)
+				}
+
+				const contentType =
+					getMimeType(key.at(-1) || '') || 'application/octet-stream'
+				const etag = `"${Buffer.from(file).toString('hex').slice(0, 32)}"`
+				return new HttpResponse(file, {
+					headers: {
+						'Content-Type': contentType,
+						'Content-Length': file.length.toString(),
+						'ETag': etag,
+						'Last-Modified': new Date().toUTCString(),
+						'x-amz-request-id': 'mock-request-id',
+						'x-amz-id-2': 'mock-id-2',
+						'x-amz-server-side-encryption': 'AES256',
+						'Cache-Control': 'public, max-age=31536000, immutable',
+					},
+				})
+			} catch {
+				return new HttpResponse('Not found', { status: 404 })
+			}
+		},
+	),
+
 	http.delete(
 		`${STORAGE_ENDPOINT}/${STORAGE_BUCKET}/:key*`,
 		async ({ request, params }) => {
@@ -119,6 +182,28 @@ export const handlers = [
 				return new HttpResponse(null, { status: 204 })
 			} catch {
 				// File doesn't exist, but that's okay for DELETE
+				return new HttpResponse(null, { status: 204 })
+			}
+		},
+	),
+
+	// Virtual-hosted-style DELETE
+	http.delete(
+		`https://${STORAGE_BUCKET}.${new URL(STORAGE_ENDPOINT!).host}/:key*`,
+		async ({ request, params }) => {
+			if (!validateAuth(request.headers)) {
+				return new HttpResponse('Unauthorized', { status: 401 })
+			}
+			const { key } = params
+			if (!key || !Array.isArray(key) || !key.length) {
+				return new HttpResponse('Key must contain a directory', { status: 400 })
+			}
+
+			const filePath = path.join(MOCK_STORAGE_DIR, ...key)
+			try {
+				await fs.unlink(filePath)
+				return new HttpResponse(null, { status: 204 })
+			} catch {
 				return new HttpResponse(null, { status: 204 })
 			}
 		},

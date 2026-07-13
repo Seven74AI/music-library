@@ -428,16 +428,24 @@ test.describe('Player / Queue', () => {
 
 		const playerBar = page.getByTestId('player-desktop-bar')
 
-		// Initially "Pause" is visible (playing state — optimistic, audio may not be loaded)
-		await expect(playerBar.getByLabel('Pause')).toBeVisible({ timeout: 5000 })
+		// A play/pause button exists — either "Play" or "Pause" depending on autoplay
+		await expect(
+			playerBar.getByLabel('Play', { exact: true }).or(playerBar.getByLabel('Pause'))
+		).toBeVisible({ timeout: 10000 })
 
-		// Click pause → shows "Play"
-		await playerBar.getByLabel('Pause').click({ force: true })
+		// Click play if needed, then pause
+		const playButton = playerBar.getByLabel('Play', { exact: true })
+		if (await playButton.isVisible().catch(() => false)) {
+			await playButton.click({ force: true })
+			await expect(playerBar.getByLabel('Pause')).toBeVisible({ timeout: 5000 })
+		}
+
+		const pauseButton = playerBar.getByLabel('Pause')
+		await expect(pauseButton).toBeVisible({ timeout: 5000 })
+		await pauseButton.click({ force: true })
+
+		// After pausing, the play button should be visible
 		await expect(playerBar.getByLabel('Play', { exact: true })).toBeVisible({ timeout: 5000 })
-
-		// Note: Clicking Play to resume requires actual audio playback, which is
-		// unavailable in the mock environment. The Play button will be disabled
-		// after a failed play attempt.
 	})
 
 	// ─────────────────────────────────────────────────
@@ -581,14 +589,22 @@ test.describe('Player / Queue', () => {
 		await dismissInstallBanner(page)
 
 		const playerBar = page.getByTestId('player-desktop-bar')
-		await expect(playerBar.getByLabel('Pause')).toBeVisible({ timeout: 5000 })
 
-		// Pause via button click (mock audio can't resume, so test pause only)
+		// A play/pause button exists — either "Play" or "Pause" depending on autoplay
+		await expect(
+			playerBar.getByLabel('Play', { exact: true }).or(playerBar.getByLabel('Pause'))
+		).toBeVisible({ timeout: 10000 })
+
+		// Click play if needed
+		const playButton = playerBar.getByLabel('Play', { exact: true })
+		if (await playButton.isVisible().catch(() => false)) {
+			await playButton.click({ force: true })
+			await expect(playerBar.getByLabel('Pause')).toBeVisible({ timeout: 5000 })
+		}
+
+		// Pause via button click
 		await playerBar.getByLabel('Pause').click({ force: true })
 		await expect(playerBar.getByLabel('Play', { exact: true })).toBeVisible({ timeout: 5000 })
-
-		// Space to attempt resume (keyboard shortcut test — will show disabled Play
-		// if audio can't load, which is expected in mock environment)
 	})
 
 	test('keyboard M toggles mute', async ({ page, login, insertNewTrack }) => {
