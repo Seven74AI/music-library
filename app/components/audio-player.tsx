@@ -998,12 +998,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
 					`Audio load error: ${audio.error.message} (code: ${audio.error.code})`,
 				)
 				setPlaybackError(getMediaErrorMessage(audio.error.code))
-				setAudioSrc(undefined)
-			}
-			setPlaybackError(
-				'Unable to play this track. The audio file may be blocked or unavailable.',
-			)
+			setAudioSrc(undefined)
 		}
+	}
 
 		audio.addEventListener('timeupdate', updateTime)
 		audio.addEventListener('loadedmetadata', handleLoadedMetadata)
