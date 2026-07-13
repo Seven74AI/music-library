@@ -91,7 +91,6 @@ function SortableTrackItem({ track, index, playlists, onRemove, isSelected, onSe
 			)}
 			role="listitem"
 			aria-selected={isSelected}
-			aria-grabbed={isDragging}
 			aria-label={`Track ${index + 1}: ${track.track.title} by ${track.track.artist.name}`}
 		>
 			{/* Selection Checkbox */}
