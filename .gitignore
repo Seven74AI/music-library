@@ -39,4 +39,7 @@ build.prev2/
 build-verify.sh
 ci-and-build.sh
 run-ci.sh
+<<<<<<< HEAD
 .eslintcache
+=======
+prisma/test.db
