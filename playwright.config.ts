@@ -61,6 +61,7 @@ export default defineConfig({
 						'--disable-backgrounding-occluded-windows',
 						'--disable-renderer-backgrounding',
 						'--disable-gpu',
+						'--autoplay-policy=no-user-gesture-required',
 					],
 				},
 			},
