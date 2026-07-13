@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { prisma } from '#app/utils/db.server.ts'
-import {
-	getUnreadNotificationCount,
-	getRecentNotifications,
-	markAllNotificationsRead,
-	markNotificationRead,
-} from './notifications.server.ts'
+import { markAllNotificationsRead } from './notifications.server.ts'
 
 vi.mock('#app/utils/db.server.ts', () => ({
 	prisma: {
@@ -17,7 +12,6 @@ vi.mock('#app/utils/db.server.ts', () => ({
 	},
 }))
 
-const mockCount = prisma.userNotification.count as ReturnType<typeof vi.fn>
 const mockFindMany = prisma.userNotification.findMany as ReturnType<typeof vi.fn>
 const mockUpdateMany = prisma.userNotification.updateMany as ReturnType<
 	typeof vi.fn
