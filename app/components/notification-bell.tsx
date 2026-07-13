@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Link, useFetcher } from 'react-router'
+import { Link, useFetcher, useRevalidator } from 'react-router'
 import { Button } from '#app/components/ui/button.tsx'
 import {
 	DropdownMenu,

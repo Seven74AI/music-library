@@ -185,7 +185,7 @@ test('fetches fresh notification data after a successful mark-read instead of fu
 test('uses fresh fetcher data when available, falls back to props', () => {
 	// Render with stale props — 1 unread
 	const { rerender } = render(
-		<NotificationBell notifications={notifications} unreadCount={1} />,
+		<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />,
 	)
 
 	// No fresh data yet — should show stale count
@@ -193,10 +193,10 @@ test('uses fresh fetcher data when available, falls back to props', () => {
 
 	// Simulate the refresh fetcher returning updated data
 	refreshFetcherData = {
-		notifications: [{ ...notifications[0]!, readAt: new Date().toISOString() }],
+		notifications: [{ ...notificationWithoutLink[0]!, readAt: new Date().toISOString() }],
 		unreadCount: 0,
 	}
-	rerender(<NotificationBell notifications={notifications} unreadCount={1} />)
+	rerender(<NotificationBell notifications={notificationWithoutLink} unreadCount={1} />)
 
 	// Should show updated count from fetcher, not stale props
 	expect(screen.getByLabelText('Notifications')).toBeInTheDocument()
@@ -204,7 +204,7 @@ test('uses fresh fetcher data when available, falls back to props', () => {
 
 test('shows spinner on bell icon and disables mark-all-read while submitting', async () => {
 	const user = userEvent.setup()
-	fetcherState = 'submitting'
+	submitFetcherState = 'submitting'
 
 	render(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
 
@@ -238,7 +238,7 @@ test('does not submit mark-all-read when already submitting', async () => {
 	expect(mockSubmit).toHaveBeenCalledTimes(1)
 
 	// Simulate still submitting — re-render with submitting state
-	fetcherState = 'submitting'
+	submitFetcherState = 'submitting'
 	mockSubmit.mockReset()
 	rerender(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
 
@@ -250,7 +250,7 @@ test('does not submit mark-all-read when already submitting', async () => {
 
 test('does not submit mark-single-read when already submitting', async () => {
 	const user = userEvent.setup()
-	fetcherState = 'submitting'
+	submitFetcherState = 'submitting'
 
 	render(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
 
@@ -265,7 +265,7 @@ test('does not submit mark-single-read when already submitting', async () => {
 
 test('notification row with link is disabled when submitting', async () => {
 	const user = userEvent.setup()
-	fetcherState = 'submitting'
+	submitFetcherState = 'submitting'
 
 	render(
 		<MemoryRouter>
@@ -288,7 +288,7 @@ test('removes loading state when fetcher returns to idle', () => {
 	)
 
 	// Start submitting
-	fetcherState = 'submitting'
+	submitFetcherState = 'submitting'
 	rerender(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
 
 	expect(
@@ -296,7 +296,7 @@ test('removes loading state when fetcher returns to idle', () => {
 	).toBeDefined()
 
 	// Return to idle
-	fetcherState = 'idle'
+	submitFetcherState = 'idle'
 	rerender(<NotificationBell notifications={notificationWithoutLinkTwo} unreadCount={2} />)
 
 	expect(
