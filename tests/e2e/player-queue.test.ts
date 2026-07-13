@@ -9,6 +9,31 @@
  */
 import { test, expect, testPrisma } from '#tests/playwright-utils.ts'
 
+// Stub HTMLMediaElement.prototype.play to always resolve.
+// In headless Chromium, autoplay is blocked even with
+// --autoplay-policy=no-user-gesture-required, causing a
+// toast notification that intercepts player bar clicks.
+// Stubbing play() prevents the toast entirely.
+test.beforeEach(async ({ page }) => {
+	await page.addInitScript(() => {
+		const originalPlay = HTMLMediaElement.prototype.play
+		HTMLMediaElement.prototype.play = function (
+			...args: Parameters<typeof originalPlay>
+		) {
+			// Still try the original play for side effects,
+			// but always resolve regardless of outcome.
+			const result = originalPlay.apply(this, args)
+			if (result && typeof result.catch === 'function') {
+				result.catch(() => {
+					// Silently ignore NotAllowedError in headless tests
+				})
+			}
+			// Return a resolved promise so the app thinks playback started
+			return Promise.resolve()
+		}
+	})
+})
+
 /**
  * Helper: dismiss the "Install app" banner if it's visible.
  * Also dismisses the "Autoplay blocked" toast that intercepts
