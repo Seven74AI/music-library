@@ -11,6 +11,18 @@ describe('coverImageUrl', () => {
 			'/resources/images?src=images%2Ftracks%2Fa%2Fcover.jpg&w=128&h=128&fit=cover&format=webp',
 		)
 	})
+
+	test('returns empty string when objectKey is null', () => {
+		expect(coverImageUrl(null, 128)).toBe('')
+	})
+
+	test('returns empty string when objectKey is undefined', () => {
+		expect(coverImageUrl(undefined, 128)).toBe('')
+	})
+
+	test('returns empty string when objectKey is empty string', () => {
+		expect(coverImageUrl('', 128)).toBe('')
+	})
 })
 
 describe('pixel size maps', () => {
