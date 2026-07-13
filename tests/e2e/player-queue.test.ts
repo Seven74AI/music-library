@@ -58,7 +58,10 @@ async function playTrackFromLibrary(
 	])
 
 	// Wait for either the desktop bar or the mobile mini bar, depending on viewport.
-	const bar = page.locator('[data-testid="player-desktop-bar"], [data-testid="player-mini-bar"]')
+	// On desktop the mini-bar is first in DOM but hidden; the desktop bar is visible.
+	// On mobile the desktop bar is hidden; the mini-bar is visible.
+	// Use :visible pseudo-class to pick the right one.
+	const bar = page.locator('[data-testid="player-desktop-bar"]:visible, [data-testid="player-mini-bar"]:visible')
 	await bar.first().waitFor({ state: 'visible', timeout: 10000 })
 }
 
