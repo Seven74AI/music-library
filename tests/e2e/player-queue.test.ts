@@ -365,9 +365,7 @@ test.describe('Player / Queue', () => {
 		// Verify the timer shows a countdown
 		await expect(sleepButton).toContainText(/\d+:\d+/, { timeout: 5000 })
 
-		// Cancel the timer — dismiss any toast first (sleep timer notification
-		// creates a toast that intercepts pointer events)
-		await dismissInstallBanner(page)
+		// Cancel the timer
 		await sleepButton.click()
 		await page.getByRole('button', { name: 'Cancel timer' }).click()
 
