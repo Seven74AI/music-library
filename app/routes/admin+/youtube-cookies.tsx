@@ -1,6 +1,6 @@
 import { invariantResponse } from '@epic-web/invariant'
 import { type SEOHandle } from '@nasa-gcn/remix-seo'
-import { data, Form, useNavigation } from 'react-router'
+import { data, Form, useActionData, useNavigation } from 'react-router'
 import { GeneralErrorBoundary } from '#app/components/error-boundary'
 import { Spacer } from '#app/components/spacer.tsx'
 import { Alert, AlertDescription } from '#app/components/ui/alert.tsx'
@@ -132,8 +132,8 @@ export async function action({ request }: Route.ActionArgs) {
 
 export default function YoutubeCookiesAdminRoute({
 	loaderData,
-	actionData,
 }: Route.ComponentProps) {
+	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === 'submitting'
 
