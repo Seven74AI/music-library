@@ -233,7 +233,7 @@ test.describe('Offline mode', () => {
 
 		// Verify the play/pause button is present (playback controls visible)
 		await expect(
-			playerBar.getByLabel(/play|pause/i),
+			playerBar.getByLabel(/^(Play|Pause)$/i),
 		).toBeVisible({ timeout: 5000 })
 
 		// Restore network
