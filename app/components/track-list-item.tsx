@@ -436,11 +436,12 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 							<SheetHeader>
 								<SheetTitle className="text-left">
 									<div className="flex items-center gap-3">
-										<TrackThumbnail 
-											coverImage={track.coverImage}
-											alt={track.title}
-											size="md"
-										/>
+									<TrackThumbnail 
+										coverImage={track.coverImage}
+										thumbnailUrl={track.thumbnailUrl}
+										alt={track.title}
+										size="md"
+									/>
 										<div className="min-w-0 flex-1">
 											<div className="font-medium text-sm truncate" title={track.title}>
 												{track.title}
@@ -568,11 +569,12 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 							<SheetHeader>
 								<SheetTitle className="text-left">
 									<div className="flex items-center gap-3">
-										<TrackThumbnail 
-											coverImage={track.coverImage}
-											alt={track.title}
-											size="md"
-										/>
+									<TrackThumbnail 
+										coverImage={track.coverImage}
+										thumbnailUrl={track.thumbnailUrl}
+										alt={track.title}
+										size="md"
+									/>
 										<div className="min-w-0 flex-1">
 											<div className="font-medium text-sm truncate" title={track.title}>
 												{track.title}
