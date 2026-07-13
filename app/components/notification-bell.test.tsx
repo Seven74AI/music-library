@@ -98,7 +98,7 @@ const notificationWithoutLinkTwo: NotificationItem[] = [
 		title: 'Already read',
 		body: 'This one is read.',
 		linkUrl: null,
-		readAt: '2026-01-02T00:00:00.000Z',
+		readAt: new Date('2026-01-02T00:00:00.000Z'),
 		createdAt: '2026-01-02T00:00:00.000Z',
 	},
 ]
