@@ -49,7 +49,7 @@ The audio player is a persistent, bottom-fixed control bar that appears when a u
 
 #### 5. **Smart Audio File Selection**
 - Automatically selects the best available audio format
-- Priority order: FLAC > WAV > MP3 > M4A > OGG > AAC
+- Priority order: FLAC → WAV → MP3 → M4A → OGG → AAC → WebM → first available
 - Ensures highest quality playback when multiple formats are available
 
 #### 6. **Audio URL loading (production & local dev)**

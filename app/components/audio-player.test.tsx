@@ -84,51 +84,131 @@ async function renderPlayer(props: Partial<AudioPlayerTestProps> = {}) {
 	return { ...view, audioEl }
 }
 
-test('logs MediaError.code to console.error and shows playback error when <audio> fires error event', async () => {
+test('shows playback error with user-friendly message for MEDIA_ERR_ABORTED (code 1)', async () => {
 	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
 	const { audioEl } = await renderPlayer()
 
-	// Simulate a MediaError on the audio element
-	// MediaError codes: 1=MEDIA_ERR_ABORTED, 2=MEDIA_ERR_NETWORK, 3=MEDIA_ERR_DECODE, 4=MEDIA_ERR_SRC_NOT_SUPPORTED
 	Object.defineProperty(audioEl, 'error', {
 		configurable: true,
-		value: { code: 4, message: 'MEDIA_ELEMENT_ERROR: Format error' },
+		value: { code: 1, message: 'The fetching was aborted by the user' },
 	})
 
-	// Dispatch the error event
 	audioEl.dispatchEvent(new Event('error'))
 
-	// Assert console.error was called with the MediaError.code
+	// console.error still logged for debugging
 	expect(consoleSpy).toHaveBeenCalledWith(
-		'Audio load error: MEDIA_ELEMENT_ERROR: Format error (code: 4)',
+		'Audio load error: The fetching was aborted by the user (code: 1)',
 	)
 
-	// Assert the playback error UI is shown
 	await waitFor(() => {
-		expect(
-			screen.getByTestId('player-playback-error'),
-		).toBeInTheDocument()
+		expect(screen.getByTestId('player-playback-error')).toBeInTheDocument()
+		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
+			'Playback was interrupted.',
+		)
 	})
 
 	consoleSpy.mockRestore()
 })
 
-test('shows playback error even when audio error is null (no MediaError)', async () => {
+test('shows playback error with user-friendly message for MEDIA_ERR_NETWORK (code 2)', async () => {
 	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
 	const { audioEl } = await renderPlayer()
 
-	// No error property set — error event without MediaError should not log
+	Object.defineProperty(audioEl, 'error', {
+		configurable: true,
+		value: { code: 2, message: 'A network error caused the audio download to fail' },
+	})
+
+	audioEl.dispatchEvent(new Event('error'))
+
+	await waitFor(() => {
+		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
+			'A network error prevented the audio from loading. Check your connection.',
+		)
+	})
+
+	consoleSpy.mockRestore()
+})
+
+test('shows playback error with user-friendly message for MEDIA_ERR_DECODE (code 3)', async () => {
+	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+	const { audioEl } = await renderPlayer()
+
+	Object.defineProperty(audioEl, 'error', {
+		configurable: true,
+		value: { code: 3, message: 'The media is corrupted' },
+	})
+
+	audioEl.dispatchEvent(new Event('error'))
+
+	await waitFor(() => {
+		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
+			'This audio format is not supported by your browser.',
+		)
+	})
+
+	consoleSpy.mockRestore()
+})
+
+test('shows playback error with user-friendly message for MEDIA_ERR_SRC_NOT_SUPPORTED (code 4)', async () => {
+	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+	const { audioEl } = await renderPlayer()
+
+	Object.defineProperty(audioEl, 'error', {
+		configurable: true,
+		value: { code: 4, message: 'The media resource is not supported' },
+	})
+
+	audioEl.dispatchEvent(new Event('error'))
+
+	await waitFor(() => {
+		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
+			'The audio source could not be found or is not supported.',
+		)
+	})
+
+	consoleSpy.mockRestore()
+})
+
+test('shows generic fallback message for unknown MediaError code', async () => {
+	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+	const { audioEl } = await renderPlayer()
+
+	Object.defineProperty(audioEl, 'error', {
+		configurable: true,
+		value: { code: 99, message: 'Unknown error' },
+	})
+
+	audioEl.dispatchEvent(new Event('error'))
+
+	await waitFor(() => {
+		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
+			'An unexpected playback error occurred. Please try again.',
+		)
+	})
+
+	consoleSpy.mockRestore()
+})
+
+test('does not show playback error when audio error is null (no MediaError)', async () => {
+	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+	const { audioEl } = await renderPlayer()
+
+	// No error property set — error event without MediaError should not show anything
 	audioEl.dispatchEvent(new Event('error'))
 
 	expect(consoleSpy).not.toHaveBeenCalled()
 
-	// But the playback error UI should still appear
 	await waitFor(() => {
 		expect(
-			screen.getByTestId('player-playback-error'),
-		).toBeInTheDocument()
+			screen.queryByTestId('player-playback-error'),
+		).not.toBeInTheDocument()
 	})
 
 	consoleSpy.mockRestore()
