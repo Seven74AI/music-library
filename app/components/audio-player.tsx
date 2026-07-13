@@ -2,6 +2,7 @@ import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
+import { useOnlineStatus } from '#app/hooks/use-online-status.ts'
 import {
 	formatQueueSheetTitle,
 	getSpineSectionHeading,
@@ -46,15 +47,34 @@ import {
 type Track = FullTrack
 
 function formatPlayerTime(seconds: number) {
-	if (isNaN(seconds)) return '0:00'
+	if (isNaN(seconds) || !isFinite(seconds)) return '0:00'
 	const mins = Math.floor(seconds / 60)
 	const secs = Math.floor(seconds % 60)
 	return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
+function isDurationKnown(duration: number): boolean {
+	return duration > 0 && isFinite(duration) && !isNaN(duration)
+}
+
 function getPlaybackProgressPercent(currentTime: number, duration: number) {
 	if (duration <= 0 || !isFinite(duration)) return 0
 	return Math.min(100, Math.max(0, (currentTime / duration) * 100))
+}
+
+function getMediaErrorMessage(code: number): string {
+	switch (code) {
+		case 1: // MEDIA_ERR_ABORTED
+			return 'Playback was interrupted.'
+		case 2: // MEDIA_ERR_NETWORK
+			return 'A network error prevented the audio from loading. Check your connection.'
+		case 3: // MEDIA_ERR_DECODE
+			return 'This audio format is not supported by your browser.'
+		case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+			return 'The audio source could not be found or is not supported.'
+		default:
+			return 'An unexpected playback error occurred. Please try again.'
+	}
 }
 
 interface PlayerSeekBarProps {
@@ -82,7 +102,7 @@ function PlayerSeekBar({
 			<input
 				type="range"
 				min="0"
-				max={duration || 0}
+				max={isDurationKnown(duration) ? duration : Infinity}
 				step="0.1"
 				value={isNaN(currentTime) ? 0 : currentTime}
 				onChange={onSeek}
@@ -93,14 +113,14 @@ function PlayerSeekBar({
 				className="flex-1 h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
 				style={{
 					background:
-						duration > 0
+						isDurationKnown(duration)
 							? `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${getPlaybackProgressPercent(currentTime, duration)}%, hsl(var(--muted)) ${getPlaybackProgressPercent(currentTime, duration)}%, hsl(var(--muted)) 100%)`
 							: undefined,
 				}}
 				aria-label="Seek"
 			/>
 			<span className="text-xs text-muted-foreground tabular-nums min-w-[3rem]">
-				{formatPlayerTime(duration)}
+				{isDurationKnown(duration) ? formatPlayerTime(duration) : '--:--'}
 			</span>
 		</div>
 	)
@@ -623,6 +643,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const isManualPlayRef = useRef(false)
 	const [isDownloading, setIsDownloading] = useState(false)
 	const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false)
+	const isOnline = useOnlineStatus()
 
 	useEffect(() => {
 		setVolume(readStoredVolume())
@@ -673,7 +694,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			cancelled = true
 			revokePlaybackAudioUrl(trackId)
 		}
-	}, [audioFile, track?.id])
+	}, [audioFile, track?.id, isOnline])
 
 	useEffect(() => {
 		if (
@@ -711,6 +732,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
 						})
 						.catch(() => {
 							setIsPlaying(false)
+							setPlaybackError(
+								'Autoplay was prevented by your browser. Press play to start.',
+							)
+							toast({
+								title: 'Autoplay blocked',
+								description: 'Your browser prevented automatic playback. Press play to start listening.',
+							})
 						})
 				}
 			}
@@ -729,7 +757,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 	const togglePlayPause = useCallback(async () => {
 		if (!audioRef.current) return
 
-		const wasPlaying = isPlaying
+		const wasPlaying = !audioRef.current.paused
 		isManualPlayRef.current = true
 
 		try {
@@ -739,10 +767,17 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				await audioRef.current.play()
 			}
 		} catch (error) {
-			setIsPlaying(wasPlaying)
-			console.error('Playback error:', error)
+			setIsPlaying(!audioRef.current.paused)
+			setPlaybackError(
+				'Unable to play this track. Try again or check your connection.',
+			)
+			toast({
+				title: 'Playback failed',
+				description: 'Could not start playback. Please try again.',
+				variant: 'destructive',
+			})
 		}
-	}, [isPlaying])
+	}, [])
 
 	useEffect(() => {
 		if (!isVisible) return
@@ -828,6 +863,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			)
 			updateMediaSessionPositionState(audio)
 		})
+		navigator.mediaSession.setActionHandler('stop', () => {
+			const audio = audioRef.current
+			if (audio && !audio.paused) {
+				audio.pause()
+			}
+			clearMediaSessionPositionState()
+		})
 
 		const audio = audioRef.current
 		if (audio) {
@@ -840,6 +882,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			navigator.mediaSession.setActionHandler('previoustrack', null)
 			navigator.mediaSession.setActionHandler('nexttrack', null)
 			navigator.mediaSession.setActionHandler('seekto', null)
+			navigator.mediaSession.setActionHandler('stop', null)
 			clearMediaSessionPositionState()
 		}
 	}, [hasNext, hasPrevious, isPlaying, isVisible, onNext, onPrevious, track])
@@ -956,6 +999,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				console.error(
 					`Audio load error: ${audio.error.message} (code: ${audio.error.code})`,
 				)
+				setPlaybackError(getMediaErrorMessage(audio.error.code))
+				setAudioSrc(undefined)
 			}
 		}
 		
@@ -1056,20 +1101,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
 				hasQueuedPlayback={hasQueuedPlayback}
 			/>
 		)
-	}
+}
 
-	if (!audioSrc && playbackError) {
-		return (
-			<div
-				data-testid="player-playback-error"
-				className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 px-4 py-3 text-sm text-destructive backdrop-blur"
-			>
-				<p className="container">{playbackError}</p>
-			</div>
-		)
-	}
-
-	const isAudioLoading = !audioSrc
+const isAudioLoading = !audioSrc
 	const chromeProps: PlayerChromeProps = {
 		track,
 		isPlaying,
@@ -1102,6 +1136,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
 	return (
 		<div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)]">
+			{playbackError ? (
+				<div
+					data-testid="player-playback-error"
+					className="px-4 py-3 text-sm text-destructive"
+				>
+					<p className="container">{playbackError}</p>
+				</div>
+			) : null}
 			<PlayerMiniBar
 				{...chromeProps}
 				onOpenNowPlaying={() => setIsNowPlayingOpen(true)}

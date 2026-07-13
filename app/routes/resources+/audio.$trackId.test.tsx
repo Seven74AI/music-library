@@ -330,6 +330,36 @@ test('403 Forbidden — track in service playlist but playlist is inactive', asy
 	}
 })
 
+test('403 Forbidden — track in service playlist but playlist track is soft-deleted', async () => {
+	suppressConsoleErrors()
+	const { user, track, playlist } = await setupTestData()
+
+	// Add track to the playlist but mark as soft-deleted
+	await prisma.servicePlaylistTrack.create({
+		data: {
+			playlistId: playlist.id,
+			trackId: track.id,
+			position: 0,
+			isDeleted: true,
+			deletedAt: new Date(),
+		},
+	})
+
+	vi.mocked(requireUserId).mockResolvedValue(user.id)
+
+	try {
+		await audioLoader({
+			request: new Request(`https://localhost/resources/audio/${track.id}`),
+			params: { trackId: track.id },
+			context: {},
+		} as any)
+		expect(true).toBe(false) // Should have thrown
+	} catch (error) {
+		expect(error).toBeDefined()
+		expect((error as any).status).toBe(403)
+	}
+})
+
 test('403 Forbidden — UserTrack is inactive (isActive: false)', async () => {
 	suppressConsoleErrors()
 	const { user, track } = await setupTestData()
@@ -373,5 +403,34 @@ test('403 Forbidden — UserTrack is soft-deleted (deletedAt set)', async () => 
 	} catch (error) {
 		expect(error).toBeDefined()
 		expect((error as any).status).toBe(403)
+	}
+})
+
+test('500 Server Error — objectKey with path traversal rejected', async () => {
+	suppressConsoleErrors()
+	const { user, track } = await setupTestData()
+	vi.mocked(requireUserId).mockResolvedValue(user.id)
+
+	// Add track to user library
+	await prisma.userTrack.create({
+		data: { userId: user.id, trackId: track.id },
+	})
+
+	// Update the audio file's objectKey to contain path traversal
+	await prisma.trackAudioFile.updateMany({
+		where: { trackId: track.id },
+		data: { objectKey: '../../../etc/passwd' },
+	})
+
+	try {
+		await audioLoader({
+			request: new Request(`https://localhost/resources/audio/${track.id}`),
+			params: { trackId: track.id },
+			context: {},
+		} as any)
+		expect(true).toBe(false) // Should have thrown
+	} catch (error) {
+		expect(error).toBeDefined()
+		expect((error as any).status).toBe(500)
 	}
 })

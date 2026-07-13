@@ -14,11 +14,18 @@ export function selectBestAudioFile<T extends AudioFileWithFormat>(
 	}
 
 	for (const format of FORMAT_PRIORITY) {
-		const file = audioFiles.find((f) => f.format === format)
+		const file = audioFiles.find((f) => f.format?.toLowerCase() === format)
 		if (file) {
 			return file
 		}
 	}
 
+	// Fallback: no audio file matched any format in FORMAT_PRIORITY — return the
+	// first available file. This relies on audioFiles being in a stable order.
+	// Currently, Prisma queries that include audioFiles (see app/utils/home.server.ts
+	// and app/features/queue/queue-playback.server.ts) do not specify an explicit
+	// orderBy, so files are returned in database natural order (typically insertion
+	// order / primary key). If format-priority sorting is needed for the fallback,
+	// those queries should add a custom order (e.g., by a format rank or index).
 	return audioFiles[0] ?? null
 }

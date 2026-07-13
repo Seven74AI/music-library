@@ -1,6 +1,6 @@
 // @context7: React Router, Prisma, AWS S3
 import { readFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'fs'
-import { join } from 'path'
+import { join, resolve, sep } from 'path'
 import { type LoaderFunctionArgs } from 'react-router'
 import { selectBestAudioFile } from '#app/domain/audio-format.ts'
 import { requireUserId } from '#app/utils/auth.server'
@@ -74,18 +74,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				where: { userId, isActive: true, deletedAt: null },
 				select: { id: true },
 			},
-			servicePlaylistTracks: {
-				where: {
-					playlist: { ownerId: userId, isActive: true },
-				},
-				take: 1,
+		servicePlaylistTracks: {
+			where: {
+				isDeleted: false,
+				deletedAt: null,
+				playlist: { ownerId: userId, isActive: true },
 			},
-			playlists: {
-				where: {
-					playlist: { ownerId: userId },
-				},
-				take: 1,
+			take: 1,
+		},
+		playlists: {
+			where: {
+				playlist: { ownerId: userId },
 			},
+			take: 1,
 		},
 	})
 
@@ -110,7 +111,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	// Check if file exists locally (for development)
-	const localFilePath = join(process.cwd(), 'tests', 'fixtures', 'uploaded', audioFile.objectKey)
+	const fixturesDir = join(process.cwd(), 'tests', 'fixtures', 'uploaded')
+	const localFilePath = join(fixturesDir, audioFile.objectKey)
+	const resolved = resolve(localFilePath)
+	if (!resolved.startsWith(fixturesDir + sep)) {
+		throw new Response('Invalid audio file path', { status: 500 })
+	}
 	const wantsStream = new URL(request.url).searchParams.has('stream')
 
 	if (wantsStream) {
