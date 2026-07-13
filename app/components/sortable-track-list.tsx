@@ -40,9 +40,13 @@ interface SortableListTrack {
 	artist: { id: string; name: string }
 	duration: number | null
 	coverImage: { objectKey: string } | null
+	/** Placeholder thumbnail URL (e.g., from YouTube) when coverImage is not available */
+	thumbnailUrl?: string | null
 	serviceUrl: string | null
 	createdAt: string
 	service?: { displayName: string; logoUrl: string | null } | null
+	/** Audio files available for playback, mapped from Prisma TrackAudioFile relation */
+	audioFiles?: Array<{ id: string; format: string | null; objectKey: string }>
 	isInUserLibrary?: boolean
 }
 
