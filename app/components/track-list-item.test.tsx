@@ -44,6 +44,11 @@ vi.mock('#app/components/ui/use-toast.ts', () => ({
 	toast: (...args: unknown[]) => mockToast(...args),
 }))
 
+let mockIsMobile = false
+vi.mock('#app/utils/use-mobile.ts', () => ({
+	useIsMobile: () => mockIsMobile,
+}))
+
 // jsdom doesn't implement matchMedia — stub it so useIsMobile() works
 beforeAll(() => {
 	Object.defineProperty(window, 'matchMedia', {
@@ -95,6 +100,7 @@ function renderTrackListItem(props: Partial<ComponentProps<typeof TrackListItem>
 }
 
 beforeEach(() => {
+	mockIsMobile = false
 	mockPlayerState = {
 		currentTrack: null,
 		currentIndex: 0,
@@ -196,4 +202,29 @@ test('shows queue actions when track has audio files', async () => {
 	expect(screen.getByText('Play next')).toBeDefined()
 	expect(screen.getByText('Add to up next')).toBeDefined()
 	expect(screen.getByText('Add to queue')).toBeDefined()
+})
+
+test('mobile more-actions button opens sheet without starting playback', async () => {
+	mockIsMobile = true
+	const user = userEvent.setup()
+
+	renderTrackListItem({ track: playableTrack })
+
+	await user.click(screen.getByRole('button', { name: 'More actions' }))
+
+	expect(screen.getByText('View track details')).toBeDefined()
+	expect(mockPlayTrack).not.toHaveBeenCalled()
+})
+
+test('mobile actions sheet dismiss does not start playback', async () => {
+	mockIsMobile = true
+	const user = userEvent.setup()
+
+	renderTrackListItem({ track: playableTrack })
+
+	await user.click(screen.getByRole('button', { name: 'More actions' }))
+	await user.click(screen.getByText('Play next'))
+
+	expect(mockPlayNextTrack).toHaveBeenCalled()
+	expect(mockPlayTrack).not.toHaveBeenCalled()
 })

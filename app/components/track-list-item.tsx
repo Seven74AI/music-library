@@ -111,7 +111,7 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 
 	const hasAudioFiles = isPlayableTrack({ audioFiles: track.audioFiles, isDeleted })
 
-	// Radix dropdowns portal outside the row. When the menu closes, the browser can
+	// Radix dropdowns/sheets portal outside the row. When the menu closes, the browser can
 	// synthesize a click on the element underneath (this row's onClick=play). stopPropagation
 	// on the actions container does not help — portaled content is not a DOM child of the row.
 	// preventDefault on pointerdown stops that ghost click from being created.
@@ -131,6 +131,10 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 	// Backup click guard — some Radix/browser combos fire ghost clicks
 	// even after pointerdown preventDefault, especially with nested portals.
 	const handleMenuClick = useCallback((event: React.MouseEvent) => {
+		event.stopPropagation()
+	}, [])
+
+	const handleActionsTriggerPointerDown = useCallback((event: PointerEvent) => {
 		event.stopPropagation()
 	}, [])
 
@@ -283,7 +287,11 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 			)}
 
 			{/* Actions */}
-			<div className="flex items-center gap-1 w-8" onClick={(e) => e.stopPropagation()}>
+			<div
+				className="flex items-center gap-1 w-8"
+				onClick={(e) => e.stopPropagation()}
+				onPointerDown={(e) => e.stopPropagation()}
+			>
 				{isMobile ? (
 					/* Mobile: Bottom Sheet */
 					<Button
@@ -291,7 +299,11 @@ export const TrackListItem = memo(function TrackListItem({ track, userTrack, ind
 						size="sm"
 						className="h-8 w-8 p-0"
 						aria-label="More actions"
-						onClick={() => setIsActionsSheetOpen(true)}
+						onPointerDown={handleActionsTriggerPointerDown}
+						onClick={(e) => {
+							e.stopPropagation()
+							setIsActionsSheetOpen(true)
+						}}
 					>
 						<Icon name="dots-horizontal" className="h-4 w-4" />
 					</Button>
