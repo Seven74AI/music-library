@@ -1,6 +1,6 @@
 import { invariantResponse } from '@epic-web/invariant'
 import { type SEOHandle } from '@nasa-gcn/remix-seo'
-import { data, Form, useNavigation } from 'react-router'
+import { data, Form, useActionData, useNavigation } from 'react-router'
 import { GeneralErrorBoundary } from '#app/components/error-boundary'
 import { Spacer } from '#app/components/spacer.tsx'
 import { Alert, AlertDescription } from '#app/components/ui/alert.tsx'
@@ -17,6 +17,7 @@ import { resetCookieFailureStreak } from '#app/features/audio-archive/worker.ser
 import { prisma } from '#app/utils/db.server.ts'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
 import { type Route } from './+types/youtube-cookies.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 
 export const handle: SEOHandle = {
 	getSitemapEntries: () => null,
@@ -131,8 +132,8 @@ export async function action({ request }: Route.ActionArgs) {
 
 export default function YoutubeCookiesAdminRoute({
 	loaderData,
-	actionData,
 }: Route.ComponentProps) {
+	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === 'submitting'
 
@@ -222,8 +223,8 @@ export default function YoutubeCookiesAdminRoute({
 								rows={12}
 								required
 								placeholder={`# Netscape HTTP Cookie File
-.youtube.com\tTRUE\t/\tTRUE\t1750000000\tLOGIN_INFO\taAbBcC==
-.youtube.com\tTRUE\t/\tFALSE\t0\tPREF\tf1=50000000`}
+.youtube.com	TRUE	/	TRUE	1750000000	LOGIN_INFO	aAbBcC==
+.youtube.com	TRUE	/	FALSE	0	PREF	f1=50000000`}
 								className="mt-1 font-mono text-xs"
 							/>
 						</div>
@@ -249,4 +250,8 @@ export function ErrorBoundary() {
 			}}
 		/>
 	)
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }

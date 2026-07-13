@@ -22,6 +22,8 @@ import { requireUserId } from '#app/utils/auth.server'
 import { handleLoaderError } from '#app/utils/error-handlers.server'
 import { importTrackDirectly } from '#app/utils/service-import.server'
 import { searchYouTubeVideos } from '#app/utils/youtube-search.server'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { type Route } from './+types/import.ts'
 
 /**
  * Loader function for YouTube import page.
@@ -304,4 +306,8 @@ export default function YouTubeImportPage() {
 				)}
 		</div>
 	)
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }

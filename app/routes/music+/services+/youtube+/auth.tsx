@@ -7,6 +7,8 @@ import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { requireUserId } from '#app/utils/auth.server'
 import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { type Route } from './+types/auth.ts'
 
 /**
  * Loader function for YouTube authentication page
@@ -145,4 +147,8 @@ export default function YouTubeAuthPage() {
 			</div>
 		</div>
 	)
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }

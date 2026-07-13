@@ -32,6 +32,8 @@ import {
 import { requireUserId } from '#app/utils/auth.server'
 import { handleLoaderError } from '#app/utils/error-handlers.server'
 import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { type Route } from './+types/playlists.ts'
 
 export const handle: BreadcrumbHandle = {
 	breadcrumb: <Icon name="file-text">Playlists</Icon>,
@@ -527,4 +529,8 @@ export default function YouTubePlaylistsPage() {
 			)}
 		</div>
 	)
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
