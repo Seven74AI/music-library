@@ -160,7 +160,7 @@ test('shows spinner on bell icon and disables mark-all-read while submitting', a
 	// Mark all read button is disabled
 	const markAllButton = screen.getByRole('button', { name: 'Mark all read' })
 	expect(markAllButton).toBeDefined()
-	expect((markAllButton as HTMLButtonElement).disabled).toBe(true)
+	expect(markAllButton).toBeDisabled()
 
 	// sr-only status text is present
 	expect(screen.getByText('Processing notifications...')).toBeDefined()
@@ -186,7 +186,7 @@ test('does not submit mark-all-read when already submitting', async () => {
 
 	// Button should be disabled now after re-render
 	const markAllButton = screen.getByRole('button', { name: 'Mark all read' })
-	expect((markAllButton as HTMLButtonElement).disabled).toBe(true)
+	expect(markAllButton).toBeDisabled()
 	expect(mockSubmit).not.toHaveBeenCalled()
 })
 
