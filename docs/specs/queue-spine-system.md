@@ -30,6 +30,80 @@ On **Next**:
 2. Advance **spine pointer** (linear index or Fisher-Yates shuffled order).
 3. **Loop all** wraps spine; **loop one** replays current.
 
+## Navigation
+
+The navigation state machine lives in `app/features/queue/queue-navigation.ts`. It is a pure functional layer — every function takes a `QueueNavigationState` and returns a new value without side effects.
+
+### State type: `QueueNavigationState`
+
+```ts
+type QueueNavigationState = {
+  upNext: QueueTrack[]       // manual injection zone
+  spine: QueueTrack[]        // full play context (library/playlist)
+  spineOrder: number[]       // permutation of spine indices (linear or shuffled)
+  spinePosition: number      // current position within spineOrder
+  loopMode: LoopMode         // 'off' | 'all' | 'one'
+}
+```
+
+### `resolveNextTrack(state) → QueueTarget | null`
+
+Determines the next track to play after the current one finishes. Rules, applied in order:
+
+1. **Drain Up Next** — if `upNext` is non-empty, return front (`{ zone: 'upNext', index: 0 }`).
+2. **Loop one** — if `loopMode === 'one'`, return the current spine position.
+3. **Advance spine** — if `spinePosition + 1` is within `spineOrder`, return the next spine position.
+4. **Loop all** — if `loopMode === 'all'` and spine is non-empty, wrap to `{ zone: 'spine', index: 0 }`.
+5. **End** — return `null` (no more tracks).
+
+Up Next is unaffected by loop mode — it always drains first, then the spine takes over.
+
+### `resolvePreviousTrack(state) → QueueTarget | null`
+
+Determines the previous track. Does **not** look at Up Next — only moves backward through the spine:
+
+1. **Loop one** — if `loopMode === 'one'`, return the current spine position.
+2. **Move back** — if `spinePosition - 1 >= 0`, return the previous spine position.
+3. **Loop all** — if `loopMode === 'all'` and spine is non-empty, wrap to the last position in `spineOrder`.
+4. **End** — return `null`.
+
+### `advanceAfterPlay(state, played) → QueueNavigationState`
+
+Mutates the queue state after a track has finished playing. The behavior depends on which zone the played track came from:
+
+- **Up Next target** — removes the track from `upNext` by its index. The spine is untouched.
+- **Spine target** — updates `spinePosition` to `played.index`. The spine array itself is unchanged (tracks are never removed from the spine).
+
+Returns a **new** `QueueNavigationState` — the original is never mutated. The caller replaces its state reference with the returned value.
+
+### `getTrackAtTarget(state, target) → QueueTrack | null`
+
+Resolves a `QueueTarget` to the actual `QueueTrack`:
+
+- **Up Next** — direct array lookup: `state.upNext[target.index]`.
+- **Spine** — indirect lookup: maps through `spineOrder[target.index]` to get the raw spine index, then returns `state.spine[spineIndex]`.
+
+Returns `null` if the target index is out of bounds.
+
+### `findSpinePositionForTrackId(state, trackId) → number | null`
+
+Finds the spine position (index into `spineOrder`) for a given track ID. Searches linearly through `spineOrder` and returns the position where `spine[spineIndex].id === trackId`. Returns `null` if the track is not in the spine.
+
+Used when the user taps a specific track in the queue sheet — the provider uses this to sync the spine pointer so next/previous navigation continues from the tapped position.
+
+### Helper predicates
+
+- **`hasNextTrack(state)`** — `resolveNextTrack(state) !== null`
+- **`hasPreviousTrack(state)`** — `resolvePreviousTrack(state) !== null`
+
+### View helpers
+
+- **`getSpinePlayOrder(state)`** — the spine tracks from the current position onward (for queue display when nothing is playing).
+- **`getUpcomingSpinePlayOrder(state)`** — the spine tracks from position+1 onward (for queue display when a track is playing, excluding "now playing").
+- **`buildFlatQueueView(state)`** — concatenates `upNext` + `getSpinePlayOrder(state)` into a single flat array.
+- **`flatIndexForSpinePosition(state, spinePosition)`** — maps a spine position to an index in the flat queue view.
+- **`getQueueSpineDisplayTracks(state, hasCurrentTrack)`** — returns upcoming spine tracks (position+1) when a track is playing, or the full spine order when nothing is playing.
+
 ## Shuffle (Fisher-Yates)
 
 - When shuffle is **enabled**: build a permuted index array over the spine once (or when toggled on).
