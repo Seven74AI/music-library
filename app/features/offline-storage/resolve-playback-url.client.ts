@@ -35,19 +35,16 @@ export async function fetchRemotePlaybackAudioUrl(
 
 export async function resolveTrackPlaybackSource(
 	trackId: string,
-	options: { preferOffline?: boolean } = {},
 ): Promise<string | null> {
-	if (options.preferOffline) {
-		const offlineUrl = await resolvePlaybackAudioUrl(trackId)
-		if (offlineUrl) return offlineUrl
-	}
+	const offlineUrl = await resolvePlaybackAudioUrl(trackId)
+	if (offlineUrl) return offlineUrl
 
 	try {
 		const remoteUrl = await fetchRemotePlaybackAudioUrl(trackId)
 		if (remoteUrl) return remoteUrl
 	} catch {
-		// fall through to offline blob
+		// no-op: offline blob already checked above
 	}
 
-	return resolvePlaybackAudioUrl(trackId)
+	return null
 }
