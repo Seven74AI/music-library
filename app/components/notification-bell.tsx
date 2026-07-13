@@ -37,6 +37,7 @@ export function NotificationBell({
 	unreadCount,
 }: NotificationBellProps) {
 	const fetcher = useFetcher<{ ok: boolean }>()
+	const isSubmitting = fetcher.state !== 'idle'
 	const refreshFetcher = useFetcher<NotificationLoaderData>()
 
 	useEffect(() => {
@@ -51,8 +52,17 @@ export function NotificationBell({
 		refreshFetcher.data?.unreadCount ?? unreadCount
 
 	const markNotificationRead = (notificationId: string) => {
+		if (isSubmitting) return
 		void fetcher.submit(
 			{ intent: 'mark-read', notificationId },
+			{ method: 'POST', action: '/resources/notifications' },
+		)
+	}
+
+	const handleMarkAllRead = () => {
+		if (isSubmitting) return
+		void fetcher.submit(
+			{ intent: 'mark-all-read' },
 			{ method: 'POST', action: '/resources/notifications' },
 		)
 	}
@@ -64,13 +74,18 @@ export function NotificationBell({
 					variant="ghost"
 					size="sm"
 					className="relative h-8 w-8 p-0"
-					aria-label={
-						displayUnreadCount > 0
-							? `${displayUnreadCount} unread notifications`
-							: 'Notifications'
+				aria-label={
+						isSubmitting
+							? 'Processing notifications...'
+							: displayUnreadCount > 0
+								? `${displayUnreadCount} unread notifications`
+								: 'Notifications'
 					}
 				>
-					<Icon name="envelope-closed" className="h-4 w-4" />
+					<Icon
+						name={isSubmitting ? 'update' : 'envelope-closed'}
+						className={cn('h-4 w-4', isSubmitting && 'animate-spin')}
+					/>
 					{displayUnreadCount > 0 ? (
 						<span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
 							{displayUnreadCount > 9 ? '9+' : displayUnreadCount}
@@ -88,18 +103,22 @@ export function NotificationBell({
 								variant="ghost"
 								size="sm"
 								className="h-7 px-2 text-xs"
-								onClick={() => {
-									void fetcher.submit(
-										{ intent: 'mark-all-read' },
-										{ method: 'POST', action: '/resources/notifications' },
-									)
-								}}
+								disabled={isSubmitting}
+								onClick={handleMarkAllRead}
 							>
+								{isSubmitting ? (
+									<Icon name="update" className="mr-1 h-3 w-3 animate-spin" />
+								) : null}
 								Mark all read
 							</Button>
 						) : null}
 					</div>
 					<DropdownMenuSeparator />
+					{isSubmitting && (
+						<div className="sr-only" role="status" aria-live="assertive">
+							Processing notifications...
+						</div>
+					)}
 					{displayNotifications.length === 0 ? (
 						<p className="px-2 py-4 text-sm text-muted-foreground">
 							No notifications yet.
@@ -110,6 +129,7 @@ export function NotificationBell({
 								key={notification.id}
 								notification={notification}
 								onMarkRead={markNotificationRead}
+								disabled={isSubmitting}
 							/>
 						))
 					)}
@@ -122,9 +142,11 @@ export function NotificationBell({
 function NotificationRow({
 	notification,
 	onMarkRead,
+	disabled = false,
 }: {
 	notification: NotificationItem
 	onMarkRead: (notificationId: string) => void
+	disabled?: boolean
 }) {
 	const isUnread = notification.readAt === null
 	const content = (
@@ -143,12 +165,16 @@ function NotificationRow({
 
 	if (notification.linkUrl) {
 		return (
-			<DropdownMenuItem asChild className="items-start">
+			<DropdownMenuItem asChild className="items-start" disabled={disabled}>
 				<Link
 					to={notification.linkUrl}
 					prefetch="intent"
 					className="w-full"
-					onClick={() => {
+					onClick={(e) => {
+						if (disabled) {
+							e.preventDefault()
+							return
+						}
 						if (isUnread) {
 							onMarkRead(notification.id)
 						}
@@ -163,6 +189,7 @@ function NotificationRow({
 	return (
 		<DropdownMenuItem
 			className="items-start"
+			disabled={disabled}
 			onSelect={() => {
 				if (isUnread) {
 					onMarkRead(notification.id)
