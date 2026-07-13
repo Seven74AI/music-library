@@ -28,6 +28,13 @@ async function dismissInstallBanner(page: import('@playwright/test').Page) {
 	await page.evaluate(() => {
 		const region = document.querySelector('[aria-label="Notifications (F8)"]')
 		if (region) region.remove()
+		// Also remove any autoplay-prevention message rendered in the
+		// player bar section (outside the Notifications region).
+		// These messages intercept pointer events on transport buttons.
+		const autoplayMsg = document.querySelector('p')
+		if (autoplayMsg?.textContent?.includes('Autoplay was prevented')) {
+			autoplayMsg.remove()
+		}
 	})
 }
 
@@ -100,8 +107,9 @@ test.describe('Player / Queue', () => {
 			waitUntil: 'domcontentloaded',
 		})
 
-		// Verify the playlist page loaded
-		await expect(page.getByText('Test Playlist Context')).toBeVisible({ timeout: 10000 })
+		// Verify the playlist page loaded — use .first() to avoid
+		// strict mode violation (title appears as both breadcrumb and heading)
+		await expect(page.getByText('Test Playlist Context').first()).toBeVisible({ timeout: 10000 })
 
 		await dismissInstallBanner(page)
 
@@ -639,8 +647,9 @@ test.describe('Player / Queue', () => {
 		const miniBar = page.getByTestId('player-mini-bar')
 		await expect(miniBar).toBeVisible({ timeout: 10000 })
 
-		// Mini bar should have a play/pause button
-		await expect(miniBar.getByLabel('Play').or(miniBar.getByLabel('Pause'))).toBeVisible()
+		// Mini bar should have a play/pause button — use exact:true
+		// to avoid matching "Playback progress", "Open now playing", "Close player"
+		await expect(miniBar.getByLabel('Play', { exact: true }).or(miniBar.getByLabel('Pause'))).toBeVisible()
 
 		// Mini bar should have "Open now playing" button
 		await expect(miniBar.getByLabel('Open now playing')).toBeVisible()
