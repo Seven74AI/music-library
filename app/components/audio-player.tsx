@@ -846,6 +846,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			)
 			updateMediaSessionPositionState(audio)
 		})
+		navigator.mediaSession.setActionHandler('stop', () => {
+			const audio = audioRef.current
+			if (audio && !audio.paused) {
+				audio.pause()
+			}
+			clearMediaSessionPositionState()
+		})
 
 		const audio = audioRef.current
 		if (audio) {
@@ -858,6 +865,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 			navigator.mediaSession.setActionHandler('previoustrack', null)
 			navigator.mediaSession.setActionHandler('nexttrack', null)
 			navigator.mediaSession.setActionHandler('seekto', null)
+			navigator.mediaSession.setActionHandler('stop', null)
 			clearMediaSessionPositionState()
 		}
 	}, [hasNext, hasPrevious, isPlaying, isVisible, onNext, onPrevious, track])

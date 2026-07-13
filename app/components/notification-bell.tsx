@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Link, useFetcher, useRevalidator } from 'react-router'
+import { Link, useFetcher } from 'react-router'
 import { Button } from '#app/components/ui/button.tsx'
 import {
 	DropdownMenu,
@@ -22,6 +22,11 @@ export type NotificationItem = {
 	createdAt: Date | string
 }
 
+type NotificationLoaderData = {
+	notifications: NotificationItem[]
+	unreadCount: number
+}
+
 type NotificationBellProps = {
 	notifications: NotificationItem[]
 	unreadCount: number
@@ -34,12 +39,18 @@ export function NotificationBell({
 	const fetcher = useFetcher<{ ok: boolean }>()
 	const { revalidate } = useRevalidator()
 	const isSubmitting = fetcher.state !== 'idle'
+	const refreshFetcher = useFetcher<NotificationLoaderData>()
 
 	useEffect(() => {
 		if (fetcher.state === 'idle' && fetcher.data?.ok) {
-			void revalidate()
+			void refreshFetcher.load('/resources/notifications')
 		}
-	}, [fetcher.data, fetcher.state, revalidate])
+	}, [fetcher.data, fetcher.state])
+
+	const displayNotifications =
+		refreshFetcher.data?.notifications ?? notifications
+	const displayUnreadCount =
+		refreshFetcher.data?.unreadCount ?? unreadCount
 
 	const markNotificationRead = (notificationId: string) => {
 		if (isSubmitting) return
@@ -64,11 +75,11 @@ export function NotificationBell({
 					variant="ghost"
 					size="sm"
 					className="relative h-8 w-8 p-0"
-					aria-label={
+				aria-label={
 						isSubmitting
 							? 'Processing notifications...'
-							: unreadCount > 0
-								? `${unreadCount} unread notifications`
+							: displayUnreadCount > 0
+								? `${displayUnreadCount} unread notifications`
 								: 'Notifications'
 					}
 				>
@@ -76,9 +87,9 @@ export function NotificationBell({
 						name={isSubmitting ? 'update' : 'envelope-closed'}
 						className={cn('h-4 w-4', isSubmitting && 'animate-spin')}
 					/>
-					{unreadCount > 0 ? (
+					{displayUnreadCount > 0 ? (
 						<span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-							{unreadCount > 9 ? '9+' : unreadCount}
+							{displayUnreadCount > 9 ? '9+' : displayUnreadCount}
 						</span>
 					) : null}
 				</Button>
@@ -87,7 +98,7 @@ export function NotificationBell({
 				<DropdownMenuContent align="end" sideOffset={8} className="w-80">
 					<div className="flex items-center justify-between px-2 py-1.5">
 						<p className="text-sm font-semibold">Notifications</p>
-						{unreadCount > 0 ? (
+						{displayUnreadCount > 0 ? (
 							<Button
 								type="button"
 								variant="ghost"
@@ -109,12 +120,12 @@ export function NotificationBell({
 							Processing notifications...
 						</div>
 					)}
-					{notifications.length === 0 ? (
+					{displayNotifications.length === 0 ? (
 						<p className="px-2 py-4 text-sm text-muted-foreground">
 							No notifications yet.
 						</p>
 					) : (
-						notifications.map((notification) => (
+						displayNotifications.map((notification) => (
 							<NotificationRow
 								key={notification.id}
 								notification={notification}
