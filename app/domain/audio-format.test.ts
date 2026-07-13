@@ -27,6 +27,15 @@ describe('selectBestAudioFile', () => {
 		expect(selectBestAudioFile([])).toBeNull()
 	})
 
+	test('matches formats case-insensitively (uppercase MP3 matches priority list)', () => {
+		const files = [
+			{ id: '1', format: 'MP3' },
+			{ id: '2', format: 'webm' },
+		]
+
+		expect(selectBestAudioFile(files)).toEqual({ id: '1', format: 'MP3' })
+	})
+
 	test('falls back to the first file when no priority format matches', () => {
 		const files = [
 			{ id: '1', format: 'opus' },
