@@ -1,6 +1,14 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from 'react'
+import { isOfflineEnvironment } from '#app/features/offline-app/is-offline-environment.client.ts'
 import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
 import { offlineSummaryToFullTrack } from '#app/features/offline-storage/offline-track-summary.client.ts'
+import {
+	collectHydrationIds,
+	hydratePlaybackCacheInBatches,
+	PlaybackHydrationCache,
+	resolveFullTrack,
+	resolveFullTracks,
+} from '#app/features/queue/queue-hydration.ts'
 import {
 	advanceAfterPlay,
 	buildFlatQueueView,
@@ -16,13 +24,6 @@ import {
 	type QueueTarget,
 } from '#app/features/queue/queue-navigation.ts'
 import {
-	collectHydrationIds,
-	hydratePlaybackCacheInBatches,
-	PlaybackHydrationCache,
-	resolveFullTrack,
-	resolveFullTracks,
-} from '#app/features/queue/queue-hydration.ts'
-import {
 	createShuffledOrder,
 	reshuffleFromCurrent,
 } from '#app/features/queue/queue-shuffle.ts'
@@ -33,7 +34,6 @@ import {
 	type QueueSpineContext,
 } from '#app/features/queue/queue-spine.ts'
 import { type FullTrack, type QueueTrack } from '#app/types/frontend/shared'
-import { isOfflineEnvironment } from '#app/features/offline-app/is-offline-environment.client.ts'
 import { isPlayableTrack } from '#app/utils/playable-track'
 import { AudioPlayer } from './audio-player'
 import { InstallAppBanner } from './pwa/install-app-banner'

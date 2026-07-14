@@ -6,8 +6,8 @@ import { Icon } from '#app/components/ui/icon'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { requireUserId } from '#app/utils/auth.server'
-import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
 import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
 import { type Route } from './+types/auth.ts'
 
 /**

@@ -1,8 +1,8 @@
-import { requireUserId } from '#app/utils/auth.server.ts'
 import {
 	fetchQueueSpine,
 	parseQueueSpineParams,
 } from '#app/features/queue/queue-spine.server.ts'
+import { requireUserId } from '#app/utils/auth.server.ts'
 
 export async function loader({ request, url }: { request: Request; url: URL }) {
 	try {

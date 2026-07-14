@@ -1,9 +1,9 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
-import { requireUserId } from '#app/utils/auth.server.ts'
 import {
 	fetchPlaybackTracks,
 	parsePlaybackIds,
 } from '#app/features/queue/queue-playback.server.ts'
+import { requireUserId } from '#app/utils/auth.server.ts'
 import { loader } from './playback.tsx'
 
 vi.mock('#app/utils/auth.server.ts', () => ({
