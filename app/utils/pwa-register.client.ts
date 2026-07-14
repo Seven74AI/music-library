@@ -64,7 +64,6 @@ export function registerServiceWorker() {
  * Should be called from the update toast action.
  */
 export function activateServiceWorkerUpdate() {
-	const waiting = navigator.serviceWorker.controller
 	// Send message to skip waiting doesn't work with serwist's skipWaiting: true,
 	// so we just reload — the new SW will claim clients immediately.
 	window.location.reload()

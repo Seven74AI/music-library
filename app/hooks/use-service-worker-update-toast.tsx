@@ -1,7 +1,10 @@
 import { useEffect } from 'react'
 import { ToastAction } from '#app/components/ui/toast.tsx'
 import { toast } from '#app/components/ui/use-toast.ts'
-import { onServiceWorkerUpdate } from '#app/utils/pwa-register.client.ts'
+import {
+	activateServiceWorkerUpdate,
+	onServiceWorkerUpdate,
+} from '#app/utils/pwa-register.client.ts'
 
 /**
  * Shows a toast when a new service worker version is detected.
@@ -13,7 +16,7 @@ export function useServiceWorkerUpdateToast() {
 			toast({
 				title: 'Update available',
 				description: 'A new version is ready. Reload to update.',
-				action: <ToastAction altText="Reload" onClick={() => window.location.reload()}>Reload</ToastAction>,
+				action: <ToastAction altText="Reload" onClick={activateServiceWorkerUpdate}>Reload</ToastAction>,
 				duration: Infinity, // Don't auto-dismiss — user must act
 			})
 		})
