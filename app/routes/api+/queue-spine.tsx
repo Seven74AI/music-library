@@ -4,10 +4,10 @@ import {
 	parseQueueSpineParams,
 } from '#app/features/queue/queue-spine.server.ts'
 
-export async function loader({ request }: { request: Request }) {
+export async function loader({ request, url }: { request: Request; url: URL }) {
 	try {
 		const userId = await requireUserId(request)
-		const url = new URL(request.url)
+		
 		const parsed = parseQueueSpineParams(url.searchParams)
 
 		if (!parsed.ok) {

@@ -17,8 +17,8 @@ export const handle: BreadcrumbHandle & SEOHandle = {
 	getSitemapEntries: () => null,
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-	await requireRecentVerification(request)
+export async function loader({ request, url }: Route.LoaderArgs) {
+	await requireRecentVerification(request, url)
 	return {}
 }
 

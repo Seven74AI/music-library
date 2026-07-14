@@ -31,15 +31,15 @@ const ChangeEmailSchema = z.object({
 	email: EmailSchema,
 })
 
-export async function loader({ request }: Route.LoaderArgs) {
-	await requireRecentVerification(request)
+export async function loader({ request, url }: Route.LoaderArgs) {
+	await requireRecentVerification(request, url)
 	const userId = await requireUserId(request)
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
 		select: { email: true },
 	})
 	if (!user) {
-		const params = new URLSearchParams({ redirectTo: request.url })
+		const params = new URLSearchParams({ redirectTo: `${url.pathname}${url.search}` })
 		throw redirect(`/login?${params}`)
 	}
 	return { user }

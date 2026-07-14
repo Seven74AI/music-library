@@ -95,10 +95,10 @@ interface LoaderData {
 	totalPages: number
 }
 
-export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
+export async function loader({ request, url }: Route.LoaderArgs): Promise<LoaderData> {
 	await requireUserWithRole(request, 'admin')
 
-	const url = new URL(request.url)
+	
 	const filterParam = url.searchParams.get('status') ?? 'all'
 	const filter: StatusFilter = STATUS_FILTERS.includes(filterParam as StatusFilter)
 		? (filterParam as StatusFilter)

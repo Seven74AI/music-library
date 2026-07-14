@@ -126,6 +126,7 @@ test('200 OK — track is in user library', async () => {
 
 	const response = await audioLoader({
 		request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 		params: { trackId: track.id },
 		context: {},
 	} as any)
@@ -149,6 +150,7 @@ test('200 OK — track is in user-owned active service playlist (not in library)
 
 	const response = await audioLoader({
 		request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 		params: { trackId: track.id },
 		context: {},
 	} as any)
@@ -180,6 +182,7 @@ test('200 OK — track is in user-created playlist (not in library or service pl
 
 	const response = await audioLoader({
 		request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 		params: { trackId: track.id },
 		context: {},
 	} as any)
@@ -206,6 +209,7 @@ test('200 OK — track in service playlist PLUS library', async () => {
 
 	const response = await audioLoader({
 		request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 		params: { trackId: track.id },
 		context: {},
 	} as any)
@@ -224,6 +228,7 @@ test('streams local audio bytes when stream=1', async () => {
 
 	const response = await audioLoader({
 		request: new Request(`https://localhost/resources/audio/${track.id}?stream=1`),
+		url: new URL(`https://localhost/resources/audio/${track.id}?stream=1`),
 		params: { trackId: track.id },
 		context: {},
 	} as any)
@@ -242,6 +247,7 @@ test('403 Forbidden — track not in library or any user-owned playlist', async 
 	try {
 		await audioLoader({
 			request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 			params: { trackId: track.id },
 			context: {},
 		} as any)
@@ -286,6 +292,7 @@ test('403 Forbidden — track in service playlist but playlist owner is differen
 	try {
 		await audioLoader({
 			request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 			params: { trackId: track.id },
 			context: {},
 		} as any)
@@ -320,6 +327,7 @@ test('403 Forbidden — track in service playlist but playlist is inactive', asy
 	try {
 		await audioLoader({
 			request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 			params: { trackId: track.id },
 			context: {},
 		} as any)
@@ -350,6 +358,7 @@ test('403 Forbidden — track in service playlist but playlist track is soft-del
 	try {
 		await audioLoader({
 			request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 			params: { trackId: track.id },
 			context: {},
 		} as any)
@@ -373,6 +382,7 @@ test('403 Forbidden — UserTrack is inactive (isActive: false)', async () => {
 	try {
 		await audioLoader({
 			request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 			params: { trackId: track.id },
 			context: {},
 		} as any)
@@ -396,6 +406,7 @@ test('403 Forbidden — UserTrack is soft-deleted (deletedAt set)', async () => 
 	try {
 		await audioLoader({
 			request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 			params: { trackId: track.id },
 			context: {},
 		} as any)
@@ -425,6 +436,7 @@ test('500 Server Error — objectKey with path traversal rejected', async () => 
 	try {
 		await audioLoader({
 			request: new Request(`https://localhost/resources/audio/${track.id}`),
+		url: new URL(`https://localhost/resources/audio/${track.id}`),
 			params: { trackId: track.id },
 			context: {},
 		} as any)

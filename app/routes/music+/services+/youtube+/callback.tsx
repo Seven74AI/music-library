@@ -3,9 +3,9 @@ import { requireUserId } from '#app/utils/auth.server'
 import { prisma } from '#app/utils/db.server'
 import { createYouTubeOAuthService } from '#app/utils/youtube-oauth.server'
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request, url }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
-	const url = new URL(request.url)
+	
 	const code = url.searchParams.get('code')
 	const error = url.searchParams.get('error')
 
