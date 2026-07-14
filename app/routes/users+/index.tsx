@@ -24,8 +24,8 @@ type SearchUser = {
  * @param request - The incoming request containing search parameters
  * @returns Promise resolving to user data and status
  */
-export async function loader({ request }: Route.LoaderArgs) {
-	const searchTerm = new URL(request.url).searchParams.get('search')
+export async function loader({ request, url }: Route.LoaderArgs) {
+	const searchTerm = url.searchParams.get('search')
 	if (searchTerm === '') {
 		return redirect('/users')
 	}

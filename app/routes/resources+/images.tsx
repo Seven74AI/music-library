@@ -40,8 +40,8 @@ function isStorageKey(value: string): boolean {
 	return value.startsWith('images/') || value.startsWith('audio/')
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-	const url = new URL(request.url)
+export async function loader({ request, url }: Route.LoaderArgs) {
+	
 	const searchParams = url.searchParams
 
 	const headers = new Headers()

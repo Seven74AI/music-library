@@ -1,10 +1,10 @@
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 
-export async function loader({ request }: { request: Request }) {
+export async function loader({ request, url }: { request: Request; url: URL }) {
 	try {
 		const userId = await requireUserId(request)
-		const url = new URL(request.url)
+		
 		const playlistId = url.searchParams.get('playlistId')
 		const cursor = url.searchParams.get('cursor')
 		const limitParam = url.searchParams.get('limit')
