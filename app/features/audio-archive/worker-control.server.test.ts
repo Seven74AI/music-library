@@ -44,6 +44,17 @@ vi.mock('#app/utils/db.server.ts', () => {
 					}
 					return getState()
 				}),
+				findUnique: vi.fn().mockImplementation(async () => {
+					return _mockCreated ? getState() : null
+				}),
+				create: vi.fn().mockImplementation(async (args: any) => {
+					_mockStatus = args.data.status ?? 'running'
+					_mockCurrentlyProcessing = args.data.currentlyProcessing ?? null
+					_mockNextLongBreakAt = args.data.nextLongBreakAt ?? null
+					_mockLastQueueRun = args.data.lastQueueRun ?? null
+					_mockCreated = true
+					return getState()
+				}),
 			},
 		},
 	}
