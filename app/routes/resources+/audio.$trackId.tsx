@@ -57,7 +57,7 @@ function serveLocalAudioFile(
 	})
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params, url }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	const trackId = params.trackId
 
@@ -118,7 +118,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!resolved.startsWith(fixturesDir + sep)) {
 		throw new Response('Invalid audio file path', { status: 500 })
 	}
-	const wantsStream = new URL(request.url).searchParams.has('stream')
+	const wantsStream = url.searchParams.has('stream')
 
 	if (wantsStream) {
 		if (existsSync(localFilePath)) {
@@ -140,18 +140,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	if (existsSync(localFilePath)) {
-		const streamUrl = new URL(request.url)
+		const streamUrl = new URL(url.href)
 		streamUrl.searchParams.set('stream', '1')
 		return Response.json({ url: streamUrl.toString() })
 	}
 
 	// Generate signed URL for remote storage (Tigris/S3)
 	// Use longer expiry for audio files (1 hour)
-	const { url } = await getFileUrl(audioFile.objectKey, 3600)
+	const { url: signedUrl } = await getFileUrl(audioFile.objectKey, 3600)
 
 	// Return presigned URL directly — client sets it on <audio src>
 	// No redirect: per decision #22 in CONTEXT.md, the client talks to Tigris CDN directly.
 	// CORS on the Tigris bucket enables Range-seeking.
-	return Response.json({ url })
+	return Response.json({ url: signedUrl })
 }
 

@@ -27,8 +27,8 @@ function invalidSearchParameters(error: z.ZodError) {
 	)
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-	const url = new URL(request.url)
+export async function loader({ request, url }: Route.LoaderArgs) {
+	
 
 	const queryResult = SearchQuerySchema.safeParse(url.searchParams.get('q') ?? '')
 	if (!queryResult.success) {

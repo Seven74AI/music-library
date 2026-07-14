@@ -27,8 +27,8 @@ import { type Route } from './+types/search.ts'
  * - DoS prevention via query length limits
  * - XSS protection via React's automatic escaping
  */
-export async function loader({ request }: Route.LoaderArgs) {
-	const url = new URL(request.url)
+export async function loader({ request, url }: Route.LoaderArgs) {
+	
 	
 	try {
 		// Security: Validate and sanitize all input parameters

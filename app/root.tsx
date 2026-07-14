@@ -94,9 +94,9 @@ export const links: Route.LinksFunction = () => {
 	].filter(Boolean)
 }
 
-export const meta: Route.MetaFunction = ({ data }) => {
+export const meta: Route.MetaFunction = ({ loaderData }) => {
 	return [
-		{ title: data ? 'Music Library' : 'Error | Music Library' },
+		{ title: loaderData ? 'Music Library' : 'Error | Music Library' },
 		{ name: 'description', content: `Your personal music library` },
 		{ name: 'mobile-web-app-capable', content: 'yes' },
 		{ name: 'apple-mobile-web-app-capable', content: 'yes' },
@@ -105,7 +105,7 @@ export const meta: Route.MetaFunction = ({ data }) => {
 	]
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
+export async function loader({ request, url }: Route.LoaderArgs) {
 	const timings = makeTimings('root loader')
 	const userId = await time(() => getUserId(request), {
 		timings,
@@ -159,7 +159,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 			requestInfo: {
 				hints: getHints(request),
 				origin: getDomainUrl(request),
-				path: new URL(request.url).pathname,
+				path: url.pathname,
 				userPrefs: {
 					theme: getTheme(request),
 				},
