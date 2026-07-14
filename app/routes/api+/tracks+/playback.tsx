@@ -15,7 +15,11 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
 		}
 
 		const result = await fetchPlaybackTracks(userId, parsed.value)
-		return Response.json(result)
+		return Response.json(result, {
+			headers: {
+				'Cache-Control': 'private, max-age=30',
+			},
+		})
 	} catch (error) {
 		if (error instanceof Response) throw error
 		console.error('Error fetching playback tracks:', error)

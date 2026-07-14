@@ -43,8 +43,8 @@ describe('parsePlaybackIds', () => {
 		})
 	})
 
-	test('rejects more than 20 ids', () => {
-		const ids = Array.from({ length: 21 }, (_, i) => `id-${i}`).join(',')
+	test('rejects more than PLAYBACK_BATCH_MAX_IDS ids', () => {
+		const ids = Array.from({ length: 201 }, (_, i) => `id-${i}`).join(',')
 		expect(parsePlaybackIds(ids)).toEqual({
 			ok: false,
 			error: 'Too many track IDs',
