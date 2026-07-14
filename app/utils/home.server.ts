@@ -101,8 +101,20 @@ const recentTrackInclude = {
 					objectKey: true,
 				},
 			},
-			service: true,
-			audioFiles: true,
+			service: {
+				select: {
+					name: true,
+					displayName: true,
+					logoUrl: true,
+				},
+			},
+			audioFiles: {
+				select: {
+					id: true,
+					format: true,
+					objectKey: true,
+				},
+			},
 		},
 	},
 } as const
@@ -221,6 +233,7 @@ export async function loadHomeData(request: Request) {
 						},
 					},
 					orderBy: { position: 'asc' },
+					take: 5,
 				},
 			},
 			orderBy: { updatedAt: 'desc' },
@@ -239,6 +252,11 @@ export async function loadHomeData(request: Request) {
 		},
 		recentTracks,
 		recentPlaylists,
-		youtubeData: loadYoutubeData(userId),
+		// YouTube data is only needed for the listening-hub view (not gray zone)
+		youtubeData: mode === 'listening' ? loadYoutubeData(userId) : Promise.resolve({
+			hasYouTubeConnection: false,
+			youtubeStats: null,
+			youtubePlaylists: [],
+		}),
 	})
 }

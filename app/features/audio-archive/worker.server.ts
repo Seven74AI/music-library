@@ -29,6 +29,14 @@ let queueTickInFlight = false
 const ENQUEUE_WAKE_DEBOUNCE_MS = 500
 let enqueueWakeTimer: ReturnType<typeof setTimeout> | null = null
 
+/** In-memory set of job IDs currently being processed. Avoids DB writes per job. */
+const currentlyProcessingSet = new Set<string>()
+
+/** Exported for admin UI — returns all job IDs currently being processed. */
+export function getCurrentlyProcessingJobs(): string[] {
+	return [...currentlyProcessingSet]
+}
+
 /**
  * Wake the archive worker soon after new jobs are enqueued.
  * Debounced so bulk imports schedule one tick instead of one per track.
@@ -81,7 +89,7 @@ export async function recoverStaleProcessingJobs(): Promise<number> {
 
 	await prisma.workerState.upsert({
 		where: { id: 'singleton' },
-		update: { currentlyProcessing: null },
+		update: {},
 		create: { id: 'singleton', status: 'running' },
 	})
 
@@ -213,12 +221,8 @@ async function processJob(
 		},
 	})
 
-	// Update WorkerState to show currently processing
-	await prisma.workerState.upsert({
-		where: { id: 'singleton' },
-		update: { currentlyProcessing: jobId },
-		create: { id: 'singleton', status: 'running', currentlyProcessing: jobId },
-	})
+	// Track in memory — avoids extra DB write per job
+	currentlyProcessingSet.add(jobId)
 
 	try {
 		// 1. Download via yt-dlp
@@ -266,12 +270,7 @@ async function processJob(
 		const message = error instanceof Error ? error.message : String(error)
 		await handleJobError(jobId, categorizeJobError(error), message, url)
 	} finally {
-		// Clear currently processing
-		await prisma.workerState.upsert({
-			where: { id: 'singleton' },
-			update: { currentlyProcessing: null },
-			create: { id: 'singleton', status: 'running' },
-		})
+		currentlyProcessingSet.delete(jobId)
 	}
 }
 
@@ -358,12 +357,19 @@ export async function getQueueStats(): Promise<{
 	completed: number
 	failed: number
 }> {
-	const [pending, processing, completed, failed] = await Promise.all([
-		prisma.archiveJob.count({ where: { status: 'pending' } }),
-		prisma.archiveJob.count({ where: { status: 'processing' } }),
-		prisma.archiveJob.count({ where: { status: 'completed' } }),
-		prisma.archiveJob.count({ where: { status: 'failed' } }),
-	])
+	const groups = await prisma.archiveJob.groupBy({
+		by: ['status'],
+		_count: { _all: true },
+	})
 
-	return { pending, processing, completed, failed }
+	const byStatus = Object.fromEntries(
+		groups.map((g) => [g.status, g._count._all]),
+	)
+
+	return {
+		pending: byStatus['pending'] ?? 0,
+		processing: byStatus['processing'] ?? 0,
+		completed: byStatus['completed'] ?? 0,
+		failed: byStatus['failed'] ?? 0,
+	}
 }

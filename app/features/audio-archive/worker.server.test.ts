@@ -7,6 +7,7 @@ const mockPrisma = {
 		findMany: vi.fn(),
 		findUnique: vi.fn(),
 		update: vi.fn(),
+		groupBy: vi.fn(),
 	},
 	track: {
 		findUnique: vi.fn(),
@@ -890,7 +891,7 @@ describe('processQueueTick', () => {
 			)
 			expect(mockPrisma.workerState.upsert).toHaveBeenCalledWith(
 				expect.objectContaining({
-					update: expect.objectContaining({ currentlyProcessing: null }),
+					update: {},
 				}),
 			)
 			consoleWarn.mockRestore()
@@ -956,11 +957,12 @@ describe('scheduleQueueTick', () => {
 
 describe('getQueueStats', () => {
 	it('returns counts for all statuses', async () => {
-		mockPrisma.archiveJob.count
-			.mockResolvedValueOnce(3)
-			.mockResolvedValueOnce(1)
-			.mockResolvedValueOnce(10)
-			.mockResolvedValueOnce(2)
+		mockPrisma.archiveJob.groupBy.mockResolvedValue([
+			{ status: 'pending', _count: { _all: 3 } },
+			{ status: 'processing', _count: { _all: 1 } },
+			{ status: 'completed', _count: { _all: 10 } },
+			{ status: 'failed', _count: { _all: 2 } },
+		])
 
 		const { getQueueStats } = await import('./worker.server.ts')
 		const stats = await getQueueStats()

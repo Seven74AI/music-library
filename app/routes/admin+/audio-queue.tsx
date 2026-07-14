@@ -24,7 +24,7 @@ import {
 } from '#app/components/ui/table.tsx'
 import { computeArchiveQueueSuccessRate } from '#app/features/audio-archive/queue-stats'
 import { isRecoverableArchiveFailure } from '#app/features/audio-archive/recoverable-failure.ts'
-import { scheduleQueueTick, resetCookieFailureStreak } from '#app/features/audio-archive/worker.server.ts'
+import { scheduleQueueTick, resetCookieFailureStreak, getCurrentlyProcessingJobs } from '#app/features/audio-archive/worker.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
 import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
@@ -58,7 +58,6 @@ interface JobWithTrack {
 interface LoaderData {
 	workerState: {
 		status: string
-		currentlyProcessing: string | null
 		lastQueueRun: string | null
 		nextLongBreakAt: string | null
 		lastStateChange: string
@@ -154,11 +153,13 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
 		},
 	})
 
-	// Currently processing track details
+	// Currently processing track details — from in-memory set (avoids DB writes per job)
 	let currentlyProcessingTrack: LoaderData['currentlyProcessingTrack'] = null
-	if (workerState.currentlyProcessing) {
+	const activeJobIds = getCurrentlyProcessingJobs()
+	if (activeJobIds.length > 0) {
+		// Show the first active job (most concurrent runs process 1-2 jobs)
 		const job = await prisma.archiveJob.findUnique({
-			where: { id: workerState.currentlyProcessing },
+			where: { id: activeJobIds[0] },
 			include: {
 				track: {
 					select: {
@@ -181,10 +182,9 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
 	return {
 		workerState: {
 			status: workerState.status,
-			currentlyProcessing: workerState.currentlyProcessing,
-			lastQueueRun: workerState.lastQueueRun?.toISOString() ?? null,
 			nextLongBreakAt: workerState.nextLongBreakAt?.toISOString() ?? null,
 			lastStateChange: workerState.lastStateChange.toISOString(),
+			lastQueueRun: workerState.lastQueueRun?.toISOString() ?? null,
 		},
 		queueStats: { pending, processing, completed, failed, total, successRate, recoverableFailed },
 		jobs: jobs.map((j) => ({
@@ -329,11 +329,6 @@ export async function action({ request }: Route.ActionArgs) {
 						priority: true,
 						errorHistory: JSON.stringify(errorHistory),
 					},
-				})
-				await prisma.workerState.upsert({
-					where: { id: 'singleton' },
-					update: { currentlyProcessing: null },
-					create: { id: 'singleton', status: 'running' },
 				})
 			}
 			scheduleQueueTick()

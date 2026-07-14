@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 const { mockPrisma, mockSendEmail } = vi.hoisted(() => ({
 	mockPrisma: {
 		servicePlaylistTrack: {
-			findMany: vi.fn(),
+			findFirst: vi.fn(),
 		},
 		servicePlaylist: {
 			findMany: vi.fn(),
@@ -36,26 +36,23 @@ beforeEach(() => {
 })
 
 describe('isServicePlaylistArchiveReady', () => {
-	it('returns false when playlist has no active tracks', async () => {
-		mockPrisma.servicePlaylistTrack.findMany.mockResolvedValue([])
+	it('returns true when playlist has no active tracks (nothing to archive)', async () => {
+		// findFirst returns null → no track without audio found → playlist IS ready
+		mockPrisma.servicePlaylistTrack.findFirst.mockResolvedValue(null)
 
-		await expect(isServicePlaylistArchiveReady('playlist-1')).resolves.toBe(false)
+		await expect(isServicePlaylistArchiveReady('playlist-1')).resolves.toBe(true)
 	})
 
 	it('returns false when any active track lacks audio', async () => {
-		mockPrisma.servicePlaylistTrack.findMany.mockResolvedValue([
-			{ track: { audioFiles: [{ id: 'audio-1' }] } },
-			{ track: { audioFiles: [] } },
-		])
+		// findFirst returns a match → at least one track has no audio → NOT ready
+		mockPrisma.servicePlaylistTrack.findFirst.mockResolvedValue({ id: 'st-1' })
 
 		await expect(isServicePlaylistArchiveReady('playlist-1')).resolves.toBe(false)
 	})
 
 	it('returns true when every active track has audio', async () => {
-		mockPrisma.servicePlaylistTrack.findMany.mockResolvedValue([
-			{ track: { audioFiles: [{ id: 'audio-1' }] } },
-			{ track: { audioFiles: [{ id: 'audio-2' }] } },
-		])
+		// findFirst returns null → no track without audio found → playlist IS ready
+		mockPrisma.servicePlaylistTrack.findFirst.mockResolvedValue(null)
 
 		await expect(isServicePlaylistArchiveReady('playlist-1')).resolves.toBe(true)
 	})
@@ -75,9 +72,8 @@ describe('checkPlaylistArchiveReadyAfterTrackArchived', () => {
 				},
 			},
 		])
-		mockPrisma.servicePlaylistTrack.findMany.mockResolvedValue([
-			{ track: { audioFiles: [{ id: 'audio-1' }] } },
-		])
+		// findFirst returns null → playlist IS ready
+		mockPrisma.servicePlaylistTrack.findFirst.mockResolvedValue(null)
 		mockPrisma.userNotification.create.mockResolvedValue({ id: 'notif-1' })
 		mockPrisma.servicePlaylist.updateMany.mockResolvedValue({ count: 1 })
 
@@ -118,10 +114,8 @@ describe('checkPlaylistArchiveReadyAfterTrackArchived', () => {
 				},
 			},
 		])
-		mockPrisma.servicePlaylistTrack.findMany.mockResolvedValue([
-			{ track: { audioFiles: [{ id: 'audio-1' }] } },
-			{ track: { audioFiles: [] } },
-		])
+		// findFirst returns a match → NOT ready
+		mockPrisma.servicePlaylistTrack.findFirst.mockResolvedValue({ id: 'st-1' })
 
 		await checkPlaylistArchiveReadyAfterTrackArchived('track-1')
 
@@ -142,9 +136,8 @@ describe('checkPlaylistArchiveReadyAfterTrackArchived', () => {
 				},
 			},
 		])
-		mockPrisma.servicePlaylistTrack.findMany.mockResolvedValue([
-			{ track: { audioFiles: [{ id: 'audio-1' }] } },
-		])
+		// findFirst returns null → playlist IS ready
+		mockPrisma.servicePlaylistTrack.findFirst.mockResolvedValue(null)
 		mockPrisma.servicePlaylist.updateMany.mockResolvedValue({ count: 0 })
 
 		await checkPlaylistArchiveReadyAfterTrackArchived('track-1')

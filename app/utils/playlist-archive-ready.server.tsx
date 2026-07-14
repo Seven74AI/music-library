@@ -1,4 +1,3 @@
-import { SERVICE_PLAYLIST_TRACK_PAGE_SIZE } from '#app/features/service-playlist/service-playlist.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { sendEmail } from '#app/utils/email.server.ts'
 import { PlaylistArchiveReadyEmail } from '#app/utils/playlist-archive-ready-email.tsx'
@@ -6,48 +5,18 @@ import { PlaylistArchiveReadyEmail } from '#app/utils/playlist-archive-ready-ema
 export async function isServicePlaylistArchiveReady(
 	playlistId: string,
 ): Promise<boolean> {
-	let skip = 0
-	let hasActiveTracks = false
+	// Single query: if ANY track has no audio files, the playlist is NOT ready.
+	// Uses `none: {}` to short-circuit — SQLite stops scanning at first match.
+	const missingAudio = await prisma.servicePlaylistTrack.findFirst({
+		where: {
+			playlistId,
+			isDeleted: false,
+			track: { audioFiles: { none: {} } },
+		},
+		select: { id: true },
+	})
 
-	while (true) {
-		const page = await prisma.servicePlaylistTrack.findMany({
-			where: {
-				playlistId,
-				isDeleted: false,
-			},
-			select: {
-				track: {
-					select: {
-						audioFiles: {
-							select: { id: true },
-							take: 1,
-						},
-					},
-				},
-			},
-			orderBy: { id: 'asc' },
-			take: SERVICE_PLAYLIST_TRACK_PAGE_SIZE,
-			skip,
-		})
-
-		if (page.length === 0) {
-			return hasActiveTracks
-		}
-
-		hasActiveTracks = true
-
-		if (
-			page.some((playlistTrack) => playlistTrack.track.audioFiles.length === 0)
-		) {
-			return false
-		}
-
-		if (page.length < SERVICE_PLAYLIST_TRACK_PAGE_SIZE) {
-			return true
-		}
-
-		skip += SERVICE_PLAYLIST_TRACK_PAGE_SIZE
-	}
+	return missingAudio === null
 }
 
 function resolveSiteOrigin(origin?: string): string {

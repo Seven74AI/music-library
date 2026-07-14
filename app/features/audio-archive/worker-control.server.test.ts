@@ -3,7 +3,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 // Mock the prisma import — state is held in module-scoped vars
 let _mockStatus = 'running'
 let _mockNextLongBreakAt: Date | null = null
-let _mockCurrentlyProcessing: string | null = null
 let _mockLastQueueRun: Date | null = null
 let _mockCreated = false
 
@@ -12,7 +11,6 @@ vi.mock('#app/utils/db.server.ts', () => {
 		return {
 			id: 'singleton',
 			status: _mockStatus,
-			currentlyProcessing: _mockCurrentlyProcessing,
 			lastQueueRun: _mockLastQueueRun,
 			nextLongBreakAt: _mockNextLongBreakAt,
 			lastStateChange: new Date(),
@@ -28,7 +26,6 @@ vi.mock('#app/utils/db.server.ts', () => {
 						// First call: simulate creation
 						if (args.create) {
 							_mockStatus = args.create.status ?? 'running'
-							_mockCurrentlyProcessing = args.create.currentlyProcessing ?? null
 							_mockNextLongBreakAt = args.create.nextLongBreakAt ?? null
 							_mockLastQueueRun = args.create.lastQueueRun ?? null
 						}
@@ -38,10 +35,19 @@ vi.mock('#app/utils/db.server.ts', () => {
 					const upd = args.update
 					if (upd && Object.keys(upd).length > 0) {
 						if ('status' in upd) _mockStatus = upd.status
-						if ('currentlyProcessing' in upd) _mockCurrentlyProcessing = upd.currentlyProcessing
 						if ('lastQueueRun' in upd) _mockLastQueueRun = upd.lastQueueRun
 						if ('nextLongBreakAt' in upd) _mockNextLongBreakAt = upd.nextLongBreakAt
 					}
+					return getState()
+				}),
+				findUnique: vi.fn().mockImplementation(async () => {
+					return _mockCreated ? getState() : null
+				}),
+				create: vi.fn().mockImplementation(async (args: any) => {
+					_mockStatus = args.data.status ?? 'running'
+					_mockNextLongBreakAt = args.data.nextLongBreakAt ?? null
+					_mockLastQueueRun = args.data.lastQueueRun ?? null
+					_mockCreated = true
 					return getState()
 				}),
 			},
@@ -53,7 +59,6 @@ describe('worker-control', () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		_mockStatus = 'running'
-		_mockCurrentlyProcessing = null
 		_mockLastQueueRun = null
 		_mockNextLongBreakAt = null
 		_mockCreated = false
