@@ -132,7 +132,7 @@ describe('collectQueueDisplayHydrationIds', () => {
 })
 
 describe('hydratePlaybackCacheInBatches', () => {
-	test('fetches playback data in batches of 20', async () => {
+	test('fetches playback data in a single batch for small lists', async () => {
 		const fetchMock = vi.mocked(fetch)
 		fetchMock.mockResolvedValue({
 			ok: true,
@@ -141,6 +141,22 @@ describe('hydratePlaybackCacheInBatches', () => {
 
 		const cache = new PlaybackHydrationCache()
 		const ids = Array.from({ length: 25 }, (_, index) => `track-${index}`)
+
+		const updated = await hydratePlaybackCacheInBatches(cache, ids)
+
+		expect(fetchMock).toHaveBeenCalledTimes(1)
+		expect(updated).toBe(0)
+	})
+
+	test('splits into multiple batches when exceeding PLAYBACK_BATCH_MAX_IDS', async () => {
+		const fetchMock = vi.mocked(fetch)
+		fetchMock.mockResolvedValue({
+			ok: true,
+			json: async () => ({ tracks: [] }),
+		} as Response)
+
+		const cache = new PlaybackHydrationCache()
+		const ids = Array.from({ length: 250 }, (_, index) => `track-${index}`)
 
 		const updated = await hydratePlaybackCacheInBatches(cache, ids)
 

@@ -19,6 +19,7 @@ import {
 } from '#app/features/offline-app/define-offline-client-loader.ts'
 import { type ServerLoaderData } from '#app/features/offline-app/offline-loader.client.ts'
 import { type OfflineRootShell } from '#app/features/offline-app/offline-root-shell.client.ts'
+import { useServiceWorkerUpdateToast } from '#app/hooks/use-service-worker-update-toast.tsx'
 import { type Route } from './+types/root.ts'
 import appleTouchIconAssetUrl from './assets/favicons/apple-touch-icon.png'
 import faviconAssetUrl from './assets/favicons/favicon.svg'
@@ -274,6 +275,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function App() {
 	const data = useLoaderData<typeof loader>()
 	const user = useOptionalUser()
+	useServiceWorkerUpdateToast()
 	const matches = useMatches()
 	const isOnSearchPage = matches.find((m) => m.id === 'routes/users+/index')
 	const searchBarEl = isOnSearchPage ? null : (
