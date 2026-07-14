@@ -89,7 +89,7 @@ export async function recoverStaleProcessingJobs(): Promise<number> {
 
 	await prisma.workerState.upsert({
 		where: { id: 'singleton' },
-		update: { currentlyProcessing: null },
+		update: {},
 		create: { id: 'singleton', status: 'running' },
 	})
 

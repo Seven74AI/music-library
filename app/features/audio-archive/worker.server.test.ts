@@ -891,7 +891,7 @@ describe('processQueueTick', () => {
 			)
 			expect(mockPrisma.workerState.upsert).toHaveBeenCalledWith(
 				expect.objectContaining({
-					update: expect.objectContaining({ currentlyProcessing: null }),
+					update: {},
 				}),
 			)
 			consoleWarn.mockRestore()
