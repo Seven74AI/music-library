@@ -6,7 +6,7 @@ import { registerServiceWorker } from './utils/pwa-register.client.ts'
 
 registerServiceWorker()
 
-// Sentry client-side monitoring — stripped at build time when SENTRY_DSN is not set
+// Sentry client-side monitoring — gated on ENV.MODE + ENV.SENTRY_DSN at runtime
 if (ENV.MODE === 'production' && ENV.SENTRY_DSN) {
 	Sentry.init({
 		dsn: ENV.SENTRY_DSN,
