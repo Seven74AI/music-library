@@ -10,12 +10,12 @@ registerServiceWorker()
 if (ENV.MODE === 'production' && ENV.SENTRY_DSN) {
 	Sentry.init({
 		dsn: ENV.SENTRY_DSN,
-	integrations: [
-		Sentry.captureConsoleIntegration({ levels: ['error'] }),
-		Sentry.reactRouterTracingIntegration(),
-		Sentry.replayIntegration(),
-		Sentry.feedbackIntegration({ colorScheme: 'system' }),
-	],
+		integrations: [
+			Sentry.captureConsoleIntegration({ levels: ['error'] }),
+			Sentry.reactRouterTracingIntegration(),
+			Sentry.replayIntegration(),
+			Sentry.feedbackIntegration({ colorScheme: 'system' }),
+		],
 		tracesSampleRate: 1.0,
 		replaysSessionSampleRate: 0.1,
 		replaysOnErrorSampleRate: 1.0,
