@@ -17,7 +17,7 @@ vi.mock('#app/features/queue/queue-playback.server.ts', () => ({
 }))
 
 function makeRequest(url: string) {
-	return new Request(url)
+	return { request: new Request(url), url: new URL(url) }
 }
 
 describe('tracks playback API loader', () => {
@@ -33,7 +33,7 @@ describe('tracks playback API loader', () => {
 		})
 
 		const response = await loader({
-			request: makeRequest('http://localhost/api/tracks/playback'),
+			...makeRequest('http://localhost/api/tracks/playback'),
 		} as never)
 
 		expect(response.status).toBe(400)
@@ -47,7 +47,7 @@ describe('tracks playback API loader', () => {
 		})
 
 		const response = await loader({
-			request: makeRequest(
+			...makeRequest(
 				'http://localhost/api/tracks/playback?ids=' +
 					Array.from({ length: 21 }, (_, i) => `id-${i}`).join(','),
 			),
@@ -65,7 +65,7 @@ describe('tracks playback API loader', () => {
 
 		await expect(
 			loader({
-				request: makeRequest(
+				...makeRequest(
 					'http://localhost/api/tracks/playback?ids=track-1,track-2',
 				),
 			} as never),
@@ -99,7 +99,7 @@ describe('tracks playback API loader', () => {
 		})
 
 		const response = await loader({
-			request: makeRequest(
+			...makeRequest(
 				'http://localhost/api/tracks/playback?ids=track-1,track-2',
 			),
 		} as never)
