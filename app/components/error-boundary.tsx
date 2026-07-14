@@ -38,9 +38,9 @@ export function GeneralErrorBoundary({
 
 		// Sentry client-side error capture — stripped at build time when SENTRY_DSN is not set
 		if (ENV.MODE === 'production' && ENV.SENTRY_DSN) {
-			void import('@sentry/react-router').then((Sentry) => {
-				Sentry.captureException(error)
-			})
+			void import('@sentry/react-router').then(
+				(Sentry) => Sentry.captureException(error),
+			)
 		}
 	}, [error, isResponse])
 

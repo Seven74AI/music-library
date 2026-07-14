@@ -10,6 +10,4 @@ Sentry.init({
 	// Performance Monitoring
 	tracesSampleRate: 1.0,
 	profilesSampleRate: 1.0,
-	// Enable logs to be sent to Sentry
-	enableLogs: true,
 })

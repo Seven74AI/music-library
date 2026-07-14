@@ -64,7 +64,7 @@ test('createCSP produces valid CSP string for different nonces', () => {
 		expect(result).toContain("default-src 'none'")
 		expect(result).toContain("style-src 'self' 'unsafe-inline'")
 		expect(result).toContain(
-		"media-src 'self' blob: https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",
-	)
+			"media-src 'self' blob: https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",
+		)
 	}
 })
