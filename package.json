@@ -50,13 +50,6 @@
     "make-admin": "tsx scripts/make-admin.ts"
   },
   "prettier": "@epic-web/config/prettier",
-  "eslintIgnore": [
-    "/node_modules",
-    "/build",
-    "/public/build",
-    "/playwright-report",
-    "/server-build"
-  ],
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
     "@aws-sdk/lib-storage": "^3.1079.0",
@@ -113,7 +106,6 @@
     "@tanstack/react-query": "^5.90.2",
     "@tanstack/react-virtual": "^3.13.12",
     "@tusbar/cache-control": "1.0.2",
-    "@types/cookie": "^0.6.0",
     "@types/ws": "^8.18.1",
     "address": "^2.0.3",
     "adm-zip": "^0.5.18",
@@ -171,10 +163,8 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@total-typescript/ts-reset": "^0.6.1",
     "@types/adm-zip": "^0.5.7",
     "@types/compression": "^1.7.5",
-    "@types/eslint": "^9.6.1",
     "@types/express": "^4.17.21",
     "@types/fs-extra": "^11.0.4",
     "@types/glob": "^8.1.0",
