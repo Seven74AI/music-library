@@ -100,10 +100,14 @@ export default async function handleRequest(...args: DocRequestArgs) {
 					pipe(body)
 				},
 				onShellError: (err: unknown) => {
+					console.error('SSR shell error:', err)
+					Sentry.captureException(err)
 					reject(err)
 				},
-				onError: () => {
+				onError: (error: unknown) => {
 					didError = true
+					console.error('SSR streaming error:', error)
+					Sentry.captureException(error)
 				},
 				nonce,
 			},
