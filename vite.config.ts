@@ -26,7 +26,7 @@ function stripMonitoringWhenNoDSN() {
 			// Strip monitoring init from entry.client.tsx
 			if (id.includes('entry.client')) {
 				const stripped = code.replace(
-					/if\s*\(ENV\.MODE\s*===\s*'production'\s*&&\s*ENV\.SENTRY_DSN\)\s*\{[\s\S]*?\n\s*\}/,
+					/if\s*\(ENV\.MODE\s*===\s*'production'\s*&&\s*ENV\.SENTRY_DSN\)\s*\{[\s\S]*?\n\}/,
 					'// Sentry monitoring stripped: SENTRY_DSN not set at build time',
 				)
 				if (stripped !== code) return stripped
@@ -35,7 +35,7 @@ function stripMonitoringWhenNoDSN() {
 			// Strip captureException dynamic import from error-boundary.tsx
 			if (id.includes('error-boundary')) {
 				const stripped = code.replace(
-					/if\s*\(ENV\.MODE\s*===\s*'production'\s*&&\s*ENV\.SENTRY_DSN\)\s*\{[\s\S]*?\n\s*\}/,
+					/if\s*\(ENV\.MODE\s*===\s*'production'\s*&&\s*ENV\.SENTRY_DSN\)\s*\{[\s\S]*?\}[ \t]*(?=\n)/,
 					'// Sentry captureException stripped: SENTRY_DSN not set at build time',
 				)
 				if (stripped !== code) return stripped

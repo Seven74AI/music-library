@@ -13,7 +13,7 @@ const DIRECTIVES = {
 	'style-src': "'self' 'unsafe-inline'",
 	'img-src':
 		"'self' data: blob: https://i.ytimg.com https://img.youtube.com",
-	'connect-src': "'self'",
+	'connect-src': "'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io",
 	'font-src': "'self'",
 	'media-src':
 		"'self' blob: https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",
@@ -32,7 +32,9 @@ export function createCSP(
 	nonce: string,
 	options: { isDev?: boolean } = {},
 ): string {
-	const connectSrc = options.isDev ? "'self' ws: wss:" : "'self'"
+	const connectSrc = options.isDev
+		? "'self' ws: wss: https://*.ingest.sentry.io https://*.ingest.us.sentry.io"
+		: "'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io"
 
 	return [
 		`default-src ${DIRECTIVES['default-src']}`,

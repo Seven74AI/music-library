@@ -1,13 +1,11 @@
 import crypto from 'node:crypto'
 import { PassThrough } from 'node:stream'
-import { styleText } from 'node:util'
 import { createReadableStreamFromReadable } from '@react-router/node'
+import * as Sentry from '@sentry/react-router'
 import { isbot } from 'isbot'
 import { renderToPipeableStream } from 'react-dom/server'
 import {
 	ServerRouter,
-	type LoaderFunctionArgs,
-	type ActionFunctionArgs,
 	type HandleDocumentRequestFunction,
 } from 'react-router'
 import { createCSP } from './utils/csp.server.ts'
@@ -125,19 +123,10 @@ export async function handleDataRequest(response: Response) {
 	return response
 }
 
-export function handleError(
-	error: unknown,
-	{ request }: LoaderFunctionArgs | ActionFunctionArgs,
-): void {
-	// Skip capturing if the request is aborted as Remix docs suggest
-	// Ref: https://remix.run/docs/en/main/file-conventions/entry.server#handleerror
-	if (request.signal.aborted) {
-		return
-	}
+export const handleError = Sentry.createSentryHandleError({
+	// React Router may log the error to console as well, we handle it ourselves
+	logErrors: false,
+})
 
-	if (error instanceof Error) {
-		console.error(styleText('red', String(error.stack)))
-	} else {
-		console.error(error)
-	}
-}
+// Auto-instruments all server loaders, actions, middleware, and lazy route loading.
+export const instrumentations = [Sentry.createSentryServerInstrumentation()]

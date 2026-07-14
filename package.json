@@ -25,7 +25,7 @@
     "db:reset": "prisma migrate reset --force && prisma generate",
     "db:reset:script": "tsx scripts/reset-db.ts",
     "db:seed": "prisma db seed",
-    "start": "cross-env NODE_ENV=production node .",
+    "start": "cross-env NODE_ENV=production node --import=./other/sentry/instrument.server.mjs .",
     "start:mocks": "cross-env NODE_ENV=production MOCKS=true tsx .",
     "test": "vitest",
     "coverage": "vitest run --coverage",
