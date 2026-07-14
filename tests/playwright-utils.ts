@@ -197,7 +197,7 @@ export const test = base.extend<{
 			authSession.set(sessionKey, session.id)
 			const cookieConfig = setCookieParser.parseString(
 				await authSessionStorage.commitSession(authSession),
-			)
+			)!
 			const newConfig = {
 				...cookieConfig,
 				domain: 'localhost',
@@ -229,7 +229,7 @@ export const test = base.extend<{
 			authSession.set(sessionKey, session.id)
 			const cookieConfig = setCookieParser.parseString(
 				await authSessionStorage.commitSession(authSession),
-			)
+			)!
 			const newConfig = {
 				...cookieConfig,
 				domain: 'localhost',

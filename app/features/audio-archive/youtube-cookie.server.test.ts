@@ -216,7 +216,7 @@ describe('writeCookies / readCookies', () => {
 		// Ensure cleanup
 		writeCookies([], deepPath)
 		try {
-			fs.rmdirSync(path.dirname(deepPath), { recursive: true })
+			fs.rmSync(path.dirname(deepPath), { recursive: true })
 		} catch {
 			// ignore
 		}
@@ -227,7 +227,7 @@ describe('writeCookies / readCookies', () => {
 		// Cleanup
 		writeCookies([], deepPath)
 		try {
-			fs.rmdirSync(path.dirname(path.dirname(deepPath)), {
+			fs.rmSync(path.dirname(path.dirname(deepPath)), {
 				recursive: true,
 			})
 		} catch {

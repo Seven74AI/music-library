@@ -3,7 +3,7 @@
  */
 import { render, screen } from '@testing-library/react'
 import { createRoutesStub } from 'react-router'
-import setCookieParser from 'set-cookie-parser'
+import { parseString } from 'set-cookie-parser'
 import { test, expect } from 'vitest'
 import { loader as rootLoader } from '#app/root.tsx'
 import { getSessionExpirationDate, sessionKey } from '#app/utils/auth.server.ts'
@@ -37,7 +37,7 @@ async function createAdminSession() {
 	const authSession = await authSessionStorage.getSession()
 	authSession.set(sessionKey, session.id)
 	const setCookieHeader = await authSessionStorage.commitSession(authSession)
-	const parsedCookie = setCookieParser.parseString(setCookieHeader)
+	const parsedCookie = parseString(setCookieHeader)!
 	return new URLSearchParams({
 		[parsedCookie.name]: parsedCookie.value,
 	}).toString()
