@@ -120,7 +120,7 @@
     "date-fns": "^4.1.0",
     "dotenv": "^16.5.0",
     "execa": "^8.0.1",
-    "express": "^4.21.2",
+    "express": "^5.2.1",
     "express-rate-limit": "^7.5.0",
     "get-port": "^7.1.0",
     "glob": "^11.0.2",
@@ -151,7 +151,7 @@
     "tsx": "^4.19.4",
     "vite-env-only": "^3.0.3",
     "ws": "^8.18.3",
-    "zod": "^3.24.4"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@epic-web/config": "^1.20.1",

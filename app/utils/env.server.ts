@@ -24,7 +24,7 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     AWS_ACCESS_KEY_ID: isMocksEnabled ? z.string().optional() : z.string(),
     AWS_SECRET_ACCESS_KEY: isMocksEnabled ? z.string().optional() : z.string(),
     AWS_REGION: isMocksEnabled ? z.string().optional() : z.string(),
-    AWS_ENDPOINT_URL_S3: isMocksEnabled ? z.string().url().optional() : z.string().url(),
+    AWS_ENDPOINT_URL_S3: isMocksEnabled ? z.url().optional() : z.url(),
     BUCKET_NAME: isMocksEnabled ? z.string().optional() : z.string(),
 
     // YouTube Data API Configuration (uses existing Google OAuth credentials)

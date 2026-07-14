@@ -70,7 +70,7 @@ export async function loader({ request, url }: Route.LoaderArgs) {
 	} catch (error) {
 		// Log all errors for debugging (including validation errors)
 		if (error instanceof z.ZodError) {
-			console.error('🚨 [SEARCH ROUTE] Validation error:', error.errors)
+			console.error('🚨 [SEARCH ROUTE] Validation error:', error.issues)
 			console.error('🚨 [SEARCH ROUTE] Full ZodError:', error)
 			// Security: Don't expose internal error details to clients
 			// Validation error - return empty results

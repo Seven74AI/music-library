@@ -22,7 +22,7 @@ import { type Route } from './+types/search.ts'
 
 function invalidSearchParameters(error: z.ZodError) {
 	return Response.json(
-		{ error: 'Invalid search parameters', details: error.errors },
+		{ error: 'Invalid search parameters', details: error.issues },
 		{ status: 400 },
 	)
 }
