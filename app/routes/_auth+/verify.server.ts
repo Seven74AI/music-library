@@ -1,5 +1,5 @@
 import { type Submission } from '@conform-to/react'
-import { parseWithZod } from '@conform-to/zod'
+import { parseWithZod } from '@conform-to/zod/v4'
 import { data } from 'react-router'
 import { z } from 'zod'
 import { handleVerification as handleChangeEmailVerification } from '#app/routes/settings+/profile.change-email.server.tsx'
@@ -55,11 +55,11 @@ export function getRedirectToUrl({
 	return redirectToUrl
 }
 
-export async function requireRecentVerification(request: Request) {
+export async function requireRecentVerification(request: Request, url?: URL) {
 	const userId = await requireUserId(request)
 	const shouldReverify = await shouldRequestTwoFA(request)
 	if (shouldReverify) {
-		const reqUrl = new URL(request.url)
+		const reqUrl = url ?? new URL(request.url)
 		const redirectUrl = getRedirectToUrl({
 			request,
 			target: userId,

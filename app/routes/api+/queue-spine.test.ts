@@ -1,9 +1,9 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
-import { requireUserId } from '#app/utils/auth.server.ts'
 import {
 	fetchQueueSpine,
 	parseQueueSpineParams,
 } from '#app/features/queue/queue-spine.server.ts'
+import { requireUserId } from '#app/utils/auth.server.ts'
 import { loader } from './queue-spine.tsx'
 
 vi.mock('#app/utils/auth.server.ts', () => ({
@@ -17,7 +17,7 @@ vi.mock('#app/features/queue/queue-spine.server.ts', () => ({
 }))
 
 function makeRequest(url: string) {
-	return new Request(url)
+	return { request: new Request(url), url: new URL(url) }
 }
 
 describe('queue-spine API loader', () => {
@@ -33,7 +33,7 @@ describe('queue-spine API loader', () => {
 		})
 
 		const response = await loader({
-			request: makeRequest('http://localhost/api/queue-spine'),
+			...makeRequest('http://localhost/api/queue-spine'),
 		} as never)
 
 		expect(response.status).toBe(400)
@@ -59,7 +59,7 @@ describe('queue-spine API loader', () => {
 		})
 
 		const response = await loader({
-			request: makeRequest(
+			...makeRequest(
 				'http://localhost/api/queue-spine?context=library&hasAudio=1',
 			),
 		} as never)
@@ -97,7 +97,7 @@ describe('queue-spine API loader', () => {
 		})
 
 		const response = await loader({
-			request: makeRequest(
+			...makeRequest(
 				'http://localhost/api/queue-spine?context=library&hasAudio=1',
 			),
 		} as never)
@@ -114,7 +114,7 @@ describe('queue-spine API loader', () => {
 
 		await expect(
 			loader({
-				request: makeRequest(
+				...makeRequest(
 					'http://localhost/api/queue-spine?context=library&hasAudio=1',
 				),
 			} as never),
@@ -140,7 +140,7 @@ describe('queue-spine API loader', () => {
 		})
 
 		const response = await loader({
-			request: makeRequest(
+			...makeRequest(
 				'http://localhost/api/queue-spine?context=playlist&playlistId=pl-1',
 			),
 		} as never)

@@ -1,5 +1,5 @@
-import { prisma } from '#app/utils/db.server.ts'
 import { type FullTrack } from '#app/types/frontend/shared.ts'
+import { prisma } from '#app/utils/db.server.ts'
 import { PLAYBACK_BATCH_MAX_IDS } from './constants.ts'
 
 export const PLAYBACK_TRACK_SELECT = {

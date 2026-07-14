@@ -1,5 +1,5 @@
 import { useForm, getFormProps } from '@conform-to/react'
-import { parseWithZod } from '@conform-to/zod'
+import { parseWithZod } from '@conform-to/zod/v4'
 import { invariantResponse } from '@epic-web/invariant'
 import { data, redirect, useFetcher, useFetchers } from 'react-router'
 import { z } from 'zod'
@@ -9,8 +9,8 @@ import {
 	useOptionalRequestInfo,
 	useRequestInfo,
 } from '#app/utils/request-info.ts'
-import { type Theme, setTheme } from '#app/utils/theme.server.ts'
 import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { type Theme, setTheme } from '#app/utils/theme.server.ts'
 import { type Route } from './+types/theme-switch.ts'
 const ThemeFormSchema = z.object({
 	theme: z.enum(['system', 'light', 'dark']),

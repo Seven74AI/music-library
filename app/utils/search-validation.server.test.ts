@@ -18,7 +18,7 @@ describe('search-validation.server', () => {
 		const result = SearchQuerySchema.safeParse('')
 		expect(result.success).toBe(false)
 		if (!result.success) {
-			expect(result.error.errors[0]?.message).toMatch(/empty/i)
+			expect(result.error.issues[0]?.message).toMatch(/empty/i)
 		}
 	})
 

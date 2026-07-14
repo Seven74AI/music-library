@@ -19,17 +19,17 @@ import {
 } from '#app/features/offline-app/define-offline-client-loader.ts'
 import { type ServerLoaderData } from '#app/features/offline-app/offline-loader.client.ts'
 import { type OfflineRootShell } from '#app/features/offline-app/offline-root-shell.client.ts'
-import { offlineClientMiddleware } from './middleware/offline-client.middleware.client.ts'
 import { type Route } from './+types/root.ts'
 import appleTouchIconAssetUrl from './assets/favicons/apple-touch-icon.png'
 import faviconAssetUrl from './assets/favicons/favicon.svg'
 import { AudioPlayerProvider } from './components/audio-player-provider'
 import { OfflineAwareErrorBoundary } from './components/offline/offline-aware-error-boundary.tsx'
 import { OfflineStatusBanner } from './components/offline/offline-status-banner.tsx'
-import { RouteHydrateFallback } from './components/route-hydrate-fallback.tsx'
 import { EpicProgress } from './components/progress-bar.tsx'
+import { RouteHydrateFallback } from './components/route-hydrate-fallback.tsx'
 import { href as iconsHref } from './components/ui/icon.tsx'
 import { Toaster } from './components/ui/toaster.tsx'
+import { offlineClientMiddleware } from './middleware/offline-client.middleware.client.ts'
 import {
 	ThemeSwitch,
 	useOptionalTheme,
@@ -94,9 +94,9 @@ export const links: Route.LinksFunction = () => {
 	].filter(Boolean)
 }
 
-export const meta: Route.MetaFunction = ({ data }) => {
+export const meta: Route.MetaFunction = ({ loaderData }) => {
 	return [
-		{ title: data ? 'Music Library' : 'Error | Music Library' },
+		{ title: loaderData ? 'Music Library' : 'Error | Music Library' },
 		{ name: 'description', content: `Your personal music library` },
 		{ name: 'mobile-web-app-capable', content: 'yes' },
 		{ name: 'apple-mobile-web-app-capable', content: 'yes' },
@@ -105,7 +105,7 @@ export const meta: Route.MetaFunction = ({ data }) => {
 	]
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
+export async function loader({ request, url }: Route.LoaderArgs) {
 	const timings = makeTimings('root loader')
 	const userId = await time(() => getUserId(request), {
 		timings,
@@ -159,7 +159,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 			requestInfo: {
 				hints: getHints(request),
 				origin: getDomainUrl(request),
-				path: new URL(request.url).pathname,
+				path: url.pathname,
 				userPrefs: {
 					theme: getTheme(request),
 				},

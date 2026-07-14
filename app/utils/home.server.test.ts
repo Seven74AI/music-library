@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { getUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
-import { hasServiceConnection } from '#app/features/service-connection/service-connection.server'
 import { loadHomeData, resolveHomeMode, type HomeData } from './home.server.ts'
 
 vi.mock('#app/utils/auth.server.ts', () => ({

@@ -22,13 +22,13 @@ import { type Route } from './+types/search.ts'
 
 function invalidSearchParameters(error: z.ZodError) {
 	return Response.json(
-		{ error: 'Invalid search parameters', details: error.errors },
+		{ error: 'Invalid search parameters', details: error.issues },
 		{ status: 400 },
 	)
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-	const url = new URL(request.url)
+export async function loader({ request, url }: Route.LoaderArgs) {
+	
 
 	const queryResult = SearchQuerySchema.safeParse(url.searchParams.get('q') ?? '')
 	if (!queryResult.success) {

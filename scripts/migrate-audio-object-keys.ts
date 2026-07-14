@@ -25,11 +25,11 @@ import {
 	S3Client,
 } from '@aws-sdk/client-s3'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
+import { getDatabaseUrl } from '#app/utils/database-url.server.ts'
 import {
 	buildAudioObjectKey,
 	isUnifiedAudioObjectKey,
 } from '#app/utils/storage.server'
-import { getDatabaseUrl } from '#app/utils/database-url.server.ts'
 import { PrismaClient } from '#prisma/client.js'
 
 const dryRun = process.argv.includes('--dry-run')

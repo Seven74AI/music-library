@@ -3,7 +3,7 @@ import { sessionKey } from '#app/utils/auth.server.ts'
 import { authSessionStorage } from '#app/utils/session.server.ts'
 
 export function convertSetCookieToCookie(setCookie: string) {
-	const parsedCookie = setCookieParser.parseString(setCookie)
+	const parsedCookie = setCookieParser.parseString(setCookie)!
 	return new URLSearchParams({
 		[parsedCookie.name]: parsedCookie.value,
 	}).toString()

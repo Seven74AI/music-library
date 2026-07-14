@@ -1,13 +1,13 @@
-import { requireUserId } from '#app/utils/auth.server.ts'
 import {
 	fetchPlaybackTracks,
 	parsePlaybackIds,
 } from '#app/features/queue/queue-playback.server.ts'
+import { requireUserId } from '#app/utils/auth.server.ts'
 
-export async function loader({ request }: { request: Request }) {
+export async function loader({ request, url }: { request: Request; url: URL }) {
 	try {
 		const userId = await requireUserId(request)
-		const url = new URL(request.url)
+		
 		const parsed = parsePlaybackIds(url.searchParams.get('ids'))
 
 		if (!parsed.ok) {

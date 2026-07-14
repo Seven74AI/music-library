@@ -6,8 +6,8 @@ import { requireRecentVerification } from '#app/routes/_auth+/verify.server.ts'
 import { requireUserId } from '#app/utils/auth.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { useDoubleCheck } from '#app/utils/misc.tsx'
-import { redirectWithToast } from '#app/utils/toast.server.ts'
 import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { redirectWithToast } from '#app/utils/toast.server.ts'
 import { type Route } from './+types/profile.two-factor.disable.ts'
 import { type BreadcrumbHandle } from './profile.tsx'
 import { twoFAVerificationType } from './profile.two-factor.tsx'
@@ -17,8 +17,8 @@ export const handle: BreadcrumbHandle & SEOHandle = {
 	getSitemapEntries: () => null,
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-	await requireRecentVerification(request)
+export async function loader({ request, url }: Route.LoaderArgs) {
+	await requireRecentVerification(request, url)
 	return {}
 }
 

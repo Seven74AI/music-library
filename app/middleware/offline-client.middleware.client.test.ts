@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest'
 import {
-	patchOfflineDataStrategyResults,
-	shouldSubstituteOfflineResult,
-} from './offline-client.middleware.client.ts'
-import {
 	resolveOfflineStubForRoute,
 	shouldSkipOfflineMiddlewareRoute,
 } from '#app/features/offline-app/offline-route-policies.client.ts'
+import {
+	patchOfflineDataStrategyResults,
+	shouldSubstituteOfflineResult,
+} from './offline-client.middleware.client.ts'
 
 describe('shouldSkipOfflineMiddlewareRoute', () => {
 	test('skips live routes and auth routes', () => {

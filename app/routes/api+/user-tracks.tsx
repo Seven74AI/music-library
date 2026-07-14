@@ -6,10 +6,10 @@ import {
 	parseHasAudioOnlyParam,
 } from '#app/utils/library-user-tracks.server.ts'
 
-export async function loader({ request }: { request: Request }) {
+export async function loader({ request, url }: { request: Request; url: URL }) {
 	try {
 		const userId = await requireUserId(request)
-		const url = new URL(request.url)
+		
 		const cursor = url.searchParams.get('cursor')
 		const limitParam = url.searchParams.get('limit')
 		const limit = parseInt(limitParam || String(LIBRARY_TRACKS_PAGE_SIZE))

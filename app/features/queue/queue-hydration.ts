@@ -1,4 +1,5 @@
 import { type FullTrack, type QueueTrack } from '#app/types/frontend/shared.ts'
+import { PLAYBACK_BATCH_MAX_IDS } from './constants.ts'
 import {
 	getQueueSpineDisplayTracks,
 	getSpinePlayOrder,
@@ -6,7 +7,6 @@ import {
 } from './queue-navigation.ts'
 import { fullTrackStubFromQueueTrack } from './queue-spine.ts'
 
-import { PLAYBACK_BATCH_MAX_IDS } from './constants.ts'
 
 export const PLAYBACK_LOOKAHEAD = 4
 

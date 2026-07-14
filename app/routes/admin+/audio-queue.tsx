@@ -27,8 +27,8 @@ import { isRecoverableArchiveFailure } from '#app/features/audio-archive/recover
 import { scheduleQueueTick, resetCookieFailureStreak } from '#app/features/audio-archive/worker.server.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
-import { type Route } from './+types/audio-queue.ts'
 import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { type Route } from './+types/audio-queue.ts'
 
 export const handle: SEOHandle = {
 	getSitemapEntries: () => null,
@@ -95,10 +95,10 @@ interface LoaderData {
 	totalPages: number
 }
 
-export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
+export async function loader({ request, url }: Route.LoaderArgs): Promise<LoaderData> {
 	await requireUserWithRole(request, 'admin')
 
-	const url = new URL(request.url)
+	
 	const filterParam = url.searchParams.get('status') ?? 'all'
 	const filter: StatusFilter = STATUS_FILTERS.includes(filterParam as StatusFilter)
 		? (filterParam as StatusFilter)
