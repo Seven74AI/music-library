@@ -122,6 +122,11 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const wantsAutoPlayRef = useRef(false)
 	const upNextPlayNextCountRef = useRef(0)
 
+	// Throttle scroll-driven hydration: accumulate IDs during rapid scrolling,
+	// flush as a single batch 300ms after the last scroll event.
+	const pendingHydrationIdsRef = useRef(new Set<string>())
+	const hydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
 	const navigationState = useMemo<QueueNavigationState>(
 		() => ({
 			upNext,
@@ -170,6 +175,12 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const beginPlayback = useCallback(() => {
 		wantsAutoPlayRef.current = true
 		setPlaybackToken(token => token + 1)
+		// Cancel any pending scroll hydration from a previous queue
+		if (hydrationTimerRef.current) {
+			clearTimeout(hydrationTimerRef.current)
+			hydrationTimerRef.current = null
+		}
+		pendingHydrationIdsRef.current.clear()
 	}, [])
 
 	const rememberTrack = useCallback((track: Track) => {
@@ -189,23 +200,35 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 	const hydrateTracksForDisplay = useCallback((ids: string[]) => {
 		if (ids.length === 0 || isOfflineEnvironment()) return
 
-		const needsHydration = [...new Set(ids)].filter(id => {
+		for (const id of ids) {
 			const cached = playbackCacheRef.current.get(id)
-			return !cached?.coverImage
-		})
-
-		if (needsHydration.length === 0) return
-
-		void (async () => {
-			const updated = await hydratePlaybackCacheInBatches(
-				playbackCacheRef.current,
-				needsHydration,
-				{ refetchIncomplete: true },
-			)
-			if (updated > 0) {
-				setCacheVersion(version => version + 1)
+			if (!cached?.coverImage) {
+				pendingHydrationIdsRef.current.add(id)
 			}
-		})()
+		}
+
+		if (pendingHydrationIdsRef.current.size === 0) return
+
+		// Reset the debounce timer — flush 300ms after the last scroll event
+		if (hydrationTimerRef.current) {
+			clearTimeout(hydrationTimerRef.current)
+		}
+
+		hydrationTimerRef.current = setTimeout(() => {
+			const needsHydration = [...pendingHydrationIdsRef.current]
+			pendingHydrationIdsRef.current.clear()
+
+			void (async () => {
+				const updated = await hydratePlaybackCacheInBatches(
+					playbackCacheRef.current,
+					needsHydration,
+					{ refetchIncomplete: true },
+				)
+				if (updated > 0) {
+					setCacheVersion(version => version + 1)
+				}
+			})()
+		}, 300)
 	}, [])
 
 	const fetchOfflineTracks = useCallback(async (context: PlaylistContext): Promise<Track[]> => {
@@ -260,6 +283,12 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 		setSpinePosition(0)
 		playbackCacheRef.current.clear()
 		setCacheVersion(version => version + 1)
+		// Cancel any pending scroll hydration from the old queue
+		if (hydrationTimerRef.current) {
+			clearTimeout(hydrationTimerRef.current)
+			hydrationTimerRef.current = null
+		}
+		pendingHydrationIdsRef.current.clear()
 	}, [])
 
 	const startSpinePlayback = useCallback(
