@@ -252,6 +252,11 @@ export async function loadHomeData(request: Request) {
 		},
 		recentTracks,
 		recentPlaylists,
-		youtubeData: loadYoutubeData(userId),
+		// YouTube data is only needed for the listening-hub view (not gray zone)
+		youtubeData: mode === 'listening' ? loadYoutubeData(userId) : Promise.resolve({
+			hasYouTubeConnection: false,
+			youtubeStats: null,
+			youtubePlaylists: [],
+		}),
 	})
 }
