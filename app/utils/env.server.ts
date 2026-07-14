@@ -130,6 +130,7 @@ export function getEnv() {
 		MODE: process.env.NODE_ENV,
 		ALLOW_INDEXING: process.env.ALLOW_INDEXING,
 		DISABLE_SERVICE_WORKER: process.env.DISABLE_SERVICE_WORKER,
+		SENTRY_DSN: process.env.SENTRY_DSN,
 	}
 }
 

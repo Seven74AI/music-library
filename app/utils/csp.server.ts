@@ -13,7 +13,7 @@ const DIRECTIVES = {
 	'style-src': "'self' 'unsafe-inline'",
 	'img-src':
 		"'self' data: blob: https://i.ytimg.com https://img.youtube.com",
-	'connect-src': "'self'",
+	'connect-src': "'self' https://*.ingest.sentry.io",
 	'font-src': "'self'",
 	'media-src':
 		"'self' blob: https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",
