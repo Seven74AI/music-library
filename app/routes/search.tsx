@@ -27,8 +27,8 @@ import { type Route } from './+types/search.ts'
  * - DoS prevention via query length limits
  * - XSS protection via React's automatic escaping
  */
-export async function loader({ request }: Route.LoaderArgs) {
-	const url = new URL(request.url)
+export async function loader({ request, url }: Route.LoaderArgs) {
+	
 	
 	try {
 		// Security: Validate and sanitize all input parameters
@@ -70,7 +70,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 	} catch (error) {
 		// Log all errors for debugging (including validation errors)
 		if (error instanceof z.ZodError) {
-			console.error('🚨 [SEARCH ROUTE] Validation error:', error.errors)
+			console.error('🚨 [SEARCH ROUTE] Validation error:', error.issues)
 			console.error('🚨 [SEARCH ROUTE] Full ZodError:', error)
 			// Security: Don't expose internal error details to clients
 			// Validation error - return empty results

@@ -8,6 +8,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { type ComponentProps, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { useAudioPlayer } from '#app/components/audio-player-provider'
 import  { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayer } from './audio-player'
 
@@ -48,7 +49,6 @@ vi.mock('#app/components/audio-player-provider', () => ({
 	AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
 }))
 
-import { useAudioPlayer } from '#app/components/audio-player-provider'
 
 const mockTrack: FullTrack = {
 	id: 'track-1',

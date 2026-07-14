@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import { Link, useFetcher } from 'react-router'
-import { toast } from '#app/components/ui/use-toast.ts'
 import { Button } from '#app/components/ui/button.tsx'
 import {
 	DropdownMenu,
@@ -11,6 +10,7 @@ import {
 	DropdownMenuTrigger,
 } from '#app/components/ui/dropdown-menu.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
+import { toast } from '#app/components/ui/use-toast.ts'
 import { cn } from '#app/utils/misc.tsx'
 
 export type NotificationItem = {

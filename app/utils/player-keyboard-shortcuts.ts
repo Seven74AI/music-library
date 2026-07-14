@@ -16,6 +16,12 @@ export function shouldIgnoreKeyboardShortcut(target: EventTarget | null): boolea
 		return true
 	}
 
+	// P1: Range inputs (covered by INPUT check above — belt-and-suspenders for clarity)
+	// P2: Buttons, links, and summary elements consume their own keyboard events
+	if (tagName === 'BUTTON' || tagName === 'A' || tagName === 'SUMMARY') {
+		return true
+	}
+
 	return Boolean(target.closest('[contenteditable="true"]'))
 }
 

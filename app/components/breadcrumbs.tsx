@@ -9,10 +9,12 @@ import {
 	BreadcrumbSeparator 
 } from './ui/breadcrumb'
 
+type BreadcrumbFn = (arg: { loaderData: unknown }) => React.ReactNode
+
 export const BreadcrumbHandle = z.object({ 
 	breadcrumb: z.union([
 		z.custom<React.ReactNode>(), 
-		z.function().args(z.object({ data: z.unknown() })).returns(z.custom<React.ReactNode>())
+		z.custom<BreadcrumbFn>()
 	])
 })
 export type BreadcrumbHandle = z.infer<typeof BreadcrumbHandle>
@@ -25,7 +27,7 @@ export function Breadcrumbs() {
 			
 			const breadcrumb = m.handle.breadcrumb
 			const breadcrumbContent = typeof breadcrumb === 'function' 
-				? breadcrumb({ data: m.data }) 
+				? breadcrumb({ loaderData: m.loaderData }) 
 				: breadcrumb
 			
 			return {

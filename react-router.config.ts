@@ -6,9 +6,6 @@ export default {
 
 	routeDiscovery: { mode: 'lazy' },
 
-	future: {
-		v8_middleware: true,
-		unstable_optimizeDeps: true,
-		v8_splitRouteModules: true,
-	},
+	// Split route modules for parallel loading (default in v8)
+	splitRouteModules: true,
 } satisfies Config

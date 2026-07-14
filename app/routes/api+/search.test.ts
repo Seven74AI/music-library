@@ -7,7 +7,7 @@ vi.mock('#app/utils/search.server.ts', () => ({
 }))
 
 function makeRequest(url: string) {
-	return new Request(url)
+	return { request: new Request(url), url: new URL(url) }
 }
 
 describe('search API loader', () => {
@@ -17,7 +17,7 @@ describe('search API loader', () => {
 
 	test('returns 400 when query parameter is missing', async () => {
 		const response = await loader({
-			request: makeRequest('http://localhost/api/search'),
+			...makeRequest('http://localhost/api/search'),
 		} as never)
 
 		expect(response.status).toBe(400)
@@ -28,7 +28,7 @@ describe('search API loader', () => {
 
 	test('returns 400 when limit is invalid', async () => {
 		const response = await loader({
-			request: makeRequest('http://localhost/api/search?q=test&limit=invalid'),
+			...makeRequest('http://localhost/api/search?q=test&limit=invalid'),
 		} as never)
 
 		expect(response.status).toBe(400)
@@ -42,7 +42,7 @@ describe('search API loader', () => {
 		})
 
 		const response = await loader({
-			request: makeRequest('http://localhost/api/search?q=test'),
+			...makeRequest('http://localhost/api/search?q=test'),
 		} as never)
 
 		expect(response.status).toBe(200)

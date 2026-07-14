@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { data, NavLink } from 'react-router'
 import { OfflinePlaylistsIndexView } from '#app/components/offline/offline-playlists-index-view.tsx'
-import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { PlaylistCard } from '#app/components/playlist-card'
+import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { Input } from '#app/components/ui/input.tsx'
@@ -19,9 +19,9 @@ import { prisma } from '#app/utils/db.server.ts'
 import { cn } from '#app/utils/misc.tsx'
 import { type Route } from './+types/playlists.index.ts'
 
-export async function loader({ request }: Route.LoaderArgs) {
+export async function loader({ request, url }: Route.LoaderArgs) {
 	const userId = await requireUserId(request)
-	const url = new URL(request.url)
+	
 	const cursor = url.searchParams.get('cursor')
 	const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '12')))
 

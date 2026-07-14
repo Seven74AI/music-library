@@ -12,7 +12,7 @@ import { formatDuration } from '#app/utils/format-duration.ts'
 import { type Route } from './+types/library.$trackId.ts'
 
 export const handle: BreadcrumbHandle = {
-	breadcrumb: ({ data }) => getTrackTitle(data),
+	breadcrumb: ({ loaderData }) => getTrackTitle(loaderData),
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
