@@ -59,13 +59,12 @@ export async function encodeEmptyRouterState() {
 		errors: {},
 	})
 	const reader = stream.getReader()
-	const decoder = new TextDecoder()
 	let line = ''
 
 	while (true) {
 		const { done, value } = await reader.read()
 		if (done) break
-		line += decoder.decode(value)
+		line += value
 	}
 
 	return line
