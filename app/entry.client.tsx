@@ -31,3 +31,21 @@ if (isOfflineShell) {
 		hydrateRoot(document, <HydratedRouter />)
 	})
 }
+
+// Recover from hydration failures where turbo-stream decoding throws
+// an unhandled SyntaxError (e.g. corrupted streaming response). Sentry
+// captures the error; we reload so the user gets a working page.
+{
+	const RELOAD_KEY = '__hermes_hydration_reload'
+	window.addEventListener('error', (event) => {
+		if (
+			event.error instanceof SyntaxError &&
+			!event.error.message &&
+			sessionStorage.getItem(RELOAD_KEY) !== '1'
+		) {
+			sessionStorage.setItem(RELOAD_KEY, '1')
+			// Brief delay so Sentry's global error handler fires first
+			setTimeout(() => window.location.reload(), 100)
+		}
+	})
+}
