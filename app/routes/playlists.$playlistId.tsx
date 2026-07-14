@@ -130,13 +130,21 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	}
 
 	// Get user's library track IDs for isInUserLibrary status
+	// Scoped to only the track IDs in this playlist (not the entire library)
+	const playlistTrackIds = playlist.tracks.map((pt) => pt.track.id)
 	const libraryTrackIds = new Set(
-		(
-			await prisma.userTrack.findMany({
-				where: { userId, isActive: true },
-				select: { trackId: true },
-			})
-		).map((ut) => ut.trackId),
+		playlistTrackIds.length > 0
+			? (
+					await prisma.userTrack.findMany({
+						where: {
+							userId,
+							isActive: true,
+							trackId: { in: playlistTrackIds },
+						},
+						select: { trackId: true },
+					})
+				).map((ut) => ut.trackId)
+			: [],
 	)
 
 	// Add isInUserLibrary to each track

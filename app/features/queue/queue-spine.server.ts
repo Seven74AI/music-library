@@ -2,6 +2,9 @@ import { type QueueTrack } from '#app/types/frontend/shared.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { buildLibraryUserTracksWhere } from '#app/utils/library-user-tracks.server.ts'
 
+/** Maximum tracks to load into the queue spine. Larger libraries are truncated. */
+export const QUEUE_SPINE_MAX_TRACKS = 2_000
+
 export const QUEUE_TRACK_SELECT = {
 	id: true,
 	title: true,
@@ -76,6 +79,7 @@ export async function fetchQueueSpine(
 				},
 			},
 			orderBy: { createdAt: 'desc' },
+			take: QUEUE_SPINE_MAX_TRACKS,
 		})
 
 		const tracks = userTracks.map(userTrack => userTrack.track)
@@ -93,6 +97,7 @@ export async function fetchQueueSpine(
 			},
 		},
 		orderBy: { position: 'asc' },
+		take: QUEUE_SPINE_MAX_TRACKS,
 	})
 
 	const tracks = playlistTracks.map(playlistTrack => playlistTrack.track)

@@ -69,7 +69,14 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
 	const track = await prisma.track.findUnique({
 		where: { id: trackId },
 		include: {
-			audioFiles: true,
+			audioFiles: {
+				select: {
+					id: true,
+					format: true,
+					objectKey: true,
+					mimeType: true,
+				},
+			},
 			userTracks: {
 				where: { userId, isActive: true, deletedAt: null },
 				select: { id: true },

@@ -24,14 +24,25 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
 				playlistId,
 				playlist: { ownerId: userId } // Ensure user owns the playlist
 			},
-			include: {
-				track: {
-					include: {
-						service: true,
-						audioFiles: true,
+		include: {
+			track: {
+				include: {
+					service: {
+						select: {
+							displayName: true,
+							logoUrl: true,
+						},
+					},
+					audioFiles: {
+						select: {
+							id: true,
+							format: true,
+							objectKey: true,
+						},
 					},
 				},
 			},
+		},
 			orderBy: { position: 'asc' },
 			take: limit,
 			...(cursor && {

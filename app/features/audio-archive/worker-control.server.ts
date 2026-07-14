@@ -66,10 +66,13 @@ async function setWorkerState(
  * Get the current WorkerState, creating it (as "running") if it doesn't exist.
  */
 export async function getWorkerState(): Promise<WorkerStateResult> {
-	const state = await prisma.workerState.upsert({
+	const existing = await prisma.workerState.findUnique({
 		where: { id: 'singleton' },
-		update: {},
-		create: {
+	})
+	if (existing) return reshape(existing)
+
+	const state = await prisma.workerState.create({
+		data: {
 			id: 'singleton',
 			status: WorkerStatus.RUNNING,
 		},

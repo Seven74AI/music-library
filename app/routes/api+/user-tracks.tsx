@@ -56,8 +56,19 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
 										objectKey: true,
 									},
 								},
-								service: true,
-								audioFiles: true,
+				service: {
+					select: {
+						displayName: true,
+						logoUrl: true,
+					},
+				},
+				audioFiles: {
+					select: {
+						id: true,
+						format: true,
+						objectKey: true,
+					},
+				},
 							},
 						},
 			},
