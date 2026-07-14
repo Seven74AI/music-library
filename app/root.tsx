@@ -94,9 +94,9 @@ export const links: Route.LinksFunction = () => {
 	].filter(Boolean)
 }
 
-export const meta: Route.MetaFunction = ({ data }) => {
+export const meta: Route.MetaFunction = ({ loaderData }) => {
 	return [
-		{ title: data ? 'Music Library' : 'Error | Music Library' },
+		{ title: loaderData ? 'Music Library' : 'Error | Music Library' },
 		{ name: 'description', content: `Your personal music library` },
 		{ name: 'mobile-web-app-capable', content: 'yes' },
 		{ name: 'apple-mobile-web-app-capable', content: 'yes' },

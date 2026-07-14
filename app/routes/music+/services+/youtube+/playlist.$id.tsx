@@ -34,7 +34,7 @@ import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action
 import { type Route } from './+types/playlist.$id.ts'
 
 export const handle: BreadcrumbHandle = {
-	breadcrumb: ({ data }) => getPlaylistTitle(data),
+	breadcrumb: ({ loaderData }) => getPlaylistTitle(loaderData),
 }
 
 /**
