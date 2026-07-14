@@ -1,9 +1,9 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
+import { noopArchiveEnqueueAdapter } from './archive-enqueue-adapter.server'
 import {
 	createServicePlaylistService,
 	type ServicePlaylistService,
 } from './service-playlist.server'
-import { noopArchiveEnqueueAdapter } from './archive-enqueue-adapter.server'
 
 // Mock all external dependencies - must be defined inside factory functions
 vi.mock('#app/utils/db.server', () => ({

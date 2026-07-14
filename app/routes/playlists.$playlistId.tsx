@@ -38,19 +38,12 @@ import { useAudioPlayer } from '#app/components/audio-player-provider.tsx'
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { OfflinePlaylistDownloadButton } from '#app/components/offline/offline-playlist-download-button.tsx'
 import { OfflinePlaylistView } from '#app/components/offline/offline-playlist-view.tsx'
-import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { PlaylistHero } from '#app/components/playlist-hero'
+import { RouteHydrateFallback } from '#app/components/route-hydrate-fallback.tsx'
 import { SortableTrackList } from '#app/components/sortable-track-list'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '#app/components/ui/alert-dialog'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { toast } from '#app/components/ui/use-toast.ts'
-import {
-	cachePlaylistMetadata,
-} from '#app/features/offline-storage/offline-playlist-metadata.client.ts'
-import { requireUserId } from '#app/utils/auth.server.ts'
-import { getPlaylistTitle } from '#app/utils/breadcrumb-utils.ts'
-import { chunkArray } from '#app/utils/chunk-array.ts'
-import { prisma } from '#app/utils/db.server.ts'
 import {
 	defineOfflineClientLoader,
 } from '#app/features/offline-app/define-offline-client-loader.ts'
@@ -58,10 +51,17 @@ import { type ServerLoaderData } from '#app/features/offline-app/offline-loader.
 import {
 	type PlaylistDetailOfflineLoaderData,
 } from '#app/features/offline-app/offline-route-policies.client.ts'
-import { filterPlayableTracks } from '#app/utils/playable-track.ts'
+import {
+	cachePlaylistMetadata,
+} from '#app/features/offline-storage/offline-playlist-metadata.client.ts'
 import { type FullTrack } from '#app/types/frontend/shared.ts'
-import { createToastHeaders } from '#app/utils/toast.server.ts'
+import { requireUserId } from '#app/utils/auth.server.ts'
+import { getPlaylistTitle } from '#app/utils/breadcrumb-utils.ts'
+import { chunkArray } from '#app/utils/chunk-array.ts'
+import { prisma } from '#app/utils/db.server.ts'
+import { filterPlayableTracks } from '#app/utils/playable-track.ts'
 import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
+import { createToastHeaders } from '#app/utils/toast.server.ts'
 import { userPlaylistTitleTaken } from '#app/utils/user-playlist.server.ts'
 import { type Route } from './+types/playlists.$playlistId.ts'
 

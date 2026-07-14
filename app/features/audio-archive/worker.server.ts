@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { persistTrackAudio } from '#app/features/track-audio-ingest/persist-track-audio.server.ts'
 import { extractAudioMetadata } from '#app/utils/audio-metadata.server'
 import { prisma } from '#app/utils/db.server.ts'
 import { checkPlaylistArchiveReadyAfterTrackArchived } from '#app/utils/playlist-archive-ready.server.tsx'
-import { persistTrackAudio } from '#app/features/track-audio-ingest/persist-track-audio.server.ts'
 import {
 	recordArchiveSuccess,
 	recordCookieExpiredFailure,

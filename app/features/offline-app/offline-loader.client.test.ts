@@ -1,6 +1,5 @@
 import { describe, expect, test, vi, afterEach } from 'vitest'
-import { isOfflineEnvironment, loadWithOfflineFallback } from './offline-loader.client.ts'
-import { createOfflineClientLoader } from './offline-loader.client.ts'
+import { isOfflineEnvironment, loadWithOfflineFallback, createOfflineClientLoader  } from './offline-loader.client.ts'
 
 describe('isOfflineEnvironment', () => {
 	afterEach(() => {

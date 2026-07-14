@@ -1,6 +1,6 @@
+import { type QueueTrack } from '#app/types/frontend/shared.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { buildLibraryUserTracksWhere } from '#app/utils/library-user-tracks.server.ts'
-import { type QueueTrack } from '#app/types/frontend/shared.ts'
 
 export const QUEUE_TRACK_SELECT = {
 	id: true,
