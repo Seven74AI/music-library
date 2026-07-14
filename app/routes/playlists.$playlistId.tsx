@@ -66,7 +66,7 @@ import { userPlaylistTitleTaken } from '#app/utils/user-playlist.server.ts'
 import { type Route } from './+types/playlists.$playlistId.ts'
 
 export const handle: BreadcrumbHandle = {
-	breadcrumb: ({ data }) => getPlaylistTitle(data),
+	breadcrumb: ({ loaderData }) => getPlaylistTitle(loaderData),
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {

@@ -12,7 +12,7 @@ import {
 export const BreadcrumbHandle = z.object({ 
 	breadcrumb: z.union([
 		z.custom<React.ReactNode>(), 
-		z.function().args(z.object({ data: z.unknown() })).returns(z.custom<React.ReactNode>())
+		z.function().args(z.object({ loaderData: z.unknown() })).returns(z.custom<React.ReactNode>())
 	])
 })
 export type BreadcrumbHandle = z.infer<typeof BreadcrumbHandle>
@@ -25,7 +25,7 @@ export function Breadcrumbs() {
 			
 			const breadcrumb = m.handle.breadcrumb
 			const breadcrumbContent = typeof breadcrumb === 'function' 
-				? breadcrumb({ data: m.data }) 
+				? breadcrumb({ loaderData: m.loaderData }) 
 				: breadcrumb
 			
 			return {
