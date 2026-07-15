@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
 	buildOfflineRouterBootstrap,
-	encodeEmptyRouterState,
+	serializeEmptyRouterPayload,
 	findOfflineShellAssets,
 	generateOfflineShellHtml,
 } from './generate-offline-shell-html.ts'
@@ -30,17 +30,26 @@ describe('findOfflineShellAssets', () => {
 	})
 })
 
-describe('encodeEmptyRouterState', () => {
-	test('returns a turbo-stream payload for empty router state', async () => {
-		const line = await encodeEmptyRouterState()
-		expect(line).toContain('loaderData')
+describe('serializeEmptyRouterPayload', () => {
+	test('returns a v2-compatible turbo-stream payload (JSON array + newline)', () => {
+		const line = serializeEmptyRouterPayload()
+
+		// v2 decoder expects first chunk to be a JSON array
+		const parsed = JSON.parse(line.trimEnd())
+		expect(Array.isArray(parsed)).toBe(true)
+		expect(parsed).toHaveLength(1)
+		expect(parsed[0]).toEqual({
+			loaderData: {},
+			actionData: {},
+			errors: {},
+		})
 		expect(line.endsWith('\n')).toBe(true)
 	})
 })
 
 describe('buildOfflineRouterBootstrap', () => {
-	test('bootstraps route modules and a valid stream handoff', async () => {
-		const bootstrap = buildOfflineRouterBootstrap(await encodeEmptyRouterState())
+	test('bootstraps route modules and a valid stream handoff', () => {
+		const bootstrap = buildOfflineRouterBootstrap(serializeEmptyRouterPayload())
 
 		expect(bootstrap).toContain('window.__reactRouterRouteModules = {}')
 		expect(bootstrap).toContain('streamController.enqueue')
