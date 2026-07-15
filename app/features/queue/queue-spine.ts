@@ -28,7 +28,7 @@ export async function fetchQueueSpine(
 	}
 
 	const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
-	const response = await fetch(new URL(url, base), { redirect: 'manual' })
+	const response = await fetch(`${base}${url}`, { redirect: 'manual' })
 	if (response.status >= 300 && response.status < 400) {
 		throw new AuthExpiredError()
 	}
