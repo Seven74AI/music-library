@@ -3,9 +3,13 @@
  *
  * React Router 7 SSR builds do not emit index.html into build/client, but the
  * service worker navigateFallback expects /index.html to exist in precache.
+ *
+ * ⚠️ The turbo-stream payload must be compatible with React Router's bundled
+ * turbo-stream v2 decoder (not the standalone npm package, which may be a
+ * different major version). React Router's v2 decoder expects a JSON array
+ * as the first chunk: `[{...}]`. We JSON-stringify directly instead of
+ * using any turbo-stream library to avoid version mismatch.
  */
-
-import { encode } from 'turbo-stream'
 
 export type OfflineShellAssets = {
 	manifestScript?: string
@@ -52,22 +56,8 @@ export const OFFLINE_SHELL_SPLASH_SCRIPT = `(function(){
   }
 })();`
 
-export async function encodeEmptyRouterState() {
-	const stream = encode({
-		loaderData: {},
-		actionData: {},
-		errors: {},
-	})
-	const reader = stream.getReader()
-	let line = ''
-
-	while (true) {
-		const { done, value } = await reader.read()
-		if (done) break
-		line += value
-	}
-
-	return line
+export function serializeEmptyRouterPayload() {
+	return JSON.stringify([{ loaderData: {}, actionData: {}, errors: {} }]) + '\n'
 }
 
 export function buildOfflineRouterBootstrap(encodedStateLine: string) {
@@ -81,7 +71,7 @@ window.__reactRouterContext.streamController.close();`
 export async function generateOfflineShellHtml(
 	assets: OfflineShellAssets,
 ): Promise<string> {
-	const routerBootstrap = buildOfflineRouterBootstrap(await encodeEmptyRouterState())
+	const routerBootstrap = buildOfflineRouterBootstrap(serializeEmptyRouterPayload())
 	const lines = [
 		'<!DOCTYPE html>',
 		'<html lang="en" class="light h-full overflow-x-hidden" data-offline-shell="true">',
