@@ -8,6 +8,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { type ComponentProps, StrictMode, type ReactNode } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
+import { consoleError } from '#tests/setup/setup-test-env.ts'
 import { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayerProvider, useAudioPlayer } from './audio-player-provider'
 import { TrackListItem } from './track-list-item'
@@ -378,9 +379,9 @@ beforeAll(() => {
 beforeEach(() => {
 	vi.stubGlobal('fetch', vi.fn())
 	window.localStorage.clear()
-	// MSW warns on unhandled requests (e.g., /api/tracks/playback with 20+ IDs).
-	// The integration test mocks fetch directly — the MSW warning is noise.
-	vi.spyOn(console, 'error').mockImplementation(() => {})
+	// MSW warns on unhandled requests (e.g., /api/tracks/playback with 20+ IDs)
+	// which triggers console.error, and setup-test-env throws on it.
+	consoleError.mockImplementation(() => {})
 })
 
 afterEach(() => {
