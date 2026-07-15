@@ -378,6 +378,9 @@ beforeAll(() => {
 beforeEach(() => {
 	vi.stubGlobal('fetch', vi.fn())
 	window.localStorage.clear()
+	// MSW warns on unhandled requests (e.g., /api/tracks/playback with 20+ IDs).
+	// The integration test mocks fetch directly — the MSW warning is noise.
+	vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
 afterEach(() => {
