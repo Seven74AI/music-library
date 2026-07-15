@@ -27,7 +27,7 @@ export async function fetchQueueSpine(
 		url = `/api/queue-spine?context=playlist&playlistId=${encodeURIComponent(context.playlistId)}`
 	}
 
-	const response = await fetch(url, { redirect: 'manual' })
+	const response = await fetch(new URL(url, window.location.origin), { redirect: 'manual' })
 	if (response.status >= 300 && response.status < 400) {
 		throw new AuthExpiredError()
 	}

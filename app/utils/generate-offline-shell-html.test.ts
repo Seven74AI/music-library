@@ -35,7 +35,7 @@ describe('serializeEmptyRouterPayload', () => {
 		const line = serializeEmptyRouterPayload()
 
 		// v2 decoder expects first chunk to be a JSON array
-		const parsed = JSON.parse(line.trimEnd())
+		const parsed = JSON.parse(line.trimEnd()) as Array<Record<string, unknown>>
 		expect(Array.isArray(parsed)).toBe(true)
 		expect(parsed).toHaveLength(1)
 		expect(parsed[0]).toEqual({
