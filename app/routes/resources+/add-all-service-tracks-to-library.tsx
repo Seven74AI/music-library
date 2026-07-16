@@ -1,8 +1,8 @@
 import { data } from 'react-router'
 import { addTracksToUserLibrary } from '#app/features/user-library/user-library.server'
-import { getServiceByName } from '#app/features/service-playlist/playlist-utils.server'
-import { requireUserId } from '#app/utils/auth.server.ts'
+import { getActiveSyncedPlaylistTrackIds } from '#app/features/service-playlist/playlist-utils.server'
 import { prisma } from '#app/utils/db.server.ts'
+import { requireUserId } from '#app/utils/auth.server.ts'
 import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { createToastHeaders } from '#app/utils/toast.server.ts'
 import { type Route } from './+types/add-all-service-tracks-to-library'
@@ -17,19 +17,10 @@ export async function action({ request }: Route.ActionArgs) {
 	const userId = await requireUserId(request)
 
 	try {
-		const service = await getServiceByName('youtube')
+		const { trackIds: allTrackIds, playlistIds } =
+			await getActiveSyncedPlaylistTrackIds(userId)
 
-		// Get all active synced playlists
-		const syncedPlaylists = await prisma.servicePlaylist.findMany({
-			where: {
-				serviceId: service.id,
-				ownerId: userId,
-				isActive: true,
-			},
-			select: { id: true },
-		})
-
-		if (syncedPlaylists.length === 0) {
+		if (playlistIds.length === 0) {
 			return data(
 				{ status: 'error', message: 'No synced playlists found' },
 				{
@@ -42,19 +33,6 @@ export async function action({ request }: Route.ActionArgs) {
 				},
 			)
 		}
-
-		const playlistIds = syncedPlaylists.map((p) => p.id)
-
-		// Get all active (non-deleted) track IDs from all synced playlists
-		const playlistTracks = await prisma.servicePlaylistTrack.findMany({
-			where: {
-				playlistId: { in: playlistIds },
-				isDeleted: false,
-			},
-			select: { trackId: true },
-		})
-
-		const allTrackIds = [...new Set(playlistTracks.map((pt) => pt.trackId))]
 
 		if (allTrackIds.length === 0) {
 			return data(
@@ -125,7 +103,7 @@ export async function action({ request }: Route.ActionArgs) {
 			{
 				headers: await createToastHeaders({
 					title: 'Added to Library',
-					description: `${result.addedCount} tracks added across ${syncedPlaylists.length} playlists.`,
+					description: `${result.addedCount} tracks added across ${playlistIds.length} playlists.`,
 					type: 'success',
 				}),
 			},

@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/
 import { Icon } from '#app/components/ui/icon'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
+import { getSyncedPlaylistsTrackStats } from '#app/features/service-playlist/playlist-utils.server'
 import { isErrorActionResult, isSuccessActionResult } from '#app/types/frontend'
 import {
 	YOUTUBE_SYNCED_PLAYLISTS_INTENTS,
@@ -28,7 +29,6 @@ import {
 	getIntentErrorMessage,
 } from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
-import { prisma } from '#app/utils/db.server'
 import { handleLoaderError } from '#app/utils/error-handlers.server'
 import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { type ServicePlaylist } from '#prisma/client.js'
@@ -38,11 +38,6 @@ export const handle: BreadcrumbHandle = {
 	breadcrumb: <Icon name="file-text">Synced Playlists</Icon>,
 }
 
-interface LoaderData {
-	playlists: ServicePlaylist[]
-	totalTracks: number
-	missingTracks: number
-}
 
 /**
  * Loader function for YouTube synced playlists page.
@@ -57,41 +52,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		const playlists =
 			await servicePlaylistService.getSyncedPlaylists('youtube', userId)
 
-		// Compute total active tracks and missing-from-library counts
-		let totalTracks = 0
-		let missingTracks = 0
+		const { totalTracks, missingTracks } =
+			await getSyncedPlaylistsTrackStats(userId)
 
-		if (playlists.length > 0) {
-			const playlistIds = playlists.map((p) => p.id)
-
-			// All active track IDs across synced playlists
-			const playlistTracks = await prisma.servicePlaylistTrack.findMany({
-				where: {
-					playlistId: { in: playlistIds },
-					isDeleted: false,
-				},
-				select: { trackId: true },
-			})
-
-			const uniqueTrackIds = [...new Set(playlistTracks.map((pt) => pt.trackId))]
-			totalTracks = uniqueTrackIds.length
-
-			if (totalTracks > 0) {
-				// Tracks already in library
-				const libraryTrackIds = await prisma.userTrack.findMany({
-					where: {
-						userId,
-						trackId: { in: uniqueTrackIds },
-						isActive: true,
-					},
-					select: { trackId: true },
-				})
-				const librarySet = new Set(libraryTrackIds.map((ut) => ut.trackId))
-				missingTracks = uniqueTrackIds.filter((id) => !librarySet.has(id)).length
-			}
-		}
-
-		return data({ playlists, totalTracks, missingTracks } satisfies LoaderData)
+		return data({ playlists, totalTracks, missingTracks })
 	} catch (error) {
 		return handleLoaderError(
 			error,
@@ -184,7 +148,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function YouTubeSyncedPlaylistsPage() {
 	const { playlists, totalTracks, missingTracks } =
-		useLoaderData<typeof loader>() as LoaderData
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigate = useNavigate()
 
