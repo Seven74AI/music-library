@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { beforeEach, expect, test, vi } from 'vitest'
@@ -34,14 +34,12 @@ const mockPlaylistsFetcher = {
 }
 
 let fetcherIndex = 0
-let useFetcherCallCount = 0
 
 vi.mock('react-router', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('react-router')>()
 	return {
 		...actual,
 		useFetcher: () => {
-			useFetcherCallCount += 1
 			const idx = fetcherIndex % 2
 			fetcherIndex += 1
 			if (idx === 0) return mockConvertFetcher
@@ -52,7 +50,6 @@ vi.mock('react-router', async (importOriginal) => {
 
 beforeEach(() => {
 	consoleError.mockImplementation(() => {})
-	useFetcherCallCount = 0
 	fetcherIndex = 0
 	mockConvertFetcher.state = 'idle'
 	mockConvertFetcher.data = undefined
@@ -147,18 +144,8 @@ test('add mode shows playlists when data loads', async () => {
 	const user = userEvent.setup()
 	mockPlaylistsFetcher.data = {
 		playlists: [
-			{
-				id: 'up-1',
-				title: 'My Mix',
-				description: null,
-				_count: { tracks: 12 },
-			},
-			{
-				id: 'up-2',
-				title: 'Favorites',
-				description: 'Best tracks',
-				_count: { tracks: 34 },
-			},
+			{ id: 'up-1', title: 'My Mix', description: null, _count: { tracks: 12 } },
+			{ id: 'up-2', title: 'Favorites', description: 'Best tracks', _count: { tracks: 34 } },
 		],
 	}
 
@@ -173,7 +160,7 @@ test('add mode shows playlists when data loads', async () => {
 	expect(screen.getByText('Favorites')).toBeDefined()
 })
 
-test.skip('add mode submits on playlist click', async () => {
+test('add mode submits on playlist click', async () => {
 	const user = userEvent.setup()
 	mockPlaylistsFetcher.data = {
 		playlists: [
@@ -187,7 +174,7 @@ test.skip('add mode submits on playlist click', async () => {
 		screen.getByRole('button', { name: 'More actions for Chill Vibes' }),
 	)
 	await user.click(screen.getByText('Add to Existing Playlist'))
-	await user.click(screen.getByText('My Mix'))
+	fireEvent.click(screen.getByText('My Mix'))
 
 	expect(mockConvertSubmit).toHaveBeenCalledWith(
 		{ playlistId: 'sp-1', action: 'add', targetPlaylistId: 'up-1' },
@@ -239,20 +226,15 @@ test('closes dialog on successful convert', async () => {
 
 	renderDialog()
 
-	// Open dialog and enter create mode
 	await user.click(
 		screen.getByRole('button', { name: 'More actions for Chill Vibes' }),
 	)
 	await user.click(screen.getByText('Create New Playlist'))
 
-	// Simulate successful response
 	mockConvertFetcher.state = 'idle'
 	mockConvertFetcher.data = { status: 'success', message: 'Created' }
 
-	// Click create to trigger submit which will read the success data
 	await user.click(screen.getByText('Create Playlist'))
-	// After submit, the effect fires when fetcher state returns to idle with success data
-	// The dialog closes via setOpen(false) in the useEffect
 })
 
 test('shows duplicate title error in create mode', async () => {
@@ -271,8 +253,6 @@ test('shows duplicate title error in create mode', async () => {
 	await user.click(screen.getByText('Create New Playlist'))
 
 	expect(
-		screen.getByText(
-			'You already have a playlist named "Chill Vibes"',
-		),
+		screen.getByText('You already have a playlist named "Chill Vibes"'),
 	).toBeDefined()
 })
