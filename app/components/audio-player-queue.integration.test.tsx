@@ -382,6 +382,11 @@ beforeAll(() => {
 
 beforeEach(() => {
 	vi.stubGlobal('fetch', vi.fn())
+	vi.stubGlobal('ResizeObserver', class {
+		observe = vi.fn()
+		unobserve = vi.fn()
+		disconnect = vi.fn()
+	})
 	window.localStorage.clear()
 	// MSW warns on unhandled requests (e.g., /api/tracks/playback with 20+ IDs)
 	// which triggers console.error, and setup-test-env throws on it.
@@ -390,6 +395,10 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals()
+	// During React cleanup between tests, Remix may call fetch() to
+	// localhost:3000. Stub with a pending promise so it never resolves
+	// — the real fetch never fires, and no response is ever processed.
+	vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
 })
 
 describe('queue sheet integration', () => {
