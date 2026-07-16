@@ -398,7 +398,7 @@ afterEach(() => {
 	// During React cleanup between tests, a component may attempt fetch()
 	// to localhost:3000 (which isn't running in CI). Keep fetch stubbed
 	// to prevent ECONNREFUSED or JSON parse errors during teardown.
-	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })))
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })))
 })
 
 describe('queue sheet integration', () => {
