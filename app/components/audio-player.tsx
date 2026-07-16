@@ -2,6 +2,8 @@ import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { AddToPlaylistMenu } from '#app/components/add-to-playlist-menu'
+import { MarqueeText } from '#app/components/marquee-text'
+import { useSwipeGesture } from '#app/hooks/use-swipe-gesture'
 import { TrackDetailsDialog } from '#app/components/track-details-dialog'
 import {
 	formatQueueSheetTitle,
@@ -318,14 +320,32 @@ function PlayerMiniBar({
 	isAudioLoading,
 	currentTime,
 	duration,
+	hasNext,
+	hasPrevious,
+	onPrevious,
+	onNext,
 	onTogglePlayPause,
 	onClose,
 	onOpenNowPlaying,
 }: PlayerMiniBarProps) {
 	const progress = getPlaybackProgressPercent(currentTime, duration)
+	const miniBarRef = useRef<HTMLDivElement>(null)
+	const { offsetX, isSwiping } = useSwipeGesture(miniBarRef, {
+		onSwipeLeft: hasNext ? onNext : undefined,
+		onSwipeRight: hasPrevious ? onPrevious : undefined,
+		enabled: hasNext || hasPrevious,
+	})
 
 	return (
-		<div className="md:hidden" data-testid="player-mini-bar">
+		<div
+			ref={miniBarRef}
+			className="md:hidden"
+			data-testid="player-mini-bar"
+			style={{
+				transform: `translateX(${offsetX}px)`,
+				transition: isSwiping ? 'none' : 'transform 0.2s ease-out',
+			}}
+		>
 			<div
 				className="h-0.5 w-full bg-muted"
 				role="progressbar"
@@ -350,8 +370,8 @@ function PlayerMiniBar({
 						className="shadow-md shrink-0"
 					/>
 					<div className="min-w-0 flex-1">
-						<p className="truncate text-sm font-semibold">{track.title}</p>
-						<p className="truncate text-xs text-muted-foreground">{track.artist.name}</p>
+						<MarqueeText className="text-sm font-semibold">{track.title}</MarqueeText>
+						<MarqueeText className="text-xs text-muted-foreground">{track.artist.name}</MarqueeText>
 					</div>
 				</button>
 				<Button
@@ -466,8 +486,8 @@ function PlayerNowPlayingSheet({
 						className="shadow-lg h-40 w-40"
 					/>
 					<div className="w-full text-center">
-						<p className="truncate text-lg font-semibold">{track.title}</p>
-						<p className="truncate text-sm text-muted-foreground">{track.artist.name}</p>
+						<MarqueeText className="text-lg font-semibold">{track.title}</MarqueeText>
+						<MarqueeText className="text-sm text-muted-foreground">{track.artist.name}</MarqueeText>
 					</div>
 				</div>
 				<PlayerSeekBar
@@ -657,8 +677,8 @@ function PlayerDesktopBar({
 					className="shadow-md shrink-0"
 				/>
 				<div className="min-w-0 flex-1">
-					<p className="truncate text-sm font-semibold">{track.title}</p>
-					<p className="truncate text-xs text-muted-foreground">{track.artist.name}</p>
+					<MarqueeText className="text-sm font-semibold">{track.title}</MarqueeText>
+					<MarqueeText className="text-xs text-muted-foreground">{track.artist.name}</MarqueeText>
 				</div>
 			</div>
 

@@ -163,6 +163,20 @@ test('does not fetch playlists when playlists prop is provided', () => {
 	expect(mockPlaylistsFetcher.load).not.toHaveBeenCalled()
 })
 
+test('search input does not auto-focus on render', () => {
+	renderMenu([
+		{
+			id: 'playlist-1',
+			title: 'Favorites',
+			description: null,
+			_count: { tracks: 3 },
+		},
+	])
+
+	const input = screen.getByPlaceholderText('Search playlists...')
+	expect(document.activeElement).not.toBe(input)
+})
+
 test('renders fetched playlists from self-fetch', () => {
 	mockPlaylistsFetcher.data = {
 		playlists: [

@@ -178,7 +178,6 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="mb-2"
-          autoFocus={!isCreating}
           aria-describedby="playlist-count"
         />
 
