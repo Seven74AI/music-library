@@ -4,7 +4,6 @@ import { defineOfflineClientLoader } from './define-offline-client-loader.ts'
 describe('defineOfflineClientLoader', () => {
 	afterEach(() => {
 		vi.unstubAllGlobals()
-		vi.resetModules()
 	})
 
 	test('defers createOfflineClientLoader until clientLoader runs', async () => {

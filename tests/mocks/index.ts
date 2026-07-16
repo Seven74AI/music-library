@@ -4,10 +4,13 @@ import { handlers as pwnedPasswordApiHandlers } from './pwned-passwords.ts'
 import { handlers as resendHandlers } from './resend.ts'
 import { handlers as tigrisHandlers } from './tigris.ts'
 
+import { handlers as imageOptimizerHandlers } from './image-optimizer.ts'
+
 export const server = setupServer(
 	...resendHandlers,
 	...tigrisHandlers,
 	...pwnedPasswordApiHandlers,
+	...imageOptimizerHandlers,
 )
 
 // Optimization: start the server only once
@@ -38,7 +41,13 @@ if (process.env.MOCKS === 'true') {
 	console.info('🔶 Mock server installed')
 	console.info('🔶 MSW server started')
 
-	closeWithGrace(() => {
-		server.close()
-	})
+	// Only register close-with-grace outside vitest — in vitest, afterEach
+	// cleanup in setup-test-env.ts handles server shutdown, and close-with-grace's
+	// process.exit patching causes "process.exit unexpectedly called" worker crashes
+	// when the vitest worker pool cycles.
+	if (!process.env.VITEST) {
+		closeWithGrace(() => {
+			server.close()
+		})
+	}
 }

@@ -1,29 +1,32 @@
 import { formatDistanceToNow } from 'date-fns'
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import {
-  data,
-  Form,
-  useActionData,
-  useLoaderData,
-  Link,
-  useNavigate,
-  type LoaderFunctionArgs,
-  type ActionFunctionArgs,
+	data,
+	Form,
+	useActionData,
+	useFetcher,
+	useLoaderData,
+	Link,
+	useNavigate,
+	type LoaderFunctionArgs,
+	type ActionFunctionArgs,
 } from 'react-router'
 
 import { type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
+import { ConvertPlaylistDialog } from '#app/components/convert-playlist-dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '#app/components/ui/alert-dialog'
 import { Button } from '#app/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#app/components/ui/card'
 import { Icon } from '#app/components/ui/icon'
 import { YOUTUBE_SERVICE } from '#app/constants/services'
 import { createServicePlaylistService } from '#app/features/service-playlist/service-playlist.server'
+import { getSyncedPlaylistsTrackStats } from '#app/features/service-playlist/playlist-utils.server'
 import { isErrorActionResult, isSuccessActionResult } from '#app/types/frontend'
-import { 
-  YOUTUBE_SYNCED_PLAYLISTS_INTENTS,
-  YOUTUBE_PAGE_TYPES,
-  validateSyncedPlaylistsIntent,
-  getIntentErrorMessage,
+import {
+	YOUTUBE_SYNCED_PLAYLISTS_INTENTS,
+	YOUTUBE_PAGE_TYPES,
+	validateSyncedPlaylistsIntent,
+	getIntentErrorMessage,
 } from '#app/types/youtube-intents'
 import { requireUserId } from '#app/utils/auth.server'
 import { handleLoaderError } from '#app/utils/error-handlers.server'
@@ -35,45 +38,48 @@ export const handle: BreadcrumbHandle = {
 	breadcrumb: <Icon name="file-text">Synced Playlists</Icon>,
 }
 
+
 /**
- * Loader function for YouTube synced playlists page
- * Fetches user's synced YouTube playlists
- * 
- * @param request - The incoming request
- * @returns Promise resolving to synced playlists data
+ * Loader function for YouTube synced playlists page.
+ * Fetches user's synced YouTube playlists plus track/library counts
+ * for the "Add All Missing" button.
  */
 export async function loader({ request }: LoaderFunctionArgs) {
 	const userId = await requireUserId(request)
 	const servicePlaylistService = createServicePlaylistService()
-	
+
 	try {
-		const playlists = await servicePlaylistService.getSyncedPlaylists('youtube', userId)
-		
-		return data({
-			playlists,
-		})
+		const playlists =
+			await servicePlaylistService.getSyncedPlaylists('youtube', userId)
+
+		const { totalTracks, missingTracks } =
+			await getSyncedPlaylistsTrackStats(userId)
+
+		return data({ playlists, totalTracks, missingTracks })
 	} catch (error) {
-		return handleLoaderError(error, {
-			playlists: [],
-		}, 'synced playlists')
+		return handleLoaderError(
+			error,
+			{ playlists: [] as ServicePlaylist[], totalTracks: 0, missingTracks: 0 },
+			'synced playlists',
+		)
 	}
 }
 
 /**
- * Action function for YouTube synced playlists page
- * Handles playlist resync and removal operations
- * 
- * @param request - The incoming request with form data
- * @returns Promise resolving to action result
+ * Action function for YouTube synced playlists page.
+ * Handles playlist resync and removal operations.
  */
 export async function action({ request }: ActionFunctionArgs) {
 	const userId = await requireUserId(request)
 	const formData = await request.formData()
-	
+
 	const intent = formData.get('intent')
-	
+
 	if (!validateSyncedPlaylistsIntent(intent)) {
-		return data({ status: 'error', message: getIntentErrorMessage(YOUTUBE_PAGE_TYPES.SYNCED) }, { status: 400 })
+		return data(
+			{ status: 'error', message: getIntentErrorMessage(YOUTUBE_PAGE_TYPES.SYNCED) },
+			{ status: 400 },
+		)
 	}
 
 	const servicePlaylistService = createServicePlaylistService()
@@ -83,35 +89,51 @@ export async function action({ request }: ActionFunctionArgs) {
 			case YOUTUBE_SYNCED_PLAYLISTS_INTENTS.RESYNC: {
 				const playlistId = formData.get('playlistId')
 				if (typeof playlistId !== 'string' || playlistId.length === 0) {
-					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
+					return data(
+						{ status: 'error', message: 'Valid playlist ID is required' },
+						{ status: 400 },
+					)
 				}
-				
-				const result = await servicePlaylistService.syncServicePlaylist('youtube', playlistId, userId)
+
+				const result = await servicePlaylistService.syncServicePlaylist(
+					'youtube',
+					playlistId,
+					userId,
+				)
 				if (result.success) {
 					return data({ status: 'success', ...result, playlistId })
 				}
-				return data({ 
-					status: 'error', 
-					message: result.message || 'Failed to sync playlist. Please try again.' 
+				return data({
+					status: 'error',
+					message: result.message || 'Failed to sync playlist. Please try again.',
 				})
 			}
-			
+
 			case YOUTUBE_SYNCED_PLAYLISTS_INTENTS.REMOVE: {
 				const playlistId = formData.get('playlistId')
 				if (typeof playlistId !== 'string' || playlistId.length === 0) {
-					return data({ status: 'error', message: 'Valid playlist ID is required' }, { status: 400 })
+					return data(
+						{ status: 'error', message: 'Valid playlist ID is required' },
+						{ status: 400 },
+					)
 				}
-				
-				const result = await servicePlaylistService.removePlaylistFromSync(YOUTUBE_SERVICE.NAME, playlistId, userId)
+
+				const result = await servicePlaylistService.removePlaylistFromSync(
+					YOUTUBE_SERVICE.NAME,
+					playlistId,
+					userId,
+				)
 				if (result.success) {
 					return data({ status: 'success', ...result })
 				}
-				return data({ 
-					status: 'error', 
-					message: result.message || 'Failed to remove playlist from sync. Please try again.' 
+				return data({
+					status: 'error',
+					message:
+						result.message ||
+						'Failed to remove playlist from sync. Please try again.',
 				})
 			}
-			
+
 			default:
 				return data({ status: 'error', message: 'Invalid action' })
 		}
@@ -125,26 +147,43 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function YouTubeSyncedPlaylistsPage() {
-	const { playlists } = useLoaderData<typeof loader>()
+	const { playlists, totalTracks, missingTracks } =
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigate = useNavigate()
+
+	const [isAddAllDialogOpen, setIsAddAllDialogOpen] = useState(false)
+	const addAllFetcher = useFetcher()
 
 	// Check for pending matches and redirect to detail page if they exist
 	useEffect(() => {
 		if (actionData && 'status' in actionData && actionData.status === 'success') {
-			const pendingMatches = 'pendingMatches' in actionData && Array.isArray(actionData.pendingMatches) 
-				? actionData.pendingMatches 
-				: []
-			const playlistId = 'playlistId' in actionData && typeof actionData.playlistId === 'string'
-				? actionData.playlistId
-				: null
+			const pendingMatches =
+				'pendingMatches' in actionData && Array.isArray(actionData.pendingMatches)
+					? actionData.pendingMatches
+					: []
+			const playlistId =
+				'playlistId' in actionData && typeof actionData.playlistId === 'string'
+					? actionData.playlistId
+					: null
 
 			if (pendingMatches.length > 0 && playlistId) {
-				// Redirect to detail page to show confirmation dialog
-				void navigate(`/music/services/youtube/playlist/${playlistId}`, { replace: true })
+				void navigate(`/music/services/youtube/playlist/${playlistId}`, {
+					replace: true,
+				})
 			}
 		}
 	}, [actionData, navigate])
+
+	const handleAddAllMissing = () => {
+		setIsAddAllDialogOpen(false)
+		void addAllFetcher.submit(null, {
+			method: 'POST',
+			action: '/resources/add-all-service-tracks-to-library',
+		})
+	}
+
+	const isAddingAll = addAllFetcher.state !== 'idle'
 
 	return (
 		<div className="py-8">
@@ -158,8 +197,8 @@ export default function YouTubeSyncedPlaylistsPage() {
 					</Button>
 				</div>
 				<div className="flex items-center gap-4">
-					<img 
-						src="/logos/youtube.svg" 
+					<img
+						src="/logos/youtube.svg"
 						alt="YouTube logo"
 						className="w-8 h-8"
 					/>
@@ -172,14 +211,27 @@ export default function YouTubeSyncedPlaylistsPage() {
 				</div>
 			</div>
 
-			{/* Navigation */}
-			<div className="mb-6">
+			{/* Navigation + Add All Missing */}
+			<div className="mb-6 flex items-center justify-between">
 				<Button asChild variant="outline">
 					<Link to="/music/services/youtube/playlists">
 						<Icon name="plus" className="h-4 w-4 mr-2" />
 						Discover More Playlists
 					</Link>
 				</Button>
+
+				{playlists.length > 0 && missingTracks > 0 && (
+					<Button
+						variant="outline"
+						onClick={() => setIsAddAllDialogOpen(true)}
+						disabled={isAddingAll}
+					>
+						<Icon name="plus" className="h-4 w-4 mr-2" />
+						{isAddingAll
+							? 'Adding...'
+							: `Add All Missing to Library (${missingTracks})`}
+					</Button>
+				)}
 			</div>
 
 			{/* Action Messages */}
@@ -189,43 +241,76 @@ export default function YouTubeSyncedPlaylistsPage() {
 						<Icon name="question-mark-circled" className="h-4 w-4 text-destructive" />
 						<p className="text-sm text-destructive font-medium">Error</p>
 					</div>
-					<p className="text-sm text-destructive mt-1">{isErrorActionResult(actionData) ? actionData.message : 'An error occurred'}</p>
+					<p className="text-sm text-destructive mt-1">
+						{isErrorActionResult(actionData)
+							? actionData.message
+							: 'An error occurred'}
+					</p>
 				</div>
 			)}
 
 			{actionData?.status === 'success' && (
 				<div className="mb-6 rounded-md bg-green-50 dark:bg-green-950 p-4">
 					<div className="flex items-center gap-2">
-						<Icon name="check-circled" className="h-4 w-4 text-green-600 dark:text-green-400" />
-						<p className="text-sm text-green-800 dark:text-green-200 font-medium">Success</p>
+						<Icon
+							name="check-circled"
+							className="h-4 w-4 text-green-600 dark:text-green-400"
+						/>
+						<p className="text-sm text-green-800 dark:text-green-200 font-medium">
+							Success
+						</p>
 					</div>
-					<p className="text-sm text-green-700 dark:text-green-300 mt-1">{isSuccessActionResult(actionData) ? actionData.message : 'Operation completed successfully'}</p>
-					{'deletedTracks' in actionData && Array.isArray(actionData.deletedTracks) && actionData.deletedTracks.length > 0 && (
-						<div className="mt-2 text-sm text-green-700 dark:text-green-300">
-							<p className="font-medium">Deleted tracks: {actionData.deletedTracks.length}</p>
-							<ul className="list-disc list-inside mt-1 space-y-1">
-								{actionData.deletedTracks.slice(0, 5).map((track: { id: string; title: string }) => (
-									<li key={track.id}>{track.title}</li>
-								))}
-								{actionData.deletedTracks.length > 5 && (
-									<li className="text-muted-foreground">...and {actionData.deletedTracks.length - 5} more</li>
-								)}
-							</ul>
-						</div>
-					)}
-					{'removedTracks' in actionData && Array.isArray(actionData.removedTracks) && actionData.removedTracks.length > 0 && (
-						<div className="mt-2 text-sm text-green-700 dark:text-green-300">
-							<p className="font-medium">Removed tracks: {actionData.removedTracks.length}</p>
-							<ul className="list-disc list-inside mt-1 space-y-1">
-								{actionData.removedTracks.slice(0, 5).map((track: { id: string; title: string }) => (
-									<li key={track.id}>{track.title}</li>
-								))}
-								{actionData.removedTracks.length > 5 && (
-									<li className="text-muted-foreground">...and {actionData.removedTracks.length - 5} more</li>
-								)}
-							</ul>
-						</div>
-					)}
+					<p className="text-sm text-green-700 dark:text-green-300 mt-1">
+						{isSuccessActionResult(actionData)
+							? actionData.message
+							: 'Operation completed successfully'}
+					</p>
+					{'deletedTracks' in actionData &&
+						Array.isArray(actionData.deletedTracks) &&
+						actionData.deletedTracks.length > 0 && (
+							<div className="mt-2 text-sm text-green-700 dark:text-green-300">
+								<p className="font-medium">
+									Deleted tracks: {actionData.deletedTracks.length}
+								</p>
+								<ul className="list-disc list-inside mt-1 space-y-1">
+									{actionData.deletedTracks
+										.slice(0, 5)
+										.map(
+											(track: { id: string; title: string }) => (
+												<li key={track.id}>{track.title}</li>
+											),
+										)}
+									{actionData.deletedTracks.length > 5 && (
+										<li className="text-muted-foreground">
+											...and {actionData.deletedTracks.length - 5} more
+										</li>
+									)}
+								</ul>
+							</div>
+						)}
+					{'removedTracks' in actionData &&
+						Array.isArray(actionData.removedTracks) &&
+						actionData.removedTracks.length > 0 && (
+							<div className="mt-2 text-sm text-green-700 dark:text-green-300">
+								<p className="font-medium">
+									Removed tracks: {actionData.removedTracks.length}
+								</p>
+								<ul className="list-disc list-inside mt-1 space-y-1">
+									{actionData.removedTracks
+										.slice(0, 5)
+										.map(
+											(track: { id: string; title: string }) => (
+												<li key={track.id}>{track.title}</li>
+											),
+										)}
+									{actionData.removedTracks.length > 5 && (
+										<li className="text-muted-foreground">
+											...and {actionData.removedTracks.length - 5} more
+										</li>
+									)}
+								</ul>
+							</div>
+						)}
 				</div>
 			)}
 
@@ -233,18 +318,24 @@ export default function YouTubeSyncedPlaylistsPage() {
 			{playlists.length > 0 && (
 				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 					{playlists.map((playlist: ServicePlaylist) => (
-						<Card key={playlist.id} className="hover:shadow-md transition-shadow">
+						<Card
+							key={playlist.id}
+							className="hover:shadow-md transition-shadow"
+						>
 							<CardHeader className="pb-3">
 								<div className="flex items-start gap-3">
 									{playlist.thumbnailUrl ? (
-										<img 
-											src={playlist.thumbnailUrl} 
+										<img
+											src={playlist.thumbnailUrl}
 											alt={playlist.title}
 											className="w-16 h-16 rounded object-cover flex-shrink-0"
 										/>
 									) : (
 										<div className="w-16 h-16 bg-muted rounded flex items-center justify-center flex-shrink-0">
-											<Icon name="file-text" className="h-8 w-8 text-muted-foreground" />
+											<Icon
+												name="file-text"
+												className="h-8 w-8 text-muted-foreground"
+											/>
 										</div>
 									)}
 									<div className="flex-1 min-w-0">
@@ -263,43 +354,62 @@ export default function YouTubeSyncedPlaylistsPage() {
 										<span>{playlist.itemCount} tracks</span>
 										<span>{playlist.channelTitle}</span>
 									</div>
-									
+
 									{playlist.lastSyncedAt && (
 										<div className="text-sm text-muted-foreground">
-											Last synced: {formatDistanceToNow(playlist.lastSyncedAt, { addSuffix: true })}
+											Last synced:{' '}
+											{formatDistanceToNow(playlist.lastSyncedAt, {
+												addSuffix: true,
+											})}
 										</div>
 									)}
-									
+
 									<div className="h-[1px] w-full bg-border" />
-									
+
 									<div className="flex items-center justify-between">
 										<span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold border-transparent bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
 											Synced
 										</span>
-										
+
 										<div className="flex gap-2">
 											<Button
 												variant="outline"
 												size="sm"
 												asChild
 											>
-												<Link to={`/music/services/youtube/playlist/${playlist.id}`} aria-label={`View details for ${playlist.title || 'Unknown Playlist'}`}>
+												<Link
+													to={`/music/services/youtube/playlist/${playlist.id}`}
+													aria-label={`View details for ${playlist.title || 'Unknown Playlist'}`}
+												>
 													<Icon name="eye-open" className="h-4 w-4" />
 												</Link>
 											</Button>
-											
+
 											<Button
 												variant="outline"
 												size="sm"
-												onClick={() => window.open(`https://youtube.com/playlist?list=${playlist.externalId}`, '_blank')}
+												onClick={() =>
+													window.open(
+														`https://youtube.com/playlist?list=${playlist.externalId}`,
+														'_blank',
+													)
+												}
 												aria-label={`Open ${playlist.title || 'Unknown Playlist'} on YouTube`}
 											>
 												<Icon name="link-2" className="h-4 w-4" />
 											</Button>
-											
+
 											<Form method="post" className="inline">
-												<input type="hidden" name="intent" value={YOUTUBE_SYNCED_PLAYLISTS_INTENTS.RESYNC} />
-												<input type="hidden" name="playlistId" value={playlist.id} />
+												<input
+													type="hidden"
+													name="intent"
+													value={YOUTUBE_SYNCED_PLAYLISTS_INTENTS.RESYNC}
+												/>
+												<input
+													type="hidden"
+													name="playlistId"
+													value={playlist.id}
+												/>
 												<Button
 													type="submit"
 													variant="outline"
@@ -309,39 +419,65 @@ export default function YouTubeSyncedPlaylistsPage() {
 													<Icon name="update" className="h-4 w-4" />
 												</Button>
 											</Form>
-											
-											<AlertDialog>
-												<AlertDialogTrigger asChild>
-													<Button
-														variant="outline"
-														size="sm"
-														className="text-destructive hover:text-destructive"
-														aria-label={`Remove ${playlist.title || 'Unknown Playlist'} from sync`}
+
+										<AlertDialog>
+											<AlertDialogTrigger asChild>
+												<Button
+													variant="outline"
+													size="sm"
+													className="text-destructive hover:text-destructive"
+													aria-label={`Remove ${playlist.title || 'Unknown Playlist'} from sync`}
+												>
+													<Icon name="trash" className="h-4 w-4" />
+												</Button>
+											</AlertDialogTrigger>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>
+														Remove Playlist from Sync
+													</AlertDialogTitle>
+													<AlertDialogDescription>
+														Are you sure you want to remove
+														this playlist from sync? This will
+														not delete the playlist from YouTube.
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>
+														Cancel
+													</AlertDialogCancel>
+													<Form
+														method="post"
+														className="inline"
 													>
-														<Icon name="trash" className="h-4 w-4" />
-													</Button>
-												</AlertDialogTrigger>
-												<AlertDialogContent>
-													<AlertDialogHeader>
-														<AlertDialogTitle>Remove Playlist from Sync</AlertDialogTitle>
-														<AlertDialogDescription>
-															Are you sure you want to remove this playlist from sync? This will not delete the playlist from YouTube.
-														</AlertDialogDescription>
-													</AlertDialogHeader>
-													<AlertDialogFooter>
-														<AlertDialogCancel>Cancel</AlertDialogCancel>
-														<Form method="post" className="inline">
-															<input type="hidden" name="intent" value={YOUTUBE_SYNCED_PLAYLISTS_INTENTS.REMOVE} />
-															<input type="hidden" name="playlistId" value={playlist.id} />
-															<AlertDialogAction asChild>
-																<Button type="submit" variant="destructive">
-																	Remove from Sync
-																</Button>
-															</AlertDialogAction>
-														</Form>
-													</AlertDialogFooter>
-												</AlertDialogContent>
-											</AlertDialog>
+														<input
+															type="hidden"
+															name="intent"
+															value={YOUTUBE_SYNCED_PLAYLISTS_INTENTS.REMOVE}
+														/>
+														<input
+															type="hidden"
+															name="playlistId"
+															value={playlist.id}
+														/>
+														<AlertDialogAction asChild>
+															<Button
+																type="submit"
+																variant="destructive"
+															>
+																Remove from Sync
+															</Button>
+														</AlertDialogAction>
+													</Form>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
+
+											{/* Convert to user playlist overflow menu */}
+											<ConvertPlaylistDialog
+												playlistId={playlist.id}
+												playlistTitle={playlist.title}
+											/>
 										</div>
 									</div>
 								</div>
@@ -355,10 +491,16 @@ export default function YouTubeSyncedPlaylistsPage() {
 			{playlists.length === 0 && (
 				<Card>
 					<CardContent className="text-center py-12">
-						<Icon name="file-text" className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-						<h3 className="text-xl font-semibold mb-2">No Synced Playlists</h3>
+						<Icon
+							name="file-text"
+							className="h-16 w-16 text-muted-foreground mx-auto mb-4"
+						/>
+						<h3 className="text-xl font-semibold mb-2">
+							No Synced Playlists
+						</h3>
 						<p className="text-muted-foreground mb-6">
-							You haven't synced any YouTube playlists yet. Discover and sync your playlists to get started.
+							You haven't synced any YouTube playlists yet. Discover and
+							sync your playlists to get started.
 						</p>
 						<Button asChild size="lg">
 							<Link to="/music/services/youtube/playlists">
@@ -369,6 +511,31 @@ export default function YouTubeSyncedPlaylistsPage() {
 					</CardContent>
 				</Card>
 			)}
+
+			{/* Add All Missing Confirmation Dialog */}
+			<AlertDialog
+				open={isAddAllDialogOpen}
+				onOpenChange={setIsAddAllDialogOpen}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Add All Missing to Library</AlertDialogTitle>
+						<AlertDialogDescription>
+							Add {missingTracks} track{missingTracks !== 1 ? 's' : ''}{' '}
+							from {playlists.length} synced playlist
+							{playlists.length !== 1 ? 's' : ''} to your library? Tracks
+							already in your library will be skipped.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={handleAddAllMissing}>
+							<Icon name="plus" className="h-4 w-4 mr-2" />
+							Add {missingTracks} Track{missingTracks !== 1 ? 's' : ''}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	)
 }
