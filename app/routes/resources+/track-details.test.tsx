@@ -28,6 +28,20 @@ describe('track-details loader', () => {
 		vi.mocked(requireUserId).mockResolvedValue('user-1')
 	})
 
+	test('returns 401 when unauthenticated', async () => {
+		vi.mocked(requireUserId).mockRejectedValue(
+			new Response('Unauthorized', { status: 401 }),
+		)
+
+		try {
+			await loader({ request: makeRequest('trackId=track-1') } as never)
+			expect.unreachable('loader should have thrown')
+		} catch (e) {
+			expect(e).toBeInstanceOf(Response)
+			expect((e as Response).status).toBe(401)
+		}
+	})
+
 	test('returns 400 when trackId is missing', async () => {
 		try {
 			await loader({ request: makeRequest() } as never)

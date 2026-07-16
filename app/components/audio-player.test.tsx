@@ -9,7 +9,8 @@ import userEvent from '@testing-library/user-event'
 import { type ComponentProps, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
-import  { type FullTrack } from '#app/types/frontend/shared'
+import { type FullTrack } from '#app/types/frontend/shared'
+import { toast } from '#app/components/ui/use-toast'
 import { AudioPlayer } from './audio-player'
 
 type AudioPlayerTestProps = ComponentProps<typeof AudioPlayer>
@@ -37,7 +38,7 @@ function createAudioPlayerMock(overrides: Record<string, unknown> = {}) {
 	}
 }
 
-vi.mock('#app/components/ui/use-toast.ts', () => ({
+vi.mock('#app/components/ui/use-toast.ts', async () => ({
 	toast: vi.fn(),
 }))
 
@@ -301,6 +302,7 @@ beforeEach(() => {
 	vi.mocked(useAudioPlayer).mockReturnValue(
 		createAudioPlayerMock() as unknown as ReturnType<typeof useAudioPlayer>,
 	)
+	vi.mocked(toast).mockClear()
 })
 
 test('auto-plays after track change once the new audio URL has loaded', async () => {
@@ -429,6 +431,32 @@ test('overflow sheet Play Next calls playNextTrack with toast', async () => {
 	await user.click(screen.getByText('Play Next'))
 
 	expect(playNextTrack).toHaveBeenCalled()
+	expect(toast).toHaveBeenCalledWith(
+		expect.objectContaining({
+			title: 'Success',
+			description: expect.stringContaining('will play next'),
+		}),
+	)
+})
+
+test('overflow sheet Add to Up Next calls addToUpNext with toast', async () => {
+	const { addToUpNext } = useAudioPlayer()
+	const user = userEvent.setup()
+	await renderPlayer()
+
+	await user.click(screen.getByLabelText('Open now playing'))
+	const sheet = await screen.findByTestId('player-now-playing-sheet')
+
+	await user.click(within(sheet).getByLabelText('More actions'))
+	await user.click(screen.getByText('Add to Up Next'))
+
+	expect(addToUpNext).toHaveBeenCalled()
+	expect(toast).toHaveBeenCalledWith(
+		expect.objectContaining({
+			title: 'Success',
+			description: expect.stringContaining('added to up next'),
+		}),
+	)
 })
 
 test('overflow sheet Add to Queue calls addToQueue with toast', async () => {
@@ -443,6 +471,12 @@ test('overflow sheet Add to Queue calls addToQueue with toast', async () => {
 	await user.click(screen.getByText('Add to Queue'))
 
 	expect(addToQueue).toHaveBeenCalled()
+	expect(toast).toHaveBeenCalledWith(
+		expect.objectContaining({
+			title: 'Success',
+			description: expect.stringContaining('added to queue'),
+		}),
+	)
 })
 
 test('renders desktop bar with volume and transport controls', async () => {
