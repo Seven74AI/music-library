@@ -51,7 +51,6 @@ export function ConvertPlaylistDialog({ playlistId, playlistTitle }: ConvertPlay
 	const [newTitle, setNewTitle] = useState(playlistTitle)
 	const [createError, setCreateError] = useState<string | null>(null)
 	const [searchQuery, setSearchQuery] = useState('')
-	const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null)
 
 	const convertFetcher = useFetcher<ConvertResponse>()
 	const playlistsFetcher = useFetcher<{ playlists: Playlist[] }>()
@@ -92,7 +91,6 @@ export function ConvertPlaylistDialog({ playlistId, playlistTitle }: ConvertPlay
 		setNewTitle(playlistTitle)
 		setCreateError(null)
 		setSearchQuery('')
-		setSelectedPlaylistId(null)
 	}, [playlistTitle])
 
 	const handleOpenChange = useCallback(
