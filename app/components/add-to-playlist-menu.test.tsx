@@ -27,6 +27,13 @@ const mockCreateFetcher = {
 	submit: vi.fn(),
 }
 
+const mockPlaylistsFetcher = {
+	state: 'idle' as const,
+	data: undefined as { playlists: Array<{ id: string; title: string; description: string | null; _count: { tracks: number } }> } | undefined,
+	load: vi.fn(),
+}
+
+let fetcherIndex = 0
 let useFetcherCallCount = 0
 
 vi.mock('react-router', async (importOriginal) => {
@@ -35,7 +42,11 @@ vi.mock('react-router', async (importOriginal) => {
 		...actual,
 		useFetcher: () => {
 			useFetcherCallCount += 1
-			return useFetcherCallCount % 2 === 1 ? mockFetcher : mockCreateFetcher
+			const idx = fetcherIndex % 3
+			fetcherIndex += 1
+			if (idx === 0) return mockFetcher
+			if (idx === 1) return mockCreateFetcher
+			return mockPlaylistsFetcher
 		},
 		useRevalidator: () => ({ revalidate: mockRevalidate }),
 	}
@@ -43,15 +54,21 @@ vi.mock('react-router', async (importOriginal) => {
 
 beforeEach(() => {
 	useFetcherCallCount = 0
+	fetcherIndex = 0
 	mockFetcher.state = 'idle'
 	mockFetcher.data = undefined
 	mockCreateFetcher.state = 'idle'
 	mockCreateFetcher.data = undefined
+	mockPlaylistsFetcher.state = 'idle'
+	mockPlaylistsFetcher.data = undefined
+	mockPlaylistsFetcher.load.mockReset()
 	mockSubmit.mockReset()
 	mockRevalidate.mockReset()
 })
 
-function renderMenu(playlists: Array<{ id: string; title: string; description: string | null; _count: { tracks: number } }> = []) {
+function renderMenu(
+	playlists?: Array<{ id: string; title: string; description: string | null; _count: { tracks: number } }>,
+) {
 	const router = createMemoryRouter(
 		[
 			{
@@ -125,4 +142,41 @@ test('shows newly created playlist only once after inline create succeeds', () =
 	])
 
 	expect(screen.getAllByText('test5')).toHaveLength(1)
+})
+
+test('self-fetches playlists when playlists prop is omitted', () => {
+	renderMenu(undefined)
+
+	expect(mockPlaylistsFetcher.load).toHaveBeenCalledWith('/resources/playlists')
+})
+
+test('does not fetch playlists when playlists prop is provided', () => {
+	renderMenu([
+		{
+			id: 'playlist-1',
+			title: 'Favorites',
+			description: null,
+			_count: { tracks: 3 },
+		},
+	])
+
+	expect(mockPlaylistsFetcher.load).not.toHaveBeenCalled()
+})
+
+test('renders fetched playlists from self-fetch', () => {
+	mockPlaylistsFetcher.data = {
+		playlists: [
+			{
+				id: 'pl-fetched',
+				title: 'Fetched Playlist',
+				description: 'From server',
+				_count: { tracks: 7 },
+			},
+		],
+	}
+
+	renderMenu(undefined)
+
+	expect(screen.getByText('Fetched Playlist')).toBeDefined()
+	expect(screen.getByText('7 tracks')).toBeDefined()
 })

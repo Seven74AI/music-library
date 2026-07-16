@@ -1,6 +1,8 @@
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
+import { AddToPlaylistMenu } from '#app/components/add-to-playlist-menu'
+import { TrackDetailsDialog } from '#app/components/track-details-dialog'
 import {
 	formatQueueSheetTitle,
 	getSpineSectionHeading,
@@ -196,17 +198,17 @@ function PlayerTransportControls({
 interface PlayerLoopShuffleDownloadProps {
 	loopMode: 'off' | 'all' | 'one'
 	isShuffleEnabled: boolean
-	isDownloading: boolean
+	isDownloading?: boolean
 	onToggleLoop: () => void
 	onToggleShuffle: () => void
-	onDownload: () => void
+	onDownload?: () => void
 	buttonClassName?: string
 }
 
 function PlayerLoopShuffleDownload({
 	loopMode,
 	isShuffleEnabled,
-	isDownloading,
+	isDownloading = false,
 	onToggleLoop,
 	onToggleShuffle,
 	onDownload,
@@ -253,23 +255,25 @@ function PlayerLoopShuffleDownload({
 			>
 				<Icon name="shuffle" className="h-4 w-4" />
 			</Button>
-			<Button
-				variant="ghost"
-				size="sm"
-				onClick={onDownload}
-				disabled={isDownloading}
-				aria-label="Download track"
-				className={cn(
-					buttonClassName,
-					'text-muted-foreground hover:text-foreground hover:bg-muted',
-				)}
-				title="Download"
-			>
+			{onDownload && (
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={onDownload}
+					disabled={isDownloading}
+					aria-label="Download track"
+					className={cn(
+						buttonClassName,
+						'text-muted-foreground hover:text-foreground hover:bg-muted',
+					)}
+					title="Download"
+				>
 				<Icon
 					name={isDownloading ? 'arrow-path' : 'download'}
 					className={`h-4 w-4 ${isDownloading ? 'animate-spin' : ''}`}
 				/>
 			</Button>
+			)}
 		</>
 	)
 }
@@ -409,7 +413,37 @@ function PlayerNowPlayingSheet({
 	onStartSleepTimer,
 	onClearSleepTimer,
 }: PlayerNowPlayingSheetProps) {
+	const { playNextTrack, addToUpNext, addToQueue } = useAudioPlayer()
+	const [isOverflowOpen, setIsOverflowOpen] = useState(false)
+	const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+
+	const hasAudioFiles = track.audioFiles != null && track.audioFiles.length > 0
+
+	const doQueueAction = (action: () => void, description: string) => {
+		if (!hasAudioFiles) return
+		action()
+		toast({
+			title: 'Success',
+			description,
+			variant: 'success',
+		})
+		setIsOverflowOpen(false)
+	}
+
+	const handlePlayNext = () => {
+		doQueueAction(() => playNextTrack(track), `"${track.title}" will play next`)
+	}
+
+	const handleAddToUpNext = () => {
+		doQueueAction(() => addToUpNext(track), `"${track.title}" added to up next`)
+	}
+
+	const handleAddToQueue = () => {
+		doQueueAction(() => addToQueue(track), `"${track.title}" added to queue`)
+	}
+
 	return (
+		<>
 		<Sheet open={open} onOpenChange={onOpenChange}>
 			<SheetContent
 				side="bottom"
@@ -458,21 +492,115 @@ function PlayerNowPlayingSheet({
 					<PlayerLoopShuffleDownload
 						loopMode={loopMode}
 						isShuffleEnabled={isShuffleEnabled}
-						isDownloading={isDownloading}
 						onToggleLoop={onToggleLoop}
 						onToggleShuffle={onToggleShuffle}
-						onDownload={onDownload}
 						buttonClassName="h-11 w-11 p-0"
 					/>
+					<Popover>
+						<PopoverTrigger asChild>
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-11 w-11 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
+								aria-label="Add to playlist"
+								title="Add to playlist"
+							>
+								<Icon name="plus" className="h-4 w-4" />
+							</Button>
+						</PopoverTrigger>
+						<PopoverContent className="w-64 p-0" align="center" side="top">
+							<AddToPlaylistMenu
+								trackId={track.id}
+								trackTitle={track.title}
+							/>
+						</PopoverContent>
+					</Popover>
 					<SleepTimerControl
 						sleepTimerLabel={sleepTimerLabel}
 						onStart={onStartSleepTimer}
 						onClear={onClearSleepTimer}
 						triggerClassName="h-11 w-11 p-0"
 					/>
+					<Button
+						variant="ghost"
+						size="sm"
+						onClick={() => setIsOverflowOpen(true)}
+						aria-label="More actions"
+						className="h-11 w-11 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
+						title="More actions"
+					>
+						<Icon name="dots-horizontal" className="h-4 w-4" />
+					</Button>
 				</div>
 			</SheetContent>
 		</Sheet>
+
+		<Sheet open={isOverflowOpen} onOpenChange={setIsOverflowOpen}>
+			<SheetContent
+				side="bottom"
+				className="flex flex-col gap-2 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+			>
+				<SheetHeader className="text-left">
+					<SheetTitle>Track actions</SheetTitle>
+					<SheetDescription className="sr-only">
+						Additional actions for the current track
+					</SheetDescription>
+				</SheetHeader>
+				<div className="flex flex-col gap-1">
+					<button
+						type="button"
+						onClick={() => { onDownload(); setIsOverflowOpen(false) }}
+						disabled={isDownloading}
+						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors disabled:opacity-50"
+					>
+						<Icon
+							name={isDownloading ? 'arrow-path' : 'download'}
+							className={`h-5 w-5 ${isDownloading ? 'animate-spin' : ''}`}
+						/>
+						<span className="text-sm">Download</span>
+					</button>
+					<button
+						type="button"
+						onClick={handlePlayNext}
+						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
+					>
+						<Icon name="play" className="h-5 w-5" />
+						<span className="text-sm">Play Next</span>
+					</button>
+					<button
+						type="button"
+						onClick={handleAddToUpNext}
+						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
+					>
+						<Icon name="arrow-right" className="h-5 w-5" />
+						<span className="text-sm">Add to Up Next</span>
+					</button>
+					<button
+						type="button"
+						onClick={handleAddToQueue}
+						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
+					>
+						<Icon name="list-bullet" className="h-5 w-5" />
+						<span className="text-sm">Add to Queue</span>
+					</button>
+					<button
+						type="button"
+						onClick={() => { setIsOverflowOpen(false); setIsDetailsOpen(true) }}
+						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
+					>
+						<Icon name="eye-open" className="h-5 w-5" />
+						<span className="text-sm">Track Details</span>
+					</button>
+				</div>
+			</SheetContent>
+		</Sheet>
+
+		<TrackDetailsDialog
+			trackId={track.id}
+			open={isDetailsOpen}
+			onOpenChange={setIsDetailsOpen}
+		/>
+		</>
 	)
 }
 

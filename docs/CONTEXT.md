@@ -261,3 +261,9 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 56. **Offline route loaders fall back on network errors** — `createOfflineClientLoader` (from `app/features/offline-app/offline-loader.client.ts`) wraps `loadWithOfflineFallback`, which checks `navigator.onLine` first, then catches fetch failures (`TypeError`, network message patterns) and runs route-specific offline loaders from `OFFLINE_ROUTE_POLICIES`. Used by root, home, library, playlists, and downloads routes.
 
 57. **Offline integrity: prune stale metadata** — If IndexedDB references an OPFS file that no longer exists, metadata is pruned on read so Downloads and playback do not surface ghost tracks.
+
+58. **Mobile player sheet — "…" overflow for secondary actions** — The `PlayerNowPlayingSheet` (mobile bottom sheet) gains a "…" overflow button that opens a secondary sheet containing: Download, Play Next, Add to Up Next, Add to Queue, and Track Details. Download is moved from the bottom action row into this overflow sheet. Add to Playlist remains on the bottom row alongside Loop, Shuffle, and Sleep Timer.
+
+59. **Mobile player sheet — Add to Playlist self-fetching** — `AddToPlaylistMenu`'s `playlists` prop becomes optional. When omitted, the component self-fetches the user's playlists from a new `GET /resources/playlists` route on mount. This avoids passing playlist data through the audio player component tree.
+
+60. **Mobile player sheet — Track details dialog with lazy fetch** — Tapping "Track Details" in the overflow sheet opens a dialog modal. Track detail data (service name, source URL, added date) is fetched on-demand from a new `GET /resources/track-details?trackId=...` route. `FullTrack` is not enriched — the player stays lightweight.
