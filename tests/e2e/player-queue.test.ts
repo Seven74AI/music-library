@@ -711,14 +711,21 @@ test.describe('Player / Queue', () => {
 		await expect(sheet.getByText('Test Artist')).toBeVisible()
 
 		// Transport controls
-		await expect(sheet.getByLabel('Pause').or(sheet.getByLabel('Play'))).toBeVisible()
+		await expect(sheet.getByRole('button', { name: /^(Pause|Play)$/ })).toBeVisible()
 
-		// Loop, shuffle, download controls
+		// Loop, shuffle, controls
 		await expect(sheet.getByLabel(/Loop:/)).toBeVisible()
 		await expect(sheet.getByLabel(/Shuffle:/)).toBeVisible()
-		await expect(sheet.getByLabel('Download track')).toBeVisible()
 
 		// Sleep timer
 		await expect(sheet.getByLabel('Sleep timer')).toBeVisible()
+
+		// Download and other actions moved to overflow sheet
+		await sheet.getByLabel('More actions').click()
+		await expect(page.getByText('Download')).toBeVisible()
+		await expect(page.getByText('Play Next')).toBeVisible()
+		await expect(page.getByText('Add to Up Next')).toBeVisible()
+		await expect(page.getByText('Add to Queue')).toBeVisible()
+		await expect(page.getByText('Track Details')).toBeVisible()
 	})
 })

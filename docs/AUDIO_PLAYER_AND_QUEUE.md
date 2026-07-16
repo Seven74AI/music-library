@@ -289,6 +289,26 @@ Three per-track and bulk actions. Behavior depends on whether the player is alre
   - Large, prominent, always visible
   - Icon changes based on playback state
 
+### PlayerNowPlayingSheet UI (Mobile)
+
+On mobile, the expanded now-playing view is a full-screen bottom sheet (`PlayerNowPlayingSheet`, in `app/routes/audio-player.tsx`). It shares the same top/center layout as the desktop bar but replaces the single action row with a two-tier action system:
+
+**Bottom Action Row** (5 buttons):
+- **Loop** (3-state cycle: Off → All → One)
+- **Shuffle** (toggle)
+- **Add to Playlist** — opens `AddToPlaylistMenu`. The menu self-fetches the user's playlists from `GET /resources/playlists` when opened (no playlist data passed through the player component tree). Supports inline creation of a new playlist via `POST /resources/create-playlist-with-track` and adding to an existing playlist via `POST /resources/add-track-to-playlist`.
+- **Sleep Timer** — sets a timer to stop playback
+- **…** (overflow) — opens a secondary bottom sheet
+
+**Overflow Sheet** (opened by the "…" button):
+- **Download** — triggers browser download of the current track via `/resources/audio/:trackId?stream=1`
+- **Play Next** — inserts at the front of Up Next (does not interrupt current playback)
+- **Add to Up Next** — appends to the end of Up Next
+- **Add to Queue** — appends to the true end of the queue (after the spine)
+- **Track Details** — opens a `TrackDetailsDialog` modal. Track metadata (service name, source URL, added date, duration, genre, album) is fetched on-demand from `GET /resources/track-details?trackId=...` when the dialog opens. The `FullTrack` data model is not enriched — the dialog fetches its own data so the player stays lightweight.
+
+The desktop bar is **unchanged** — it continues to use the existing one-row layout with `TrackListItem` dropdown menus for playlist and queue actions.
+
 ### Queue Sheet UI
 
 The queue opens as a bottom sheet (80% viewport height) with **three sections**:

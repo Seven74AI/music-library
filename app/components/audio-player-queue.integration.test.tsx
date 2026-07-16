@@ -13,6 +13,10 @@ import { type FullTrack } from '#app/types/frontend/shared'
 import { AudioPlayerProvider, useAudioPlayer } from './audio-player-provider'
 import { TrackListItem } from './track-list-item'
 
+vi.mock('#app/components/track-details-dialog', () => ({
+	TrackDetailsDialog: vi.fn(() => null),
+}))
+
 vi.mock('#app/components/pwa/install-app-banner', () => ({
 	InstallAppBanner: () => null,
 }))
@@ -386,7 +390,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals()
-	vi.restoreAllMocks()
 })
 
 describe('queue sheet integration', () => {
