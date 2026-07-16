@@ -4,10 +4,13 @@ import { handlers as pwnedPasswordApiHandlers } from './pwned-passwords.ts'
 import { handlers as resendHandlers } from './resend.ts'
 import { handlers as tigrisHandlers } from './tigris.ts'
 
+import { handlers as imageOptimizerHandlers } from './image-optimizer.ts'
+
 export const server = setupServer(
 	...resendHandlers,
 	...tigrisHandlers,
 	...pwnedPasswordApiHandlers,
+	...imageOptimizerHandlers,
 )
 
 // Optimization: start the server only once
