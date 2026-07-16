@@ -395,10 +395,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals()
-	// Keep fetch stubbed after unstub so that React/Remix teardown
-	// (component cleanup between tests) doesn't try to connect to
-	// localhost:3000 which isn't running in CI.
-	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })))
 })
 
 describe('queue sheet integration', () => {
