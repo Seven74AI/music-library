@@ -31,15 +31,16 @@ interface AddToPlaylistMenuProps {
   trackId: string
   /** Title of the track for display purposes */
   trackTitle: string
-  /** Array of available playlists to add the track to */
-  playlists: Playlist[]
+  /** Array of available playlists to add the track to. When omitted, fetches from /resources/playlists. */
+  playlists?: Playlist[]
   /** Optional callback when track is successfully added (used to close sheets on mobile) */
   onSuccess?: () => void
 }
 
 /**
  * Component for adding a track to a playlist with search functionality
- * Supports both dropdown (desktop) and sheet (mobile) contexts
+ * Supports both dropdown (desktop) and sheet (mobile) contexts.
+ * When playlists prop is omitted, self-fetches from /resources/playlists on mount.
  */
 export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }: AddToPlaylistMenuProps) {
   const [searchQuery, setSearchQuery] = useState('')
@@ -47,13 +48,29 @@ export function AddToPlaylistMenu({ trackId, trackTitle, playlists, onSuccess }:
   const [isCreating, setIsCreating] = useState(false)
   const [newPlaylistTitle, setNewPlaylistTitle] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
-  const [localPlaylists, setLocalPlaylists] = useState(playlists)
+  const [localPlaylists, setLocalPlaylists] = useState(playlists ?? [])
   const fetcher = useFetcher<{ status: string; message?: string; playlistId?: string }>()
   const createFetcher = useFetcher<CreatePlaylistResponse>()
   const { revalidate } = useRevalidator()
 
+  // Self-fetch playlists from resource route when not provided as prop
+  const playlistsFetcher = useFetcher<{ playlists: Playlist[] }>()
+  const shouldFetchPlaylists = playlists === undefined
   useEffect(() => {
-    setLocalPlaylists(playlists)
+    if (shouldFetchPlaylists && playlistsFetcher.state === 'idle' && !playlistsFetcher.data) {
+      playlistsFetcher.load('/resources/playlists')
+    }
+  }, [shouldFetchPlaylists, playlistsFetcher])
+  useEffect(() => {
+    if (playlistsFetcher.data?.playlists) {
+      setLocalPlaylists(playlistsFetcher.data.playlists)
+    }
+  }, [playlistsFetcher.data])
+
+  useEffect(() => {
+    if (playlists !== undefined) {
+      setLocalPlaylists(playlists)
+    }
   }, [playlists])
 
   const filteredPlaylists = useMemo(() => {

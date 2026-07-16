@@ -30,12 +30,19 @@ function createAudioPlayerMock(overrides: Record<string, unknown> = {}) {
 		removeCurrentFromQueue: vi.fn(),
 		startQueuePlayback: vi.fn(),
 		hasQueuedPlayback: false,
+		playNextTrack: vi.fn(),
+		addToUpNext: vi.fn(),
+		addToQueue: vi.fn(),
 		...overrides,
 	}
 }
 
 vi.mock('#app/components/ui/use-toast.ts', () => ({
 	toast: vi.fn(),
+}))
+
+vi.mock('#app/components/track-details-dialog', () => ({
+	TrackDetailsDialog: vi.fn(() => null),
 }))
 
 vi.mock('#app/features/offline-storage/resolve-playback-url.client.ts', () => ({
@@ -379,7 +386,7 @@ test('renders mobile mini bar with play and close controls', async () => {
 	expect(within(miniBar).getByLabelText('Open queue')).toBeTruthy()
 })
 
-test('shows shuffle and loop controls in the now playing sheet', async () => {
+test('shows controls in the now playing sheet', async () => {
 	const user = userEvent.setup()
 	await renderPlayer()
 
@@ -388,8 +395,54 @@ test('shows shuffle and loop controls in the now playing sheet', async () => {
 	const sheet = await screen.findByTestId('player-now-playing-sheet')
 	expect(within(sheet).getByLabelText('Shuffle: off')).toBeTruthy()
 	expect(within(sheet).getByLabelText('Loop: off')).toBeTruthy()
-	expect(within(sheet).getByLabelText('Download track')).toBeTruthy()
+	expect(within(sheet).getByLabelText('Add to playlist')).toBeTruthy()
 	expect(within(sheet).getByLabelText('Sleep timer')).toBeTruthy()
+	expect(within(sheet).getByLabelText('More actions')).toBeTruthy()
+})
+
+test('overflow sheet opens with all action buttons', async () => {
+	const user = userEvent.setup()
+	await renderPlayer()
+
+	await user.click(screen.getByLabelText('Open now playing'))
+	const sheet = await screen.findByTestId('player-now-playing-sheet')
+
+	await user.click(within(sheet).getByLabelText('More actions'))
+
+	// Verify all overflow actions are present
+	expect(screen.getByText('Download')).toBeTruthy()
+	expect(screen.getByText('Play Next')).toBeTruthy()
+	expect(screen.getByText('Add to Up Next')).toBeTruthy()
+	expect(screen.getByText('Add to Queue')).toBeTruthy()
+	expect(screen.getByText('Track Details')).toBeTruthy()
+})
+
+test('overflow sheet Play Next calls playNextTrack with toast', async () => {
+	const { playNextTrack } = useAudioPlayer()
+	const user = userEvent.setup()
+	await renderPlayer()
+
+	await user.click(screen.getByLabelText('Open now playing'))
+	const sheet = await screen.findByTestId('player-now-playing-sheet')
+
+	await user.click(within(sheet).getByLabelText('More actions'))
+	await user.click(screen.getByText('Play Next'))
+
+	expect(playNextTrack).toHaveBeenCalled()
+})
+
+test('overflow sheet Add to Queue calls addToQueue with toast', async () => {
+	const { addToQueue } = useAudioPlayer()
+	const user = userEvent.setup()
+	await renderPlayer()
+
+	await user.click(screen.getByLabelText('Open now playing'))
+	const sheet = await screen.findByTestId('player-now-playing-sheet')
+
+	await user.click(within(sheet).getByLabelText('More actions'))
+	await user.click(screen.getByText('Add to Queue'))
+
+	expect(addToQueue).toHaveBeenCalled()
 })
 
 test('renders desktop bar with volume and transport controls', async () => {
