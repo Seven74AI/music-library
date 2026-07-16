@@ -382,6 +382,11 @@ beforeAll(() => {
 
 beforeEach(() => {
 	vi.stubGlobal('fetch', vi.fn())
+	vi.stubGlobal('ResizeObserver', class {
+		observe = vi.fn()
+		unobserve = vi.fn()
+		disconnect = vi.fn()
+	})
 	window.localStorage.clear()
 	// MSW warns on unhandled requests (e.g., /api/tracks/playback with 20+ IDs)
 	// which triggers console.error, and setup-test-env throws on it.
