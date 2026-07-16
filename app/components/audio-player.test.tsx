@@ -11,11 +11,18 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { type FullTrack } from '#app/types/frontend/shared'
 import { toast } from '#app/components/ui/use-toast'
+import type { UseSwipeGestureOptions } from '#app/hooks/use-swipe-gesture'
 import { AudioPlayer } from './audio-player'
 
 type AudioPlayerTestProps = ComponentProps<typeof AudioPlayer>
 
 const mockRemoveTrackFromPlaylist = vi.fn()
+
+// Expose captured swipe callbacks so tests can simulate swipe gestures.
+const swipeMocks: { onSwipeLeft: (() => void) | null; onSwipeRight: (() => void) | null } = {
+	onSwipeLeft: null,
+	onSwipeRight: null,
+}
 
 function createAudioPlayerMock(overrides: Record<string, unknown> = {}) {
 	return {
@@ -55,6 +62,14 @@ vi.mock('#app/features/offline-storage/resolve-playback-url.client.ts', () => ({
 vi.mock('#app/components/audio-player-provider', () => ({
 	useAudioPlayer: vi.fn(() => createAudioPlayerMock()),
 	AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
+}))
+
+vi.mock('#app/hooks/use-swipe-gesture', () => ({
+	useSwipeGesture: vi.fn((_ref: unknown, options: UseSwipeGestureOptions) => {
+		swipeMocks.onSwipeLeft = options.onSwipeLeft ?? null
+		swipeMocks.onSwipeRight = options.onSwipeRight ?? null
+		return { offsetX: 0, isSwiping: false }
+	}),
 }))
 
 
@@ -486,4 +501,31 @@ test('renders desktop bar with volume and transport controls', async () => {
 	expect(within(desktopBar).getByLabelText('Volume')).toBeTruthy()
 	expect(within(desktopBar).getByLabelText('Next track')).toBeTruthy()
 	expect(within(desktopBar).getByLabelText('Shuffle: off')).toBeTruthy()
+})
+
+test('swipe left on mini-bar triggers onNext', async () => {
+	const onNext = vi.fn()
+	await renderPlayer({ onNext, hasNext: true })
+
+	expect(swipeMocks.onSwipeLeft).not.toBeNull()
+	swipeMocks.onSwipeLeft!()
+
+	expect(onNext).toHaveBeenCalledOnce()
+})
+
+test('swipe right on mini-bar triggers onPrevious', async () => {
+	const onPrevious = vi.fn()
+	await renderPlayer({ onPrevious, hasPrevious: true })
+
+	expect(swipeMocks.onSwipeRight).not.toBeNull()
+	swipeMocks.onSwipeRight!()
+
+	expect(onPrevious).toHaveBeenCalledOnce()
+})
+
+test('swipe callbacks are not wired when hasNext and hasPrevious are both false', async () => {
+	await renderPlayer({ hasNext: false, hasPrevious: false })
+
+	expect(swipeMocks.onSwipeLeft).toBeNull()
+	expect(swipeMocks.onSwipeRight).toBeNull()
 })

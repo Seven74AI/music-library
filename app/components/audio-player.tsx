@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useAudioPlayer } from '#app/components/audio-player-provider'
 import { AddToPlaylistMenu } from '#app/components/add-to-playlist-menu'
 import { MarqueeText } from '#app/components/marquee-text'
+import { useSwipeGesture } from '#app/hooks/use-swipe-gesture'
 import { TrackDetailsDialog } from '#app/components/track-details-dialog'
 import {
 	formatQueueSheetTitle,
@@ -319,14 +320,32 @@ function PlayerMiniBar({
 	isAudioLoading,
 	currentTime,
 	duration,
+	hasNext,
+	hasPrevious,
+	onPrevious,
+	onNext,
 	onTogglePlayPause,
 	onClose,
 	onOpenNowPlaying,
 }: PlayerMiniBarProps) {
 	const progress = getPlaybackProgressPercent(currentTime, duration)
+	const miniBarRef = useRef<HTMLDivElement>(null)
+	const { offsetX, isSwiping } = useSwipeGesture(miniBarRef, {
+		onSwipeLeft: hasNext ? onNext : undefined,
+		onSwipeRight: hasPrevious ? onPrevious : undefined,
+		enabled: hasNext || hasPrevious,
+	})
 
 	return (
-		<div className="md:hidden" data-testid="player-mini-bar">
+		<div
+			ref={miniBarRef}
+			className="md:hidden"
+			data-testid="player-mini-bar"
+			style={{
+				transform: `translateX(${offsetX}px)`,
+				transition: isSwiping ? 'none' : 'transform 0.2s ease-out',
+			}}
+		>
 			<div
 				className="h-0.5 w-full bg-muted"
 				role="progressbar"
