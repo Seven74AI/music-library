@@ -198,17 +198,17 @@ function PlayerTransportControls({
 interface PlayerLoopShuffleDownloadProps {
 	loopMode: 'off' | 'all' | 'one'
 	isShuffleEnabled: boolean
-	isDownloading: boolean
+	isDownloading?: boolean
 	onToggleLoop: () => void
 	onToggleShuffle: () => void
-	onDownload: () => void
+	onDownload?: () => void
 	buttonClassName?: string
 }
 
 function PlayerLoopShuffleDownload({
 	loopMode,
 	isShuffleEnabled,
-	isDownloading,
+	isDownloading = false,
 	onToggleLoop,
 	onToggleShuffle,
 	onDownload,
@@ -255,23 +255,25 @@ function PlayerLoopShuffleDownload({
 			>
 				<Icon name="shuffle" className="h-4 w-4" />
 			</Button>
-			<Button
-				variant="ghost"
-				size="sm"
-				onClick={onDownload}
-				disabled={isDownloading}
-				aria-label="Download track"
-				className={cn(
-					buttonClassName,
-					'text-muted-foreground hover:text-foreground hover:bg-muted',
-				)}
-				title="Download"
-			>
+			{onDownload && (
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={onDownload}
+					disabled={isDownloading}
+					aria-label="Download track"
+					className={cn(
+						buttonClassName,
+						'text-muted-foreground hover:text-foreground hover:bg-muted',
+					)}
+					title="Download"
+				>
 				<Icon
 					name={isDownloading ? 'arrow-path' : 'download'}
 					className={`h-4 w-4 ${isDownloading ? 'animate-spin' : ''}`}
 				/>
 			</Button>
+			)}
 		</>
 	)
 }
@@ -417,37 +419,27 @@ function PlayerNowPlayingSheet({
 
 	const hasAudioFiles = track.audioFiles != null && track.audioFiles.length > 0
 
-	const handlePlayNext = () => {
+	const doQueueAction = (action: () => void, description: string) => {
 		if (!hasAudioFiles) return
-		playNextTrack(track)
+		action()
 		toast({
 			title: 'Success',
-			description: `"${track.title}" will play next`,
+			description,
 			variant: 'success',
 		})
 		setIsOverflowOpen(false)
+	}
+
+	const handlePlayNext = () => {
+		doQueueAction(() => playNextTrack(track), `"${track.title}" will play next`)
 	}
 
 	const handleAddToUpNext = () => {
-		if (!hasAudioFiles) return
-		addToUpNext(track)
-		toast({
-			title: 'Success',
-			description: `"${track.title}" added to up next`,
-			variant: 'success',
-		})
-		setIsOverflowOpen(false)
+		doQueueAction(() => addToUpNext(track), `"${track.title}" added to up next`)
 	}
 
 	const handleAddToQueue = () => {
-		if (!hasAudioFiles) return
-		addToQueue(track)
-		toast({
-			title: 'Success',
-			description: `"${track.title}" added to queue`,
-			variant: 'success',
-		})
-		setIsOverflowOpen(false)
+		doQueueAction(() => addToQueue(track), `"${track.title}" added to queue`)
 	}
 
 	return (
@@ -497,44 +489,13 @@ function PlayerNowPlayingSheet({
 					/>
 				</div>
 				<div className="flex items-center justify-center gap-1">
-					<Button
-						variant="ghost"
-						size="sm"
-						onClick={onToggleLoop}
-						aria-label={`Loop: ${loopMode === 'off' ? 'off' : loopMode === 'all' ? 'all' : 'one'}`}
-						className={cn(
-							'h-11 w-11 p-0 relative',
-							loopMode === 'off'
-								? 'text-muted-foreground hover:text-foreground hover:bg-muted'
-								: 'text-primary bg-primary/10 hover:bg-primary/20',
-						)}
-						title={`Loop: ${loopMode === 'off' ? 'Off' : loopMode === 'all' ? 'All tracks' : 'One track'}`}
-					>
-						<Icon name="arrow-path" className="h-4 w-4" />
-						{loopMode === 'one' && (
-							<span
-								className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-primary text-[8px] font-bold text-primary-foreground flex items-center justify-center leading-none"
-								aria-label="Looping one track"
-							>
-								1
-							</span>
-						)}
-					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						onClick={onToggleShuffle}
-						aria-label={`Shuffle: ${isShuffleEnabled ? 'on' : 'off'}`}
-						className={cn(
-							'h-11 w-11 p-0',
-							isShuffleEnabled
-								? 'text-primary bg-primary/10 hover:bg-primary/20'
-								: 'text-muted-foreground hover:text-foreground hover:bg-muted',
-						)}
-						title={`Shuffle: ${isShuffleEnabled ? 'On' : 'Off'}`}
-					>
-						<Icon name="shuffle" className="h-4 w-4" />
-					</Button>
+					<PlayerLoopShuffleDownload
+						loopMode={loopMode}
+						isShuffleEnabled={isShuffleEnabled}
+						onToggleLoop={onToggleLoop}
+						onToggleShuffle={onToggleShuffle}
+						buttonClassName="h-11 w-11 p-0"
+					/>
 					<Popover>
 						<PopoverTrigger asChild>
 							<Button
