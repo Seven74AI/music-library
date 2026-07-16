@@ -416,6 +416,7 @@ function PlayerNowPlayingSheet({
 	const { playNextTrack, addToUpNext, addToQueue } = useAudioPlayer()
 	const [isOverflowOpen, setIsOverflowOpen] = useState(false)
 	const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+	const [isPlaylistSheetOpen, setIsPlaylistSheetOpen] = useState(false)
 
 	const hasAudioFiles = track.audioFiles != null && track.audioFiles.length > 0
 
@@ -476,46 +477,59 @@ function PlayerNowPlayingSheet({
 					onSeekStart={onSeekStart}
 					onSeekEnd={onSeekEnd}
 				/>
-				<div className="flex justify-center">
-					<PlayerTransportControls
-						isPlaying={isPlaying}
-						isAudioLoading={isAudioLoading}
-						hasNext={hasNext}
-						hasPrevious={hasPrevious}
-						onPrevious={onPrevious}
-						onNext={onNext}
-						onTogglePlayPause={onTogglePlayPause}
-						size="large"
-					/>
+			<div className="flex items-center justify-center gap-2">
+				<div className="flex-1" />
+				<PlayerTransportControls
+					isPlaying={isPlaying}
+					isAudioLoading={isAudioLoading}
+					hasNext={hasNext}
+					hasPrevious={hasPrevious}
+					onPrevious={onPrevious}
+					onNext={onNext}
+					onTogglePlayPause={onTogglePlayPause}
+					size="large"
+				/>
+				<div className="flex-1 flex justify-end">
+					<QueueSheet triggerClassName="h-11 w-11 shrink-0 p-0" />
 				</div>
-				<div className="flex items-center justify-center gap-1">
-					<PlayerLoopShuffleDownload
-						loopMode={loopMode}
-						isShuffleEnabled={isShuffleEnabled}
-						onToggleLoop={onToggleLoop}
-						onToggleShuffle={onToggleShuffle}
-						buttonClassName="h-11 w-11 p-0"
+			</div>
+			<div className="flex items-center justify-center gap-1">
+				<PlayerLoopShuffleDownload
+					loopMode={loopMode}
+					isShuffleEnabled={isShuffleEnabled}
+					onToggleLoop={onToggleLoop}
+					onToggleShuffle={onToggleShuffle}
+					buttonClassName="h-11 w-11 p-0"
+				/>
+				<Sheet open={isPlaylistSheetOpen} onOpenChange={setIsPlaylistSheetOpen}>
+					<SheetTrigger asChild>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-11 w-11 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
+							aria-label="Add to playlist"
+							title="Add to playlist"
+						>
+							<Icon name="plus" className="h-4 w-4" />
+						</Button>
+					</SheetTrigger>
+					<SheetContent
+						side="bottom"
+						className="flex max-h-[60vh] flex-col pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+					>
+						<SheetHeader className="text-left flex-shrink-0">
+							<SheetTitle>Add to playlist</SheetTitle>
+							<SheetDescription className="sr-only">
+								Add this track to one of your playlists
+							</SheetDescription>
+						</SheetHeader>
+					<AddToPlaylistMenu
+						trackId={track.id}
+						trackTitle={track.title}
 					/>
-					<Popover>
-						<PopoverTrigger asChild>
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-11 w-11 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
-								aria-label="Add to playlist"
-								title="Add to playlist"
-							>
-								<Icon name="plus" className="h-4 w-4" />
-							</Button>
-						</PopoverTrigger>
-						<PopoverContent className="w-64 p-0" align="center" side="top">
-							<AddToPlaylistMenu
-								trackId={track.id}
-								trackTitle={track.title}
-							/>
-						</PopoverContent>
-					</Popover>
-					<SleepTimerControl
+					</SheetContent>
+				</Sheet>
+				<SleepTimerControl
 						sleepTimerLabel={sleepTimerLabel}
 						onStart={onStartSleepTimer}
 						onClear={onClearSleepTimer}
@@ -546,52 +560,52 @@ function PlayerNowPlayingSheet({
 						Additional actions for the current track
 					</SheetDescription>
 				</SheetHeader>
-				<div className="flex flex-col gap-1">
-					<button
-						type="button"
-						onClick={() => { onDownload(); setIsOverflowOpen(false) }}
-						disabled={isDownloading}
-						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors disabled:opacity-50"
-					>
-						<Icon
-							name={isDownloading ? 'arrow-path' : 'download'}
-							className={`h-5 w-5 ${isDownloading ? 'animate-spin' : ''}`}
-						/>
-						<span className="text-sm">Download</span>
-					</button>
-					<button
-						type="button"
-						onClick={handlePlayNext}
-						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
-					>
-						<Icon name="play" className="h-5 w-5" />
-						<span className="text-sm">Play Next</span>
-					</button>
-					<button
-						type="button"
-						onClick={handleAddToUpNext}
-						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
-					>
-						<Icon name="arrow-right" className="h-5 w-5" />
-						<span className="text-sm">Add to Up Next</span>
-					</button>
-					<button
-						type="button"
-						onClick={handleAddToQueue}
-						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
-					>
-						<Icon name="list-bullet" className="h-5 w-5" />
-						<span className="text-sm">Add to Queue</span>
-					</button>
-					<button
-						type="button"
-						onClick={() => { setIsOverflowOpen(false); setIsDetailsOpen(true) }}
-						className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
-					>
-						<Icon name="eye-open" className="h-5 w-5" />
-						<span className="text-sm">Track Details</span>
-					</button>
-				</div>
+			<div className="flex flex-col gap-1">
+				<button
+					type="button"
+					onClick={handlePlayNext}
+					className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
+				>
+					<Icon name="play" className="h-5 w-5" />
+					<span className="text-sm">Play Next</span>
+				</button>
+				<button
+					type="button"
+					onClick={handleAddToUpNext}
+					className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
+				>
+					<Icon name="arrow-right" className="h-5 w-5" />
+					<span className="text-sm">Add to Up Next</span>
+				</button>
+				<button
+					type="button"
+					onClick={handleAddToQueue}
+					className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
+				>
+					<Icon name="list-bullet" className="h-5 w-5" />
+					<span className="text-sm">Add to Queue</span>
+				</button>
+				<button
+					type="button"
+					onClick={() => { setIsOverflowOpen(false); setIsDetailsOpen(true) }}
+					className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors"
+				>
+					<Icon name="eye-open" className="h-5 w-5" />
+					<span className="text-sm">Track Details</span>
+				</button>
+				<button
+					type="button"
+					onClick={() => { onDownload(); setIsOverflowOpen(false) }}
+					disabled={isDownloading}
+					className="flex items-center gap-3 rounded-md px-3 py-3 text-left hover:bg-accent transition-colors disabled:opacity-50"
+				>
+					<Icon
+						name={isDownloading ? 'arrow-path' : 'download'}
+						className={`h-5 w-5 ${isDownloading ? 'animate-spin' : ''}`}
+					/>
+					<span className="text-sm">Download</span>
+				</button>
+			</div>
 			</SheetContent>
 		</Sheet>
 
