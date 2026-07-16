@@ -9,14 +9,16 @@ import { afterEach, beforeEach, vi, type MockInstance } from 'vitest'
 import { server } from '#tests/mocks/index.ts'
 import './custom-matchers.ts'
 
-// ResizeObserver is not available in JSDOM — stub globally for all tests
-function MockResizeObserver(_callback: () => void) {
-	// no-op
-}
-MockResizeObserver.prototype.observe = vi.fn()
-MockResizeObserver.prototype.unobserve = vi.fn()
-MockResizeObserver.prototype.disconnect = vi.fn()
-vi.stubGlobal('ResizeObserver', MockResizeObserver)
+beforeEach(() => {
+	// Re-stub ResizeObserver each test (some test suites call vi.unstubAllGlobals())
+	function MockResizeObserver(_callback: () => void) {
+		// no-op
+	}
+	MockResizeObserver.prototype.observe = vi.fn()
+	MockResizeObserver.prototype.unobserve = vi.fn()
+	MockResizeObserver.prototype.disconnect = vi.fn()
+	vi.stubGlobal('ResizeObserver', MockResizeObserver)
+})
 
 afterEach(() => server.resetHandlers())
 afterEach(() => cleanup())
