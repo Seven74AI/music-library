@@ -36,12 +36,8 @@ class FakeTouch {
 	}
 }
 
-function createTouchEvent(
-	type: string,
-	clientX: number,
-	identifier = 0,
-): TouchEvent {
-	const touch = new FakeTouch({
+function createFakeTouch(clientX: number, identifier = 0): Touch {
+	return new FakeTouch({
 		identifier,
 		target: document.createElement('div'),
 		clientX,
@@ -55,6 +51,14 @@ function createTouchEvent(
 		rotationAngle: 0,
 		force: 1,
 	}) as unknown as Touch
+}
+
+function createTouchEvent(
+	type: string,
+	clientX: number,
+	identifier = 0,
+): TouchEvent {
+	const touch = createFakeTouch(clientX, identifier)
 	return new TouchEvent(type, {
 		touches: type === 'touchend' || type === 'touchcancel' ? [] : [touch],
 		changedTouches: [touch],
@@ -219,34 +223,8 @@ describe('useSwipeGesture', () => {
 			threshold: 50,
 		})
 
-		const touch1 = new FakeTouch({
-			identifier: 0,
-			target: document.createElement('div'),
-			clientX: 200,
-			clientY: 0,
-			screenX: 200,
-			screenY: 0,
-			pageX: 200,
-			pageY: 0,
-			radiusX: 1,
-			radiusY: 1,
-			rotationAngle: 0,
-			force: 1,
-		}) as unknown as Touch
-		const touch2 = new FakeTouch({
-			identifier: 1,
-			target: document.createElement('div'),
-			clientX: 300,
-			clientY: 0,
-			screenX: 300,
-			screenY: 0,
-			pageX: 300,
-			pageY: 0,
-			radiusX: 1,
-			radiusY: 1,
-			rotationAngle: 0,
-			force: 1,
-		}) as unknown as Touch
+		const touch1 = createFakeTouch(200, 0)
+		const touch2 = createFakeTouch(300, 1)
 
 		act(() => {
 			ref.current!.dispatchEvent(
