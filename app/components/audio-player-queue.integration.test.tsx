@@ -395,10 +395,10 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals()
-	// During React cleanup between tests, a component may attempt fetch()
-	// to localhost:3000 (which isn't running in CI). Keep fetch stubbed
-	// to prevent ECONNREFUSED or JSON parse errors during teardown.
-	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('[]', { status: 200 })))
+	// During React cleanup between tests, Remix may call fetch() to
+	// localhost:3000. Stub with a pending promise so it never resolves
+	// — the real fetch never fires, and no response is ever processed.
+	vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
 })
 
 describe('queue sheet integration', () => {
