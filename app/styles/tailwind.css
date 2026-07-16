@@ -229,6 +229,23 @@
 	}
 }
 
+.animate-marquee {
+  animation: marquee-scroll 3s ease-in-out infinite;
+  animation-delay: 1s;
+}
+
+@keyframes marquee-scroll {
+  0%, 10% {
+    transform: translateX(0);
+  }
+  40%, 60% {
+    transform: translateX(var(--marquee-distance));
+  }
+  90%, 100% {
+    transform: translateX(0);
+  }
+}
+
 @utility container {
 	margin-inline: auto;
 	padding-inline: 2rem;
