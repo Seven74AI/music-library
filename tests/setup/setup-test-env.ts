@@ -23,15 +23,6 @@ beforeEach(() => {
 afterEach(() => server.resetHandlers())
 afterEach(() => cleanup())
 
-// Many test suites call vi.unstubAllGlobals() in their own afterEach,
-// which restores real fetch. During React/Remix teardown between tests,
-// components may attempt fetch() to localhost:3000 (not running in CI).
-// This afterEach runs AFTER test-level afterEach hooks, so it safely
-// re-stubs fetch for the cleanup window.
-afterEach(() => {
-	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })))
-})
-
 export let consoleError: MockInstance<(typeof console)['error']>
 export let consoleWarn: MockInstance<(typeof console)['warn']>
 
