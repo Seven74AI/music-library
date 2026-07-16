@@ -386,7 +386,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals()
-	vi.restoreAllMocks()
 })
 
 describe('queue sheet integration', () => {
