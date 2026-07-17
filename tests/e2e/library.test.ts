@@ -119,7 +119,11 @@ test.describe("Music Library", () => {
     await playlistNameInput.fill("road trip");
     await playlistNameInput.press("Enter");
 
-    await expect(page.getByRole("alert")).toContainText(/already have a playlist named/i, { timeout: 10000 });
+    // Wait for the form submission to be processed and the alert to render
+    await page.waitForTimeout(500);
+    await expect(page.getByRole("alert")).toContainText(/already have a playlist named/i, {
+      timeout: 10000,
+    });
     await expect(page).toHaveURL("/library");
 
     await prisma.userPlaylist.delete({ where: { id: existing.id } });
