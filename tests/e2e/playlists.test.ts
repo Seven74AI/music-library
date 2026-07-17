@@ -14,7 +14,7 @@ test.describe('Playlists', () => {
 		await login()
 
 		await page.goto('/playlists/new')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		
 		// Fill in playlist details
 		await page.getByRole('textbox', { name: /title/i }).fill('My Test Playlist')
@@ -25,7 +25,7 @@ test.describe('Playlists', () => {
 		
 		// Should redirect to the playlist detail page
 		await expect(page).toHaveURL(/\/playlists\/[a-z0-9]+/, { timeout: 10000 })
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		
 		// Check for the title in the editable text component (use nth(1) to avoid breadcrumb)
 		// EditableText renders as a div, so use getByText instead of getByRole
@@ -105,7 +105,7 @@ test.describe('Playlists', () => {
 		})
 
 		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		
 		// Should show playlist details (use nth(1) to avoid breadcrumb)
 		// EditableText renders as a div, so use getByText
@@ -130,7 +130,7 @@ test.describe('Playlists', () => {
 		})
 
 		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		
 		// Click on the title to edit it (inline editing) - use nth(1) to avoid breadcrumb
 		// Wait for the title to be visible first
@@ -157,7 +157,7 @@ test.describe('Playlists', () => {
 		await page.getByRole('textbox').first().press('Enter')
 		
 		// Wait for the page to load after update
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		
 		// Should show updated content
 		await expect(page).toHaveURL(`/playlists/${playlist.id}`)
@@ -181,7 +181,7 @@ test.describe('Playlists', () => {
 		})
 
 		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		
 		// Click delete button directly (it's visible on desktop)
 		// The delete button is in the PlaylistHero component
@@ -195,7 +195,7 @@ test.describe('Playlists', () => {
 		
 		// Playlist should no longer exist
 		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		await expect(page.getByText('Playlist not found')).toBeVisible({ timeout: 10000 })
 	})
 
@@ -224,7 +224,7 @@ test.describe('Playlists', () => {
 		})
 
 		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		
 		// Should show the track in the playlist
 		// The track count is shown in the PlaylistHero stats section
@@ -250,7 +250,7 @@ test.describe('Playlists', () => {
 		})
 
 		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		
 		// Should show empty state
 		await expect(page.getByText('No tracks yet')).toBeVisible({ timeout: 10000 })
@@ -279,7 +279,7 @@ test.describe('Playlists', () => {
 		})
 
 		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// Library add/remove buttons should NOT be on user playlist pages
 		// They belong on the YouTube service playlist page (playlist.$id.tsx)
@@ -310,7 +310,7 @@ test.describe('Playlists', () => {
 		})
 
 		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// "Add All Missing" should NOT appear on user playlist pages
 		// It belongs on the YouTube service playlist page (playlist.$id.tsx)
@@ -339,7 +339,7 @@ test.describe('Playlists', () => {
 		})
 
 		await page.goto(`/playlists/${playlist.id}`)
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// "Add All Missing" should not appear on user playlist pages, regardless of library status
 		await expect(page.getByRole('button', { name: /add all missing/i })).not.toBeAttached({ timeout: 5000 })

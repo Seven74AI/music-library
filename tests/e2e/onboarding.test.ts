@@ -88,7 +88,7 @@ test('onboarding with link', { tag: '@slow' }, async ({ page, navigate, getOnboa
 
 	await page.getByLabel(/^confirm password/i).fill(onboardingData.password)
 
-	await page.waitForLoadState('networkidle') // ensure js is fully loaded.
+	await page.waitForLoadState('domcontentloaded') // ensure js is fully loaded.
 
 	await page.getByLabel(/terms/i).check()
 

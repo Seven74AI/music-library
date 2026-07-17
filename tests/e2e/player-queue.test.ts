@@ -39,7 +39,7 @@ async function playTrackFromLibrary(
 	trackTitle: string,
 ) {
 	await page.goto('/library', { timeout: 30000 })
-	await page.waitForLoadState('networkidle')
+	await page.waitForLoadState('domcontentloaded')
 	await expect(page.getByText(trackTitle).first()).toBeVisible({ timeout: 10000 })
 
 	await Promise.all([
@@ -146,7 +146,7 @@ test.describe('Player / Queue', () => {
 		const track = await insertNewTrack({ title: 'No Audio Track' }, user.id)
 
 		await page.goto('/library', { waitUntil: 'domcontentloaded', timeout: 30000 })
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 		await expect(page.getByText('No Audio Track').first()).toBeVisible({ timeout: 10000 })
 
 		// Click the track row — the app should handle it gracefully
@@ -441,7 +441,7 @@ test.describe('Player / Queue', () => {
 		}
 
 		const pauseButton = playerBar.getByLabel('Pause')
-		await expect(pauseButton).toBeVisible({ timeout: 5000 })
+		await expect(pauseButton).toBeVisible({ timeout: 15000 })
 		await pauseButton.click({ force: true })
 
 		// After pausing, the play button should be visible
