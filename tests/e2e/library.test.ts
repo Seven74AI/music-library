@@ -1,213 +1,227 @@
-import { prisma } from '#app/utils/db.server.ts'
-import { test, expect, testPrisma } from '#tests/playwright-utils.ts'
+import { prisma } from "#app/utils/db.server.ts";
+import { test, expect, testPrisma } from "#tests/playwright-utils.ts";
 
-test.describe('Music Library', () => {
-	test('can view library page', { tag: '@smoke' }, async ({ page, login }) => {
-		await login()
+test.describe("Music Library", () => {
+  test("can view library page", { tag: "@smoke" }, async ({ page, login }) => {
+    await login();
 
-		await page.goto('/library')
-		// Wait for page to load
-		await page.waitForLoadState('networkidle')
-		// Check for the main heading
-		await expect(page.getByRole('heading', { name: /music library/i })).toBeVisible({ timeout: 10000 })
-		// Should show empty state or tracks
-		await expect(page.getByRole('heading', { name: 'No tracks yet' })).toBeVisible({ timeout: 10000 })
-	})
+    await page.goto("/library");
+    // Wait for page to load
+    await page.waitForLoadState("domcontentloaded");
+    // Check for the main heading
+    await expect(page.getByRole("heading", { name: /music library/i })).toBeVisible({
+      timeout: 10000,
+    });
+    // Should show empty state or tracks
+    await expect(page.getByRole("heading", { name: "No tracks yet" })).toBeVisible({
+      timeout: 10000,
+    });
+  });
 
+  test("shows tracks in library", { tag: "@smoke" }, async ({ page, login, insertNewTrack }) => {
+    const user = await login();
 
-	test('shows tracks in library', { tag: '@smoke' }, async ({ page, login, insertNewTrack }) => {
-		const user = await login()
-		
-		// Create a test track using the fixture (will be cleaned up automatically)
-		await insertNewTrack({}, user.id)
+    // Create a test track using the fixture (will be cleaned up automatically)
+    await insertNewTrack({}, user.id);
 
-		await page.goto('/library')
-		// Wait for page to load
-		await page.waitForLoadState('networkidle')
-		
-		// Should show the track in the table
-		await expect(page.getByText('Test Track').first()).toBeVisible({ timeout: 10000 })
-		await expect(page.getByText('Test Artist').first()).toBeVisible({ timeout: 10000 })
-	})
+    await page.goto("/library");
+    // Wait for page to load
+    await page.waitForLoadState("domcontentloaded");
 
-	test('can view individual track', async ({ page, login, insertNewTrack }) => {
-		const user = await login()
-		
-		// Create a test track using the fixture (will be cleaned up automatically)
-		const track = await insertNewTrack({}, user.id)
+    // Should show the track in the table
+    await expect(page.getByText("Test Track").first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Test Artist").first()).toBeVisible({ timeout: 10000 });
+  });
 
-		await page.goto(`/library/${track.id}`)
-		// Wait for page to load
-		await page.waitForLoadState('networkidle')
-		
-		// Should show track details - h2 with track title
-		await expect(page.getByRole('heading', { name: 'Test Track', level: 2 })).toBeVisible({ timeout: 10000 })
-		await expect(page.getByText('Test Artist')).toBeVisible({ timeout: 10000 })
-	})
+  test("can view individual track", async ({ page, login, insertNewTrack }) => {
+    const user = await login();
 
-	test('can create playlist from library track row', async ({ page, login, insertNewTrack }) => {
-		const user = await login()
-		const track = await insertNewTrack({}, user.id)
+    // Create a test track using the fixture (will be cleaned up automatically)
+    const track = await insertNewTrack({}, user.id);
 
-		await page.goto('/library')
-		await page.waitForLoadState('networkidle')
+    await page.goto(`/library/${track.id}`);
+    // Wait for page to load
+    await page.waitForLoadState("domcontentloaded");
 
-		await page.getByRole('button', { name: 'More actions' }).first().click()
-		await page.getByRole('menuitem', { name: 'Add to Playlist' }).click()
-		await page.getByRole('button', { name: 'New playlist' }).click()
-		const playlistNameInput = page.getByPlaceholder('Playlist name')
-		await playlistNameInput.fill('From Library')
-		await Promise.all([
-			page.waitForResponse((response) =>
-				response.url().includes('/resources/create-playlist-with-track') && response.ok(),
-			),
-			playlistNameInput.press('Enter'),
-		])
+    // Should show track details - h2 with track title
+    await expect(page.getByRole("heading", { name: "Test Track", level: 2 })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("Test Artist")).toBeVisible({ timeout: 10000 });
+  });
 
-		await expect.poll(async () => {
-			const result = await prisma.userPlaylist.findFirst({
-				where: { ownerId: user.id, title: 'From Library' },
-			})
-			return result?.id ?? ''
-		}).not.toBe('')
+  test("can create playlist from library track row", async ({ page, login, insertNewTrack }) => {
+    const user = await login();
+    const track = await insertNewTrack({}, user.id);
 
-		const playlist = await prisma.userPlaylist.findFirst({
-			where: { ownerId: user.id, title: 'From Library' },
-			include: { tracks: true },
-		})
+    await page.goto("/library");
+    await page.waitForLoadState("domcontentloaded");
 
-		expect(playlist).not.toBeNull()
-		if (!playlist) return
+    await page.getByRole("button", { name: "More actions" }).first().click();
+    await page.getByRole("menuitem", { name: "Add to Playlist" }).click();
+    await page.getByRole("button", { name: "New playlist" }).click();
+    const playlistNameInput = page.getByPlaceholder("Playlist name");
+    await playlistNameInput.fill("From Library");
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes("/resources/create-playlist-with-track") && response.ok(),
+      ),
+      playlistNameInput.press("Enter"),
+    ]);
 
-		expect(playlist.tracks).toHaveLength(1)
-		expect(playlist.tracks[0]?.trackId).toBe(track.id)
+    await expect
+      .poll(async () => {
+        const result = await prisma.userPlaylist.findFirst({
+          where: { ownerId: user.id, title: "From Library" },
+        });
+        return result?.id ?? "";
+      })
+      .not.toBe("");
 
-		await prisma.userPlaylistTrack.deleteMany({ where: { playlistId: playlist.id } })
-		await prisma.userPlaylist.delete({ where: { id: playlist.id } })
-	})
+    const playlist = await prisma.userPlaylist.findFirst({
+      where: { ownerId: user.id, title: "From Library" },
+      include: { tracks: true },
+    });
 
-	test('rejects duplicate playlist name inline from library track row', async ({ page, login, insertNewTrack }) => {
-		const user = await login()
-		await insertNewTrack({}, user.id)
+    expect(playlist).not.toBeNull();
+    if (!playlist) return;
 
-		const existing = await prisma.userPlaylist.create({
-			data: {
-				title: 'Road Trip',
-				ownerId: user.id,
-			},
-		})
+    expect(playlist.tracks).toHaveLength(1);
+    expect(playlist.tracks[0]?.trackId).toBe(track.id);
 
-		await page.goto('/library')
-		await page.waitForLoadState('networkidle')
+    await prisma.userPlaylistTrack.deleteMany({ where: { playlistId: playlist.id } });
+    await prisma.userPlaylist.delete({ where: { id: playlist.id } });
+  });
 
-		await page.getByRole('button', { name: 'More actions' }).first().click()
-		await page.getByRole('menuitem', { name: 'Add to Playlist' }).click()
-		await page.getByRole('button', { name: 'New playlist' }).click()
-		const playlistNameInput = page.getByPlaceholder('Playlist name')
-		await playlistNameInput.fill('road trip')
-		await Promise.all([
-			page.waitForResponse(
-				(response) =>
-					response.url().includes('/resources/create-playlist-with-track') &&
-					response.status() === 409,
-			),
-			playlistNameInput.press('Enter'),
-		])
+  test("rejects duplicate playlist name inline from library track row", async ({
+    page,
+    login,
+    insertNewTrack,
+  }) => {
+    const user = await login();
+    await insertNewTrack({}, user.id);
 
-		await expect(page.getByRole('alert')).toContainText(/already have a playlist named/i)
-		await expect(page).toHaveURL('/library')
+    const existing = await prisma.userPlaylist.create({
+      data: {
+        title: "Road Trip",
+        ownerId: user.id,
+      },
+    });
 
-		await prisma.userPlaylist.delete({ where: { id: existing.id } })
-	})
+    await page.goto("/library");
+    await page.waitForLoadState("domcontentloaded");
 
-	test('filters library list to only tracks with audio', async ({ page, login, insertNewTrack }) => {
-		test.setTimeout(60_000)
-		const user = await login()
+    await page.getByRole("button", { name: "More actions" }).first().click();
+    await page.getByRole("menuitem", { name: "Add to Playlist" }).click();
+    await page.getByRole("button", { name: "New playlist" }).click();
+    const playlistNameInput = page.getByPlaceholder("Playlist name");
+    await playlistNameInput.fill("road trip");
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes("/resources/create-playlist-with-track") &&
+          response.status() === 409,
+      ),
+      playlistNameInput.press("Enter"),
+    ]);
 
-		await insertNewTrack({ title: 'Metadata Only Track' }, user.id)
-		const playable = await insertNewTrack({ title: 'Playable Filter Track' }, user.id)
+    await expect(page.getByRole("alert")).toContainText(/already have a playlist named/i);
+    await expect(page).toHaveURL("/library");
 
-		await testPrisma.trackAudioFile.create({
-			data: {
-				trackId: playable.id,
-				objectKey: 'audio/test-filter.mp3',
-				format: 'mp3',
-				mimeType: 'audio/mpeg',
-			},
-		})
+    await prisma.userPlaylist.delete({ where: { id: existing.id } });
+  });
 
-		await page.goto('/library', { waitUntil: 'domcontentloaded', timeout: 30_000 })
-		await page.waitForLoadState('networkidle')
+  test("filters library list to only tracks with audio", async ({
+    page,
+    login,
+    insertNewTrack,
+  }) => {
+    test.setTimeout(60_000);
+    const user = await login();
 
-		await expect(page.getByText('Metadata Only Track')).toBeVisible({ timeout: 10000 })
-		await expect(page.getByText('Playable Filter Track')).toBeVisible({ timeout: 10000 })
+    await insertNewTrack({ title: "Metadata Only Track" }, user.id);
+    const playable = await insertNewTrack({ title: "Playable Filter Track" }, user.id);
 
-		await page.getByLabel('Only tracks with audio').click()
-		await expect(page).toHaveURL(/hasAudio=1/)
-		await expect(page.getByText('Playable Filter Track')).toBeVisible({ timeout: 10000 })
-		await expect(page.getByText('Metadata Only Track')).not.toBeVisible()
+    await testPrisma.trackAudioFile.create({
+      data: {
+        trackId: playable.id,
+        objectKey: "audio/test-filter.mp3",
+        format: "mp3",
+        mimeType: "audio/mpeg",
+      },
+    });
 
-		await page.getByLabel('Only tracks with audio').click()
-		await expect(page).not.toHaveURL(/hasAudio=1/)
-		await expect(page.getByText('Metadata Only Track')).toBeVisible({ timeout: 10000 })
-		await expect(page.getByText('Playable Filter Track')).toBeVisible({ timeout: 10000 })
-	})
+    await page.goto("/library", { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.waitForLoadState("domcontentloaded");
 
-	test('playing from library shows upcoming tracks in the queue sheet', async ({
-		page,
-		login,
-		insertNewTrack,
-	}) => {
-		test.setTimeout(60_000)
-		const user = await login()
-		const firstTrack = await insertNewTrack({ title: 'Queue Alpha' }, user.id)
-		const secondTrack = await insertNewTrack({ title: 'Queue Beta' }, user.id)
+    await expect(page.getByText("Metadata Only Track")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Playable Filter Track")).toBeVisible({ timeout: 10000 });
 
-		for (const track of [firstTrack, secondTrack]) {
-			await testPrisma.trackAudioFile.create({
-				data: {
-					trackId: track.id,
-					objectKey: `audio/${track.id}.mp3`,
-					format: 'mp3',
-					mimeType: 'audio/mpeg',
-				},
-			})
-		}
+    await page.getByLabel("Only tracks with audio").click();
+    await expect(page).toHaveURL(/hasAudio=1/);
+    await expect(page.getByText("Playable Filter Track")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Metadata Only Track")).not.toBeVisible();
 
-		await page.goto('/library')
-		await page.waitForLoadState('networkidle')
-		await expect(page.getByRole('heading', { name: /music library/i })).toBeVisible({
-			timeout: 10000,
-		})
-		await expect(page.getByText('Queue Alpha').first()).toBeVisible({ timeout: 10000 })
-		await expect(page.getByText('Queue Beta').first()).toBeVisible({ timeout: 10000 })
+    await page.getByLabel("Only tracks with audio").click();
+    await expect(page).not.toHaveURL(/hasAudio=1/);
+    await expect(page.getByText("Metadata Only Track")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Playable Filter Track")).toBeVisible({ timeout: 10000 });
+  });
 
-		await Promise.all([
-			page.waitForResponse(
-				response =>
-					response.url().includes('/api/queue-spine') && response.status() === 200,
-				{ timeout: 15000 },
-			),
-			page.getByRole('gridcell', { name: /Queue Beta by Test Artist/i }).click(),
-		])
+  test("playing from library shows upcoming tracks in the queue sheet", async ({
+    page,
+    login,
+    insertNewTrack,
+  }) => {
+    test.setTimeout(60_000);
+    const user = await login();
+    const firstTrack = await insertNewTrack({ title: "Queue Alpha" }, user.id);
+    const secondTrack = await insertNewTrack({ title: "Queue Beta" }, user.id);
 
-		const playerBar = page.getByTestId('player-desktop-bar')
-		await expect(playerBar).toBeVisible({ timeout: 10000 })
-		await expect(playerBar.getByText('Queue Beta')).toBeVisible()
+    for (const track of [firstTrack, secondTrack]) {
+      await testPrisma.trackAudioFile.create({
+        data: {
+          trackId: track.id,
+          objectKey: `audio/${track.id}.mp3`,
+          format: "mp3",
+          mimeType: "audio/mpeg",
+        },
+      });
+    }
 
-		const installBanner = page.getByRole('region', { name: 'Install app' })
-		if (await installBanner.isVisible().catch(() => false)) {
-			await page.getByRole('button', { name: 'Not now' }).click()
-		}
+    await page.goto("/library");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.getByRole("heading", { name: /music library/i })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByText("Queue Alpha").first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Queue Beta").first()).toBeVisible({ timeout: 10000 });
 
-		await playerBar.getByLabel('Open queue').click()
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes("/api/queue-spine") && response.status() === 200,
+        { timeout: 15000 },
+      ),
+      page.getByRole("gridcell", { name: /Queue Beta by Test Artist/i }).click(),
+    ]);
 
-		const dialog = page.getByRole('dialog')
-		await expect(dialog.getByRole('heading', { name: 'Now playing' })).toBeVisible()
-		await expect(dialog.getByText('Queue Beta')).toBeVisible()
-		await expect(dialog.getByText('Queue Alpha')).toBeVisible()
-		await expect(dialog.getByRole('heading', { name: 'Queue (2 from library)' })).toBeVisible()
-		await expect(dialog.getByRole('heading', { name: 'From Library', exact: true })).toBeVisible()
-	})
+    const playerBar = page.getByTestId("player-desktop-bar");
+    await expect(playerBar).toBeVisible({ timeout: 10000 });
+    await expect(playerBar.getByText("Queue Beta")).toBeVisible();
 
-})
+    const installBanner = page.getByRole("region", { name: "Install app" });
+    if (await installBanner.isVisible().catch(() => false)) {
+      await page.getByRole("button", { name: "Not now" }).click();
+    }
+
+    await playerBar.getByLabel("Open queue").click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Now playing" })).toBeVisible();
+    await expect(dialog.getByText("Queue Beta")).toBeVisible();
+    await expect(dialog.getByText("Queue Alpha")).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "Queue (2 from library)" })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "From Library", exact: true })).toBeVisible();
+  });
+});
