@@ -230,7 +230,7 @@
 }
 
 .animate-marquee {
-  animation: marquee-scroll 3s ease-in-out infinite;
+  animation: marquee-scroll 9s ease-in-out infinite;
   animation-delay: 1s;
 }
 
