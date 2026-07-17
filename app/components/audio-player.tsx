@@ -536,6 +536,7 @@ function PlayerNowPlayingSheet({
 					<SheetContent
 						side="bottom"
 						className="flex max-h-[60vh] flex-col pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+						onOpenAutoFocus={(e) => e.preventDefault()}
 					>
 						<SheetHeader className="text-left flex-shrink-0">
 							<SheetTitle>Add to playlist</SheetTitle>
