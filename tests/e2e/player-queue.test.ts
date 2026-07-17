@@ -441,7 +441,7 @@ test.describe('Player / Queue', () => {
 		}
 
 		const pauseButton = playerBar.getByLabel('Pause')
-		await expect(pauseButton).toBeVisible({ timeout: 15000 })
+		await expect(pauseButton).toBeVisible({ timeout: 5000 })
 		await pauseButton.click({ force: true })
 
 		// After pausing, the play button should be visible
