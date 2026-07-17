@@ -37,7 +37,7 @@ test.describe('Offline mode', () => {
 	}) => {
 		await login()
 		await page.goto('/library')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		await emulateOfflineLoaderRequests(page)
 
@@ -57,7 +57,7 @@ test.describe('Offline mode', () => {
 	test('shows offline banner on supported pages', async ({ page, login }) => {
 		await login()
 		await page.goto('/library')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		await emulateOfflineLoaderRequests(page)
 
@@ -83,7 +83,7 @@ test.describe('Offline mode', () => {
 	}) => {
 		await login()
 		await page.goto('/library')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		await emulateOfflineLoaderRequests(page)
 
@@ -108,7 +108,7 @@ test.describe('Offline mode', () => {
 	}) => {
 		await login()
 		await page.goto('/library')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		await emulateOfflineLoaderRequests(page)
 
@@ -127,7 +127,7 @@ test.describe('Offline mode', () => {
 	}) => {
 		await login()
 		await page.goto('/library')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		await emulateOfflineLoaderRequests(page)
 
@@ -191,7 +191,7 @@ test.describe('Offline mode', () => {
 
 		// Navigate to library (server is slow to cold-start, allow extra time)
 		await page.goto('/library', { timeout: 30000 })
-		await page.waitForLoadState('networkidle', { timeout: 15000 })
+		await page.waitForLoadState('domcontentloaded', { timeout: 15000 })
 
 		// Verify the track is visible in the library grid
 		const trackRow = page.getByRole('gridcell', {

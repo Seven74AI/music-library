@@ -8,7 +8,7 @@ test.describe('Audio Queue Admin Page', { tag: '@slow' }, () => {
 	test('admin can view the audio queue dashboard', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		await page.goto('/admin/audio-queue')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// Page header
 		await expect(page.getByRole('heading', { name: /audio archive queue/i })).toBeVisible()
@@ -30,7 +30,7 @@ test.describe('Audio Queue Admin Page', { tag: '@slow' }, () => {
 	test('admin can see pause button when worker is running', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		await page.goto('/admin/audio-queue')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// Pause button should be visible when running
 		const pauseButton = page.getByRole('button', { name: /pause/i })
@@ -40,7 +40,7 @@ test.describe('Audio Queue Admin Page', { tag: '@slow' }, () => {
 	test('admin can see filter buttons for all statuses', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		await page.goto('/admin/audio-queue')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// All filter buttons
 		await expect(page.getByRole('button', { name: /^all$/i })).toBeVisible()
@@ -53,7 +53,7 @@ test.describe('Audio Queue Admin Page', { tag: '@slow' }, () => {
 	test('non-admin user gets 403', async ({ page, login }) => {
 		await login()
 		await page.goto('/admin/audio-queue')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// Should see 403 error
 		await expect(page.getByText(/you must be an admin/i)).toBeVisible()
@@ -62,11 +62,11 @@ test.describe('Audio Queue Admin Page', { tag: '@slow' }, () => {
 	test('admin can pause and resume the worker', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		await page.goto('/admin/audio-queue')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// Click pause
 		await page.getByRole('button', { name: /pause/i }).click()
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// Should now show paused status
 		await expect(page.getByText(/paused/i)).toBeVisible()
@@ -76,7 +76,7 @@ test.describe('Audio Queue Admin Page', { tag: '@slow' }, () => {
 
 		// Click resume
 		await page.getByRole('button', { name: /resume/i }).click()
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// Should be back to running
 		await expect(page.getByText(/running/i)).toBeVisible()
@@ -85,11 +85,11 @@ test.describe('Audio Queue Admin Page', { tag: '@slow' }, () => {
 	test('admin can filter tracks by status', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		await page.goto('/admin/audio-queue')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// Click the Pending filter
 		await page.getByRole('button', { name: /^pending$/i }).click()
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		// URL should have status parameter
 		await expect(page).toHaveURL(/status=pending/)
@@ -101,7 +101,7 @@ test.describe('Audio Queue Admin Page', { tag: '@slow' }, () => {
 	test('table columns are visible', async ({ page, loginAsAdmin }) => {
 		await loginAsAdmin()
 		await page.goto('/admin/audio-queue')
-		await page.waitForLoadState('networkidle')
+		await page.waitForLoadState('domcontentloaded')
 
 		await expect(page.getByRole('columnheader', { name: /track/i })).toBeVisible()
 		await expect(page.getByRole('columnheader', { name: /artist/i })).toBeVisible()
