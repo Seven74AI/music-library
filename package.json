@@ -1,8 +1,8 @@
 {
   "name": "music-library-5a00",
   "private": true,
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "imports": {
     "#app/*": "./app/*",
     "#tests/*": "./tests/*",
@@ -19,7 +19,7 @@
     "dev:youtube-mocks": "cross-env NODE_ENV=development MOCKS=true YOUTUBE_MOCKS=true node ./server/dev-server.js",
     "dev:no-mocks": "cross-env NODE_ENV=development node ./server/dev-server.js",
     "dev:no-youtube-mocks": "cross-env NODE_ENV=development MOCKS=true YOUTUBE_MOCKS=false node ./server/dev-server.js",
-    "format": "prettier --write .",
+    "format": "oxfmt --write .",
     "lint": "oxlint",
     "setup": "npm run build && prisma migrate deploy && prisma generate --sql && playwright install",
     "db:reset": "prisma migrate reset --force && prisma generate",
@@ -47,9 +47,9 @@
     "reset-storage": "tsx scripts/reset-storage.ts",
     "migrate-audio-keys": "tsx scripts/migrate-audio-object-keys.ts",
     "db:manage": "tsx scripts/manage-db.ts",
-    "make-admin": "tsx scripts/make-admin.ts"
+    "make-admin": "tsx scripts/make-admin.ts",
+    "prepare": "husky"
   },
-  "prettier": "@epic-web/config/prettier",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
     "@aws-sdk/lib-storage": "^3.1079.0",
@@ -183,13 +183,13 @@
     "esbuild-plugin-tsconfig-paths": "^1.0.1",
     "fake-indexeddb": "^6.2.5",
     "fs-extra": "^11.3.0",
+    "husky": "^9.1.7",
     "jsdom": "^29.1.1",
+    "lint-staged": "^17.0.8",
     "msw": "^2.11.3",
     "npm-run-all": "^4.1.5",
+    "oxfmt": "^0.59.0",
     "oxlint": "^1.74.0",
-    "prettier": "^3.5.3",
-    "prettier-plugin-sql": "^0.20.0",
-    "prettier-plugin-tailwindcss": "^0.8.0",
     "react-router-devtools": "^6.2.1",
     "remix-flat-routes": "^0.8.5",
     "tw-animate-css": "^1.2.9",
@@ -205,11 +205,11 @@
   "engines": {
     "node": "24"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
   "epic-stack": {
     "head": "0921caa84c95f742c70655b31aa7d2c32884feab",
     "date": "2025-10-02T17:12:19Z"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }
