@@ -4,6 +4,8 @@
 
 export type SearchResultType = "track" | "album" | "artist" | "playlist";
 
+export type SearchFilterType = "all" | "tracks" | "albums" | "artists" | "playlists";
+
 export interface BaseSearchResult {
   id: string;
   type: SearchResultType;
@@ -41,6 +43,10 @@ export interface PlaylistSearchResult extends BaseSearchResult {
   type: "playlist";
   name: string;
   trackCount: number;
+  ownerName: string;
+  description?: string | null;
+  itemCount: number;
+  thumbnailUrl?: string | null;
 }
 
 export type SearchResult =

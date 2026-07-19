@@ -1,5 +1,6 @@
 /**
  * E2E tests for search functionality
+ * Tests the full-screen search page with overlay UX
  */
 
 import { test, expect } from "#tests/playwright-utils.ts";
@@ -8,47 +9,49 @@ test.describe("Global Search", () => {
   test("can navigate to search page", { tag: "@smoke" }, async ({ page, loginAsAdmin }) => {
     await loginAsAdmin();
     await page.goto("/search");
-    await expect(page.getByRole("heading", { name: /search/i })).toBeVisible();
+
+    // Search page should show a search input with placeholder text
+    const searchInput = page.getByPlaceholder(/what do you want to listen to/i);
+    await expect(searchInput).toBeVisible();
   });
 
-  test("can search for tracks", async ({ page, loginAsAdmin }) => {
+  test("search page shows type filter pills", async ({ page, loginAsAdmin }) => {
     await loginAsAdmin();
     await page.goto("/search");
 
-    // Use the search input on the search page
-    const allSearchboxes = page.getByRole("searchbox");
-    const searchInput = allSearchboxes.first();
-    await searchInput.fill("test");
-    await searchInput.press("Enter");
-
-    // Wait for results to load — Playwright auto-waits inside expect
-    // Check if search results are displayed (may be empty if no test data)
-    // Use ^Found to avoid matching "No results found"
-    await expect(page.getByText(/^Found \d+/)).toBeVisible();
+    // Type filter pills should be visible
+    await expect(page.getByRole("button", { name: "All" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Tracks" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Albums" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Artists" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Playlists" })).toBeVisible();
   });
 
   test("can filter search by type", async ({ page, loginAsAdmin }) => {
     await loginAsAdmin();
     await page.goto("/search");
 
-    // Radix Select is a button, not a native select
-    const typeSelector = page.getByRole("combobox").first();
-    if (await typeSelector.isVisible()) {
-      await typeSelector.click();
-      await page.getByRole("option", { name: /tracks/i }).click();
-    }
+    // Click the Tracks filter pill
+    await page.getByRole("button", { name: "Tracks" }).click();
+
+    // The Tracks pill should now be styled as active (primary)
+    // Type something to trigger search
+    const searchInput = page.getByPlaceholder(/what do you want to listen to/i);
+    await searchInput.fill("test");
+
+    // Results or no-results state should appear — wait for any search response
+    // The search page should no longer show the empty state
+    await expect(
+      page.getByText(/search for tracks, albums, artists/i),
+    ).not.toBeVisible({ timeout: 15000 });
   });
 
   test("search page shows empty state when no query", async ({ page, loginAsAdmin }) => {
     await loginAsAdmin();
     await page.goto("/search");
 
-    // Should show search interface without results
-    await expect(page.getByRole("heading", { name: /search/i })).toBeVisible();
-    // Get the searchbox
-    const allSearchboxes = page.getByRole("searchbox");
-    const searchInput = allSearchboxes.first();
-    await expect(searchInput).toBeVisible();
+    // Should show a friendly prompt to search
+    await expect(page.getByText(/search for tracks, albums, artists/i)).toBeVisible();
   });
 
   test("search API endpoint returns results", async ({ page, loginAsAdmin }) => {
@@ -79,5 +82,17 @@ test.describe("Global Search", () => {
 
     const response = await page.request.get("/api/search?q=test&limit=invalid");
     expect(response.status()).toBe(400);
+  });
+
+  test("back button returns to previous page", async ({ page, loginAsAdmin }) => {
+    await loginAsAdmin();
+    await page.goto("/library");
+    await page.goto("/search");
+
+    // Click the back arrow button
+    await page.getByLabel("Back").click();
+
+    // Should be back on library page
+    await expect(page).toHaveURL(/\/library/);
   });
 });
