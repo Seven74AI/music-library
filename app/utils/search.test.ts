@@ -405,4 +405,294 @@ describe("Search Utilities", () => {
       }
     });
   });
+
+  describe("library-scoped search", () => {
+    const timestamp = Date.now();
+
+    it("should return only tracks in the user's library when userId is provided", async () => {
+      // Get or create local service
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      // Create two users
+      const userA = await prisma.user.create({
+        data: {
+          email: `usera-${timestamp}@test.com`,
+          username: `usera-${timestamp}`,
+        },
+      });
+      const userB = await prisma.user.create({
+        data: {
+          email: `userb-${timestamp}@test.com`,
+          username: `userb-${timestamp}`,
+        },
+      });
+
+      // Create artist
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Scoped Artist",
+          normalizedName: "scoped artist",
+        },
+      });
+
+      // Create tracks for both users
+      const trackA = await prisma.track.create({
+        data: {
+          title: "User A Track",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `scoped-track-a-${timestamp}`,
+        },
+      });
+      const trackB = await prisma.track.create({
+        data: {
+          title: "User B Track",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `scoped-track-b-${timestamp}`,
+        },
+      });
+
+      // Associate tracks with users via UserTrack
+      await prisma.userTrack.create({
+        data: { userId: userA.id, trackId: trackA.id },
+      });
+      await prisma.userTrack.create({
+        data: { userId: userB.id, trackId: trackB.id },
+      });
+
+      // Ensure FTS5 is populated
+      await prisma.$executeRawUnsafe(
+        `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
+         SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
+         FROM "Track" t
+         JOIN "Artist" a ON t."artistId" = a.id
+         LEFT JOIN "Album" alb ON t."albumId" = alb.id
+         WHERE t.id IN (?, ?)`,
+        trackA.id,
+        trackB.id,
+      );
+
+      // User A should see only track A
+      const resultA = await searchTracks("User", 10, undefined, true, userA.id);
+      const trackIdsA = resultA.results.filter((r) => r.type === "track").map((r) => r.id);
+      expect(trackIdsA).toContain(trackA.id);
+      expect(trackIdsA).not.toContain(trackB.id);
+
+      // User B should see only track B
+      const resultB = await searchTracks("User", 10, undefined, true, userB.id);
+      const trackIdsB = resultB.results.filter((r) => r.type === "track").map((r) => r.id);
+      expect(trackIdsB).toContain(trackB.id);
+      expect(trackIdsB).not.toContain(trackA.id);
+    });
+
+    it("should return all tracks when userId is not provided (backward compat)", async () => {
+      // Get or create local service
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const user = await prisma.user.create({
+        data: {
+          email: `public-${timestamp}@test.com`,
+          username: `public-${timestamp}`,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Public Artist",
+          normalizedName: "public artist",
+        },
+      });
+
+      const track = await prisma.track.create({
+        data: {
+          title: "Public Track",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `public-track-${timestamp}`,
+        },
+      });
+
+      await prisma.userTrack.create({
+        data: { userId: user.id, trackId: track.id },
+      });
+
+      // Ensure FTS5 is populated
+      await prisma.$executeRawUnsafe(
+        `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
+         SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
+         FROM "Track" t
+         JOIN "Artist" a ON t."artistId" = a.id
+         LEFT JOIN "Album" alb ON t."albumId" = alb.id
+         WHERE t.id = ?`,
+        track.id,
+      );
+
+      // Without userId, should return the track (no scoping)
+      const result = await searchTracks("Public", 10);
+      expect(result.results.length).toBeGreaterThan(0);
+    });
+
+    it("should scope albums to user library via tracks", async () => {
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const userA = await prisma.user.create({
+        data: {
+          email: `album-a-${timestamp}@test.com`,
+          username: `album-a-${timestamp}`,
+        },
+      });
+      const userB = await prisma.user.create({
+        data: {
+          email: `album-b-${timestamp}@test.com`,
+          username: `album-b-${timestamp}`,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Album Artist",
+          normalizedName: "album artist",
+        },
+      });
+
+      const albumA = await prisma.album.create({
+        data: { name: "Library Album A", artistId: artist.id },
+      });
+      const albumB = await prisma.album.create({
+        data: { name: "Library Album B", artistId: artist.id },
+      });
+
+      // Each album gets one track, owned by ONE user only
+      const trackA = await prisma.track.create({
+        data: {
+          title: "Album Track A",
+          artistId: artist.id,
+          albumId: albumA.id,
+          serviceId: localService.id,
+          externalId: `album-track-a-${timestamp}`,
+        },
+      });
+      const trackB = await prisma.track.create({
+        data: {
+          title: "Album Track B",
+          artistId: artist.id,
+          albumId: albumB.id,
+          serviceId: localService.id,
+          externalId: `album-track-b-${timestamp}`,
+        },
+      });
+
+      await prisma.userTrack.create({ data: { userId: userA.id, trackId: trackA.id } });
+      await prisma.userTrack.create({ data: { userId: userB.id, trackId: trackB.id } });
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // User A should see album A but not album B
+      const resultA = await searchAlbums("Library Album", 10, undefined, true, userA.id);
+      const albumIdsA = resultA.results.filter((r) => r.type === "album").map((r) => r.id);
+      expect(albumIdsA).toContain(albumA.id);
+      expect(albumIdsA).not.toContain(albumB.id);
+
+      // User B should see album B but not album A
+      const resultB = await searchAlbums("Library Album", 10, undefined, true, userB.id);
+      const albumIdsB = resultB.results.filter((r) => r.type === "album").map((r) => r.id);
+      expect(albumIdsB).toContain(albumB.id);
+      expect(albumIdsB).not.toContain(albumA.id);
+    });
+
+    it("should scope artists to user library via tracks", async () => {
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const userA = await prisma.user.create({
+        data: {
+          email: `artist-a-${timestamp}@test.com`,
+          username: `artist-a-${timestamp}`,
+        },
+      });
+      const userB = await prisma.user.create({
+        data: {
+          email: `artist-b-${timestamp}@test.com`,
+          username: `artist-b-${timestamp}`,
+        },
+      });
+
+      const artistA = await prisma.artist.create({
+        data: { name: "Library Artist A", normalizedName: "library artist a" },
+      });
+      const artistB = await prisma.artist.create({
+        data: { name: "Library Artist B", normalizedName: "library artist b" },
+      });
+
+      const trackA = await prisma.track.create({
+        data: {
+          title: "Artist Track A",
+          artistId: artistA.id,
+          serviceId: localService.id,
+          externalId: `artist-track-a-${timestamp}`,
+        },
+      });
+      const trackB = await prisma.track.create({
+        data: {
+          title: "Artist Track B",
+          artistId: artistB.id,
+          serviceId: localService.id,
+          externalId: `artist-track-b-${timestamp}`,
+        },
+      });
+
+      await prisma.userTrack.create({ data: { userId: userA.id, trackId: trackA.id } });
+      await prisma.userTrack.create({ data: { userId: userB.id, trackId: trackB.id } });
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // User A should see artist A but not artist B
+      const resultA = await searchArtists("Library Artist", 10, undefined, true, userA.id);
+      const artistIdsA = resultA.results.filter((r) => r.type === "artist").map((r) => r.id);
+      expect(artistIdsA).toContain(artistA.id);
+      expect(artistIdsA).not.toContain(artistB.id);
+
+      // User B should see artist B but not artist A
+      const resultB = await searchArtists("Library Artist", 10, undefined, true, userB.id);
+      const artistIdsB = resultB.results.filter((r) => r.type === "artist").map((r) => r.id);
+      expect(artistIdsB).toContain(artistB.id);
+      expect(artistIdsB).not.toContain(artistA.id);
+    });
+  });
 });

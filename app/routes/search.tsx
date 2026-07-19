@@ -2,25 +2,26 @@
  * Global search page for tracks, albums, and artists
  */
 
-import { useSearchParams } from 'react-router'
-import { z } from 'zod'
-import { OfflineAwareErrorBoundary } from '#app/components/offline/offline-aware-error-boundary.tsx'
-import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
-import { SearchBar } from '#app/components/search-bar.tsx'
-import { SearchResults } from '#app/components/search-results.tsx'
-import { useDelayedIsPending } from '#app/utils/misc.tsx'
+import { useSearchParams } from "react-router";
+import { z } from "zod";
+import { OfflineAwareErrorBoundary } from "#app/components/offline/offline-aware-error-boundary.tsx";
+import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
+import { SearchBar } from "#app/components/search-bar.tsx";
+import { SearchResults } from "#app/components/search-results.tsx";
+import { useDelayedIsPending } from "#app/utils/misc.tsx";
 import {
-	validateSearchQuery,
-	validateSearchLimit,
-	validateSearchType,
-	validateCursor,
-} from '#app/utils/search-validation.server.ts'
-import { searchAll } from '#app/utils/search.server.ts'
-import { type Route } from './+types/search.ts'
+  validateSearchQuery,
+  validateSearchLimit,
+  validateSearchType,
+  validateCursor,
+} from "#app/utils/search-validation.server.ts";
+import { searchAll } from "#app/utils/search.server.ts";
+import { getUserId } from "#app/utils/auth.server.ts";
+import { type Route } from "./+types/search.ts";
 
 /**
  * Global search page for tracks, albums, and artists
- * 
+ *
  * Security:
  * - Input validation using Zod schemas
  * - SQL injection prevention via proper escaping
@@ -28,140 +29,143 @@ import { type Route } from './+types/search.ts'
  * - XSS protection via React's automatic escaping
  */
 export async function loader({ request, url }: Route.LoaderArgs) {
-	
-	
-	try {
-		// Security: Validate and sanitize all input parameters
-		const rawQuery = url.searchParams.get('q') || ''
-		const query = rawQuery.trim() ? validateSearchQuery(rawQuery) : ''
-		
-		const rawType = url.searchParams.get('type') || 'all'
-		const type = validateSearchType(rawType)
-		
-		const limitParam = url.searchParams.get('limit')
-		const limit = validateSearchLimit(
-			limitParam ? parseInt(limitParam, 10) : 20,
-		)
-		
-		const rawCursor = url.searchParams.get('cursor')
-		// Convert null to undefined for cursor validation (url.searchParams.get returns null, not undefined)
-		const cursor = validateCursor(rawCursor === null ? undefined : rawCursor)
-		
-		// Enable prefix matching by default for better search experience
-		const usePrefix = url.searchParams.get('prefix') !== 'false'
+  const userId = await getUserId(request);
 
-		if (!query) {
-			return {
-				results: [],
-				query: '',
-				type,
-				pagination: { limit, hasNext: false, nextCursor: null },
-			}
-		}
+  try {
+    // Security: Validate and sanitize all input parameters
+    const rawQuery = url.searchParams.get("q") || "";
+    const query = rawQuery.trim() ? validateSearchQuery(rawQuery) : "";
 
-		// Security: All inputs are now validated, safe to use
-		const searchResults = await searchAll(query, limit, cursor, type, usePrefix)
-		return {
-			results: searchResults.results,
-			query,
-			type,
-			pagination: searchResults.pagination,
-		}
-	} catch (error) {
-		// Log all errors for debugging (including validation errors)
-		if (error instanceof z.ZodError) {
-			console.error('🚨 [SEARCH ROUTE] Validation error:', error.issues)
-			console.error('🚨 [SEARCH ROUTE] Full ZodError:', error)
-			// Security: Don't expose internal error details to clients
-			// Validation error - return empty results
-			return {
-				results: [],
-				query: url.searchParams.get('q') || '',
-				type: 'all',
-				pagination: { limit: 20, hasNext: false, nextCursor: null },
-			}
-		}
-		
-		console.error('🚨 [SEARCH ROUTE] Unexpected error in search loader:', error)
-		if (error instanceof Error) {
-			console.error('🚨 [SEARCH ROUTE] Error stack:', error.stack)
-		}
-		return {
-			results: [],
-			query: url.searchParams.get('q') || '',
-			type: 'all',
-			pagination: { limit: 20, hasNext: false, nextCursor: null },
-		}
-	}
+    const rawType = url.searchParams.get("type") || "all";
+    const type = validateSearchType(rawType);
+
+    const limitParam = url.searchParams.get("limit");
+    const limit = validateSearchLimit(limitParam ? parseInt(limitParam, 10) : 20);
+
+    const rawCursor = url.searchParams.get("cursor");
+    // Convert null to undefined for cursor validation (url.searchParams.get returns null, not undefined)
+    const cursor = validateCursor(rawCursor === null ? undefined : rawCursor);
+
+    // Enable prefix matching by default for better search experience
+    const usePrefix = url.searchParams.get("prefix") !== "false";
+
+    if (!query) {
+      return {
+        results: [],
+        query: "",
+        type,
+        pagination: { limit, hasNext: false, nextCursor: null },
+      };
+    }
+
+    // Security: All inputs are now validated, safe to use
+    const searchResults = await searchAll(
+      query,
+      limit,
+      cursor,
+      type,
+      usePrefix,
+      userId ?? undefined,
+    );
+    return {
+      results: searchResults.results,
+      query,
+      type,
+      pagination: searchResults.pagination,
+    };
+  } catch (error) {
+    // Log all errors for debugging (including validation errors)
+    if (error instanceof z.ZodError) {
+      console.error("🚨 [SEARCH ROUTE] Validation error:", error.issues);
+      console.error("🚨 [SEARCH ROUTE] Full ZodError:", error);
+      // Security: Don't expose internal error details to clients
+      // Validation error - return empty results
+      return {
+        results: [],
+        query: url.searchParams.get("q") || "",
+        type: "all",
+        pagination: { limit: 20, hasNext: false, nextCursor: null },
+      };
+    }
+
+    console.error("🚨 [SEARCH ROUTE] Unexpected error in search loader:", error);
+    if (error instanceof Error) {
+      console.error("🚨 [SEARCH ROUTE] Error stack:", error.stack);
+    }
+    return {
+      results: [],
+      query: url.searchParams.get("q") || "",
+      type: "all",
+      pagination: { limit: 20, hasNext: false, nextCursor: null },
+    };
+  }
 }
 
 export default function SearchPage({ loaderData }: Route.ComponentProps) {
-	const { results, query, pagination } = loaderData
-	const [searchParams, setSearchParams] = useSearchParams()
-	const isPending = useDelayedIsPending({
-		formMethod: 'GET',
-		formAction: '/search',
-	})
+  const { results, query, pagination } = loaderData;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isPending = useDelayedIsPending({
+    formMethod: "GET",
+    formAction: "/search",
+  });
 
-	const status: 'idle' | 'pending' | 'success' | 'error' = isPending
-		? 'pending'
-		: results.length > 0
-			? 'success'
-			: query
-				? 'idle'
-				: 'idle'
+  const status: "idle" | "pending" | "success" | "error" = isPending
+    ? "pending"
+    : results.length > 0
+      ? "success"
+      : query
+        ? "idle"
+        : "idle";
 
-	const handleLoadMore = () => {
-		if (pagination.hasNext && pagination.nextCursor) {
-			const newParams = new URLSearchParams(searchParams)
-			newParams.set('cursor', pagination.nextCursor)
-			setSearchParams(newParams)
-		}
-	}
+  const handleLoadMore = () => {
+    if (pagination.hasNext && pagination.nextCursor) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.set("cursor", pagination.nextCursor);
+      setSearchParams(newParams);
+    }
+  };
 
-	return (
-		<OfflineRouteBlocker>
-			<div className="py-8">
-			<div className="mb-8">
-				<h1 className="text-3xl font-bold mb-2">Search</h1>
-				<p className="text-muted-foreground">
-					Search for tracks, albums, and artists in your music library
-				</p>
-			</div>
+  return (
+    <OfflineRouteBlocker>
+      <div className="py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold mb-2">Search</h1>
+          <p className="text-muted-foreground">
+            Search for tracks, albums, and artists in your music library
+          </p>
+        </div>
 
-			<div className="mb-6">
-				<SearchBar
-					status={status}
-					autoFocus
-					autoSubmit
-					action="/search"
-					searchParamName="q"
-					showTypeSelector
-				/>
-			</div>
+        <div className="mb-6">
+          <SearchBar
+            status={status}
+            autoFocus
+            autoSubmit
+            action="/search"
+            searchParamName="q"
+            showTypeSelector
+          />
+        </div>
 
-			{query && (
-				<div className="mb-4">
-					<p className="text-sm text-muted-foreground">
-						Found {results.length} result{results.length !== 1 ? 's' : ''} for "
-						{query}"
-					</p>
-				</div>
-			)}
+        {query && (
+          <div className="mb-4">
+            <p className="text-sm text-muted-foreground">
+              Found {results.length} result{results.length !== 1 ? "s" : ""} for "{query}"
+            </p>
+          </div>
+        )}
 
-			<SearchResults
-				results={results}
-				query={query}
-				hasNext={pagination.hasNext}
-				onLoadMore={handleLoadMore}
-				isLoading={isPending}
-			/>
-			</div>
-		</OfflineRouteBlocker>
-	)
+        <SearchResults
+          results={results}
+          query={query}
+          hasNext={pagination.hasNext}
+          onLoadMore={handleLoadMore}
+          isLoading={isPending}
+        />
+      </div>
+    </OfflineRouteBlocker>
+  );
 }
 
 export function ErrorBoundary() {
-	return <OfflineAwareErrorBoundary />
+  return <OfflineAwareErrorBoundary />;
 }
-
