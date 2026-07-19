@@ -6,6 +6,10 @@ vi.mock("#app/utils/search.server.ts", () => ({
   searchAll: vi.fn(),
 }));
 
+vi.mock("#app/utils/auth.server.ts", () => ({
+  getUserId: vi.fn().mockResolvedValue(null),
+}));
+
 function makeRequest(url: string) {
   return { request: new Request(url), url: new URL(url) };
 }
