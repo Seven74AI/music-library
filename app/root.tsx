@@ -1,228 +1,205 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { OpenImgContextProvider } from 'openimg/react'
-import { lazy, Suspense } from 'react'
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { OpenImgContextProvider } from "openimg/react";
+import { lazy, Suspense } from "react";
 import {
-	data,
-	Link,
-	Links,
-	Meta,
-	Outlet,
-	Scripts,
-	ScrollRestoration,
-	useLoaderData,
-	useMatches,
-} from 'react-router'
-import { HoneypotProvider } from 'remix-utils/honeypot/react'
-import { useToast } from '#app/components/toaster.tsx'
+  data,
+  Link,
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLoaderData,
+} from "react-router";
+import { HoneypotProvider } from "remix-utils/honeypot/react";
+import { useToast } from "#app/components/toaster.tsx";
+import { defineOfflineClientLoader } from "#app/features/offline-app/define-offline-client-loader.ts";
+import { type ServerLoaderData } from "#app/features/offline-app/offline-loader.client.ts";
+import { type OfflineRootShell } from "#app/features/offline-app/offline-root-shell.client.ts";
+import { useServiceWorkerUpdateToast } from "#app/hooks/use-service-worker-update-toast.tsx";
+import { type Route } from "./+types/root.ts";
+import appleTouchIconAssetUrl from "./assets/favicons/apple-touch-icon.png";
+import faviconAssetUrl from "./assets/favicons/favicon.svg";
+import { AudioPlayerProvider } from "./components/audio-player-provider";
+import { BottomNav } from "./components/bottom-nav.tsx";
+import { OfflineAwareErrorBoundary } from "./components/offline/offline-aware-error-boundary.tsx";
+import { OfflineStatusBanner } from "./components/offline/offline-status-banner.tsx";
+import { EpicProgress } from "./components/progress-bar.tsx";
+import { RouteHydrateFallback } from "./components/route-hydrate-fallback.tsx";
+import { href as iconsHref } from "./components/ui/icon.tsx";
+import { Toaster } from "./components/ui/toaster.tsx";
+import { offlineClientMiddleware } from "./middleware/offline-client.middleware.client.ts";
+import { ThemeSwitch, useOptionalTheme } from "./routes/resources+/theme-switch.tsx";
+import tailwindStyleSheetUrl from "./styles/tailwind.css?url";
+import { getUserId, logout } from "./utils/auth.server.ts";
+import { ClientHintCheck, getHints } from "./utils/client-hints.tsx";
+import { prisma } from "./utils/db.server.ts";
+import { getEnv } from "./utils/env.server.ts";
+import { pipeHeaders } from "./utils/headers.server.ts";
+import { honeypot } from "./utils/honeypot.server.ts";
+import { combineHeaders, getDomainUrl, getImgSrc } from "./utils/misc.tsx";
+import { useNonce } from "./utils/nonce-provider.ts";
 import {
-	defineOfflineClientLoader,
-} from '#app/features/offline-app/define-offline-client-loader.ts'
-import { type ServerLoaderData } from '#app/features/offline-app/offline-loader.client.ts'
-import { type OfflineRootShell } from '#app/features/offline-app/offline-root-shell.client.ts'
-import { useServiceWorkerUpdateToast } from '#app/hooks/use-service-worker-update-toast.tsx'
-import { type Route } from './+types/root.ts'
-import appleTouchIconAssetUrl from './assets/favicons/apple-touch-icon.png'
-import faviconAssetUrl from './assets/favicons/favicon.svg'
-import { AudioPlayerProvider } from './components/audio-player-provider'
-import { OfflineAwareErrorBoundary } from './components/offline/offline-aware-error-boundary.tsx'
-import { OfflineStatusBanner } from './components/offline/offline-status-banner.tsx'
-import { EpicProgress } from './components/progress-bar.tsx'
-import { RouteHydrateFallback } from './components/route-hydrate-fallback.tsx'
-import { href as iconsHref } from './components/ui/icon.tsx'
-import { Toaster } from './components/ui/toaster.tsx'
-import { offlineClientMiddleware } from './middleware/offline-client.middleware.client.ts'
-import {
-	ThemeSwitch,
-	useOptionalTheme,
-} from './routes/resources+/theme-switch.tsx'
-import tailwindStyleSheetUrl from './styles/tailwind.css?url'
-import { getUserId, logout } from './utils/auth.server.ts'
-import { ClientHintCheck, getHints } from './utils/client-hints.tsx'
-import { prisma } from './utils/db.server.ts'
-import { getEnv } from './utils/env.server.ts'
-import { pipeHeaders } from './utils/headers.server.ts'
-import { honeypot } from './utils/honeypot.server.ts'
-import { combineHeaders, getDomainUrl, getImgSrc } from './utils/misc.tsx'
-import { useNonce } from './utils/nonce-provider.ts'
-import {
-	getRecentNotifications,
-	getUnreadNotificationCount,
-} from './utils/notifications.server.ts'
-import { type Theme, getTheme } from './utils/theme.server.ts'
-import { makeTimings, time } from './utils/timing.server.ts'
-import { getToast } from './utils/toast.server.ts'
-import { useOptionalUser } from './utils/user.ts'
+  getRecentNotifications,
+  getUnreadNotificationCount,
+} from "./utils/notifications.server.ts";
+import { type Theme, getTheme } from "./utils/theme.server.ts";
+import { makeTimings, time } from "./utils/timing.server.ts";
+import { getToast } from "./utils/toast.server.ts";
+import { useOptionalUser } from "./utils/user.ts";
 
 // Lazy-loaded components — reduces initial bundle by deferring non-critical UI
 // UserDropdown: ~87KB (dropdown-menu 66KB + select 21KB from Radix primitives)
-// SearchBar: ~23KB (select 21KB + search-bar 2KB)
 const LazyUserDropdown = lazy(() =>
-	import('./components/user-dropdown.tsx').then((m) => ({
-		default: m.UserDropdown,
-	})),
-)
+  import("./components/user-dropdown.tsx").then((m) => ({
+    default: m.UserDropdown,
+  })),
+);
 
 const LazyNotificationBell = lazy(() =>
-	import('./components/notification-bell.tsx').then((m) => ({
-		default: m.NotificationBell,
-	})),
-)
-
-const LazySearchBar = lazy(() =>
-	import('./components/search-bar.tsx').then((m) => ({
-		default: m.SearchBar,
-	})),
-)
+  import("./components/notification-bell.tsx").then((m) => ({
+    default: m.NotificationBell,
+  })),
+);
 
 export const links: Route.LinksFunction = () => {
-	return [
-		// Preload svg sprite as a resource to avoid render blocking
-		// Use fetchpriority="high" to ensure it loads early
-		{ rel: 'preload', href: iconsHref, as: 'image/svg+xml', fetchPriority: 'high' as const },
-		{
-			rel: 'icon',
-			href: '/favicon.ico',
-			sizes: '48x48',
-		},
-		{ rel: 'icon', type: 'image/svg+xml', href: faviconAssetUrl },
-		{ rel: 'apple-touch-icon', href: appleTouchIconAssetUrl },
-		{
-			rel: 'manifest',
-			href: '/site.webmanifest',
-			crossOrigin: 'use-credentials',
-		} as const, // necessary to make typescript happy
-		{ rel: 'stylesheet', href: tailwindStyleSheetUrl },
-	].filter(Boolean)
-}
+  return [
+    // Preload svg sprite as a resource to avoid render blocking
+    // Use fetchpriority="high" to ensure it loads early
+    { rel: "preload", href: iconsHref, as: "image/svg+xml", fetchPriority: "high" as const },
+    {
+      rel: "icon",
+      href: "/favicon.ico",
+      sizes: "48x48",
+    },
+    { rel: "icon", type: "image/svg+xml", href: faviconAssetUrl },
+    { rel: "apple-touch-icon", href: appleTouchIconAssetUrl },
+    {
+      rel: "manifest",
+      href: "/site.webmanifest",
+      crossOrigin: "use-credentials",
+    } as const, // necessary to make typescript happy
+    { rel: "stylesheet", href: tailwindStyleSheetUrl },
+  ].filter(Boolean);
+};
 
 export const meta: Route.MetaFunction = ({ loaderData }) => {
-	return [
-		{ title: loaderData ? 'Music Library' : 'Error | Music Library' },
-		{ name: 'description', content: `Your personal music library` },
-		{ name: 'mobile-web-app-capable', content: 'yes' },
-		{ name: 'apple-mobile-web-app-capable', content: 'yes' },
-		{ name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
-		{ name: 'apple-mobile-web-app-title', content: 'Music Library' },
-	]
-}
+  return [
+    { title: loaderData ? "Music Library" : "Error | Music Library" },
+    { name: "description", content: `Your personal music library` },
+    { name: "mobile-web-app-capable", content: "yes" },
+    { name: "apple-mobile-web-app-capable", content: "yes" },
+    { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+    { name: "apple-mobile-web-app-title", content: "Music Library" },
+  ];
+};
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-	const timings = makeTimings('root loader')
-	const userId = await time(() => getUserId(request), {
-		timings,
-		type: 'getUserId',
-		desc: 'getUserId in root',
-	})
+  const timings = makeTimings("root loader");
+  const userId = await time(() => getUserId(request), {
+    timings,
+    type: "getUserId",
+    desc: "getUserId in root",
+  });
 
-	const user = userId
-		? await time(
-				() =>
-					prisma.user.findUnique({
-						select: {
-							id: true,
-							name: true,
-							username: true,
-							image: { select: { objectKey: true } },
-							roles: {
-								select: {
-									name: true,
-									permissions: {
-										select: { entity: true, action: true, access: true },
-									},
-								},
-							},
-						},
-						where: { id: userId },
-					}),
-				{ timings, type: 'find user', desc: 'find user in root' },
-			)
-		: null
-	if (userId && !user) {
-		console.info('something weird happened')
-		// something weird happened... The user is authenticated but we can't find
-		// them in the database. Maybe they were deleted? Let's log them out.
-		await logout({ request, redirectTo: '/' })
-	}
-	const { toast, headers: toastHeaders } = await getToast(request)
-	const honeyProps = await honeypot.getInputProps()
-	const notifications = userId
-		? await getRecentNotifications(userId)
-		: []
-	const unreadNotificationCount = userId
-		? await getUnreadNotificationCount(userId)
-		: 0
+  const user = userId
+    ? await time(
+        () =>
+          prisma.user.findUnique({
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              image: { select: { objectKey: true } },
+              roles: {
+                select: {
+                  name: true,
+                  permissions: {
+                    select: { entity: true, action: true, access: true },
+                  },
+                },
+              },
+            },
+            where: { id: userId },
+          }),
+        { timings, type: "find user", desc: "find user in root" },
+      )
+    : null;
+  if (userId && !user) {
+    console.info("something weird happened");
+    // something weird happened... The user is authenticated but we can't find
+    // them in the database. Maybe they were deleted? Let's log them out.
+    await logout({ request, redirectTo: "/" });
+  }
+  const { toast, headers: toastHeaders } = await getToast(request);
+  const honeyProps = await honeypot.getInputProps();
+  const notifications = userId ? await getRecentNotifications(userId) : [];
+  const unreadNotificationCount = userId ? await getUnreadNotificationCount(userId) : 0;
 
-	return data(
-		{
-			user,
-			notifications,
-			unreadNotificationCount,
-			requestInfo: {
-				hints: getHints(request),
-				origin: getDomainUrl(request),
-				path: url.pathname,
-				userPrefs: {
-					theme: getTheme(request),
-				},
-			},
-			ENV: getEnv(),
-			toast,
-			honeyProps,
-		},
-		{
-			headers: combineHeaders(
-				{ 'Server-Timing': timings.toString() },
-				toastHeaders,
-			),
-		},
-	)
+  return data(
+    {
+      user,
+      notifications,
+      unreadNotificationCount,
+      requestInfo: {
+        hints: getHints(request),
+        origin: getDomainUrl(request),
+        path: url.pathname,
+        userPrefs: {
+          theme: getTheme(request),
+        },
+      },
+      ENV: getEnv(),
+      toast,
+      honeyProps,
+    },
+    {
+      headers: combineHeaders({ "Server-Timing": timings.toString() }, toastHeaders),
+    },
+  );
 }
 
 export const clientLoader = defineOfflineClientLoader<
-	ServerLoaderData<typeof loader>,
-	OfflineRootShell
->('root')
+  ServerLoaderData<typeof loader>,
+  OfflineRootShell
+>("root");
 
 export function HydrateFallback() {
-	return <RouteHydrateFallback />
+  return <RouteHydrateFallback />;
 }
 
-export const clientMiddleware: Route.ClientMiddlewareFunction[] = [
-	offlineClientMiddleware,
-]
+export const clientMiddleware: Route.ClientMiddlewareFunction[] = [offlineClientMiddleware];
 
-export const headers: Route.HeadersFunction = pipeHeaders
+export const headers: Route.HeadersFunction = pipeHeaders;
 
 function Document({
-	children,
-	nonce,
-	theme = 'light',
-	env = {},
+  children,
+  nonce,
+  theme = "light",
+  env = {},
 }: {
-	children: React.ReactNode
-	nonce: string
-	theme?: Theme
-	env?: Record<string, string | undefined>
+  children: React.ReactNode;
+  nonce: string;
+  theme?: Theme;
+  env?: Record<string, string | undefined>;
 }) {
-	const allowIndexing = ENV.ALLOW_INDEXING !== 'false'
-	return (
-		<html lang="en" className={`${theme} h-full overflow-x-hidden`}>
-			<head>
-				<ClientHintCheck nonce={nonce} />
-				<Meta />
-				<meta charSet="utf-8" />
-				<meta name="viewport" content="width=device-width,initial-scale=1" />
-				{allowIndexing ? null : (
-					<meta name="robots" content="noindex, nofollow" />
-				)}
-				<Links />
-			</head>
-			<body className="bg-background text-foreground">
-				{/* Inject SVG sprite into DOM before React hydrates */}
-				<script
-					nonce={nonce}
-					dangerouslySetInnerHTML={{
-						__html: `
+  const allowIndexing = ENV.ALLOW_INDEXING !== "false";
+  return (
+    <html lang="en" className={`${theme} h-full overflow-x-hidden`}>
+      <head>
+        <ClientHintCheck nonce={nonce} />
+        <Meta />
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        {allowIndexing ? null : <meta name="robots" content="noindex, nofollow" />}
+        <Links />
+      </head>
+      <body className="bg-background text-foreground">
+        {/* Inject SVG sprite into DOM before React hydrates */}
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `
 (function() {
 	if (document.getElementById('svg-sprite-container')) return;
 	var container = document.createElement('div');
@@ -244,139 +221,126 @@ function Document({
 	}
 })();
 						`.trim(),
-					}}
-				/>
-				{children}
-				<script
-					nonce={nonce}
-					dangerouslySetInnerHTML={{
-						__html: `window.ENV = ${JSON.stringify(env)}`,
-					}}
-				/>
-				<ScrollRestoration nonce={nonce} />
-				<Scripts nonce={nonce} />
-			</body>
-		</html>
-	)
+          }}
+        />
+        {children}
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `window.ENV = ${JSON.stringify(env)}`,
+          }}
+        />
+        <ScrollRestoration nonce={nonce} />
+        <Scripts nonce={nonce} />
+      </body>
+    </html>
+  );
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-	// if there was an error running the loader, data could be missing
-	const data = useLoaderData<typeof loader | null>()
-	const nonce = useNonce()
-	const theme = useOptionalTheme()
-	return (
-		<Document nonce={nonce} theme={theme} env={data?.ENV}>
-			{children}
-		</Document>
-	)
+  // if there was an error running the loader, data could be missing
+  const data = useLoaderData<typeof loader | null>();
+  const nonce = useNonce();
+  const theme = useOptionalTheme();
+  return (
+    <Document nonce={nonce} theme={theme} env={data?.ENV}>
+      {children}
+    </Document>
+  );
 }
 
 function App() {
-	const data = useLoaderData<typeof loader>()
-	const user = useOptionalUser()
-	useServiceWorkerUpdateToast()
-	const matches = useMatches()
-	const isOnSearchPage = matches.find((m) => m.id === 'routes/users+/index')
-	const searchBarEl = isOnSearchPage ? null : (
-		<Suspense fallback={null}>
-			<LazySearchBar status="idle" />
-		</Suspense>
-	)
-	useToast(data.toast)
+  const data = useLoaderData<typeof loader>();
+  const user = useOptionalUser();
+  useServiceWorkerUpdateToast();
+  useToast(data.toast);
 
-	const queryClient = new QueryClient({
-		defaultOptions: {
-			queries: {
-				staleTime: 1000 * 60 * 5, // 5 minutes
-				gcTime: 1000 * 60 * 10, // 10 minutes
-			},
-		},
-	})
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 1000 * 60 * 5, // 5 minutes
+        gcTime: 1000 * 60 * 10, // 10 minutes
+      },
+    },
+  });
 
-	return (
-		<QueryClientProvider client={queryClient}>
-			<OpenImgContextProvider
-				optimizerEndpoint="/resources/images"
-				getSrc={getImgSrc}
-			>
-				<AudioPlayerProvider>
-					<div className="flex min-h-screen flex-col justify-between">
-				<OfflineStatusBanner />
-				<a
-					href="#main-content"
-					className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50"
-				>
-					Skip to content
-				</a>
-				<header className="container py-6" role="banner">
-					<nav className="flex flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-4 md:gap-8">
-							<Logo />
-							<div className="ml-auto hidden max-w-sm flex-1 sm:block">
-								{searchBarEl}
-							</div>
-							<div className="flex items-center gap-4 sm:gap-6 md:gap-10">
-								<ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
-								{user ? (
-									<Suspense fallback={null}>
-										<LazyNotificationBell
-											notifications={data.notifications}
-											unreadCount={data.unreadNotificationCount}
-										/>
-									</Suspense>
-								) : null}
-								{user ? (
-									<Suspense fallback={null}>
-										<LazyUserDropdown />
-									</Suspense>
-								) : null}
-							</div>
-							<div className="block w-full sm:hidden">{searchBarEl}</div>
-						</nav>
-					</header>
+  return (
+    <QueryClientProvider client={queryClient}>
+      <OpenImgContextProvider optimizerEndpoint="/resources/images" getSrc={getImgSrc}>
+        <AudioPlayerProvider>
+          <div className="flex min-h-screen flex-col justify-between">
+            <OfflineStatusBanner />
+            <a
+              href="#main-content"
+              className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50"
+            >
+              Skip to content
+            </a>
+            <header className="container py-6" role="banner">
+              <nav className="flex flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-4 md:gap-8">
+                <Logo />
+                <div className="ml-auto flex items-center gap-4 sm:gap-6 md:gap-10">
+                  <ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
+                  {user ? (
+                    <Suspense fallback={null}>
+                      <LazyNotificationBell
+                        notifications={data.notifications}
+                        unreadCount={data.unreadNotificationCount}
+                      />
+                    </Suspense>
+                  ) : null}
+                  {user ? (
+                    <Suspense fallback={null}>
+                      <LazyUserDropdown />
+                    </Suspense>
+                  ) : null}
+                </div>
+              </nav>
+            </header>
 
-					<div className="flex flex-1 flex-col" id="main-content">
-						<div className="container">
-							<Outlet />
-						</div>
-				</div>
+            <div className="flex flex-1 flex-col pb-16" id="main-content">
+              <div className="container">
+                <Outlet />
+              </div>
+            </div>
 
-				<footer className="container py-8 text-center text-sm text-muted-foreground" role="contentinfo">
-					<p>&copy; {new Date().getFullYear()} Music Library</p>
-				</footer>
-			</div>
-			<Toaster />
-					<EpicProgress />
-				</AudioPlayerProvider>
-			</OpenImgContextProvider>
-		</QueryClientProvider>
-	)
+            <BottomNav />
+
+            <footer
+              className="container py-8 text-center text-sm text-muted-foreground"
+              role="contentinfo"
+            >
+              <p>&copy; {new Date().getFullYear()} Music Library</p>
+            </footer>
+          </div>
+          <Toaster />
+          <EpicProgress />
+        </AudioPlayerProvider>
+      </OpenImgContextProvider>
+    </QueryClientProvider>
+  );
 }
 
 function Logo() {
-	return (
-		<Link to="/" className="group grid leading-snug">
-			<span className="font-light transition group-hover:-translate-x-1">
-				epic
-			</span>
-			<span className="font-bold transition group-hover:translate-x-1">
-				music
-			</span>
-		</Link>
-	)
+  return (
+    <Link to="/" className="group grid leading-snug">
+      <span className="font-light transition group-hover:-translate-x-1">epic</span>
+      <span className="font-bold transition group-hover:translate-x-1">music</span>
+    </Link>
+  );
 }
 
 function AppWithProviders() {
-	const data = useLoaderData<typeof loader>()
-	return (
-		<HoneypotProvider {...data.honeyProps}>
-			<App />
-		</HoneypotProvider>
-	)
+  const data = useLoaderData<typeof loader>();
+  return (
+    <HoneypotProvider {...data.honeyProps}>
+      <App />
+    </HoneypotProvider>
+  );
 }
 
-export default AppWithProviders
+export default AppWithProviders;
 
 // this is a last resort error boundary. There's not much useful information we
 // can offer at this level.
-export const ErrorBoundary = OfflineAwareErrorBoundary
+export const ErrorBoundary = OfflineAwareErrorBoundary;
