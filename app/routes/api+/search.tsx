@@ -1,16 +1,17 @@
 /**
  * Global search API endpoint
- * Searches across tracks, albums, and artists using FTS5
+ * Searches across tracks, albums, artists, and playlists using FTS5 + LIKE
  *
  * Security:
  * - Input validation using Zod schemas
  * - SQL injection prevention via proper escaping
  * - DoS prevention via query length limits
  * - Rate limiting handled by Express middleware (1000 req/min for GET)
- * - No authentication required (public music library search)
+ * - Playlist search requires authentication (user-scoped)
  */
 
 import { type z } from "zod";
+import { getUserId } from "#app/utils/auth.server.ts";
 import {
   CursorSchema,
   SearchLimitSchema,
@@ -18,7 +19,6 @@ import {
   SearchTypeSchema,
 } from "#app/utils/search-validation.server.ts";
 import { searchAll } from "#app/utils/search.server.ts";
-import { getUserId } from "#app/utils/auth.server.ts";
 import { type Route } from "./+types/search.ts";
 
 function invalidSearchParameters(error: z.ZodError) {
@@ -29,8 +29,6 @@ function invalidSearchParameters(error: z.ZodError) {
 }
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  const userId = await getUserId(request);
-
   const queryResult = SearchQuerySchema.safeParse(url.searchParams.get("q") ?? "");
   if (!queryResult.success) {
     return invalidSearchParameters(queryResult.error);
@@ -55,6 +53,9 @@ export async function loader({ request, url }: Route.LoaderArgs) {
 
   const usePrefix = url.searchParams.get("prefix") !== "false";
 
+  // Get the authenticated user ID if available (needed for playlist search)
+  const userId = (await getUserId(request)) ?? undefined;
+
   try {
     const results = await searchAll(
       queryResult.data,
@@ -62,7 +63,7 @@ export async function loader({ request, url }: Route.LoaderArgs) {
       cursorResult.data,
       typeResult.data,
       usePrefix,
-      userId ?? undefined,
+      userId,
     );
     return Response.json(results);
   } catch (error) {
