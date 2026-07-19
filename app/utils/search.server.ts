@@ -89,7 +89,7 @@ function buildFts5Query(query: string, usePrefix: boolean = true): string {
 }
 
 /**
- * Search tracks using FTS5
+ * Search tracks using FTS5, optionally scoped to a user's library
  *
  * Security: All parameters must be pre-validated using validation functions
  * from search-validation.server.ts to prevent SQL injection and DoS attacks.
@@ -98,6 +98,7 @@ function buildFts5Query(query: string, usePrefix: boolean = true): string {
  * @param limit - Pre-validated limit (1-100)
  * @param cursor - Pre-validated cursor (optional)
  * @param usePrefix - Whether to use prefix matching
+ * @param userId - Optional user ID to scope results to the user's library via UserTrack
  * @returns Search results with pagination
  */
 export async function searchTracks(
@@ -105,6 +106,7 @@ export async function searchTracks(
   limit: number = 20,
   cursor?: string,
   usePrefix: boolean = true,
+  userId?: string,
 ): Promise<SearchResponse> {
   // Security: Query should be pre-validated, but check anyway
   if (!query || !query.trim()) {
@@ -120,11 +122,18 @@ export async function searchTracks(
   // - FTS5 special characters (", ', \, ?, *, AND, OR, NOT)
   // - SQL string literal escaping (single quotes doubled)
   //
-  // Additional security: We use parameterized queries for all other values (normalizedQuery, limit)
+  // Additional security: We use parameterized queries for all other values (normalizedQuery, limit, userId)
   const prefixPattern = `${normalizedQuery}%`;
   // Security: Double-check SQL escaping (escapeFts5Query already does this, but be explicit)
   // Single quotes are already doubled by escapeFts5Query, but we ensure it here too
   const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
+
+  // Build the UserTrack JOIN clause for library scoping
+  // When userId is provided, only return tracks that the user has in their library
+  const userTrackJoin = userId
+    ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = '${userId.replace(/'/g, "''")}' AND ut."isActive" = true`
+    : "";
+
   const results = await prisma.$queryRawUnsafe<
     Array<{
       type: string;
@@ -162,6 +171,7 @@ export async function searchTracks(
 		JOIN "Track" t ON tracks_fts.track_id = t.id
 		JOIN "Artist" a ON t."artistId" = a.id
 		LEFT JOIN "Album" alb ON t."albumId" = alb.id
+		${userTrackJoin}
 		WHERE tracks_fts MATCH '${sqlEscapedFtsQuery}'
 		ORDER BY relevance_rank, fts_rank, t.title
 		LIMIT ?`,
@@ -200,13 +210,14 @@ export async function searchTracks(
 }
 
 /**
- * Search albums using FTS5
+ * Search albums using FTS5, optionally scoped to a user's library
  */
 export async function searchAlbums(
   query: string,
   limit: number = 20,
   cursor?: string,
   usePrefix: boolean = true,
+  userId?: string,
 ): Promise<SearchResponse> {
   if (!query.trim()) {
     return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
@@ -217,6 +228,16 @@ export async function searchAlbums(
 
   const prefixPattern = `${normalizedQuery}%`;
   const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
+
+  // Build the UserTrack JOIN clause for library scoping
+  // Albums are scoped via their tracks — only albums with tracks in user's library appear
+  const userTrackJoin = userId
+    ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = '${userId.replace(/'/g, "''")}' AND ut."isActive" = true`
+    : "";
+  const albumUserJoin = userId
+    ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."albumId" = alb.id AND ut2."userId" = '${userId.replace(/'/g, "''")}' AND ut2."isActive" = true)`
+    : "";
+
   const results = await prisma.$queryRawUnsafe<
     Array<{
       type: string;
@@ -247,7 +268,7 @@ export async function searchAlbums(
 		FROM albums_fts
 		JOIN "Album" alb ON albums_fts.album_id = alb.id
 		JOIN "Artist" a ON alb."artistId" = a.id
-		WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'
+		WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'${albumUserJoin}
 		ORDER BY relevance_rank, fts_rank, alb.name
 		LIMIT ?`,
     normalizedQuery,
@@ -282,13 +303,14 @@ export async function searchAlbums(
 }
 
 /**
- * Search artists using FTS5
+ * Search artists using FTS5, optionally scoped to a user's library
  */
 export async function searchArtists(
   query: string,
   limit: number = 20,
   cursor?: string,
   usePrefix: boolean = true,
+  userId?: string,
 ): Promise<SearchResponse> {
   if (!query.trim()) {
     return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
@@ -299,6 +321,12 @@ export async function searchArtists(
 
   const prefixPattern = `${normalizedQuery}%`;
   const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
+
+  // Build the UserTrack scoping clause for library scoping
+  // Artists are scoped via their tracks — only artists with tracks in user's library appear
+  const artistUserJoin = userId
+    ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."artistId" = a.id AND ut2."userId" = '${userId.replace(/'/g, "''")}' AND ut2."isActive" = true)`
+    : "";
   const results = await prisma.$queryRawUnsafe<
     Array<{
       type: string;
@@ -322,7 +350,7 @@ export async function searchArtists(
 			artists_fts.rank as fts_rank
 		FROM artists_fts
 		JOIN "Artist" a ON artists_fts.artist_id = a.id
-		WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'
+		WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'${artistUserJoin}
 		ORDER BY relevance_rank, fts_rank, a.name
 		LIMIT ?`,
     normalizedQuery,
@@ -364,6 +392,7 @@ export async function searchAll(
   cursor?: string,
   type?: "all" | "tracks" | "albums" | "artists" | "playlists",
   usePrefix: boolean = true,
+  userId?: string,
 ): Promise<SearchResponse> {
   if (!query.trim()) {
     return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
@@ -379,27 +408,27 @@ export async function searchAll(
   // Search all types in parallel
   const [tracksResult, albumsResult, artistsResult, playlistsResult] = await Promise.all([
     trackLimit > 0
-      ? searchTracks(query, trackLimit, cursor, usePrefix)
+      ? searchTracks(query, trackLimit, cursor, usePrefix, userId)
       : Promise.resolve({
-          results: [] as SearchResult[],
+          results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
     albumLimit > 0
-      ? searchAlbums(query, albumLimit, cursor, usePrefix)
+      ? searchAlbums(query, albumLimit, cursor, usePrefix, userId)
       : Promise.resolve({
-          results: [] as SearchResult[],
+          results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
     artistLimit > 0
-      ? searchArtists(query, artistLimit, cursor, usePrefix)
+      ? searchArtists(query, artistLimit, cursor, usePrefix, userId)
       : Promise.resolve({
-          results: [] as SearchResult[],
+          results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
     playlistLimit > 0
       ? searchPlaylists(query, playlistLimit, cursor)
       : Promise.resolve({
-          results: [] as SearchResult[],
+          results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
   ]);
@@ -458,23 +487,23 @@ export async function searchPlaylists(
     }>
   >(
     `SELECT 
-			'playlist' as type,
-			sp.id,
-			sp.title as name,
-			u.name as owner_name,
-			sp.description,
-			sp."itemCount" as item_count,
-			sp."thumbnailUrl" as thumbnail_url,
-			CASE 
-				WHEN LOWER(sp.title) = ? THEN 1
-				WHEN LOWER(sp.title) LIKE ? THEN 2
-				ELSE 3
-			END as relevance_rank
-		FROM "ServicePlaylist" sp
-		JOIN "User" u ON sp."ownerId" = u.id
-		WHERE (LOWER(sp.title) LIKE LOWER(?) OR LOWER(sp.description) LIKE LOWER(?))
-		ORDER BY relevance_rank, sp.title
-		LIMIT ?`,
+\t\t\t'playlist' as type,
+\t\t\tsp.id,
+\t\t\tsp.title as name,
+\t\t\tu.name as owner_name,
+\t\t\tsp.description,
+\t\t\tsp."itemCount" as item_count,
+\t\t\tsp."thumbnailUrl" as thumbnail_url,
+\t\t\tCASE 
+\t\t\t\tWHEN LOWER(sp.title) = ? THEN 1
+\t\t\t\tWHEN LOWER(sp.title) LIKE ? THEN 2
+\t\t\t\tELSE 3
+\t\t\tEND as relevance_rank
+\t\tFROM "ServicePlaylist" sp
+\t\tJOIN "User" u ON sp."ownerId" = u.id
+\t\tWHERE (LOWER(sp.title) LIKE LOWER(?) OR LOWER(sp.description) LIKE LOWER(?))
+\t\tORDER BY relevance_rank, sp.title
+\t\tLIMIT ?`,
     query.toLowerCase().trim(),
     `${query.toLowerCase().trim()}%`,
     pattern,
