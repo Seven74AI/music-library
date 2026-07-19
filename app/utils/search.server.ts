@@ -3,97 +3,98 @@
  * Uses SQLite FTS5 for full-text search with content tables
  */
 
-import  {
-	type AlbumSearchResult,
-	type ArtistSearchResult,
-	type SearchResult,
-	type SearchResponse,
-	type TrackSearchResult,
-} from '#app/types/search.ts'
-import { prisma } from '#app/utils/db.server.ts'
+import {
+  type AlbumSearchResult,
+  type ArtistSearchResult,
+  type PlaylistSearchResult,
+  type SearchResult,
+  type SearchResponse,
+  type TrackSearchResult,
+} from "#app/types/search.ts";
+import { prisma } from "#app/utils/db.server.ts";
 
 /**
  * Escape special characters in FTS5 query string
  * FTS5 has special characters: ", ', \, *, ?, and, or, not
- * 
+ *
  * Security: This function prevents FTS5 query injection by escaping all special characters.
  * Note: We don't escape * here because we use it for prefix matching, but the query
  * is validated before reaching this function to ensure it doesn't contain malicious content.
- * 
+ *
  * @param query - User input query (must be pre-validated)
  * @param allowPrefix - Whether to allow * for prefix matching
  * @returns Escaped FTS5 query string safe for use in MATCH clause
  */
 function escapeFts5Query(query: string, allowPrefix: boolean = false): string {
-	// Security: Normalize and trim first to prevent whitespace-based attacks
-	let escaped = query
-		.replace(/\s+/g, ' ') // Normalize whitespace (prevents whitespace-based attacks)
-		.trim()
-	
-	// Security: Escape all FTS5 special characters to prevent query injection
-	// Double quotes must be doubled for FTS5
-	escaped = escaped.replace(/"/g, '""')
-	// Single quotes must be doubled for SQL string literals
-	escaped = escaped.replace(/'/g, "''")
-	// Backslashes must be escaped
-	escaped = escaped.replace(/\\/g, '\\\\')
-	// Question marks must be escaped (used for phrase queries)
-	escaped = escaped.replace(/\?/g, '\\?')
-	
-	// Security: Escape boolean operators to prevent query manipulation
-	// These are case-insensitive in FTS5, so we escape them regardless of case
-	escaped = escaped.replace(/\b(AND|OR|NOT)\b/gi, (match) => `"${match}"`)
-	
-	// Only escape * if we're not using prefix matching
-	// When allowPrefix is true, we'll add * ourselves in buildFts5Query
-	if (!allowPrefix) {
-		escaped = escaped.replace(/\*/g, '\\*')
-	}
-	
-	return escaped
+  // Security: Normalize and trim first to prevent whitespace-based attacks
+  let escaped = query
+    .replace(/\s+/g, " ") // Normalize whitespace (prevents whitespace-based attacks)
+    .trim();
+
+  // Security: Escape all FTS5 special characters to prevent query injection
+  // Double quotes must be doubled for FTS5
+  escaped = escaped.replace(/"/g, '""');
+  // Single quotes must be doubled for SQL string literals
+  escaped = escaped.replace(/'/g, "''");
+  // Backslashes must be escaped
+  escaped = escaped.replace(/\\/g, "\\\\");
+  // Question marks must be escaped (used for phrase queries)
+  escaped = escaped.replace(/\?/g, "\\?");
+
+  // Security: Escape boolean operators to prevent query manipulation
+  // These are case-insensitive in FTS5, so we escape them regardless of case
+  escaped = escaped.replace(/\b(AND|OR|NOT)\b/gi, (match) => `"${match}"`);
+
+  // Only escape * if we're not using prefix matching
+  // When allowPrefix is true, we'll add * ourselves in buildFts5Query
+  if (!allowPrefix) {
+    escaped = escaped.replace(/\*/g, "\\*");
+  }
+
+  return escaped;
 }
 
 /**
  * Build FTS5 query string with optional prefix matching
  * By default, enables prefix matching for better typeahead/search-as-you-type behavior
- * 
+ *
  * Security: The input query must be pre-validated using validateSearchQuery()
  * to prevent injection attacks and DoS.
- * 
+ *
  * @param query - Pre-validated search query
  * @param usePrefix - Whether to enable prefix matching (default: true)
  * @returns Safe FTS5 query string for use in MATCH clause
  */
 function buildFts5Query(query: string, usePrefix: boolean = true): string {
-	// Security: Query should already be validated, but double-check it's not empty
-	if (!query || !query.trim()) return ''
-	
-	// Escape the query, but allow * if we're using prefix matching
-	const escaped = escapeFts5Query(query, usePrefix)
-	if (!escaped) return ''
-	
-	// For prefix queries, append * to each word to match partial words
-	// This allows "m" to match "meryl", "metal", etc.
-	// Security: We only add * to words that don't already have it (to prevent double *)
-	if (usePrefix) {
-		return escaped
-			.split(/\s+/)
-			.filter((word) => word.length > 0) // Remove empty strings
-			.map((word) => {
-				// Security: Don't add * if word already ends with * (prevent double *)
-				return word.endsWith('*') ? word : `${word}*`
-			})
-			.join(' ')
-	}
-	return escaped
+  // Security: Query should already be validated, but double-check it's not empty
+  if (!query || !query.trim()) return "";
+
+  // Escape the query, but allow * if we're using prefix matching
+  const escaped = escapeFts5Query(query, usePrefix);
+  if (!escaped) return "";
+
+  // For prefix queries, append * to each word to match partial words
+  // This allows "m" to match "meryl", "metal", etc.
+  // Security: We only add * to words that don't already have it (to prevent double *)
+  if (usePrefix) {
+    return escaped
+      .split(/\s+/)
+      .filter((word) => word.length > 0) // Remove empty strings
+      .map((word) => {
+        // Security: Don't add * if word already ends with * (prevent double *)
+        return word.endsWith("*") ? word : `${word}*`;
+      })
+      .join(" ");
+  }
+  return escaped;
 }
 
 /**
  * Search tracks using FTS5
- * 
+ *
  * Security: All parameters must be pre-validated using validation functions
  * from search-validation.server.ts to prevent SQL injection and DoS attacks.
- * 
+ *
  * @param query - Pre-validated search query
  * @param limit - Pre-validated limit (1-100)
  * @param cursor - Pre-validated cursor (optional)
@@ -101,47 +102,47 @@ function buildFts5Query(query: string, usePrefix: boolean = true): string {
  * @returns Search results with pagination
  */
 export async function searchTracks(
-	query: string,
-	limit: number = 20,
-	cursor?: string,
-	usePrefix: boolean = true,
+  query: string,
+  limit: number = 20,
+  cursor?: string,
+  usePrefix: boolean = true,
 ): Promise<SearchResponse> {
-	// Security: Query should be pre-validated, but check anyway
-	if (!query || !query.trim()) {
-		return { results: [], pagination: { limit, hasNext: false, nextCursor: null } }
-	}
+  // Security: Query should be pre-validated, but check anyway
+  if (!query || !query.trim()) {
+    return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
+  }
 
-	const ftsQuery = buildFts5Query(query, usePrefix)
-	const normalizedQuery = query.toLowerCase().trim()
+  const ftsQuery = buildFts5Query(query, usePrefix);
+  const normalizedQuery = query.toLowerCase().trim();
 
-	// Build the SQL query with relevance ranking
-	// Security: FTS5 MATCH requires the query to be embedded directly in SQL (not parameterized)
-	// The ftsQuery is already escaped by escapeFts5Query function, which handles:
-	// - FTS5 special characters (", ', \, ?, *, AND, OR, NOT)
-	// - SQL string literal escaping (single quotes doubled)
-	// 
-	// Additional security: We use parameterized queries for all other values (normalizedQuery, limit)
-	const prefixPattern = `${normalizedQuery}%`
-	// Security: Double-check SQL escaping (escapeFts5Query already does this, but be explicit)
-	// Single quotes are already doubled by escapeFts5Query, but we ensure it here too
-	const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''")
-	const results = await prisma.$queryRawUnsafe<
-		Array<{
-			type: string
-			id: string
-			title: string
-			artist_name: string
-			artist_id: string
-			album_name: string | null
-			album_id: string | null
-			duration: number | null
-			coverImageId: string | null
-			serviceId: string | null
-			relevance_rank: number
-			fts_rank: number
-		}>
-	>(
-		`SELECT 
+  // Build the SQL query with relevance ranking
+  // Security: FTS5 MATCH requires the query to be embedded directly in SQL (not parameterized)
+  // The ftsQuery is already escaped by escapeFts5Query function, which handles:
+  // - FTS5 special characters (", ', \, ?, *, AND, OR, NOT)
+  // - SQL string literal escaping (single quotes doubled)
+  //
+  // Additional security: We use parameterized queries for all other values (normalizedQuery, limit)
+  const prefixPattern = `${normalizedQuery}%`;
+  // Security: Double-check SQL escaping (escapeFts5Query already does this, but be explicit)
+  // Single quotes are already doubled by escapeFts5Query, but we ensure it here too
+  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
+  const results = await prisma.$queryRawUnsafe<
+    Array<{
+      type: string;
+      id: string;
+      title: string;
+      artist_name: string;
+      artist_id: string;
+      album_name: string | null;
+      album_id: string | null;
+      duration: number | null;
+      coverImageId: string | null;
+      serviceId: string | null;
+      relevance_rank: number;
+      fts_rank: number;
+    }>
+  >(
+    `SELECT 
 			'track' as type,
 			t.id,
 			t.title,
@@ -165,72 +166,72 @@ export async function searchTracks(
 		WHERE tracks_fts MATCH '${sqlEscapedFtsQuery}'
 		ORDER BY relevance_rank, fts_rank, t.title
 		LIMIT ?`,
-		normalizedQuery,
-		prefixPattern,
-		limit + 1,
-	)
+    normalizedQuery,
+    prefixPattern,
+    limit + 1,
+  );
 
-	const hasNext = results.length > limit
-	const tracks = results.slice(0, limit).map(
-		(row): TrackSearchResult => ({
-			type: 'track',
-			id: row.id,
-			title: row.title,
-			artistName: row.artist_name,
-			artistId: row.artist_id,
-			albumName: row.album_name || null,
-			albumId: row.album_id || null,
-			duration: row.duration,
-			coverImageId: row.coverImageId,
-			serviceId: row.serviceId,
-			relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
-		}),
-	)
+  const hasNext = results.length > limit;
+  const tracks = results.slice(0, limit).map(
+    (row): TrackSearchResult => ({
+      type: "track",
+      id: row.id,
+      title: row.title,
+      artistName: row.artist_name,
+      artistId: row.artist_id,
+      albumName: row.album_name || null,
+      albumId: row.album_id || null,
+      duration: row.duration,
+      coverImageId: row.coverImageId,
+      serviceId: row.serviceId,
+      relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
+    }),
+  );
 
-	const nextCursor = hasNext && tracks.length > 0 ? tracks[tracks.length - 1]?.id ?? null : null
+  const nextCursor = hasNext && tracks.length > 0 ? (tracks[tracks.length - 1]?.id ?? null) : null;
 
-	return {
-		results: tracks,
-		pagination: {
-			limit,
-			hasNext,
-			nextCursor,
-		},
-	}
+  return {
+    results: tracks,
+    pagination: {
+      limit,
+      hasNext,
+      nextCursor,
+    },
+  };
 }
 
 /**
  * Search albums using FTS5
  */
 export async function searchAlbums(
-	query: string,
-	limit: number = 20,
-	cursor?: string,
-	usePrefix: boolean = true,
+  query: string,
+  limit: number = 20,
+  cursor?: string,
+  usePrefix: boolean = true,
 ): Promise<SearchResponse> {
-	if (!query.trim()) {
-		return { results: [], pagination: { limit, hasNext: false, nextCursor: null } }
-	}
+  if (!query.trim()) {
+    return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
+  }
 
-	const ftsQuery = buildFts5Query(query, usePrefix)
-	const normalizedQuery = query.toLowerCase().trim()
+  const ftsQuery = buildFts5Query(query, usePrefix);
+  const normalizedQuery = query.toLowerCase().trim();
 
-	const prefixPattern = `${normalizedQuery}%`
-	const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''")
-	const results = await prisma.$queryRawUnsafe<
-		Array<{
-			type: string
-			id: string
-			name: string
-			artist_name: string
-			artist_id: string
-			year: number | null
-			coverImageId: string | null
-			relevance_rank: number
-			fts_rank: number
-		}>
-	>(
-		`SELECT 
+  const prefixPattern = `${normalizedQuery}%`;
+  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
+  const results = await prisma.$queryRawUnsafe<
+    Array<{
+      type: string;
+      id: string;
+      name: string;
+      artist_name: string;
+      artist_id: string;
+      year: number | null;
+      coverImageId: string | null;
+      relevance_rank: number;
+      fts_rank: number;
+    }>
+  >(
+    `SELECT 
 			'album' as type,
 			alb.id,
 			alb.name,
@@ -250,66 +251,66 @@ export async function searchAlbums(
 		WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'
 		ORDER BY relevance_rank, fts_rank, alb.name
 		LIMIT ?`,
-		normalizedQuery,
-		prefixPattern,
-		limit + 1,
-	)
+    normalizedQuery,
+    prefixPattern,
+    limit + 1,
+  );
 
-	const hasNext = results.length > limit
-	const albums = results.slice(0, limit).map(
-		(row): AlbumSearchResult => ({
-			type: 'album',
-			id: row.id,
-			name: row.name,
-			artistName: row.artist_name,
-			artistId: row.artist_id,
-			year: row.year,
-			coverImageId: row.coverImageId,
-			relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
-		}),
-	)
+  const hasNext = results.length > limit;
+  const albums = results.slice(0, limit).map(
+    (row): AlbumSearchResult => ({
+      type: "album",
+      id: row.id,
+      name: row.name,
+      artistName: row.artist_name,
+      artistId: row.artist_id,
+      year: row.year,
+      coverImageId: row.coverImageId,
+      relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
+    }),
+  );
 
-	const nextCursor = hasNext && albums.length > 0 ? albums[albums.length - 1]?.id ?? null : null
+  const nextCursor = hasNext && albums.length > 0 ? (albums[albums.length - 1]?.id ?? null) : null;
 
-	return {
-		results: albums,
-		pagination: {
-			limit,
-			hasNext,
-			nextCursor,
-		},
-	}
+  return {
+    results: albums,
+    pagination: {
+      limit,
+      hasNext,
+      nextCursor,
+    },
+  };
 }
 
 /**
  * Search artists using FTS5
  */
 export async function searchArtists(
-	query: string,
-	limit: number = 20,
-	cursor?: string,
-	usePrefix: boolean = true,
+  query: string,
+  limit: number = 20,
+  cursor?: string,
+  usePrefix: boolean = true,
 ): Promise<SearchResponse> {
-	if (!query.trim()) {
-		return { results: [], pagination: { limit, hasNext: false, nextCursor: null } }
-	}
+  if (!query.trim()) {
+    return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
+  }
 
-	const ftsQuery = buildFts5Query(query, usePrefix)
-	const normalizedQuery = query.toLowerCase().trim()
+  const ftsQuery = buildFts5Query(query, usePrefix);
+  const normalizedQuery = query.toLowerCase().trim();
 
-	const prefixPattern = `${normalizedQuery}%`
-	const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''")
-	const results = await prisma.$queryRawUnsafe<
-		Array<{
-			type: string
-			id: string
-			name: string
-			genre: string | null
-			relevance_rank: number
-			fts_rank: number
-		}>
-	>(
-		`SELECT 
+  const prefixPattern = `${normalizedQuery}%`;
+  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
+  const results = await prisma.$queryRawUnsafe<
+    Array<{
+      type: string;
+      id: string;
+      name: string;
+      genre: string | null;
+      relevance_rank: number;
+      fts_rank: number;
+    }>
+  >(
+    `SELECT 
 			'artist' as type,
 			a.id,
 			a.name,
@@ -325,81 +326,194 @@ export async function searchArtists(
 		WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'
 		ORDER BY relevance_rank, fts_rank, a.name
 		LIMIT ?`,
-		normalizedQuery,
-		prefixPattern,
-		limit + 1,
-	)
+    normalizedQuery,
+    prefixPattern,
+    limit + 1,
+  );
 
-	const hasNext = results.length > limit
-	const artists = results.slice(0, limit).map(
-		(row): ArtistSearchResult => ({
-			type: 'artist',
-			id: row.id,
-			name: row.name,
-			genre: row.genre,
-			relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
-		}),
-	)
+  const hasNext = results.length > limit;
+  const artists = results.slice(0, limit).map(
+    (row): ArtistSearchResult => ({
+      type: "artist",
+      id: row.id,
+      name: row.name,
+      genre: row.genre,
+      relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
+    }),
+  );
 
-	const nextCursor = hasNext && artists.length > 0 ? artists[artists.length - 1]?.id ?? null : null
+  const nextCursor =
+    hasNext && artists.length > 0 ? (artists[artists.length - 1]?.id ?? null) : null;
 
-	return {
-		results: artists,
-		pagination: {
-			limit,
-			hasNext,
-			nextCursor,
-		},
-	}
+  return {
+    results: artists,
+    pagination: {
+      limit,
+      hasNext,
+      nextCursor,
+    },
+  };
+}
+
+/**
+ * Search playlists using plain SQL LIKE
+ * Playlists are user-owned, so this search is scoped to the authenticated user.
+ * Unlike tracks/albums/artists which use FTS5 for full-text search,
+ * playlists use a simple LIKE query on the title.
+ *
+ * @param query - Pre-validated search query
+ * @param userId - The authenticated user's ID (required for user scoping)
+ * @param limit - Pre-validated limit (1-100)
+ * @param cursor - Pre-validated cursor (optional)
+ * @param usePrefix - Whether to use prefix matching (LIKE 'query%' vs LIKE '%query%')
+ * @returns Search results with pagination
+ */
+export async function searchPlaylists(
+  query: string,
+  userId: string,
+  limit: number = 20,
+  cursor?: string,
+  usePrefix: boolean = true,
+): Promise<SearchResponse> {
+  if (!query.trim() || !userId) {
+    return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
+  }
+
+  const normalizedQuery = query.toLowerCase().trim();
+  // Build LIKE pattern: always use substring match for playlist names
+  // (users expect "Favorite" to match "My Favorite Songs")
+  const likePattern = `%${normalizedQuery}%`;
+
+  const results = await prisma.$queryRawUnsafe<
+    Array<{
+      type: string;
+      id: string;
+      name: string;
+      track_count: number;
+      relevance_rank: number;
+    }>
+  >(
+    `SELECT 
+			'playlist' as type,
+			up.id,
+			up.title as name,
+			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as track_count,
+			CASE 
+				WHEN LOWER(up.title) = ? THEN 1
+				WHEN LOWER(up.title) LIKE ? THEN 2
+				ELSE 3
+			END as relevance_rank
+		FROM "UserPlaylist" up
+		WHERE up."ownerId" = ?
+		AND LOWER(up.title) LIKE ?
+		ORDER BY relevance_rank, up.title
+		LIMIT ?`,
+    normalizedQuery,
+    likePattern,
+    userId,
+    likePattern,
+    limit + 1,
+  );
+
+  const hasNext = results.length > limit;
+  const playlists = results.slice(0, limit).map(
+    (row): PlaylistSearchResult => ({
+      type: "playlist",
+      id: row.id,
+      name: row.name,
+      trackCount: Number(row.track_count),
+      relevance: Number(row.relevance_rank),
+    }),
+  );
+
+  const nextCursor =
+    hasNext && playlists.length > 0 ? (playlists[playlists.length - 1]?.id ?? null) : null;
+
+  return {
+    results: playlists,
+    pagination: {
+      limit,
+      hasNext,
+      nextCursor,
+    },
+  };
 }
 
 /**
  * Unified search across all entity types
- * Searches tracks, albums, and artists in parallel
+ * Searches tracks, albums, artists, and playlists in parallel
  */
 export async function searchAll(
-	query: string,
-	limit: number = 20,
-	cursor?: string,
-	type?: 'all' | 'tracks' | 'albums' | 'artists',
-	usePrefix: boolean = true,
+  query: string,
+  limit: number = 20,
+  cursor?: string,
+  type?: "all" | "tracks" | "albums" | "artists" | "playlists",
+  usePrefix: boolean = true,
+  userId?: string,
 ): Promise<SearchResponse> {
-	if (!query.trim()) {
-		return { results: [], pagination: { limit, hasNext: false, nextCursor: null } }
-	}
+  if (!query.trim()) {
+    return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
+  }
 
-	// Fetch limit results from each type to ensure we have enough candidates
-	// Then combine and take the top N by relevance for better result quality
-	const trackLimit = type === 'all' || type === 'tracks' ? limit : 0
-	const albumLimit = type === 'all' || type === 'albums' ? limit : 0
-	const artistLimit = type === 'all' || type === 'artists' ? limit : 0
+  // Fetch limit results from each type to ensure we have enough candidates
+  // Then combine and take the top N by relevance for better result quality
+  const trackLimit = type === "all" || type === "tracks" ? limit : 0;
+  const albumLimit = type === "all" || type === "albums" ? limit : 0;
+  const artistLimit = type === "all" || type === "artists" ? limit : 0;
+  const playlistLimit = type === "all" || type === "playlists" ? limit : 0;
 
-	// Search all types in parallel
-	const [tracksResult, albumsResult, artistsResult] = await Promise.all([
-		trackLimit > 0 ? searchTracks(query, trackLimit, cursor, usePrefix) : Promise.resolve({ results: [], pagination: { limit: 0, hasNext: false, nextCursor: null } }),
-		albumLimit > 0 ? searchAlbums(query, albumLimit, cursor, usePrefix) : Promise.resolve({ results: [], pagination: { limit: 0, hasNext: false, nextCursor: null } }),
-		artistLimit > 0 ? searchArtists(query, artistLimit, cursor, usePrefix) : Promise.resolve({ results: [], pagination: { limit: 0, hasNext: false, nextCursor: null } }),
-	])
+  // Search all types in parallel
+  const [tracksResult, albumsResult, artistsResult, playlistsResult] = await Promise.all([
+    trackLimit > 0
+      ? searchTracks(query, trackLimit, cursor, usePrefix)
+      : Promise.resolve({
+          results: [] as SearchResult[],
+          pagination: { limit: 0, hasNext: false, nextCursor: null },
+        }),
+    albumLimit > 0
+      ? searchAlbums(query, albumLimit, cursor, usePrefix)
+      : Promise.resolve({
+          results: [] as SearchResult[],
+          pagination: { limit: 0, hasNext: false, nextCursor: null },
+        }),
+    artistLimit > 0
+      ? searchArtists(query, artistLimit, cursor, usePrefix)
+      : Promise.resolve({
+          results: [] as SearchResult[],
+          pagination: { limit: 0, hasNext: false, nextCursor: null },
+        }),
+    playlistLimit > 0 && userId
+      ? searchPlaylists(query, userId, playlistLimit, cursor, usePrefix)
+      : Promise.resolve({
+          results: [] as SearchResult[],
+          pagination: { limit: 0, hasNext: false, nextCursor: null },
+        }),
+  ]);
 
-	// Combine and sort by relevance
-	const allResults: SearchResult[] = [
-		...tracksResult.results,
-		...albumsResult.results,
-		...artistsResult.results,
-	].sort((a, b) => a.relevance - b.relevance)
+  // Combine and sort by relevance
+  const allResults: SearchResult[] = [
+    ...tracksResult.results,
+    ...albumsResult.results,
+    ...artistsResult.results,
+    ...playlistsResult.results,
+  ].sort((a, b) => a.relevance - b.relevance);
 
-	// Take top N results (this ensures the most relevant results across all types)
-	const results = allResults.slice(0, limit)
-	const hasNext = allResults.length > limit || tracksResult.pagination.hasNext || albumsResult.pagination.hasNext || artistsResult.pagination.hasNext
-	const nextCursor = results.length > 0 ? results[results.length - 1]?.id ?? null : null
+  // Take top N results (this ensures the most relevant results across all types)
+  const results = allResults.slice(0, limit);
+  const hasNext =
+    allResults.length > limit ||
+    tracksResult.pagination.hasNext ||
+    albumsResult.pagination.hasNext ||
+    artistsResult.pagination.hasNext ||
+    playlistsResult.pagination.hasNext;
+  const nextCursor = results.length > 0 ? (results[results.length - 1]?.id ?? null) : null;
 
-	return {
-		results,
-		pagination: {
-			limit,
-			hasNext,
-			nextCursor,
-		},
-	}
+  return {
+    results,
+    pagination: {
+      limit,
+      hasNext,
+      nextCursor,
+    },
+  };
 }
-

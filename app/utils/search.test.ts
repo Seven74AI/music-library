@@ -4,11 +4,19 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { searchAlbums, searchAll, searchArtists, searchTracks } from "#app/utils/search.server.ts";
+import {
+  searchAlbums,
+  searchAll,
+  searchArtists,
+  searchPlaylists,
+  searchTracks,
+} from "#app/utils/search.server.ts";
 
 describe("Search Utilities", () => {
   beforeEach(async () => {
     // Clean up test data
+    await prisma.userPlaylistTrack.deleteMany();
+    await prisma.userPlaylist.deleteMany();
     await prisma.userTrack.deleteMany();
     await prisma.track.deleteMany();
     await prisma.album.deleteMany();
@@ -403,6 +411,153 @@ describe("Search Utilities", () => {
       if (resultByNewName.results[0]?.type === "album") {
         expect(resultByNewName.results[0].artistName).toContain("Album Artist New");
       }
+    });
+  });
+
+  describe("playlist search", () => {
+    it("should search playlists by title for a specific user", async () => {
+      // Create a test user
+      const user = await prisma.user.create({
+        data: {
+          username: `testuser-${Date.now()}`,
+          email: `test-${Date.now()}@example.com`,
+          name: "Test User",
+        },
+      });
+
+      // Create a playlist for this user
+      const playlist = await prisma.userPlaylist.create({
+        data: {
+          title: "My Favorite Songs",
+          ownerId: user.id,
+        },
+      });
+
+      const result = await searchPlaylists("Favorite", user.id, 10);
+
+      expect(result.results.length).toBeGreaterThan(0);
+      expect(result.results[0]?.type).toBe("playlist");
+      if (result.results[0]?.type === "playlist") {
+        expect(result.results[0].name).toContain("Favorite");
+        expect(result.results[0].trackCount).toBe(0);
+      }
+    });
+
+    it("should scope playlist search to the authenticated user only", async () => {
+      // Create two users
+      const userA = await prisma.user.create({
+        data: {
+          username: `user-a-${Date.now()}`,
+          email: `user-a-${Date.now()}@example.com`,
+          name: "User A",
+        },
+      });
+
+      const userB = await prisma.user.create({
+        data: {
+          username: `user-b-${Date.now()}`,
+          email: `user-b-${Date.now()}@example.com`,
+          name: "User B",
+        },
+      });
+
+      // Create a playlist for user A only
+      await prisma.userPlaylist.create({
+        data: {
+          title: "User A Playlist",
+          ownerId: userA.id,
+        },
+      });
+
+      // User B should not find user A's playlists
+      const resultForB = await searchPlaylists("Playlist", userB.id, 10);
+      expect(resultForB.results).toHaveLength(0);
+
+      // User A should find their own playlist
+      const resultForA = await searchPlaylists("Playlist", userA.id, 10);
+      expect(resultForA.results.length).toBeGreaterThan(0);
+      if (resultForA.results[0]?.type === "playlist") {
+        expect(resultForA.results[0].name).toContain("User A");
+      }
+    });
+
+    it("should return playlist with track count", async () => {
+      const user = await prisma.user.create({
+        data: {
+          username: `trackcount-${Date.now()}`,
+          email: `trackcount-${Date.now()}@example.com`,
+          name: "Track Count User",
+        },
+      });
+
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: { name: "Test Artist", normalizedName: "test artist" },
+      });
+
+      const playlist = await prisma.userPlaylist.create({
+        data: {
+          title: "My Tracks",
+          ownerId: user.id,
+        },
+      });
+
+      // Add 3 tracks to the playlist
+      for (let i = 0; i < 3; i++) {
+        const track = await prisma.track.create({
+          data: {
+            title: `Track ${i}`,
+            artistId: artist.id,
+            serviceId: localService.id,
+            externalId: `playlist-track-${i}-${Date.now()}`,
+          },
+        });
+        await prisma.userPlaylistTrack.create({
+          data: {
+            playlistId: playlist.id,
+            trackId: track.id,
+            position: i,
+          },
+        });
+      }
+
+      const result = await searchPlaylists("Tracks", user.id, 10);
+      expect(result.results.length).toBeGreaterThan(0);
+      if (result.results[0]?.type === "playlist") {
+        expect(result.results[0].trackCount).toBe(3);
+      }
+    });
+
+    it("should return empty results when no userId provided", async () => {
+      const result = await searchPlaylists("anything", "", 10);
+      expect(result.results).toHaveLength(0);
+    });
+
+    it("should return empty results for empty query", async () => {
+      const user = await prisma.user.create({
+        data: {
+          username: `emptyquery-${Date.now()}`,
+          email: `emptyquery-${Date.now()}@example.com`,
+          name: "Empty Query",
+        },
+      });
+
+      await prisma.userPlaylist.create({
+        data: { title: "Test Playlist", ownerId: user.id },
+      });
+
+      const result = await searchPlaylists("", user.id, 10);
+      expect(result.results).toHaveLength(0);
     });
   });
 });
