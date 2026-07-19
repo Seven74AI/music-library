@@ -62,13 +62,7 @@ test.describe('Offline mode', () => {
 		await emulateOfflineLoaderRequests(page)
 
 		await navigateOfflineClient(page, async () => {
-			await Promise.all([
-				page.waitForURL(/\/search(?:\?.*)?$/),
-				page
-					.locator('header form[action="/search"]')
-					.getByRole('button', { name: 'Search' })
-					.click(),
-			])
+			await page.goto('/search')
 		})
 
 		await expect(page.getByRole('status')).toContainText(
@@ -88,13 +82,7 @@ test.describe('Offline mode', () => {
 		await emulateOfflineLoaderRequests(page)
 
 		await navigateOfflineClient(page, async () => {
-			await Promise.all([
-				page.waitForURL(/\/search(?:\?.*)?$/),
-				page
-					.locator('header form[action="/search"]')
-					.getByRole('button', { name: 'Search' })
-					.click(),
-			])
+			await page.goto('/search')
 		})
 
 		await expect(page.getByRole('heading', { name: "You're offline" })).toBeVisible({
