@@ -1,85 +1,97 @@
 /**
  * E2E tests for search functionality
+ * Tests the full-screen search page with overlay UX
  */
 
-import { test, expect } from '#tests/playwright-utils.ts'
+import { test, expect } from "#tests/playwright-utils.ts";
 
-test.describe('Global Search', () => {
-	test('can navigate to search page', { tag: '@smoke' }, async ({ page, loginAsAdmin }) => {
-		await loginAsAdmin()
-		await page.goto('/search')
-		await expect(page.getByRole('heading', { name: /search/i })).toBeVisible()
-	})
+test.describe("Global Search", () => {
+  test("can navigate to search page", { tag: "@smoke" }, async ({ page, loginAsAdmin }) => {
+    await loginAsAdmin();
+    await page.goto("/search");
 
-	test('can search for tracks', async ({ page, loginAsAdmin }) => {
-		await loginAsAdmin()
-		await page.goto('/search')
+    // Search page should show a search input with placeholder text
+    const searchInput = page.getByPlaceholder(/what do you want to listen to/i);
+    await expect(searchInput).toBeVisible();
+  });
 
-		// Use the search input on the search page (not the nav)
-		// Get all searchboxes and use the second one (first is nav, second is search page)
-		const allSearchboxes = page.getByRole('searchbox')
-		const searchInput = allSearchboxes.nth(1)
-		await searchInput.fill('test')
-		await searchInput.press('Enter')
+  test("search page shows type filter pills", async ({ page, loginAsAdmin }) => {
+    await loginAsAdmin();
+    await page.goto("/search");
 
-		// Wait for results to load — Playwright auto-waits inside expect
-		// Check if search results are displayed (may be empty if no test data)
-		// Use ^Found to avoid matching "No results found"
-		await expect(page.getByText(/^Found \d+/)).toBeVisible()
-	})
+    // Type filter pills should be visible
+    await expect(page.getByRole("button", { name: "All" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Tracks" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Albums" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Artists" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Playlists" })).toBeVisible();
+  });
 
-	test('can filter search by type', async ({ page, loginAsAdmin }) => {
-		await loginAsAdmin()
-		await page.goto('/search')
+  test("can filter search by type", async ({ page, loginAsAdmin }) => {
+    await loginAsAdmin();
+    await page.goto("/search");
 
-		// Radix Select is a button, not a native select
-		const typeSelector = page.getByRole('combobox').first()
-		if (await typeSelector.isVisible()) {
-			await typeSelector.click()
-			await page.getByRole('option', { name: /tracks/i }).click()
-		}
-	})
+    // Click the Tracks filter pill
+    await page.getByRole("button", { name: "Tracks" }).click();
 
-	test('search page shows empty state when no query', async ({ page, loginAsAdmin }) => {
-		await loginAsAdmin()
-		await page.goto('/search')
+    // The Tracks pill should now be styled as active (primary)
+    // Type something to trigger search
+    const searchInput = page.getByPlaceholder(/what do you want to listen to/i);
+    await searchInput.fill("test");
 
-		// Should show search interface without results
-		await expect(page.getByRole('heading', { name: /search/i })).toBeVisible()
-		// Get the searchbox that's not in navigation (second one)
-		const allSearchboxes = page.getByRole('searchbox')
-		const searchInput = allSearchboxes.nth(1)
-		await expect(searchInput).toBeVisible()
-	})
+    // Results or no-results state should appear
+    await expect(
+      page.locator("text=No results found, text=/test/, text=Load More").first(),
+    ).toBeVisible({ timeout: 10000 });
+  });
 
-	test('search API endpoint returns results', async ({ page, loginAsAdmin }) => {
-		await loginAsAdmin()
+  test("search page shows empty state when no query", async ({ page, loginAsAdmin }) => {
+    await loginAsAdmin();
+    await page.goto("/search");
 
-		// Test API endpoint directly
-		const response = await page.request.get('/api/search?q=test')
-		// May return 200 with empty results or 500 if FTS5 tables are empty
-		expect([200, 500]).toContain(response.status())
+    // Should show a friendly prompt to search
+    await expect(page.getByText(/search for tracks, albums, artists/i)).toBeVisible();
+  });
 
-		if (response.status() === 200) {
-			const data = await response.json()
-			expect(data).toHaveProperty('results')
-			expect(data).toHaveProperty('pagination')
-			expect(Array.isArray(data.results)).toBe(true)
-		}
-	})
+  test("search API endpoint returns results", async ({ page, loginAsAdmin }) => {
+    await loginAsAdmin();
 
-	test('search API validates query parameter', async ({ page, loginAsAdmin }) => {
-		await loginAsAdmin()
+    // Test API endpoint directly
+    const response = await page.request.get("/api/search?q=test");
+    // May return 200 with empty results or 500 if FTS5 tables are empty
+    expect([200, 500]).toContain(response.status());
 
-		const response = await page.request.get('/api/search')
-		expect(response.status()).toBe(400)
-	})
+    if (response.status() === 200) {
+      const data = await response.json();
+      expect(data).toHaveProperty("results");
+      expect(data).toHaveProperty("pagination");
+      expect(Array.isArray(data.results)).toBe(true);
+    }
+  });
 
-	test('search API handles invalid limit', async ({ page, loginAsAdmin }) => {
-		await loginAsAdmin()
+  test("search API validates query parameter", async ({ page, loginAsAdmin }) => {
+    await loginAsAdmin();
 
-		const response = await page.request.get('/api/search?q=test&limit=invalid')
-		expect(response.status()).toBe(400)
-	})
-})
+    const response = await page.request.get("/api/search");
+    expect(response.status()).toBe(400);
+  });
 
+  test("search API handles invalid limit", async ({ page, loginAsAdmin }) => {
+    await loginAsAdmin();
+
+    const response = await page.request.get("/api/search?q=test&limit=invalid");
+    expect(response.status()).toBe(400);
+  });
+
+  test("back button returns to previous page", async ({ page, loginAsAdmin }) => {
+    await loginAsAdmin();
+    await page.goto("/library");
+    await page.goto("/search");
+
+    // Click the back arrow button
+    await page.getByLabel("Back").click();
+
+    // Should be back on library page
+    await expect(page).toHaveURL(/\/library/);
+  });
+});
