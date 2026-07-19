@@ -1,9 +1,9 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
-import { searchAll } from "#app/utils/search.server.ts";
+import { searchWithCache } from "#app/utils/search-cache.server.ts";
 import { loader } from "./search.tsx";
 
-vi.mock("#app/utils/search.server.ts", () => ({
-  searchAll: vi.fn(),
+vi.mock("#app/utils/search-cache.server.ts", () => ({
+  searchWithCache: vi.fn(),
 }));
 
 vi.mock("#app/utils/auth.server.ts", () => ({
@@ -25,7 +25,7 @@ describe("search API loader", () => {
     } as never);
 
     expect(response.status).toBe(400);
-    expect(searchAll).not.toHaveBeenCalled();
+    expect(searchWithCache).not.toHaveBeenCalled();
     const body = (await response.json()) as { error: string };
     expect(body.error).toBe("Invalid search parameters");
   });
@@ -36,11 +36,11 @@ describe("search API loader", () => {
     } as never);
 
     expect(response.status).toBe(400);
-    expect(searchAll).not.toHaveBeenCalled();
+    expect(searchWithCache).not.toHaveBeenCalled();
   });
 
   test("returns search results for valid parameters", async () => {
-    vi.mocked(searchAll).mockResolvedValue({
+    vi.mocked(searchWithCache).mockResolvedValue({
       results: [],
       pagination: { limit: 20, hasNext: false, nextCursor: null },
     });
@@ -50,7 +50,7 @@ describe("search API loader", () => {
     } as never);
 
     expect(response.status).toBe(200);
-    expect(searchAll).toHaveBeenCalledWith("test", 20, undefined, "all", true, undefined);
+    expect(searchWithCache).toHaveBeenCalledWith("test", 20, undefined, "all", true, undefined);
     const body = await response.json();
     expect(body).toHaveProperty("results");
     expect(body).toHaveProperty("pagination");

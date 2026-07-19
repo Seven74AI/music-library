@@ -18,7 +18,7 @@ import {
   SearchQuerySchema,
   SearchTypeSchema,
 } from "#app/utils/search-validation.server.ts";
-import { searchAll } from "#app/utils/search.server.ts";
+import { searchWithCache } from "#app/utils/search-cache.server.ts";
 import { type Route } from "./+types/search.ts";
 
 function invalidSearchParameters(error: z.ZodError) {
@@ -57,7 +57,7 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   const userId = (await getUserId(request)) ?? undefined;
 
   try {
-    const results = await searchAll(
+    const results = await searchWithCache(
       queryResult.data,
       limitResult.data,
       cursorResult.data,

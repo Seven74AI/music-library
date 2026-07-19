@@ -15,7 +15,7 @@ export async function searchWithCache(
   query: string,
   limit: number = 20,
   cursor?: string,
-  type?: "all" | "tracks" | "albums" | "artists",
+  type?: "all" | "tracks" | "albums" | "artists" | "playlists",
   usePrefix: boolean = false,
   userId?: string,
 ): Promise<SearchResponse> {

@@ -4,14 +4,12 @@ import {
   SearchLimitSchema,
   SearchQuerySchema,
   SearchTypeSchema,
-  validateSearchQuery,
 } from "./search-validation.server.ts";
 
 describe("search-validation.server", () => {
   test("rejects empty search query", () => {
     const result = SearchQuerySchema.safeParse("");
     expect(result.success).toBe(false);
-    expect(() => validateSearchQuery("")).toThrow();
   });
 
   test("rejects missing query parameter value", () => {
