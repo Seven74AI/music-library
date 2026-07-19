@@ -3,12 +3,13 @@
  * Debounced results, mixed feed, type filter, recent searches
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useFetcher, useNavigate, useSearchParams } from "react-router";
-import { SearchResults } from "#app/components/search-results.tsx";
-import { Icon } from "#app/components/ui/icon.tsx";
-import { Input } from "#app/components/ui/input.tsx";
-import { type SearchResponse } from "#app/types/search.ts";
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useFetcher, useNavigate, useSearchParams } from 'react-router'
+import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
+import { SearchResults } from '#app/components/search-results.tsx'
+import { Icon } from '#app/components/ui/icon.tsx'
+import { Input } from '#app/components/ui/input.tsx'
+import { type SearchResponse } from '#app/types/search.ts'
 
 const RECENT_SEARCHES_KEY = "music-library:recent-searches";
 const MAX_RECENT = 8;
@@ -150,7 +151,8 @@ export default function SearchPage() {
   const showResults = query.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    <OfflineRouteBlocker>
+      <div className="fixed inset-0 z-50 flex flex-col bg-background">
       {/* Header with search bar */}
       <div className="shrink-0 border-b">
         <div className="container flex items-center gap-3 py-3">
@@ -290,6 +292,6 @@ export default function SearchPage() {
           )}
         </div>
       </div>
-    </div>
+      </OfflineRouteBlocker>
   );
 }
