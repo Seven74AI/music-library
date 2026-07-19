@@ -13,6 +13,88 @@ import {
 } from "#app/types/search.ts";
 import { prisma } from "#app/utils/db.server.ts";
 
+// ── Cursor pagination helpers ──
+
+type CursorSortTuple = {
+  rk: number; // relevance_rank
+  fr: number; // fts_rank (0 for playlists)
+  n: string; // name or title
+  id: string; // entity id
+};
+
+type CompositeCursor = {
+  t: CursorSortTuple | null;
+  a: CursorSortTuple | null;
+  ar: CursorSortTuple | null;
+  p: CursorSortTuple | null;
+};
+
+function decodeCursor(cursor: string): CompositeCursor {
+  const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<
+    string,
+    unknown
+  >;
+  return {
+    t: (parsed.t as CursorSortTuple) ?? null,
+    a: (parsed.a as CursorSortTuple) ?? null,
+    ar: (parsed.ar as CursorSortTuple) ?? null,
+    p: (parsed.p as CursorSortTuple) ?? null,
+  };
+}
+
+function encodeCursor(c: CompositeCursor): string {
+  return Buffer.from(JSON.stringify(c)).toString("base64");
+}
+
+/** Build WHERE clause fragment + params for keyset pagination past the given tuple */
+function cursorClause(
+  tuple: CursorSortTuple,
+  rankCol: string,
+  ftsCol: string,
+  nameCol: string,
+  idCol: string,
+): { sql: string; params: unknown[] } {
+  return {
+    sql: `AND (
+      ${rankCol} > ? OR
+      (${rankCol} = ? AND ${ftsCol} > ?) OR
+      (${rankCol} = ? AND ${ftsCol} = ? AND ${nameCol} > ?) OR
+      (${rankCol} = ? AND ${ftsCol} = ? AND ${nameCol} = ? AND ${idCol} > ?)
+    )`,
+    params: [
+      tuple.rk,
+      tuple.rk,
+      tuple.fr,
+      tuple.rk,
+      tuple.fr,
+      tuple.n,
+      tuple.rk,
+      tuple.fr,
+      tuple.n,
+      tuple.id,
+    ],
+  };
+}
+
+/** Extract sort-tuple from the last result row */
+function lastCursorTuple(
+  row: {
+    relevance_rank: number;
+    fts_rank: number | bigint;
+    name?: string;
+    title?: string;
+    id: string;
+  },
+  nameField: string,
+): CursorSortTuple {
+  return {
+    rk: Number(row.relevance_rank),
+    fr: Number(row.fts_rank ?? 0),
+    n: String(row[nameField as keyof typeof row] ?? ""),
+    id: String(row.id),
+  };
+}
+
 /**
  * Escape special characters in FTS5 query string
  * FTS5 has special characters: ", ', \, *, ?, and, or, not
@@ -109,31 +191,25 @@ export async function searchTracks(
   usePrefix: boolean = true,
   userId?: string,
 ): Promise<SearchResponse> {
-  // Security: Query should be pre-validated, but check anyway
   if (!query || !query.trim()) {
     return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
   }
 
   const ftsQuery = buildFts5Query(query, usePrefix);
   const normalizedQuery = query.toLowerCase().trim();
+  const cur = cursor ? decodeCursor(cursor) : null;
+  const curT = cur?.t ?? null;
 
-  // Build the SQL query with relevance ranking
-  // Security: FTS5 MATCH requires the query to be embedded directly in SQL (not parameterized)
-  // The ftsQuery is already escaped by escapeFts5Query function, which handles:
-  // - FTS5 special characters (", ', \, ?, *, AND, OR, NOT)
-  // - SQL string literal escaping (single quotes doubled)
-  //
-  // Additional security: We use parameterized queries for all other values (normalizedQuery, limit, userId)
   const prefixPattern = `${normalizedQuery}%`;
-  // Security: Double-check SQL escaping (escapeFts5Query already does this, but be explicit)
-  // Single quotes are already doubled by escapeFts5Query, but we ensure it here too
   const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
 
-  // Build the UserTrack JOIN clause for library scoping
-  // When userId is provided, only return tracks that the user has in their library
   const userTrackJoin = userId
     ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = '${userId.replace(/'/g, "''")}' AND ut."isActive" = true`
     : "";
+
+  const cursorFilter = curT
+    ? cursorClause(curT, "relevance_rank", "fts_rank", "t.title", "t.id")
+    : { sql: "", params: [] as unknown[] };
 
   const results = await prisma.$queryRawUnsafe<
     Array<{
@@ -173,16 +249,18 @@ export async function searchTracks(
 		JOIN "Artist" a ON t."artistId" = a.id
 		LEFT JOIN "Album" alb ON t."albumId" = alb.id
 		${userTrackJoin}
-		WHERE tracks_fts MATCH '${sqlEscapedFtsQuery}'
+		WHERE tracks_fts MATCH '${sqlEscapedFtsQuery}'${cursorFilter.sql}
 		ORDER BY relevance_rank, fts_rank, t.title
 		LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ...cursorFilter.params,
     limit + 1,
   );
 
   const hasNext = results.length > limit;
-  const tracks = results.slice(0, limit).map(
+  const rawResults = results.slice(0, limit);
+  const tracks = rawResults.map(
     (row): TrackSearchResult => ({
       type: "track",
       id: row.id,
@@ -198,15 +276,18 @@ export async function searchTracks(
     }),
   );
 
-  const nextCursor = hasNext && tracks.length > 0 ? (tracks[tracks.length - 1]?.id ?? null) : null;
+  const lastRow = rawResults[rawResults.length - 1];
+  const newT = hasNext && lastRow ? lastCursorTuple(lastRow, "title") : null;
+  const nextCursor: CompositeCursor = {
+    t: newT,
+    a: cur?.a ?? null,
+    ar: cur?.ar ?? null,
+    p: cur?.p ?? null,
+  };
 
   return {
     results: tracks,
-    pagination: {
-      limit,
-      hasNext,
-      nextCursor,
-    },
+    pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
   };
 }
 
@@ -226,18 +307,22 @@ export async function searchAlbums(
 
   const ftsQuery = buildFts5Query(query, usePrefix);
   const normalizedQuery = query.toLowerCase().trim();
+  const cur = cursor ? decodeCursor(cursor) : null;
+  const curA = cur?.a ?? null;
 
   const prefixPattern = `${normalizedQuery}%`;
   const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
 
-  // Build the UserTrack JOIN clause for library scoping
-  // Albums are scoped via their tracks — only albums with tracks in user's library appear
   const userTrackJoin = userId
     ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = '${userId.replace(/'/g, "''")}' AND ut."isActive" = true`
     : "";
   const albumUserJoin = userId
     ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."albumId" = alb.id AND ut2."userId" = '${userId.replace(/'/g, "''")}' AND ut2."isActive" = true)`
     : "";
+
+  const cursorFilter = curA
+    ? cursorClause(curA, "relevance_rank", "fts_rank", "alb.name", "alb.id")
+    : { sql: "", params: [] as unknown[] };
 
   const results = await prisma.$queryRawUnsafe<
     Array<{
@@ -269,16 +354,18 @@ export async function searchAlbums(
 		FROM albums_fts
 		JOIN "Album" alb ON albums_fts.album_id = alb.id
 		JOIN "Artist" a ON alb."artistId" = a.id
-		WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'${albumUserJoin}
+		WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'${albumUserJoin}${cursorFilter.sql}
 		ORDER BY relevance_rank, fts_rank, alb.name
 		LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ...cursorFilter.params,
     limit + 1,
   );
 
   const hasNext = results.length > limit;
-  const albums = results.slice(0, limit).map(
+  const rawResults = results.slice(0, limit);
+  const albums = rawResults.map(
     (row): AlbumSearchResult => ({
       type: "album",
       id: row.id,
@@ -291,15 +378,18 @@ export async function searchAlbums(
     }),
   );
 
-  const nextCursor = hasNext && albums.length > 0 ? (albums[albums.length - 1]?.id ?? null) : null;
+  const lastRow = rawResults[rawResults.length - 1];
+  const newA = hasNext && lastRow ? lastCursorTuple(lastRow, "name") : null;
+  const nextCursor: CompositeCursor = {
+    t: cur?.t ?? null,
+    a: newA,
+    ar: cur?.ar ?? null,
+    p: cur?.p ?? null,
+  };
 
   return {
     results: albums,
-    pagination: {
-      limit,
-      hasNext,
-      nextCursor,
-    },
+    pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
   };
 }
 
@@ -319,15 +409,19 @@ export async function searchArtists(
 
   const ftsQuery = buildFts5Query(query, usePrefix);
   const normalizedQuery = query.toLowerCase().trim();
+  const cur = cursor ? decodeCursor(cursor) : null;
+  const curAr = cur?.ar ?? null;
 
   const prefixPattern = `${normalizedQuery}%`;
   const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
 
-  // Build the UserTrack scoping clause for library scoping
-  // Artists are scoped via their tracks — only artists with tracks in user's library appear
   const artistUserJoin = userId
     ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."artistId" = a.id AND ut2."userId" = '${userId.replace(/'/g, "''")}' AND ut2."isActive" = true)`
     : "";
+
+  const cursorFilter = curAr
+    ? cursorClause(curAr, "relevance_rank", "fts_rank", "a.name", "a.id")
+    : { sql: "", params: [] as unknown[] };
 
   const results = await prisma.$queryRawUnsafe<
     Array<{
@@ -352,16 +446,18 @@ export async function searchArtists(
 			artists_fts.rank as fts_rank
 		FROM artists_fts
 		JOIN "Artist" a ON artists_fts.artist_id = a.id
-		WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'${artistUserJoin}
+		WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'${artistUserJoin}${cursorFilter.sql}
 		ORDER BY relevance_rank, fts_rank, a.name
 		LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ...cursorFilter.params,
     limit + 1,
   );
 
   const hasNext = results.length > limit;
-  const artists = results.slice(0, limit).map(
+  const rawResults = results.slice(0, limit);
+  const artists = rawResults.map(
     (row): ArtistSearchResult => ({
       type: "artist",
       id: row.id,
@@ -371,16 +467,18 @@ export async function searchArtists(
     }),
   );
 
-  const nextCursor =
-    hasNext && artists.length > 0 ? (artists[artists.length - 1]?.id ?? null) : null;
+  const lastRow = rawResults[rawResults.length - 1];
+  const newAr = hasNext && lastRow ? lastCursorTuple(lastRow, "name") : null;
+  const nextCursor: CompositeCursor = {
+    t: cur?.t ?? null,
+    a: cur?.a ?? null,
+    ar: newAr,
+    p: cur?.p ?? null,
+  };
 
   return {
     results: artists,
-    pagination: {
-      limit,
-      hasNext,
-      nextCursor,
-    },
+    pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
   };
 }
 
@@ -409,9 +507,13 @@ export async function searchPlaylists(
   }
 
   const normalizedQuery = query.toLowerCase().trim();
-  // Build LIKE pattern: always use substring match for playlist names
-  // (users expect "Favorite" to match "My Favorite Songs")
   const likePattern = `%${normalizedQuery}%`;
+  const cur = cursor ? decodeCursor(cursor) : null;
+  const curP = cur?.p ?? null;
+
+  const cursorFilter = curP
+    ? cursorClause({ ...curP, fr: 0 }, "relevance_rank", "0", "up.title", "up.id")
+    : { sql: "", params: [] as unknown[] };
 
   const results = await prisma.$queryRawUnsafe<
     Array<{
@@ -424,6 +526,7 @@ export async function searchPlaylists(
       item_count: number;
       thumbnail_url: string | null;
       relevance_rank: number;
+      fts_rank: number;
     }>
   >(
     `SELECT 
@@ -439,22 +542,25 @@ export async function searchPlaylists(
 				WHEN LOWER(up.title) = ? THEN 1
 				WHEN LOWER(up.title) LIKE ? THEN 2
 				ELSE 3
-			END as relevance_rank
+			END as relevance_rank,
+			0 as fts_rank
 		FROM "UserPlaylist" up
 		JOIN "User" u ON up."ownerId" = u.id
 		WHERE up."ownerId" = ?
-		AND LOWER(up.title) LIKE ?
+		AND LOWER(up.title) LIKE ?${cursorFilter.sql}
 		ORDER BY relevance_rank, up.title
 		LIMIT ?`,
     normalizedQuery,
     likePattern,
     userId,
     likePattern,
+    ...cursorFilter.params,
     limit + 1,
   );
 
   const hasNext = results.length > limit;
-  const playlists = results.slice(0, limit).map(
+  const rawResults = results.slice(0, limit);
+  const playlists = rawResults.map(
     (row): PlaylistSearchResult => ({
       type: "playlist",
       id: row.id,
@@ -468,16 +574,18 @@ export async function searchPlaylists(
     }),
   );
 
-  const nextCursor =
-    hasNext && playlists.length > 0 ? (playlists[playlists.length - 1]?.id ?? null) : null;
+  const lastRow = rawResults[rawResults.length - 1];
+  const newP = hasNext && lastRow ? lastCursorTuple(lastRow, "name") : null;
+  const nextCursor: CompositeCursor = {
+    t: cur?.t ?? null,
+    a: cur?.a ?? null,
+    ar: cur?.ar ?? null,
+    p: newP,
+  };
 
   return {
     results: playlists,
-    pagination: {
-      limit,
-      hasNext,
-      nextCursor,
-    },
+    pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
   };
 }
 
@@ -540,7 +648,7 @@ export async function searchAll(
     ...playlistsResult.results,
   ].sort((a, b) => a.relevance - b.relevance);
 
-  // Take top N results (this ensures the most relevant results across all types)
+  // Take top N results
   const results = allResults.slice(0, limit);
   const hasNext =
     allResults.length > limit ||
@@ -548,14 +656,24 @@ export async function searchAll(
     albumsResult.pagination.hasNext ||
     artistsResult.pagination.hasNext ||
     playlistsResult.pagination.hasNext;
-  const nextCursor = results.length > 0 ? (results[results.length - 1]?.id ?? null) : null;
+
+  // Combine per-function cursors into a composite
+  const tCur = tracksResult.pagination.nextCursor
+    ? decodeCursor(tracksResult.pagination.nextCursor).t
+    : null;
+  const aCur = albumsResult.pagination.nextCursor
+    ? decodeCursor(albumsResult.pagination.nextCursor).a
+    : null;
+  const arCur = artistsResult.pagination.nextCursor
+    ? decodeCursor(artistsResult.pagination.nextCursor).ar
+    : null;
+  const pCur = playlistsResult.pagination.nextCursor
+    ? decodeCursor(playlistsResult.pagination.nextCursor).p
+    : null;
+  const nextCursor: CompositeCursor = { t: tCur, a: aCur, ar: arCur, p: pCur };
 
   return {
     results,
-    pagination: {
-      limit,
-      hasNext,
-      nextCursor,
-    },
+    pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
   };
 }

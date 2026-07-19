@@ -17,12 +17,6 @@ const MAX_QUERY_LENGTH = 200;
 const MAX_QUERY_WORDS = 20;
 
 /**
- * Valid cursor format: base64-encoded JSON string
- * Example: {"type":"track","id":"cmim4k3df000atq9kznolo68f","offset":20}
- */
-const CURSOR_REGEX = /^[A-Za-z0-9+/=]+$/;
-
-/**
  * Search query validation schema
  * Validates and sanitizes user input for search queries
  */
@@ -68,66 +62,24 @@ export const SearchTypeSchema = z.enum(["all", "tracks", "albums", "artists", "p
 
 /**
  * Cursor validation schema
+ * Validates composite cursor: base64-encoded JSON with optional per-type sort tuples
  */
+const CURSOR_REGEX = /^[A-Za-z0-9+/=]+$/;
+
 export const CursorSchema = z
   .string()
   .optional()
   .refine(
     (cursor) => {
       if (!cursor) return true;
-      // Validate base64 format
       if (!CURSOR_REGEX.test(cursor)) return false;
       try {
-        // Try to decode and parse as JSON
         const decoded = Buffer.from(cursor, "base64").toString("utf-8");
         const parsed = JSON.parse(decoded) as unknown;
-        // Validate structure
-        return (
-          typeof parsed === "object" &&
-          parsed !== null &&
-          "id" in parsed &&
-          typeof (parsed as { id: unknown }).id === "string" &&
-          (parsed as { id: string }).id.length > 0
-        );
+        return typeof parsed === "object" && parsed !== null;
       } catch {
         return false;
       }
     },
-    {
-      message: "Invalid cursor format",
-    },
+    { message: "Invalid cursor format" },
   );
-
-/**
- * Validate and sanitize search query
- * @throws z.ZodError if validation fails
- */
-export function validateSearchQuery(query: unknown): string {
-  return SearchQuerySchema.parse(query);
-}
-
-/**
- * Validate search limit
- * @throws z.ZodError if validation fails
- */
-export function validateSearchLimit(limit: unknown): number {
-  return SearchLimitSchema.parse(limit);
-}
-
-/**
- * Validate search type
- * @throws z.ZodError if validation fails
- */
-export function validateSearchType(
-  type: unknown,
-): "all" | "tracks" | "albums" | "artists" | "playlists" {
-  return SearchTypeSchema.parse(type);
-}
-
-/**
- * Validate cursor
- * @throws z.ZodError if validation fails
- */
-export function validateCursor(cursor: unknown): string | undefined {
-  return CursorSchema.parse(cursor);
-}
