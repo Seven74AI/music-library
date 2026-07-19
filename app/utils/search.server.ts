@@ -559,5 +559,3 @@ export async function searchAll(
     },
   };
 }
-
-}
