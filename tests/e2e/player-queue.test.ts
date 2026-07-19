@@ -657,8 +657,8 @@ test.describe("Player / Queue", () => {
     const miniBar = page.getByTestId("player-mini-bar");
     await expect(miniBar).toBeVisible({ timeout: 10000 });
 
-    // Open the now-playing sheet
-    await miniBar.getByLabel("Open now playing").click();
+    // Open the now-playing sheet (use force to bypass bottom-nav overlap on mobile)
+    await miniBar.getByLabel("Open now playing").click({ force: true });
 
     const sheet = page.getByTestId("player-now-playing-sheet");
     await expect(sheet).toBeVisible({ timeout: 5000 });
