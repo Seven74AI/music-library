@@ -419,6 +419,10 @@ export async function searchPlaylists(
       id: string;
       name: string;
       track_count: number;
+      owner_name: string;
+      description: string | null;
+      item_count: number;
+      thumbnail_url: string | null;
       relevance_rank: number;
     }>
   >(
@@ -427,12 +431,17 @@ export async function searchPlaylists(
 			up.id,
 			up.title as name,
 			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as track_count,
+			u.name as owner_name,
+			up.description,
+			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as item_count,
+			NULL as thumbnail_url,
 			CASE 
 				WHEN LOWER(up.title) = ? THEN 1
 				WHEN LOWER(up.title) LIKE ? THEN 2
 				ELSE 3
 			END as relevance_rank
 		FROM "UserPlaylist" up
+		JOIN "User" u ON up."ownerId" = u.id
 		WHERE up."ownerId" = ?
 		AND LOWER(up.title) LIKE ?
 		ORDER BY relevance_rank, up.title
@@ -451,6 +460,10 @@ export async function searchPlaylists(
       id: row.id,
       name: row.name,
       trackCount: Number(row.track_count),
+      ownerName: row.owner_name,
+      description: row.description,
+      itemCount: Number(row.item_count),
+      thumbnailUrl: row.thumbnail_url,
       relevance: Number(row.relevance_rank),
     }),
   );
@@ -496,25 +509,25 @@ export async function searchAll(
     trackLimit > 0
       ? searchTracks(query, trackLimit, cursor, usePrefix, userId)
       : Promise.resolve({
-          results: [] as SearchResult[],
+          results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
     albumLimit > 0
       ? searchAlbums(query, albumLimit, cursor, usePrefix, userId)
       : Promise.resolve({
-          results: [] as SearchResult[],
+          results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
     artistLimit > 0
       ? searchArtists(query, artistLimit, cursor, usePrefix, userId)
       : Promise.resolve({
-          results: [] as SearchResult[],
+          results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
     playlistLimit > 0 && userId
       ? searchPlaylists(query, userId, playlistLimit, cursor, usePrefix)
       : Promise.resolve({
-          results: [] as SearchResult[],
+          results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
   ]);
