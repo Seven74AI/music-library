@@ -1304,7 +1304,7 @@ const isAudioLoading = !audioSrc
 	}
 
 	return (
-		<div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)]">
+		<div className="fixed bottom-16 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)] md:bottom-0">
 			{playbackError ? (
 				<div
 					data-testid="player-playback-error"
@@ -1350,7 +1350,7 @@ function QueueOnlyPlayerBar({
 }) {
 	return (
 		<div
-			className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)]"
+			className="fixed bottom-16 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)] md:bottom-0"
 			data-testid="player-queue-only-bar"
 		>
 			<div className="md:hidden">

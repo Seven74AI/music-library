@@ -6,6 +6,7 @@ import { test, expect } from "#tests/playwright-utils.ts";
 
 test.describe("Bottom Navigation", () => {
   test("bottom nav is visible with 4 tabs", { tag: "@smoke" }, async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
@@ -23,6 +24,7 @@ test.describe("Bottom Navigation", () => {
   });
 
   test("home tab is active on homepage", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
@@ -31,6 +33,7 @@ test.describe("Bottom Navigation", () => {
   });
 
   test("search tab is active on search page", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/search");
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
@@ -39,6 +42,7 @@ test.describe("Bottom Navigation", () => {
   });
 
   test("clicking tabs navigates to correct pages", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
@@ -62,6 +66,7 @@ test.describe("Bottom Navigation", () => {
 
   test("bottom nav is visible on authenticated pages", async ({ page, loginAsAdmin }) => {
     await loginAsAdmin();
+    await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
@@ -69,6 +74,7 @@ test.describe("Bottom Navigation", () => {
   });
 
   test("search bar is not in the header", { tag: "@smoke" }, async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
 
     const header = page.getByRole("banner");
