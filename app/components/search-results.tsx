@@ -1,6 +1,5 @@
 /**
  * Search results component for displaying unified search results
- * Mixed feed with Spotify-style metadata per type
  */
 
 import { Link } from "react-router";
@@ -15,39 +14,6 @@ interface SearchResultsProps {
   isLoading?: boolean;
 }
 
-function getTypeLabel(type: SearchResult["type"]): string {
-  switch (type) {
-    case "track":
-      return "Track";
-    case "album":
-      return "Album";
-    case "artist":
-      return "Artist";
-    case "playlist":
-      return "Playlist";
-  }
-}
-
-function getResultLink(result: SearchResult): string {
-  switch (result.type) {
-    case "track":
-      return `/library/${result.id}`;
-    case "album":
-      return `/library?album=${result.id}`;
-    case "artist":
-      return `/library?artist=${result.id}`;
-    case "playlist":
-      return `/playlists/${result.id}`;
-  }
-}
-
-function formatDuration(seconds: number | null | undefined): string {
-  if (seconds == null) return "--:--";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${String(secs).padStart(2, "0")}`;
-}
-
 export function SearchResults({
   results,
   query,
@@ -55,26 +21,12 @@ export function SearchResults({
   hasNext = false,
   isLoading = false,
 }: SearchResultsProps) {
-  // Empty state — no query entered
-  if (!query.trim() && results.length === 0) {
-    return null;
-  }
-
-  // Loading state
-  if (isLoading && results.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-      </div>
-    );
-  }
-
-  // No results
+  // Only show "no results" message if there's an actual query
   if (results.length === 0 && !isLoading && query.trim()) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
-        <Icon name="magnifying-glass" className="mb-4 h-12 w-12 text-muted-foreground" />
-        <h3 className="mb-2 text-lg font-semibold">No results found</h3>
+        <Icon name="magnifying-glass" className="h-12 w-12 text-muted-foreground mb-4" />
+        <h3 className="text-lg font-semibold mb-2">No results found</h3>
         <p className="text-muted-foreground">
           No tracks, albums, artists, or playlists match "{query}"
         </p>
@@ -82,99 +34,151 @@ export function SearchResults({
     );
   }
 
+  // If no query, don't show anything (empty state is handled by parent)
+  if (!query.trim() && results.length === 0) {
+    return null;
+  }
+
+  // Group results by type
+  const tracks = results.filter((r) => r.type === "track");
+  const albums = results.filter((r) => r.type === "album");
+  const artists = results.filter((r) => r.type === "artist");
+  const playlists = results.filter((r) => r.type === "playlist");
+
   return (
-    <div className="space-y-1">
-      {results.map((result) => (
-        <Link
-          key={`${result.type}-${result.id}`}
-          to={getResultLink(result)}
-          className="flex items-center gap-4 rounded-lg p-3 transition-colors hover:bg-muted/50"
-        >
-          {/* Type icon + cover thumbnail */}
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-muted">
-            {result.type === "playlist" && result.thumbnailUrl ? (
-              <img
-                src={result.thumbnailUrl}
-                alt=""
-                className="h-12 w-12 rounded object-cover"
-                loading="lazy"
-              />
-            ) : (
-              <Icon
-                name={
-                  result.type === "track"
-                    ? "file-text"
-                    : result.type === "album"
-                      ? "file-text"
-                      : result.type === "playlist"
-                        ? "file-text"
-                        : "file-text"
-                }
-                className="h-6 w-6 text-muted-foreground"
-              />
-            )}
+    <div className="space-y-8">
+      {/* Tracks Section */}
+      {tracks.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <Icon name="play" className="h-5 w-5" />
+            Tracks ({tracks.length})
+          </h2>
+          <div className="space-y-2">
+            {tracks.map((result) => {
+              if (result.type !== "track") return null;
+              return (
+                <Link
+                  key={result.id}
+                  to={`/library/${result.id}`}
+                  className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{result.title}</p>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {result.artistName}
+                      {result.albumName && ` • ${result.albumName}`}
+                    </p>
+                  </div>
+                  {result.duration && (
+                    <span className="text-xs text-muted-foreground">
+                      {Math.floor(result.duration / 60)}:
+                      {String(result.duration % 60).padStart(2, "0")}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
           </div>
+        </div>
+      )}
 
-          {/* Text content */}
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-medium">
-              {result.type === "track"
-                ? result.title
-                : result.type === "playlist"
-                  ? result.name
-                  : result.type === "album"
-                    ? result.name
-                    : result.name}
-            </p>
-            <p className="truncate text-sm text-muted-foreground">
-              {result.type === "track" && (
-                <>
-                  {result.artistName}
-                  {result.albumName && ` • ${result.albumName}`}
-                </>
-              )}
-              {result.type === "album" && (
-                <>
-                  {result.artistName}
-                  {result.year && ` • ${result.year}`}
-                </>
-              )}
-              {result.type === "artist" && <>{result.genre || "Artist"}</>}
-              {result.type === "playlist" && (
-                <>
-                  {result.ownerName} • {result.itemCount} tracks
-                </>
-              )}
-            </p>
+      {/* Albums Section */}
+      {albums.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <Icon name="camera" className="h-5 w-5" />
+            Albums ({albums.length})
+          </h2>
+          <div className="space-y-2">
+            {albums.map((result) => {
+              if (result.type !== "album") return null;
+              return (
+                <Link
+                  key={result.id}
+                  to={`/library?album=${result.id}`}
+                  className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{result.name}</p>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {result.artistName}
+                      {result.year && ` • ${result.year}`}
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
+        </div>
+      )}
 
-          {/* Right metadata */}
-          <div className="shrink-0 text-right text-xs text-muted-foreground">
-            <span className="rounded-full bg-muted px-2 py-0.5">{getTypeLabel(result.type)}</span>
-            {result.type === "track" && (
-              <div className="mt-1">{formatDuration(result.duration)}</div>
-            )}
+      {/* Artists Section */}
+      {artists.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <Icon name="avatar" className="h-5 w-5" />
+            Artists ({artists.length})
+          </h2>
+          <div className="space-y-2">
+            {artists.map((result) => {
+              if (result.type !== "artist") return null;
+              return (
+                <Link
+                  key={result.id}
+                  to={`/library?artist=${result.id}`}
+                  className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{result.name}</p>
+                    {result.genre && (
+                      <p className="text-sm text-muted-foreground truncate">{result.genre}</p>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
           </div>
-        </Link>
-      ))}
+        </div>
+      )}
 
-      {/* Load More Button */}
+      {/* Playlists Section */}
+      {playlists.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <Icon name="list-bullet" className="h-5 w-5" />
+            Playlists ({playlists.length})
+          </h2>
+          <div className="space-y-2">
+            {playlists.map((result) => {
+              if (result.type !== "playlist") return null;
+              return (
+                <Link
+                  key={result.id}
+                  to={`/playlists/${result.id}`}
+                  className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{result.name}</p>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {result.trackCount} tracks
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {hasNext && onLoadMore && (
         <div className="flex justify-center pt-4">
           <button
             onClick={onLoadMore}
             disabled={isLoading}
-            className="rounded-md bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
           >
             {isLoading ? "Loading..." : "Load More"}
           </button>
-        </div>
-      )}
-
-      {/* Loading spinner at bottom while loading more */}
-      {isLoading && results.length > 0 && (
-        <div className="flex justify-center py-4">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       )}
     </div>
