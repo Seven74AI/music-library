@@ -1,11 +1,12 @@
 /**
- * Search utilities for global search across tracks, albums, and artists
+ * Search utilities for global search across tracks, albums, artists, and playlists
  * Uses SQLite FTS5 for full-text search with content tables
  */
 
 import {
   type AlbumSearchResult,
   type ArtistSearchResult,
+  type PlaylistSearchResult,
   type SearchResult,
   type SearchResponse,
   type TrackSearchResult,
@@ -327,6 +328,7 @@ export async function searchArtists(
   const artistUserJoin = userId
     ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."artistId" = a.id AND ut2."userId" = '${userId.replace(/'/g, "''")}' AND ut2."isActive" = true)`
     : "";
+
   const results = await prisma.$queryRawUnsafe<
     Array<{
       type: string;
@@ -383,14 +385,98 @@ export async function searchArtists(
 }
 
 /**
+ * Search playlists using plain SQL LIKE
+ * Playlists are user-owned, so this search is scoped to the authenticated user.
+ * Unlike tracks/albums/artists which use FTS5 for full-text search,
+ * playlists use a simple LIKE query on the title.
+ *
+ * @param query - Pre-validated search query
+ * @param userId - The authenticated user's ID (required for user scoping)
+ * @param limit - Pre-validated limit (1-100)
+ * @param cursor - Pre-validated cursor (optional)
+ * @param usePrefix - Whether to use prefix matching (LIKE 'query%' vs LIKE '%query%')
+ * @returns Search results with pagination
+ */
+export async function searchPlaylists(
+  query: string,
+  userId: string,
+  limit: number = 20,
+  cursor?: string,
+  usePrefix: boolean = true,
+): Promise<SearchResponse> {
+  if (!query.trim() || !userId) {
+    return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
+  }
+
+  const normalizedQuery = query.toLowerCase().trim();
+  // Build LIKE pattern: always use substring match for playlist names
+  // (users expect "Favorite" to match "My Favorite Songs")
+  const likePattern = `%${normalizedQuery}%`;
+
+  const results = await prisma.$queryRawUnsafe<
+    Array<{
+      type: string;
+      id: string;
+      name: string;
+      track_count: number;
+      relevance_rank: number;
+    }>
+  >(
+    `SELECT 
+			'playlist' as type,
+			up.id,
+			up.title as name,
+			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as track_count,
+			CASE 
+				WHEN LOWER(up.title) = ? THEN 1
+				WHEN LOWER(up.title) LIKE ? THEN 2
+				ELSE 3
+			END as relevance_rank
+		FROM "UserPlaylist" up
+		WHERE up."ownerId" = ?
+		AND LOWER(up.title) LIKE ?
+		ORDER BY relevance_rank, up.title
+		LIMIT ?`,
+    normalizedQuery,
+    likePattern,
+    userId,
+    likePattern,
+    limit + 1,
+  );
+
+  const hasNext = results.length > limit;
+  const playlists = results.slice(0, limit).map(
+    (row): PlaylistSearchResult => ({
+      type: "playlist",
+      id: row.id,
+      name: row.name,
+      trackCount: Number(row.track_count),
+      relevance: Number(row.relevance_rank),
+    }),
+  );
+
+  const nextCursor =
+    hasNext && playlists.length > 0 ? (playlists[playlists.length - 1]?.id ?? null) : null;
+
+  return {
+    results: playlists,
+    pagination: {
+      limit,
+      hasNext,
+      nextCursor,
+    },
+  };
+}
+
+/**
  * Unified search across all entity types
- * Searches tracks, albums, and artists in parallel
+ * Searches tracks, albums, artists, and playlists in parallel
  */
 export async function searchAll(
   query: string,
   limit: number = 20,
   cursor?: string,
-  type?: "all" | "tracks" | "albums" | "artists",
+  type?: "all" | "tracks" | "albums" | "artists" | "playlists",
   usePrefix: boolean = true,
   userId?: string,
 ): Promise<SearchResponse> {
@@ -403,25 +489,32 @@ export async function searchAll(
   const trackLimit = type === "all" || type === "tracks" ? limit : 0;
   const albumLimit = type === "all" || type === "albums" ? limit : 0;
   const artistLimit = type === "all" || type === "artists" ? limit : 0;
+  const playlistLimit = type === "all" || type === "playlists" ? limit : 0;
 
   // Search all types in parallel
-  const [tracksResult, albumsResult, artistsResult] = await Promise.all([
+  const [tracksResult, albumsResult, artistsResult, playlistsResult] = await Promise.all([
     trackLimit > 0
       ? searchTracks(query, trackLimit, cursor, usePrefix, userId)
       : Promise.resolve({
-          results: [],
+          results: [] as SearchResult[],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
     albumLimit > 0
       ? searchAlbums(query, albumLimit, cursor, usePrefix, userId)
       : Promise.resolve({
-          results: [],
+          results: [] as SearchResult[],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
     artistLimit > 0
       ? searchArtists(query, artistLimit, cursor, usePrefix, userId)
       : Promise.resolve({
-          results: [],
+          results: [] as SearchResult[],
+          pagination: { limit: 0, hasNext: false, nextCursor: null },
+        }),
+    playlistLimit > 0 && userId
+      ? searchPlaylists(query, userId, playlistLimit, cursor, usePrefix)
+      : Promise.resolve({
+          results: [] as SearchResult[],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
         }),
   ]);
@@ -431,6 +524,7 @@ export async function searchAll(
     ...tracksResult.results,
     ...albumsResult.results,
     ...artistsResult.results,
+    ...playlistsResult.results,
   ].sort((a, b) => a.relevance - b.relevance);
 
   // Take top N results (this ensures the most relevant results across all types)
@@ -439,7 +533,8 @@ export async function searchAll(
     allResults.length > limit ||
     tracksResult.pagination.hasNext ||
     albumsResult.pagination.hasNext ||
-    artistsResult.pagination.hasNext;
+    artistsResult.pagination.hasNext ||
+    playlistsResult.pagination.hasNext;
   const nextCursor = results.length > 0 ? (results[results.length - 1]?.id ?? null) : null;
 
   return {
