@@ -1,40 +1,44 @@
 // Raw SQL query for user search
-import { Img } from 'openimg/react'
-import { redirect, Link } from 'react-router'
-import { GeneralErrorBoundary } from '#app/components/error-boundary.tsx'
-import { ErrorList } from '#app/components/forms.tsx'
-import { SearchBar } from '#app/components/search-bar.tsx'
-import { prisma } from '#app/utils/db.server.ts'
-import { cn, getUserImgSrc, useDelayedIsPending } from '#app/utils/misc.tsx'
-import { type Route } from './+types/index.ts'
+import { Img } from "openimg/react";
+import { Form, Link, redirect, useSearchParams, useSubmit } from "react-router";
+import { useId } from "react";
+import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
+import { ErrorList } from "#app/components/forms.tsx";
+import { prisma } from "#app/utils/db.server.ts";
+import { cn, getUserImgSrc, useDebounce, useDelayedIsPending } from "#app/utils/misc.tsx";
+import { Icon } from "#app/components/ui/icon.tsx";
+import { Input } from "#app/components/ui/input.tsx";
+import { Label } from "#app/components/ui/label.tsx";
+import { StatusButton } from "#app/components/ui/status-button.tsx";
+import { type Route } from "./+types/index.ts";
 
 // Type for the search result from the SQL query
 type SearchUser = {
-	id: string
-	username: string
-	name: string | null
-	imageId: string | null
-	imageObjectKey: string | null
-}
+  id: string;
+  username: string;
+  name: string | null;
+  imageId: string | null;
+  imageObjectKey: string | null;
+};
 
 /**
  * Loader function for the users search page
  * Handles user search functionality with case-insensitive matching
- * 
+ *
  * @param request - The incoming request containing search parameters
  * @returns Promise resolving to user data and status
  */
 export async function loader({ request, url }: Route.LoaderArgs) {
-	const searchTerm = url.searchParams.get('search')
-	if (searchTerm === '') {
-		return redirect('/users')
-	}
+  const searchTerm = url.searchParams.get("search");
+  if (searchTerm === "") {
+    return redirect("/users");
+  }
 
-	try {
-		const like = `%${searchTerm ?? ''}%`
+  try {
+    const like = `%${searchTerm ?? ""}%`;
 
-		// Execute the raw SQL query with proper parameter binding
-		const users = await prisma.$queryRaw<SearchUser[]>`
+    // Execute the raw SQL query with proper parameter binding
+    const users = await prisma.$queryRaw<SearchUser[]>`
 			SELECT 
 				"User".id,
 				"User".username,
@@ -47,82 +51,118 @@ export async function loader({ request, url }: Route.LoaderArgs) {
 			OR "User".name LIKE ${like}
 			ORDER BY "User".createdAt DESC
 			LIMIT 50
-		`
-		return { status: 'idle', users } as const
-	} catch (error) {
-		console.error('Error searching users:', error)
-		return { status: 'error', users: [] } as const
-	}
+		`;
+    return { status: "idle", users } as const;
+  } catch (error) {
+    console.error("Error searching users:", error);
+    return { status: "error", users: [] } as const;
+  }
 }
 
 /**
  * Users search page component
  * Displays a searchable list of users with their profile information
- * 
+ *
  * @param loaderData - Data loaded by the loader function
  * @returns JSX element representing the users search page
  */
 export default function UsersRoute({ loaderData }: Route.ComponentProps) {
-	const isPending = useDelayedIsPending({
-		formMethod: 'GET',
-		formAction: '/users',
-	})
+  const id = useId();
+  const [searchParams] = useSearchParams();
+  const submit = useSubmit();
+  const isPending = useDelayedIsPending({
+    formMethod: "GET",
+    formAction: "/users",
+  });
 
-	return (
-		<div className="container mt-36 mb-48 flex flex-col items-center justify-center gap-6">
-			<h1 className="text-h1">Music Library Users</h1>
-			<div className="w-full max-w-[700px]">
-				<SearchBar status={loaderData.status} autoFocus autoSubmit />
-			</div>
-			<main>
-				{loaderData.status === 'idle' ? (
-					loaderData.users.length ? (
-						<ul
-							className={cn(
-								'flex w-full flex-wrap items-center justify-center gap-4 delay-200',
-								{ 'opacity-50': isPending },
-							)}
-						>
-							{loaderData.users.map((user) => {
-								if (!user) return null
-								return (
-									<li key={user.id}>
-										<Link
-											to={user.username}
-											className="bg-muted flex h-36 w-44 flex-col items-center justify-center rounded-lg px-5 py-3"
-											aria-label={`${user.name || user.username} profile`}
-										>
-											<Img
-												alt={user.name ?? user.username}
-												src={getUserImgSrc(user.imageObjectKey)}
-												className="size-16 rounded-full"
-												width={256}
-												height={256}
-											/>
-											{user.name ? (
-												<span className="text-body-md w-full overflow-hidden text-center text-ellipsis whitespace-nowrap">
-													{user.name}
-												</span>
-											) : null}
-											<span className="text-body-sm text-muted-foreground w-full overflow-hidden text-center text-ellipsis">
-												{user.username}
-											</span>
-										</Link>
-									</li>
-								)
-							})}
-						</ul>
-					) : (
-						<p>No users found</p>
-					)
-				) : loaderData.status === 'error' ? (
-					<ErrorList errors={['There was an error parsing the results']} />
-				) : null}
-			</main>
-		</div>
-	)
+  const handleFormChange = useDebounce(async (form: HTMLFormElement) => {
+    await submit(form);
+  }, 400);
+
+  return (
+    <div className="container mt-36 mb-48 flex flex-col items-center justify-center gap-6">
+      <h1 className="text-h1">Music Library Users</h1>
+      <div className="w-full max-w-[700px]">
+        <Form
+          method="GET"
+          action="/users"
+          className="flex flex-wrap items-center justify-center gap-2"
+          onChange={(e) => handleFormChange(e.currentTarget)}
+        >
+          <div className="flex-1">
+            <Label htmlFor={id} className="sr-only">
+              Search
+            </Label>
+            <Input
+              type="search"
+              name="search"
+              id={id}
+              defaultValue={searchParams.get("search") ?? ""}
+              placeholder="Search users..."
+              className="w-full"
+              autoFocus
+            />
+          </div>
+          <div>
+            <StatusButton
+              type="submit"
+              status={isPending ? "pending" : loaderData.status}
+              className="flex w-full items-center justify-center"
+            >
+              <Icon name="magnifying-glass" size="md" />
+              <span className="sr-only">Search</span>
+            </StatusButton>
+          </div>
+        </Form>
+      </div>
+      <main>
+        {loaderData.status === "idle" ? (
+          loaderData.users.length ? (
+            <ul
+              className={cn("flex w-full flex-wrap items-center justify-center gap-4 delay-200", {
+                "opacity-50": isPending,
+              })}
+            >
+              {loaderData.users.map((user) => {
+                if (!user) return null;
+                return (
+                  <li key={user.id}>
+                    <Link
+                      to={user.username}
+                      className="bg-muted flex h-36 w-44 flex-col items-center justify-center rounded-lg px-5 py-3"
+                      aria-label={`${user.name || user.username} profile`}
+                    >
+                      <Img
+                        alt={user.name ?? user.username}
+                        src={getUserImgSrc(user.imageObjectKey)}
+                        className="size-16 rounded-full"
+                        width={256}
+                        height={256}
+                      />
+                      {user.name ? (
+                        <span className="text-body-md w-full overflow-hidden text-center text-ellipsis whitespace-nowrap">
+                          {user.name}
+                        </span>
+                      ) : null}
+                      <span className="text-body-sm text-muted-foreground w-full overflow-hidden text-center text-ellipsis">
+                        {user.username}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p>No users found</p>
+          )
+        ) : loaderData.status === "error" ? (
+          <ErrorList errors={["There was an error parsing the results"]} />
+        ) : null}
+      </main>
+    </div>
+  );
 }
 
 export function ErrorBoundary() {
-	return <GeneralErrorBoundary />
+  return <GeneralErrorBoundary />;
 }

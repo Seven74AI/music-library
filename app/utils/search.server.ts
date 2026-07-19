@@ -90,7 +90,7 @@ function buildFts5Query(query: string, usePrefix: boolean = true): string {
 }
 
 /**
- * Search tracks using FTS5, optionally scoped to a user's library
+ * Search tracks using FTS5
  *
  * Security: All parameters must be pre-validated using validation functions
  * from search-validation.server.ts to prevent SQL injection and DoS attacks.
@@ -99,7 +99,6 @@ function buildFts5Query(query: string, usePrefix: boolean = true): string {
  * @param limit - Pre-validated limit (1-100)
  * @param cursor - Pre-validated cursor (optional)
  * @param usePrefix - Whether to use prefix matching
- * @param userId - Optional user ID to scope results to the user's library via UserTrack
  * @returns Search results with pagination
  */
 export async function searchTracks(
@@ -123,18 +122,11 @@ export async function searchTracks(
   // - FTS5 special characters (", ', \, ?, *, AND, OR, NOT)
   // - SQL string literal escaping (single quotes doubled)
   //
-  // Additional security: We use parameterized queries for all other values (normalizedQuery, limit, userId)
+  // Additional security: We use parameterized queries for all other values (normalizedQuery, limit)
   const prefixPattern = `${normalizedQuery}%`;
   // Security: Double-check SQL escaping (escapeFts5Query already does this, but be explicit)
   // Single quotes are already doubled by escapeFts5Query, but we ensure it here too
   const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
-
-  // Build the UserTrack JOIN clause for library scoping
-  // When userId is provided, only return tracks that the user has in their library
-  const userTrackJoin = userId
-    ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = '${userId.replace(/'/g, "''")}' AND ut."isActive" = true`
-    : "";
-
   const results = await prisma.$queryRawUnsafe<
     Array<{
       type: string;
@@ -172,7 +164,6 @@ export async function searchTracks(
 		JOIN "Track" t ON tracks_fts.track_id = t.id
 		JOIN "Artist" a ON t."artistId" = a.id
 		LEFT JOIN "Album" alb ON t."albumId" = alb.id
-		${userTrackJoin}
 		WHERE tracks_fts MATCH '${sqlEscapedFtsQuery}'
 		ORDER BY relevance_rank, fts_rank, t.title
 		LIMIT ?`,
@@ -211,7 +202,7 @@ export async function searchTracks(
 }
 
 /**
- * Search albums using FTS5, optionally scoped to a user's library
+ * Search albums using FTS5
  */
 export async function searchAlbums(
   query: string,
@@ -229,16 +220,6 @@ export async function searchAlbums(
 
   const prefixPattern = `${normalizedQuery}%`;
   const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
-
-  // Build the UserTrack JOIN clause for library scoping
-  // Albums are scoped via their tracks — only albums with tracks in user's library appear
-  const userTrackJoin = userId
-    ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = '${userId.replace(/'/g, "''")}' AND ut."isActive" = true`
-    : "";
-  const albumUserJoin = userId
-    ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."albumId" = alb.id AND ut2."userId" = '${userId.replace(/'/g, "''")}' AND ut2."isActive" = true)`
-    : "";
-
   const results = await prisma.$queryRawUnsafe<
     Array<{
       type: string;
@@ -269,7 +250,7 @@ export async function searchAlbums(
 		FROM albums_fts
 		JOIN "Album" alb ON albums_fts.album_id = alb.id
 		JOIN "Artist" a ON alb."artistId" = a.id
-		WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'${albumUserJoin}
+		WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'
 		ORDER BY relevance_rank, fts_rank, alb.name
 		LIMIT ?`,
     normalizedQuery,
@@ -304,7 +285,7 @@ export async function searchAlbums(
 }
 
 /**
- * Search artists using FTS5, optionally scoped to a user's library
+ * Search artists using FTS5
  */
 export async function searchArtists(
   query: string,
@@ -352,7 +333,7 @@ export async function searchArtists(
 			artists_fts.rank as fts_rank
 		FROM artists_fts
 		JOIN "Artist" a ON artists_fts.artist_id = a.id
-		WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'${artistUserJoin}
+		WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'
 		ORDER BY relevance_rank, fts_rank, a.name
 		LIMIT ?`,
     normalizedQuery,
@@ -419,6 +400,10 @@ export async function searchPlaylists(
       id: string;
       name: string;
       track_count: number;
+      owner_name: string;
+      description: string | null;
+      item_count: number;
+      thumbnail_url: string | null;
       relevance_rank: number;
     }>
   >(
@@ -427,12 +412,17 @@ export async function searchPlaylists(
 			up.id,
 			up.title as name,
 			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as track_count,
+			u.name as owner_name,
+			up.description,
+			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as item_count,
+			NULL as thumbnail_url,
 			CASE 
 				WHEN LOWER(up.title) = ? THEN 1
 				WHEN LOWER(up.title) LIKE ? THEN 2
 				ELSE 3
 			END as relevance_rank
 		FROM "UserPlaylist" up
+		JOIN "User" u ON up."ownerId" = u.id
 		WHERE up."ownerId" = ?
 		AND LOWER(up.title) LIKE ?
 		ORDER BY relevance_rank, up.title
@@ -451,6 +441,10 @@ export async function searchPlaylists(
       id: row.id,
       name: row.name,
       trackCount: Number(row.track_count),
+      ownerName: row.owner_name,
+      description: row.description,
+      itemCount: Number(row.item_count),
+      thumbnailUrl: row.thumbnail_url,
       relevance: Number(row.relevance_rank),
     }),
   );
@@ -546,3 +540,5 @@ export async function searchAll(
     },
   };
 }
+
+
