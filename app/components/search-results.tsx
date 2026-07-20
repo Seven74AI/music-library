@@ -14,46 +14,49 @@ interface SearchResultsProps {
   isLoading?: boolean;
 }
 
-function getResultLink(result: SearchResult): string {
-  switch (result.type) {
-    case "track":
-      return `/library/${result.id}`;
-    case "album":
-      return `/albums/${result.id}`;
-    case "artist":
-      return `/artists/${result.id}`;
-    case "playlist":
-      return `/playlists/${result.id}`;
+/** Per-entity configuration — single source of truth for links, icons, subtitles */
+const ENTITY_CONFIG: Record<
+  SearchResult["type"],
+  {
+    link: (id: string) => string;
+    icon: Parameters<typeof Icon>[0]["name"];
+    subtitle: (r: SearchResult) => string;
   }
-}
-
-function getTypeLabel(type: SearchResult["type"]): string {
-  switch (type) {
-    case "track":
-      return "Track";
-    case "album":
-      return "Album";
-    case "artist":
-      return "Artist";
-    case "playlist":
-      return "Playlist";
-  }
-}
-
-function getResultSubtitle(result: SearchResult): string {
-  switch (result.type) {
-    case "track":
-      return `Track — ${result.artistName}`;
-    case "album":
-      return `Album — ${result.artistName}${result.year ? ` · ${result.year}` : ""}`;
-    case "artist":
-      return result.genre ? `Artist · ${result.genre}` : "Artist";
-    case "playlist":
-      return `Playlist — ${result.trackCount} tracks`;
-  }
-}
+> = {
+  track: {
+    link: (id) => `/library/${id}`,
+    icon: "play",
+    subtitle: (r) =>
+      r.type === "track" ? `Track — ${r.artistName}` : "Track",
+  },
+  album: {
+    link: (id) => `/albums/${id}`,
+    icon: "camera",
+    subtitle: (r) =>
+      r.type === "album"
+        ? `Album — ${r.artistName}${r.year ? ` · ${r.year}` : ""}`
+        : "Album",
+  },
+  artist: {
+    link: (id) => `/artists/${id}`,
+    icon: "avatar",
+    subtitle: (r) =>
+      r.type === "artist" && r.genre
+        ? `Artist · ${r.genre}`
+        : "Artist",
+  },
+  playlist: {
+    link: (id) => `/playlists/${id}`,
+    icon: "list-bullet",
+    subtitle: (r) =>
+      r.type === "playlist"
+        ? `Playlist — ${r.trackCount} tracks`
+        : "Playlist",
+  },
+};
 
 function ResultImage({ result }: { result: SearchResult }) {
+  const config = ENTITY_CONFIG[result.type];
   const imageUrl =
     result.type === "playlist" ? result.thumbnailUrl : null;
 
@@ -68,18 +71,9 @@ function ResultImage({ result }: { result: SearchResult }) {
     );
   }
 
-  const iconName =
-    result.type === "track"
-      ? "play"
-      : result.type === "album"
-        ? "camera"
-        : result.type === "artist"
-          ? "avatar"
-          : "list-bullet";
-
   return (
     <div className="flex h-12 w-12 items-center justify-center rounded bg-muted">
-      <Icon name={iconName} className="h-5 w-5 text-muted-foreground" />
+      <Icon name={config.icon} className="h-5 w-5 text-muted-foreground" />
     </div>
   );
 }
@@ -110,26 +104,28 @@ export function SearchResults({
     return null;
   }
 
-  // Results are already sorted by relevance from the API — display as mixed feed
   return (
     <div>
-      {results.map((result) => (
-        <Link
-          key={`${result.type}-${result.id}`}
-          to={getResultLink(result)}
-          className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
-        >
-          <ResultImage result={result} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">
-              {result.type === "track" ? result.title : result.name}
-            </p>
-            <p className="truncate text-xs text-muted-foreground">
-              {getResultSubtitle(result)}
-            </p>
-          </div>
-        </Link>
-      ))}
+      {results.map((result) => {
+        const config = ENTITY_CONFIG[result.type];
+        return (
+          <Link
+            key={`${result.type}-${result.id}`}
+            to={config.link(result.id)}
+            className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
+          >
+            <ResultImage result={result} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">
+                {result.type === "track" ? result.title : result.name}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {config.subtitle(result)}
+              </p>
+            </div>
+          </Link>
+        );
+      })}
 
       {hasNext && onLoadMore && (
         <div className="flex justify-center pt-4">

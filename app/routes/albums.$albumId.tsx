@@ -1,5 +1,6 @@
 import { data, Link } from 'react-router'
 import { Breadcrumbs, type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
+import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { prisma } from '#app/utils/db.server.ts'
 import { formatDuration } from '#app/utils/format-duration.ts'
@@ -50,6 +51,7 @@ export default function AlbumRoute({ loaderData }: Route.ComponentProps) {
   const { album } = loaderData
 
   return (
+    <OfflineRouteBlocker>
     <div className="py-8">
       <Breadcrumbs />
 
@@ -117,5 +119,6 @@ export default function AlbumRoute({ loaderData }: Route.ComponentProps) {
         </div>
       )}
     </div>
+    </OfflineRouteBlocker>
   )
 }

@@ -25,8 +25,6 @@ interface EntityCounts {
 interface LoaderData {
   fts: FtsCounts
   entities: EntityCounts
-  message?: string
-  error?: string
 }
 
 export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
@@ -70,30 +68,33 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData()
   const entity = formData.get('entity') as string | null
 
-  const rebuildMap: Record<string, [string, string]> = {
-    tracks: ['tracks_fts', 'tracks_fts'],
-    albums: ['albums_fts', 'albums_fts'],
-    artists: ['artists_fts', 'artists_fts'],
-    all: ['all', 'all'],
+  const rebuildTable: Record<string, string> = {
+    tracks: 'tracks_fts',
+    albums: 'albums_fts',
+    artists: 'artists_fts',
   }
 
-  const entry = rebuildMap[entity ?? '']
-  if (!entry) {
+  if (entity === 'all') {
+    try {
+      await prisma.$executeRawUnsafe(`INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')`)
+      await prisma.$executeRawUnsafe(`INSERT INTO albums_fts(albums_fts) VALUES('rebuild')`)
+      await prisma.$executeRawUnsafe(`INSERT INTO artists_fts(artists_fts) VALUES('rebuild')`)
+      return data({ message: `FTS indexes rebuilt for all entities` })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return data({ error: `Rebuild failed: ${msg}` })
+    }
+  }
+
+  const table = rebuildTable[entity ?? '']
+  if (!table) {
     return data({ error: `Unknown entity: ${entity}` })
   }
 
   try {
-    if (entity === 'all') {
-      await prisma.$executeRawUnsafe(`INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')`)
-      await prisma.$executeRawUnsafe(`INSERT INTO albums_fts(albums_fts) VALUES('rebuild')`)
-      await prisma.$executeRawUnsafe(`INSERT INTO artists_fts(artists_fts) VALUES('rebuild')`)
-    } else {
-      const [table] = entry
-      await prisma.$executeRawUnsafe(
-        `INSERT INTO ${table}(${table}) VALUES('rebuild')`,
-      )
-    }
-
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO ${table}(${table}) VALUES('rebuild')`,
+    )
     return data({ message: `FTS index rebuilt for: ${entity}` })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
