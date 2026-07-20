@@ -4,6 +4,7 @@ import { Button } from '#app/components/ui/button.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
 import { prisma } from '#app/utils/db.server.ts'
 import { requireUserWithRole } from '#app/utils/permissions.server.ts'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { type Route } from './+types/fts-index.ts'
 
 export const handle: SEOHandle = {
@@ -60,6 +61,10 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
       artists: artistCount,
     },
   }
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args)
 }
 
 export async function action({ request }: Route.ActionArgs) {
