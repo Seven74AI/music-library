@@ -73,17 +73,41 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData()
   const entity = formData.get('entity') as string | null
 
-  const rebuildTable: Record<string, string> = {
-    tracks: 'tracks_fts',
-    albums: 'albums_fts',
-    artists: 'artists_fts',
+  const rebuildFts = {
+    tracks: async () => {
+      await prisma.$executeRawUnsafe(`DELETE FROM tracks_fts`)
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO tracks_fts(track_id, title, artist_name, album_name)
+        SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
+        FROM Track t
+        JOIN Artist a ON t.artistId = a.id
+        LEFT JOIN Album alb ON t.albumId = alb.id
+      `)
+    },
+    albums: async () => {
+      await prisma.$executeRawUnsafe(`DELETE FROM albums_fts`)
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO albums_fts(album_id, name, artist_name)
+        SELECT alb.id, alb.name, a.name
+        FROM Album alb
+        JOIN Artist a ON alb.artistId = a.id
+      `)
+    },
+    artists: async () => {
+      await prisma.$executeRawUnsafe(`DELETE FROM artists_fts`)
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO artists_fts(artist_id, name, genre)
+        SELECT id, name, COALESCE(genre, '')
+        FROM Artist
+      `)
+    },
   }
 
   if (entity === 'all') {
     try {
-      await prisma.$executeRawUnsafe(`INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')`)
-      await prisma.$executeRawUnsafe(`INSERT INTO albums_fts(albums_fts) VALUES('rebuild')`)
-      await prisma.$executeRawUnsafe(`INSERT INTO artists_fts(artists_fts) VALUES('rebuild')`)
+      await rebuildFts.tracks()
+      await rebuildFts.albums()
+      await rebuildFts.artists()
       return data({ message: `FTS indexes rebuilt for all entities` })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -91,15 +115,13 @@ export async function action({ request }: Route.ActionArgs) {
     }
   }
 
-  const table = rebuildTable[entity ?? '']
-  if (!table) {
+  const rebuild = rebuildFts[entity as keyof typeof rebuildFts]
+  if (!rebuild) {
     return data({ error: `Unknown entity: ${entity}` })
   }
 
   try {
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO ${table}(${table}) VALUES('rebuild')`,
-    )
+    await rebuild()
     return data({ message: `FTS index rebuilt for: ${entity}` })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
