@@ -75,6 +75,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   const rebuildFts = {
     tracks: async () => {
+      await prisma.$executeRawUnsafe(`BEGIN`)
       await prisma.$executeRawUnsafe(`DELETE FROM tracks_fts`)
       await prisma.$executeRawUnsafe(`
         INSERT INTO tracks_fts(track_id, title, artist_name, album_name)
@@ -83,8 +84,10 @@ export async function action({ request }: Route.ActionArgs) {
         JOIN Artist a ON t.artistId = a.id
         LEFT JOIN Album alb ON t.albumId = alb.id
       `)
+      await prisma.$executeRawUnsafe(`COMMIT`)
     },
     albums: async () => {
+      await prisma.$executeRawUnsafe(`BEGIN`)
       await prisma.$executeRawUnsafe(`DELETE FROM albums_fts`)
       await prisma.$executeRawUnsafe(`
         INSERT INTO albums_fts(album_id, name, artist_name)
@@ -92,14 +95,17 @@ export async function action({ request }: Route.ActionArgs) {
         FROM Album alb
         JOIN Artist a ON alb.artistId = a.id
       `)
+      await prisma.$executeRawUnsafe(`COMMIT`)
     },
     artists: async () => {
+      await prisma.$executeRawUnsafe(`BEGIN`)
       await prisma.$executeRawUnsafe(`DELETE FROM artists_fts`)
       await prisma.$executeRawUnsafe(`
         INSERT INTO artists_fts(artist_id, name, genre)
         SELECT id, name, COALESCE(genre, '')
         FROM Artist
       `)
+      await prisma.$executeRawUnsafe(`COMMIT`)
     },
   }
 
