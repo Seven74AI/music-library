@@ -10,6 +10,7 @@ import { Spacer } from '#app/components/spacer.tsx'
 import { StatusButton } from '#app/components/ui/status-button.tsx'
 import { checkHoneypot } from '#app/utils/honeypot.server.ts'
 import { useIsPending } from '#app/utils/misc.tsx'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { type Route } from './+types/verify.ts'
 import { validateRequest } from './verify.server.ts'
 
@@ -36,6 +37,10 @@ export async function action({ request }: Route.ActionArgs) {
 	const formData = await request.formData()
 	await checkHoneypot(formData)
 	return validateRequest(request, formData)
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
 
 export default function VerifyRoute({ actionData }: Route.ComponentProps) {

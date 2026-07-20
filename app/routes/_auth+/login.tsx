@@ -14,6 +14,7 @@ import { StatusButton } from '#app/components/ui/status-button.tsx'
 import { login, requireAnonymous } from '#app/utils/auth.server.ts'
 import { checkHoneypot } from '#app/utils/honeypot.server.ts'
 import { getErrorMessage, useIsPending } from '#app/utils/misc.tsx'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { PasswordSchema, UsernameSchema } from '#app/utils/user-validation.ts'
 import { type Route } from './+types/login.ts'
 import { handleNewSession } from './login.server.ts'
@@ -76,6 +77,10 @@ export async function action({ request }: Route.ActionArgs) {
 		remember: remember ?? false,
 		redirectTo,
 	})
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
 
 export default function LoginPage({ actionData }: Route.ComponentProps) {

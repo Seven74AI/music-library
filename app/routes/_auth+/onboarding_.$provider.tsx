@@ -25,6 +25,7 @@ import {
 import { ProviderNameSchema } from '#app/utils/connections.tsx'
 import { prisma } from '#app/utils/db.server.ts'
 import { useIsPending } from '#app/utils/misc.tsx'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { authSessionStorage } from '#app/utils/session.server.ts'
 import { redirectWithToast } from '#app/utils/toast.server.ts'
 import { NameSchema, UsernameSchema } from '#app/utils/user-validation.ts'
@@ -161,6 +162,10 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 export const meta: Route.MetaFunction = () => {
 	return [{ title: 'Setup Music Library Account' }]
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
 
 export default function OnboardingProviderRoute({
