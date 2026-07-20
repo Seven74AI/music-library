@@ -320,7 +320,7 @@ function App() {
               </nav>
             </header>
 
-            <div className="flex flex-1 flex-col overflow-y-auto pb-16 md:pb-0" id="main-content">
+            <div className="flex flex-1 flex-col pb-16 md:pb-0" id="main-content">
               <div className="container">
                 <Outlet />
               </div>

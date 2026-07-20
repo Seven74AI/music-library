@@ -17,7 +17,7 @@ import { test, expect, testPrisma } from "#tests/playwright-utils.ts";
 async function dismissInstallBanner(page: import("@playwright/test").Page) {
   const installBanner = page.getByRole("region", { name: "Install app" });
   if (await installBanner.isVisible().catch(() => false)) {
-    await page.getByRole("button", { name: "Not now" }).click();
+    await page.getByRole("button", { name: "Not now" }).click({ force: true });
   }
 
   // Remove any Radix Toast notifications from the DOM entirely.

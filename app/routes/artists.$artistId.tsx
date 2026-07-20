@@ -36,7 +36,7 @@ export async function loader({ params }: Route.LoaderArgs) {
           id: true,
           title: true,
           duration: true,
-          album: {
+          albumRecord: {
             select: { id: true, name: true },
           },
           coverImage: { select: { objectKey: true } },
@@ -145,9 +145,9 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{track.title}</p>
-                  {track.album ? (
+                  {track.albumRecord ? (
                     <p className="truncate text-xs text-muted-foreground">
-                      {track.album.name}
+                      {track.albumRecord.name}
                     </p>
                   ) : null}
                 </div>
