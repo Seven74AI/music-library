@@ -102,7 +102,7 @@
     "@sentry/react-router": "^10.55.0",
     "@simplewebauthn/browser": "^13.1.0",
     "@simplewebauthn/server": "^13.1.1",
-    "@tailwindcss/vite": "^4.3.2",
+    "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.90.2",
     "@tanstack/react-virtual": "^3.13.12",
     "@tusbar/cache-control": "^3.0.1",
