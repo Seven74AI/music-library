@@ -2,12 +2,13 @@ import { data, Link } from 'react-router'
 import { Breadcrumbs, type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
+import { getAlbumTitle } from '#app/utils/breadcrumb-utils.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { formatDuration } from '#app/utils/format-duration.ts'
 import { type Route } from './+types/albums.$albumId.ts'
 
 export const handle: BreadcrumbHandle = {
-  breadcrumb: ({ loaderData }) => loaderData?.album?.name ?? 'Album',
+  breadcrumb: ({ loaderData }) => getAlbumTitle(loaderData),
 }
 
 export async function loader({ params }: Route.LoaderArgs) {

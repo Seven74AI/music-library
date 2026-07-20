@@ -35,3 +35,25 @@ export function getPlaylistTitle(data: unknown, fallback = 'Playlist'): string {
 	}
 	return fallback
 }
+
+/**
+ * Safely extract album title from breadcrumb data
+ */
+export function getAlbumTitle(data: unknown, fallback = 'Album'): string {
+	if (typeof data === 'object' && data !== null && 'album' in data) {
+		const d = data as { album?: { name?: string } }
+		return d.album?.name || fallback
+	}
+	return fallback
+}
+
+/**
+ * Safely extract artist title from breadcrumb data
+ */
+export function getArtistTitle(data: unknown, fallback = 'Artist'): string {
+	if (typeof data === 'object' && data !== null && 'artist' in data) {
+		const d = data as { artist?: { name?: string } }
+		return d.artist?.name || fallback
+	}
+	return fallback
+}

@@ -2,12 +2,13 @@ import { data, Link } from 'react-router'
 import { Breadcrumbs, type BreadcrumbHandle } from '#app/components/breadcrumbs.tsx'
 import { OfflineRouteBlocker } from '#app/components/offline/offline-route-blocker.tsx'
 import { Icon } from '#app/components/ui/icon.tsx'
+import { getArtistTitle } from '#app/utils/breadcrumb-utils.ts'
 import { prisma } from '#app/utils/db.server.ts'
 import { formatDuration } from '#app/utils/format-duration.ts'
 import { type Route } from './+types/artists.$artistId.ts'
 
 export const handle: BreadcrumbHandle = {
-  breadcrumb: ({ loaderData }) => loaderData?.artist?.name ?? 'Artist',
+  breadcrumb: ({ loaderData }) => getArtistTitle(loaderData),
 }
 
 export async function loader({ params }: Route.LoaderArgs) {
@@ -144,11 +145,11 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{track.title}</p>
-                  {track.album && (
+                  {track.album ? (
                     <p className="truncate text-xs text-muted-foreground">
                       {track.album.name}
                     </p>
-                  )}
+                  ) : null}
                 </div>
                 {track.duration && (
                   <span className="text-xs text-muted-foreground">
