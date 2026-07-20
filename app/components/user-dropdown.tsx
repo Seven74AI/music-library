@@ -87,6 +87,15 @@ export function UserDropdown() {
 							</Link>
 						</DropdownMenuItem>
 					)}
+					{isAdmin && (
+						<DropdownMenuItem asChild>
+							<Link prefetch="intent" to="/admin/fts-index">
+								<Icon className="text-body-md" name="magnifying-glass">
+									FTS5 Index
+								</Icon>
+							</Link>
+						</DropdownMenuItem>
+					)}
 					<Form action="/logout" method="POST" ref={formRef}>
 						<DropdownMenuItem asChild>
 							<button type="submit" className="w-full">
