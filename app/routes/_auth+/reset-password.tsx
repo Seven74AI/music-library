@@ -11,6 +11,7 @@ import {
 	resetUserPassword,
 } from '#app/utils/auth.server.ts'
 import { useIsPending } from '#app/utils/misc.tsx'
+import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
 import { PasswordAndConfirmPasswordSchema } from '#app/utils/user-validation.ts'
 import { verifySessionStorage } from '#app/utils/verification.server.ts'
 import { type Route } from './+types/reset-password.ts'
@@ -77,6 +78,10 @@ export async function action({ request }: Route.ActionArgs) {
 
 export const meta: Route.MetaFunction = () => {
 	return [{ title: 'Reset Password | Music Library' }]
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+	return proxyClientActionToServer(args)
 }
 
 export default function ResetPasswordPage({
