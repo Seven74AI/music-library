@@ -1,4 +1,4 @@
-import { NavLink } from "react-router";
+import { NavLink, useNavigate } from "react-router";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { cn } from "#app/utils/misc.tsx";
 
@@ -16,9 +16,20 @@ const tabs: TabConfig[] = [
 ];
 
 export function BottomNav() {
+  const navigate = useNavigate();
+
+  const handleSearchClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    void navigate("/search");
+    // Focus the search input after the SPA navigation commits
+    setTimeout(() => {
+      document.querySelector<HTMLInputElement>('input[name="q"]')?.focus();
+    }, 0);
+  };
+
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="fixed bottom-0 left-0 right-0 z-[51] border-t border-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
       role="navigation"
       aria-label="Main navigation"
     >
@@ -28,6 +39,7 @@ export function BottomNav() {
             <NavLink
               to={tab.to}
               end={tab.to === "/"}
+              onClick={tab.to === "/search" ? handleSearchClick : undefined}
               className={({ isActive }) =>
                 cn(
                   "flex h-full flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors",
