@@ -657,6 +657,10 @@ test.describe("Player / Queue", () => {
     const miniBar = page.getByTestId("player-mini-bar");
     await expect(miniBar).toBeVisible({ timeout: 10000 });
 
+    // Close any lingering sheet from previous tests to avoid overlay interception
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+
     // Open the now-playing sheet
     await miniBar.getByLabel("Open now playing").click();
 
