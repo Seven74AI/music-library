@@ -1,5 +1,5 @@
 /**
- * Search results component for displaying unified search results
+ * Search results — mixed feed with horizontal cards, sorted by relevance
  */
 
 import { Link } from "react-router";
@@ -14,6 +14,70 @@ interface SearchResultsProps {
   isLoading?: boolean;
 }
 
+/** Per-entity configuration — single source of truth for links, icons, subtitles */
+const ENTITY_CONFIG: Record<
+  SearchResult["type"],
+  {
+    link: (id: string) => string;
+    icon: Parameters<typeof Icon>[0]["name"];
+    subtitle: (r: SearchResult) => string;
+  }
+> = {
+  track: {
+    link: (id) => `/library/${id}`,
+    icon: "play",
+    subtitle: (r) =>
+      r.type === "track" ? `Track — ${r.artistName}` : "Track",
+  },
+  album: {
+    link: (id) => `/albums/${id}`,
+    icon: "camera",
+    subtitle: (r) =>
+      r.type === "album"
+        ? `Album — ${r.artistName}${r.year ? ` · ${r.year}` : ""}`
+        : "Album",
+  },
+  artist: {
+    link: (id) => `/artists/${id}`,
+    icon: "avatar",
+    subtitle: (r) =>
+      r.type === "artist" && r.genre
+        ? `Artist · ${r.genre}`
+        : "Artist",
+  },
+  playlist: {
+    link: (id) => `/playlists/${id}`,
+    icon: "list-bullet",
+    subtitle: (r) =>
+      r.type === "playlist"
+        ? `Playlist — ${r.trackCount} tracks`
+        : "Playlist",
+  },
+};
+
+function ResultImage({ result }: { result: SearchResult }) {
+  const config = ENTITY_CONFIG[result.type];
+  const imageUrl =
+    result.type === "playlist" ? result.thumbnailUrl : null;
+
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt=""
+        className="h-12 w-12 rounded object-cover"
+        loading="lazy"
+      />
+    );
+  }
+
+  return (
+    <div className="flex h-12 w-12 items-center justify-center rounded bg-muted">
+      <Icon name={config.icon} className="h-5 w-5 text-muted-foreground" />
+    </div>
+  );
+}
+
 export function SearchResults({
   results,
   query,
@@ -21,12 +85,14 @@ export function SearchResults({
   hasNext = false,
   isLoading = false,
 }: SearchResultsProps) {
-  // Only show "no results" message if there's an actual query
   if (results.length === 0 && !isLoading && query.trim()) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
-        <Icon name="magnifying-glass" className="h-12 w-12 text-muted-foreground mb-4" />
-        <h3 className="text-lg font-semibold mb-2">No results found</h3>
+        <Icon
+          name="magnifying-glass"
+          className="mb-4 h-12 w-12 text-muted-foreground"
+        />
+        <h3 className="mb-2 text-lg font-semibold">No results found</h3>
         <p className="text-muted-foreground">
           No tracks, albums, artists, or playlists match "{query}"
         </p>
@@ -34,148 +100,39 @@ export function SearchResults({
     );
   }
 
-  // If no query, don't show anything (empty state is handled by parent)
   if (!query.trim() && results.length === 0) {
     return null;
   }
 
-  // Group results by type
-  const tracks = results.filter((r) => r.type === "track");
-  const albums = results.filter((r) => r.type === "album");
-  const artists = results.filter((r) => r.type === "artist");
-  const playlists = results.filter((r) => r.type === "playlist");
-
   return (
-    <div className="space-y-8">
-      {/* Tracks Section */}
-      {tracks.length > 0 && (
-        <div>
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <Icon name="play" className="h-5 w-5" />
-            Tracks ({tracks.length})
-          </h2>
-          <div className="space-y-2">
-            {tracks.map((result) => {
-              if (result.type !== "track") return null;
-              return (
-                <Link
-                  key={result.id}
-                  to={`/library/${result.id}`}
-                  className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{result.title}</p>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {result.artistName}
-                      {result.albumName && ` • ${result.albumName}`}
-                    </p>
-                  </div>
-                  {result.duration && (
-                    <span className="text-xs text-muted-foreground">
-                      {Math.floor(result.duration / 60)}:
-                      {String(result.duration % 60).padStart(2, "0")}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
+    <div>
+      {results.map((result) => {
+        const config = ENTITY_CONFIG[result.type];
+        return (
+          <Link
+            key={`${result.type}-${result.id}`}
+            to={config.link(result.id)}
+            className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
+          >
+            <ResultImage result={result} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">
+                {result.type === "track" ? result.title : result.name}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {config.subtitle(result)}
+              </p>
+            </div>
+          </Link>
+        );
+      })}
 
-      {/* Albums Section */}
-      {albums.length > 0 && (
-        <div>
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <Icon name="camera" className="h-5 w-5" />
-            Albums ({albums.length})
-          </h2>
-          <div className="space-y-2">
-            {albums.map((result) => {
-              if (result.type !== "album") return null;
-              return (
-                <Link
-                  key={result.id}
-                  to={`/library?album=${result.id}`}
-                  className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{result.name}</p>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {result.artistName}
-                      {result.year && ` • ${result.year}`}
-                    </p>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Artists Section */}
-      {artists.length > 0 && (
-        <div>
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <Icon name="avatar" className="h-5 w-5" />
-            Artists ({artists.length})
-          </h2>
-          <div className="space-y-2">
-            {artists.map((result) => {
-              if (result.type !== "artist") return null;
-              return (
-                <Link
-                  key={result.id}
-                  to={`/library?artist=${result.id}`}
-                  className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{result.name}</p>
-                    {result.genre && (
-                      <p className="text-sm text-muted-foreground truncate">{result.genre}</p>
-                    )}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Playlists Section */}
-      {playlists.length > 0 && (
-        <div>
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <Icon name="list-bullet" className="h-5 w-5" />
-            Playlists ({playlists.length})
-          </h2>
-          <div className="space-y-2">
-            {playlists.map((result) => {
-              if (result.type !== "playlist") return null;
-              return (
-                <Link
-                  key={result.id}
-                  to={`/playlists/${result.id}`}
-                  className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{result.name}</p>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {result.trackCount} tracks
-                    </p>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
       {hasNext && onLoadMore && (
         <div className="flex justify-center pt-4">
           <button
             onClick={onLoadMore}
             disabled={isLoading}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
+            className="rounded-md bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {isLoading ? "Loading..." : "Load More"}
           </button>

@@ -12,7 +12,7 @@ export function InstallAppBanner({ playerVisible }: InstallAppBannerProps) {
 
 	return (
 		<div
-			className="fixed left-0 right-0 z-[60]"
+			className="fixed left-0 right-0 z-30"
 			style={{ bottom: playerVisible ? '4.5rem' : '0' }}
 		>
 			<InstallAppPrompt

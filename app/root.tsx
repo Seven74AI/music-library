@@ -320,7 +320,7 @@ function App() {
               </nav>
             </header>
 
-            <div className="flex flex-1 flex-col pb-16" id="main-content">
+            <div className="flex flex-1 flex-col pb-16 md:pb-0" id="main-content">
               <div className="container">
                 <Outlet />
               </div>
@@ -329,7 +329,7 @@ function App() {
             <BottomNav />
 
             <footer
-              className="container py-8 text-center text-sm text-muted-foreground"
+              className="container py-8 pb-24 md:pb-8 text-center text-sm text-muted-foreground"
               role="contentinfo"
             >
               <p>&copy; {new Date().getFullYear()} Music Library</p>

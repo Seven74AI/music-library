@@ -4,6 +4,16 @@
 
 import { test, expect } from "#tests/playwright-utils.ts";
 
+/**
+ * Helper: dismiss the "Install app" banner if visible.
+ */
+async function dismissInstallBanner(page: import("@playwright/test").Page) {
+  const installBanner = page.getByRole("region", { name: "Install app" });
+  if (await installBanner.isVisible().catch(() => false)) {
+    await page.getByRole("button", { name: "Not now" }).click({ force: true });
+  }
+}
+
 test.describe("Bottom Navigation", () => {
   test("bottom nav is visible with 4 tabs", { tag: "@smoke" }, async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
@@ -44,6 +54,7 @@ test.describe("Bottom Navigation", () => {
   test("clicking tabs navigates to correct pages", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
+    await dismissInstallBanner(page);
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
 
