@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useFetcher, useNavigate, useSearchParams } from "react-router";
+import { useFetcher, useLocation, useNavigate, useSearchParams } from "react-router";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
 import { SearchResults } from "#app/components/search-results.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
@@ -52,6 +52,7 @@ export default function SearchPage() {
   const [searchParams] = useSearchParams();
   const fetcher = useFetcher<SearchResponse>({ key: "search" });
   const navigate = useNavigate();
+  const location = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -83,10 +84,10 @@ export default function SearchPage() {
   const hasError =
     fetcher.state === "idle" && fetcher.data === undefined && query.trim().length > 0;
 
-  // Auto-focus the input on mount
+  // Auto-focus the input on every navigation to the search page
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+  }, [location.pathname]);
 
   // Debounced search
   const doSearch = useCallback(
@@ -172,7 +173,7 @@ export default function SearchPage() {
 
   return (
     <OfflineRouteBlocker>
-      <div className="fixed inset-0 z-30 flex flex-col bg-background">
+      <div className="fixed inset-0 z-[80] flex h-[100dvh] flex-col bg-background">
         {/* Header with search bar */}
         <div className="shrink-0 border-b">
           <div className="container flex items-center gap-3 py-3">
