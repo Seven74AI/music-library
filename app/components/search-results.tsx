@@ -96,7 +96,7 @@ export function SearchResults({
               return (
                 <Link
                   key={result.id}
-                  to={`/library?album=${result.id}`}
+                  to={`/albums/${result.id}`}
                   className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
@@ -126,7 +126,7 @@ export function SearchResults({
               return (
                 <Link
                   key={result.id}
-                  to={`/library?artist=${result.id}`}
+                  to={`/artists/${result.id}`}
                   className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
