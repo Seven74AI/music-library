@@ -1,68 +1,64 @@
-import { getOfflineStorage } from '#app/features/offline-storage/offline-storage.client.ts'
+import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
 
-const blobUrlCache = new Map<string, string>()
+const blobUrlCache = new Map<string, string>();
 
 export class OfflineDataCorruptedError extends Error {
-	constructor(message = 'Offline data is corrupted or unavailable') {
-		super(message)
-		this.name = 'OfflineDataCorruptedError'
-	}
+  constructor(message = "Offline data is corrupted or unavailable") {
+    super(message);
+    this.name = "OfflineDataCorruptedError";
+  }
 }
 
 export async function resolvePlaybackAudioUrl(trackId: string): Promise<string | null> {
-	const storage = getOfflineStorage()
-	try {
-		const blob = await storage.resolvePlaybackBlob(trackId)
-		if (!blob) return null
+  const storage = getOfflineStorage();
+  try {
+    const blob = await storage.resolvePlaybackBlob(trackId);
+    if (!blob) return null;
 
-		const existing = blobUrlCache.get(trackId)
-		if (existing) {
-			URL.revokeObjectURL(existing)
-		}
+    const existing = blobUrlCache.get(trackId);
+    if (existing) {
+      URL.revokeObjectURL(existing);
+    }
 
-		const url = URL.createObjectURL(blob)
-		blobUrlCache.set(trackId, url)
-		return url
-	} catch {
-		return null
-	}
+    const url = URL.createObjectURL(blob);
+    blobUrlCache.set(trackId, url);
+    return url;
+  } catch {
+    return null;
+  }
 }
 
 export function revokePlaybackAudioUrl(trackId: string) {
-	const existing = blobUrlCache.get(trackId)
-	if (!existing) return
-	URL.revokeObjectURL(existing)
-	blobUrlCache.delete(trackId)
+  const existing = blobUrlCache.get(trackId);
+  if (!existing) return;
+  URL.revokeObjectURL(existing);
+  blobUrlCache.delete(trackId);
 }
 
 export function clearBlobUrlCache() {
-	for (const url of blobUrlCache.values()) {
-		URL.revokeObjectURL(url)
-	}
-	blobUrlCache.clear()
+  for (const url of blobUrlCache.values()) {
+    URL.revokeObjectURL(url);
+  }
+  blobUrlCache.clear();
 }
 
-export async function fetchRemotePlaybackAudioUrl(
-	trackId: string,
-): Promise<string | null> {
-	const response = await fetch(`/resources/audio/${trackId}`)
-	if (!response.ok) return null
-	const data = (await response.json()) as { url: string }
-	return data.url
+export async function fetchRemotePlaybackAudioUrl(trackId: string): Promise<string | null> {
+  const response = await fetch(`/resources/audio/${trackId}`);
+  if (!response.ok) return null;
+  const data = (await response.json()) as { url: string };
+  return data.url;
 }
 
-export async function resolveTrackPlaybackSource(
-	trackId: string,
-): Promise<string | null> {
-	const offlineUrl = await resolvePlaybackAudioUrl(trackId)
-	if (offlineUrl) return offlineUrl
+export async function resolveTrackPlaybackSource(trackId: string): Promise<string | null> {
+  const offlineUrl = await resolvePlaybackAudioUrl(trackId);
+  if (offlineUrl) return offlineUrl;
 
-	try {
-		const remoteUrl = await fetchRemotePlaybackAudioUrl(trackId)
-		if (remoteUrl) return remoteUrl
-	} catch {
-		// no-op: offline blob already checked above
-	}
+  try {
+    const remoteUrl = await fetchRemotePlaybackAudioUrl(trackId);
+    if (remoteUrl) return remoteUrl;
+  } catch {
+    // no-op: offline blob already checked above
+  }
 
-	return null
+  return null;
 }

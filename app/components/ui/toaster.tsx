@@ -6,18 +6,18 @@ import {
   ToastProvider,
   ToastTitle,
   ToastViewport,
-} from "#app/components/ui/toast.tsx"
-import { useToast } from "#app/components/ui/use-toast.ts"
+} from "#app/components/ui/toast.tsx";
+import { useToast } from "#app/components/ui/use-toast.ts";
 
 /**
  * Main toaster component that renders all active toasts
  * Handles toast positioning, styling, and icon display
  * Maps server-side toast types to appropriate UI variants
- * 
+ *
  * @returns Toast provider with all active toasts rendered
  */
 export function Toaster() {
-  const { toasts } = useToast()
+  const { toasts } = useToast();
 
   return (
     <ToastProvider>
@@ -27,9 +27,7 @@ export function Toaster() {
             <ToastIcon variant={variant ?? "default"} />
             <div className="grid gap-1 flex-1">
               {title && <ToastTitle>{title}</ToastTitle>}
-              {description && (
-                <ToastDescription>{description}</ToastDescription>
-              )}
+              {description && <ToastDescription>{description}</ToastDescription>}
             </div>
           </div>
           {action}
@@ -38,5 +36,5 @@ export function Toaster() {
       ))}
       <ToastViewport />
     </ToastProvider>
-  )
+  );
 }

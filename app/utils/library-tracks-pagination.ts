@@ -1,1 +1,1 @@
-export const LIBRARY_TRACKS_PAGE_SIZE = 50
+export const LIBRARY_TRACKS_PAGE_SIZE = 50;

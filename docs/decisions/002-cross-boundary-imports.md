@@ -1,10 +1,13 @@
 # ADR-002: Eliminating Cross-Boundary Imports Between App and Server Layers
 
 ## Status
+
 Accepted (Note: Audio worker functionality has been removed from the codebase)
 
 ## Context
+
 The Music Library application has a hybrid architecture with two distinct layers:
+
 - **React Router Layer** (`app/`): Handles web requests, UI, and user interactions
 - **Express Server Layer** (`server/`): Handles background workers and background processing
 
@@ -15,34 +18,39 @@ During development, we encountered cross-boundary import issues where the admin 
 ### Problems with Cross-Boundary Imports
 
 #### 1. Admin UI Importing from Server Workers
+
 ```typescript
 // Example from removed audio-queue.tsx
 // app/routes/admin+/audio-queue.tsx (removed)
-import { getQueueStats, getTracksForAdmin, enqueueTrack } from '#server/workers/audio-queue'
-import { pauseWorker, resumeWorker, getWorkerStatus } from '#server/workers/audio-worker-control'
+import { getQueueStats, getTracksForAdmin, enqueueTrack } from "#server/workers/audio-queue";
+import { pauseWorker, resumeWorker, getWorkerStatus } from "#server/workers/audio-worker-control";
 ```
 
 #### 2. Server Workers Importing from App Utils
+
 ```typescript
 // Example from removed audio-queue.ts
 // server/workers/audio-queue.ts (removed)
-import { prisma } from '#app/utils/db.server'
-import { uploadAudioFile } from '#app/utils/storage.server'
+import { prisma } from "#app/utils/db.server";
+import { uploadAudioFile } from "#app/utils/storage.server";
 ```
 
 #### 3. Build System Complexity
+
 - React Router build (`build:remix`) needed to access server code
 - Express build (`build:server`) needed to access app code
 - Path alias resolution across different build systems
 - Module resolution errors in production
 
 #### 4. Architectural Violations
+
 - Tight coupling between layers
 - Violation of separation of concerns
 - Difficult to scale or split services later
 - Mixed responsibilities in single functions
 
 ### Requirements
+
 - Clean architectural separation between app and server layers
 - Zero cross-boundary imports
 - Maintainable and scalable architecture
@@ -50,11 +58,13 @@ import { uploadAudioFile } from '#app/utils/storage.server'
 - Clear communication patterns between layers
 
 ## Decision
+
 Implement **Option 4: Database State Communication** - Use the database as the communication layer between app and server components.
 
 ### Architecture Pattern
 
 #### Database as Communication Layer
+
 ```
 Admin UI                    Database                    Worker
    ↓                           ↓                           ↓
@@ -62,6 +72,7 @@ Write state          ←→   Shared tables   ←→      Read/process state
 ```
 
 #### Key Principles
+
 1. **Database is Single Source of Truth**: All state changes go through database
 2. **Eventually Consistent**: Components communicate through database state
 3. **No Direct Function Calls**: No imports between app and server layers
@@ -70,42 +81,48 @@ Write state          ←→   Shared tables   ←→      Read/process state
 ### Implementation Strategy
 
 #### 1. Admin UI Operations
+
 Replace function calls with direct database operations:
 
 **Before:**
+
 ```typescript
-const result = await pauseWorker()
+const result = await pauseWorker();
 ```
 
 **After:**
+
 ```typescript
 await prisma.workerState.update({
-  where: { id: 'singleton' },
-  data: { status: 'paused', lastStateChange: new Date() },
-})
-return data({ success: true, message: 'Worker pause requested (will take effect in ~5 min)' })
+  where: { id: "singleton" },
+  data: { status: "paused", lastStateChange: new Date() },
+});
+return data({ success: true, message: "Worker pause requested (will take effect in ~5 min)" });
 ```
 
 #### 2. Worker State Reading
+
 Workers check database state on each loop:
 
 ```typescript
 // server/workers/audio-worker.ts
 const workerState = await prisma.workerState.findUnique({
-  where: { id: 'singleton' },
-})
+  where: { id: "singleton" },
+});
 
-if (workerState.status === 'running') {
-  await processQueue()
+if (workerState.status === "running") {
+  await processQueue();
 } else {
-  console.log(`Worker status is ${workerState.status}, skipping queue processing`)
+  console.log(`Worker status is ${workerState.status}, skipping queue processing`);
 }
 ```
 
 #### 3. Efficient Data Queries
+
 Use optimized database queries instead of function wrappers:
 
 **Before:**
+
 ```typescript
 const [stats, tracks, workerStatus] = await Promise.all([
   getQueueStats(),           // 5 separate count queries
@@ -115,6 +132,7 @@ const [stats, tracks, workerStatus] = await Promise.all([
 ```
 
 **After:**
+
 ```typescript
 // Example from removed audio queue system
 const [statsGrouped, tracks, workerState] = await Promise.all([
@@ -127,6 +145,7 @@ const [statsGrouped, tracks, workerState] = await Promise.all([
 ## Consequences
 
 ### Positive
+
 - ✅ **Zero Cross-Boundary Imports**: Complete architectural separation
 - ✅ **Faster Page Loads**: 4 queries instead of 8 (groupBy vs separate counts)
 - ✅ **Instant UI Feedback**: Actions return immediately
@@ -137,12 +156,14 @@ const [statsGrouped, tracks, workerState] = await Promise.all([
 - ✅ **Better Performance**: More efficient SQL queries
 
 ### Negative
+
 - ⚠️ **Eventually Consistent**: Worker changes take ~5 minutes to propagate
 - ⚠️ **No Graceful Shutdown**: Worker doesn't wait for current downloads to finish
 - ⚠️ **Some Query Duplication**: Similar Prisma queries in different places
 - ⚠️ **Inline Helper Functions**: Small utility functions need to be inline
 
 ### Neutral
+
 - 🔄 **Different Communication Pattern**: Event-driven vs direct function calls
 - 🔄 **Database Schema Coupling**: Components coupled through database schema
 - 🔄 **State Management**: Database becomes the state management layer
@@ -150,6 +171,7 @@ const [statsGrouped, tracks, workerState] = await Promise.all([
 ## Implementation Details
 
 ### File Structure Changes
+
 ```
 // Example structure from removed audio worker system
 app/routes/admin+/audio-queue.tsx (removed)
@@ -170,65 +192,69 @@ server/utils/
 ### Key Patterns
 
 #### Admin UI Loader Pattern
+
 ```typescript
 // Example from removed audio queue system
 export async function loader({ request }) {
   // Direct Prisma queries - no cross-boundary imports
   const [statsGrouped, tracks, workerState] = await Promise.all([
-    prisma.trackAudioFile.groupBy({ by: ['status'], _count: { _all: true } }), // Removed
+    prisma.trackAudioFile.groupBy({ by: ["status"], _count: { _all: true } }), // Removed
     prisma.trackAudioFile.findMany({ include: { track: true } }), // Removed
-    prisma.workerState.findUnique({ where: { id: 'singleton' } }), // Removed
-  ])
-  
-  return data({ statsGrouped, tracks, workerState })
+    prisma.workerState.findUnique({ where: { id: "singleton" } }), // Removed
+  ]);
+
+  return data({ statsGrouped, tracks, workerState });
 }
 ```
 
 #### Admin UI Action Pattern
+
 ```typescript
 export async function action({ request }) {
-  const intent = formData.get('intent')
-  
+  const intent = formData.get("intent");
+
   switch (intent) {
-    case 'pause-worker':
+    case "pause-worker":
       // Direct database write
       await prisma.workerState.update({
-        where: { id: 'singleton' },
-        data: { status: 'paused', lastStateChange: new Date() },
-      })
-      return data({ success: true, message: 'Worker pause requested' })
+        where: { id: "singleton" },
+        data: { status: "paused", lastStateChange: new Date() },
+      });
+      return data({ success: true, message: "Worker pause requested" });
   }
 }
 ```
 
 #### Worker State Check Pattern
+
 ```typescript
 // Example from removed audio worker system
 async function workerLoop() {
   // Read state from database
   const workerState = await prisma.workerState.findUnique({
-    where: { id: 'singleton' },
-  })
-  
+    where: { id: "singleton" },
+  });
+
   // Respect database state
-  if (workerState.status === 'paused') {
-    console.log('Worker paused by admin')
-    return
+  if (workerState.status === "paused") {
+    console.log("Worker paused by admin");
+    return;
   }
-  
+
   // Process queue
-  await processQueue()
+  await processQueue();
 }
 ```
 
 ### Helper Functions
+
 Small utility functions are kept inline to avoid cross-boundary imports:
 
 ```typescript
 // Inline helper functions
 function calculateNextLongBreak(): Date {
-  const hours = 6 + Math.random() * 2 // Random 6-8 hours
-  return new Date(Date.now() + hours * 60 * 60 * 1000)
+  const hours = 6 + Math.random() * 2; // Random 6-8 hours
+  return new Date(Date.now() + hours * 60 * 60 * 1000);
 }
 
 function formatWorkerStatus(workerState: any) {
@@ -240,26 +266,31 @@ function formatWorkerStatus(workerState: any) {
 ## Alternatives Considered
 
 ### Alternative 1: Shared Utils Folder
+
 - **Pros**: DRY principle, shared types, immediate execution
 - **Cons**: Build coupling, configuration complexity, shared code maintenance
 - **Decision**: Rejected - adds build complexity and coupling
 
 ### Alternative 2: API Endpoints
+
 - **Pros**: True separation, RESTful, scalable
 - **Cons**: HTTP overhead, more code, complexity
 - **Decision**: Rejected - overkill for current needs
 
 ### Alternative 3: Duplicate Functions
+
 - **Pros**: No cross-boundary imports, simple
 - **Cons**: Code duplication, maintenance burden, drift risk
 - **Decision**: Rejected - violates DRY principle
 
 ### Alternative 4: Event-Driven Architecture
+
 - **Pros**: Decoupled, scalable, real-time
 - **Cons**: Infrastructure complexity, debugging difficulty
 - **Decision**: Rejected - too complex for current needs
 
 ### Alternative 5: Hybrid Approach
+
 - **Pros**: Best of both worlds
 - **Cons**: Still has some cross-boundary imports
 - **Decision**: Rejected - doesn't achieve complete separation
@@ -267,23 +298,27 @@ function formatWorkerStatus(workerState: any) {
 ## Migration Strategy
 
 ### Phase 1: Server Layer Isolation
+
 1. Move worker files from `app/utils/` to `server/workers/` (completed, then removed)
 2. Create `server/utils/db.ts` and `server/utils/storage.ts` (completed)
 3. Update server imports to use relative paths (completed)
 4. Test server build and startup (completed)
 
 ### Phase 2: Admin UI Refactoring
+
 1. Replace function calls with direct Prisma queries (completed, then removed)
 2. Add inline helper functions (completed, then removed)
 3. Update loader and action functions (completed, then removed)
 4. Remove cross-boundary imports (completed)
 
 ### Phase 3: Service Utilities
+
 1. Update `service-import.server.ts` and `service-playlist.server.ts` (completed, then removed)
 2. Replace `enqueueTrack()` calls with database upsert logic (completed, then removed)
 3. Test all functionality (completed)
 
 ### Phase 4: Verification
+
 1. Verify no cross-boundary imports remain (completed)
 2. Test build and startup (completed)
 3. Test admin UI functionality (completed, then removed)
@@ -294,6 +329,7 @@ function formatWorkerStatus(workerState: any) {
 ## Success Metrics
 
 ### Technical Metrics
+
 - [x] Zero cross-boundary imports between app and server
 - [x] Build succeeds for both React Router and Express
 - [x] Server starts and worker initializes
@@ -301,6 +337,7 @@ function formatWorkerStatus(workerState: any) {
 - [x] Page loads are faster (4 queries vs 8)
 
 ### Quality Metrics
+
 - [x] Clean architectural separation
 - [x] Database is single source of truth
 - [x] Components can fail independently
@@ -308,6 +345,7 @@ function formatWorkerStatus(workerState: any) {
 - [x] Code is maintainable and scalable
 
 ### Developer Experience Metrics
+
 - [x] Clear communication patterns
 - [x] Easy to understand architecture
 - [x] Simple to add new features
@@ -317,18 +355,21 @@ function formatWorkerStatus(workerState: any) {
 ## Future Considerations
 
 ### Scalability
+
 - Worker can be moved to separate service (pattern remains valid)
 - Database can be split if needed
 - Easy to add new communication patterns
 - Supports microservices architecture
 
 ### Performance
+
 - Database queries are optimized
 - No HTTP overhead for internal communication
 - Efficient state management
 - Fast UI responses
 
 ### Maintenance
+
 - Clear separation of concerns
 - Easy to debug and test
 - Simple to extend functionality

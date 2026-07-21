@@ -1,13 +1,13 @@
-import crypto from 'node:crypto'
-import { z } from 'zod'
+import crypto from "node:crypto";
+import { z } from "zod";
 
 // Helper function to create conditional validation
 const createConditionalSchema = (): z.ZodObject<any> => {
-  const isMocksEnabled: boolean = process.env.MOCKS === 'true'
-  const isProduction: boolean = process.env.NODE_ENV === 'production'
-  
+  const isMocksEnabled: boolean = process.env.MOCKS === "true";
+  const isProduction: boolean = process.env.NODE_ENV === "production";
+
   return z.object({
-    NODE_ENV: z.enum(['production', 'development', 'test'] as const),
+    NODE_ENV: z.enum(["production", "development", "test"] as const),
     DATABASE_PATH: z.string(),
     DATABASE_URL: z.string(),
     // SESSION_SECRET is required in production, optional in dev/test (getSessionSecret() provides a random fallback)
@@ -18,7 +18,7 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     // If you plan to use Resend, remove the .optional()
     RESEND_API_KEY: z.string().optional(),
 
-    ALLOW_INDEXING: z.enum(['true', 'false']).optional(),
+    ALLOW_INDEXING: z.enum(["true", "false"]).optional(),
 
     // Tigris Object Storage Configuration - conditional based on mocks
     AWS_ACCESS_KEY_ID: isMocksEnabled ? z.string().optional() : z.string(),
@@ -32,7 +32,7 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     SITE_URL: z.string().optional(),
 
     // Audio Archive Configuration
-    AUDIO_ARCHIVE_ENABLED: z.enum(['true', 'false']).optional().default('false'),
+    AUDIO_ARCHIVE_ENABLED: z.enum(["true", "false"]).optional().default("false"),
     AUDIO_ARCHIVE_MAX_CONCURRENT: z.coerce.number().optional().default(2),
     AUDIO_ARCHIVE_INTERVAL_MS: z.coerce.number().optional().default(60000),
     AUDIO_ARCHIVE_STALE_JOB_MS: z.coerce.number().optional().default(600000),
@@ -40,10 +40,10 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     TELEGRAM_ADMIN_CHAT_ID: z.string().optional(),
 
     // YouTube cookie file path for audio archiving
-    COOKIE_FILE_PATH: z.string().optional().default('/data/youtube-cookies.txt'),
+    COOKIE_FILE_PATH: z.string().optional().default("/data/youtube-cookies.txt"),
 
     // YouTube mocking override (takes priority over MOCKS)
-    YOUTUBE_MOCKS: z.enum(['true', 'false']).optional(),
+    YOUTUBE_MOCKS: z.enum(["true", "false"]).optional(),
 
     // OAuth credentials (optional — only needed when using those providers)
     GOOGLE_CLIENT_ID: z.string().optional(),
@@ -58,16 +58,16 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     PLAYWRIGHT_TEST_BASE_URL: z.string().optional(),
 
     // Disable service worker registration (test-only)
-    DISABLE_SERVICE_WORKER: z.enum(['true', 'false']).optional(),
-  })
-}
+    DISABLE_SERVICE_WORKER: z.enum(["true", "false"]).optional(),
+  });
+};
 
-const schema = createConditionalSchema()
+const schema = createConditionalSchema();
 
 declare global {
-	namespace NodeJS {
-		interface ProcessEnv extends z.infer<typeof schema> {}
-	}
+  namespace NodeJS {
+    interface ProcessEnv extends z.infer<typeof schema> {}
+  }
 }
 
 /**
@@ -80,40 +80,37 @@ declare global {
  * session storage modules MUST use this instead of reading process.env directly.
  */
 export function getSessionSecret(): string[] {
-	const secret = process.env.SESSION_SECRET
-	if (secret) {
-		return secret.split(',')
-	}
+  const secret = process.env.SESSION_SECRET;
+  if (secret) {
+    return secret.split(",");
+  }
 
-	// In production, fail fast — no fallback, no silent vulnerability
-	if (process.env.NODE_ENV === 'production') {
-		throw new Error(
-			'SESSION_SECRET environment variable is required in production. ' +
-				'Generate one with: openssl rand -hex 32',
-		)
-	}
+  // In production, fail fast — no fallback, no silent vulnerability
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET environment variable is required in production. " +
+        "Generate one with: openssl rand -hex 32",
+    );
+  }
 
-	// In dev/test, generate a random secret so dev workflow isn't blocked.
-	// Cache it so it's stable across module reloads in the same process.
-	const devFallback = `dev-${crypto.randomUUID()}`
-	console.warn(
-		'⚠ SESSION_SECRET not set — using randomly generated fallback for dev/test only. ' +
-			'DO NOT use in production.',
-	)
-	return [devFallback]
+  // In dev/test, generate a random secret so dev workflow isn't blocked.
+  // Cache it so it's stable across module reloads in the same process.
+  const devFallback = `dev-${crypto.randomUUID()}`;
+  console.warn(
+    "⚠ SESSION_SECRET not set — using randomly generated fallback for dev/test only. " +
+      "DO NOT use in production.",
+  );
+  return [devFallback];
 }
 
 export function init() {
-	const parsed = schema.safeParse(process.env)
+  const parsed = schema.safeParse(process.env);
 
-	if (parsed.success === false) {
-		console.error(
-			'❌ Invalid environment variables:',
-			parsed.error.flatten().fieldErrors,
-		)
+  if (parsed.success === false) {
+    console.error("❌ Invalid environment variables:", parsed.error.flatten().fieldErrors);
 
-		throw new Error('Invalid environment variables')
-	}
+    throw new Error("Invalid environment variables");
+  }
 }
 
 /**
@@ -126,19 +123,19 @@ export function init() {
  * @returns all public ENV variables
  */
 export function getEnv() {
-	return {
-		MODE: process.env.NODE_ENV,
-		ALLOW_INDEXING: process.env.ALLOW_INDEXING,
-		DISABLE_SERVICE_WORKER: process.env.DISABLE_SERVICE_WORKER,
-		SENTRY_DSN: process.env.SENTRY_DSN,
-	}
+  return {
+    MODE: process.env.NODE_ENV,
+    ALLOW_INDEXING: process.env.ALLOW_INDEXING,
+    DISABLE_SERVICE_WORKER: process.env.DISABLE_SERVICE_WORKER,
+    SENTRY_DSN: process.env.SENTRY_DSN,
+  };
 }
 
-type ENV = ReturnType<typeof getEnv>
+type ENV = ReturnType<typeof getEnv>;
 
 declare global {
-	var ENV: ENV
-	interface Window {
-		ENV: ENV
-	}
+  var ENV: ENV;
+  interface Window {
+    ENV: ENV;
+  }
 }

@@ -1,6 +1,7 @@
 # ADR-005: Track Deleted YouTube Videos with Original Titles
 
 ## Status
+
 Accepted
 
 ## Context
@@ -11,11 +12,13 @@ When syncing YouTube playlists, videos can become unavailable in two distinct sc
 2. **Track removed from playlist**: The video is still available on YouTube, but has been removed from the specific playlist
 
 Previously, the sync process would:
+
 - Overwrite existing track data with generic "Deleted video" titles
 - Not distinguish between deleted videos and removed tracks
 - Lose the original video information when videos were deleted
 
 This made it difficult for users to:
+
 - Remember what deleted videos were
 - Understand which videos were deleted vs. removed from playlists
 - Maintain a complete history of their playlists
@@ -50,6 +53,7 @@ We implemented a comprehensive solution that:
 **File**: `prisma/schema.prisma`
 
 Added to `ServicePlaylistTrack` model:
+
 - `isDeleted Boolean @default(false)` - Indicates if the video has been deleted from YouTube
 - `deletedAt DateTime?` - Records when the video was first detected as deleted
 - Index on `[playlistId, isDeleted]` for efficient queries
@@ -74,6 +78,7 @@ Added to `ServicePlaylistTrack` model:
 #### Sync Process
 
 **`processTracksInBatches`**:
+
 - Detects deleted videos during batch processing
 - Preserves original track data when video is deleted (title, artist, thumbnail)
 - Marks tracks as deleted with `isDeleted = true` and sets `deletedAt` timestamp
@@ -81,6 +86,7 @@ Added to `ServicePlaylistTrack` model:
 - Returns processed external IDs for cleanup comparison
 
 **`syncPlaylistTracks`**:
+
 - After processing all tracks, identifies orphaned tracks (exist in DB but not in current sync)
 - Deletes `ServicePlaylistTrack` relationships for removed tracks
 - Returns sync summary with:
@@ -90,6 +96,7 @@ Added to `ServicePlaylistTrack` model:
 ### UI Changes
 
 **File**: `app/components/track-list-item.tsx`
+
 - Added `isDeleted` prop
 - Visual indicator (icon + text) for deleted tracks: "• Deleted from YouTube"
 - Muted styling (opacity-60) for deleted tracks
@@ -97,6 +104,7 @@ Added to `ServicePlaylistTrack` model:
 - Tooltip explaining the video was deleted
 
 **File**: `app/routes/music+/services+/youtube+/playlist.$id.tsx`
+
 - Passes `isDeleted` status to `TrackListItem`
 - Displays sync summary after sync with lists of deleted and removed tracks
 - Shows counts and track titles in success message
@@ -104,16 +112,17 @@ Added to `ServicePlaylistTrack` model:
 ### Type Definitions
 
 **File**: `app/types/frontend/shared.ts`
+
 - Added `isDeleted?: boolean` and `deletedAt?: Date | null` to `TrackWithUserStatus` interface
 
 ## Important Distinctions
 
-| Scenario | YouTube API Response | Our Action |
-|----------|---------------------|------------|
-| **Video deleted from YouTube** | Item appears with "Deleted video" title | Keep in playlist, mark `isDeleted = true`, preserve original data |
-| **Track removed from playlist** | Item does NOT appear in playlist items | Delete `ServicePlaylistTrack` relationship |
-| **Video restored** | Item appears with normal data | Update track, set `isDeleted = false`, clear `deletedAt` |
-| **Track re-added to playlist** | Item appears again | Create new `ServicePlaylistTrack` relationship |
+| Scenario                        | YouTube API Response                    | Our Action                                                        |
+| ------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
+| **Video deleted from YouTube**  | Item appears with "Deleted video" title | Keep in playlist, mark `isDeleted = true`, preserve original data |
+| **Track removed from playlist** | Item does NOT appear in playlist items  | Delete `ServicePlaylistTrack` relationship                        |
+| **Video restored**              | Item appears with normal data           | Update track, set `isDeleted = false`, clear `deletedAt`          |
+| **Track re-added to playlist**  | Item appears again                      | Create new `ServicePlaylistTrack` relationship                    |
 
 ## Edge Cases Handled
 
@@ -170,4 +179,3 @@ Comprehensive Vitest tests were added in `app/utils/service-playlist.server.test
 - [Track List Item Component](app/components/track-list-item.tsx)
 - [Playlist Detail Page](app/routes/music+/services+/youtube+/playlist.$id.tsx)
 - [Test Suite](app/utils/service-playlist.server.test.ts)
-

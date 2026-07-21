@@ -1,40 +1,36 @@
-import { createCookieSessionStorage } from 'react-router'
-import { getSessionSecret } from './env.server.ts'
+import { createCookieSessionStorage } from "react-router";
+import { getSessionSecret } from "./env.server.ts";
 
 export const authSessionStorage = createCookieSessionStorage({
-	cookie: {
-		name: 'en_session',
-		sameSite: 'lax', // Must stay 'lax' — OAuth redirects from providers (Google, GitHub)
-		// would lose the session cookie with 'strict', breaking auth flows.
-		path: '/',
-		httpOnly: true,
-		secrets: getSessionSecret(),
-		secure: process.env.NODE_ENV === 'production',
-	},
-})
+  cookie: {
+    name: "en_session",
+    sameSite: "lax", // Must stay 'lax' — OAuth redirects from providers (Google, GitHub)
+    // would lose the session cookie with 'strict', breaking auth flows.
+    path: "/",
+    httpOnly: true,
+    secrets: getSessionSecret(),
+    secure: process.env.NODE_ENV === "production",
+  },
+});
 
 // we have to do this because every time you commit the session you overwrite it
 // so we store the expiration time in the cookie and reset it every time we commit
-const originalCommitSession = authSessionStorage.commitSession
+const originalCommitSession = authSessionStorage.commitSession;
 
-Object.defineProperty(authSessionStorage, 'commitSession', {
-	value: async function commitSession(
-		...args: Parameters<typeof originalCommitSession>
-	) {
-		const [session, options] = args
-		if (options?.expires) {
-			session.set('expires', options.expires)
-		}
-		if (options?.maxAge) {
-			session.set('expires', new Date(Date.now() + options.maxAge * 1000))
-		}
-		const expires = session.has('expires')
-			? new Date(session.get('expires'))
-			: undefined
-		const setCookieHeader = await originalCommitSession(session, {
-			...options,
-			expires,
-		})
-		return setCookieHeader
-	},
-})
+Object.defineProperty(authSessionStorage, "commitSession", {
+  value: async function commitSession(...args: Parameters<typeof originalCommitSession>) {
+    const [session, options] = args;
+    if (options?.expires) {
+      session.set("expires", options.expires);
+    }
+    if (options?.maxAge) {
+      session.set("expires", new Date(Date.now() + options.maxAge * 1000));
+    }
+    const expires = session.has("expires") ? new Date(session.get("expires")) : undefined;
+    const setCookieHeader = await originalCommitSession(session, {
+      ...options,
+      expires,
+    });
+    return setCookieHeader;
+  },
+});

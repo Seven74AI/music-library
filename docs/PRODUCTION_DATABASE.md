@@ -61,11 +61,13 @@ DATABASE_URL="file:./prisma/data.db" npx prisma studio
 ### 1. Running Migrations
 
 Migrations are automatically run during deployment via the `setup` script:
+
 ```bash
 npm run setup  # Runs: build && prisma migrate deploy && prisma generate
 ```
 
 To manually run migrations in production:
+
 ```bash
 fly ssh console --app [APP_NAME] -C "cd /myapp && npx prisma migrate deploy"
 ```
@@ -126,7 +128,7 @@ SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size
 SELECT name FROM sqlite_master WHERE type='table';
 
 -- Count records per table
-SELECT 
+SELECT
   'Track' as table_name, COUNT(*) as count FROM Track
 UNION ALL
 SELECT 'User', COUNT(*) FROM User
@@ -136,12 +138,12 @@ UNION ALL
 SELECT 'ServicePlaylist', COUNT(*) FROM ServicePlaylist;
 
 -- Check for orphaned records
-SELECT COUNT(*) FROM Track t 
-LEFT JOIN UserTrack ut ON t.id = ut.trackId 
+SELECT COUNT(*) FROM Track t
+LEFT JOIN UserTrack ut ON t.id = ut.trackId
 WHERE ut.id IS NULL;
 
 -- Find large tables
-SELECT 
+SELECT
   name,
   (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=m.name) as row_count
 FROM sqlite_master m
@@ -278,6 +280,7 @@ Since you're using LiteFS for SQLite replication:
 3. **Failover**: LiteFS automatically handles failover
 
 To check which instance is primary:
+
 ```bash
 fly ssh console --app [APP_NAME] -C "litefs version"
 ```
@@ -287,6 +290,7 @@ fly ssh console --app [APP_NAME] -C "litefs version"
 ### Database Locked Errors
 
 If you see "database is locked" errors:
+
 1. Check if migrations are running
 2. Verify LiteFS is working correctly
 3. Check for long-running transactions
@@ -294,6 +298,7 @@ If you see "database is locked" errors:
 ### Migration Failures
 
 If migrations fail:
+
 1. Check the migration status: `npx prisma migrate status`
 2. Review migration files in `prisma/migrations/`
 3. Manually fix if needed (be very careful!)
@@ -318,6 +323,7 @@ If migrations fail:
 ## Scripts
 
 See `scripts/` directory for helper scripts:
+
 - `reset-storage.ts` - Reset Tigris storage (not database)
 - `make-admin.ts` - Make a user an admin by username
 - `manage-db.ts` - Database management operations
@@ -368,11 +374,13 @@ fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT u.u
 ```
 
 **Important Notes:**
+
 - The `_RoleToUser` join table uses: `A` = Role ID, `B` = User ID
 - User must **log out and log back in** for the session to refresh with new roles
 - The script method (`npx tsx scripts/make-admin.ts`) only works if scripts directory is deployed (not currently in Dockerfile)
 
 **The script will (when available):**
+
 1. Find the user by username
 2. Check if they're already an admin
 3. Add the admin role (without removing existing roles)
@@ -409,6 +417,7 @@ fly ssh console --app [APP_NAME] -C "npx prisma db seed"
 **Why manual deletion?** LiteFS maintains active connections to the database file. `prisma migrate reset` may fail with `P3016` disk I/O errors because it cannot clean up the database while connections are active. Stopping the app releases these locks, allowing safe deletion and recreation.
 
 **Safety checks:**
+
 - Always stop the app before resetting in production
 - Verify migration status after reset: `npx prisma migrate status`
 - Consider creating a backup before resetting (see Backup section above)
@@ -419,4 +428,3 @@ fly ssh console --app [APP_NAME] -C "npx prisma db seed"
 - [SQLite Documentation](https://www.sqlite.org/docs.html)
 - [LiteFS Documentation](https://fly.io/docs/litefs/)
 - [Fly.io SQLite Guide](https://fly.io/docs/postgres/connecting-to-postgres/)
-

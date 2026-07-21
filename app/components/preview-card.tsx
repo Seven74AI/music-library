@@ -1,66 +1,67 @@
-import { Form, Link } from 'react-router'
-import { Alert, AlertDescription } from '#app/components/ui/alert'
-import { Badge } from '#app/components/ui/badge.tsx'
-import { Button } from '#app/components/ui/button.tsx'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#app/components/ui/card.tsx'
-import { Icon, type IconName } from '#app/components/ui/icon.tsx'
-
+import { Form, Link } from "react-router";
+import { Alert, AlertDescription } from "#app/components/ui/alert";
+import { Badge } from "#app/components/ui/badge.tsx";
+import { Button } from "#app/components/ui/button.tsx";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "#app/components/ui/card.tsx";
+import { Icon, type IconName } from "#app/components/ui/icon.tsx";
 
 interface PreviewAction {
-  type: 'submit' | 'link' | 'button'
-  label: string
-  icon?: IconName
-  href?: string
-  formAction?: string
-  formData?: Record<string, string>
-  variant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link'
+  type: "submit" | "link" | "button";
+  label: string;
+  icon?: IconName;
+  href?: string;
+  formAction?: string;
+  formData?: Record<string, string>;
+  variant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";
 }
 
 interface PreviewCardProps {
-  title: string
-  description: string
-  icon?: IconName
-  iconColor?: string
+  title: string;
+  description: string;
+  icon?: IconName;
+  iconColor?: string;
   thumbnail?: {
-    src: string
-    alt: string
-  }
+    src: string;
+    alt: string;
+  };
   content: {
-    title: string
-    subtitle?: string
+    title: string;
+    subtitle?: string;
     badges?: Array<{
-      label: string
-      variant?: 'default' | 'secondary' | 'destructive' | 'outline'
-    }>
-  }
-  error?: string
-  isSubmitting?: boolean
-  primaryAction: PreviewAction
-  secondaryAction?: PreviewAction
+      label: string;
+      variant?: "default" | "secondary" | "destructive" | "outline";
+    }>;
+  };
+  error?: string;
+  isSubmitting?: boolean;
+  primaryAction: PreviewAction;
+  secondaryAction?: PreviewAction;
 }
 
 export function PreviewCard({
   title,
   description,
   icon,
-  iconColor = 'text-muted-foreground',
+  iconColor = "text-muted-foreground",
   thumbnail,
   content,
   error,
   isSubmitting = false,
   primaryAction,
-  secondaryAction
+  secondaryAction,
 }: PreviewCardProps) {
   return (
     <Card className="w-full max-w-2xl mx-auto">
       <CardHeader>
         <div className="flex items-center gap-3">
-          {icon && (
-            <Icon 
-              name={icon} 
-              className={`h-5 w-5 ${iconColor}`} 
-            />
-          )}
+          {icon && <Icon name={icon} className={`h-5 w-5 ${iconColor}`} />}
           <CardTitle>{title}</CardTitle>
         </div>
         <CardDescription>{description}</CardDescription>
@@ -78,13 +79,11 @@ export function PreviewCard({
           )}
           <div className="flex-1 space-y-2">
             <h3 className="font-semibold text-lg">{content.title}</h3>
-            {content.subtitle && (
-              <p className="text-muted-foreground">{content.subtitle}</p>
-            )}
+            {content.subtitle && <p className="text-muted-foreground">{content.subtitle}</p>}
             {content.badges && (
               <div className="flex items-center gap-2">
                 {content.badges.map((badge) => (
-                  <Badge key={badge.label} variant={badge.variant || 'secondary'}>
+                  <Badge key={badge.label} variant={badge.variant || "secondary"}>
                     {badge.label}
                   </Badge>
                 ))}
@@ -103,76 +102,51 @@ export function PreviewCard({
 
       <CardFooter className="flex justify-between">
         {/* Secondary Action (usually Cancel) */}
-        {secondaryAction && (
-          <ActionButton 
-            action={secondaryAction} 
-            isSubmitting={isSubmitting}
-          />
-        )}
+        {secondaryAction && <ActionButton action={secondaryAction} isSubmitting={isSubmitting} />}
 
         {/* Primary Action */}
-        <ActionButton 
-          action={primaryAction} 
-          isSubmitting={isSubmitting}
-        />
+        <ActionButton action={primaryAction} isSubmitting={isSubmitting} />
       </CardFooter>
     </Card>
-  )
+  );
 }
 
-function ActionButton({ 
-  action, 
-  isSubmitting 
-}: { 
-  action: PreviewAction
-  isSubmitting: boolean 
-}) {
-  const iconElement = action.icon ? (
-    <Icon name={action.icon} className="mr-2 h-4 w-4" />
-  ) : null
+function ActionButton({ action, isSubmitting }: { action: PreviewAction; isSubmitting: boolean }) {
+  const iconElement = action.icon ? <Icon name={action.icon} className="mr-2 h-4 w-4" /> : null;
 
   const buttonContent = (
     <>
       {iconElement}
       {action.label}
     </>
-  )
+  );
 
-  if (action.type === 'link' && action.href) {
+  if (action.type === "link" && action.href) {
     return (
       <Button asChild variant={action.variant}>
-        <Link to={action.href}>
-          {buttonContent}
-        </Link>
+        <Link to={action.href}>{buttonContent}</Link>
       </Button>
-    )
+    );
   }
 
-  if (action.type === 'submit' && action.formAction) {
+  if (action.type === "submit" && action.formAction) {
     return (
       <Form method="post" action={action.formAction}>
-        {action.formData && Object.entries(action.formData).map(([key, value]) => (
-          <input key={key} type="hidden" name={key} value={value} />
-        ))}
-        <Button 
-          type="submit" 
-          variant={action.variant} 
-          disabled={isSubmitting}
-        >
+        {action.formData &&
+          Object.entries(action.formData).map(([key, value]) => (
+            <input key={key} type="hidden" name={key} value={value} />
+          ))}
+        <Button type="submit" variant={action.variant} disabled={isSubmitting}>
           {buttonContent}
         </Button>
       </Form>
-    )
+    );
   }
 
   // Fallback for button type
   return (
-    <Button 
-      type="button" 
-      variant={action.variant}
-      disabled={isSubmitting}
-    >
+    <Button type="button" variant={action.variant} disabled={isSubmitting}>
       {buttonContent}
     </Button>
-  )
+  );
 }

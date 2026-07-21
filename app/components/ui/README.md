@@ -5,6 +5,7 @@ This guide outlines our approach to implementing UI components following Epic St
 ## 📋 Current Component Status
 
 ### ✅ Already Using Radix UI Primitives
+
 - **Dialog** - Complete Radix UI implementation
 - **Dropdown Menu** - Full Radix UI primitive set
 - **Checkbox** - Radix UI with proper accessibility
@@ -13,10 +14,12 @@ This guide outlines our approach to implementing UI components following Epic St
 - **Label** - Radix UI Label primitive
 
 ### 🔄 Components to Migrate
+
 - **Icon** - Migrate to `@radix-ui/icons` with `sly` CLI (HIGH PRIORITY)
 - **Sonner** - Replace with Radix UI Toast primitive (MEDIUM PRIORITY)
 
 ### ✅ Simple HTML Components (Keep As-Is)
+
 - **Input** - Plain HTML with Tailwind styling
 - **Textarea** - Plain HTML with Tailwind styling
 - **Status Button** - Custom wrapper around Button
@@ -29,6 +32,7 @@ This guide outlines our approach to implementing UI components following Epic St
 When implementing a new UI component:
 
 1. **Check Radix UI Primitives first**
+
    ```bash
    # Search available primitives
    npm info @radix-ui/react-*
@@ -54,9 +58,9 @@ When implementing a new UI component:
 
 ```tsx
 // app/components/ui/component-name.tsx
-import * as ComponentPrimitive from '@radix-ui/react-component-name'
-import * as React from 'react'
-import { cn } from '#app/utils/misc.tsx'
+import * as ComponentPrimitive from "@radix-ui/react-component-name";
+import * as React from "react";
+import { cn } from "#app/utils/misc.tsx";
 
 const Component = React.forwardRef<
   React.ElementRef<typeof ComponentPrimitive.Root>,
@@ -66,15 +70,15 @@ const Component = React.forwardRef<
     ref={ref}
     className={cn(
       // Default styles
-      'base-classes',
-      className
+      "base-classes",
+      className,
     )}
     {...props}
   />
-))
-Component.displayName = ComponentPrimitive.Root.displayName
+));
+Component.displayName = ComponentPrimitive.Root.displayName;
 
-export { Component }
+export { Component };
 ```
 
 ### 3. Icon Implementation
@@ -116,9 +120,9 @@ import { Icon } from '#app/components/ui/icon.tsx'
 </Icon>
 
 // With accessibility
-<Icon 
-  name="eye-open" 
-  className="h-4 w-4" 
+<Icon
+  name="eye-open"
+  className="h-4 w-4"
   aria-label="View track details"
 />
 ```
@@ -160,6 +164,7 @@ npx sly add-icon heroicons icon-name --overwrite
 #### Icon Naming Convention
 
 Icons follow consistent naming patterns:
+
 - **Actions**: `play`, `pause`, `download`, `trash`, `pencil-1`
 - **Navigation**: `chevron-up`, `chevron-down`, `arrow-left`, `arrow-right`
 - **Media**: `youtube`, `speaker-wave`, `speaker-x-mark`
@@ -173,18 +178,18 @@ Icons follow consistent naming patterns:
 <Icon name="play" className="h-4 w-4" aria-hidden="true" />
 
 // Interactive icons (accessible)
-<Icon 
-  name="eye-open" 
-  className="h-4 w-4" 
+<Icon
+  name="eye-open"
+  className="h-4 w-4"
   aria-label="View track details"
   role="button"
   tabIndex={0}
 />
 
 // Status icons (announced to screen readers)
-<Icon 
-  name="check-circled" 
-  className="h-4 w-4 text-green-500" 
+<Icon
+  name="check-circled"
+  className="h-4 w-4 text-green-500"
   aria-label="Track completed successfully"
 />
 ```
@@ -207,34 +212,38 @@ Icons follow consistent naming patterns:
 
 ## 🎯 Decision Matrix
 
-| Component Type | Use | Example |
-|---------------|-----|---------|
-| **Form Inputs** | Plain HTML + Tailwind | `Input`, `Textarea` |
-| **Complex Interactions** | Radix UI Primitive | `Dialog`, `DropdownMenu` |
-| **Simple Buttons** | Radix UI Slot | `Button` |
-| **Icons** | Heroicons + Epic Stack Sprite | `Icon` (optimal) |
-| **Notifications** | Radix UI Toast | `Toast` (replaced Sonner) |
-| **Layout Components** | Custom + Tailwind | `Spacer`, `ProgressBar` |
+| Component Type           | Use                           | Example                   |
+| ------------------------ | ----------------------------- | ------------------------- |
+| **Form Inputs**          | Plain HTML + Tailwind         | `Input`, `Textarea`       |
+| **Complex Interactions** | Radix UI Primitive            | `Dialog`, `DropdownMenu`  |
+| **Simple Buttons**       | Radix UI Slot                 | `Button`                  |
+| **Icons**                | Heroicons + Epic Stack Sprite | `Icon` (optimal)          |
+| **Notifications**        | Radix UI Toast                | `Toast` (replaced Sonner) |
+| **Layout Components**    | Custom + Tailwind             | `Spacer`, `ProgressBar`   |
 
 ## 📦 Adding New Components
 
 ### Step 1: Check Requirements
+
 - [ ] Does Radix UI have a primitive for this?
 - [ ] Is it a simple form element?
 - [ ] What accessibility features are needed?
 
 ### Step 2: Choose Implementation
+
 - [ ] Radix UI primitive + Tailwind styling
-- [ ] Plain HTML + Tailwind styling  
+- [ ] Plain HTML + Tailwind styling
 - [ ] Third-party library (last resort)
 
 ### Step 3: Follow Patterns
+
 - [ ] Use existing component structure
 - [ ] Add proper TypeScript types
 - [ ] Include accessibility attributes
 - [ ] Style with Tailwind CSS
 
 ### Step 4: Test
+
 - [ ] Keyboard navigation works
 - [ ] Screen reader compatibility
 - [ ] Responsive design
@@ -288,6 +297,7 @@ npm run test:ui
 **Timeline:** Completed
 
 #### What Was Done:
+
 1. **Reverted to Epic Stack Approach**
    - Restored SVG sprite system using `vite-plugin-icons-spritesheet`
    - Maintained `sly` CLI integration for adding new icons
@@ -301,28 +311,29 @@ npm run test:ui
    - **Developer Experience:** `sly` CLI for easy icon management
 
 3. **Current Implementation:**
+
    ```tsx
    // app/components/ui/icon.tsx
-   import { type SVGProps } from 'react'
-   import { cn } from '#app/utils/misc.tsx'
-   import href from './icons/sprite.svg'
-   import { type IconName } from './icons/types'
-   
-   export function Icon({ name, size = 'font', className, title, children, ...props }) {
+   import { type SVGProps } from "react";
+   import { cn } from "#app/utils/misc.tsx";
+   import href from "./icons/sprite.svg";
+   import { type IconName } from "./icons/types";
+
+   export function Icon({ name, size = "font", className, title, children, ...props }) {
      if (children) {
        return (
          <span className={`inline-flex items-center ${childrenSizeClassName[size]}`}>
            <Icon name={name} size={size} className={className} title={title} {...props} />
            {children}
          </span>
-       )
+       );
      }
      return (
-       <svg {...props} className={cn(sizeClassName[size], 'inline self-center', className)}>
+       <svg {...props} className={cn(sizeClassName[size], "inline self-center", className)}>
          {title ? <title>{title}</title> : null}
          <use href={`${href}#${name}`} />
        </svg>
-     )
+     );
    }
    ```
 
@@ -330,12 +341,13 @@ npm run test:ui
    ```bash
    # Add new icons from Radix UI
    npx sly add @radix-ui/icons trash pencil-1 avatar
-   
+
    # Interactive icon selection
    npx sly add @radix-ui/icons
    ```
 
 #### Why Epic Stack Approach is Superior:
+
 - **Performance:** [Optimal icon performance](https://benadam.me/thoughts/react-svg-sprites/)
 - **Bundle Size:** Single sprite vs multiple React components
 - **Caching:** Better browser caching strategy
@@ -343,6 +355,7 @@ npm run test:ui
 - **Consistency:** Follows Epic Stack best practices
 
 #### Success Metrics Achieved:
+
 - ✅ Optimal performance with SVG sprites
 - ✅ Smaller bundle size (29.45 kB sprite)
 - ✅ Better caching with single file
@@ -357,7 +370,9 @@ npm run test:ui
 **Timeline**: Completed
 
 #### What Was Done:
+
 1. **Installed Radix UI Toast**
+
    ```bash
    npm install @radix-ui/react-toast
    ```
@@ -376,6 +391,7 @@ npm run test:ui
    - Maintained existing styling and behavior
 
 #### Benefits Achieved:
+
 - ✅ Full Radix UI ecosystem consistency
 - ✅ Better accessibility features
 - ✅ More control over toast behavior
@@ -387,7 +403,9 @@ npm run test:ui
 **Timeline**: Completed
 
 #### What Was Done:
+
 1. **Added Select Component**
+
    ```bash
    npm install @radix-ui/react-select
    ```
@@ -397,6 +415,7 @@ npm run test:ui
    - Proper keyboard navigation and accessibility
 
 2. **Added Popover Component**
+
    ```bash
    npm install @radix-ui/react-popover
    ```
@@ -412,6 +431,7 @@ npm run test:ui
    - Icons for Toast component (X)
 
 #### Benefits Achieved:
+
 - ✅ Complete Radix UI component library
 - ✅ Consistent API patterns across all components
 - ✅ Better accessibility and keyboard navigation
@@ -431,16 +451,19 @@ npm run test:ui
 ## 🧪 Testing Strategy
 
 ### Before Migration
+
 - [ ] Document current component usage
 - [ ] Create baseline performance metrics
 - [ ] Test accessibility compliance
 
 ### During Migration
+
 - [ ] Test each component individually
 - [ ] Verify API compatibility
 - [ ] Check for regressions
 
 ### After Migration
+
 - [ ] Run full test suite
 - [ ] Test in different browsers
 - [ ] Verify bundle size impact
@@ -449,14 +472,17 @@ npm run test:ui
 ## 🚨 Risk Mitigation
 
 ### Icon Migration Risks
+
 - **Risk**: Some icons might not exist in Radix UI
 - **Mitigation**: Check availability, create fallbacks
 
 ### Toast Migration Risks
+
 - **Risk**: API differences might break functionality
 - **Mitigation**: Create compatibility layer, gradual migration
 
 ### Performance Risks
+
 - **Risk**: Bundle size increase
 - **Mitigation**: Tree-shaking, selective imports
 
@@ -475,6 +501,7 @@ npm run test:ui
 ## 🎨 Design System
 
 Our components follow the Epic Stack approach:
+
 - **Accessibility-first** with Radix UI primitives
 - **Tailwind CSS** for styling
 - **TypeScript** for type safety
@@ -484,6 +511,7 @@ Our components follow the Epic Stack approach:
 ## 📋 Final Component Status
 
 ### ✅ Radix UI Components (Complete)
+
 - **Button** - Uses `@radix-ui/react-slot` with `cva` styling
 - **Dialog** - Full Radix UI Dialog primitive implementation
 - **DropdownMenu** - Complete Radix UI DropdownMenu primitive
@@ -502,6 +530,7 @@ Our components follow the Epic Stack approach:
 - **Skeleton** - **NEW** Shadcn Skeleton component for loading states
 
 ### ✅ Custom Components (Optimal)
+
 - **Input** - Plain HTML input (Radix UI doesn't provide input primitive)
 - **Textarea** - Plain HTML textarea (Radix UI doesn't provide textarea primitive)
 - **InputOTP** - Uses `input-otp` library (specialized component)
@@ -509,13 +538,15 @@ Our components follow the Epic Stack approach:
 - **Icon** - Epic Stack SVG sprite system with Heroicons (optimal performance)
 
 ### 🎉 Migration Complete!
+
 All UI components now follow Radix UI and Shadcn best practices while maintaining Epic Stack optimizations. The component library is fully accessible, performant, and developer-friendly.
 
 ## 🚀 Recent Migration (December 2024)
 
 ### Components Migrated to Shadcn/Radix UI:
+
 1. **TrackAccordionItem** → **TrackList** - Replaced accordion with Spotify-like track list interface
-2. **EpicProgress** → **Progress** - Replaced custom progress bar with Radix UI Progress primitive  
+2. **EpicProgress** → **Progress** - Replaced custom progress bar with Radix UI Progress primitive
 3. **Error Displays** → **Alert** - Replaced custom error divs with Shadcn Alert components
 4. **UserDropdown** → **Avatar** - Enhanced with Shadcn Avatar component for better user profile display
 5. **Breadcrumbs** → **Breadcrumb** - Replaced custom breadcrumb with Shadcn Breadcrumb component
@@ -523,6 +554,7 @@ All UI components now follow Radix UI and Shadcn best practices while maintainin
 7. **Visual Hierarchy** → **Separator** - Added Radix UI Separator components for better content organization
 
 ### Benefits Achieved:
+
 - ✅ **100% Radix UI/Shadcn components** for complex interactions
 - ✅ **Enhanced accessibility** with proper ARIA attributes and keyboard navigation
 - ✅ **Consistent design system** across all components
@@ -537,6 +569,7 @@ All UI components now follow Radix UI and Shadcn best practices while maintainin
 ## 🎨 Heroicons Integration Guide
 
 ### Overview
+
 Our application uses Heroicons as the primary icon library, integrated through the Epic Stack SVG sprite system for optimal performance.
 
 ### Quick Start
@@ -563,9 +596,9 @@ import { Icon } from '#app/components/ui/icon.tsx'
 <Icon name="youtube" className="h-6 w-6 text-red-500" />
 
 // With accessibility
-<Icon 
-  name="eye-open" 
-  className="h-4 w-4" 
+<Icon
+  name="eye-open"
+  className="h-4 w-4"
   aria-label="View details"
   aria-hidden="true"
 />
@@ -579,21 +612,25 @@ import { Icon } from '#app/components/ui/icon.tsx'
 ### Available Icon Categories
 
 #### Media & Playback
+
 - `play`, `pause`, `forward`, `backward`
 - `speaker-wave`, `speaker-x-mark`
 - `youtube` (custom added)
 
 #### Navigation & UI
+
 - `chevron-up`, `chevron-down`, `chevron-double-left`, `chevron-double-right`
 - `arrow-left`, `arrow-right`, `arrow-path`, `arrow-path-rounded-square`
 - `dots-horizontal`, `eye-open`
 
 #### Status & Actions
+
 - `check`, `check-circled`, `x-mark`
 - `clock`, `calendar`
 - `download`, `trash`, `pencil-1`, `pencil-2`
 
 #### User Interface
+
 - `avatar`, `magnifying-glass`
 - `moon`, `sun` (theme icons)
 - `lock-closed`, `lock-open-1`
@@ -616,28 +653,30 @@ import { Icon } from '#app/components/ui/icon.tsx'
 ### Best Practices
 
 #### Accessibility
+
 ```tsx
 // Decorative icons (hidden from screen readers)
 <Icon name="play" className="h-4 w-4" aria-hidden="true" />
 
 // Interactive icons (accessible)
-<Icon 
-  name="eye-open" 
-  className="h-4 w-4" 
+<Icon
+  name="eye-open"
+  className="h-4 w-4"
   aria-label="View track details"
   role="button"
   tabIndex={0}
 />
 
 // Status icons (announced to screen readers)
-<Icon 
-  name="check-circled" 
-  className="h-4 w-4 text-green-500" 
+<Icon
+  name="check-circled"
+  className="h-4 w-4 text-green-500"
   aria-label="Track completed successfully"
 />
 ```
 
 #### Sizing
+
 ```tsx
 // Consistent sizing
 <Icon name="play" className="h-4 w-4" />    // Small
@@ -651,6 +690,7 @@ import { Icon } from '#app/components/ui/icon.tsx'
 ```
 
 #### Styling
+
 ```tsx
 // Color variations
 <Icon name="youtube" className="h-6 w-6 text-red-500" />
@@ -658,15 +698,16 @@ import { Icon } from '#app/components/ui/icon.tsx'
 <Icon name="x-mark" className="h-4 w-4 text-red-500" />
 
 // Interactive states
-<Icon 
-  name="play" 
-  className="h-4 w-4 hover:text-blue-500 transition-colors" 
+<Icon
+  name="play"
+  className="h-4 w-4 hover:text-blue-500 transition-colors"
 />
 ```
 
 ### Troubleshooting
 
 #### Icon Not Found
+
 ```bash
 # Check if icon exists
 npx sly add-icon heroicons --list | grep icon-name
@@ -679,6 +720,7 @@ npx sly add-icon heroicons icon-name --overwrite
 ```
 
 #### Build Issues
+
 ```bash
 # Regenerate sprite
 npm run build
@@ -688,13 +730,14 @@ ls -la app/components/ui/icons/sprite.svg
 ```
 
 #### TypeScript Errors
+
 ```typescript
 // Check icon types
-import { type IconName } from '#app/components/ui/icons/types'
+import { type IconName } from "#app/components/ui/icons/types";
 
 // Available icons are auto-generated
-const iconName: IconName = 'play' // ✅ Valid
-const iconName: IconName = 'invalid' // ❌ TypeScript error
+const iconName: IconName = "play"; // ✅ Valid
+const iconName: IconName = "invalid"; // ❌ TypeScript error
 ```
 
 ---

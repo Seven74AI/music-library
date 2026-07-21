@@ -1,101 +1,86 @@
-import { useForm, getFormProps } from '@conform-to/react'
-import { parseWithZod } from '@conform-to/zod/v4'
-import { invariantResponse } from '@epic-web/invariant'
-import { data, redirect, useFetcher, useFetchers } from 'react-router'
-import { z } from 'zod'
-import { Icon } from '#app/components/ui/icon.tsx'
-import { useHints, useOptionalHints } from '#app/utils/client-hints.tsx'
-import {
-	useOptionalRequestInfo,
-	useRequestInfo,
-} from '#app/utils/request-info.ts'
-import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
-import { type Theme, setTheme } from '#app/utils/theme.server.ts'
-import { type Route } from './+types/theme-switch.ts'
+import { useForm, getFormProps } from "@conform-to/react";
+import { parseWithZod } from "@conform-to/zod/v4";
+import { invariantResponse } from "@epic-web/invariant";
+import { data, redirect, useFetcher, useFetchers } from "react-router";
+import { z } from "zod";
+import { Icon } from "#app/components/ui/icon.tsx";
+import { useHints, useOptionalHints } from "#app/utils/client-hints.tsx";
+import { useOptionalRequestInfo, useRequestInfo } from "#app/utils/request-info.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Theme, setTheme } from "#app/utils/theme.server.ts";
+import { type Route } from "./+types/theme-switch.ts";
 const ThemeFormSchema = z.object({
-	theme: z.enum(['system', 'light', 'dark']),
-	// this is useful for progressive enhancement
-	redirectTo: z.string().optional(),
-})
+  theme: z.enum(["system", "light", "dark"]),
+  // this is useful for progressive enhancement
+  redirectTo: z.string().optional(),
+});
 
 export async function action({ request }: Route.ActionArgs) {
-	const formData = await request.formData()
-	const submission = parseWithZod(formData, {
-		schema: ThemeFormSchema,
-	})
+  const formData = await request.formData();
+  const submission = parseWithZod(formData, {
+    schema: ThemeFormSchema,
+  });
 
-	invariantResponse(submission.status === 'success', 'Invalid theme received')
+  invariantResponse(submission.status === "success", "Invalid theme received");
 
-	const { theme, redirectTo } = submission.value
+  const { theme, redirectTo } = submission.value;
 
-	const responseInit = {
-		headers: { 'set-cookie': setTheme(theme) },
-	}
-	if (redirectTo) {
-		return redirect(redirectTo, responseInit)
-	} else {
-		return data({ result: submission.reply() }, responseInit)
-	}
+  const responseInit = {
+    headers: { "set-cookie": setTheme(theme) },
+  };
+  if (redirectTo) {
+    return redirect(redirectTo, responseInit);
+  } else {
+    return data({ result: submission.reply() }, responseInit);
+  }
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {
-	return proxyClientActionToServer(args)
+  return proxyClientActionToServer(args);
 }
 
-export function ThemeSwitch({
-	userPreference,
-}: {
-	userPreference?: Theme | null
-}) {
-	const fetcher = useFetcher<typeof action>()
-	const requestInfo = useRequestInfo()
+export function ThemeSwitch({ userPreference }: { userPreference?: Theme | null }) {
+  const fetcher = useFetcher<typeof action>();
+  const requestInfo = useRequestInfo();
 
-	const [form] = useForm({
-		id: 'theme-switch',
-		lastResult: fetcher.data?.result,
-	})
+  const [form] = useForm({
+    id: "theme-switch",
+    lastResult: fetcher.data?.result,
+  });
 
-	const optimisticMode = useOptimisticThemeMode()
-	const mode = optimisticMode ?? userPreference ?? 'system'
-	const nextMode =
-		mode === 'system' ? 'light' : mode === 'light' ? 'dark' : 'system'
-	const modeLabel = {
-		light: (
-			<Icon name="sun">
-				<span className="sr-only">Light</span>
-			</Icon>
-		),
-		dark: (
-			<Icon name="moon">
-				<span className="sr-only">Dark</span>
-			</Icon>
-		),
-		system: (
-			<Icon name="laptop">
-				<span className="sr-only">System</span>
-			</Icon>
-		),
-	}
+  const optimisticMode = useOptimisticThemeMode();
+  const mode = optimisticMode ?? userPreference ?? "system";
+  const nextMode = mode === "system" ? "light" : mode === "light" ? "dark" : "system";
+  const modeLabel = {
+    light: (
+      <Icon name="sun">
+        <span className="sr-only">Light</span>
+      </Icon>
+    ),
+    dark: (
+      <Icon name="moon">
+        <span className="sr-only">Dark</span>
+      </Icon>
+    ),
+    system: (
+      <Icon name="laptop">
+        <span className="sr-only">System</span>
+      </Icon>
+    ),
+  };
 
-	return (
-		<fetcher.Form
-			method="POST"
-			{...getFormProps(form)}
-			action="/resources/theme-switch"
-		>
-			{/* Use a regular input instead of ServerOnly to prevent hydration mismatch */}
-			<input type="hidden" name="redirectTo" value={requestInfo.path} />
-			<input type="hidden" name="theme" value={nextMode} />
-			<div className="flex gap-2">
-				<button
-					type="submit"
-					className="flex size-8 cursor-pointer items-center justify-center"
-				>
-					{modeLabel[mode]}
-				</button>
-			</div>
-		</fetcher.Form>
-	)
+  return (
+    <fetcher.Form method="POST" {...getFormProps(form)} action="/resources/theme-switch">
+      {/* Use a regular input instead of ServerOnly to prevent hydration mismatch */}
+      <input type="hidden" name="redirectTo" value={requestInfo.path} />
+      <input type="hidden" name="theme" value={nextMode} />
+      <div className="flex gap-2">
+        <button type="submit" className="flex size-8 cursor-pointer items-center justify-center">
+          {modeLabel[mode]}
+        </button>
+      </div>
+    </fetcher.Form>
+  );
 }
 
 /**
@@ -103,22 +88,20 @@ export function ThemeSwitch({
  * value it's being changed to.
  */
 export function useOptimisticThemeMode() {
-	const fetchers = useFetchers()
-	const themeFetcher = fetchers.find(
-		(f) => f.formAction === '/resources/theme-switch',
-	)
+  const fetchers = useFetchers();
+  const themeFetcher = fetchers.find((f) => f.formAction === "/resources/theme-switch");
 
-	if (themeFetcher && themeFetcher.formData) {
-		const submission = parseWithZod(themeFetcher.formData, {
-			schema: ThemeFormSchema,
-		})
+  if (themeFetcher && themeFetcher.formData) {
+    const submission = parseWithZod(themeFetcher.formData, {
+      schema: ThemeFormSchema,
+    });
 
-		if (submission.status === 'success') {
-			return submission.value.theme
-		}
-	}
-	
-	return undefined
+    if (submission.status === "success") {
+      return submission.value.theme;
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -126,21 +109,21 @@ export function useOptimisticThemeMode() {
  * has not set a preference.
  */
 export function useTheme() {
-	const hints = useHints()
-	const requestInfo = useRequestInfo()
-	const optimisticMode = useOptimisticThemeMode()
-	if (optimisticMode) {
-		return optimisticMode === 'system' ? hints.theme : optimisticMode
-	}
-	return requestInfo.userPrefs.theme ?? hints.theme
+  const hints = useHints();
+  const requestInfo = useRequestInfo();
+  const optimisticMode = useOptimisticThemeMode();
+  if (optimisticMode) {
+    return optimisticMode === "system" ? hints.theme : optimisticMode;
+  }
+  return requestInfo.userPrefs.theme ?? hints.theme;
 }
 
 export function useOptionalTheme() {
-	const optionalHints = useOptionalHints()
-	const optionalRequestInfo = useOptionalRequestInfo()
-	const optimisticMode = useOptimisticThemeMode()
-	if (optimisticMode) {
-		return optimisticMode === 'system' ? optionalHints?.theme : optimisticMode
-	}
-	return optionalRequestInfo?.userPrefs.theme ?? optionalHints?.theme
+  const optionalHints = useOptionalHints();
+  const optionalRequestInfo = useOptionalRequestInfo();
+  const optimisticMode = useOptimisticThemeMode();
+  if (optimisticMode) {
+    return optimisticMode === "system" ? optionalHints?.theme : optimisticMode;
+  }
+  return optionalRequestInfo?.userPrefs.theme ?? optionalHints?.theme;
 }

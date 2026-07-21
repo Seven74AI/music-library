@@ -1,13 +1,13 @@
 /**
  * Shared Frontend Types
- * 
+ *
  * This file contains types that are shared across multiple frontend modules
  * to avoid circular import issues.
- * 
+ *
  * @example
  * ```typescript
  * import { type TrackWithUserStatus } from '#app/types/frontend/shared'
- * 
+ *
  * const track: TrackWithUserStatus = useLoaderData()
  * ```
  */
@@ -21,38 +21,38 @@
  * This type is shared between playlists and tracks modules
  */
 export interface TrackWithUserStatus {
-  id: string
-  title: string
+  id: string;
+  title: string;
   artist: {
-    id: string
-    name: string
-  }
-  duration: number | null
-  externalId: string | null
-  serviceId: string | null
-  serviceUrl: string | null
+    id: string;
+    name: string;
+  };
+  duration: number | null;
+  externalId: string | null;
+  serviceId: string | null;
+  serviceUrl: string | null;
   coverImage: {
-    objectKey: string
-  } | null
-  thumbnailUrl?: string | null // Placeholder thumbnail URL from ServicePlaylistTrack (for YouTube playlists)
-  releaseDate: Date | null
-  createdAt: Date
-  updatedAt: Date
-  position: number
-  isDeleted?: boolean
-  deletedAt?: Date | null
+    objectKey: string;
+  } | null;
+  thumbnailUrl?: string | null; // Placeholder thumbnail URL from ServicePlaylistTrack (for YouTube playlists)
+  releaseDate: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  position: number;
+  isDeleted?: boolean;
+  deletedAt?: Date | null;
   service?: {
-    name: string
-    displayName: string
-    logoUrl: string | null
-  }
+    name: string;
+    displayName: string;
+    logoUrl: string | null;
+  };
   audioFiles?: Array<{
-    id: string
-    format: string | null
-    objectKey: string
-  }>
+    id: string;
+    format: string | null;
+    objectKey: string;
+  }>;
   /** Whether the current user has this track in their personal library */
-  isInUserLibrary?: boolean
+  isInUserLibrary?: boolean;
 }
 
 /**
@@ -60,12 +60,12 @@ export interface TrackWithUserStatus {
  * Used for efficient queue management with large libraries
  */
 export interface QueueTrack {
-  id: string
-  title: string
+  id: string;
+  title: string;
   artist: {
-    id: string
-    name: string
-  }
+    id: string;
+    name: string;
+  };
 }
 
 /**
@@ -73,19 +73,19 @@ export interface QueueTrack {
  * Extends QueueTrack with all necessary playback information
  */
 export interface FullTrack {
-  id: string
-  title: string
+  id: string;
+  title: string;
   artist: {
-    id: string
-    name: string
-  }
-  duration: number | null
+    id: string;
+    name: string;
+  };
+  duration: number | null;
   coverImage: {
-    objectKey: string
-  } | null
+    objectKey: string;
+  } | null;
   audioFiles?: Array<{
-    id: string
-    format: string | null
-    objectKey: string
-  }>
+    id: string;
+    format: string | null;
+    objectKey: string;
+  }>;
 }

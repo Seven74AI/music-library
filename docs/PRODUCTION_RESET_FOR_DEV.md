@@ -10,10 +10,10 @@ For normal production database operations such as backups, one-off queries, or m
 
 This procedure resets two independent things:
 
-| Target | Effect |
-|--------|--------|
+| Target                        | Effect                                                                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | SQLite database on Fly volume | Deletes all users, tracks, playlists, archive jobs, OAuth connections, etc. Schema is recreated from committed Prisma migrations. |
-| Tigris storage | Deletes all archived audio files and cover images. |
+| Tigris storage                | Deletes all archived audio files and cover images.                                                                                |
 
 For a true clean slate, do both.
 
@@ -160,16 +160,16 @@ Tracks will show `--:--` for duration until the archive worker downloads them ag
 
 ## Common pitfalls
 
-| Problem | Why | What to do instead |
-|---------|-----|--------------------|
-| `volume is currently bound to machine` on destroy | Fly cannot destroy a volume while a machine still references it | Clone first, destroy the old machine, then destroy the old volume |
-| `fly ssh console` fails while machine is stopped | Fly requires a running VM for SSH | Only SSH after the clone is running |
-| `prisma migrate reset` fails with `P3016` | LiteFS holds the DB open while the app runs | Replace the volume via clone instead of using `migrate reset` |
-| Deleting DB files while app is running | LiteFS may recreate or lock the file immediately | Replace the volume via clone instead of deleting files in place |
-| `prisma db seed` fails on production | Seed imports test-only files not present in the image | Skip seed entirely |
+| Problem                                            | Why                                                               | What to do instead                                                                                   |
+| -------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `volume is currently bound to machine` on destroy  | Fly cannot destroy a volume while a machine still references it   | Clone first, destroy the old machine, then destroy the old volume                                    |
+| `fly ssh console` fails while machine is stopped   | Fly requires a running VM for SSH                                 | Only SSH after the clone is running                                                                  |
+| `prisma migrate reset` fails with `P3016`          | LiteFS holds the DB open while the app runs                       | Replace the volume via clone instead of using `migrate reset`                                        |
+| Deleting DB files while app is running             | LiteFS may recreate or lock the file immediately                  | Replace the volume via clone instead of deleting files in place                                      |
+| `prisma db seed` fails on production               | Seed imports test-only files not present in the image             | Skip seed entirely                                                                                   |
 | `cannot become primary` / `no primary` after clone | Old machine still exists or LiteFS has not re-elected primary yet | Destroy the old machine and volume (steps 2–3), wait a minute, then restart the new machine (step 4) |
-| Destroyed volume still visible in dashboard | Fly shows volumes as **pending destroy** briefly after deletion | Wait, or confirm with `fly volumes list` that only the new volume remains |
-| Two machines after reset | Clone creates a second machine before you destroy the old one | Destroy the old machine and its volume as soon as the clone is created |
+| Destroyed volume still visible in dashboard        | Fly shows volumes as **pending destroy** briefly after deletion   | Wait, or confirm with `fly volumes list` that only the new volume remains                            |
+| Two machines after reset                           | Clone creates a second machine before you destroy the old one     | Destroy the old machine and its volume as soon as the clone is created                               |
 
 ## Example flow
 
