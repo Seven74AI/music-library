@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { OpenImgContextProvider } from "openimg/react";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import {
   data,
   Link,
@@ -265,14 +265,18 @@ function ShellLayout() {
   const { isPlayerVisible } = useAudioPlayer();
   const bottomBarHeight = isPlayerVisible ? "126px" : "64px";
 
+  useEffect(() => {
+    document.body.style.setProperty("--bottom-bar-height", bottomBarHeight);
+    return () => {
+      document.body.style.removeProperty("--bottom-bar-height");
+    };
+  }, [bottomBarHeight]);
+
   const data = useLoaderData<typeof loader>();
   const user = useOptionalUser();
 
   return (
-    <div
-      className="flex min-h-screen flex-col justify-between"
-      style={{ "--bottom-bar-height": bottomBarHeight } as React.CSSProperties}
-    >
+    <div className="flex min-h-screen flex-col justify-between">
       <OfflineStatusBanner />
       <a
         href="#main-content"
