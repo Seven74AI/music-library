@@ -481,7 +481,7 @@ function PlayerNowPlayingSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          className="flex max-h-[85vh] flex-col gap-6"
+          className="flex max-h-[85vh] flex-col gap-6 pb-0"
           data-testid="player-now-playing-sheet"
         >
           <SheetHeader className="flex-shrink-0 text-left">
@@ -550,7 +550,7 @@ function PlayerNowPlayingSheet({
               </SheetTrigger>
               <SheetContent
                 side="bottom"
-                className="flex max-h-[60vh] flex-col"
+                className="flex max-h-[60vh] flex-col pb-0"
                 onOpenAutoFocus={(e) => e.preventDefault()}
               >
                 <SheetHeader className="text-left flex-shrink-0">
@@ -583,7 +583,7 @@ function PlayerNowPlayingSheet({
       </Sheet>
 
       <Sheet open={isOverflowOpen} onOpenChange={setIsOverflowOpen}>
-        <SheetContent side="bottom" className="flex flex-col gap-2">
+        <SheetContent side="bottom" className="flex flex-col gap-2 pb-0">
           <SheetHeader className="text-left">
             <SheetTitle>Track actions</SheetTitle>
             <SheetDescription className="sr-only">
@@ -1603,7 +1603,7 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
           <Icon name="list-bullet" className="h-4 w-4" />
         </Button>
       </SheetTrigger>
-      <SheetContent side="bottom" className="h-[80vh] flex flex-col">
+      <SheetContent side="bottom" className="h-[80vh] flex flex-col pb-0">
         <SheetHeader className="flex-shrink-0">
           <SheetTitle>{sheetTitle}</SheetTitle>
           <SheetDescription className="sr-only">
