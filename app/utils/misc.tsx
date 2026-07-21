@@ -1,9 +1,9 @@
-import { clsx, type ClassValue } from 'clsx'
-import { type GetSrcArgs, defaultGetSrc } from 'openimg/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useFormAction, useNavigation } from 'react-router'
-import { useSpinDelay } from 'spin-delay'
-import { twMerge } from 'tailwind-merge'
+import { clsx, type ClassValue } from "clsx";
+import { type GetSrcArgs, defaultGetSrc } from "openimg/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useFormAction, useNavigation } from "react-router";
+import { useSpinDelay } from "spin-delay";
+import { twMerge } from "tailwind-merge";
 
 /**
  * Get user image source URL
@@ -11,9 +11,9 @@ import { twMerge } from 'tailwind-merge'
  * @returns Image source URL or default user image
  */
 export function getUserImgSrc(objectKey?: string | null) {
-	return objectKey
-		? `/resources/images?objectKey=${encodeURIComponent(objectKey)}`
-		: '/img/user.png'
+  return objectKey
+    ? `/resources/images?objectKey=${encodeURIComponent(objectKey)}`
+    : "/img/user.png";
 }
 
 /**
@@ -21,32 +21,25 @@ export function getUserImgSrc(objectKey?: string | null) {
  * @param params - Image source parameters
  * @returns Optimized image source URL
  */
-export function getImgSrc({
-	height,
-	optimizerEndpoint,
-	src,
-	width,
-	fit,
-	format,
-}: GetSrcArgs) {
-	// We customize getImgSrc so our src looks nice like this:
-	// /resources/images?objectKey=...&h=...&w=...&fit=...&format=...
-	// instead of this:
-	// /resources/images?src=%2Fresources%2Fimages%3FobjectKey%3D...%26w%3D...%26h%3D...
-	if (src.startsWith(optimizerEndpoint)) {
-		const [endpoint, query] = src.split('?')
-		const searchParams = new URLSearchParams(query)
-		searchParams.set('h', height.toString())
-		searchParams.set('w', width.toString())
-		if (fit) {
-			searchParams.set('fit', fit)
-		}
-		if (format) {
-			searchParams.set('format', format)
-		}
-		return `${endpoint}?${searchParams.toString()}`
-	}
-	return defaultGetSrc({ height, optimizerEndpoint, src, width, fit, format })
+export function getImgSrc({ height, optimizerEndpoint, src, width, fit, format }: GetSrcArgs) {
+  // We customize getImgSrc so our src looks nice like this:
+  // /resources/images?objectKey=...&h=...&w=...&fit=...&format=...
+  // instead of this:
+  // /resources/images?src=%2Fresources%2Fimages%3FobjectKey%3D...%26w%3D...%26h%3D...
+  if (src.startsWith(optimizerEndpoint)) {
+    const [endpoint, query] = src.split("?");
+    const searchParams = new URLSearchParams(query);
+    searchParams.set("h", height.toString());
+    searchParams.set("w", width.toString());
+    if (fit) {
+      searchParams.set("fit", fit);
+    }
+    if (format) {
+      searchParams.set("format", format);
+    }
+    return `${endpoint}?${searchParams.toString()}`;
+  }
+  return defaultGetSrc({ height, optimizerEndpoint, src, width, fit, format });
 }
 
 /**
@@ -55,17 +48,17 @@ export function getImgSrc({
  * @returns Error message string
  */
 export function getErrorMessage(error: unknown) {
-	if (typeof error === 'string') return error
-	if (
-		error &&
-		typeof error === 'object' &&
-		'message' in error &&
-		typeof error.message === 'string'
-	) {
-		return error.message
-	}
-	console.error('Unable to get error message for error', error)
-	return 'Unknown Error'
+  if (typeof error === "string") return error;
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  console.error("Unable to get error message for error", error);
+  return "Unknown Error";
 }
 
 /**
@@ -74,7 +67,7 @@ export function getErrorMessage(error: unknown) {
  * @returns Merged class string
  */
 export function cn(...inputs: ClassValue[]) {
-	return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
 /**
@@ -83,12 +76,12 @@ export function cn(...inputs: ClassValue[]) {
  * @returns Domain URL string
  */
 export function getDomainUrl(request: Request) {
-	const host =
-		request.headers.get('X-Forwarded-Host') ??
-		request.headers.get('host') ??
-		new URL(request.url).host
-	const protocol = request.headers.get('X-Forwarded-Proto') ?? 'http'
-	return `${protocol}://${host}`
+  const host =
+    request.headers.get("X-Forwarded-Host") ??
+    request.headers.get("host") ??
+    new URL(request.url).host;
+  const protocol = request.headers.get("X-Forwarded-Proto") ?? "http";
+  return `${protocol}://${host}`;
 }
 
 /**
@@ -97,66 +90,58 @@ export function getDomainUrl(request: Request) {
  * @returns Referrer route string
  */
 export function getReferrerRoute(request: Request) {
-	// spelling errors and whatever makes this annoyingly inconsistent
-	// in my own testing, `referer` returned the right value, but 🤷‍♂️
-	const referrer =
-		request.headers.get('referer') ??
-		request.headers.get('referrer') ??
-		request.referrer
-	const domain = getDomainUrl(request)
-	if (referrer?.startsWith(domain)) {
-		return referrer.slice(domain.length)
-	} else {
-		return '/'
-	}
+  // spelling errors and whatever makes this annoyingly inconsistent
+  // in my own testing, `referer` returned the right value, but 🤷‍♂️
+  const referrer =
+    request.headers.get("referer") ?? request.headers.get("referrer") ?? request.referrer;
+  const domain = getDomainUrl(request);
+  if (referrer?.startsWith(domain)) {
+    return referrer.slice(domain.length);
+  } else {
+    return "/";
+  }
 }
 
 /**
  * Merge multiple headers objects into one (uses set so headers are overridden)
  */
-export function mergeHeaders(
-	...headers: Array<ResponseInit['headers'] | null | undefined>
-) {
-	const merged = new Headers()
-	for (const header of headers) {
-		if (!header) continue
-		for (const [key, value] of new Headers(header).entries()) {
-			merged.set(key, value)
-		}
-	}
-	return merged
+export function mergeHeaders(...headers: Array<ResponseInit["headers"] | null | undefined>) {
+  const merged = new Headers();
+  for (const header of headers) {
+    if (!header) continue;
+    for (const [key, value] of new Headers(header).entries()) {
+      merged.set(key, value);
+    }
+  }
+  return merged;
 }
 
 /**
  * Combine multiple header objects into one (uses append so headers are not overridden)
  */
-export function combineHeaders(
-	...headers: Array<ResponseInit['headers'] | null | undefined>
-) {
-	const combined = new Headers()
-	for (const header of headers) {
-		if (!header) continue
-		for (const [key, value] of new Headers(header).entries()) {
-			combined.append(key, value)
-		}
-	}
-	return combined
+export function combineHeaders(...headers: Array<ResponseInit["headers"] | null | undefined>) {
+  const combined = new Headers();
+  for (const header of headers) {
+    if (!header) continue;
+    for (const [key, value] of new Headers(header).entries()) {
+      combined.append(key, value);
+    }
+  }
+  return combined;
 }
 
 /**
  * Combine multiple response init objects into one (uses combineHeaders)
  */
-export function combineResponseInits(
-	...responseInits: Array<ResponseInit | null | undefined>
-) {
-	let combined: ResponseInit = {}
-	for (const responseInit of responseInits) {
-		combined = {
-			...responseInit,
-			headers: combineHeaders(combined.headers, responseInit?.headers),
-		}
-	}
-	return combined
+export function combineResponseInits(...responseInits: Array<ResponseInit | null | undefined>) {
+  let combined: ResponseInit = {};
+  for (const responseInit of responseInits) {
+    combined = {
+      ...responseInit,
+      headers: combineHeaders(combined.headers, responseInit?.headers),
+    };
+  }
+  return combined;
 }
 
 /**
@@ -170,25 +155,23 @@ export function combineResponseInits(
  * want to know if a form is submitting without specific query params.
  */
 export function useIsPending({
-	formAction,
-	formMethod = 'POST',
-	state = 'non-idle',
+  formAction,
+  formMethod = "POST",
+  state = "non-idle",
 }: {
-	formAction?: string
-	formMethod?: 'POST' | 'GET' | 'PUT' | 'PATCH' | 'DELETE'
-	state?: 'submitting' | 'loading' | 'non-idle'
+  formAction?: string;
+  formMethod?: "POST" | "GET" | "PUT" | "PATCH" | "DELETE";
+  state?: "submitting" | "loading" | "non-idle";
 } = {}) {
-	const contextualFormAction = useFormAction()
-	const navigation = useNavigation()
-	const isPendingState =
-		state === 'non-idle'
-			? navigation.state !== 'idle'
-			: navigation.state === state
-	return (
-		isPendingState &&
-		navigation.formAction === (formAction ?? contextualFormAction) &&
-		navigation.formMethod === formMethod
-	)
+  const contextualFormAction = useFormAction();
+  const navigation = useNavigation();
+  const isPendingState =
+    state === "non-idle" ? navigation.state !== "idle" : navigation.state === state;
+  return (
+    isPendingState &&
+    navigation.formAction === (formAction ?? contextualFormAction) &&
+    navigation.formMethod === formMethod
+  );
 }
 
 /**
@@ -200,24 +183,23 @@ export function useIsPending({
  * request is.
  */
 export function useDelayedIsPending({
-	formAction,
-	formMethod,
-	delay = 400,
-	minDuration = 300,
-}: Parameters<typeof useIsPending>[0] &
-	Parameters<typeof useSpinDelay>[1] = {}) {
-	const isPending = useIsPending({ formAction, formMethod })
-	const delayedIsPending = useSpinDelay(isPending, {
-		delay,
-		minDuration,
-	})
-	return delayedIsPending
+  formAction,
+  formMethod,
+  delay = 400,
+  minDuration = 300,
+}: Parameters<typeof useIsPending>[0] & Parameters<typeof useSpinDelay>[1] = {}) {
+  const isPending = useIsPending({ formAction, formMethod });
+  const delayedIsPending = useSpinDelay(isPending, {
+    delay,
+    minDuration,
+  });
+  return delayedIsPending;
 }
 
 function callAll<Args extends Array<unknown>>(
-	...fns: Array<((...args: Args) => unknown) | undefined>
+  ...fns: Array<((...args: Args) => unknown) | undefined>
 ) {
-	return (...args: Args) => fns.forEach((fn) => fn?.(...args))
+  return (...args: Args) => fns.forEach((fn) => fn?.(...args));
 }
 
 /**
@@ -227,105 +209,96 @@ function callAll<Args extends Array<unknown>>(
  * "are you sure?" experience for the user before doing destructive operations.
  */
 export function useDoubleCheck() {
-	const [doubleCheck, setDoubleCheck] = useState(false)
+  const [doubleCheck, setDoubleCheck] = useState(false);
 
-	function getButtonProps(
-		props?: React.ButtonHTMLAttributes<HTMLButtonElement>,
-	) {
-		const onBlur: React.ButtonHTMLAttributes<HTMLButtonElement>['onBlur'] =
-			() => setDoubleCheck(false)
+  function getButtonProps(props?: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+    const onBlur: React.ButtonHTMLAttributes<HTMLButtonElement>["onBlur"] = () =>
+      setDoubleCheck(false);
 
-		const onClick: React.ButtonHTMLAttributes<HTMLButtonElement>['onClick'] =
-			doubleCheck
-				? undefined
-				: (e) => {
-						e.preventDefault()
-						setDoubleCheck(true)
-					}
+    const onClick: React.ButtonHTMLAttributes<HTMLButtonElement>["onClick"] = doubleCheck
+      ? undefined
+      : (e) => {
+          e.preventDefault();
+          setDoubleCheck(true);
+        };
 
-		const onKeyUp: React.ButtonHTMLAttributes<HTMLButtonElement>['onKeyUp'] = (
-			e,
-		) => {
-			if (e.key === 'Escape') {
-				setDoubleCheck(false)
-			}
-		}
+    const onKeyUp: React.ButtonHTMLAttributes<HTMLButtonElement>["onKeyUp"] = (e) => {
+      if (e.key === "Escape") {
+        setDoubleCheck(false);
+      }
+    };
 
-		return {
-			...props,
-			onBlur: callAll(onBlur, props?.onBlur),
-			onClick: callAll(onClick, props?.onClick),
-			onKeyUp: callAll(onKeyUp, props?.onKeyUp),
-		}
-	}
+    return {
+      ...props,
+      onBlur: callAll(onBlur, props?.onBlur),
+      onClick: callAll(onClick, props?.onClick),
+      onKeyUp: callAll(onKeyUp, props?.onKeyUp),
+    };
+  }
 
-	return { doubleCheck, getButtonProps }
+  return { doubleCheck, getButtonProps };
 }
 
 /**
  * Simple debounce implementation
  */
 function debounce<Callback extends (...args: Parameters<Callback>) => void>(
-	fn: Callback,
-	delay: number,
+  fn: Callback,
+  delay: number,
 ) {
-	let timer: ReturnType<typeof setTimeout> | null = null
-	return (...args: Parameters<Callback>) => {
-		if (timer) clearTimeout(timer)
-		timer = setTimeout(() => {
-			fn(...args)
-		}, delay)
-	}
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Parameters<Callback>) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      fn(...args);
+    }, delay);
+  };
 }
 
 /**
  * Debounce a callback function
  */
 export function useDebounce<
-	Callback extends (...args: Parameters<Callback>) => ReturnType<Callback>,
+  Callback extends (...args: Parameters<Callback>) => ReturnType<Callback>,
 >(callback: Callback, delay: number) {
-	const callbackRef = useRef(callback)
-	useEffect(() => {
-		callbackRef.current = callback
-	})
-	return useMemo(
-		() =>
-			debounce(
-				(...args: Parameters<Callback>) => callbackRef.current(...args),
-				delay,
-			),
-		[delay],
-	)
+  const callbackRef = useRef(callback);
+  useEffect(() => {
+    callbackRef.current = callback;
+  });
+  return useMemo(
+    () => debounce((...args: Parameters<Callback>) => callbackRef.current(...args), delay),
+    [delay],
+  );
 }
 
 export async function downloadFile(url: string, retries: number = 0): Promise<File> {
-	const MAX_RETRIES = 3
-	
-	// Validate input
-	if (!url || typeof url !== 'string') {
-		throw new Error('Invalid url: must be a non-empty string')
-	}
-	
-	if (typeof retries !== 'number' || retries < 0) {
-		throw new Error('Invalid retries: must be a non-negative number')
-	}
-	
-	try {
-		const response = await fetch(url)
-		if (!response.ok) {
-			throw new Error(`Failed to fetch file with status ${response.status}`)
-		}
-		const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
-		const arrayBuffer = await response.arrayBuffer()
-		const file = new File([arrayBuffer], 'downloaded-file', {
-			type: contentType,
-		})
-		return file
-	} catch (error) {
-		if (retries >= MAX_RETRIES) {
-			const errorMessage = error instanceof Error ? error.message : String(error)
-			throw new Error(`Failed to download file after ${MAX_RETRIES} retries: ${errorMessage}`)
-		}
-		return downloadFile(url, retries + 1)
-	}
+  const MAX_RETRIES = 3;
+
+  // Validate input
+  if (!url || typeof url !== "string") {
+    throw new Error("Invalid url: must be a non-empty string");
+  }
+
+  if (typeof retries !== "number" || retries < 0) {
+    throw new Error("Invalid retries: must be a non-negative number");
+  }
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch file with status ${response.status}`);
+    }
+    const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+    const arrayBuffer = await response.arrayBuffer();
+    const file = new File([arrayBuffer], "downloaded-file", {
+      type: contentType,
+    });
+    return file;
+  } catch (error) {
+    if (retries >= MAX_RETRIES) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to download file after ${MAX_RETRIES} retries: ${errorMessage}`);
+    }
+    return downloadFile(url, retries + 1);
+  }
 }

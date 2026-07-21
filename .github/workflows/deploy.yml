@@ -136,8 +136,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prisma/data.db
-          key:
-            db-cache-schema_${{ hashFiles('./prisma/schema.prisma')
+          key: db-cache-schema_${{ hashFiles('./prisma/schema.prisma')
             }}-migrations_${{ hashFiles('./prisma/migrations/*/migration.sql')
             }}
 
@@ -233,8 +232,8 @@ jobs:
         uses: SebRollen/toml-action@v1.2.0
         id: app_name
         with:
-          file: 'fly.toml'
-          field: 'app'
+          file: "fly.toml"
+          field: "app"
 
       - name: 🎈 Setup Fly
         uses: superfly/flyctl-actions/setup-flyctl@1.5
@@ -278,8 +277,8 @@ jobs:
         uses: SebRollen/toml-action@v1.2.0
         id: app_name
         with:
-          file: 'fly.toml'
-          field: 'app'
+          file: "fly.toml"
+          field: "app"
 
       - name: 🎈 Setup Fly
         uses: superfly/flyctl-actions/setup-flyctl@1.5

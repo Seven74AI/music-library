@@ -1,6 +1,7 @@
 # ADR-010: Audio File Upload and Storage System
 
 ## Status
+
 Accepted (audio object key layout superseded by [ADR-014](./014-unified-audio-object-keys.md))
 
 ## Context
@@ -55,12 +56,14 @@ We implemented a multi-phase upload system with:
 ```
 
 #### Phase 1: Browser → Server
+
 - **Technology**: XMLHttpRequest (for upload progress tracking)
 - **Progress Tracking**: `xhr.upload.onprogress` events
 - **UI Display**: "Uploading to server..." with progress bar
 - **Purpose**: Transfer files from user's browser to server
 
 #### Phase 2: Server-side Processing
+
 - **Sub-phases**:
   1. **Metadata Extraction** (0-10%): Extract audio metadata from files
   2. **ID Generation** (10%): Generate track, artist, album IDs
@@ -68,6 +71,7 @@ We implemented a multi-phase upload system with:
   4. **Database Operations** (50-100%): Create database records
 
 #### Phase 3: Server → Storage
+
 - **Technology**: AWS SDK `Upload` class with `httpUploadProgress` events
 - **Progress Mapping**: S3 upload progress (0-100%) mapped to overall file progress (10-50%)
 - **UI Display**: "Uploading files to storage..." with individual file progress
@@ -77,7 +81,7 @@ We implemented a multi-phase upload system with:
 #### Filtering Strategy
 
 1. **Directory Filtering**: Skip all directory entries
-2. **macOS Metadata Filtering**: 
+2. **macOS Metadata Filtering**:
    - Skip files in `__MACOSX/` directories
    - Skip files with basename starting with `._` (macOS resource fork files)
    - Note: Only check basename, not full path, to avoid filtering legitimate files with underscores
@@ -90,22 +94,22 @@ We implemented a multi-phase upload system with:
 ```typescript
 for (const entry of zip.getEntries()) {
   // Skip directories
-  if (entry.isDirectory) continue
-  
+  if (entry.isDirectory) continue;
+
   // Skip macOS metadata
-  const basename = entry.entryName.split('/').pop() || entry.entryName
-  if (entry.entryName.includes('__MACOSX/') || basename.startsWith('._')) {
-    continue
+  const basename = entry.entryName.split("/").pop() || entry.entryName;
+  if (entry.entryName.includes("__MACOSX/") || basename.startsWith("._")) {
+    continue;
   }
-  
+
   // Check audio format
-  if (!isAudioFile(entry.entryName)) continue
-  
+  if (!isAudioFile(entry.entryName)) continue;
+
   // Extract and validate size
-  const buffer = entry.getData()
-  if (buffer.length < 1024) continue // Skip small files
-  
-  audioFiles.push({ fileName: entry.entryName, buffer })
+  const buffer = entry.getData();
+  if (buffer.length < 1024) continue; // Skip small files
+
+  audioFiles.push({ fileName: entry.entryName, buffer });
 }
 ```
 
@@ -124,6 +128,7 @@ for (const entry of zip.getEntries()) {
 #### Fallback Strategy
 
 If metadata extraction fails:
+
 1. Log error with file details (name, size, error object)
 2. Fall back to format detection from filename
 3. Return minimal metadata (format, mimeType) to allow upload to proceed
@@ -132,21 +137,24 @@ If metadata extraction fails:
 
 ```typescript
 try {
-  const metadata = await parseBuffer(buffer)
+  const metadata = await parseBuffer(buffer);
   // Extract metadata...
 } catch (error) {
-  console.error('Error extracting audio metadata:', {
+  console.error("Error extracting audio metadata:", {
     fileName,
     fileSize: buffer.length,
-    error: error instanceof Error ? {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
-    } : error,
-  })
+    error:
+      error instanceof Error
+        ? {
+            message: error.message,
+            stack: error.stack,
+            name: error.name,
+          }
+        : error,
+  });
   // Fallback to format detection
-  const format = getFormatFromFileName(fileName)
-  return { format, mimeType: getMimeTypeFromFormat(format) }
+  const format = getFormatFromFileName(fileName);
+  return { format, mimeType: getMimeTypeFromFormat(format) };
 }
 ```
 
@@ -195,22 +203,30 @@ Storage errors are categorized for better error handling:
 - `STORAGE_AUTH_ERROR`: Invalid credentials, signature mismatch
 
 ```typescript
-function handleStorageError(error: unknown, key: string, config: StorageConfig, fileSize: number): never {
-  const errorMessage = error instanceof Error ? error.message : String(error)
-  
+function handleStorageError(
+  error: unknown,
+  key: string,
+  config: StorageConfig,
+  fileSize: number,
+): never {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+
   // Categorize error
-  let errorType = 'STORAGE_ERROR'
-  if (errorMessage.includes('AccessDenied') || errorMessage.includes('403')) {
-    errorType = 'STORAGE_ACCESS_DENIED'
-  } else if (errorMessage.includes('NoSuchBucket') || errorMessage.includes('404')) {
-    errorType = 'STORAGE_BUCKET_NOT_FOUND'
-  } else if (errorMessage.includes('timeout') || errorMessage.includes('ECONNRESET')) {
-    errorType = 'STORAGE_NETWORK_ERROR'
-  } else if (errorMessage.includes('InvalidAccessKeyId') || errorMessage.includes('SignatureDoesNotMatch')) {
-    errorType = 'STORAGE_AUTH_ERROR'
+  let errorType = "STORAGE_ERROR";
+  if (errorMessage.includes("AccessDenied") || errorMessage.includes("403")) {
+    errorType = "STORAGE_ACCESS_DENIED";
+  } else if (errorMessage.includes("NoSuchBucket") || errorMessage.includes("404")) {
+    errorType = "STORAGE_BUCKET_NOT_FOUND";
+  } else if (errorMessage.includes("timeout") || errorMessage.includes("ECONNRESET")) {
+    errorType = "STORAGE_NETWORK_ERROR";
+  } else if (
+    errorMessage.includes("InvalidAccessKeyId") ||
+    errorMessage.includes("SignatureDoesNotMatch")
+  ) {
+    errorType = "STORAGE_AUTH_ERROR";
   }
-  
-  throw new Error(`${errorType}: Failed to upload object: ${key} - ${errorMessage}`)
+
+  throw new Error(`${errorType}: Failed to upload object: ${key} - ${errorMessage}`);
 }
 ```
 
@@ -246,6 +262,7 @@ function handleStorageError(error: unknown, key: string, config: StorageConfig, 
 #### Progress Milestones
 
 For each file:
+
 - **0%**: Initial state
 - **5%**: Validation complete
 - **10%**: IDs generated, starting upload
@@ -260,14 +277,14 @@ For each file:
 #### Upload Speed Calculation
 
 ```typescript
-const elapsedSeconds = (Date.now() - progress.startTime) / 1000
+const elapsedSeconds = (Date.now() - progress.startTime) / 1000;
 const totalBytes = progress.files.reduce((sum, file) => {
-  if (file.fileSize && file.status !== 'pending' && file.status !== 'processing') {
-    return sum + (file.fileSize * file.progress / 100)
+  if (file.fileSize && file.status !== "pending" && file.status !== "processing") {
+    return sum + (file.fileSize * file.progress) / 100;
   }
-  return sum
-}, 0)
-const uploadSpeed = totalBytes / elapsedSeconds // bytes/second
+  return sum;
+}, 0);
+const uploadSpeed = totalBytes / elapsedSeconds; // bytes/second
 ```
 
 ### Concurrency Control
@@ -284,19 +301,19 @@ const uploadSpeed = totalBytes / elapsedSeconds // bytes/second
 async function processWithConcurrency<T, R>(
   items: T[],
   processor: (item: T, index: number) => Promise<R>,
-  concurrency: number = 5
+  concurrency: number = 5,
 ): Promise<R[]> {
-  const results: R[] = []
-  
+  const results: R[] = [];
+
   for (let i = 0; i < items.length; i += concurrency) {
-    const batch = items.slice(i, i + concurrency)
+    const batch = items.slice(i, i + concurrency);
     const batchResults = await Promise.all(
-      batch.map((item, batchIndex) => processor(item, i + batchIndex))
-    )
-    results.push(...batchResults)
+      batch.map((item, batchIndex) => processor(item, i + batchIndex)),
+    );
+    results.push(...batchResults);
   }
-  
-  return results
+
+  return results;
 }
 ```
 
@@ -325,31 +342,37 @@ async function processWithConcurrency<T, R>(
 ## Alternatives Considered
 
 ### 1. Single-Phase Upload (No Progress Tracking)
+
 **Pros**: Simpler implementation
 **Cons**: Poor UX on slow networks, no visibility into progress
 **Decision**: Multi-phase provides better user experience
 
 ### 2. Polling for Progress Updates
+
 **Pros**: Simpler server implementation
 **Cons**: Higher server load, delayed updates, inefficient
 **Decision**: SSE provides real-time updates with lower overhead
 
 ### 3. Sequential File Processing
+
 **Pros**: Simpler concurrency management
 **Cons**: Much slower for batch uploads
 **Decision**: Parallel processing with concurrency limit provides optimal balance
 
 ### 4. Single Transaction for All Files
+
 **Pros**: Atomic batch operation
 **Cons**: Very long transaction time, high risk of timeout, blocks all files on single failure
 **Decision**: Per-file transactions provide better reliability and performance
 
 ### 5. Client-Side Metadata Extraction
+
 **Pros**: Reduces server load
 **Cons**: Browser compatibility issues, larger client bundle, inconsistent results
 **Decision**: Server-side extraction provides consistent, reliable results
 
 ### 6. Multipart Upload for All Files
+
 **Pros**: Consistent upload strategy
 **Cons**: Tigris compatibility issues for small files (< 5MB minimum part size)
 **Decision**: Size-based strategy provides best compatibility and performance
@@ -385,18 +408,21 @@ async function processWithConcurrency<T, R>(
 ## Testing
 
 ### Unit Tests
+
 - ZIP extraction with various file structures
 - Metadata extraction with different audio formats
 - Error handling for corrupted files
 - Storage error categorization
 
 ### Integration Tests
+
 - End-to-end upload flow (browser → server → storage → database)
 - Progress tracking accuracy
 - Concurrent upload handling
 - Error recovery
 
 ### E2E Tests
+
 - User upload flow with progress display
 - ZIP file upload and extraction
 - Error scenarios (network failures, invalid files)
@@ -436,4 +462,3 @@ async function processWithConcurrency<T, R>(
 - [music-metadata Documentation](https://github.com/Borewit/music-metadata)
 - [Server-Sent Events (MDN)](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
 - [adm-zip Documentation](https://github.com/cthackers/adm-zip)
-

@@ -1,53 +1,47 @@
-import { type SEOHandle } from '@nasa-gcn/remix-seo'
-import { data, Form, useActionData, useLoaderData, useNavigation } from 'react-router'
-import { Button } from '#app/components/ui/button.tsx'
-import { Icon } from '#app/components/ui/icon.tsx'
-import { prisma } from '#app/utils/db.server.ts'
-import { requireUserWithRole } from '#app/utils/permissions.server.ts'
-import { proxyClientActionToServer } from '#app/utils/server-proxy-client-action.ts'
-import { type Route } from './+types/fts-index.ts'
+import { type SEOHandle } from "@nasa-gcn/remix-seo";
+import { data, Form, useActionData, useLoaderData, useNavigation } from "react-router";
+import { Button } from "#app/components/ui/button.tsx";
+import { Icon } from "#app/components/ui/icon.tsx";
+import { prisma } from "#app/utils/db.server.ts";
+import { requireUserWithRole } from "#app/utils/permissions.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Route } from "./+types/fts-index.ts";
 
 export const handle: SEOHandle = {
   getSitemapEntries: () => null,
-}
+};
 
 interface FtsCounts {
-  tracks: number
-  albums: number
-  artists: number
+  tracks: number;
+  albums: number;
+  artists: number;
 }
 
 interface EntityCounts {
-  tracks: number
-  albums: number
-  artists: number
+  tracks: number;
+  albums: number;
+  artists: number;
 }
 
 interface LoaderData {
-  fts: FtsCounts
-  entities: EntityCounts
+  fts: FtsCounts;
+  entities: EntityCounts;
 }
 
 export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
-  await requireUserWithRole(request, 'admin')
+  await requireUserWithRole(request, "admin");
 
   const [tracksFts, albumsFts, artistsFts] = await Promise.all([
-    prisma.$queryRawUnsafe<[{ count: bigint }]>(
-      'SELECT COUNT(*) as count FROM tracks_fts',
-    ),
-    prisma.$queryRawUnsafe<[{ count: bigint }]>(
-      'SELECT COUNT(*) as count FROM albums_fts',
-    ),
-    prisma.$queryRawUnsafe<[{ count: bigint }]>(
-      'SELECT COUNT(*) as count FROM artists_fts',
-    ),
-  ])
+    prisma.$queryRawUnsafe<[{ count: bigint }]>("SELECT COUNT(*) as count FROM tracks_fts"),
+    prisma.$queryRawUnsafe<[{ count: bigint }]>("SELECT COUNT(*) as count FROM albums_fts"),
+    prisma.$queryRawUnsafe<[{ count: bigint }]>("SELECT COUNT(*) as count FROM artists_fts"),
+  ]);
 
   const [trackCount, albumCount, artistCount] = await Promise.all([
     prisma.track.count(),
     prisma.album.count(),
     prisma.artist.count(),
-  ])
+  ]);
 
   return {
     fts: {
@@ -60,99 +54,97 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
       albums: albumCount,
       artists: artistCount,
     },
-  }
+  };
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {
-  return proxyClientActionToServer(args)
+  return proxyClientActionToServer(args);
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireUserWithRole(request, 'admin')
+  await requireUserWithRole(request, "admin");
 
-  const formData = await request.formData()
-  const entity = formData.get('entity') as string | null
+  const formData = await request.formData();
+  const entity = formData.get("entity") as string | null;
 
   const rebuildFts = {
     tracks: async () => {
-      await prisma.$executeRawUnsafe(`BEGIN`)
-      await prisma.$executeRawUnsafe(`DELETE FROM tracks_fts`)
+      await prisma.$executeRawUnsafe(`BEGIN`);
+      await prisma.$executeRawUnsafe(`DELETE FROM tracks_fts`);
       await prisma.$executeRawUnsafe(`
         INSERT INTO tracks_fts(track_id, title, artist_name, album_name)
         SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
         FROM Track t
         JOIN Artist a ON t.artistId = a.id
         LEFT JOIN Album alb ON t.albumId = alb.id
-      `)
-      await prisma.$executeRawUnsafe(`COMMIT`)
+      `);
+      await prisma.$executeRawUnsafe(`COMMIT`);
     },
     albums: async () => {
-      await prisma.$executeRawUnsafe(`BEGIN`)
-      await prisma.$executeRawUnsafe(`DELETE FROM albums_fts`)
+      await prisma.$executeRawUnsafe(`BEGIN`);
+      await prisma.$executeRawUnsafe(`DELETE FROM albums_fts`);
       await prisma.$executeRawUnsafe(`
         INSERT INTO albums_fts(album_id, name, artist_name)
         SELECT alb.id, alb.name, a.name
         FROM Album alb
         JOIN Artist a ON alb.artistId = a.id
-      `)
-      await prisma.$executeRawUnsafe(`COMMIT`)
+      `);
+      await prisma.$executeRawUnsafe(`COMMIT`);
     },
     artists: async () => {
-      await prisma.$executeRawUnsafe(`BEGIN`)
-      await prisma.$executeRawUnsafe(`DELETE FROM artists_fts`)
+      await prisma.$executeRawUnsafe(`BEGIN`);
+      await prisma.$executeRawUnsafe(`DELETE FROM artists_fts`);
       await prisma.$executeRawUnsafe(`
         INSERT INTO artists_fts(artist_id, name, genre)
         SELECT id, name, COALESCE(genre, '')
         FROM Artist
-      `)
-      await prisma.$executeRawUnsafe(`COMMIT`)
+      `);
+      await prisma.$executeRawUnsafe(`COMMIT`);
     },
-  }
+  };
 
-  if (entity === 'all') {
+  if (entity === "all") {
     try {
-      await rebuildFts.tracks()
-      await rebuildFts.albums()
-      await rebuildFts.artists()
-      return data({ message: `FTS indexes rebuilt for all entities` })
+      await rebuildFts.tracks();
+      await rebuildFts.albums();
+      await rebuildFts.artists();
+      return data({ message: `FTS indexes rebuilt for all entities` });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return data({ error: `Rebuild failed: ${msg}` })
+      const msg = err instanceof Error ? err.message : String(err);
+      return data({ error: `Rebuild failed: ${msg}` });
     }
   }
 
-  const rebuild = rebuildFts[entity as keyof typeof rebuildFts]
+  const rebuild = rebuildFts[entity as keyof typeof rebuildFts];
   if (!rebuild) {
-    return data({ error: `Unknown entity: ${entity}` })
+    return data({ error: `Unknown entity: ${entity}` });
   }
 
   try {
-    await rebuild()
-    return data({ message: `FTS index rebuilt for: ${entity}` })
+    await rebuild();
+    return data({ message: `FTS index rebuilt for: ${entity}` });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return data({ error: `Rebuild failed: ${msg}` })
+    const msg = err instanceof Error ? err.message : String(err);
+    return data({ error: `Rebuild failed: ${msg}` });
   }
 }
 
 export default function FtsIndexPage({ loaderData }: Route.ComponentProps) {
-  const { fts, entities } = loaderData
-  const actionData = useActionData<{ message?: string; error?: string }>()
-  const navigation = useNavigation()
+  const { fts, entities } = loaderData;
+  const actionData = useActionData<{ message?: string; error?: string }>();
+  const navigation = useNavigation();
 
   const isRebuilding = (entity: string) =>
-    navigation.state === 'submitting' &&
-    navigation.formData?.get('entity') === entity
+    navigation.state === "submitting" && navigation.formData?.get("entity") === entity;
 
   const ftsHealthy = (entity: keyof FtsCounts) =>
-    fts[entity] >= entities[entity] && entities[entity] > 0
+    fts[entity] >= entities[entity] && entities[entity] > 0;
 
   return (
     <div className="py-8">
       <h1 className="mb-2 text-2xl font-bold">FTS5 Index Management</h1>
       <p className="mb-8 text-sm text-muted-foreground">
-        Rebuild FTS5 full-text search indexes when search results are stale or
-        missing.
+        Rebuild FTS5 full-text search indexes when search results are stale or missing.
       </p>
 
       {actionData?.message && (
@@ -186,12 +178,10 @@ export default function FtsIndexPage({ loaderData }: Route.ComponentProps) {
             </tr>
           </thead>
           <tbody>
-            {(['tracks', 'albums', 'artists'] as const).map((entity) => (
+            {(["tracks", "albums", "artists"] as const).map((entity) => (
               <tr key={entity} className="border-b last:border-0">
                 <td className="px-4 py-3 font-medium capitalize">{entity}</td>
-                <td className="px-4 py-3 text-right font-mono">
-                  {fts[entity].toLocaleString()}
-                </td>
+                <td className="px-4 py-3 text-right font-mono">{fts[entity].toLocaleString()}</td>
                 <td className="px-4 py-3 text-right font-mono">
                   {entities[entity].toLocaleString()}
                 </td>
@@ -227,7 +217,7 @@ export default function FtsIndexPage({ loaderData }: Route.ComponentProps) {
                           Rebuilding…
                         </>
                       ) : (
-                        'Rebuild'
+                        "Rebuild"
                       )}
                     </Button>
                   </Form>
@@ -246,12 +236,8 @@ export default function FtsIndexPage({ loaderData }: Route.ComponentProps) {
         </p>
         <Form method="post">
           <input type="hidden" name="entity" value="all" />
-          <Button
-            type="submit"
-            variant="default"
-            disabled={isRebuilding('all')}
-          >
-            {isRebuilding('all') ? (
+          <Button type="submit" variant="default" disabled={isRebuilding("all")}>
+            {isRebuilding("all") ? (
               <>
                 <Icon name="arrow-path" className="mr-2 h-4 w-4 animate-spin" />
                 Rebuilding All…
@@ -266,5 +252,5 @@ export default function FtsIndexPage({ loaderData }: Route.ComponentProps) {
         </Form>
       </div>
     </div>
-  )
+  );
 }

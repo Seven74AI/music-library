@@ -1,11 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "typescript",
-    "oxc",
-    "react",
-    "import"
-  ],
+  "plugins": ["typescript", "oxc", "react", "import"],
   "categories": {
     "correctness": "error",
     "suspicious": "warn",
@@ -33,11 +28,5 @@
       "runtime": "automatic"
     }
   },
-  "ignorePatterns": [
-    "node_modules",
-    "build",
-    "public/build",
-    "generated",
-    "*.gen.*"
-  ]
+  "ignorePatterns": ["node_modules", "build", "public/build", "generated", "*.gen.*"]
 }

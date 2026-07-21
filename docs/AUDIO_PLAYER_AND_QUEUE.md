@@ -15,11 +15,13 @@ The audio player is a persistent, bottom-fixed control bar that appears when a u
 ### Key Features
 
 #### 1. **Persistent Playback Control**
+
 - **Fixed Position**: The player stays at the bottom of the screen, visible across all pages
 - **Always Accessible**: Users can control playback from anywhere in the application
 - **Auto-Play**: When a track is selected, playback begins automatically (respecting browser autoplay policies)
 
 #### 2. **Playback Controls**
+
 - **Play/Pause Button**: Large, prominent button in the center for easy access
 - **Previous/Next Track**: Navigate through the queue with arrow buttons
 - **Seek Bar**: Interactive progress bar showing current position and total duration
@@ -30,29 +32,34 @@ The audio player is a persistent, bottom-fixed control bar that appears when a u
 #### 3. **Advanced Playback Modes**
 
 **Loop Modes** (3 states, cycles through):
+
 - **Off**: Normal playback, stops at end of queue
 - **All**: Loops entire queue continuously
 - **One**: Loops the current track indefinitely
   - Visual indicator: Button shows active state with "1" badge when looping one track
 
 **Shuffle Mode**:
+
 - Permutes spine play order using Fisher-Yates shuffle
 - Visual indicator: Button highlights when active
 - When toggled on mid-playback, reshuffles spine order from the current position onward (Up Next untouched)
 - Works seamlessly with loop modes
 
 #### 4. **Track Information Display**
+
 - **Thumbnail**: Album art or placeholder icon if no cover available
 - **Track Title**: Prominently displayed
 - **Artist Name**: Shown below title
 - **Consistent Placeholders**: Standardized icon for tracks without album art across the entire application
 
 #### 5. **Smart Audio File Selection**
+
 - Automatically selects the best available audio format
 - Priority order: FLAC → WAV → MP3 → M4A → OGG → AAC → WebM → first available
 - Ensures highest quality playback when multiple formats are available
 
 #### 6. **Audio URL loading (production & local dev)**
+
 - The player fetches `/resources/audio/:trackId` and receives a JSON `{ url }` (presigned Tigris URL in production; local stream URL in dev)
 - Auto-play only runs after the URL for the **current** track has loaded (avoids races when skipping tracks)
 - Navigation (next, previous, click another track) updates the current track immediately and keeps playback going when possible
@@ -76,12 +83,14 @@ The queue is a **three-zone**, context-aware playback model that scales from sma
 The spine is the ordered list of playable tracks for the active play context:
 
 **Library Context**:
+
 - When a user clicks play from their music library (or **Play library** on home)
 - Spine loads all **playable** tracks from the user's library (tracks with at least one archived audio file)
 - Metadata-only library entries (no audio files) are excluded
 - Maintains library order among playable tracks
 
 **Playlist Context**:
+
 - When a user clicks play from a specific playlist
 - Spine loads all **playable** tracks from that playlist
 - Metadata-only playlist entries are excluded
@@ -114,12 +123,14 @@ This replaces the previous paginated `fields=full` fetch of every track on play.
 #### 4. **Queue Loading & Navigation**
 
 **On play (warm start)**:
+
 1. Selected track begins playing immediately (using already-known or stub data)
 2. Spine loads in the background (single request)
 3. Provider hydrates current track + lookahead
 4. An epoch guard cancels stale spine fetches if the user switches context mid-load
 
 **Playback order on Next**:
+
 1. Drain **Up Next** front (FIFO among **Play next** inserts)
 2. Advance **spine pointer** (linear index or shuffled order)
 3. **Loop all** wraps to the start of the spine; **loop one** replays current
@@ -127,6 +138,7 @@ This replaces the previous paginated `fields=full` fetch of every track on play.
 **Previous** walks backward through spine play order (not into Up Next).
 
 **Virtual Scrolling** (queue sheet):
+
 - **Up Next**: virtual list when 20+ items
 - **From Library / From Playlist**: always virtualized for large spines
 - Only visible tracks are rendered in the DOM
@@ -135,11 +147,11 @@ This replaces the previous paginated `fields=full` fetch of every track on play.
 
 Three per-track and bulk actions. Behavior depends on whether the player is already active (**warm**) or nothing is playing (**cold**):
 
-| Action | Warm (player active) | Cold (nothing playing) |
-|--------|----------------------|-------------------------|
-| **Play next** | Insert at **front** of Up Next (FIFO among play-next items); does not interrupt current playback | Cue track as **current (paused)**; open player; **no auto-play** |
-| **Add to up next** | Append to **end** of Up Next | Queue in Up Next; open player; **no auto-play** |
-| **Add to queue** | Append to **true end** (after entire spine) | Queue at true end; open player; **no auto-play** |
+| Action             | Warm (player active)                                                                             | Cold (nothing playing)                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| **Play next**      | Insert at **front** of Up Next (FIFO among play-next items); does not interrupt current playback | Cue track as **current (paused)**; open player; **no auto-play** |
+| **Add to up next** | Append to **end** of Up Next                                                                     | Queue in Up Next; open player; **no auto-play**                  |
+| **Add to queue**   | Append to **true end** (after entire spine)                                                      | Queue at true end; open player; **no auto-play**                 |
 
 - All three actions appear on library and user-playlist track row menus (playable tracks only)
 - Bulk playlist UI exposes all three; default / primary for "add whole playlist" is **Add to up next**
@@ -148,23 +160,27 @@ Three per-track and bulk actions. Behavior depends on whether the player is alre
 #### 6. **Queue Management**
 
 **View Queue**:
+
 - Click the queue button (list icon) in the audio player
 - Opens a bottom sheet with three sections (see [Queue Sheet UI](#queue-sheet-ui))
 - Title summarizes counts, e.g. `Queue (2 up next · 14,832 from library)`
 - Highlights the current track in the **Now playing** section
 
 **Remove Tracks**:
+
 - Each track in Up Next and the spine has a remove button
 - Supports duplicate tracks (same track can appear multiple times)
 - If the current track is removed, automatically plays the next available track
 
 **Track Identification**:
+
 - Tracks are identified by both ID and position within their zone
 - Ensures accurate removal and navigation with duplicates
 
 #### 7. **Queue Navigation**
 
 **Next Track**:
+
 - Drains Up Next first, then advances the spine
 - Respects loop and shuffle modes
 - If at end of spine:
@@ -173,6 +189,7 @@ Three per-track and bulk actions. Behavior depends on whether the player is alre
   - Loop One: Replays current track
 
 **Previous Track**:
+
 - Goes back one step in spine play order
 - Respects loop modes
 - If at beginning of spine:
@@ -181,12 +198,14 @@ Three per-track and bulk actions. Behavior depends on whether the player is alre
   - Loop One: Replays current track
 
 **Shuffle Mode**:
+
 - Builds a Fisher-Yates permutation of spine indices when enabled
 - Next/previous walk the shuffled index list; hydrate full track before play
 - Toggling shuffle **on** mid-playback reshuffles from the current position onward; Up Next is untouched
 - Toggling shuffle **off** restores linear spine order while keeping the current track
 
 **Loop Modes**:
+
 - **Loop Off**: Normal sequential playback, stops at end
 - **Loop All**: Continuous playback, wraps spine when reaching end
 - **Loop One**: Repeats current track indefinitely
@@ -273,11 +292,13 @@ Three per-track and bulk actions. Behavior depends on whether the player is alre
 ### Audio Player UI
 
 **Layout** (Left to Right):
+
 1. **Left Section**: Track thumbnail + title/artist
 2. **Center Section**: Playback controls + progress bar
 3. **Right Section**: Queue button + loop + shuffle + download + close
 
 **Visual States**:
+
 - **Loop Button**:
   - Off: Muted gray, hover effect
   - All: Primary color with background highlight
@@ -294,6 +315,7 @@ Three per-track and bulk actions. Behavior depends on whether the player is alre
 On mobile, the expanded now-playing view is a full-screen bottom sheet (`PlayerNowPlayingSheet`, in `app/routes/audio-player.tsx`). It shares the same top/center layout as the desktop bar but replaces the single action row with a two-tier action system:
 
 **Bottom Action Row** (5 buttons):
+
 - **Loop** (3-state cycle: Off → All → One)
 - **Shuffle** (toggle)
 - **Add to Playlist** — opens `AddToPlaylistMenu`. The menu self-fetches the user's playlists from `GET /resources/playlists` when opened (no playlist data passed through the player component tree). Supports inline creation of a new playlist via `POST /resources/create-playlist-with-track` and adding to an existing playlist via `POST /resources/add-track-to-playlist`.
@@ -301,6 +323,7 @@ On mobile, the expanded now-playing view is a full-screen bottom sheet (`PlayerN
 - **…** (overflow) — opens a secondary bottom sheet
 
 **Overflow Sheet** (opened by the "…" button):
+
 - **Download** — triggers browser download of the current track via `/resources/audio/:trackId?stream=1`
 - **Play Next** — inserts at the front of Up Next (does not interrupt current playback)
 - **Add to Up Next** — appends to the end of Up Next
@@ -318,10 +341,12 @@ The queue opens as a bottom sheet (80% viewport height) with **three sections**:
 3. **From Library** or **From Playlist** — upcoming spine tracks (virtual list); heading depends on play context
 
 **Header title** summarizes zone counts, e.g.:
+
 - `Queue (2 up next · 14,832 from library)`
 - `Queue (500 from playlist)` when Up Next is empty
 
 **Track Items** (all sections):
+
 - Thumbnail (or placeholder icon; fills in after hydration)
 - Title and artist (available immediately from spine)
 - Remove button (trash icon)
@@ -333,6 +358,7 @@ The queue opens as a bottom sheet (80% viewport height) with **three sections**:
 **Empty state**: "Queue is Empty" when no current track, Up Next, or spine.
 
 **Performance**:
+
 - Spine section virtualizes regardless of size
 - Up Next virtualizes at 20+ items
 - Smooth scrolling through thousands of spine tracks
@@ -342,16 +368,19 @@ The queue opens as a bottom sheet (80% viewport height) with **three sections**:
 ## Technical Performance Features
 
 ### 1. **Spine + hydration (replaces paginated full fetch)**
+
 - **Spine**: one `GET /api/queue-spine` response with minimal `QueueTrack[]` — no pagination
 - **Hydration**: batch `GET /api/tracks/playback` for current + four-track lookahead
 - Playlist/library fetch uses an epoch guard so stale responses are ignored after context switches
 - See [ADR-015](./decisions/015-queue-spine-architecture.md) and `docs/specs/queue-spine-system.md`
 
 ### 2. **Presigned URL playback**
+
 - Audio `src` is set only after the server returns the stream URL for the current track
 - Prevents auto-play from firing on a previous track's URL during fast navigation (React `useEffect` cleanup / ignore-flag pattern)
 
 ### 3. **Virtual Scrolling**
+
 - Spine section always virtualized; Up Next virtualizes at 20+ items
 - Renders only visible items
 - Handles unlimited spine counts
@@ -395,28 +424,33 @@ See [ADR-013](./decisions/013-pwa.md) and `docs/CONTEXT.md` (decisions #42–#57
 ## Edge Cases & Special Behaviors
 
 ### Duplicate Tracks
+
 - Same track can appear multiple times in queue
 - Each instance is tracked by position
 - Removal affects only the specific instance
 - Navigation works correctly with duplicates
 
 ### Empty Queue
+
 - Shows empty state message
 - Disables navigation buttons
 - Prevents playback errors
 
 ### Track Without Audio Files
+
 - Player doesn't appear if no audio available
 - Graceful handling of missing files
 - User sees appropriate feedback
 
 ### Browser Autoplay Restrictions
+
 - Respects browser autoplay policies (`play()` returns a Promise; may reject with `NotAllowedError`)
 - Requires user interaction for initial play in many browsers
 - Handles autoplay prevention gracefully (play button remains available)
 - Play button works immediately after user interaction
 
 ### Large Library Performance
+
 - Designed for 5,000–15,000+ track libraries
 - Playback starts after one spine request + a small hydration batch (not N paginated full-track pages)
 - Queue sheet scrolls smoothly via virtual lists
@@ -450,4 +484,3 @@ See [ADR-013](./decisions/013-pwa.md) and `docs/CONTEXT.md` (decisions #42–#57
 ## Summary
 
 The audio player and queue system provide a modern, efficient music playback experience built on a **three-zone model** (Now playing → Up Next → Spine). A lightweight spine fetch plus lazy hydration keeps playback fast even for libraries with tens of thousands of tracks, while Up Next gives users explicit control over what plays next. The queue sheet surfaces all three zones clearly, and Fisher-Yates shuffle with reshuffle-on-toggle preserves predictable navigation. See `docs/CONTEXT.md` (glossary) and [ADR-015](./decisions/015-queue-spine-architecture.md) for architecture details.
-

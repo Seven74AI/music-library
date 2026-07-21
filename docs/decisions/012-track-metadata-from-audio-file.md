@@ -37,16 +37,19 @@ Playlist sync does **not** hydrate metadata via `videos.list`. Synced tracks kee
 ## Alternatives Considered
 
 ### videos.list hydration during sync
+
 **Pros**: Duration available immediately after sync, no dependency on the archive worker
 **Cons**: One extra API call per 50 tracks per sync, quota cost, duplicated metadata source, more sync code
 **Decision**: Rejected — implemented, then removed in favor of worker extraction
 
 ### videos.list call during queue download
+
 **Pros**: Richer YouTube-side metadata (view counts, etc.) at download time
 **Cons**: API quota cost per track; the audio file already carries the fields the app uses
 **Decision**: Rejected — the file itself is sufficient
 
 ### Failing the job when metadata update fails
+
 **Pros**: Guarantees metadata is eventually written
 **Cons**: Retry re-downloads audio and creates duplicate `TrackAudioFile` records
 **Decision**: Rejected — best-effort with logging
@@ -54,11 +57,13 @@ Playlist sync does **not** hydrate metadata via `videos.list`. Synced tracks kee
 ## Consequences
 
 ### Positive
+
 - ✅ Durations and rich metadata (BPM, ISRC, lyrics…) appear automatically once a track is archived
 - ✅ No additional YouTube API quota consumed by sync
 - ✅ `TrackAudioFile` records carry real bitrate/sample-rate/file-size instead of hardcoded values
 
 ### Negative
+
 - ⚠️ Synced-but-not-yet-archived tracks show `--:--` durations (accepted; see CONTEXT.md decision 23)
 - ⚠️ Tracks whose archive job fails permanently never get metadata backfilled
 

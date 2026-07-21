@@ -16,11 +16,11 @@ Split the queue into three zones and load data in two tiers:
 [ Now playing ] → [ Up Next (manual) ] → [ From Library / playlist (spine) ]
 ```
 
-| Tier | Data | When loaded |
-|------|------|-------------|
-| **Spine** | `QueueTrack[]` — id, title, artist | One request on play |
+| Tier                | Data                                               | When loaded                               |
+| ------------------- | -------------------------------------------------- | ----------------------------------------- |
+| **Spine**           | `QueueTrack[]` — id, title, artist                 | One request on play                       |
 | **Hydration cache** | `Map<id, FullTrack>` — audioFiles, cover, duration | On demand: current + lookahead (4 tracks) |
-| **Up Next** | `QueueTrack[]` — user-injected manual zone | In memory only |
+| **Up Next**         | `QueueTrack[]` — user-injected manual zone         | In memory only                            |
 
 ## Playback order
 
@@ -38,12 +38,12 @@ The navigation state machine lives in `app/features/queue/queue-navigation.ts`. 
 
 ```ts
 type QueueNavigationState = {
-  upNext: QueueTrack[]       // manual injection zone
-  spine: QueueTrack[]        // full play context (library/playlist)
-  spineOrder: number[]       // permutation of spine indices (linear or shuffled)
-  spinePosition: number      // current position within spineOrder
-  loopMode: LoopMode         // 'off' | 'all' | 'one'
-}
+  upNext: QueueTrack[]; // manual injection zone
+  spine: QueueTrack[]; // full play context (library/playlist)
+  spineOrder: number[]; // permutation of spine indices (linear or shuffled)
+  spinePosition: number; // current position within spineOrder
+  loopMode: LoopMode; // 'off' | 'all' | 'one'
+};
 ```
 
 ### `resolveNextTrack(state) → QueueTarget | null`
@@ -114,11 +114,11 @@ Used when the user taps a specific track in the queue sheet — the provider use
 
 ### Labels
 
-| Action | Player active | Nothing playing |
-|--------|---------------|-----------------|
-| **Play next** | Insert at **front** of Up Next (FIFO among Play-next items) | Cue track as **current (paused)**; open player; no auto-play |
-| **Add to up next** | Append to **end** of Up Next | Queue in Up Next; open player; no auto-play |
-| **Add to queue** | Append to **true end** (after entire spine) | Queue at true end; open player; no auto-play |
+| Action             | Player active                                               | Nothing playing                                              |
+| ------------------ | ----------------------------------------------------------- | ------------------------------------------------------------ |
+| **Play next**      | Insert at **front** of Up Next (FIFO among Play-next items) | Cue track as **current (paused)**; open player; no auto-play |
+| **Add to up next** | Append to **end** of Up Next                                | Queue in Up Next; open player; no auto-play                  |
+| **Add to queue**   | Append to **true end** (after entire spine)                 | Queue at true end; open player; no auto-play                 |
 
 ### Bulk playlist UI
 
@@ -165,13 +165,13 @@ Response:
 
 ## Client modules
 
-| Module | Responsibility |
-|--------|----------------|
-| `app/features/queue/queue-spine.ts` | Spine fetch, types |
-| `app/features/queue/queue-hydration.ts` | Batch fetch + cache |
-| `app/features/queue/queue-shuffle.ts` | Fisher-Yates, reshuffle-from-current |
-| `app/features/queue/queue-navigation.ts` | Next/prev resolution across Up Next + spine |
-| `audio-player-provider.tsx` | Orchestration; replaces `fetchAllTracks` / flat `FullTrack[]` playlist |
+| Module                                   | Responsibility                                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| `app/features/queue/queue-spine.ts`      | Spine fetch, types                                                     |
+| `app/features/queue/queue-hydration.ts`  | Batch fetch + cache                                                    |
+| `app/features/queue/queue-shuffle.ts`    | Fisher-Yates, reshuffle-from-current                                   |
+| `app/features/queue/queue-navigation.ts` | Next/prev resolution across Up Next + spine                            |
+| `audio-player-provider.tsx`              | Orchestration; replaces `fetchAllTracks` / flat `FullTrack[]` playlist |
 
 ## Queue sheet UI
 
@@ -199,11 +199,11 @@ This section documents the known edge cases in the queue navigation and mutation
 
 `resolveNextTrack` returns `null` when no track can be resolved in the forward direction. The callers must handle `null` gracefully (e.g., by disabling the "Next" button or letting playback stop).
 
-| Condition | Up Next | Spine state | Loop mode | Result |
-|---|---|---|---|---|
-| Empty queue | Empty | `spineOrder.length === 0` | Any | `null` |
-| End of spine with loop off | Empty | `spinePosition` is last in `spineOrder` | `off` | `null` |
-| End of spine with loop-all but empty spine | Empty | `spineOrder.length === 0` | `all` | `null` |
+| Condition                                  | Up Next | Spine state                             | Loop mode | Result |
+| ------------------------------------------ | ------- | --------------------------------------- | --------- | ------ |
+| Empty queue                                | Empty   | `spineOrder.length === 0`               | Any       | `null` |
+| End of spine with loop off                 | Empty   | `spinePosition` is last in `spineOrder` | `off`     | `null` |
+| End of spine with loop-all but empty spine | Empty   | `spineOrder.length === 0`               | `all`     | `null` |
 
 **Note:** `loopMode === 'one'` always returns the current spine position and never produces `null` from `resolveNextTrack`. Loop-one takes priority over both Up Next draining (checked first) and all other spine logic.
 
@@ -213,11 +213,11 @@ This section documents the known edge cases in the queue navigation and mutation
 
 `resolvePreviousTrack` returns `null` when no track can be resolved in the backward direction.
 
-| Condition | Spine state | Loop mode | Result |
-|---|---|---|---|
-| Empty queue | `spineOrder.length === 0` | Any | `null` |
-| Start of spine with loop off | `spinePosition === 0` | `off` | `null` |
-| Start of spine with loop-all but empty spine | `spinePosition === 0`, `spineOrder.length === 0` | `all` | `null` |
+| Condition                                    | Spine state                                      | Loop mode | Result |
+| -------------------------------------------- | ------------------------------------------------ | --------- | ------ |
+| Empty queue                                  | `spineOrder.length === 0`                        | Any       | `null` |
+| Start of spine with loop off                 | `spinePosition === 0`                            | `off`     | `null` |
+| Start of spine with loop-all but empty spine | `spinePosition === 0`, `spineOrder.length === 0` | `all`     | `null` |
 
 **Note:** Unlike `resolveNextTrack`, `resolvePreviousTrack` does NOT consider the Up Next zone. Previous navigation only walks backward through the spine play order. If the user wants to go back to a track that just played from Up Next, they cannot — Up Next items are drained (removed) on play via `advanceAfterPlay`.
 
@@ -229,11 +229,11 @@ The spine can contain the same track ID at multiple positions. `addTrackToPlayli
 
 Key behaviors when duplicates exist:
 
-| Operation | Behavior |
-|---|---|
+| Operation                                    | Behavior                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `removeTrackFromPlaylist(spine, orderIndex)` | Removes the track at the given `spineOrder` index only. If the same track ID appears at multiple spine indices, only the targeted occurrence is removed. The other occurrences remain and their `spineOrder` indices are adjusted (decremented if they were positioned after the removal). |
-| `findSpinePositionForTrackId(trackId)` | Returns the **first** position in `spineOrder` whose spine index maps to the given track ID. Uses `Array.findIndex`. If the same track ID appears multiple times, only the earliest occurrence is found. |
-| `removeCurrentFromQueue()` | Uses `findSpinePositionForTrackId` to locate the current track. If duplicates exist, it removes only the first occurrence. |
+| `findSpinePositionForTrackId(trackId)`       | Returns the **first** position in `spineOrder` whose spine index maps to the given track ID. Uses `Array.findIndex`. If the same track ID appears multiple times, only the earliest occurrence is found.                                                                                   |
+| `removeCurrentFromQueue()`                   | Uses `findSpinePositionForTrackId` to locate the current track. If duplicates exist, it removes only the first occurrence.                                                                                                                                                                 |
 
 **Implication:** When a track appears multiple times in the spine and the user removes "the current track," only the first occurrence is removed. The duplicate further ahead in the queue remains. Callers iterating removal until no occurrences remain must loop — a single `removeCurrentFromQueue` call is not sufficient.
 
@@ -253,11 +253,11 @@ Only modifies `upNext`. Neither `spine`, `spineOrder`, nor `spinePosition` are t
 
 Three cases based on the removed track's position relative to `spinePosition`:
 
-| Relationship | Effect on `spinePosition` | Pointer validity |
-|---|---|---|
-| `orderIndex < spinePosition` | Decremented by 1 to compensate for the shift | Still correct — points to the same logical track after the gap closes |
-| `orderIndex === spinePosition` | Current track is being removed. Advances to the next track via `advanceAfterPlay` and plays it (or clears `currentTrack` if no next track exists) | N/A — the current track is gone; playback moves forward |
-| `orderIndex > spinePosition` | Unchanged | Still correct — the removed track was ahead in the queue, current position is unaffected |
+| Relationship                   | Effect on `spinePosition`                                                                                                                         | Pointer validity                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `orderIndex < spinePosition`   | Decremented by 1 to compensate for the shift                                                                                                      | Still correct — points to the same logical track after the gap closes                    |
+| `orderIndex === spinePosition` | Current track is being removed. Advances to the next track via `advanceAfterPlay` and plays it (or clears `currentTrack` if no next track exists) | N/A — the current track is gone; playback moves forward                                  |
+| `orderIndex > spinePosition`   | Unchanged                                                                                                                                         | Still correct — the removed track was ahead in the queue, current position is unaffected |
 
 After a spine removal, `spineOrder` is filtered and remaining indices are re-mapped: any spine index greater than the removed index is decremented by 1. This keeps the `spineOrder → spine` mapping valid.
 
@@ -280,6 +280,7 @@ These operations set entirely new `spine`, `spineOrder`, and `spinePosition` val
 #### Edge case: `spineOrder` and `spine` length mismatch
 
 `spineOrder` is always a permutation of indices into `spine`. After the initial spine load and after every mutation, the two arrays are kept consistent:
+
 - `spineOrder[i]` is always a valid index into `spine` (0 ≤ value < spine.length)
 - `spineOrder.length === spine.length` always holds
 

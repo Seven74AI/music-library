@@ -26,49 +26,32 @@ const ENTITY_CONFIG: Record<
   track: {
     link: (id) => `/library/${id}`,
     icon: "play",
-    subtitle: (r) =>
-      r.type === "track" ? `Track — ${r.artistName}` : "Track",
+    subtitle: (r) => (r.type === "track" ? `Track — ${r.artistName}` : "Track"),
   },
   album: {
     link: (id) => `/albums/${id}`,
     icon: "camera",
     subtitle: (r) =>
-      r.type === "album"
-        ? `Album — ${r.artistName}${r.year ? ` · ${r.year}` : ""}`
-        : "Album",
+      r.type === "album" ? `Album — ${r.artistName}${r.year ? ` · ${r.year}` : ""}` : "Album",
   },
   artist: {
     link: (id) => `/artists/${id}`,
     icon: "avatar",
-    subtitle: (r) =>
-      r.type === "artist" && r.genre
-        ? `Artist · ${r.genre}`
-        : "Artist",
+    subtitle: (r) => (r.type === "artist" && r.genre ? `Artist · ${r.genre}` : "Artist"),
   },
   playlist: {
     link: (id) => `/playlists/${id}`,
     icon: "list-bullet",
-    subtitle: (r) =>
-      r.type === "playlist"
-        ? `Playlist — ${r.trackCount} tracks`
-        : "Playlist",
+    subtitle: (r) => (r.type === "playlist" ? `Playlist — ${r.trackCount} tracks` : "Playlist"),
   },
 };
 
 function ResultImage({ result }: { result: SearchResult }) {
   const config = ENTITY_CONFIG[result.type];
-  const imageUrl =
-    result.type === "playlist" ? result.thumbnailUrl : null;
+  const imageUrl = result.type === "playlist" ? result.thumbnailUrl : null;
 
   if (imageUrl) {
-    return (
-      <img
-        src={imageUrl}
-        alt=""
-        className="h-12 w-12 rounded object-cover"
-        loading="lazy"
-      />
-    );
+    return <img src={imageUrl} alt="" className="h-12 w-12 rounded object-cover" loading="lazy" />;
   }
 
   return (
@@ -88,10 +71,7 @@ export function SearchResults({
   if (results.length === 0 && !isLoading && query.trim()) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
-        <Icon
-          name="magnifying-glass"
-          className="mb-4 h-12 w-12 text-muted-foreground"
-        />
+        <Icon name="magnifying-glass" className="mb-4 h-12 w-12 text-muted-foreground" />
         <h3 className="mb-2 text-lg font-semibold">No results found</h3>
         <p className="text-muted-foreground">
           No tracks, albums, artists, or playlists match "{query}"
@@ -119,9 +99,7 @@ export function SearchResults({
               <p className="truncate text-sm font-medium">
                 {result.type === "track" ? result.title : result.name}
               </p>
-              <p className="truncate text-xs text-muted-foreground">
-                {config.subtitle(result)}
-              </p>
+              <p className="truncate text-xs text-muted-foreground">{config.subtitle(result)}</p>
             </div>
           </Link>
         );

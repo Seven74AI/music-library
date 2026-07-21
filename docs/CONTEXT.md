@@ -38,15 +38,15 @@ New contributors: read this before writing code.
 
 yt-dlp errors are classified into one of six categories for retry decision-making:
 
-| Category | Description | Retriable? |
-|----------|-------------|-----------|
-| `AUTH` | HTTP 403, login required | No |
-| `RATE_LIMITED` | HTTP 429, too many requests | Yes |
-| `GEO_BLOCKED` | Video blocked in current country | No |
-| `VIDEO_UNAVAILABLE` | Video removed, private, or unavailable | No |
-| `NETWORK` | DNS failures, timeouts, connection refused | Yes |
-| `COOKIE_EXPIRED` | Sign-in required, cookie rejected | No |
-| `UNKNOWN` | Unclassified failure | Yes |
+| Category            | Description                                | Retriable? |
+| ------------------- | ------------------------------------------ | ---------- |
+| `AUTH`              | HTTP 403, login required                   | No         |
+| `RATE_LIMITED`      | HTTP 429, too many requests                | Yes        |
+| `GEO_BLOCKED`       | Video blocked in current country           | No         |
+| `VIDEO_UNAVAILABLE` | Video removed, private, or unavailable     | No         |
+| `NETWORK`           | DNS failures, timeouts, connection refused | Yes        |
+| `COOKIE_EXPIRED`    | Sign-in required, cookie rejected          | No         |
+| `UNKNOWN`           | Unclassified failure                       | Yes        |
 
 ### YouTube Integration
 

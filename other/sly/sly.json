@@ -3,9 +3,7 @@
   "config": {
     "icons": {
       "directory": "./other/svg-icons",
-      "transformers": [
-        "transform-icon.ts"
-      ]
+      "transformers": ["transform-icon.ts"]
     },
     "components": {},
     "utils": {}

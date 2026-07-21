@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join } from "node:path";
 
 /**
  * Centralized DATABASE_URL helper
@@ -8,13 +8,12 @@ import { join } from 'node:path'
  * part of the filename, and resolves relative file: paths to absolute paths.
  */
 export function getDatabaseUrl(): string {
-	const raw = process.env.DATABASE_URL || 'file:./data.db'
-	const withoutQuery = raw.split('?')[0] ?? raw
+  const raw = process.env.DATABASE_URL || "file:./data.db";
+  const withoutQuery = raw.split("?")[0] ?? raw;
 
-	if (withoutQuery.startsWith('file:./')) {
-		return `file:${join(process.cwd(), withoutQuery.slice('file:'.length + 1))}`
-	}
+  if (withoutQuery.startsWith("file:./")) {
+    return `file:${join(process.cwd(), withoutQuery.slice("file:".length + 1))}`;
+  }
 
-	return withoutQuery
+  return withoutQuery;
 }
-

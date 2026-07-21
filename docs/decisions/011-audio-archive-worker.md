@@ -34,6 +34,7 @@ yt-dlp is actively maintained, handles YouTube's anti-bot measures (sign-in wall
 YouTube cookies (Netscape format) are uploaded by the admin via `/admin/youtube-cookies` and stored on the server filesystem at `COOKIE_FILE_PATH`. yt-dlp receives them via the `--cookies` flag.
 
 **Cookie lifecycle**:
+
 - Upload → stored as `YoutubeCookie` DB record with `valid: true`
 - On AUTH/COOKIE_EXPIRED error → all cookies invalidated (`valid: false`), admin notified via Telegram
 - Admin re-uploads fresh cookies → new `YoutubeCookie` record created
@@ -73,6 +74,7 @@ State transitions are controlled via the admin dashboard at `/admin/audio-queue`
 **Chosen over**: Email (deliverability issues), Discord webhook (adds a dependency), in-app notifications (admin may not be logged in), and no notifications (silent failures are bad operations).
 
 Notifications are sent via Telegram Bot API when:
+
 - **Cookie expires**: `notifyCookieExpired()` — includes job ID, track URL, and error message. Message includes a reminder to upload fresh cookies.
 - **Job fails permanently**: `notifyJobFailed()` — includes job ID, track URL, error category, and error message.
 
@@ -89,6 +91,7 @@ Configuration: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_CHAT_ID` environment var
 **Object key format**: `audio/{trackId}/{filename}` — predictable, no-hash, human-readable.
 
 **Upload strategy**:
+
 - Files ≤ 5MB: `PutObjectCommand` (single-part — Tigris multipart minimum is 5MB)
 - Files > 5MB: AWS SDK `Upload` class with multipart (50MB parts, 4 concurrent)
 
@@ -100,15 +103,15 @@ Tigris is configured via standard S3 environment variables (`AWS_ENDPOINT_URL_S3
 
 yt-dlp stderr output is pattern-matched against six categories:
 
-| Category | Trigger Patterns | Retriable? | Max Retries | Side Effect |
-|----------|-----------------|-----------|-------------|-------------|
-| `AUTH` | HTTP 403, "forbidden", "login required" | No | 0 | Invalidate all cookies, notify admin |
-| `RATE_LIMITED` | HTTP 429, "too many requests", "rate limit" | Yes | 3 | None |
-| `GEO_BLOCKED` | "not available in your country", "geo-restricted" | No | 0 | None |
-| `VIDEO_UNAVAILABLE` | "video unavailable", "removed", "private" | No | 0 | None |
-| `NETWORK` | "unable to connect", DNS failures, timeouts | Yes | 3 | None |
-| `COOKIE_EXPIRED` | "sign in to confirm", "sign-in required", "cookie" | No | 0 | Invalidate all cookies, notify admin |
-| `UNKNOWN` | No pattern match | Yes | 3 | None |
+| Category            | Trigger Patterns                                   | Retriable? | Max Retries | Side Effect                          |
+| ------------------- | -------------------------------------------------- | ---------- | ----------- | ------------------------------------ |
+| `AUTH`              | HTTP 403, "forbidden", "login required"            | No         | 0           | Invalidate all cookies, notify admin |
+| `RATE_LIMITED`      | HTTP 429, "too many requests", "rate limit"        | Yes        | 3           | None                                 |
+| `GEO_BLOCKED`       | "not available in your country", "geo-restricted"  | No         | 0           | None                                 |
+| `VIDEO_UNAVAILABLE` | "video unavailable", "removed", "private"          | No         | 0           | None                                 |
+| `NETWORK`           | "unable to connect", DNS failures, timeouts        | Yes        | 3           | None                                 |
+| `COOKIE_EXPIRED`    | "sign in to confirm", "sign-in required", "cookie" | No         | 0           | Invalidate all cookies, notify admin |
+| `UNKNOWN`           | No pattern match                                   | Yes        | 3           | None                                 |
 
 Non-retriable errors fail the job permanently on first occurrence. Retriable errors are re-queued (status reset to `pending`) up to `MAX_RETRIES` (3). After 3 retries, the job is marked `failed` regardless of category.
 
@@ -126,13 +129,13 @@ Error history is stored as a JSON array on the `ArchiveJob` record for debugging
 
 ### 8. Retry Strategy Summary
 
-| Scenario | Behavior |
-|----------|----------|
-| RATE_LIMITED / NETWORK / UNKNOWN | Re-queue (status → `pending`), increment `retryCount` |
-| After 3 retries (any retriable category) | Mark `failed`, record error in `errorHistory` |
-| AUTH / COOKIE_EXPIRED | Mark `failed` immediately, invalidate all cookies, notify admin |
-| GEO_BLOCKED / VIDEO_UNAVAILABLE | Mark `failed` immediately |
-| Cookie-related permanent failure | Fire-and-forget Telegram notification |
+| Scenario                                 | Behavior                                                        |
+| ---------------------------------------- | --------------------------------------------------------------- |
+| RATE_LIMITED / NETWORK / UNKNOWN         | Re-queue (status → `pending`), increment `retryCount`           |
+| After 3 retries (any retriable category) | Mark `failed`, record error in `errorHistory`                   |
+| AUTH / COOKIE_EXPIRED                    | Mark `failed` immediately, invalidate all cookies, notify admin |
+| GEO_BLOCKED / VIDEO_UNAVAILABLE          | Mark `failed` immediately                                       |
+| Cookie-related permanent failure         | Fire-and-forget Telegram notification                           |
 
 ## Implementation Details
 
@@ -140,15 +143,15 @@ Error history is stored as a JSON array on the `ArchiveJob` record for debugging
 
 All audio archiving code lives in `app/features/audio-archive/`:
 
-| File | Responsibility |
-|------|---------------|
-| `worker.server.ts` | Queue processing loop (`processQueueTick`) + job processing (`processJob`) |
-| `worker-control.server.ts` | Worker state machine (pause/resume/break) |
-| `yt-dlp.server.ts` | yt-dlp child process spawn + error categorization |
-| `tigris-upload.server.ts` | S3/Tigris upload + presigned URLs |
-| `auto-enqueue.server.ts` | Automatic ArchiveJob creation on import |
-| `notification.server.ts` | Telegram Bot API notifications |
-| `youtube-cookie.server.ts` | Cookie upload + validation |
+| File                       | Responsibility                                                             |
+| -------------------------- | -------------------------------------------------------------------------- |
+| `worker.server.ts`         | Queue processing loop (`processQueueTick`) + job processing (`processJob`) |
+| `worker-control.server.ts` | Worker state machine (pause/resume/break)                                  |
+| `yt-dlp.server.ts`         | yt-dlp child process spawn + error categorization                          |
+| `tigris-upload.server.ts`  | S3/Tigris upload + presigned URLs                                          |
+| `auto-enqueue.server.ts`   | Automatic ArchiveJob creation on import                                    |
+| `notification.server.ts`   | Telegram Bot API notifications                                             |
+| `youtube-cookie.server.ts` | Cookie upload + validation                                                 |
 
 Each file has a corresponding `.test.ts` file with full unit test coverage.
 
@@ -157,6 +160,7 @@ Each file has a corresponding `.test.ts` file with full unit test coverage.
 From `prisma/schema.prisma`:
 
 **`ArchiveJob`** (lines 376-391):
+
 ```prisma
 model ArchiveJob {
   id             String    @id @default(cuid())
@@ -171,6 +175,7 @@ model ArchiveJob {
 ```
 
 **`WorkerState`** (lines 393-402):
+
 ```prisma
 model WorkerState {
   id                 String    @id @default("singleton")
@@ -183,6 +188,7 @@ model WorkerState {
 ```
 
 **`YoutubeCookie`** (lines 404-410):
+
 ```prisma
 model YoutubeCookie {
   id        String   @id @default(cuid())
@@ -198,18 +204,19 @@ model YoutubeCookie {
 
 From `.env.example` (lines 41-51):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AUDIO_ARCHIVE_ENABLED` | `"false"` | Master switch for the archive worker |
-| `AUDIO_ARCHIVE_MAX_CONCURRENT` | `"2"` | Max simultaneous yt-dlp processes |
-| `AUDIO_ARCHIVE_INTERVAL_MS` | `"120000"` | Queue polling interval (2 minutes) |
-| `TELEGRAM_BOT_TOKEN` | `""` | Telegram bot token for notifications |
-| `TELEGRAM_ADMIN_CHAT_ID` | `""` | Telegram chat ID for admin alerts |
-| `COOKIE_FILE_PATH` | `"/data/youtube-cookies.txt"` | Path to YouTube cookies file |
+| Variable                       | Default                       | Description                          |
+| ------------------------------ | ----------------------------- | ------------------------------------ |
+| `AUDIO_ARCHIVE_ENABLED`        | `"false"`                     | Master switch for the archive worker |
+| `AUDIO_ARCHIVE_MAX_CONCURRENT` | `"2"`                         | Max simultaneous yt-dlp processes    |
+| `AUDIO_ARCHIVE_INTERVAL_MS`    | `"120000"`                    | Queue polling interval (2 minutes)   |
+| `TELEGRAM_BOT_TOKEN`           | `""`                          | Telegram bot token for notifications |
+| `TELEGRAM_ADMIN_CHAT_ID`       | `""`                          | Telegram chat ID for admin alerts    |
+| `COOKIE_FILE_PATH`             | `"/data/youtube-cookies.txt"` | Path to YouTube cookies file         |
 
 ### Dockerfile Changes
 
 The Dockerfile was updated to include:
+
 - **ffmpeg** (line 11): Required by yt-dlp for audio format conversion
 - **yt-dlp** (lines 14-16): Self-contained binary from GitHub releases at `/usr/local/bin/yt-dlp`
 
@@ -218,26 +225,31 @@ These were previously removed in ADR-004 and have been re-added.
 ## Alternatives Considered
 
 ### 1. Serverless Worker (separate process / queue)
+
 **Pros**: Better isolation, scalable independently
 **Cons**: Adds operational complexity (Redis/BullMQ), overkill for single-server deployment
 **Decision**: In-process interval timer is sufficient for current scale
 
 ### 2. OAuth-Based Authentication (yt-dlp's built-in)
+
 **Pros**: No cookie management needed
 **Cons**: Intermittent breakage, yt-dlp's OAuth module is less reliable than cookie auth
 **Decision**: Cookie-based auth is more stable
 
 ### 3. Direct HTTP Stream Capture (no yt-dlp)
+
 **Pros**: No external dependency, faster
 **Cons**: YouTube's adaptive streaming is fragile; signature deciphering changes frequently
 **Decision**: yt-dlp abstracts these complexities
 
 ### 4. In-Memory Queue (no database)
+
 **Pros**: Simpler, faster
 **Cons**: Lost on restart, no visibility, no retry history
 **Decision**: Database-backed queue provides durability and observability
 
 ### 5. WebSocket Progress Broadcasting
+
 **Pros**: Real-time progress in UI (as in the removed implementation)
 **Cons**: Architectural complexity, additional server resources
 **Decision**: Not implemented in initial reintroduction — admin dashboard shows queue stats via polling; download progress can be added later
@@ -245,6 +257,7 @@ These were previously removed in ADR-004 and have been re-added.
 ## Consequences
 
 ### Positive
+
 - ✅ **Offline playback restored**: Tracks can be downloaded and played without internet
 - ✅ **Simpler architecture**: 14 files in a single feature directory vs. the previous scattered implementation
 - ✅ **Resilient error handling**: Category-aware retry prevents wasted attempts on permanent failures
@@ -254,12 +267,14 @@ These were previously removed in ADR-004 and have been re-added.
 - ✅ **MOCKS support**: Full mock mode for CI and development (no real downloads)
 
 ### Negative
+
 - ⚠️ **yt-dlp dependency**: External binary that requires periodic updates
 - ⚠️ **Cookie maintenance**: Admin must upload fresh cookies periodically (YouTube sessions expire)
 - ⚠️ **Storage costs**: Audio files consume Tigris storage (mitigated by MP3 compression)
 - ⚠️ **YouTube ToS**: Downloading content may violate YouTube's Terms of Service (same risk as ADR-004)
 
 ### Neutral
+
 - 🔄 **Supersedes ADR-004**: Audio download functionality has been fully reintroduced with a different architecture
 - 🔄 **Re-added models**: `TrackAudioFile` and `ArchiveJob` models re-added to Prisma schema
 
@@ -267,19 +282,20 @@ These were previously removed in ADR-004 and have been re-added.
 
 ADR-004 removed the following; ADR-011 reintroduces equivalents:
 
-| ADR-004 Removed | ADR-011 Replacement |
-|----------------|---------------------|
-| `app/utils/youtube-downloader.server.ts` | `app/features/audio-archive/yt-dlp.server.ts` |
-| `app/utils/audio-archive.ts` | `app/features/audio-archive/worker.server.ts` |
-| `server/workers/audio-archive.ts` | In-process interval timer in `server/index.ts` |
+| ADR-004 Removed                          | ADR-011 Replacement                                   |
+| ---------------------------------------- | ----------------------------------------------------- |
+| `app/utils/youtube-downloader.server.ts` | `app/features/audio-archive/yt-dlp.server.ts`         |
+| `app/utils/audio-archive.ts`             | `app/features/audio-archive/worker.server.ts`         |
+| `server/workers/audio-archive.ts`        | In-process interval timer in `server/index.ts`        |
 | `server/workers/audio-worker-control.ts` | `app/features/audio-archive/worker-control.server.ts` |
-| `TrackAudioFile` model (removed) | `TrackAudioFile` model (re-added, lines 342-374) |
-| Download progress UI | Admin queue dashboard at `/admin/audio-queue` |
-| `AUDIO_ARCHIVE_ENABLED` env (removed) | `AUDIO_ARCHIVE_ENABLED` env (re-added) |
+| `TrackAudioFile` model (removed)         | `TrackAudioFile` model (re-added, lines 342-374)      |
+| Download progress UI                     | Admin queue dashboard at `/admin/audio-queue`         |
+| `AUDIO_ARCHIVE_ENABLED` env (removed)    | `AUDIO_ARCHIVE_ENABLED` env (re-added)                |
 
 ## Testing
 
 ### Unit Tests
+
 - `yt-dlp.server.test.ts`: Mock child process spawn, error categorization, progress parsing
 - `worker.server.test.ts`: Queue processing logic, retry behavior, error history
 - `worker-control.server.test.ts`: State transitions, pause/resume/break lifecycle
@@ -293,16 +309,19 @@ All tests run in MOCKS mode — no real yt-dlp, no real network calls, no real f
 ## Production Considerations
 
 ### Scalability
+
 - The in-process worker is sufficient for single-server deployments
 - For multi-server: add a distributed lock (e.g., PostgreSQL advisory lock) to prevent duplicate processing
 - Current `maxConcurrent: 2` keeps CPU/memory usage predictable
 
 ### Monitoring
+
 - Queue stats endpoint (`getQueueStats()`) exposes pending/processing/completed/failed counts
 - Telegram notifications for cookie expiry and permanent failures
 - Worker state transitions logged via `WorkerState.lastStateChange`
 
 ### Cookie Rotation
+
 - YouTube cookies typically expire after ~30 days
 - Admin receives Telegram notification on cookie failure
 - Cookie re-upload at `/admin/youtube-cookies` creates a new valid record
