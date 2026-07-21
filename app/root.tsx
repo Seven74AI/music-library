@@ -20,7 +20,7 @@ import { useServiceWorkerUpdateToast } from "#app/hooks/use-service-worker-updat
 import { type Route } from "./+types/root.ts";
 import appleTouchIconAssetUrl from "./assets/favicons/apple-touch-icon.png";
 import faviconAssetUrl from "./assets/favicons/favicon.svg";
-import { AudioPlayerProvider } from "./components/audio-player-provider";
+import { AudioPlayerProvider, useAudioPlayer } from "./components/audio-player-provider";
 import { BottomNav } from "./components/bottom-nav.tsx";
 import { OfflineAwareErrorBoundary } from "./components/offline/offline-aware-error-boundary.tsx";
 import { OfflineStatusBanner } from "./components/offline/offline-status-banner.tsx";
@@ -253,9 +253,96 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function App() {
+/**
+ * Inner shell that reads audio player state and sets the --bottom-bar-height
+ * CSS custom property so all sheets and content can account for the bottom nav
+ * and player mini-bar on mobile.
+ *
+ * Player idle:  64px  (bottom nav only)
+ * Player active: ~126px (bottom nav + mini-bar)
+ */
+function ShellLayout() {
+  const { isPlayerVisible } = useAudioPlayer();
+  const bottomBarHeight = isPlayerVisible ? "126px" : "64px";
+
   const data = useLoaderData<typeof loader>();
   const user = useOptionalUser();
+
+  return (
+    <div
+      className="flex min-h-screen flex-col justify-between"
+      style={{ "--bottom-bar-height": bottomBarHeight } as React.CSSProperties}
+    >
+      <OfflineStatusBanner />
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50"
+      >
+        Skip to content
+      </a>
+      <header className="container py-6" role="banner">
+        <nav className="flex flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-4 md:gap-8">
+          <Logo />
+          <div className="ml-auto hidden max-w-sm flex-1 sm:block">
+            <Link
+              to="/search"
+              className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm text-muted-foreground hover:border-foreground/50 hover:text-foreground transition-colors"
+            >
+              <Icon name="magnifying-glass" className="h-4 w-4" />
+              <span>Search tracks, albums, artists...</span>
+            </Link>
+          </div>
+          <div className="flex items-center gap-4 sm:gap-6 md:gap-10">
+            <ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
+            {user ? (
+              <Suspense fallback={null}>
+                <LazyNotificationBell
+                  notifications={data.notifications}
+                  unreadCount={data.unreadNotificationCount}
+                />
+              </Suspense>
+            ) : null}
+            {user ? (
+              <Suspense fallback={null}>
+                <LazyUserDropdown />
+              </Suspense>
+            ) : null}
+          </div>
+          <div className="block w-full sm:hidden">
+            <Link
+              to="/search"
+              className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm text-muted-foreground hover:border-foreground/50 hover:text-foreground transition-colors"
+            >
+              <Icon name="magnifying-glass" className="h-4 w-4" />
+              <span>Search</span>
+            </Link>
+          </div>
+        </nav>
+      </header>
+
+      <div
+        className="flex flex-1 flex-col pb-[calc(var(--bottom-bar-height)+env(safe-area-inset-bottom))] md:pb-0"
+        id="main-content"
+      >
+        <div className="container">
+          <Outlet />
+        </div>
+      </div>
+
+      <BottomNav />
+
+      <footer
+        className="container py-8 pb-[calc(var(--bottom-bar-height)+2rem+env(safe-area-inset-bottom))] md:pb-8 text-center text-sm text-muted-foreground"
+        role="contentinfo"
+      >
+        <p>&copy; {new Date().getFullYear()} Music Library</p>
+      </footer>
+    </div>
+  );
+}
+
+function App() {
+  const data = useLoaderData<typeof loader>();
   useServiceWorkerUpdateToast();
   useToast(data.toast);
 
@@ -272,69 +359,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <OpenImgContextProvider optimizerEndpoint="/resources/images" getSrc={getImgSrc}>
         <AudioPlayerProvider>
-          <div className="flex min-h-screen flex-col justify-between">
-            <OfflineStatusBanner />
-            <a
-              href="#main-content"
-              className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50"
-            >
-              Skip to content
-            </a>
-            <header className="container py-6" role="banner">
-              <nav className="flex flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-4 md:gap-8">
-                <Logo />
-                <div className="ml-auto hidden max-w-sm flex-1 sm:block">
-                  <Link
-                    to="/search"
-                    className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm text-muted-foreground hover:border-foreground/50 hover:text-foreground transition-colors"
-                  >
-                    <Icon name="magnifying-glass" className="h-4 w-4" />
-                    <span>Search tracks, albums, artists...</span>
-                  </Link>
-                </div>
-                <div className="flex items-center gap-4 sm:gap-6 md:gap-10">
-                  <ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
-                  {user ? (
-                    <Suspense fallback={null}>
-                      <LazyNotificationBell
-                        notifications={data.notifications}
-                        unreadCount={data.unreadNotificationCount}
-                      />
-                    </Suspense>
-                  ) : null}
-                  {user ? (
-                    <Suspense fallback={null}>
-                      <LazyUserDropdown />
-                    </Suspense>
-                  ) : null}
-                </div>
-                <div className="block w-full sm:hidden">
-                  <Link
-                    to="/search"
-                    className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm text-muted-foreground hover:border-foreground/50 hover:text-foreground transition-colors"
-                  >
-                    <Icon name="magnifying-glass" className="h-4 w-4" />
-                    <span>Search</span>
-                  </Link>
-                </div>
-              </nav>
-            </header>
-
-            <div className="flex flex-1 flex-col pb-16 md:pb-0" id="main-content">
-              <div className="container">
-                <Outlet />
-              </div>
-            </div>
-
-            <BottomNav />
-
-            <footer
-              className="container py-8 pb-24 md:pb-8 text-center text-sm text-muted-foreground"
-              role="contentinfo"
-            >
-              <p>&copy; {new Date().getFullYear()} Music Library</p>
-            </footer>
-          </div>
+          <ShellLayout />
           <Toaster />
           <EpicProgress />
         </AudioPlayerProvider>
