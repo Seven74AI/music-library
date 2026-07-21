@@ -87,7 +87,7 @@ export default function SearchPage() {
   // Auto-focus the input on every navigation to the search page
   useEffect(() => {
     inputRef.current?.focus();
-  }, [location.pathname]);
+  }, [location.key]);
 
   // Debounced search
   const doSearch = useCallback(
