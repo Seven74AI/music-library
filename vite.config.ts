@@ -1,91 +1,88 @@
-import { reactRouter } from '@react-router/dev/vite'
-import tailwindcss from '@tailwindcss/vite'
-import { defineConfig } from 'vite'
-import { envOnlyMacros } from 'vite-env-only'
-import { iconsSpritesheet } from 'vite-plugin-icons-spritesheet'
-const MODE = process.env.NODE_ENV
+import { reactRouter } from "@react-router/dev/vite";
+import tailwindcss from "@tailwindcss/vite";
+import { defineConfig } from "vite";
+import { envOnlyMacros } from "vite-env-only";
+import { iconsSpritesheet } from "vite-plugin-icons-spritesheet";
+const MODE = process.env.NODE_ENV;
 
 export default defineConfig(() => ({
-	build: {
-		target: 'es2022',
-		cssMinify: MODE === 'production',
+  build: {
+    target: "es2022",
+    cssMinify: MODE === "production",
 
-		rollupOptions: {
-			external: [/node:.*/, 'fsevents', '#prisma/client.js'],
-			treeshake: {
-				preset: 'smallest',
-				moduleSideEffects: (id: string) => {
-					// These packages are known to be pure — marking them as
-					// side-effect-free allows Rollup to eliminate unused exports
-					if (id.includes('node_modules/zod/')) return false
-					if (id.includes('node_modules/openimg/')) return false
-					return true
-				},
-			},
-		},
+    rollupOptions: {
+      external: [/node:.*/, "fsevents", "#prisma/client.js"],
+      treeshake: {
+        preset: "smallest",
+        moduleSideEffects: (id: string) => {
+          // These packages are known to be pure — marking them as
+          // side-effect-free allows Rollup to eliminate unused exports
+          if (id.includes("node_modules/zod/")) return false;
+          if (id.includes("node_modules/openimg/")) return false;
+          return true;
+        },
+      },
+    },
 
-		assetsInlineLimit: (filePath: string, _content: Buffer): boolean | undefined => {
-			if (
-				filePath.endsWith('favicon.svg') ||
-				filePath.endsWith('apple-touch-icon.png')
-			) {
-				return false // Don't inline these assets
-			}
-			return undefined // Use default behavior for other assets
-		},
+    assetsInlineLimit: (filePath: string, _content: Buffer): boolean | undefined => {
+      if (filePath.endsWith("favicon.svg") || filePath.endsWith("apple-touch-icon.png")) {
+        return false; // Don't inline these assets
+      }
+      return undefined; // Use default behavior for other assets
+    },
 
-		sourcemap: MODE !== 'production',
-	},
-	server: {
-		watch: {
-			ignored: ['**/playwright-report/**'],
-		},
-	},
-	plugins: [
-		envOnlyMacros(),
-		tailwindcss(),
-		//reactRouterDevTools(),
+    sourcemap: MODE !== "production",
+  },
+  server: {
+    watch: {
+      ignored: ["**/playwright-report/**"],
+    },
+  },
+  plugins: [
+    envOnlyMacros(),
+    tailwindcss(),
+    //reactRouterDevTools(),
 
-		iconsSpritesheet({
-			inputDir: './other/svg-icons',
-			outputDir: './app/components/ui/icons',
-			fileName: 'sprite.svg',
-			withTypes: true,
-			iconNameTransformer: (name) => name,
-		}),
-		// it would be really nice to have this enabled in tests, but we'll have to
-		// wait until https://github.com/remix-run/remix/issues/9871 is fixed
-		MODE === 'test' ? null : reactRouter(),
-		// Externalize node:sqlite for jsdom tests — Vite 7 import-analysis
-		// rejects node:sqlite as a bundlable built-in. This plugin runs
-		// before import-analysis and marks it as external.
-		MODE === 'test'
-			? {
-					name: 'externalize-node-sqlite',
-					enforce: 'pre' as const,
-				resolveId(id: string) {
-					if (id === 'node:sqlite') {
-						return { id: 'node:sqlite', external: true }
-					}
-					return undefined
-				},
-				}
-			: null,
-	],
-	test: {
-		include: ['./app/**/*.test.{ts,tsx}'],
-		setupFiles: ['./tests/setup/setup-test-env.ts'],
-		globalSetup: ['./tests/setup/global-setup.ts'],
-		restoreMocks: true,
-		coverage: {
-			include: ['app/**/*.{ts,tsx}'],
-			all: true,
-			thresholds: {
-				lines: 6,
-				branches: 8,
-				functions: 8,
-				statements: 6,
-			},
-		},
-	},
-}))
+    iconsSpritesheet({
+      inputDir: "./other/svg-icons",
+      outputDir: "./app/components/ui/icons",
+      fileName: "sprite.svg",
+      withTypes: true,
+      iconNameTransformer: (name) => name,
+    }),
+    // it would be really nice to have this enabled in tests, but we'll have to
+    // wait until https://github.com/remix-run/remix/issues/9871 is fixed
+    MODE === "test" ? null : reactRouter(),
+    // Externalize node:sqlite for jsdom tests — Vite 7 import-analysis
+    // rejects node:sqlite as a bundlable built-in. This plugin runs
+    // before import-analysis and marks it as external.
+    MODE === "test"
+      ? {
+          name: "externalize-node-sqlite",
+          enforce: "pre" as const,
+          resolveId(id: string) {
+            if (id === "node:sqlite") {
+              return { id: "node:sqlite", external: true };
+            }
+            return undefined;
+          },
+        }
+      : null,
+  ],
+  test: {
+    include: ["./app/**/*.test.{ts,tsx}"],
+    setupFiles: ["./tests/setup/setup-test-env.ts"],
+    globalSetup: ["./tests/setup/global-setup.ts"],
+    restoreMocks: true,
+    coverage: {
+      include: ["app/**/*.{ts,tsx}"],
+      all: true,
+      thresholds: {
+        lines: 6,
+        branches: 8,
+        functions: 8,
+        statements: 6,
+      },
+    },
+  },
+}));

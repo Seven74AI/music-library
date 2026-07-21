@@ -1,4 +1,4 @@
-import { Skeleton } from "./skeleton"
+import { Skeleton } from "./skeleton";
 
 export function TrackListSkeleton() {
   return (
@@ -19,12 +19,16 @@ export function TrackListSkeleton() {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 export function TrackCardSkeleton() {
   return (
-    <div className="w-full max-w-2xl mx-auto border rounded-lg p-6" role="status" aria-label="Loading track details">
+    <div
+      className="w-full max-w-2xl mx-auto border rounded-lg p-6"
+      role="status"
+      aria-label="Loading track details"
+    >
       <div className="flex gap-4">
         <Skeleton className="w-24 h-24 rounded-lg" />
         <div className="flex-1 space-y-2">
@@ -41,5 +45,5 @@ export function TrackCardSkeleton() {
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -1,138 +1,130 @@
-import { invariant } from '@epic-web/invariant'
-import { faker } from '@faker-js/faker'
-import { verifyUserPassword } from '#app/utils/auth.server.ts'
-import { prisma } from '#app/utils/db.server.ts'
-import { readEmail } from '#tests/mocks/utils.ts'
-import { expect, test, createUser, waitFor } from '#tests/playwright-utils.ts'
+import { invariant } from "@epic-web/invariant";
+import { faker } from "@faker-js/faker";
+import { verifyUserPassword } from "#app/utils/auth.server.ts";
+import { prisma } from "#app/utils/db.server.ts";
+import { readEmail } from "#tests/mocks/utils.ts";
+import { expect, test, createUser, waitFor } from "#tests/playwright-utils.ts";
 
-const CODE_REGEX = /Here's your verification code: (?<code>[\d\w]+)/
+const CODE_REGEX = /Here's your verification code: (?<code>[\d\w]+)/;
 
-test('Users can update their basic info', { tag: '@smoke' }, async ({ page, navigate, login }) => {
-	await login()
-	await navigate('/settings/profile')
+test("Users can update their basic info", { tag: "@smoke" }, async ({ page, navigate, login }) => {
+  await login();
+  await navigate("/settings/profile");
 
-	const newUserData = createUser()
+  const newUserData = createUser();
 
-	await page.getByRole('textbox', { name: /^name/i }).fill(newUserData.name)
-	await page
-		.getByRole('textbox', { name: /^username/i })
-		.fill(newUserData.username)
+  await page.getByRole("textbox", { name: /^name/i }).fill(newUserData.name);
+  await page.getByRole("textbox", { name: /^username/i }).fill(newUserData.username);
 
-	await page.getByRole('button', { name: /^save/i }).click()
-})
+  await page.getByRole("button", { name: /^save/i }).click();
+});
 
-test('Users can update their password', { tag: '@slow' }, async ({ page, navigate, login }) => {
-	const oldPassword = faker.internet.password()
-	const newPassword = faker.internet.password()
-	const user = await login({ password: oldPassword })
-	await navigate('/settings/profile')
+test("Users can update their password", { tag: "@slow" }, async ({ page, navigate, login }) => {
+  const oldPassword = faker.internet.password();
+  const newPassword = faker.internet.password();
+  const user = await login({ password: oldPassword });
+  await navigate("/settings/profile");
 
-	await page.getByRole('link', { name: /change password/i }).click()
+  await page.getByRole("link", { name: /change password/i }).click();
 
-	await page
-		.getByRole('textbox', { name: /^current password/i })
-		.fill(oldPassword)
-	await page.getByRole('textbox', { name: /^new password/i }).fill(newPassword)
-	await page
-		.getByRole('textbox', { name: /^confirm new password/i })
-		.fill(newPassword)
+  await page.getByRole("textbox", { name: /^current password/i }).fill(oldPassword);
+  await page.getByRole("textbox", { name: /^new password/i }).fill(newPassword);
+  await page.getByRole("textbox", { name: /^confirm new password/i }).fill(newPassword);
 
-	await page.getByRole('button', { name: /^change password/i }).click()
+  await page.getByRole("button", { name: /^change password/i }).click();
 
-	await expect(page).toHaveURL(`/settings/profile`)
+  await expect(page).toHaveURL(`/settings/profile`);
 
-	const { username } = user
-	expect(
-		await verifyUserPassword({ username }, oldPassword),
-		'Old password still works',
-	).toBeNull()
-	expect(
-		await verifyUserPassword({ username }, newPassword),
-		'New password does not work',
-	).toEqual({ id: user.id })
-})
+  const { username } = user;
+  expect(
+    await verifyUserPassword({ username }, oldPassword),
+    "Old password still works",
+  ).toBeNull();
+  expect(await verifyUserPassword({ username }, newPassword), "New password does not work").toEqual(
+    { id: user.id },
+  );
+});
 
-test('Users can update their profile photo', { tag: '@slow' }, async ({
-	page,
-	navigate,
-	login,
-}) => {
-	const user = await login()
-	await navigate('/settings/profile')
+test(
+  "Users can update their profile photo",
+  { tag: "@slow" },
+  async ({ page, navigate, login }) => {
+    const user = await login();
+    await navigate("/settings/profile");
 
-	const beforeSrc = await page
-		.getByRole('main')
-		.getByRole('img', { name: user.name ?? user.username })
-		.getAttribute('src')
+    const beforeSrc = await page
+      .getByRole("main")
+      .getByRole("img", { name: user.name ?? user.username })
+      .getAttribute("src");
 
-	await page.getByRole('link', { name: /change profile photo/i }).click()
+    await page.getByRole("link", { name: /change profile photo/i }).click();
 
-	await expect(page).toHaveURL(`/settings/profile/photo`)
+    await expect(page).toHaveURL(`/settings/profile/photo`);
 
-	// The file input is hidden, so we need to use a different approach
-	// eslint-disable-next-line playwright/no-raw-locators
-	await page.locator('input[type="file"]').setInputFiles('./tests/fixtures/images/user/kody.png')
+    // The file input is hidden, so we need to use a different approach
+    // eslint-disable-next-line playwright/no-raw-locators
+    await page.locator('input[type="file"]').setInputFiles("./tests/fixtures/images/user/kody.png");
 
-	// Wait for the file to be selected and the form to be ready
-	// File selected — next assertions auto-wait
+    // Wait for the file to be selected and the form to be ready
+    // File selected — next assertions auto-wait
 
-	// Check if the save button is visible and enabled
-	const saveButton = page.getByRole('button', { name: /save photo/i })
-	await expect(saveButton).toBeVisible()
-	await expect(saveButton).toBeEnabled()
+    // Check if the save button is visible and enabled
+    const saveButton = page.getByRole("button", { name: /save photo/i });
+    await expect(saveButton).toBeVisible();
+    await expect(saveButton).toBeEnabled();
 
-	// Submit the form and wait for redirect to /settings/profile
-	// Use a generous timeout — file upload + processing can be slow on CI
-	await saveButton.click()
-	await page.waitForURL('**/settings/profile', { timeout: 20000 })
+    // Submit the form and wait for redirect to /settings/profile
+    // Use a generous timeout — file upload + processing can be slow on CI
+    await saveButton.click();
+    await page.waitForURL("**/settings/profile", { timeout: 20000 });
 
-	await expect(
-		page,
-		'Was not redirected after saving the profile photo',
-	).toHaveURL(`/settings/profile`)
+    await expect(page, "Was not redirected after saving the profile photo").toHaveURL(
+      `/settings/profile`,
+    );
 
-	const afterSrc = await page
-		.getByRole('main')
-		.getByRole('img', { name: user.name ?? user.username })
-		.getAttribute('src')
+    const afterSrc = await page
+      .getByRole("main")
+      .getByRole("img", { name: user.name ?? user.username })
+      .getAttribute("src");
 
-	// not sure how to get the before/after src with getAttribute inline
-	// eslint-disable-next-line playwright/prefer-web-first-assertions
-	expect(beforeSrc).not.toEqual(afterSrc)
-})
+    // not sure how to get the before/after src with getAttribute inline
+    // eslint-disable-next-line playwright/prefer-web-first-assertions
+    expect(beforeSrc).not.toEqual(afterSrc);
+  },
+);
 
-test('Users can change their email address', { tag: '@slow' }, async ({
-	page,
-	navigate,
-	login,
-}) => {
-	const preUpdateUser = await login()
-	const newEmailAddress = faker.internet.email().toLowerCase()
-	expect(preUpdateUser.email).not.toEqual(newEmailAddress)
-	await navigate('/settings/profile')
-	await page.getByRole('link', { name: /change email/i }).click()
-	await page.getByRole('textbox', { name: /new email/i }).fill(newEmailAddress)
-	await page.getByRole('button', { name: /send confirmation/i }).click()
-	await expect(page.getByText(/check your email/i)).toBeVisible()
-	const email = await waitFor(() => readEmail(newEmailAddress), {
-		errorMessage: 'Confirmation email was not sent',
-	})
-	invariant(email, 'Email was not sent')
-	const codeMatch = email.text.match(CODE_REGEX)
-	const code = codeMatch?.groups?.code
-	invariant(code, 'Onboarding code not found')
-	await page.getByRole('textbox', { name: /code/i }).fill(code)
-	await page.getByRole('button', { name: /submit/i }).click()
-	await expect(page.getByText('Email Changed', { exact: true })).toBeVisible()
+test(
+  "Users can change their email address",
+  { tag: "@slow" },
+  async ({ page, navigate, login }) => {
+    const preUpdateUser = await login();
+    const newEmailAddress = faker.internet.email().toLowerCase();
+    expect(preUpdateUser.email).not.toEqual(newEmailAddress);
+    await navigate("/settings/profile");
+    await page.getByRole("link", { name: /change email/i }).click();
+    await page.getByRole("textbox", { name: /new email/i }).fill(newEmailAddress);
+    await page.getByRole("button", { name: /send confirmation/i }).click();
+    await expect(page.getByText(/check your email/i)).toBeVisible();
+    const email = await waitFor(() => readEmail(newEmailAddress), {
+      errorMessage: "Confirmation email was not sent",
+    });
+    invariant(email, "Email was not sent");
+    const codeMatch = email.text.match(CODE_REGEX);
+    const code = codeMatch?.groups?.code;
+    invariant(code, "Onboarding code not found");
+    await page.getByRole("textbox", { name: /code/i }).fill(code);
+    await page.getByRole("button", { name: /submit/i }).click();
+    await expect(page.getByText("Email Changed", { exact: true })).toBeVisible();
 
-	const updatedUser = await prisma.user.findUnique({
-		where: { id: preUpdateUser.id },
-		select: { email: true },
-	})
-	invariant(updatedUser, 'Updated user not found')
-	expect(updatedUser.email).toBe(newEmailAddress)
-	const noticeEmail = await waitFor(() => readEmail(preUpdateUser.email), {
-		errorMessage: 'Notice email was not sent',
-	})
-	expect(noticeEmail.subject).toContain('changed')
-})
+    const updatedUser = await prisma.user.findUnique({
+      where: { id: preUpdateUser.id },
+      select: { email: true },
+    });
+    invariant(updatedUser, "Updated user not found");
+    expect(updatedUser.email).toBe(newEmailAddress);
+    const noticeEmail = await waitFor(() => readEmail(preUpdateUser.email), {
+      errorMessage: "Notice email was not sent",
+    });
+    expect(noticeEmail.subject).toContain("changed");
+  },
+);

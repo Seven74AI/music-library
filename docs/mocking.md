@@ -27,6 +27,7 @@ Our application implements a **dual mocking system** that provides both server-s
 ## 🚀 Server-Side Mocking (Development)
 
 ### Purpose
+
 Environment-aware server-side mocking with sophisticated decision logic for development convenience, offline development, and API quota conservation.
 
 ### Environment-Aware Mocking Strategy
@@ -73,27 +74,34 @@ NODE_ENV=production npm start
 ### What Gets Mocked
 
 #### YouTube Service (`app/utils/youtube.server.ts`)
+
 - `getUserPlaylists()` - Returns mock user playlists
 - `getPlaylist()` - Returns mock playlist details
 - `getPlaylistItems()` - Returns mock playlist items
 
 #### YouTube Search (`app/utils/youtube-search.server.ts`)
+
 - `searchYouTubeVideos()` - Returns mock search results
 - `getYouTubeVideoDetails()` - Returns mock video details
 
 #### Audio Archive — Storage upload (`app/utils/storage.server.ts`)
+
 - `uploadFile()` - When `MOCKS=true`, returns the object key without uploading. Used by archive worker and admin upload routes.
 
 #### Audio Archive — yt-dlp (`app/features/audio-archive/yt-dlp.server.ts`)
+
 - `executeYtDlp()` - When `MOCKS=true`, returns a simulated successful download result immediately without spawning yt-dlp. Returns a fake file path (`/tmp/test-audio.mp3`) and exit code 0. No real network calls, no child process.
 
 #### Audio Archive — Telegram Notifications (`app/features/audio-archive/notification.server.ts`)
+
 - `sendTelegramMessage()` - When `MOCKS=true`, returns `true` without making HTTP calls. When `TELEGRAM_BOT_TOKEN` or `TELEGRAM_ADMIN_CHAT_ID` are empty (default in test/CI), silently returns `false`.
 
 #### Audio Archive — Worker Queue (`app/features/audio-archive/worker.server.ts`)
+
 - `processQueueTick()` - Guarded by `AUDIO_ARCHIVE_ENABLED !== 'true'` check. In test/CI, this is typically `false`, so the worker returns immediately without processing any jobs. When enabled in tests, database operations run against the test database (standard Epic Stack test isolation pattern).
 
 ### Mock Data Features
+
 - ✅ **Environment-Aware**: Sophisticated environment-based decision logic
 - ✅ **Static Mock Data**: Consistent mock data using predefined constants
 - ✅ **Type Safety**: All mock data validated with Zod schemas
@@ -101,6 +109,7 @@ NODE_ENV=production npm start
 - ✅ **Configurable**: Easy to customize mock data per scenario
 
 ### Development Benefits
+
 - 🚀 **Smart Defaults**: Real YouTube API in development by default
 - 🚀 **No API Quota**: Mock other services to save quota
 - 🚀 **Fast Development**: Instant responses for testing
@@ -108,6 +117,7 @@ NODE_ENV=production npm start
 - 🚀 **Predictable Data**: Consistent mock data for reliable testing
 
 ### Production Safety
+
 - 🔒 **Environment Gated**: Sophisticated environment detection
 - 🔒 **No Production Impact**: Mocking disabled in production by default
 - 🔒 **Type Safe**: Same validation as real API responses
@@ -121,22 +131,22 @@ The `MockManager` class (`app/utils/mock-manager.server.ts`) provides the core f
 
 ```typescript
 // Environment detection
-MockManager.isEnabled() // General mocking enabled
-MockManager.isYouTubeEnabled() // YouTube-specific mocking
+MockManager.isEnabled(); // General mocking enabled
+MockManager.isYouTubeEnabled(); // YouTube-specific mocking
 
 // API key management
-MockManager.getApiKey() // Returns mock key or real API key
-MockManager.isApiKeyRequired() // Checks if API key is needed
+MockManager.getApiKey(); // Returns mock key or real API key
+MockManager.isApiKeyRequired(); // Checks if API key is needed
 
 // Mock data generation
-MockManager.getMockUserPlaylists() // Mock user playlists
-MockManager.getMockPlaylist(playlistId) // Mock playlist by ID
-MockManager.getMockPlaylistItems(playlistId, count) // Mock playlist items
-MockManager.getMockVideoDetails(videoId) // Mock video details
-MockManager.getMockSearchResults(query) // Mock search results
+MockManager.getMockUserPlaylists(); // Mock user playlists
+MockManager.getMockPlaylist(playlistId); // Mock playlist by ID
+MockManager.getMockPlaylistItems(playlistId, count); // Mock playlist items
+MockManager.getMockVideoDetails(videoId); // Mock video details
+MockManager.getMockSearchResults(query); // Mock search results
 
 // Logging
-MockManager.log(message) // Log mock activity
+MockManager.log(message); // Log mock activity
 ```
 
 #### Static Mock Data
@@ -146,41 +156,44 @@ The MockManager includes predefined mock data constants for consistency:
 ```typescript
 // Mock data constants
 MOCK_DATA = {
-  VIDEO_TITLE: 'Never Gonna Give You Up',
-  VIDEO_ARTIST: 'Rick Astley',
-  VIDEO_PUBLISHED_AT: '2009-10-25T06:57:33Z',
-  CHANNEL_TITLE: 'Mock Channel',
-  PLAYLIST_TITLE: 'My Test Playlist',
-  PLAYLIST_DESCRIPTION: 'A test playlist for testing',
-  THUMBNAIL_BASE_URL: 'https://example.com/thumb',
-}
+  VIDEO_TITLE: "Never Gonna Give You Up",
+  VIDEO_ARTIST: "Rick Astley",
+  VIDEO_PUBLISHED_AT: "2009-10-25T06:57:33Z",
+  CHANNEL_TITLE: "Mock Channel",
+  PLAYLIST_TITLE: "My Test Playlist",
+  PLAYLIST_DESCRIPTION: "A test playlist for testing",
+  THUMBNAIL_BASE_URL: "https://example.com/thumb",
+};
 
 // Mock data generators
-createMockVideoData(videoId, options) // Static video mock data
-createMockPlaylistData(playlistId, options) // Static playlist mock data
-createMockPlaylistItem(playlistId, index, options) // Static playlist item mock data
+createMockVideoData(videoId, options); // Static video mock data
+createMockPlaylistData(playlistId, options); // Static playlist mock data
+createMockPlaylistItem(playlistId, index, options); // Static playlist item mock data
 ```
 
 ## 🧪 Client-Side Mocking (Testing)
 
 ### Purpose
+
 Comprehensive testing with realistic network behavior and test isolation.
 
 ### How to Use
+
 ```typescript
-import { createTestScenario } from '#app/utils/mock-generators'
+import { createTestScenario } from "#app/utils/mock-generators";
 
 // Create complete test scenario
 const scenario = await createTestScenario({
   playlistCount: 2,
-  tracksPerPlaylist: 5
-})
+  tracksPerPlaylist: 5,
+});
 
 // Use MSW handlers
-server.use(...scenario.handlers)
+server.use(...scenario.handlers);
 ```
 
 ### Features
+
 - **Network-Level Interception**: MSW intercepts HTTP requests
 - **Dynamic Scenarios**: Per-test customization
 - **Realistic Behavior**: Simulates real network conditions
@@ -204,6 +217,7 @@ tests/mocks/
 ### Core Methods
 
 #### `isYouTubeEnabled()`
+
 ```typescript
 if (MockManager.isYouTubeEnabled()) {
   // Return mock data
@@ -211,32 +225,37 @@ if (MockManager.isYouTubeEnabled()) {
 ```
 
 #### `getMockUserPlaylists()`
+
 ```typescript
-const mockPlaylists = MockManager.getMockUserPlaylists()
+const mockPlaylists = MockManager.getMockUserPlaylists();
 // Returns: YouTubePlaylistListResponse with realistic data
 ```
 
 #### `getMockPlaylist(playlistId)`
+
 ```typescript
-const mockPlaylist = MockManager.getMockPlaylist('PLtest123')
+const mockPlaylist = MockManager.getMockPlaylist("PLtest123");
 // Returns: YouTubePlaylistListResponse with single playlist
 ```
 
 #### `getMockPlaylistItems(playlistId, count)`
+
 ```typescript
-const mockItems = MockManager.getMockPlaylistItems('PLtest123', 5)
+const mockItems = MockManager.getMockPlaylistItems("PLtest123", 5);
 // Returns: YouTubePlaylistItemListResponse with 5 items
 ```
 
 #### `getMockVideoDetails(videoId)`
+
 ```typescript
-const mockVideo = MockManager.getMockVideoDetails('video123')
+const mockVideo = MockManager.getMockVideoDetails("video123");
 // Returns: VideoData with realistic video details
 ```
 
 ## 🎯 Usage Examples
 
 ### Development Workflow
+
 ```bash
 # 1. Enable mocking for development
 MOCKS=true npm run dev
@@ -247,33 +266,36 @@ MOCKS=true npm run dev
 ```
 
 ### Testing Workflow
+
 ```typescript
 // 1. Create test scenario
 const scenario = await createTestScenario({
   playlistCount: 2,
-  tracksPerPlaylist: 5
-})
+  tracksPerPlaylist: 5,
+});
 
 // 2. Use MSW handlers
-server.use(...scenario.handlers)
+server.use(...scenario.handlers);
 
 // 3. Run tests with realistic mock data
-await page.goto('/music/services/youtube')
+await page.goto("/music/services/youtube");
 ```
 
 ### Custom Mock Data
+
 ```typescript
 // Generate custom mock data
-const customPlaylist = createFakerYouTubePlaylist('PLcustom', {
-  title: 'My Custom Playlist',
-  description: 'Custom description',
-  itemCount: 10
-})
+const customPlaylist = createFakerYouTubePlaylist("PLcustom", {
+  title: "My Custom Playlist",
+  description: "Custom description",
+  itemCount: 10,
+});
 ```
 
 ## 🔍 Debugging
 
 ### Mock Activity Logging
+
 ```typescript
 // MockManager automatically logs activity when MOCKS=true
 [MockManager] Generating mock YouTube playlists
@@ -281,26 +303,30 @@ const customPlaylist = createFakerYouTubePlaylist('PLcustom', {
 ```
 
 ### MSW Debugging
+
 ```typescript
 // MSW provides network-level debugging
 server.listen({
-  onUnhandledRequest: 'warn'
-})
+  onUnhandledRequest: "warn",
+});
 ```
 
 ## 🚨 Troubleshooting
 
 ### Mock Data Not Working
+
 1. **Check Environment**: Ensure `MOCKS=true` is set
 2. **Check Logs**: Look for `[MockManager]` log messages
 3. **Check Functions**: Verify the function is using MockManager
 
 ### Type Errors
+
 1. **Check Imports**: Ensure proper imports from mock-generators
 2. **Check Schemas**: Verify Zod schemas match API structure
 3. **Check Transformations**: Ensure transformation functions are correct
 
 ### MSW Issues
+
 1. **Check Handlers**: Verify MSW handlers are properly set up
 2. **Check Network**: Ensure requests are being intercepted
 3. **Check Scenarios**: Verify test scenarios are creating correct data
@@ -308,12 +334,14 @@ server.listen({
 ## 🔮 Future Enhancements
 
 ### Planned Features
+
 - **Custom Mock Scenarios**: User-defined mock data scenarios
 - **Mock Data Persistence**: Save/load mock data configurations
 - **API Response Simulation**: Simulate different API response scenarios
 - **Performance Mocking**: Simulate slow/fast API responses
 
 ### Extension Points
+
 - **New Services**: Easy to add mocking for new services (Spotify, etc.)
 - **Custom Generators**: Add service-specific mock data generators
 - **Advanced Scenarios**: Complex test scenarios with multiple services
@@ -328,12 +356,14 @@ server.listen({
 ## 🤝 Contributing
 
 ### Adding New Mock Data
+
 1. Add generator function to `mock-generators.ts`
 2. Add corresponding MockManager method
 3. Update documentation
 4. Add tests for new mock data
 
 ### Extending Mock Scenarios
+
 1. Update `createTestScenario()` function
 2. Add new MSW handlers if needed
 3. Update test documentation

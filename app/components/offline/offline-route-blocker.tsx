@@ -1,18 +1,18 @@
-import { OfflineUnavailableView } from '#app/components/offline/offline-unavailable-view.tsx'
-import { useOnlineStatus } from '#app/hooks/use-online-status.ts'
+import { OfflineUnavailableView } from "#app/components/offline/offline-unavailable-view.tsx";
+import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
 
 type OfflineRouteBlockerProps = {
-	children: React.ReactNode
-}
+  children: React.ReactNode;
+};
 
 export function OfflineRouteBlocker({ children }: OfflineRouteBlockerProps) {
-	const isOnline = useOnlineStatus()
+  const isOnline = useOnlineStatus();
 
-	if (isOnline) return children
+  if (isOnline) return children;
 
-	return (
-		<main className="py-12">
-			<OfflineUnavailableView />
-		</main>
-	)
+  return (
+    <main className="py-12">
+      <OfflineUnavailableView />
+    </main>
+  );
 }

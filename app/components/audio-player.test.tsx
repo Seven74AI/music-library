@@ -4,528 +4,520 @@
  * AudioPlayer chrome tests (transport, volume, loading states).
  * Queue sheet behavior with real provider state is in audio-player-queue.integration.test.tsx.
  */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { type ComponentProps, type ReactNode } from 'react'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { useAudioPlayer } from '#app/components/audio-player-provider'
-import { type FullTrack } from '#app/types/frontend/shared'
-import { toast } from '#app/components/ui/use-toast'
-import type { UseSwipeGestureOptions } from '#app/hooks/use-swipe-gesture'
-import { AudioPlayer } from './audio-player'
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { type ComponentProps, type ReactNode } from "react";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { useAudioPlayer } from "#app/components/audio-player-provider";
+import { type FullTrack } from "#app/types/frontend/shared";
+import { toast } from "#app/components/ui/use-toast";
+import type { UseSwipeGestureOptions } from "#app/hooks/use-swipe-gesture";
+import { AudioPlayer } from "./audio-player";
 
-type AudioPlayerTestProps = ComponentProps<typeof AudioPlayer>
+type AudioPlayerTestProps = ComponentProps<typeof AudioPlayer>;
 
-const mockRemoveTrackFromPlaylist = vi.fn()
+const mockRemoveTrackFromPlaylist = vi.fn();
 
 // Expose captured swipe callbacks so tests can simulate swipe gestures.
 const swipeMocks: { onSwipeLeft: (() => void) | null; onSwipeRight: (() => void) | null } = {
-	onSwipeLeft: null,
-	onSwipeRight: null,
-}
+  onSwipeLeft: null,
+  onSwipeRight: null,
+};
 
 function createAudioPlayerMock(overrides: Record<string, unknown> = {}) {
-	return {
-		playlist: [],
-		upNext: [],
-		spine: [],
-		spineTotal: 0,
-		spinePosition: 0,
-		currentTrack: null,
-		currentIndex: -1,
-		playContext: null,
-		removeTrackFromPlaylist: mockRemoveTrackFromPlaylist,
-		removeCurrentFromQueue: vi.fn(),
-		startQueuePlayback: vi.fn(),
-		hasQueuedPlayback: false,
-		playNextTrack: vi.fn(),
-		addToUpNext: vi.fn(),
-		addToQueue: vi.fn(),
-		...overrides,
-	}
+  return {
+    playlist: [],
+    upNext: [],
+    spine: [],
+    spineTotal: 0,
+    spinePosition: 0,
+    currentTrack: null,
+    currentIndex: -1,
+    playContext: null,
+    removeTrackFromPlaylist: mockRemoveTrackFromPlaylist,
+    removeCurrentFromQueue: vi.fn(),
+    startQueuePlayback: vi.fn(),
+    hasQueuedPlayback: false,
+    playNextTrack: vi.fn(),
+    addToUpNext: vi.fn(),
+    addToQueue: vi.fn(),
+    ...overrides,
+  };
 }
 
-vi.mock('#app/components/ui/use-toast.ts', async () => ({
-	toast: vi.fn(),
-}))
+vi.mock("#app/components/ui/use-toast.ts", async () => ({
+  toast: vi.fn(),
+}));
 
-vi.mock('#app/components/track-details-dialog', () => ({
-	TrackDetailsDialog: vi.fn(() => null),
-}))
+vi.mock("#app/components/track-details-dialog", () => ({
+  TrackDetailsDialog: vi.fn(() => null),
+}));
 
-vi.mock('#app/features/offline-storage/resolve-playback-url.client.ts', () => ({
-	resolveTrackPlaybackSource: vi.fn().mockResolvedValue('https://cdn.example/track-1.mp3'),
-	revokePlaybackAudioUrl: vi.fn(),
-	clearBlobUrlCache: vi.fn(),
-}))
+vi.mock("#app/features/offline-storage/resolve-playback-url.client.ts", () => ({
+  resolveTrackPlaybackSource: vi.fn().mockResolvedValue("https://cdn.example/track-1.mp3"),
+  revokePlaybackAudioUrl: vi.fn(),
+  clearBlobUrlCache: vi.fn(),
+}));
 
-vi.mock('#app/components/audio-player-provider', () => ({
-	useAudioPlayer: vi.fn(() => createAudioPlayerMock()),
-	AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
-}))
+vi.mock("#app/components/audio-player-provider", () => ({
+  useAudioPlayer: vi.fn(() => createAudioPlayerMock()),
+  AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
+}));
 
-vi.mock('#app/hooks/use-swipe-gesture', () => ({
-	useSwipeGesture: vi.fn((_ref: unknown, options: UseSwipeGestureOptions) => {
-		swipeMocks.onSwipeLeft = options.onSwipeLeft ?? null
-		swipeMocks.onSwipeRight = options.onSwipeRight ?? null
-		return { offsetX: 0, isSwiping: false }
-	}),
-}))
-
+vi.mock("#app/hooks/use-swipe-gesture", () => ({
+  useSwipeGesture: vi.fn((_ref: unknown, options: UseSwipeGestureOptions) => {
+    swipeMocks.onSwipeLeft = options.onSwipeLeft ?? null;
+    swipeMocks.onSwipeRight = options.onSwipeRight ?? null;
+    return { offsetX: 0, isSwiping: false };
+  }),
+}));
 
 const mockTrack: FullTrack = {
-	id: 'track-1',
-	title: 'Test Song',
-	artist: { id: 'artist-1', name: 'Test Artist' },
-	duration: 180,
-	coverImage: { objectKey: 'covers/test.jpg' },
-	audioFiles: [{ id: 'af-1', format: 'mp3', objectKey: 'audio/test.mp3' }],
-}
+  id: "track-1",
+  title: "Test Song",
+  artist: { id: "artist-1", name: "Test Artist" },
+  duration: 180,
+  coverImage: { objectKey: "covers/test.jpg" },
+  audioFiles: [{ id: "af-1", format: "mp3", objectKey: "audio/test.mp3" }],
+};
 
 const defaultProps: AudioPlayerTestProps = {
-	track: mockTrack,
-	isVisible: true,
-	onClose: vi.fn(),
-	onNext: vi.fn(),
-	onPrevious: vi.fn(),
-	onToggleLoop: vi.fn(),
-	onToggleShuffle: vi.fn(),
-	hasNext: false,
-	hasPrevious: false,
-	loopMode: 'off',
-	isShuffleEnabled: false,
-	playbackToken: 0,
-	wantsAutoPlayRef: { current: false },
-}
+  track: mockTrack,
+  isVisible: true,
+  onClose: vi.fn(),
+  onNext: vi.fn(),
+  onPrevious: vi.fn(),
+  onToggleLoop: vi.fn(),
+  onToggleShuffle: vi.fn(),
+  hasNext: false,
+  hasPrevious: false,
+  loopMode: "off",
+  isShuffleEnabled: false,
+  playbackToken: 0,
+  wantsAutoPlayRef: { current: false },
+};
 
 async function renderPlayer(props: Partial<AudioPlayerTestProps> = {}) {
-	const view = render(<AudioPlayer {...defaultProps} {...props} />)
-	const audioEl = await waitFor(() => {
-		const element = view.container.querySelector('audio')
-		if (!element) throw new Error('Audio element not mounted yet')
-		return element
-	})
-	return { ...view, audioEl }
+  const view = render(<AudioPlayer {...defaultProps} {...props} />);
+  const audioEl = await waitFor(() => {
+    const element = view.container.querySelector("audio");
+    if (!element) throw new Error("Audio element not mounted yet");
+    return element;
+  });
+  return { ...view, audioEl };
 }
 
-test('shows playback error with user-friendly message for MEDIA_ERR_ABORTED (code 1)', async () => {
-	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+test("shows playback error with user-friendly message for MEDIA_ERR_ABORTED (code 1)", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-	const { audioEl } = await renderPlayer()
+  const { audioEl } = await renderPlayer();
 
-	Object.defineProperty(audioEl, 'error', {
-		configurable: true,
-		value: { code: 1, message: 'The fetching was aborted by the user' },
-	})
+  Object.defineProperty(audioEl, "error", {
+    configurable: true,
+    value: { code: 1, message: "The fetching was aborted by the user" },
+  });
 
-	audioEl.dispatchEvent(new Event('error'))
+  audioEl.dispatchEvent(new Event("error"));
 
-	// console.error still logged for debugging
-	expect(consoleSpy).toHaveBeenCalledWith(
-		'Audio load error: The fetching was aborted by the user (code: 1)',
-	)
+  // console.error still logged for debugging
+  expect(consoleSpy).toHaveBeenCalledWith(
+    "Audio load error: The fetching was aborted by the user (code: 1)",
+  );
 
-	await waitFor(() => {
-		expect(screen.getByTestId('player-playback-error')).toBeInTheDocument()
-		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
-			'Playback was interrupted.',
-		)
-	})
+  await waitFor(() => {
+    expect(screen.getByTestId("player-playback-error")).toBeInTheDocument();
+    expect(screen.getByTestId("player-playback-error")).toHaveTextContent(
+      "Playback was interrupted.",
+    );
+  });
 
-	consoleSpy.mockRestore()
-})
+  consoleSpy.mockRestore();
+});
 
-test('shows playback error with user-friendly message for MEDIA_ERR_NETWORK (code 2)', async () => {
-	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+test("shows playback error with user-friendly message for MEDIA_ERR_NETWORK (code 2)", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-	const { audioEl } = await renderPlayer()
+  const { audioEl } = await renderPlayer();
 
-	Object.defineProperty(audioEl, 'error', {
-		configurable: true,
-		value: { code: 2, message: 'A network error caused the audio download to fail' },
-	})
+  Object.defineProperty(audioEl, "error", {
+    configurable: true,
+    value: { code: 2, message: "A network error caused the audio download to fail" },
+  });
 
-	audioEl.dispatchEvent(new Event('error'))
+  audioEl.dispatchEvent(new Event("error"));
 
-	await waitFor(() => {
-		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
-			'A network error prevented the audio from loading. Check your connection.',
-		)
-	})
+  await waitFor(() => {
+    expect(screen.getByTestId("player-playback-error")).toHaveTextContent(
+      "A network error prevented the audio from loading. Check your connection.",
+    );
+  });
 
-	consoleSpy.mockRestore()
-})
+  consoleSpy.mockRestore();
+});
 
-test('shows playback error with user-friendly message for MEDIA_ERR_DECODE (code 3)', async () => {
-	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+test("shows playback error with user-friendly message for MEDIA_ERR_DECODE (code 3)", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-	const { audioEl } = await renderPlayer()
+  const { audioEl } = await renderPlayer();
 
-	Object.defineProperty(audioEl, 'error', {
-		configurable: true,
-		value: { code: 3, message: 'The media is corrupted' },
-	})
+  Object.defineProperty(audioEl, "error", {
+    configurable: true,
+    value: { code: 3, message: "The media is corrupted" },
+  });
 
-	audioEl.dispatchEvent(new Event('error'))
+  audioEl.dispatchEvent(new Event("error"));
 
-	await waitFor(() => {
-		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
-			'This audio format is not supported by your browser.',
-		)
-	})
+  await waitFor(() => {
+    expect(screen.getByTestId("player-playback-error")).toHaveTextContent(
+      "This audio format is not supported by your browser.",
+    );
+  });
 
-	consoleSpy.mockRestore()
-})
+  consoleSpy.mockRestore();
+});
 
-test('shows playback error with user-friendly message for MEDIA_ERR_SRC_NOT_SUPPORTED (code 4)', async () => {
-	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+test("shows playback error with user-friendly message for MEDIA_ERR_SRC_NOT_SUPPORTED (code 4)", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-	const { audioEl } = await renderPlayer()
+  const { audioEl } = await renderPlayer();
 
-	Object.defineProperty(audioEl, 'error', {
-		configurable: true,
-		value: { code: 4, message: 'The media resource is not supported' },
-	})
+  Object.defineProperty(audioEl, "error", {
+    configurable: true,
+    value: { code: 4, message: "The media resource is not supported" },
+  });
 
-	audioEl.dispatchEvent(new Event('error'))
+  audioEl.dispatchEvent(new Event("error"));
 
-	await waitFor(() => {
-		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
-			'The audio source could not be found or is not supported.',
-		)
-	})
+  await waitFor(() => {
+    expect(screen.getByTestId("player-playback-error")).toHaveTextContent(
+      "The audio source could not be found or is not supported.",
+    );
+  });
 
-	consoleSpy.mockRestore()
-})
+  consoleSpy.mockRestore();
+});
 
-test('shows generic fallback message for unknown MediaError code', async () => {
-	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+test("shows generic fallback message for unknown MediaError code", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-	const { audioEl } = await renderPlayer()
+  const { audioEl } = await renderPlayer();
 
-	Object.defineProperty(audioEl, 'error', {
-		configurable: true,
-		value: { code: 99, message: 'Unknown error' },
-	})
+  Object.defineProperty(audioEl, "error", {
+    configurable: true,
+    value: { code: 99, message: "Unknown error" },
+  });
 
-	audioEl.dispatchEvent(new Event('error'))
+  audioEl.dispatchEvent(new Event("error"));
 
-	await waitFor(() => {
-		expect(screen.getByTestId('player-playback-error')).toHaveTextContent(
-			'An unexpected playback error occurred. Please try again.',
-		)
-	})
+  await waitFor(() => {
+    expect(screen.getByTestId("player-playback-error")).toHaveTextContent(
+      "An unexpected playback error occurred. Please try again.",
+    );
+  });
 
-	consoleSpy.mockRestore()
-})
+  consoleSpy.mockRestore();
+});
 
-test('does not show playback error when audio error is null (no MediaError)', async () => {
-	const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+test("does not show playback error when audio error is null (no MediaError)", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-	const { audioEl } = await renderPlayer()
+  const { audioEl } = await renderPlayer();
 
-	// No error property set — error event without MediaError should not show anything
-	audioEl.dispatchEvent(new Event('error'))
+  // No error property set — error event without MediaError should not show anything
+  audioEl.dispatchEvent(new Event("error"));
 
-	expect(consoleSpy).not.toHaveBeenCalled()
+  expect(consoleSpy).not.toHaveBeenCalled();
 
-	await waitFor(() => {
-		expect(
-			screen.queryByTestId('player-playback-error'),
-		).not.toBeInTheDocument()
-	})
+  await waitFor(() => {
+    expect(screen.queryByTestId("player-playback-error")).not.toBeInTheDocument();
+  });
 
-	consoleSpy.mockRestore()
-})
+  consoleSpy.mockRestore();
+});
 
-test('calls onNext when audio ends and loopMode is off', async () => {
-	const onNext = vi.fn()
+test("calls onNext when audio ends and loopMode is off", async () => {
+  const onNext = vi.fn();
 
-	const { audioEl } = await renderPlayer({ onNext, loopMode: 'off' })
+  const { audioEl } = await renderPlayer({ onNext, loopMode: "off" });
 
-	audioEl.dispatchEvent(new Event('ended'))
+  audioEl.dispatchEvent(new Event("ended"));
 
-	expect(onNext).toHaveBeenCalledOnce()
-})
+  expect(onNext).toHaveBeenCalledOnce();
+});
 
-test('does NOT call onNext when audio ends and loopMode is one', async () => {
-	const onNext = vi.fn()
+test("does NOT call onNext when audio ends and loopMode is one", async () => {
+  const onNext = vi.fn();
 
-	const { audioEl } = await renderPlayer({ onNext, loopMode: 'one' })
+  const { audioEl } = await renderPlayer({ onNext, loopMode: "one" });
 
-	audioEl.dispatchEvent(new Event('ended'))
+  audioEl.dispatchEvent(new Event("ended"));
 
-	expect(onNext).not.toHaveBeenCalled()
-})
+  expect(onNext).not.toHaveBeenCalled();
+});
 
-test('persists volume changes to localStorage', async () => {
-	await renderPlayer()
+test("persists volume changes to localStorage", async () => {
+  await renderPlayer();
 
-	const volumeSlider = document.querySelector('[aria-label="Volume"]')
-	expect(volumeSlider).not.toBeNull()
-	if (!(volumeSlider instanceof HTMLInputElement)) {
-		throw new TypeError('Expected volume control to be an HTMLInputElement')
-	}
+  const volumeSlider = document.querySelector('[aria-label="Volume"]');
+  expect(volumeSlider).not.toBeNull();
+  if (!(volumeSlider instanceof HTMLInputElement)) {
+    throw new TypeError("Expected volume control to be an HTMLInputElement");
+  }
 
-	fireEvent.change(volumeSlider, { target: { value: '0.4' } })
+  fireEvent.change(volumeSlider, { target: { value: "0.4" } });
 
-	await waitFor(() => {
-		expect(window.localStorage.getItem('music-library:player-volume')).toBe('0.4')
-	})
-})
+  await waitFor(() => {
+    expect(window.localStorage.getItem("music-library:player-volume")).toBe("0.4");
+  });
+});
 
-test('calls onNext when next button is clicked', async () => {
-	const onNext = vi.fn()
+test("calls onNext when next button is clicked", async () => {
+  const onNext = vi.fn();
 
-	await renderPlayer({ onNext, hasNext: true })
+  await renderPlayer({ onNext, hasNext: true });
 
-	const nextButton = document.querySelector('[aria-label="Next track"]')
-	expect(nextButton).not.toBeNull()
+  const nextButton = document.querySelector('[aria-label="Next track"]');
+  expect(nextButton).not.toBeNull();
 
-	nextButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  nextButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-	expect(onNext).toHaveBeenCalledOnce()
-})
+  expect(onNext).toHaveBeenCalledOnce();
+});
 
-test('calls onPrevious when previous button is clicked', async () => {
-	const onPrevious = vi.fn()
+test("calls onPrevious when previous button is clicked", async () => {
+  const onPrevious = vi.fn();
 
-	await renderPlayer({ onPrevious, hasPrevious: true })
+  await renderPlayer({ onPrevious, hasPrevious: true });
 
-	const prevButton = document.querySelector('[aria-label="Previous track"]')
-	expect(prevButton).not.toBeNull()
+  const prevButton = document.querySelector('[aria-label="Previous track"]');
+  expect(prevButton).not.toBeNull();
 
-	prevButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  prevButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-	expect(onPrevious).toHaveBeenCalledOnce()
-})
+  expect(onPrevious).toHaveBeenCalledOnce();
+});
 
 const mockTrack2: FullTrack = {
-	...mockTrack,
-	id: 'track-2',
-	title: 'Second Song',
-	audioFiles: [{ id: 'af-2', format: 'mp3', objectKey: 'audio/test2.mp3' }],
-}
+  ...mockTrack,
+  id: "track-2",
+  title: "Second Song",
+  audioFiles: [{ id: "af-2", format: "mp3", objectKey: "audio/test2.mp3" }],
+};
 
 afterEach(() => {
-	vi.restoreAllMocks()
-	mockRemoveTrackFromPlaylist.mockReset()
-	window.localStorage.clear()
-})
+  vi.restoreAllMocks();
+  mockRemoveTrackFromPlaylist.mockReset();
+  window.localStorage.clear();
+});
 
 beforeEach(() => {
-	vi.mocked(useAudioPlayer).mockReturnValue(
-		createAudioPlayerMock() as unknown as ReturnType<typeof useAudioPlayer>,
-	)
-	vi.mocked(toast).mockClear()
-})
+  vi.mocked(useAudioPlayer).mockReturnValue(
+    createAudioPlayerMock() as unknown as ReturnType<typeof useAudioPlayer>,
+  );
+  vi.mocked(toast).mockClear();
+});
 
-test('auto-plays after track change once the new audio URL has loaded', async () => {
-	const wantsAutoPlayRef = { current: true }
-	const playSpy = vi
-		.spyOn(window.HTMLMediaElement.prototype, 'play')
-		.mockImplementation(function (this: HTMLMediaElement) {
-			Object.defineProperty(this, 'paused', { configurable: true, value: false })
-			return Promise.resolve()
-		})
+test("auto-plays after track change once the new audio URL has loaded", async () => {
+  const wantsAutoPlayRef = { current: true };
+  const playSpy = vi
+    .spyOn(window.HTMLMediaElement.prototype, "play")
+    .mockImplementation(function (this: HTMLMediaElement) {
+      Object.defineProperty(this, "paused", { configurable: true, value: false });
+      return Promise.resolve();
+    });
 
-	const { rerender } = render(
-		<AudioPlayer
-			{...defaultProps}
-			playbackToken={1}
-			wantsAutoPlayRef={wantsAutoPlayRef}
-		/>,
-	)
+  const { rerender } = render(
+    <AudioPlayer {...defaultProps} playbackToken={1} wantsAutoPlayRef={wantsAutoPlayRef} />,
+  );
 
-	await waitFor(() => {
-		expect(playSpy).toHaveBeenCalled()
-	})
+  await waitFor(() => {
+    expect(playSpy).toHaveBeenCalled();
+  });
 
-	playSpy.mockClear()
+  playSpy.mockClear();
 
-	rerender(
-		<AudioPlayer
-			{...defaultProps}
-			track={mockTrack2}
-			playbackToken={2}
-			wantsAutoPlayRef={wantsAutoPlayRef}
-		/>,
-	)
+  rerender(
+    <AudioPlayer
+      {...defaultProps}
+      track={mockTrack2}
+      playbackToken={2}
+      wantsAutoPlayRef={wantsAutoPlayRef}
+    />,
+  );
 
-	await waitFor(() => {
-		expect(playSpy).toHaveBeenCalled()
-		expect(wantsAutoPlayRef.current).toBe(false)
-	})
-})
+  await waitFor(() => {
+    expect(playSpy).toHaveBeenCalled();
+    expect(wantsAutoPlayRef.current).toBe(false);
+  });
+});
 
-test('keeps player chrome visible while the next track audio URL is loading', async () => {
-	const { resolveTrackPlaybackSource } = await import(
-		'#app/features/offline-storage/resolve-playback-url.client.ts'
-	)
-	const resolveMock = vi.mocked(resolveTrackPlaybackSource)
-	let resolveSecondTrack: ((url: string) => void) | undefined
+test("keeps player chrome visible while the next track audio URL is loading", async () => {
+  const { resolveTrackPlaybackSource } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  const resolveMock = vi.mocked(resolveTrackPlaybackSource);
+  let resolveSecondTrack: ((url: string) => void) | undefined;
 
-	resolveMock.mockImplementation((trackId: string) => {
-		if (trackId === 'track-2') {
-			return new Promise(resolve => {
-				resolveSecondTrack = resolve
-			})
-		}
-		return Promise.resolve('https://cdn.example/track-1.mp3')
-	})
+  resolveMock.mockImplementation((trackId: string) => {
+    if (trackId === "track-2") {
+      return new Promise((resolve) => {
+        resolveSecondTrack = resolve;
+      });
+    }
+    return Promise.resolve("https://cdn.example/track-1.mp3");
+  });
 
-	const { rerender } = await renderPlayer()
+  const { rerender } = await renderPlayer();
 
-	rerender(
-		<AudioPlayer
-			{...defaultProps}
-			track={mockTrack2}
-			playbackToken={2}
-			wantsAutoPlayRef={{ current: true }}
-		/>,
-	)
+  rerender(
+    <AudioPlayer
+      {...defaultProps}
+      track={mockTrack2}
+      playbackToken={2}
+      wantsAutoPlayRef={{ current: true }}
+    />,
+  );
 
-	expect(screen.getByTestId('player-desktop-bar')).toBeTruthy()
+  expect(screen.getByTestId("player-desktop-bar")).toBeTruthy();
 
-	resolveSecondTrack?.('https://cdn.example/track-2.mp3')
+  resolveSecondTrack?.("https://cdn.example/track-2.mp3");
 
-	await waitFor(() => {
-		expect(screen.getByTestId('player-desktop-bar')).toBeTruthy()
-	})
-})
+  await waitFor(() => {
+    expect(screen.getByTestId("player-desktop-bar")).toBeTruthy();
+  });
+});
 
-test('renders mobile mini bar with play and close controls', async () => {
-	await renderPlayer()
+test("renders mobile mini bar with play and close controls", async () => {
+  await renderPlayer();
 
-	const miniBar = screen.getByTestId('player-mini-bar')
-	expect(within(miniBar).getByLabelText('Play')).toBeTruthy()
-	expect(within(miniBar).getByLabelText('Close player')).toBeTruthy()
-	expect(within(miniBar).getByLabelText('Open queue')).toBeTruthy()
-})
+  const miniBar = screen.getByTestId("player-mini-bar");
+  expect(within(miniBar).getByLabelText("Play")).toBeTruthy();
+  expect(within(miniBar).getByLabelText("Close player")).toBeTruthy();
+  expect(within(miniBar).getByLabelText("Open queue")).toBeTruthy();
+});
 
-test('shows controls in the now playing sheet', async () => {
-	const user = userEvent.setup()
-	await renderPlayer()
+test("shows controls in the now playing sheet", async () => {
+  const user = userEvent.setup();
+  await renderPlayer();
 
-	await user.click(screen.getByLabelText('Open now playing'))
+  await user.click(screen.getByLabelText("Open now playing"));
 
-	const sheet = await screen.findByTestId('player-now-playing-sheet')
-	expect(within(sheet).getByLabelText('Shuffle: off')).toBeTruthy()
-	expect(within(sheet).getByLabelText('Loop: off')).toBeTruthy()
-	expect(within(sheet).getByLabelText('Add to playlist')).toBeTruthy()
-	expect(within(sheet).getByLabelText('Sleep timer')).toBeTruthy()
-	expect(within(sheet).getByLabelText('More actions')).toBeTruthy()
-})
+  const sheet = await screen.findByTestId("player-now-playing-sheet");
+  expect(within(sheet).getByLabelText("Shuffle: off")).toBeTruthy();
+  expect(within(sheet).getByLabelText("Loop: off")).toBeTruthy();
+  expect(within(sheet).getByLabelText("Add to playlist")).toBeTruthy();
+  expect(within(sheet).getByLabelText("Sleep timer")).toBeTruthy();
+  expect(within(sheet).getByLabelText("More actions")).toBeTruthy();
+});
 
-test('overflow sheet opens with all action buttons', async () => {
-	const user = userEvent.setup()
-	await renderPlayer()
+test("overflow sheet opens with all action buttons", async () => {
+  const user = userEvent.setup();
+  await renderPlayer();
 
-	await user.click(screen.getByLabelText('Open now playing'))
-	const sheet = await screen.findByTestId('player-now-playing-sheet')
+  await user.click(screen.getByLabelText("Open now playing"));
+  const sheet = await screen.findByTestId("player-now-playing-sheet");
 
-	await user.click(within(sheet).getByLabelText('More actions'))
+  await user.click(within(sheet).getByLabelText("More actions"));
 
-	// Verify all overflow actions are present
-	expect(screen.getByText('Download')).toBeTruthy()
-	expect(screen.getByText('Play Next')).toBeTruthy()
-	expect(screen.getByText('Add to Up Next')).toBeTruthy()
-	expect(screen.getByText('Add to Queue')).toBeTruthy()
-	expect(screen.getByText('Track Details')).toBeTruthy()
-})
+  // Verify all overflow actions are present
+  expect(screen.getByText("Download")).toBeTruthy();
+  expect(screen.getByText("Play Next")).toBeTruthy();
+  expect(screen.getByText("Add to Up Next")).toBeTruthy();
+  expect(screen.getByText("Add to Queue")).toBeTruthy();
+  expect(screen.getByText("Track Details")).toBeTruthy();
+});
 
-test('overflow sheet Play Next calls playNextTrack with toast', async () => {
-	const { playNextTrack } = useAudioPlayer()
-	const user = userEvent.setup()
-	await renderPlayer()
+test("overflow sheet Play Next calls playNextTrack with toast", async () => {
+  const { playNextTrack } = useAudioPlayer();
+  const user = userEvent.setup();
+  await renderPlayer();
 
-	await user.click(screen.getByLabelText('Open now playing'))
-	const sheet = await screen.findByTestId('player-now-playing-sheet')
+  await user.click(screen.getByLabelText("Open now playing"));
+  const sheet = await screen.findByTestId("player-now-playing-sheet");
 
-	await user.click(within(sheet).getByLabelText('More actions'))
-	await user.click(screen.getByText('Play Next'))
+  await user.click(within(sheet).getByLabelText("More actions"));
+  await user.click(screen.getByText("Play Next"));
 
-	expect(playNextTrack).toHaveBeenCalled()
-	expect(toast).toHaveBeenCalledWith(
-		expect.objectContaining({
-			title: 'Success',
-			description: expect.stringContaining('will play next'),
-		}),
-	)
-})
+  expect(playNextTrack).toHaveBeenCalled();
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({
+      title: "Success",
+      description: expect.stringContaining("will play next"),
+    }),
+  );
+});
 
-test('overflow sheet Add to Up Next calls addToUpNext with toast', async () => {
-	const { addToUpNext } = useAudioPlayer()
-	const user = userEvent.setup()
-	await renderPlayer()
+test("overflow sheet Add to Up Next calls addToUpNext with toast", async () => {
+  const { addToUpNext } = useAudioPlayer();
+  const user = userEvent.setup();
+  await renderPlayer();
 
-	await user.click(screen.getByLabelText('Open now playing'))
-	const sheet = await screen.findByTestId('player-now-playing-sheet')
+  await user.click(screen.getByLabelText("Open now playing"));
+  const sheet = await screen.findByTestId("player-now-playing-sheet");
 
-	await user.click(within(sheet).getByLabelText('More actions'))
-	await user.click(screen.getByText('Add to Up Next'))
+  await user.click(within(sheet).getByLabelText("More actions"));
+  await user.click(screen.getByText("Add to Up Next"));
 
-	expect(addToUpNext).toHaveBeenCalled()
-	expect(toast).toHaveBeenCalledWith(
-		expect.objectContaining({
-			title: 'Success',
-			description: expect.stringContaining('added to up next'),
-		}),
-	)
-})
+  expect(addToUpNext).toHaveBeenCalled();
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({
+      title: "Success",
+      description: expect.stringContaining("added to up next"),
+    }),
+  );
+});
 
-test('overflow sheet Add to Queue calls addToQueue with toast', async () => {
-	const { addToQueue } = useAudioPlayer()
-	const user = userEvent.setup()
-	await renderPlayer()
+test("overflow sheet Add to Queue calls addToQueue with toast", async () => {
+  const { addToQueue } = useAudioPlayer();
+  const user = userEvent.setup();
+  await renderPlayer();
 
-	await user.click(screen.getByLabelText('Open now playing'))
-	const sheet = await screen.findByTestId('player-now-playing-sheet')
+  await user.click(screen.getByLabelText("Open now playing"));
+  const sheet = await screen.findByTestId("player-now-playing-sheet");
 
-	await user.click(within(sheet).getByLabelText('More actions'))
-	await user.click(screen.getByText('Add to Queue'))
+  await user.click(within(sheet).getByLabelText("More actions"));
+  await user.click(screen.getByText("Add to Queue"));
 
-	expect(addToQueue).toHaveBeenCalled()
-	expect(toast).toHaveBeenCalledWith(
-		expect.objectContaining({
-			title: 'Success',
-			description: expect.stringContaining('added to queue'),
-		}),
-	)
-})
+  expect(addToQueue).toHaveBeenCalled();
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({
+      title: "Success",
+      description: expect.stringContaining("added to queue"),
+    }),
+  );
+});
 
-test('renders desktop bar with volume and transport controls', async () => {
-	await renderPlayer()
+test("renders desktop bar with volume and transport controls", async () => {
+  await renderPlayer();
 
-	const desktopBar = screen.getByTestId('player-desktop-bar')
-	expect(within(desktopBar).getByLabelText('Volume')).toBeTruthy()
-	expect(within(desktopBar).getByLabelText('Next track')).toBeTruthy()
-	expect(within(desktopBar).getByLabelText('Shuffle: off')).toBeTruthy()
-})
+  const desktopBar = screen.getByTestId("player-desktop-bar");
+  expect(within(desktopBar).getByLabelText("Volume")).toBeTruthy();
+  expect(within(desktopBar).getByLabelText("Next track")).toBeTruthy();
+  expect(within(desktopBar).getByLabelText("Shuffle: off")).toBeTruthy();
+});
 
-test('swipe left on mini-bar triggers onNext', async () => {
-	const onNext = vi.fn()
-	await renderPlayer({ onNext, hasNext: true })
+test("swipe left on mini-bar triggers onNext", async () => {
+  const onNext = vi.fn();
+  await renderPlayer({ onNext, hasNext: true });
 
-	expect(swipeMocks.onSwipeLeft).not.toBeNull()
-	swipeMocks.onSwipeLeft!()
+  expect(swipeMocks.onSwipeLeft).not.toBeNull();
+  swipeMocks.onSwipeLeft!();
 
-	expect(onNext).toHaveBeenCalledOnce()
-})
+  expect(onNext).toHaveBeenCalledOnce();
+});
 
-test('swipe right on mini-bar triggers onPrevious', async () => {
-	const onPrevious = vi.fn()
-	await renderPlayer({ onPrevious, hasPrevious: true })
+test("swipe right on mini-bar triggers onPrevious", async () => {
+  const onPrevious = vi.fn();
+  await renderPlayer({ onPrevious, hasPrevious: true });
 
-	expect(swipeMocks.onSwipeRight).not.toBeNull()
-	swipeMocks.onSwipeRight!()
+  expect(swipeMocks.onSwipeRight).not.toBeNull();
+  swipeMocks.onSwipeRight!();
 
-	expect(onPrevious).toHaveBeenCalledOnce()
-})
+  expect(onPrevious).toHaveBeenCalledOnce();
+});
 
-test('swipe callbacks are not wired when hasNext and hasPrevious are both false', async () => {
-	await renderPlayer({ hasNext: false, hasPrevious: false })
+test("swipe callbacks are not wired when hasNext and hasPrevious are both false", async () => {
+  await renderPlayer({ hasNext: false, hasPrevious: false });
 
-	expect(swipeMocks.onSwipeLeft).toBeNull()
-	expect(swipeMocks.onSwipeRight).toBeNull()
-})
+  expect(swipeMocks.onSwipeLeft).toBeNull();
+  expect(swipeMocks.onSwipeRight).toBeNull();
+});

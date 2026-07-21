@@ -41,9 +41,9 @@ test.describe("Global Search", () => {
 
     // Results or no-results state should appear — wait for any search response
     // The search page should no longer show the empty state
-    await expect(
-      page.getByText(/search for tracks, albums, artists/i),
-    ).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/search for tracks, albums, artists/i)).not.toBeVisible({
+      timeout: 15000,
+    });
   });
 
   test("search page shows empty state when no query", async ({ page, loginAsAdmin }) => {

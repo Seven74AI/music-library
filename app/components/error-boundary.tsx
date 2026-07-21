@@ -1,57 +1,50 @@
-import { useEffect, type ReactElement } from 'react'
-import {
-	type ErrorResponse,
-	isRouteErrorResponse,
-	useParams,
-	useRouteError,
-} from 'react-router'
-import { getErrorMessage } from '#app/utils/misc'
+import { useEffect, type ReactElement } from "react";
+import { type ErrorResponse, isRouteErrorResponse, useParams, useRouteError } from "react-router";
+import { getErrorMessage } from "#app/utils/misc";
 
 export type StatusHandler = (info: {
-	error: ErrorResponse
-	params: Record<string, string | undefined>
-}) => ReactElement | null
+  error: ErrorResponse;
+  params: Record<string, string | undefined>;
+}) => ReactElement | null;
 
 export function GeneralErrorBoundary({
-	defaultStatusHandler = ({ error }) => (
-		<p>
-			{error.status} {error.data}
-		</p>
-	),
-	statusHandlers,
-	unexpectedErrorHandler = (error) => <p>{getErrorMessage(error)}</p>,
+  defaultStatusHandler = ({ error }) => (
+    <p>
+      {error.status} {error.data}
+    </p>
+  ),
+  statusHandlers,
+  unexpectedErrorHandler = (error) => <p>{getErrorMessage(error)}</p>,
 }: {
-	defaultStatusHandler?: StatusHandler
-	statusHandlers?: Record<number, StatusHandler>
-	unexpectedErrorHandler?: (error: unknown) => ReactElement | null
+  defaultStatusHandler?: StatusHandler;
+  statusHandlers?: Record<number, StatusHandler>;
+  unexpectedErrorHandler?: (error: unknown) => ReactElement | null;
 }) {
-	const error = useRouteError()
-	const params = useParams()
-	const isResponse = isRouteErrorResponse(error)
+  const error = useRouteError();
+  const params = useParams();
+  const isResponse = isRouteErrorResponse(error);
 
-	if (typeof document !== 'undefined') {
-		console.error(error)
-	}
+  if (typeof document !== "undefined") {
+    console.error(error);
+  }
 
-	useEffect(() => {
-		if (isResponse) return
+  useEffect(() => {
+    if (isResponse) return;
 
-		// Sentry client-side error capture — gated on ENV.MODE + ENV.SENTRY_DSN at runtime
-		if (ENV.MODE === 'production' && ENV.SENTRY_DSN) {
-			void import('@sentry/react-router').then(
-				(Sentry) => Sentry.captureException(error),
-			)
-		}
-	}, [error, isResponse])
+    // Sentry client-side error capture — gated on ENV.MODE + ENV.SENTRY_DSN at runtime
+    if (ENV.MODE === "production" && ENV.SENTRY_DSN) {
+      void import("@sentry/react-router").then((Sentry) => Sentry.captureException(error));
+    }
+  }, [error, isResponse]);
 
-	return (
-		<div className="text-h2 container flex items-center justify-center p-20">
-			{isResponse
-				? (statusHandlers?.[error.status] ?? defaultStatusHandler)({
-						error,
-						params,
-					})
-				: unexpectedErrorHandler(error)}
-		</div>
-	)
+  return (
+    <div className="text-h2 container flex items-center justify-center p-20">
+      {isResponse
+        ? (statusHandlers?.[error.status] ?? defaultStatusHandler)({
+            error,
+            params,
+          })
+        : unexpectedErrorHandler(error)}
+    </div>
+  );
 }

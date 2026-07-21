@@ -17,39 +17,44 @@
 ## Local Development Setup
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd music-library
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
 
 3. **Set up environment variables**
    Create a `.env` file in the root directory with the following variables:
+
    ```bash
    # Required for local development
    SESSION_SECRET=your-session-secret-here
    HONEYPOT_SECRET=your-honeypot-secret-here
    SITE_URL=http://localhost:3000
-   
+
    # YouTube Integration (optional for local dev)
    YOUTUBE_API_KEY=your-youtube-api-key
    GOOGLE_CLIENT_ID=your-google-client-id
    GOOGLE_CLIENT_SECRET=your-google-client-secret
-   
+
    # Email (optional for local dev)
    RESEND_API_KEY=your-resend-api-key
    ```
 
 4. **Set up the database**
+
    ```bash
    npm run setup
    ```
 
    To reset and reseed from scratch:
+
    ```bash
    npm run db:reset   # migrations + generate (runs seed if configured)
    npm run db:seed    # seed only
@@ -60,13 +65,14 @@
    **Dev login** (after seed): `kody` / `kodylovesyou`
 
 5. **Start the development server**
+
    ```bash
    # With mocks enabled (recommended for development)
    npm run dev
-   
+
    # With YouTube mocks enabled
    npm run dev:youtube-mocks
-   
+
    # Without mocks (requires real API keys)
    npm run dev:no-mocks
    ```
@@ -113,6 +119,7 @@ npm run test:e2e:install
 ### 1. Fly.io Setup
 
 1. **Sign up for Fly.io**
+
    ```bash
    fly auth signup
    ```
@@ -128,6 +135,7 @@ npm run test:e2e:install
 Set the following secrets for both production and staging apps:
 
 **Required secrets:**
+
 - `SESSION_SECRET` - Session encryption key
 - `HONEYPOT_SECRET` - Form spam protection
 - `RESEND_API_KEY` - Email service API key
@@ -137,6 +145,7 @@ Set the following secrets for both production and staging apps:
 - `YOUTUBE_API_KEY` - YouTube Data API key
 
 **Set secrets:**
+
 ```bash
 # Generate random secrets
 fly secrets set SESSION_SECRET=$(openssl rand -hex 32) HONEYPOT_SECRET=$(openssl rand -hex 32) --app [APP_NAME]
@@ -163,6 +172,7 @@ fly secrets set RESEND_API_KEY=your-resend-key --app [APP_NAME]-staging
 ### 3. Additional Configuration
 
 **Prevent search engine indexing on staging:**
+
 ```bash
 fly secrets set ALLOW_INDEXING=false --app [APP_NAME]-staging
 ```
@@ -170,6 +180,7 @@ fly secrets set ALLOW_INDEXING=false --app [APP_NAME]-staging
 ### 4. Database Setup
 
 **Create persistent volumes:**
+
 ```bash
 # Production (2 volumes for redundancy)
 fly volumes create data --region cdg --size 1 --count=2 --app [APP_NAME]
@@ -181,12 +192,14 @@ fly volumes create data --region cdg --size 1 --app [APP_NAME]-staging
 ### 5. External Services
 
 **Setup Consul for service discovery:**
+
 ```bash
 fly consul attach --app [APP_NAME]
 fly consul attach --app [APP_NAME]-staging
 ```
 
 **Setup Tigris for file storage:**
+
 ```bash
 fly storage create --app [APP_NAME]
 fly storage create --app [APP_NAME]-staging
@@ -202,12 +215,12 @@ fly deploy --app [APP_NAME]
 fly deploy --app [APP_NAME]-staging
 ```
 
-
 ## YouTube Playlist Integration
 
 This music library application includes YouTube playlist integration features:
 
 ### Features
+
 - **List YouTube Playlists**: View all your YouTube playlists in one place
 - **Sync Playlists**: Connect your YouTube account and sync your playlists
 - **Store Playlist Data**: Save synced playlist metadata in the server database (not device-local PWA storage)
@@ -220,6 +233,7 @@ This music library application includes YouTube playlist integration features:
 - **OAuth Integration**: Secure authentication with YouTube using OAuth 2.0
 
 ### YouTube API Setup
+
 To enable YouTube playlist features, you'll need to:
 
 1. **Create a YouTube Data API project** in the [Google Cloud Console](https://console.cloud.google.com/)
@@ -231,6 +245,7 @@ To enable YouTube playlist features, you'll need to:
    - For staging: `https://your-staging-domain.com/auth/callback/google`
 
 ### Environment Variables
+
 Set the following environment variables (see Local Development Setup section above):
 
 ```bash
@@ -241,6 +256,7 @@ SITE_URL=http://localhost:3000  # or your production URL
 ```
 
 ### Usage
+
 1. Navigate to `/music/services/youtube/playlists` in the application
 2. Click "Connect YouTube Account" to authenticate
 3. Your playlists will be automatically synced
@@ -261,10 +277,10 @@ Music Library is a **Progressive Web App** — installable on iOS Safari and And
 
 ### Terminology
 
-| Term | Meaning |
-|------|---------|
-| **Archived Audio** | Server-side copy in Tigris after the archive worker runs. Playable online via presigned URLs. |
-| **Cached Playback** | Device-local copy in OPFS + IndexedDB. Playable with no network. |
+| Term                | Meaning                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| **Archived Audio**  | Server-side copy in Tigris after the archive worker runs. Playable online via presigned URLs. |
+| **Cached Playback** | Device-local copy in OPFS + IndexedDB. Playable with no network.                              |
 
 ### Features
 
@@ -287,6 +303,7 @@ See `docs/CONTEXT.md` (PWA glossary, decisions #42–#57) and [ADR-013](./docs/d
 The application includes a background worker that automatically downloads YouTube audio and stores it server-side in Tigris (**archived audio** — not the same as device PWA downloads).
 
 ### Features
+
 - **Automatic Archiving**: Tracks imported from YouTube are automatically enqueued for audio download
 - **Background Worker**: Queue-based system processes downloads with configurable concurrency
 - **Metadata Backfill**: Duration, title, artist, album, genre and more are extracted from the downloaded audio file and written to the track
@@ -298,6 +315,7 @@ The application includes a background worker that automatically downloads YouTub
 - **Retry Logic**: Retriable errors re-queued up to 3 attempts; non-retriable errors fail permanently
 
 ### How It Works
+
 1. When a YouTube track is imported, an `ArchiveJob` record is created automatically
 2. The background worker polls the queue at `AUDIO_ARCHIVE_INTERVAL_MS`
 3. Pending jobs are picked up (priority first, then oldest)
@@ -308,19 +326,23 @@ The application includes a background worker that automatically downloads YouTub
 8. On failure, errors are categorized and either retried or permanently failed
 
 ### Configuration
+
 Enable audio archiving by setting the environment variables in the [Environment Variables Reference](#environment-variables-reference) section.
 
 ### Cookie Management
+
 For authenticated downloads (age-restricted or bot-protected content), upload a YouTube cookies file at `/admin/youtube-cookies`. Set `COOKIE_FILE_PATH` to the file location. When cookies expire, all YouTube cookie records are automatically invalidated and the admin is notified via Telegram.
 
 ## Environment Variables Reference
 
 ### Required Variables
+
 - `SESSION_SECRET` - Random string for session encryption (generate with `openssl rand -hex 32`)
 - `HONEYPOT_SECRET` - Random string for form spam protection (generate with `openssl rand -hex 32`)
 - `SITE_URL` - Your application URL (e.g., `http://localhost:3000` for local dev)
 
 ### Optional Variables
+
 - `YOUTUBE_API_KEY` - YouTube Data API key for playlist integration
 - `GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
@@ -340,6 +362,7 @@ This project uses SQLite with Prisma ORM. The database is automatically set up w
 For intentionally wiping the production database and storage during development, see [docs/PRODUCTION_RESET_FOR_DEV.md](./docs/PRODUCTION_RESET_FOR_DEV.md).
 
 ### Database Commands
+
 ```bash
 # Run database migrations
 npx prisma migrate deploy

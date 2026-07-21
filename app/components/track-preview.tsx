@@ -1,58 +1,73 @@
-import { Link } from 'react-router'
-import { TrackThumbnail } from '#app/components/track-thumbnail'
-import { Alert, AlertDescription } from '#app/components/ui/alert'
-import { Badge } from '#app/components/ui/badge.tsx'
-import { Button } from '#app/components/ui/button.tsx'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#app/components/ui/card.tsx'
-import { Icon } from '#app/components/ui/icon.tsx'
-import { formatDuration } from '#app/utils/format-duration.ts'
+import { Link } from "react-router";
+import { TrackThumbnail } from "#app/components/track-thumbnail";
+import { Alert, AlertDescription } from "#app/components/ui/alert";
+import { Badge } from "#app/components/ui/badge.tsx";
+import { Button } from "#app/components/ui/button.tsx";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "#app/components/ui/card.tsx";
+import { Icon } from "#app/components/ui/icon.tsx";
+import { formatDuration } from "#app/utils/format-duration.ts";
 
 // Constants for icon names
 const ICONS = {
-  CHECK_CIRCLED: 'check-circled',
-  MAGNIFYING_GLASS: 'magnifying-glass',
-  FILE_TEXT: 'file-text',
-  CLOCK: 'clock',
-  CALENDAR: 'calendar',
-  QUESTION_MARK_CIRCLED: 'question-mark-circled',
-  CROSS_1: 'cross-1',
-  EYE_OPEN: 'eye-open',
-  UPDATE: 'update',
-  PLUS: 'plus',
-} as const
+  CHECK_CIRCLED: "check-circled",
+  MAGNIFYING_GLASS: "magnifying-glass",
+  FILE_TEXT: "file-text",
+  CLOCK: "clock",
+  CALENDAR: "calendar",
+  QUESTION_MARK_CIRCLED: "question-mark-circled",
+  CROSS_1: "cross-1",
+  EYE_OPEN: "eye-open",
+  UPDATE: "update",
+  PLUS: "plus",
+} as const;
 
 // Helper function for date formatting
 function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString()
+  return new Date(dateString).toLocaleDateString();
 }
 
 interface TrackPreviewData {
-  id: string
-  title: string
-  artist: { id: string; name: string }
-  duration: number
-  coverImage: { objectKey: string } | null
-  serviceUrl: string
-  publishedAt: string
-  serviceName: string
+  id: string;
+  title: string;
+  artist: { id: string; name: string };
+  duration: number;
+  coverImage: { objectKey: string } | null;
+  serviceUrl: string;
+  publishedAt: string;
+  serviceName: string;
 }
 
 interface TrackPreviewProps {
-  track: TrackPreviewData
-  isImporting?: boolean
-  error?: string
-  alreadyExists?: boolean
-  existingTrackId?: string
+  track: TrackPreviewData;
+  isImporting?: boolean;
+  error?: string;
+  alreadyExists?: boolean;
+  existingTrackId?: string;
 }
 
-export function TrackPreview({ track, isImporting = false, error, alreadyExists = false, existingTrackId }: TrackPreviewProps) {
+export function TrackPreview({
+  track,
+  isImporting = false,
+  error,
+  alreadyExists = false,
+  existingTrackId,
+}: TrackPreviewProps) {
   // Computed values for conditional logic
-  const statusIcon = alreadyExists ? ICONS.CHECK_CIRCLED : ICONS.MAGNIFYING_GLASS
-  const statusIconColor = alreadyExists ? "text-green-600 dark:text-green-400" : "text-muted-foreground"
-  const title = alreadyExists ? "Track Already in Library" : "Preview Track"
-  const description = alreadyExists 
+  const statusIcon = alreadyExists ? ICONS.CHECK_CIRCLED : ICONS.MAGNIFYING_GLASS;
+  const statusIconColor = alreadyExists
+    ? "text-green-600 dark:text-green-400"
+    : "text-muted-foreground";
+  const title = alreadyExists ? "Track Already in Library" : "Preview Track";
+  const description = alreadyExists
     ? "This track is already in your library. You can view it or continue browsing."
-    : "Review the track details before adding it to your library"
+    : "Review the track details before adding it to your library";
 
   return (
     <Card className="w-full max-w-2xl mx-auto">
@@ -63,27 +78,27 @@ export function TrackPreview({ track, isImporting = false, error, alreadyExists 
         </div>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      
+
       <CardContent className="space-y-6">
         {/* Track Info */}
         <div className="flex gap-4">
           {/* Thumbnail */}
           <div className="flex-shrink-0">
-            <TrackThumbnail 
+            <TrackThumbnail
               coverImage={track.coverImage}
               alt={`${track.title} thumbnail`}
               size="lg"
               className="rounded-lg"
             />
           </div>
-          
+
           {/* Track Details */}
           <div className="flex-1 space-y-2">
             <div>
               <h3 className="text-lg font-semibold line-clamp-2">{track.title}</h3>
               <p className="text-muted-foreground">{track.artist.name}</p>
             </div>
-            
+
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-1">
                 <Icon name={ICONS.CLOCK} className="h-4 w-4" />
@@ -94,7 +109,7 @@ export function TrackPreview({ track, isImporting = false, error, alreadyExists 
                 <span>{formatDate(track.publishedAt)}</span>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="text-xs">
                 {track.serviceName}
@@ -122,36 +137,23 @@ export function TrackPreview({ track, isImporting = false, error, alreadyExists 
           </Alert>
         )}
       </CardContent>
-      
+
       <CardFooter className="flex justify-between">
         {/* Cancel button - works without JavaScript */}
-        <Button
-          type="submit"
-          form="cancel-form"
-          variant="outline"
-          disabled={isImporting}
-        >
+        <Button type="submit" form="cancel-form" variant="outline" disabled={isImporting}>
           <Icon name={ICONS.CROSS_1} className="mr-2 h-4 w-4" />
           Cancel
         </Button>
 
         {alreadyExists ? (
-          <Button
-            type="button"
-            variant="default"
-            asChild
-          >
+          <Button type="button" variant="default" asChild>
             <Link to={`/library/${existingTrackId}`}>
               <Icon name={ICONS.EYE_OPEN} className="mr-2 h-4 w-4" />
               View Track
             </Link>
           </Button>
         ) : (
-          <Button
-            type="submit"
-            form="preview-form"
-            disabled={isImporting}
-          >
+          <Button type="submit" form="preview-form" disabled={isImporting}>
             {isImporting ? (
               <>
                 <Icon name={ICONS.UPDATE} className="mr-2 h-4 w-4 animate-spin" />
@@ -167,5 +169,5 @@ export function TrackPreview({ track, isImporting = false, error, alreadyExists 
         )}
       </CardFooter>
     </Card>
-  )
+  );
 }

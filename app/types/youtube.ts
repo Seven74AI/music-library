@@ -1,13 +1,13 @@
-import { z } from 'zod'
+import { z } from "zod";
 
 /**
  * YouTube OAuth Types
- * 
+ *
  * This file contains OAuth-related types for YouTube integration.
  * These types are actively used for OAuth token handling and validation.
- * 
+ *
  * API response types are in app/types/youtube-api.ts for separation of concerns.
- * 
+ *
  * @see {@link ./youtube-api.ts} for YouTube API types and schemas
  */
 
@@ -19,7 +19,7 @@ export const YouTubeTokenDataSchema = z.object({
   scope: z.string().optional(),
   token_type: z.string().optional(),
   youtubeUserId: z.string().optional(),
-})
+});
 
 // YouTube OAuth token types (inferred from Zod schema)
-export type YouTubeTokenData = z.infer<typeof YouTubeTokenDataSchema>
+export type YouTubeTokenData = z.infer<typeof YouTubeTokenDataSchema>;

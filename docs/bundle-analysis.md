@@ -4,30 +4,30 @@
 
 ## Summary
 
-| Metric | Value |
-|--------|-------|
-| Client JS chunks | 127 |
-| Client JS raw size | 1,022KB |
-| Client JS gzip size | 337KB |
-| Client CSS (Tailwind) | 82KB raw |
+| Metric                                           | Value       |
+| ------------------------------------------------ | ----------- |
+| Client JS chunks                                 | 127         |
+| Client JS raw size                               | 1,022KB     |
+| Client JS gzip size                              | 337KB       |
+| Client CSS (Tailwind)                            | 82KB raw    |
 | Client assets total (incl. CSS, favicons, logos) | 1,780KB raw |
-| Server build | 1,232KB |
-| 1-byte stubs (empty chunks) | 28 |
+| Server build                                     | 1,232KB     |
+| 1-byte stubs (empty chunks)                      | 28          |
 
 ## Top-10 Largest Client Chunks
 
-| # | Chunk | Raw | Gzip | Ratio | Category |
-|---|-------|-----|------|-------|----------|
-| 1 | entry.client-*.js | 183KB | 58KB | 3.2x | Entry point (React hydration + Sentry + browser utils) |
-| 2 | chunk-QUQL4437-*.js | 128KB | 43KB | 3.0x | React + React Router + React DOM shared runtime |
-| 3 | dropdown-menu-*.js | 64KB | 19KB | 3.4x | Radix UI dropdown menu |
-| 4 | playlists._playlistId-*.js | 60KB | 20KB | 3.0x | Playlist detail route |
-| 5 | types-*.js | 55KB | 13KB | 4.2x | **Zod runtime library** (entire lib, not just used schemas) |
-| 6 | manifest-*.js | 46KB | 4KB | 11.5x | PWA manifest (highly compressible JSON) |
-| 7 | root-*.js | 41KB | 14KB | 2.9x | Root layout (CSP nonce, Sentry, nav, footer) |
-| 8 | misc-*.js | 31KB | 10KB | 3.1x | Shared utilities + openimg component |
-| 9 | parse-*.js | 28KB | 9KB | 3.1x | Parsing utilities (music-metadata, etc.) |
-| 10 | index-CBtDYfjo.js | 26KB | 10KB | 2.6x | Index route page |
+| #   | Chunk                      | Raw   | Gzip | Ratio | Category                                                    |
+| --- | -------------------------- | ----- | ---- | ----- | ----------------------------------------------------------- |
+| 1   | entry.client-*.js          | 183KB | 58KB | 3.2x  | Entry point (React hydration + Sentry + browser utils)      |
+| 2   | chunk-QUQL4437-*.js        | 128KB | 43KB | 3.0x  | React + React Router + React DOM shared runtime             |
+| 3   | dropdown-menu-*.js         | 64KB  | 19KB | 3.4x  | Radix UI dropdown menu                                      |
+| 4   | playlists._playlistId-*.js | 60KB  | 20KB | 3.0x  | Playlist detail route                                       |
+| 5   | types-*.js                 | 55KB  | 13KB | 4.2x  | **Zod runtime library** (entire lib, not just used schemas) |
+| 6   | manifest-*.js              | 46KB  | 4KB  | 11.5x | PWA manifest (highly compressible JSON)                     |
+| 7   | root-*.js                  | 41KB  | 14KB | 2.9x  | Root layout (CSP nonce, Sentry, nav, footer)                |
+| 8   | misc-*.js                  | 31KB  | 10KB | 3.1x  | Shared utilities + openimg component                        |
+| 9   | parse-*.js                 | 28KB  | 9KB  | 3.1x  | Parsing utilities (music-metadata, etc.)                    |
+| 10  | index-CBtDYfjo.js          | 26KB  | 10KB | 2.6x  | Index route page                                            |
 
 **Top 10 total:** 662KB raw / 197KB gzip — accounts for 65% raw / 58% gzip of client JS.
 
@@ -37,13 +37,14 @@
 
 The `types-uPG8Ai6Y.js` chunk is the **entire Zod v3 runtime library** — all validators (string, number, date, bigint, map, set, function, promise, discriminated union), all string format checks (email, UUID, CIDR, emoji, ISO 8601, IP, JWT, base64), all error message strings (dozens of hardcoded English messages), and the full ZodError implementation.
 
-**Only the schema *definitions* (`.object()`, `.string()`, etc.) are used at runtime.** The validators, error formatters, and exotic types (bigint, map, set, function, NaN, promise) are dead code in the client bundle. Zod's tree-shaking is poor because all methods are defined on class prototypes — tree-shakers can't eliminate unused methods on a class.
+**Only the schema _definitions_ (`.object()`, `.string()`, etc.) are used at runtime.** The validators, error formatters, and exotic types (bigint, map, set, function, NaN, promise) are dead code in the client bundle. Zod's tree-shaking is poor because all methods are defined on class prototypes — tree-shakers can't eliminate unused methods on a class.
 
 **Recommendation:** Replace Zod with a lightweight alternative for client-side validation, or use `@conform-to/zod` (already a dependency) which has better tree-shaking. Alternatively, use Zod's `.passthrough()`/`.strip()` only on the server and send pre-validated data to the client.
 
 ### 2. 28 Empty Stub Chunks: 28KB overhead
 
 28 routes produce 1-byte stub chunks (robots.txt, sitemap.xml, theme-switch, upload-audio-batch, service-playlist-tracks, etc.). These are `loader`-only routes or resource routes that don't render client components. Each 1-byte chunk still adds:
+
 - A `<link rel="modulepreload">` in the HTML (network round-trip overhead)
 - A separate HTTP request (or HTTP/2 push)
 - Entry in the Vite manifest
@@ -53,6 +54,7 @@ The `types-uPG8Ai6Y.js` chunk is the **entire Zod v3 runtime library** — all v
 ### 3. Radix UI: ~180KB across 10+ chunks
 
 Radix UI primitives are individually chunked but share internal Radix primitives:
+
 - dropdown-menu: 64KB
 - select: 20KB
 - tooltip: 11KB
@@ -82,15 +84,15 @@ The `parse-0e5H-Cba.js` chunk includes music metadata parsing utilities. This sh
 
 ## Tree-Shaking & Lazy-Loading Opportunities
 
-| Opportunity | Est. Savings (gzip) | Effort | Priority |
-|-------------|---------------------|--------|----------|
-| Replace Zod with lighter alternative or server-only | 30-40KB | Medium | HIGH |
-| Eliminate 28 empty stub chunks | 5-10KB overhead | Low | HIGH |
-| Lazy-load Radix dropdown-menu + select | 25-30KB | Low | MEDIUM |
-| Lazy-load openimg component | 8-12KB | Low | MEDIUM |
-| Dynamic Sentry import (only when DSN present) | 10-15KB | Low | MEDIUM |
-| Move music-metadata to upload route | 8-12KB | Low | LOW |
-| Lazy-load other Radix primitives | 10-15KB | Low | LOW |
+| Opportunity                                         | Est. Savings (gzip) | Effort | Priority |
+| --------------------------------------------------- | ------------------- | ------ | -------- |
+| Replace Zod with lighter alternative or server-only | 30-40KB             | Medium | HIGH     |
+| Eliminate 28 empty stub chunks                      | 5-10KB overhead     | Low    | HIGH     |
+| Lazy-load Radix dropdown-menu + select              | 25-30KB             | Low    | MEDIUM   |
+| Lazy-load openimg component                         | 8-12KB              | Low    | MEDIUM   |
+| Dynamic Sentry import (only when DSN present)       | 10-15KB             | Low    | MEDIUM   |
+| Move music-metadata to upload route                 | 8-12KB              | Low    | LOW      |
+| Lazy-load other Radix primitives                    | 10-15KB             | Low    | LOW      |
 
 **Total potential savings:** 96-134KB gzip (~28-40% reduction from 337KB baseline).
 

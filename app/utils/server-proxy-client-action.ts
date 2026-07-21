@@ -3,9 +3,9 @@
  * Delegates to the server action while preserving return type.
  */
 export async function proxyClientActionToServer<T>({
-	serverAction,
+  serverAction,
 }: {
-	serverAction: () => Promise<T>
+  serverAction: () => Promise<T>;
 }): Promise<T> {
-	return serverAction()
+  return serverAction();
 }

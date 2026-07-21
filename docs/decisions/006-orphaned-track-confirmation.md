@@ -1,6 +1,7 @@
 # ADR-006: Orphaned Track Confirmation for Deleted Videos
 
 ## Status
+
 Accepted
 
 ## Context
@@ -14,6 +15,7 @@ The previous implementation (ADR-005) used position-based matching to find exist
 3. **Incorrect matches**: Position-based matching can match deleted videos to the wrong tracks when positions don't align
 
 This led to:
+
 - Loss of original track data when positions changed
 - Incorrect matches between deleted videos and existing tracks
 - User confusion when track titles don't match expectations
@@ -40,6 +42,7 @@ We replaced position-based matching with a confirmation system that:
 ### Orphaned Track Detection
 
 Orphaned tracks are identified as:
+
 - Tracks in the `ServicePlaylistTrack` table for this playlist
 - NOT in `processedExternalIds` or `processedTrackIds` (not processed in current sync)
 - NOT already deleted (`isDeleted === false`) - Edge Case 9
@@ -110,11 +113,3 @@ Orphaned tracks are identified as:
 - ADR-005: Track Deleted YouTube Videos with Original Titles
 - [MDN: HTMLMediaElement.seeking](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/seeking)
 - [MDN: HTMLMediaElement.readyState](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/readyState)
-
-
-
-
-
-
-
-

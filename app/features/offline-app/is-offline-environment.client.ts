@@ -1,1 +1,1 @@
-export { isOfflineEnvironment } from './is-offline-environment.ts'
+export { isOfflineEnvironment } from "./is-offline-environment.ts";

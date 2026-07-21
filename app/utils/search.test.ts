@@ -4,7 +4,13 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { searchAlbums, searchAll, searchArtists, searchPlaylists, searchTracks } from "#app/utils/search.server.ts";
+import {
+  searchAlbums,
+  searchAll,
+  searchArtists,
+  searchPlaylists,
+  searchTracks,
+} from "#app/utils/search.server.ts";
 
 describe("Search Utilities", () => {
   beforeEach(async () => {
