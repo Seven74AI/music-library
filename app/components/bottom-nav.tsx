@@ -21,10 +21,6 @@ export function BottomNav() {
   const handleSearchClick = (e: React.MouseEvent) => {
     e.preventDefault();
     void navigate("/search");
-    // Focus the search input after the SPA navigation commits
-    setTimeout(() => {
-      document.querySelector<HTMLInputElement>('input[name="q"]')?.focus();
-    }, 0);
   };
 
   return (
