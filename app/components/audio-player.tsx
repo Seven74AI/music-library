@@ -481,7 +481,7 @@ function PlayerNowPlayingSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          className="flex max-h-[85vh] flex-col gap-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+          className="flex max-h-[85vh] flex-col gap-6"
           data-testid="player-now-playing-sheet"
         >
           <SheetHeader className="flex-shrink-0 text-left">
@@ -550,7 +550,7 @@ function PlayerNowPlayingSheet({
               </SheetTrigger>
               <SheetContent
                 side="bottom"
-                className="flex max-h-[60vh] flex-col pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+                className="flex max-h-[60vh] flex-col"
                 onOpenAutoFocus={(e) => e.preventDefault()}
               >
                 <SheetHeader className="text-left flex-shrink-0">
@@ -583,10 +583,7 @@ function PlayerNowPlayingSheet({
       </Sheet>
 
       <Sheet open={isOverflowOpen} onOpenChange={setIsOverflowOpen}>
-        <SheetContent
-          side="bottom"
-          className="flex flex-col gap-2 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-        >
+        <SheetContent side="bottom" className="flex flex-col gap-2">
           <SheetHeader className="text-left">
             <SheetTitle>Track actions</SheetTitle>
             <SheetDescription className="sr-only">
