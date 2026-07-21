@@ -628,6 +628,7 @@ export const TrackListItem = memo(function TrackListItem({
             <SheetContent
               side="bottom"
               className="h-[80vh]"
+              onPointerDownOutside={handlePointerDownOutside}
               onPointerDown={handleMenuPointerDown}
               onClick={handleMenuClick}
             >
@@ -650,6 +651,7 @@ export const TrackListItem = memo(function TrackListItem({
             <SheetContent
               side="bottom"
               className="h-[80vh]"
+              onPointerDownOutside={handlePointerDownOutside}
               onPointerDown={handleMenuPointerDown}
               onClick={handleMenuClick}
             >
