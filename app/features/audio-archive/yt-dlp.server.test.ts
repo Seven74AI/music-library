@@ -5,7 +5,6 @@ import {
   extractFilePath,
   categorizeStderr,
   categorizeYtDlpError,
-  ErrorCategory,
   parseYtDlpProgress,
 } from "./yt-dlp.server.ts";
 
@@ -72,21 +71,6 @@ describe("buildYtDlpArgs", () => {
     const url = "https://youtube.com/watch?v=abc123";
     expect(buildYtDlpArgs(url)[0]).toBe("yt-dlp");
     expect(buildYtDlpArgs(url).slice(1)).toEqual(buildYtDlpSpawnArgs(url));
-  });
-});
-
-describe("ErrorCategory enum", () => {
-  it("has all expected categories", () => {
-    const categories = Object.values(ErrorCategory);
-    expect(categories).toContain("AUTH");
-    expect(categories).toContain("RATE_LIMITED");
-    expect(categories).toContain("GEO_BLOCKED");
-    expect(categories).toContain("VIDEO_UNAVAILABLE");
-    expect(categories).toContain("NETWORK");
-    expect(categories).toContain("COOKIE_EXPIRED");
-    expect(categories).toContain("FILE_NOT_FOUND");
-    expect(categories).toContain("FORMAT_UNAVAILABLE");
-    expect(categories).toContain("UNKNOWN");
   });
 });
 

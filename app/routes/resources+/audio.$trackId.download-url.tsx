@@ -66,16 +66,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw new Response("Audio file object key not found", { status: 500 });
   }
 
-  // Generate presigned URL (1 hour expiry)
-  // In MOCKS mode, return a mock URL
-  let url: string;
-  if (process.env.MOCKS === "true") {
-    const bucket = process.env.BUCKET_NAME || "mock-bucket";
-    url = `https://${bucket}.fly.storage.tigris.dev/${audioFile.objectKey}?presigned=true&expires=3600`;
-  } else {
-    const result = await getFileUrl(audioFile.objectKey, 3600);
-    url = result.url;
-  }
+  const { url } = await getFileUrl(audioFile.objectKey, 3600);
 
   // Build a friendly download filename
   const format = audioFile.format || "mp3";

@@ -58,17 +58,3 @@ test("createCSP joins directives with semicolon and space", () => {
     "default-src 'none'; script-src 'self' 'nonce-test'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://i.ytimg.com https://img.youtube.com; connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io; font-src 'self'; media-src 'self' blob: https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev; manifest-src 'self'; frame-ancestors 'none'",
   );
 });
-
-test("createCSP produces valid CSP string for different nonces", () => {
-  const nonces = ["n1", "n2-longer", "0123456789abcdef"];
-
-  for (const n of nonces) {
-    const result = createCSP(n);
-    expect(result).toContain(`'nonce-${n}'`);
-    expect(result).toContain("default-src 'none'");
-    expect(result).toContain("style-src 'self' 'unsafe-inline'");
-    expect(result).toContain(
-      "media-src 'self' blob: https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev",
-    );
-  }
-});

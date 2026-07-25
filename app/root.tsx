@@ -180,6 +180,7 @@ function Document({
   env = {},
 }: {
   children: React.ReactNode;
+  /** Real nonce on SSR; `""` on the client (matches browser nonce hiding). */
   nonce: string;
   theme?: Theme;
   env?: Record<string, string | undefined>;
@@ -196,7 +197,7 @@ function Document({
           content="width=device-width,initial-scale=1,interactive-widget=resizes-content"
         />
         {allowIndexing ? null : <meta name="robots" content="noindex, nofollow" />}
-        <Links />
+        <Links nonce={nonce} />
       </head>
       <body className="bg-background text-foreground">
         {/* Inject SVG sprite into DOM before React hydrates */}

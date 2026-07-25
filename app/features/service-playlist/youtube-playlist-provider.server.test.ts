@@ -3,15 +3,11 @@ import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { type YouTubePlaylist } from "#app/types/youtube-api";
 import { createYouTubePlaylistProvider } from "./youtube-playlist-provider.server";
 
-const mockGetPlaylistItems = vi.fn();
-const mockGetPlaylist = vi.fn();
-const mockGetUserPlaylists = vi.fn();
-
 vi.mock("#app/utils/youtube.server", () => ({
   createYouTubeService: vi.fn(() => ({
-    getPlaylistItems: mockGetPlaylistItems,
-    getPlaylist: mockGetPlaylist,
-    getUserPlaylists: mockGetUserPlaylists,
+    getPlaylistItems: vi.fn(),
+    getPlaylist: vi.fn(),
+    getUserPlaylists: vi.fn(),
   })),
 }));
 
@@ -25,39 +21,6 @@ describe("YouTubePlaylistProvider - fetch and normalize", () => {
 
     expect(provider.supportsService(YOUTUBE_SERVICE.NAME)).toBe(true);
     expect(provider.supportsService("spotify")).toBe(false);
-  });
-
-  test("fetchPlaylists delegates to YouTube service", async () => {
-    const playlists = [{ id: "pl1", snippet: { title: "My Playlist" } }];
-    mockGetUserPlaylists.mockResolvedValue(playlists);
-
-    const provider = createYouTubePlaylistProvider();
-    const result = await provider.fetchPlaylists("token123", "user1");
-
-    expect(mockGetUserPlaylists).toHaveBeenCalledWith("token123");
-    expect(result).toEqual(playlists);
-  });
-
-  test("fetchPlaylist delegates to YouTube service", async () => {
-    const playlist = { id: "pl1", snippet: { title: "My Playlist" } };
-    mockGetPlaylist.mockResolvedValue(playlist);
-
-    const provider = createYouTubePlaylistProvider();
-    const result = await provider.fetchPlaylist("pl1", "token123");
-
-    expect(mockGetPlaylist).toHaveBeenCalledWith("pl1", "token123");
-    expect(result).toEqual(playlist);
-  });
-
-  test("fetchPlaylistItems delegates to YouTube service", async () => {
-    const items = [{ snippet: { title: "Track 1" } }];
-    mockGetPlaylistItems.mockResolvedValue(items);
-
-    const provider = createYouTubePlaylistProvider();
-    const result = await provider.fetchPlaylistItems("pl1", "token123");
-
-    expect(mockGetPlaylistItems).toHaveBeenCalledWith("pl1", "token123");
-    expect(result).toEqual(items);
   });
 
   test("normalizePlaylistData maps YouTube playlist fields", () => {

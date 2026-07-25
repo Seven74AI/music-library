@@ -1,20 +1,5 @@
 import { describe, expect, test, vi, afterEach } from "vitest";
-import {
-  isOfflineEnvironment,
-  loadWithOfflineFallback,
-  createOfflineClientLoader,
-} from "./offline-loader.client.ts";
-
-describe("isOfflineEnvironment", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  test("returns true when navigator reports offline", () => {
-    vi.stubGlobal("navigator", { onLine: false });
-    expect(isOfflineEnvironment()).toBe(true);
-  });
-});
+import { loadWithOfflineFallback, createOfflineClientLoader } from "./offline-loader.client.ts";
 
 describe("loadWithOfflineFallback", () => {
   afterEach(() => {

@@ -19,12 +19,39 @@ export function isServiceWorkerUpdateReady(): boolean {
   return updateReady;
 }
 
+type ServiceWorkerEnv = Partial<Pick<Window["ENV"], "MODE" | "DISABLE_SERVICE_WORKER">>;
+
+/**
+ * In development/test, Serwist's navigateFallback serves the offline shell for
+ * document navigations and shadows SSR — breaking HydratedRouter. Disable the
+ * SW by default outside production; opt back in with DISABLE_SERVICE_WORKER=false.
+ */
+export function shouldDisableServiceWorker(env: ServiceWorkerEnv = window.ENV): boolean {
+  if (env?.DISABLE_SERVICE_WORKER === "true") return true;
+  if (env?.DISABLE_SERVICE_WORKER === "false") return false;
+  return env?.MODE !== "production";
+}
+
+async function unregisterServiceWorkersAndHealOfflineShell() {
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  if (registrations.length === 0) return;
+
+  await Promise.all(registrations.map((registration) => registration.unregister()));
+
+  // Leftover SW may have already served the offline shell for this document.
+  // Reload once so Express SSR HTML replaces it.
+  if (document.documentElement.dataset.offlineShell === "true") {
+    window.location.reload();
+  }
+}
+
 export function registerServiceWorker() {
-  if (
-    typeof window === "undefined" ||
-    !("serviceWorker" in navigator) ||
-    window.ENV?.DISABLE_SERVICE_WORKER === "true"
-  ) {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+    return;
+  }
+
+  if (shouldDisableServiceWorker()) {
+    void unregisterServiceWorkersAndHealOfflineShell();
     return;
   }
 

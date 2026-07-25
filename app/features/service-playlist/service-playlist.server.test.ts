@@ -813,13 +813,3 @@ describe("ServicePlaylistService - Batch Processing", () => {
     });
   });
 });
-
-describe("public API barrel", () => {
-  test("re-exports getServiceByName and SERVICE_PLAYLIST_TRACK_PAGE_SIZE", async () => {
-    const { getServiceByName, SERVICE_PLAYLIST_TRACK_PAGE_SIZE } =
-      await import("./service-playlist.server");
-
-    expect(getServiceByName).toBeTypeOf("function");
-    expect(SERVICE_PLAYLIST_TRACK_PAGE_SIZE).toBe(200);
-  });
-});

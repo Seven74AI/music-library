@@ -73,6 +73,11 @@ export default defineConfig(() => ({
     include: ["./app/**/*.test.{ts,tsx}"],
     setupFiles: ["./tests/setup/setup-test-env.ts"],
     globalSetup: ["./tests/setup/global-setup.ts"],
+    // Align with Playwright / npm run dev: app-level mock short-circuits
+    // (skip uploads / yt-dlp / YouTube). MSW still handles HTTP separately.
+    env: {
+      MOCKS: "true",
+    },
     restoreMocks: true,
     coverage: {
       include: ["app/**/*.{ts,tsx}"],

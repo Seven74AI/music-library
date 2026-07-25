@@ -131,8 +131,9 @@ test("200 OK — track is in user library", async () => {
     context: {},
   } as any);
 
-  // Access granted — returns 200 (local file) or 302 (remote redirect in MOCKS mode)
-  expect([200, 302]).toContain(response.status);
+  expect(response.status).toBe(200);
+  const data = (await response.json()) as { url: string };
+  expect(data.url).toMatch(/^https?:\/\//);
 });
 
 test("200 OK — track is in user-owned active service playlist (not in library)", async () => {
@@ -155,8 +156,9 @@ test("200 OK — track is in user-owned active service playlist (not in library)
     context: {},
   } as any);
 
-  // Access granted — returns 200 (local file) or 302 (remote redirect in MOCKS mode)
-  expect([200, 302]).toContain(response.status);
+  expect(response.status).toBe(200);
+  const data = (await response.json()) as { url: string };
+  expect(data.url).toMatch(/^https?:\/\//);
 });
 
 test("200 OK — track is in user-created playlist (not in library or service playlist)", async () => {
@@ -187,8 +189,9 @@ test("200 OK — track is in user-created playlist (not in library or service pl
     context: {},
   } as any);
 
-  // Access granted — returns 200 (local file) or 302 (remote redirect in MOCKS mode)
-  expect([200, 302]).toContain(response.status);
+  expect(response.status).toBe(200);
+  const data = (await response.json()) as { url: string };
+  expect(data.url).toMatch(/^https?:\/\//);
 });
 
 test("200 OK — track in service playlist PLUS library", async () => {
@@ -214,8 +217,9 @@ test("200 OK — track in service playlist PLUS library", async () => {
     context: {},
   } as any);
 
-  // Access granted — returns 200 (local file) or 302 (remote redirect in MOCKS mode)
-  expect([200, 302]).toContain(response.status);
+  expect(response.status).toBe(200);
+  const data = (await response.json()) as { url: string };
+  expect(data.url).toMatch(/^https?:\/\//);
 });
 
 test("streams local audio bytes when stream=1", async () => {
