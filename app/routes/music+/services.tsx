@@ -1,10 +1,14 @@
-import { Outlet } from "react-router";
+import { data, Outlet } from "react-router";
 import { type BreadcrumbHandle } from "#app/components/breadcrumbs.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 
 export const handle: BreadcrumbHandle = {
   breadcrumb: <Icon name="link-2">Services</Icon>,
 };
+
+export function loader() {
+  return data({});
+}
 
 export default function ServicesLayout() {
   return (

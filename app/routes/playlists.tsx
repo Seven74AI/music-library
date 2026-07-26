@@ -1,10 +1,14 @@
-import { Outlet } from "react-router";
+import { data, Outlet } from "react-router";
 import { Breadcrumbs, type BreadcrumbHandle } from "#app/components/breadcrumbs.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 
 export const handle: BreadcrumbHandle = {
   breadcrumb: <Icon name="file-text">Playlists</Icon>,
 };
+
+export function loader() {
+  return data({});
+}
 
 export default function PlaylistsLayout() {
   return (
