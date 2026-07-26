@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useFetcher, useLocation, useNavigate, useSearchParams } from "react-router";
+import { data, useFetcher, useLocation, useNavigate, useSearchParams } from "react-router";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
 import { SearchResults } from "#app/components/search-results.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
@@ -47,6 +47,10 @@ const TYPE_FILTERS = [
   { value: "artists", label: "Artists" },
   { value: "playlists", label: "Playlists" },
 ] as const;
+
+export function loader() {
+  return data({});
+}
 
 export default function SearchPage() {
   const [searchParams] = useSearchParams();
