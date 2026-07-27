@@ -21,6 +21,7 @@ import { type Route } from "./+types/root.ts";
 import appleTouchIconAssetUrl from "./assets/favicons/apple-touch-icon.png";
 import faviconAssetUrl from "./assets/favicons/favicon.svg";
 import { AudioPlayerProvider, useAudioPlayer } from "./components/audio-player-provider";
+import { AutoplayGuideDialog } from "./components/autoplay-guide-dialog";
 import { BottomNav } from "./components/bottom-nav.tsx";
 import { OfflineAwareErrorBoundary } from "./components/offline/offline-aware-error-boundary.tsx";
 import { OfflineStatusBanner } from "./components/offline/offline-status-banner.tsx";
@@ -366,6 +367,7 @@ function App() {
         <AudioPlayerProvider>
           <ShellLayout />
           <Toaster />
+          <AutoplayGuideDialog />
           <EpicProgress />
         </AudioPlayerProvider>
       </OpenImgContextProvider>

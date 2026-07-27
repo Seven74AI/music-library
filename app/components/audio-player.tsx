@@ -11,6 +11,7 @@ import {
 import { useAudioPlayer } from "#app/components/audio-player-provider";
 import { AddToPlaylistMenu } from "#app/components/add-to-playlist-menu";
 import { MarqueeText } from "#app/components/marquee-text";
+import { recordAutoplayFailure } from "#app/hooks/use-autoplay-guide";
 import { useSwipeGesture } from "#app/hooks/use-swipe-gesture";
 import { TrackDetailsDialog } from "#app/components/track-details-dialog";
 import {
@@ -912,6 +913,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
             .catch(() => {
               setIsPlaying(false);
               setPlaybackError("Autoplay was prevented by your browser. Press play to start.");
+              recordAutoplayFailure();
               toast({
                 title: "Autoplay blocked",
                 description:
