@@ -25,7 +25,7 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-[51] border-t border-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
       role="navigation"
       aria-label="Main navigation"
     >
