@@ -53,12 +53,31 @@ async function patchOfflineDataStrategyResults(
  * Offline path: runs data strategy (which will fail), then patches
  *               all results with offline stubs.
  *
+ * Server path:  passes through directly — offline logic is browser-only.
+ *               React Router v8 runs clientMiddleware during SSR data
+ *               strategy execution, but `document` does not exist on the
+ *               server (Node ≥21 exposes global `navigator` but not `document`).
+ *
  * Architecture: single unified layer — no more clientLoader.hydrate
  * on individual routes.  All offline data comes through this middleware.
  */
 export const offlineClientMiddleware: MiddlewareFunction<
   Record<string, DataStrategyResult>
 > = async ({ request }, next) => {
+  // ── Server guard ──────────────────────────────────────────────────────
+  // This middleware handles browser online/offline transitions exclusively.
+  // React Router v8 runs clientMiddleware during SSR data strategy execution
+  // (see: getTurboStreamSingleFetchDataStrategy → args.runClientMiddleware),
+  // but offline logic does not apply on the server — pass through directly.
+  //
+  // Using `typeof document` rather than `typeof window` or `typeof navigator`
+  // because `document` is the DOM entry point and the most definitive signal
+  // that we're in a browser environment.  Node ≥21 exposes global `navigator`
+  // (with `onLine: undefined`), but not `document`.
+  if (typeof document === "undefined") {
+    return next();
+  }
+
   const offline = isOfflineEnvironment();
 
   if (offline) {
