@@ -82,7 +82,7 @@ test.describe("SSR hydration", () => {
     await expect(page.getByText("You're offline")).not.toBeAttached({ timeout: 5000 });
 
     // Must show a 404 indicator — the actual error boundary, not offline fallback
-    await expect(page.getByText(/can't find this page|not found|404/i)).toBeAttached({
+    await expect(page.getByText(/can't find this page|not found|404/i).first()).toBeAttached({
       timeout: 5000,
     });
 
