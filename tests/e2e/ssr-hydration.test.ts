@@ -18,10 +18,9 @@ test.describe("SSR hydration", () => {
     await expect(page.getByText("You're offline")).not.toBeAttached({
       timeout: 5000,
     });
-    // Core app shell must be present (not an error boundary or blank page)
-    await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeAttached({
-      timeout: 5000,
-    });
+    // Core app shell must be present (not an error boundary or blank page).
+    // BottomNav has md:hidden — not visible on desktop. Use <header> instead.
+    await expect(page.locator("header")).toBeAttached({ timeout: 5000 });
     if (routeSpecific) await routeSpecific();
   }
 
