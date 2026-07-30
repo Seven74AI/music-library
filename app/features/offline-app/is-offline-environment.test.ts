@@ -20,4 +20,14 @@ describe("isOfflineEnvironment (shared)", () => {
     vi.stubGlobal("navigator", { onLine: true });
     expect(isOfflineEnvironment()).toBe(false);
   });
+
+  test("returns false when navigator exists but onLine is not a boolean (Node 22)", () => {
+    vi.stubGlobal("navigator", { onLine: undefined });
+    expect(isOfflineEnvironment()).toBe(false);
+  });
+
+  test("returns false when navigator exists but onLine is a non-boolean truthy value", () => {
+    vi.stubGlobal("navigator", { onLine: "online" });
+    expect(isOfflineEnvironment()).toBe(false);
+  });
 });
