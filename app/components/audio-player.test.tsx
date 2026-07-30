@@ -55,6 +55,7 @@ vi.mock("#app/components/track-details-dialog", () => ({
 
 vi.mock("#app/features/offline-storage/resolve-playback-url.client.ts", () => ({
   resolveTrackPlaybackSource: vi.fn().mockResolvedValue("https://cdn.example/track-1.mp3"),
+  resolvePlaybackAudioUrl: vi.fn().mockResolvedValue(null),
   revokePlaybackAudioUrl: vi.fn(),
   clearBlobUrlCache: vi.fn(),
 }));
