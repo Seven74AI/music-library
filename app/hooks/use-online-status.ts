@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 function readInitialOnlineStatus() {
   if (typeof navigator === "undefined") return true;
+  if (typeof navigator.onLine !== "boolean") return true;
   return navigator.onLine;
 }
 
