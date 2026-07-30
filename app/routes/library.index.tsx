@@ -10,8 +10,6 @@ import { Icon } from "#app/components/ui/icon.tsx";
 import { Label } from "#app/components/ui/label.tsx";
 import { ScrollArea } from "#app/components/ui/scroll-area";
 import { TrackListSkeleton } from "#app/components/ui/track-list-skeleton";
-import { defineOfflineClientLoader } from "#app/features/offline-app/define-offline-client-loader.ts";
-import { type ServerLoaderData } from "#app/features/offline-app/offline-loader.client.ts";
 import { type LibraryOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
@@ -140,20 +138,11 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   });
 }
 
-export const clientLoader = defineOfflineClientLoader<
-  ServerLoaderData<typeof loader>,
-  LibraryOfflineLoaderData
->("routes/library.index");
-
-export function HydrateFallback() {
-  return (
-    <div className="py-8">
-      <TrackListSkeleton />
-    </div>
-  );
-}
-
-export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) {
+export default function LibraryIndexRoute({
+  loaderData,
+}: {
+  loaderData: Route.ComponentProps["loaderData"] | LibraryOfflineLoaderData | undefined;
+}) {
   // Ensure we have valid data structure
   const safeLoaderData = loaderData || {
     offline: false as const,
@@ -164,7 +153,7 @@ export default function LibraryIndexRoute({ loaderData }: Route.ComponentProps) 
     playlists: [],
   };
   const { userTracks, pagination, playlists, hasAudioOnly = false } = safeLoaderData;
-  const offline = "offline" in safeLoaderData && safeLoaderData.offline === true;
+  const offline = "offline" in safeLoaderData && safeLoaderData.offline;
   const offlineTracks =
     "offlineTracks" in safeLoaderData && Array.isArray(safeLoaderData.offlineTracks)
       ? safeLoaderData.offlineTracks

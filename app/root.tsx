@@ -13,13 +13,6 @@ import {
 } from "react-router";
 import { HoneypotProvider } from "remix-utils/honeypot/react";
 import { useToast } from "#app/components/toaster.tsx";
-import { isOfflineEnvironment } from "#app/features/offline-app/is-offline-environment.client.ts";
-import { type ServerLoaderData } from "#app/features/offline-app/offline-loader.client.ts";
-import {
-  createFallbackOfflineRootShell,
-  persistOfflineRootShell,
-  type OfflineRootShell,
-} from "#app/features/offline-app/offline-root-shell.client.ts";
 import { useServiceWorkerUpdateToast } from "#app/hooks/use-service-worker-update-toast.tsx";
 import { type Route } from "./+types/root.ts";
 import appleTouchIconAssetUrl from "./assets/favicons/apple-touch-icon.png";
@@ -163,24 +156,6 @@ export async function loader({ request, url }: Route.LoaderArgs) {
       headers: combineHeaders({ "Server-Timing": timings.toString() }, toastHeaders),
     },
   );
-}
-
-export async function clientLoader({ serverLoader }: Route.ClientLoaderArgs) {
-  if (isOfflineEnvironment()) {
-    return createFallbackOfflineRootShell() as unknown as ServerLoaderData<typeof loader>;
-  }
-  const shell = (await serverLoader()) as unknown as OfflineRootShell;
-  persistOfflineRootShell({
-    user: shell.user,
-    requestInfo: {
-      ...shell.requestInfo,
-      userPrefs: {
-        theme: shell.requestInfo.userPrefs.theme ?? "light",
-      },
-    },
-    ENV: shell.ENV,
-  });
-  return shell as unknown as ServerLoaderData<typeof loader>;
 }
 
 export function HydrateFallback() {

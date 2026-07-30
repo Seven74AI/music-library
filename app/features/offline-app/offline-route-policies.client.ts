@@ -6,11 +6,7 @@ import {
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
 import { type OfflineTrackSummary } from "#app/features/offline-storage/types.ts";
 import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
-import {
-  createFallbackOfflineRootShell,
-  persistOfflineRootShell,
-  type OfflineRootShell,
-} from "./offline-root-shell.client.ts";
+import { createFallbackOfflineRootShell } from "./offline-root-shell.client.ts";
 import {
   OFFLINE_ADMIN_AUDIO_QUEUE,
   OFFLINE_EMPTY,
@@ -23,6 +19,8 @@ import {
   offlineTrackDetailFallback,
   offlineYoutubePlaylistFallback,
 } from "./offline-stubs.client.ts";
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 export type DownloadsOfflineLoaderData = {
   tracks: Awaited<ReturnType<ReturnType<typeof getOfflineStorage>["listDownloaded"]>>;
@@ -55,12 +53,6 @@ export type PlaylistDetailOfflineLoaderData = {
   playlists: [];
 };
 
-export type OfflineClientLoaderArgs = {
-  serverLoader: () => Promise<unknown>;
-  params: Record<string, string | undefined>;
-  request: Request;
-};
-
 export type OfflineStubValue =
   | { kind: "empty" }
   | { kind: "constant"; value: unknown }
@@ -70,201 +62,249 @@ export type OfflineStubValue =
       fn: (value: string) => unknown;
     };
 
-export type OfflineLiveRoutePolicy = {
-  mode: "live";
-  offlineLoader: (args: OfflineClientLoaderArgs) => Promise<unknown>;
-  onlineLoader?: (args: OfflineClientLoaderArgs) => Promise<unknown>;
-};
+/** Async stub — resolves at middleware runtime (for storage-dependent fallbacks). */
+export type AsyncOfflineStubFn = (args: {
+  request: Request;
+  /** Route params extracted from the URL path by segment position. */
+  params: Record<string, string | undefined>;
+}) => unknown | Promise<unknown>;
 
-export type OfflineStubRoutePolicy = {
-  mode: "stub";
-  stub: OfflineStubValue;
-};
-
-export type OfflineRoutePolicy = OfflineLiveRoutePolicy | OfflineStubRoutePolicy;
-
-export const OFFLINE_MIDDLEWARE_SKIP_PREFIXES = [
-  "routes/resources+/",
-  "routes/api+/",
-  "routes/_auth+/",
-];
+// ── Redirects ────────────────────────────────────────────────────────────────
 
 export const OFFLINE_REDIRECTS: Array<{
   matchPathname: (pathname: string) => boolean;
   to: string;
 }> = [{ matchPathname: (pathname) => pathname === "/me", to: "/downloads" }];
 
-export const OFFLINE_ROUTE_POLICIES: Record<string, OfflineRoutePolicy> = {
-  root: {
-    mode: "live",
-    onlineLoader: async ({ serverLoader }) => {
-      const shell = (await serverLoader()) as OfflineRootShell;
-      persistOfflineRootShell({
-        user: shell.user,
-        requestInfo: {
-          ...shell.requestInfo,
-          userPrefs: {
-            theme: shell.requestInfo.userPrefs.theme ?? "light",
-          },
-        },
-        ENV: shell.ENV,
-      });
-      return shell;
-    },
-    offlineLoader: async () => createFallbackOfflineRootShell(),
-  },
-  "routes/_marketing+/index": {
-    mode: "live",
-    offlineLoader: async (): Promise<HomeOfflineLoaderData> => ({
-      mode: "offline" as const,
-    }),
-  },
-  "routes/library.index": {
-    mode: "live",
-    offlineLoader: async (): Promise<LibraryOfflineLoaderData> => {
-      const storage = getOfflineStorage();
-      return {
-        offline: true as const,
-        offlineTracks: await storage.listPinned(),
-        userTracks: [],
-        pagination: {
-          limit: LIBRARY_TRACKS_PAGE_SIZE,
-          hasNext: false,
-          nextCursor: null,
-        },
-        hasAudioOnly: false,
-        playlists: [],
-      };
-    },
-  },
-  "routes/downloads": {
-    mode: "live",
-    offlineLoader: async (): Promise<DownloadsOfflineLoaderData> => {
-      const storage = getOfflineStorage();
-      const [tracks, stats] = await Promise.all([
-        storage.listDownloaded(),
-        storage.getStorageStats(),
-      ]);
-      return { tracks, stats };
-    },
-  },
-  "routes/playlists": { mode: "live", offlineLoader: async () => ({}) },
-  "routes/playlists.index": {
-    mode: "live",
-    offlineLoader: async (): Promise<PlaylistsIndexOfflineLoaderData> => {
-      const storage = getOfflineStorage();
-      const cachedPlaylists = listCachedPlaylists();
-      const offlinePlaylists = await Promise.all(
-        cachedPlaylists.map(async (playlist) => ({
-          ...playlist,
-          trackCount: (await storage.listForPlaylist(playlist.id)).length,
-        })),
-      );
+// ── Skip prefixes — routes that should NEVER get offline stubs  ──────────────
+// (API/resource/auth routes returning raw data, not rendered pages)
 
-      return {
-        offline: true as const,
-        offlinePlaylists,
-        playlists: [],
-        pagination: { limit: 12, hasNext: false, nextCursor: null },
-      };
-    },
-  },
-  "routes/playlists.new": { mode: "live", offlineLoader: async () => ({}) },
-  "routes/playlists.$playlistId": {
-    mode: "live",
-    offlineLoader: async ({ params }): Promise<PlaylistDetailOfflineLoaderData> => {
-      const playlistId = params.playlistId;
-      if (!playlistId) {
-        throw new Response("Playlist not found", { status: 404 });
-      }
+const OFFLINE_MIDDLEWARE_SKIP_PREFIXES = ["routes/resources+/", "routes/api+/", "routes/_auth+/"];
 
-      const storage = getOfflineStorage();
-      const offlineTracks = await storage.listForPlaylist(playlistId);
-      const cachedMeta = getCachedPlaylistMetadata(playlistId);
+// ── Offline route stubs — one unified map  ───────────────────────────────────
+//
+// Every route that needs offline fallback data gets an entry here.
+// Routes NOT in this map (and not skipped) get OFFLINE_EMPTY ({}).
+//
+// For async stubs that need IndexedDB/localStorage (library, downloads,
+// playlists), use the asyncFn utility below.
 
-      return {
-        offline: true as const,
-        offlineTracks,
-        offlinePlaylistMeta: cachedMeta ?? {
-          id: playlistId,
-          title: "Offline playlist",
-          description: null,
-          updatedAt: Date.now(),
-        },
-        playlist: null,
-        playlists: [],
-      };
-    },
-  },
-  "routes/search": {
-    mode: "stub",
-    stub: { kind: "constant", value: OFFLINE_SEARCH },
-  },
-  "routes/music+/services+/index": {
-    mode: "stub",
-    stub: { kind: "constant", value: OFFLINE_MUSIC_SERVICES },
-  },
-  "routes/library.$trackId": {
-    mode: "stub",
-    stub: {
-      kind: "pathname",
-      segmentIndex: 2,
-      fn: offlineTrackDetailFallback,
-    },
-  },
-  "routes/admin+/audio-queue": {
-    mode: "stub",
-    stub: { kind: "constant", value: OFFLINE_ADMIN_AUDIO_QUEUE },
-  },
-  "routes/music+/services+/youtube+/index": {
-    mode: "stub",
-    stub: { kind: "constant", value: OFFLINE_YOUTUBE_INDEX },
-  },
-  "routes/music+/services+/youtube+/playlists": {
-    mode: "stub",
-    stub: { kind: "constant", value: OFFLINE_YOUTUBE_PLAYLISTS },
-  },
-  "routes/music+/services+/youtube+/synced-playlists": {
-    mode: "stub",
-    stub: { kind: "constant", value: OFFLINE_YOUTUBE_SYNCED },
-  },
-  "routes/music+/services+/youtube+/playlist.$id": {
-    mode: "stub",
-    stub: {
-      kind: "pathname",
-      segmentIndex: 5,
-      fn: offlineYoutubePlaylistFallback,
-    },
-  },
-  "routes/settings+/profile.passkeys": {
-    mode: "stub",
-    stub: { kind: "constant", value: OFFLINE_PASSKEYS },
-  },
+type StubEntry =
+  | { kind: "sync"; value: OfflineStubValue }
+  | { kind: "async"; fn: AsyncOfflineStubFn };
+
+/**
+ * Utility: wraps an async offline data function into a stub entry.
+ */
+function asyncFn(fn: AsyncOfflineStubFn): StubEntry {
+  return { kind: "async", fn };
+}
+
+function sync(value: OfflineStubValue): StubEntry {
+  return { kind: "sync", value };
+}
+
+// ── Stub parameter extraction helpers ────────────────────────────────────────
+
+/**
+ * Extracts a path segment at the given index from a URL.
+ * Used by pathname-based stubs to get dynamic params (track IDs, playlist IDs).
+ */
+function segmentAt(url: string, index: number): string {
+  return new URL(url).pathname.split("/").at(index) ?? "";
+}
+
+/**
+ * Builds a params-like object from a URL path and a set of segment→name mappings.
+ * e.g. paramsFromSegments(url, { 3: "playlistId" }) for /playlists/abc →
+ *      { playlistId: "abc" }
+ */
+function paramsFromSegments(
+  url: string,
+  mappings: Record<number, string>,
+): Record<string, string | undefined> {
+  const segments = new URL(url).pathname.split("/");
+  const params: Record<string, string | undefined> = {};
+  for (const [idx, name] of Object.entries(mappings)) {
+    params[name] = segments[Number(idx)];
+  }
+  return params;
+}
+
+// ── Offline route policies — THE unified map ─────────────────────────────────
+
+export const OFFLINE_ROUTE_POLICIES: Record<string, StubEntry> = {
+  // ── Live routes (converted from old "live" mode) ──
+
+  root: sync({ kind: "constant", value: createFallbackOfflineRootShell() }),
+
+  "routes/_marketing+/index": sync({
+    kind: "constant",
+    value: { mode: "offline" } satisfies HomeOfflineLoaderData,
+  }),
+
+  "routes/downloads": asyncFn(async () => {
+    const storage = getOfflineStorage();
+    const [tracks, stats] = await Promise.all([
+      storage.listDownloaded(),
+      storage.getStorageStats(),
+    ]);
+    return { tracks, stats } satisfies DownloadsOfflineLoaderData;
+  }),
+
+  "routes/library.index": asyncFn(async () => {
+    const storage = getOfflineStorage();
+    return {
+      offline: true as const,
+      offlineTracks: await storage.listPinned(),
+      userTracks: [],
+      pagination: { limit: LIBRARY_TRACKS_PAGE_SIZE, hasNext: false, nextCursor: null },
+      hasAudioOnly: false,
+      playlists: [],
+    } satisfies LibraryOfflineLoaderData;
+  }),
+
+  "routes/playlists": sync({ kind: "constant", value: {} }),
+
+  "routes/playlists.new": sync({ kind: "constant", value: {} }),
+
+  "routes/playlists.index": asyncFn(async () => {
+    const storage = getOfflineStorage();
+    const cachedPlaylists = listCachedPlaylists();
+    const offlinePlaylists = await Promise.all(
+      cachedPlaylists.map(async (playlist) => ({
+        ...playlist,
+        trackCount: (await storage.listForPlaylist(playlist.id)).length,
+      })),
+    );
+    return {
+      offline: true as const,
+      offlinePlaylists,
+      playlists: [],
+      pagination: { limit: 12, hasNext: false, nextCursor: null },
+    } satisfies PlaylistsIndexOfflineLoaderData;
+  }),
+
+  "routes/playlists.$playlistId": asyncFn(async ({ params }) => {
+    const playlistId = params.playlistId;
+    if (!playlistId) throw new Response("Playlist not found", { status: 404 });
+    const storage = getOfflineStorage();
+    const offlineTracks = await storage.listForPlaylist(playlistId);
+    const cachedMeta = getCachedPlaylistMetadata(playlistId);
+    return {
+      offline: true as const,
+      offlineTracks,
+      offlinePlaylistMeta: cachedMeta ?? {
+        id: playlistId,
+        title: "Offline playlist",
+        description: null,
+        updatedAt: Date.now(),
+      },
+      playlist: null,
+      playlists: [],
+    } satisfies PlaylistDetailOfflineLoaderData;
+  }),
+
+  // ── Stub routes (unchanged) ──
+
+  "routes/search": sync({ kind: "constant", value: OFFLINE_SEARCH }),
+
+  "routes/music+/services+/index": sync({
+    kind: "constant",
+    value: OFFLINE_MUSIC_SERVICES,
+  }),
+
+  "routes/library.$trackId": sync({
+    kind: "pathname",
+    segmentIndex: 2,
+    fn: offlineTrackDetailFallback,
+  }),
+
+  "routes/admin+/audio-queue": sync({
+    kind: "constant",
+    value: OFFLINE_ADMIN_AUDIO_QUEUE,
+  }),
+
+  "routes/music+/services+/youtube+/index": sync({
+    kind: "constant",
+    value: OFFLINE_YOUTUBE_INDEX,
+  }),
+
+  "routes/music+/services+/youtube+/playlists": sync({
+    kind: "constant",
+    value: OFFLINE_YOUTUBE_PLAYLISTS,
+  }),
+
+  "routes/music+/services+/youtube+/synced-playlists": sync({
+    kind: "constant",
+    value: OFFLINE_YOUTUBE_SYNCED,
+  }),
+
+  "routes/music+/services+/youtube+/playlist.$id": sync({
+    kind: "pathname",
+    segmentIndex: 5,
+    fn: offlineYoutubePlaylistFallback,
+  }),
+
+  "routes/settings+/profile.passkeys": sync({
+    kind: "constant",
+    value: OFFLINE_PASSKEYS,
+  }),
 };
 
-export function isLiveOfflineRoute(routeId: string) {
-  const policy = OFFLINE_ROUTE_POLICIES[routeId];
-  return policy?.mode === "live";
+// ── Param index maps for routes that need dynamic params ─────────────────────
+// Segment index → param name. Used by pathname-based and async stubs.
+
+const ROUTE_PARAM_MAPS: Record<string, Record<number, string>> = {
+  "routes/playlists.$playlistId": { 2: "playlistId" },
+  "routes/library.$trackId": { 2: "trackId" },
+  "routes/music+/services+/youtube+/playlist.$id": { 5: "id" },
+};
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Resolve offline stub data for a given route.
+ * Called by the middleware when patching data strategy results offline.
+ */
+export async function resolveOfflineData(routeId: string, request: Request): Promise<unknown> {
+  const entry = OFFLINE_ROUTE_POLICIES[routeId];
+
+  if (!entry) {
+    // No policy → return empty if not in skip list
+    return OFFLINE_MIDDLEWARE_SKIP_PREFIXES.some((p) => routeId.startsWith(p))
+      ? undefined // shouldn't happen, but skip means don't touch
+      : OFFLINE_EMPTY;
+  }
+
+  if (entry.kind === "sync") {
+    return resolveSyncStub(entry.value, routeId, request.url);
+  }
+
+  // async stub
+  const paramMap = ROUTE_PARAM_MAPS[routeId] ?? {};
+  const params = paramsFromSegments(request.url, paramMap);
+  return entry.fn({ request, params });
 }
 
-export function shouldSkipOfflineMiddlewareRoute(routeId: string) {
-  if (isLiveOfflineRoute(routeId)) return true;
-  return OFFLINE_MIDDLEWARE_SKIP_PREFIXES.some((prefix) => routeId.startsWith(prefix));
-}
-
-export function resolveOfflineStubForRoute(routeId: string, request: Request) {
-  const policy = OFFLINE_ROUTE_POLICIES[routeId];
-  if (!policy || policy.mode !== "stub") return OFFLINE_EMPTY;
-
-  const stub = policy.stub;
+function resolveSyncStub(stub: OfflineStubValue, routeId: string, url: string): unknown {
   if (stub.kind === "empty") return OFFLINE_EMPTY;
   if (stub.kind === "constant") return stub.value;
-
-  const segment = new URL(request.url).pathname.split("/").at(stub.segmentIndex) ?? "";
+  // pathname kind — extract segment and call fn
+  const segment = segmentAt(url, stub.segmentIndex);
   return stub.fn(segment);
 }
 
-export function getOfflineRedirectTarget(request: Request) {
+/**
+ * Check whether a route should be skipped by the offline middleware.
+ * Routes in the skip list (API, resource, auth) are never patched.
+ */
+export function shouldSkipOfflineMiddlewareRoute(routeId: string): boolean {
+  return OFFLINE_MIDDLEWARE_SKIP_PREFIXES.some((prefix) => routeId.startsWith(prefix));
+}
+
+/** Get the offline redirect target for a URL path, if any. */
+export function getOfflineRedirectTarget(request: Request): string | undefined {
   const pathname = new URL(request.url).pathname;
   return OFFLINE_REDIRECTS.find((entry) => entry.matchPathname(pathname))?.to;
 }

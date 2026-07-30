@@ -39,7 +39,6 @@ import { type BreadcrumbHandle } from "#app/components/breadcrumbs.tsx";
 import { OfflinePlaylistDownloadButton } from "#app/components/offline/offline-playlist-download-button.tsx";
 import { OfflinePlaylistView } from "#app/components/offline/offline-playlist-view.tsx";
 import { PlaylistHero } from "#app/components/playlist-hero";
-import { RouteHydrateFallback } from "#app/components/route-hydrate-fallback.tsx";
 import { SortableTrackList } from "#app/components/sortable-track-list";
 import {
   AlertDialog,
@@ -53,8 +52,6 @@ import {
 } from "#app/components/ui/alert-dialog";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { toast } from "#app/components/ui/use-toast.ts";
-import { defineOfflineClientLoader } from "#app/features/offline-app/define-offline-client-loader.ts";
-import { type ServerLoaderData } from "#app/features/offline-app/offline-loader.client.ts";
 import { type PlaylistDetailOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { cachePlaylistMetadata } from "#app/features/offline-storage/offline-playlist-metadata.client.ts";
 import { type FullTrack } from "#app/types/frontend/shared.ts";
@@ -177,15 +174,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     playlist: { ...playlist, tracks: tracksWithLibraryStatus },
     playlists: userPlaylists,
   });
-}
-
-export const clientLoader = defineOfflineClientLoader<
-  ServerLoaderData<typeof loader>,
-  PlaylistDetailOfflineLoaderData
->("routes/playlists.$playlistId");
-
-export function HydrateFallback() {
-  return <RouteHydrateFallback />;
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -504,7 +492,11 @@ export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
 }
 
-export default function PlaylistRoute({ loaderData }: Route.ComponentProps) {
+export default function PlaylistRoute({
+  loaderData,
+}: {
+  loaderData: Route.ComponentProps["loaderData"] | PlaylistDetailOfflineLoaderData;
+}) {
   if ("offline" in loaderData && loaderData.offline === true) {
     return (
       <OfflinePlaylistView
