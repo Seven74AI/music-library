@@ -35,6 +35,7 @@ import { toast } from "#app/components/ui/use-toast.ts";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import {
   clearBlobUrlCache,
+  resolvePlaybackAudioUrl,
   resolveTrackPlaybackSource,
   revokePlaybackAudioUrl,
 } from "#app/features/offline-storage/resolve-playback-url.client.ts";
@@ -874,7 +875,40 @@ export function AudioPlayer(props: AudioPlayerProps) {
       cancelled = true;
       revokePlaybackAudioUrl(trackId);
     };
-  }, [audioFile, track?.id, isOnline]);
+  }, [audioFile, track?.id]);
+
+  // When going offline while a track is playing, proactively swap to the
+  // cached blob URL so playback continues seamlessly.  Falls back to
+  // handleError recovery on MEDIA_ERR_NETWORK if the buffer drains first.
+  const prevOnlineRef = useRef(isOnline);
+  useEffect(() => {
+    const wasOnline = prevOnlineRef.current;
+    prevOnlineRef.current = isOnline;
+
+    if (
+      wasOnline &&
+      !isOnline &&
+      track &&
+      audioRef.current &&
+      !audioRef.current.paused &&
+      audioSrc
+    ) {
+      resolvePlaybackAudioUrl(track.id).then((offlineUrl) => {
+        if (offlineUrl && audioRef.current && loadedTrackIdRef.current === track.id) {
+          const savedTime = audioRef.current.currentTime;
+          const wasPlaying = !audioRef.current.paused;
+          audioRef.current.src = offlineUrl;
+          audioRef.current.currentTime = savedTime;
+          if (wasPlaying) {
+            void audioRef.current.play();
+          }
+          setAudioSrc(offlineUrl);
+          setPlaybackError(null);
+        }
+        // No blob — let handleError deal with it when buffer runs out
+      });
+    }
+  }, [isOnline, track, audioSrc]);
 
   useEffect(() => {
     if (
@@ -1167,11 +1201,38 @@ export function AudioPlayer(props: AudioPlayerProps) {
     };
     const handleError = () => {
       const audio = audioRef.current;
-      if (audio?.error) {
-        console.error(`Audio load error: ${audio.error.message} (code: ${audio.error.code})`);
-        setPlaybackError(getMediaErrorMessage(audio.error.code));
-        setAudioSrc(undefined);
+      if (!audio?.error) return;
+
+      const errorCode = audio.error.code;
+      console.error(`Audio load error: ${audio.error.message} (code: ${errorCode})`);
+
+      // For network errors while a track is loaded, try to recover from
+      // the offline cache before giving up.
+      // MEDIA_ERR_NETWORK === 2 — numeric constant instead of MediaError.MEDIA_ERR_NETWORK
+      // because jsdom does not expose the MediaError constructor.
+      if (errorCode === 2 && track) {
+        const savedTime = audio.currentTime;
+        const wasPlaying = !audio.paused;
+
+        resolvePlaybackAudioUrl(track.id).then((offlineUrl) => {
+          if (offlineUrl && audioRef.current && loadedTrackIdRef.current === track.id) {
+            audioRef.current.src = offlineUrl;
+            audioRef.current.currentTime = savedTime || 0;
+            if (wasPlaying) {
+              void audioRef.current.play();
+            }
+            setAudioSrc(offlineUrl);
+            setPlaybackError(null);
+          } else {
+            setPlaybackError(getMediaErrorMessage(errorCode));
+            setAudioSrc(undefined);
+          }
+        });
+        return;
       }
+
+      setPlaybackError(getMediaErrorMessage(errorCode));
+      setAudioSrc(undefined);
     };
 
     audio.addEventListener("timeupdate", updateTime);
