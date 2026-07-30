@@ -1,21 +1,23 @@
 import { Link, useRevalidator } from "react-router";
 import { OfflineLibraryView } from "#app/components/offline/offline-library-view.tsx";
-import { RouteHydrateFallback } from "#app/components/route-hydrate-fallback.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
-import { defineDeviceOnlyClientLoader } from "#app/features/offline-app/define-offline-client-loader.ts";
+import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
 import { type DownloadsOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
-import { type Route } from "./+types/downloads.ts";
 
-export const clientLoader =
-  defineDeviceOnlyClientLoader<DownloadsOfflineLoaderData>("routes/downloads");
-
-export function HydrateFallback() {
-  return <RouteHydrateFallback />;
+export async function clientLoader(): Promise<DownloadsOfflineLoaderData> {
+  const storage = getOfflineStorage();
+  const [tracks, stats] = await Promise.all([storage.listDownloaded(), storage.getStorageStats()]);
+  return { tracks, stats };
 }
 
-export default function DownloadsRoute({ loaderData }: Route.ComponentProps) {
+export default function DownloadsRoute({
+  loaderData,
+}: {
+  loaderData: DownloadsOfflineLoaderData | undefined;
+}) {
   const revalidator = useRevalidator();
+  if (!loaderData) return null;
   const { tracks, stats } = loaderData;
   const usedMb = (stats.totalBytes / (1024 * 1024)).toFixed(1);
   const quotaMb = stats.quota ? (stats.quota / (1024 * 1024)).toFixed(0) : null;

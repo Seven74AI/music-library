@@ -2,7 +2,6 @@ import { useState } from "react";
 import { data, NavLink } from "react-router";
 import { OfflinePlaylistsIndexView } from "#app/components/offline/offline-playlists-index-view.tsx";
 import { PlaylistCard } from "#app/components/playlist-card";
-import { RouteHydrateFallback } from "#app/components/route-hydrate-fallback.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
@@ -13,8 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#app/components/ui/select.tsx";
-import { defineOfflineClientLoader } from "#app/features/offline-app/define-offline-client-loader.ts";
-import { type ServerLoaderData } from "#app/features/offline-app/offline-loader.client.ts";
 import { type PlaylistsIndexOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
@@ -80,21 +77,16 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   });
 }
 
-export const clientLoader = defineOfflineClientLoader<
-  ServerLoaderData<typeof loader>,
-  PlaylistsIndexOfflineLoaderData
->("routes/playlists.index");
-
-export function HydrateFallback() {
-  return <RouteHydrateFallback />;
-}
-
 type SortOption = "name" | "created" | "updated" | "tracks";
 type ViewMode = "grid" | "list";
 
-export default function PlaylistsIndexRoute({ loaderData }: Route.ComponentProps) {
+export default function PlaylistsIndexRoute({
+  loaderData,
+}: {
+  loaderData: Route.ComponentProps["loaderData"] | PlaylistsIndexOfflineLoaderData;
+}) {
   const { playlists, pagination } = loaderData;
-  const offline = "offline" in loaderData && loaderData.offline === true;
+  const offline = "offline" in loaderData && loaderData.offline;
   const offlinePlaylists =
     "offlinePlaylists" in loaderData && Array.isArray(loaderData.offlinePlaylists)
       ? loaderData.offlinePlaylists
