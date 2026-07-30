@@ -13,9 +13,7 @@ import {
 } from "react-router";
 import { HoneypotProvider } from "remix-utils/honeypot/react";
 import { useToast } from "#app/components/toaster.tsx";
-import { defineOfflineClientLoader } from "#app/features/offline-app/define-offline-client-loader.ts";
-import { type ServerLoaderData } from "#app/features/offline-app/offline-loader.client.ts";
-import { type OfflineRootShell } from "#app/features/offline-app/offline-root-shell.client.ts";
+
 import { useServiceWorkerUpdateToast } from "#app/hooks/use-service-worker-update-toast.tsx";
 import { type Route } from "./+types/root.ts";
 import appleTouchIconAssetUrl from "./assets/favicons/apple-touch-icon.png";
@@ -160,11 +158,6 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     },
   );
 }
-
-export const clientLoader = defineOfflineClientLoader<
-  ServerLoaderData<typeof loader>,
-  OfflineRootShell
->("root");
 
 export function HydrateFallback() {
   return <RouteHydrateFallback />;

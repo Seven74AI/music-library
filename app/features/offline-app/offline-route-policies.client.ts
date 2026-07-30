@@ -92,15 +92,7 @@ export const OFFLINE_MIDDLEWARE_SKIP_PREFIXES = [
 export const OFFLINE_REDIRECTS: Array<{
   matchPathname: (pathname: string) => boolean;
   to: string;
-}> = [
-  { matchPathname: (pathname) => pathname === "/me", to: "/downloads" },
-  {
-    matchPathname: (pathname) =>
-      pathname === "/music/services/youtube/auth" ||
-      pathname.startsWith("/music/services/youtube/callback"),
-    to: "/music/services",
-  },
-];
+}> = [{ matchPathname: (pathname) => pathname === "/me", to: "/downloads" }];
 
 export const OFFLINE_ROUTE_POLICIES: Record<string, OfflineRoutePolicy> = {
   root: {
