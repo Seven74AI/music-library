@@ -8,6 +8,12 @@ import {
   shouldSkipOfflineMiddlewareRoute,
 } from "#app/features/offline-app/offline-route-policies.client.ts";
 
+declare global {
+  interface Window {
+    __reactRouterHdrActive?: boolean;
+  }
+}
+
 /**
  * Returns true when a data strategy result should be substituted with offline
  * data.  Substitutes when the result is missing, errored, or a network failure.
