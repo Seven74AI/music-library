@@ -229,6 +229,12 @@ function Document({
           }}
         />
         <ScrollRestoration nonce={nonce} />
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `window.__reactRouterHdrActive = true`,
+          }}
+        />
         <Scripts nonce={nonce} />
       </body>
     </html>
