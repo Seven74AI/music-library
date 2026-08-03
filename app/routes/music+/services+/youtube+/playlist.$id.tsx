@@ -245,6 +245,23 @@ export function mapTrackToListItem(track: TrackWithUserStatus) {
   };
 }
 
+/**
+ * Tracks that can be added to the user library from a synced playlist.
+ * Deleted/unavailable placeholders are never "missing" for library purposes
+ * (same rule as getActiveSyncedPlaylistTrackIds on the synced-playlists page).
+ */
+export function getTracksMissingFromLibrary(
+  tracks: TrackWithUserStatus[],
+  libraryStatus: Record<string, boolean> = {},
+): TrackWithUserStatus[] {
+  return tracks.filter((track) => {
+    if (track.isDeleted) return false;
+    const status =
+      libraryStatus[track.id] !== undefined ? libraryStatus[track.id] : track.isInUserLibrary;
+    return !status;
+  });
+}
+
 export default function YouTubeSyncedPlaylistDetailPage() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -343,11 +360,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
   const handleAddAllMissing = () => setIsAddAllMissingDialogOpen(true);
 
   const confirmAddAllMissing = () => {
-    const missingTracks = tracks.filter((track) => {
-      const status =
-        libraryStatus[track.id] !== undefined ? libraryStatus[track.id] : track.isInUserLibrary;
-      return !status;
-    });
+    const missingTracks = getTracksMissingFromLibrary(tracks, libraryStatus);
     if (missingTracks.length === 0) {
       setIsAddAllMissingDialogOpen(false);
       return;
@@ -369,11 +382,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
     setIsAddAllMissingDialogOpen(false);
   };
 
-  const missingCount = tracks.filter((track) => {
-    const status =
-      libraryStatus[track.id] !== undefined ? libraryStatus[track.id] : track.isInUserLibrary;
-    return !status;
-  }).length;
+  const missingCount = getTracksMissingFromLibrary(tracks, libraryStatus).length;
 
   // Detect when sync form is submitting
   const isSyncing = useIsPending({ formMethod: "POST" });
