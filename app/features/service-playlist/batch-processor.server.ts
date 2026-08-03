@@ -74,6 +74,20 @@ export interface PendingMatch {
 }
 
 /**
+ * Deleted/unavailable playlist item that did not match an existing Track by id.
+ * Resolved after the full sync against playlist-scoped orphans.
+ */
+export interface DeletedVideoWithoutMatch {
+  position: number;
+  itemId: string | undefined;
+  title: string | undefined;
+  snippet: SyncableItem["snippet"];
+  externalId: string;
+}
+
+export type OrphanCandidate = PendingMatch["candidateTracks"][number];
+
+/**
  * Result from processing tracks in batches.
  */
 export interface ProcessTracksResult {
@@ -82,21 +96,9 @@ export interface ProcessTracksResult {
   processedExternalIds: Set<string>;
   processedTrackIds: Set<string>;
   pendingMatches: PendingMatch[];
+  deletedVideosWithoutMatch: DeletedVideoWithoutMatch[];
 }
 
-/**
- * Find orphaned tracks (tracks in playlist but not in current sync).
- * These are candidates for matching with deleted videos.
- *
- * Standalone function — moved from ServicePlaylistService facade.
- *
- * @param playlistId - The playlist ID
- * @param processedExternalIds - Set of external IDs that were processed in current sync
- * @param processedTrackIds - Set of track IDs that were processed in current sync
- * @param pendingMatches - Array of existing pending matches to avoid duplicate suggestions
- * @param tx - Prisma transaction instance
- * @returns Array of orphaned tracks with metadata
- */
 type PlaylistTrackForOrphanDetection = {
   track: {
     id: string;
@@ -108,26 +110,31 @@ type PlaylistTrackForOrphanDetection = {
   isDeleted: boolean;
 };
 
+const ORPHAN_DETECTION_INCLUDE = {
+  track: {
+    select: {
+      id: true,
+      title: true,
+      artist: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      externalId: true,
+    },
+  },
+} as const;
+
+/**
+ * Tracks in the playlist that are not present in the completed sync response.
+ * Candidates for matching with deleted/unavailable YouTube items.
+ */
 export function filterOrphanedTracks(
   allPlaylistTracks: PlaylistTrackForOrphanDetection[],
   processedExternalIds: Set<string>,
   processedTrackIds: Set<string>,
-  pendingMatches: PendingMatch[],
-): Array<{
-  id: string;
-  title: string;
-  artist: string;
-  externalId: string | null;
-  position: number;
-  isDeleted: boolean;
-}> {
-  const claimedTrackIds = new Set<string>();
-  for (const match of pendingMatches) {
-    for (const candidate of match.candidateTracks) {
-      claimedTrackIds.add(candidate.id);
-    }
-  }
-
+): OrphanCandidate[] {
   return allPlaylistTracks
     .filter((playlistTrack) => {
       const externalId = playlistTrack.track.externalId;
@@ -136,7 +143,6 @@ export function filterOrphanedTracks(
       if (externalId && processedExternalIds.has(externalId)) return false;
       if (processedTrackIds.has(trackId)) return false;
       if (playlistTrack.isDeleted) return false;
-      if (claimedTrackIds.has(trackId)) return false;
 
       return true;
     })
@@ -150,51 +156,130 @@ export function filterOrphanedTracks(
     }));
 }
 
-export async function findOrphanedTracks(
+/**
+ * Build pending matches only when orphan candidates exist.
+ * Every deleted video shares the same candidate pool (uniqueness enforced at confirm time).
+ */
+export function buildPendingMatches(
+  deletedVideos: DeletedVideoWithoutMatch[],
+  orphanCandidates: OrphanCandidate[],
+): PendingMatch[] {
+  if (deletedVideos.length === 0 || orphanCandidates.length === 0) {
+    return [];
+  }
+
+  return deletedVideos.map((deletedVideo) => ({
+    deletedVideo: {
+      position: deletedVideo.position,
+      itemId: deletedVideo.itemId,
+      title: deletedVideo.title,
+      snippet: deletedVideo.snippet,
+    },
+    candidateTracks: orphanCandidates,
+  }));
+}
+
+export async function loadPlaylistTracksForOrphanDetection(
+  db: Parameters<typeof findAllServicePlaylistTracks>[0],
   playlistId: string,
+): Promise<PlaylistTrackForOrphanDetection[]> {
+  const allPlaylistTracks = await findAllServicePlaylistTracks(db, {
+    where: { playlistId },
+    include: ORPHAN_DETECTION_INCLUDE,
+  });
+  return [...allPlaylistTracks].sort((a, b) => a.position - b.position);
+}
+
+/**
+ * After all sync batches: either open pending matches (when playlist orphans exist)
+ * or auto-create "Deleted video" tracks (ADR-005 first-sync fallback).
+ */
+export async function resolveDeletedVideosAfterSync(
+  playlistId: string,
+  serviceId: string,
+  deletedVideosWithoutMatch: DeletedVideoWithoutMatch[],
   processedExternalIds: Set<string>,
   processedTrackIds: Set<string>,
-  pendingMatches: PendingMatch[],
-  tx: any,
-): Promise<
-  Array<{
-    id: string;
-    title: string;
-    artist: string;
-    externalId: string | null;
-    position: number;
-    isDeleted: boolean;
-  }>
-> {
-  const allPlaylistTracks = (
-    await findAllServicePlaylistTracks(tx, {
-      where: {
-        playlistId: playlistId,
-      },
-      include: {
-        track: {
-          select: {
-            id: true,
-            title: true,
-            artist: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-            externalId: true,
-          },
-        },
-      },
-    })
-  ).sort((a, b) => a.position - b.position);
+): Promise<{
+  pendingMatches: PendingMatch[];
+  autoCreatedCount: number;
+  deletedTracks: SyncTrackInfo[];
+  processedTrackIds: Set<string>;
+}> {
+  if (deletedVideosWithoutMatch.length === 0) {
+    return {
+      pendingMatches: [],
+      autoCreatedCount: 0,
+      deletedTracks: [],
+      processedTrackIds,
+    };
+  }
 
-  return filterOrphanedTracks(
+  const allPlaylistTracks = await loadPlaylistTracksForOrphanDetection(prisma, playlistId);
+  const orphanCandidates = filterOrphanedTracks(
     allPlaylistTracks,
     processedExternalIds,
     processedTrackIds,
-    pendingMatches,
   );
+
+  if (orphanCandidates.length > 0) {
+    return {
+      pendingMatches: buildPendingMatches(deletedVideosWithoutMatch, orphanCandidates),
+      autoCreatedCount: 0,
+      deletedTracks: [],
+      processedTrackIds,
+    };
+  }
+
+  const { createId } = await import("@paralleldrive/cuid2");
+  const deletedTracks: SyncTrackInfo[] = [];
+  const nextProcessedTrackIds = new Set(processedTrackIds);
+
+  await prisma.$transaction(async (tx) => {
+    for (const deletedVideo of deletedVideosWithoutMatch) {
+      const artistRecord = await getOrCreateArtistTx(tx, "Unknown Artist");
+      const trackId = createId();
+      const externalId = deletedVideo.externalId;
+
+      await tx.track.create({
+        data: {
+          id: trackId,
+          title: "Deleted video",
+          artistId: artistRecord.id,
+          duration: null,
+          externalId,
+          serviceId,
+          serviceUrl: null,
+          releaseDate: null,
+        },
+      });
+
+      await tx.servicePlaylistTrack.create({
+        data: {
+          id: createId(),
+          playlistId,
+          trackId,
+          position: deletedVideo.position,
+          isDeleted: true,
+          deletedAt: new Date(),
+        },
+      });
+
+      nextProcessedTrackIds.add(trackId);
+      deletedTracks.push({
+        id: trackId,
+        title: "Deleted video",
+        externalId,
+      });
+    }
+  });
+
+  return {
+    pendingMatches: [],
+    autoCreatedCount: deletedTracks.length,
+    deletedTracks,
+    processedTrackIds: nextProcessedTrackIds,
+  };
 }
 
 /**
@@ -231,15 +316,15 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
   // Merge accumulated sets with new sets to track all processed items across batches
   const processedExternalIds = new Set<string>(accumulatedProcessedExternalIds || []);
   const processedTrackIds = new Set<string>(accumulatedProcessedTrackIds || []);
-  const pendingMatches: PendingMatch[] = [];
+  const deletedVideosWithoutMatch: DeletedVideoWithoutMatch[] = [];
 
   for (let batchStart = 0; batchStart < playlistItems.length; batchStart += batchSize) {
     const batch = playlistItems.slice(batchStart, batchStart + batchSize);
 
     // Prepare batch data
     const trackDataBatch: TrackDataBatch<TItem>[] = [];
-    // Collect deleted videos without matches for second pass (orphaned track detection)
-    const deletedVideosWithoutMatch: Array<{
+    // Collect deleted videos without matches for post-sync resolution
+    const batchDeletedWithoutMatch: Array<{
       item: TItem;
       position: number;
       externalId: string;
@@ -254,7 +339,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       // This prevents multiple deleted videos from collapsing into a single track record
       let externalId = item.snippet?.resourceId?.videoId || "";
       const position = globalStartPosition + batchStart + i + 1;
-      const isDeleted = trackProcessor.isDeletedVideo(item);
+      const isDeleted = trackProcessor.isUnavailableVideo(item);
 
       // Try to find existing track by stable identifiers
       let existingTrack: {
@@ -304,8 +389,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
         });
       }
 
-      // For deleted videos without a match, defer orphaned track detection to second pass
-      // This ensures all tracks in the current batch are processed first
+      // For deleted videos without a match, defer resolution until after the full sync
       if (isDeleted && !existingTrack) {
         // Generate a temporary externalId for tracking
         if (item.id) {
@@ -314,18 +398,17 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           externalId = `pending-${playlistId}-${item.id || position}`;
         }
 
-        // Store for second pass processing
-        deletedVideosWithoutMatch.push({
+        batchDeletedWithoutMatch.push({
           item,
           position,
           externalId,
         });
 
         // Mark externalId as processed to prevent it from being marked as "removed"
-        // This ensures pending deleted videos aren't deleted before user confirmation
+        // before post-sync orphan resolution / auto-create
         processedExternalIds.add(externalId);
 
-        // Skip creating track immediately - wait for user confirmation
+        // Skip creating track immediately - wait for orphan resolution
         continue;
       }
 
@@ -504,7 +587,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
 
       // Use the item stored with trackData to avoid index mismatch when items are skipped
       const item = trackData.item;
-      const isDeleted = item ? trackProcessor.isDeletedVideo(item) : false;
+      const isDeleted = item ? trackProcessor.isUnavailableVideo(item) : false;
 
       // Get thumbnailUrl from API response
       const thumbnailUrl = pickCoverThumbnailUrl(item?.snippet?.thumbnails);
@@ -574,49 +657,14 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     // Count only successfully processed tracks
     processedTracks += successfulResults.length;
 
-    // SECOND PASS: Find orphaned tracks for deleted videos without matches
-    // This happens AFTER all tracks in the current batch are processed and added to processedTrackIds
-    // This prevents false positives where tracks in the current batch are incorrectly marked as orphaned
-    if (deletedVideosWithoutMatch.length > 0) {
-      const allPlaylistTracks = (
-        await findAllServicePlaylistTracks(tx, {
-          where: { playlistId },
-          include: {
-            track: {
-              select: {
-                id: true,
-                title: true,
-                artist: {
-                  select: {
-                    id: true,
-                    name: true,
-                  },
-                },
-                externalId: true,
-              },
-            },
-          },
-        })
-      ).sort((a, b) => a.position - b.position);
-
-      for (const deletedVideo of deletedVideosWithoutMatch) {
-        const orphanedTracks = filterOrphanedTracks(
-          allPlaylistTracks,
-          processedExternalIds,
-          processedTrackIds,
-          pendingMatches,
-        );
-
-        pendingMatches.push({
-          deletedVideo: {
-            position: deletedVideo.position,
-            itemId: deletedVideo.item.id,
-            title: deletedVideo.item.snippet?.title,
-            snippet: deletedVideo.item.snippet,
-          },
-          candidateTracks: orphanedTracks,
-        });
-      }
+    for (const deletedVideo of batchDeletedWithoutMatch) {
+      deletedVideosWithoutMatch.push({
+        position: deletedVideo.position,
+        itemId: deletedVideo.item.id,
+        title: deletedVideo.item.snippet?.title,
+        snippet: deletedVideo.item.snippet,
+        externalId: deletedVideo.externalId,
+      });
     }
   }
 
@@ -625,7 +673,8 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     deletedTracks,
     processedExternalIds,
     processedTrackIds,
-    pendingMatches,
+    pendingMatches: [],
+    deletedVideosWithoutMatch,
   };
 }
 
@@ -641,6 +690,24 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
  * @param userId - The user ID
  * @returns Result with success count and any errors
  */
+export function getDuplicateMatchedTrackIds(
+  matches: Array<{ action: string; selectedTrackId?: string | null }>,
+): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const match of matches) {
+    if (match.action !== "match" || !match.selectedTrackId) continue;
+    if (seen.has(match.selectedTrackId)) {
+      duplicates.add(match.selectedTrackId);
+    } else {
+      seen.add(match.selectedTrackId);
+    }
+  }
+
+  return [...duplicates];
+}
+
 export async function confirmOrphanedMatches(
   playlistId: string,
   matches: Array<{
@@ -681,6 +748,16 @@ export async function confirmOrphanedMatches(
       processedCount: 0,
       message: "Service not found for playlist",
       error: "Service not found for playlist",
+    };
+  }
+
+  const duplicateTrackIds = getDuplicateMatchedTrackIds(matches);
+  if (duplicateTrackIds.length > 0) {
+    return {
+      success: false,
+      processedCount: 0,
+      message: "Each orphaned track can only be matched to one deleted video.",
+      error: `Duplicate track selections: ${duplicateTrackIds.join(", ")}`,
     };
   }
 

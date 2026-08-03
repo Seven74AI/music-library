@@ -2,12 +2,26 @@ import { transformYouTubePlaylistItemToTrack } from "#app/types/transformations"
 import { type YouTubePlaylistItem } from "#app/types/youtube-api";
 import { type Prisma } from "#prisma/client.js";
 
+const UNAVAILABLE_TITLE_PATTERNS = [
+  /^deleted video$/i,
+  /^private video$/i,
+  /^unavailable video$/i,
+  /^video unavailable$/i,
+  /^this video is unavailable$/i,
+];
+
+const PLACEHOLDER_TITLE_PATTERNS = [...UNAVAILABLE_TITLE_PATTERNS, /^unknown title$/i];
+
+function isPlaceholderTitle(title: string): boolean {
+  return PLACEHOLDER_TITLE_PATTERNS.some((pattern) => pattern.test(title));
+}
+
 /**
  * Internal track-processing contract used by the batch processor.
  * Not part of the public provider seam (fetch + normalize only).
  */
 export interface TrackSyncProcessor {
-  isDeletedVideo(item: any): boolean;
+  isUnavailableVideo(item: any): boolean;
   shouldPreserveTrackData(existingTrack: { title: string } | null, item: any): boolean;
   transformPlaylistItem(
     item: any,
@@ -20,23 +34,14 @@ export interface TrackSyncProcessor {
 }
 
 export class YouTubeTrackSyncProcessor implements TrackSyncProcessor {
-  isDeletedVideo(item: YouTubePlaylistItem): boolean {
+  isUnavailableVideo(item: YouTubePlaylistItem): boolean {
     const title = item.snippet?.title || "";
     const videoId = item.snippet?.resourceId?.videoId;
 
-    const deletedPatterns = [
-      /^deleted video$/i,
-      /^private video$/i,
-      /^unavailable video$/i,
-      /^video unavailable$/i,
-      /^this video is unavailable$/i,
-    ];
-
-    const hasDeletedTitle = deletedPatterns.some((pattern) => pattern.test(title));
+    const hasUnavailableTitle = UNAVAILABLE_TITLE_PATTERNS.some((pattern) => pattern.test(title));
     const missingVideoId = !videoId || videoId.trim() === "";
-    const missingThumbnail = !item.snippet?.thumbnails?.default?.url;
 
-    return hasDeletedTitle || missingVideoId || missingThumbnail;
+    return hasUnavailableTitle || missingVideoId;
   }
 
   shouldPreserveTrackData(
@@ -45,11 +50,7 @@ export class YouTubeTrackSyncProcessor implements TrackSyncProcessor {
   ): boolean {
     if (!existingTrack) return false;
 
-    if (
-      this.isDeletedVideo(newItem) &&
-      existingTrack.title !== "Deleted video" &&
-      existingTrack.title !== "Unknown Title"
-    ) {
+    if (this.isUnavailableVideo(newItem) && !isPlaceholderTitle(existingTrack.title)) {
       return true;
     }
 

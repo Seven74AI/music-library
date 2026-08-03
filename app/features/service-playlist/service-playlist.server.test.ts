@@ -28,6 +28,12 @@ vi.mock("#app/utils/db.server", () => ({
     track: {
       findUnique: vi.fn(),
       upsert: vi.fn(),
+      create: vi.fn(),
+    },
+    artist: {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
     },
     userTrack: {
       findUnique: vi.fn(),
@@ -487,7 +493,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       // Mock YouTube service
       mockGetPlaylistItems.mockResolvedValue(playlistItems);
 
-      // Mock existing playlist tracks (some orphaned, some in current sync)
+      // Mock existing playlist tracks (real orphan + tracks still present later in YouTube response)
       const existingOrphanedTrack = {
         id: "pt-orphaned",
         playlistId,
@@ -498,6 +504,21 @@ describe("ServicePlaylistService - Batch Processing", () => {
           id: "track-orphaned",
           title: "Orphaned Track",
           externalId: "orphaned-video",
+          artist: { id: "artist-orphaned", name: "Orphan Artist" },
+        },
+      };
+
+      const stillSyncedTrack = {
+        id: "pt-video16",
+        playlistId,
+        trackId: "track-video16",
+        position: 16,
+        isDeleted: false,
+        track: {
+          id: "track-video16",
+          title: "Video 16",
+          externalId: "video16",
+          artist: { id: "artist-1", name: "Test Channel" },
         },
       };
 
@@ -516,6 +537,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
                 externalId: args.create.externalId,
               };
             }),
+            create: vi.fn(),
           },
           artist: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -537,15 +559,17 @@ describe("ServicePlaylistService - Batch Processing", () => {
                 isDeleted: false,
               };
             }),
-            findMany: vi.fn().mockResolvedValue([existingOrphanedTrack]),
+            findMany: vi.fn().mockResolvedValue([existingOrphanedTrack, stillSyncedTrack]),
+            create: vi.fn(),
           },
         };
         return callback(tx);
       });
 
-      // Mock playlist tracks query for removal detection
+      // Mock playlist tracks query for orphan resolution + removal detection
       vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([
         existingOrphanedTrack,
+        stillSyncedTrack,
       ] as any);
 
       // Mock playlist update
@@ -763,7 +787,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       // Mock YouTube service
       mockGetPlaylistItems.mockResolvedValue(playlistItems);
 
-      // Mock transaction
+      // Mock transaction (batch processing + auto-create of deleted video)
       vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
         const tx = {
           track: {
@@ -773,6 +797,11 @@ describe("ServicePlaylistService - Batch Processing", () => {
               title: "New Video",
               externalId: "video-new",
             }),
+            create: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.data.id,
+              title: args.data.title,
+              externalId: args.data.externalId,
+            })),
           },
           artist: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -792,12 +821,13 @@ describe("ServicePlaylistService - Batch Processing", () => {
               isDeleted: false,
             }),
             findMany: vi.fn().mockResolvedValue([]),
+            create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };
         return callback(tx);
       });
 
-      // Mock playlist tracks query (empty - no removed tracks)
+      // Mock playlist tracks query (empty - no orphans, no removed tracks)
       vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([]);
 
       // Mock playlist update
@@ -806,10 +836,11 @@ describe("ServicePlaylistService - Batch Processing", () => {
       const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(true);
-      // Should count only the 5 successfully processed tracks, not the deleted video
-      expect(result.tracksAdded).toBe(5);
-      // Should have pending matches for the deleted video
-      expect(result.pendingMatches).toHaveLength(1);
+      // 5 normal tracks + 1 auto-created deleted video (no orphan candidates)
+      expect(result.tracksAdded).toBe(6);
+      expect(result.pendingMatches).toHaveLength(0);
+      expect(result.deletedTracks).toHaveLength(1);
+      expect(result.deletedTracks[0]?.title).toBe("Deleted video");
     });
   });
 });

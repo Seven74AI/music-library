@@ -29,6 +29,7 @@ import {
 import {
   confirmOrphanedMatches as doConfirmOrphanedMatches,
   processTracksInBatches,
+  resolveDeletedVideosAfterSync,
   type PendingMatch,
   type ProcessTracksResult,
   type SyncableItem,
@@ -116,6 +117,7 @@ export class ServicePlaylistService {
       processedExternalIds: new Set<string>(),
       processedTrackIds: new Set<string>(),
       pendingMatches: [],
+      deletedVideosWithoutMatch: [],
     };
 
     for (let batchStart = 0; batchStart < totalItems; batchStart += TRANSACTION_BATCH_SIZE) {
@@ -143,7 +145,7 @@ export class ServicePlaylistService {
         accumulated.deletedTracks.push(...batchResult.deletedTracks);
         batchResult.processedExternalIds.forEach((id) => accumulated.processedExternalIds.add(id));
         batchResult.processedTrackIds.forEach((id) => accumulated.processedTrackIds.add(id));
-        accumulated.pendingMatches.push(...batchResult.pendingMatches);
+        accumulated.deletedVideosWithoutMatch.push(...batchResult.deletedVideosWithoutMatch);
       } catch (batchError) {
         console.error(
           `Error processing batch ${batchStart}-${batchStart + TRANSACTION_BATCH_SIZE}:`,
@@ -159,6 +161,21 @@ export class ServicePlaylistService {
         throw batchError;
       }
     }
+
+    const resolution = await resolveDeletedVideosAfterSync(
+      playlistId,
+      serviceId,
+      accumulated.deletedVideosWithoutMatch,
+      accumulated.processedExternalIds,
+      accumulated.processedTrackIds,
+    );
+
+    accumulated.pendingMatches = resolution.pendingMatches;
+    accumulated.deletedTracks.push(...resolution.deletedTracks);
+    accumulated.processedCount += resolution.autoCreatedCount;
+    accumulated.processedTrackIds = resolution.processedTrackIds;
+    // Clear stubs once resolved so callers don't re-process
+    accumulated.deletedVideosWithoutMatch = [];
 
     return { result: accumulated, timedOut: false };
   }
