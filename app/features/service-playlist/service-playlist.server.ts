@@ -110,6 +110,10 @@ export class ServicePlaylistService {
     serviceId: string,
     playlistId: string,
     trackProcessor: TrackSyncProcessor,
+    options?: {
+      accessToken?: string;
+      resolveVideoExistence?: PlaylistSyncProvider["resolveVideoExistence"];
+    },
   ): Promise<{ result: ProcessTracksResult; timedOut: boolean }> {
     const totalItems = playlistItems.length;
     const accumulated: ProcessTracksResult = {
@@ -121,6 +125,8 @@ export class ServicePlaylistService {
       },
       pendingMatches: [],
       deletedVideosWithoutMatch: [],
+      removeSptIds: new Set(),
+      leaveAloneSptIds: new Set(),
     };
 
     for (let batchStart = 0; batchStart < totalItems; batchStart += TRANSACTION_BATCH_SIZE) {
@@ -173,12 +179,18 @@ export class ServicePlaylistService {
       serviceId,
       accumulated.deletedVideosWithoutMatch,
       accumulated.processedIds,
+      {
+        accessToken: options?.accessToken,
+        resolveVideoExistence: options?.resolveVideoExistence,
+      },
     );
 
     accumulated.pendingMatches = resolution.pendingMatches;
     accumulated.deletedTracks.push(...resolution.deletedTracks);
     accumulated.processedCount += resolution.autoCreatedCount;
     accumulated.processedIds = resolution.processedIds;
+    accumulated.removeSptIds = resolution.removeSptIds;
+    accumulated.leaveAloneSptIds = resolution.leaveAloneSptIds;
     // Clear stubs once resolved so callers don't re-process
     accumulated.deletedVideosWithoutMatch = [];
 
@@ -357,6 +369,10 @@ export class ServicePlaylistService {
       service.id,
       playlist.id,
       trackProcessor,
+      {
+        accessToken: tokenData.access_token,
+        resolveVideoExistence: syncProvider.resolveVideoExistence,
+      },
     );
 
     if (timedOut) {
@@ -422,6 +438,10 @@ export class ServicePlaylistService {
       service.id,
       playlist.id,
       trackProcessor,
+      {
+        accessToken: tokenData.access_token,
+        resolveVideoExistence: syncProvider.resolveVideoExistence,
+      },
     );
 
     if (timedOut) {
@@ -453,36 +473,23 @@ export class ServicePlaylistService {
       },
     });
 
-    const candidateTrackIds = new Set<string>();
-    for (const match of processResult.pendingMatches) {
-      for (const candidate of match.candidateTracks) {
-        candidateTrackIds.add(candidate.id);
-      }
-    }
-
     const removedTracks: SyncTrackInfo[] = [];
     const tracksToRemove: string[] = [];
 
     for (const playlistTrack of existingPlaylistTracks) {
-      const externalId = playlistTrack.track.externalId;
-      const trackId = playlistTrack.track.id;
-
-      if (candidateTrackIds.has(trackId)) {
+      if (!processResult.removeSptIds.has(playlistTrack.id)) {
         continue;
       }
 
-      const shouldRemove = externalId
-        ? !processResult.processedIds.externalIds.has(externalId)
-        : !processResult.processedIds.trackIds.has(trackId);
+      const externalId = playlistTrack.track.externalId;
+      const trackId = playlistTrack.track.id;
 
-      if (shouldRemove) {
-        removedTracks.push({
-          id: trackId,
-          title: playlistTrack.track.title,
-          ...(externalId && { externalId }),
-        });
-        tracksToRemove.push(playlistTrack.id);
-      }
+      removedTracks.push({
+        id: trackId,
+        title: playlistTrack.track.title,
+        ...(externalId && { externalId }),
+      });
+      tracksToRemove.push(playlistTrack.id);
     }
 
     if (tracksToRemove.length > 0) {

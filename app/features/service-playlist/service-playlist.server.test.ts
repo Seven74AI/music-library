@@ -1,4 +1,5 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
 import {
   createServicePlaylistService,
@@ -53,12 +54,14 @@ vi.mock("#app/utils/db.server", () => ({
 const mockGetPlaylistItems = vi.fn();
 const mockGetPlaylist = vi.fn();
 const mockGetUserPlaylists = vi.fn();
+const mockCheckVideosExist = vi.fn();
 
 vi.mock("#app/utils/youtube.server", () => ({
   createYouTubeService: vi.fn(() => ({
     getPlaylistItems: mockGetPlaylistItems,
     getPlaylist: mockGetPlaylist,
     getUserPlaylists: mockGetUserPlaylists,
+    checkVideosExist: mockCheckVideosExist,
   })),
 }));
 
@@ -89,6 +92,8 @@ describe("ServicePlaylistService - Sync Logic", () => {
     ).resolveServiceAccessToken as ReturnType<typeof vi.fn>;
     vi.clearAllMocks();
     vi.mocked(resolveServiceAccessToken).mockResolvedValue({ access_token: "token123" });
+    // Default: absent videos are gone on YouTube (playlist removals → delete SPT)
+    mockCheckVideosExist.mockImplementation(async (ids: string[]) => new Set<string>());
   });
 
   describe("syncServicePlaylist - removed tracks cleanup", () => {
@@ -127,7 +132,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
         {
           snippet: {
             title: "Video 1",
-            resourceId: { videoId: "video1" },
+            resourceId: { videoId: "vid00000001" },
             thumbnails: { default: { url: "https://example.com/thumb1.jpg" } },
             videoOwnerChannelTitle: "Test Channel",
           },
@@ -146,7 +151,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
           track: {
             id: "track1",
             title: "Video 1",
-            externalId: "video1",
+            externalId: "vid00000001",
           },
         },
         {
@@ -159,7 +164,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
           track: {
             id: "track2",
             title: "Video 2 (Removed)",
-            externalId: "video2",
+            externalId: "vid00000002",
           },
         },
       ] as any);
@@ -172,7 +177,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
             upsert: vi.fn().mockResolvedValue({
               id: "track1",
               title: "Video 1",
-              externalId: "video1",
+              externalId: "vid00000001",
             }),
           },
           artist: {
@@ -208,7 +213,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
       expect(result.success).toBe(true);
       expect(result.removedTracks).toHaveLength(1);
       expect(result.removedTracks[0]?.title).toBe("Video 2 (Removed)");
-      expect(result.removedTracks[0]?.externalId).toBe("video2");
+      expect(result.removedTracks[0]?.externalId).toBe("vid00000002");
       expect(prisma.servicePlaylistTrack.deleteMany).toHaveBeenCalledWith({
         where: {
           id: {
@@ -503,7 +508,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
         track: {
           id: "track-orphaned",
           title: "Orphaned Track",
-          externalId: "orphaned-video",
+          externalId: "orphaned001",
           artist: { id: "artist-orphaned", name: "Orphan Artist" },
         },
       };
@@ -600,6 +605,205 @@ describe("ServicePlaylistService - Batch Processing", () => {
       );
       expect(currentSyncTracks?.length).toBe(0);
     });
+
+    test("still-existing YouTube videos absent from playlist are removed, not match candidates", async () => {
+      const userId = "user123";
+      const playlistId = "playlist123";
+      const serviceId = "youtube-service";
+
+      vi.mocked(prisma.service.findUnique).mockResolvedValue({
+        id: serviceId,
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+
+      vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
+        id: playlistId,
+        serviceId,
+        externalId: "external123",
+        title: "Test Playlist",
+        itemCount: 0,
+        ownerId: userId,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+
+      mockGetPlaylistItems.mockResolvedValue([
+        {
+          id: "deleted-item-1",
+          snippet: {
+            title: "Deleted video",
+            resourceId: { videoId: "" },
+          },
+        },
+      ]);
+
+      // Video still exists on YouTube — user removed it from the playlist
+      mockCheckVideosExist.mockResolvedValue(new Set(["ZoYDkmD3tXU"]));
+
+      const stillOnYoutubeTrack = {
+        id: "pt-rafyou",
+        playlistId,
+        trackId: "track-rafyou",
+        position: 31,
+        isDeleted: false,
+        track: {
+          id: "track-rafyou",
+          title: "Rafyou x Samka - Pointe Creuse",
+          externalId: "ZoYDkmD3tXU",
+          artist: { id: "artist-1", name: "Rafyou" },
+        },
+      };
+
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            upsert: vi.fn(),
+            create: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.data.id,
+              title: args.data.title,
+              externalId: args.data.externalId,
+            })),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Unknown Artist",
+            }),
+          },
+          servicePlaylistTrack: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            upsert: vi.fn(),
+            findMany: vi.fn().mockResolvedValue([stillOnYoutubeTrack]),
+            create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
+          },
+        };
+        return callback(tx);
+      });
+
+      vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([
+        stillOnYoutubeTrack,
+      ] as any);
+      vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 1 } as any);
+
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
+
+      expect(result.success).toBe(true);
+      expect(result.pendingMatches).toHaveLength(0);
+      expect(result.deletedTracks).toHaveLength(1);
+      expect(result.deletedTracks[0]?.title).toBe("Deleted video");
+      expect(result.removedTracks).toHaveLength(1);
+      expect(result.removedTracks[0]?.externalId).toBe("ZoYDkmD3tXU");
+      expect(prisma.servicePlaylistTrack.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ["pt-rafyou"] } },
+      });
+    });
+
+    test("videos.list failure leaves absent SPTs untouched and out of match candidates", async () => {
+      const userId = "user123";
+      const playlistId = "playlist123";
+      const serviceId = "youtube-service";
+
+      vi.mocked(prisma.service.findUnique).mockResolvedValue({
+        id: serviceId,
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+
+      vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
+        id: playlistId,
+        serviceId,
+        externalId: "external123",
+        title: "Test Playlist",
+        itemCount: 0,
+        ownerId: userId,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+
+      mockGetPlaylistItems.mockResolvedValue([
+        {
+          id: "deleted-item-1",
+          snippet: {
+            title: "Deleted video",
+            resourceId: { videoId: "" },
+          },
+        },
+      ]);
+
+      consoleError.mockImplementation(() => {});
+      mockCheckVideosExist.mockRejectedValueOnce(new Error("YouTube quota exceeded"));
+
+      const uncertainTrack = {
+        id: "pt-uncertain",
+        playlistId,
+        trackId: "track-uncertain",
+        position: 10,
+        isDeleted: false,
+        track: {
+          id: "track-uncertain",
+          title: "Maybe Removed",
+          externalId: "ZoYDkmD3tXU",
+          artist: { id: "artist-1", name: "Artist" },
+        },
+      };
+
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            upsert: vi.fn(),
+            create: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.data.id,
+              title: args.data.title,
+              externalId: args.data.externalId,
+            })),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Unknown Artist",
+            }),
+          },
+          servicePlaylistTrack: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            upsert: vi.fn(),
+            findMany: vi.fn().mockResolvedValue([uncertainTrack]),
+            create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
+          },
+        };
+        return callback(tx);
+      });
+
+      vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([uncertainTrack] as any);
+      vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
+
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
+
+      expect(result.success).toBe(true);
+      expect(result.pendingMatches).toHaveLength(0);
+      expect(result.removedTracks).toHaveLength(0);
+      expect(prisma.servicePlaylistTrack.deleteMany).not.toHaveBeenCalled();
+      // Deferred deleted slot still needs a row → auto-create when no candidates
+      expect(result.deletedTracks).toHaveLength(1);
+      expect(result.deletedTracks[0]?.title).toBe("Deleted video");
+    });
   });
 
   describe("Track removal across batches", () => {
@@ -656,7 +860,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
           track: {
             id: "track-removed1",
             title: "Video 21 (Removed)",
-            externalId: "video21",
+            externalId: "vid00000021",
           },
         },
         {
@@ -668,7 +872,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
           track: {
             id: "track-removed2",
             title: "Video 22 (Removed)",
-            externalId: "video22",
+            externalId: "vid00000022",
           },
         },
       ];
@@ -721,8 +925,8 @@ describe("ServicePlaylistService - Batch Processing", () => {
 
       expect(result.success).toBe(true);
       expect(result.removedTracks).toHaveLength(2);
-      expect(result.removedTracks.map((t) => t.externalId)).toContain("video21");
-      expect(result.removedTracks.map((t) => t.externalId)).toContain("video22");
+      expect(result.removedTracks.map((t) => t.externalId)).toContain("vid00000021");
+      expect(result.removedTracks.map((t) => t.externalId)).toContain("vid00000022");
 
       // Verify deleteMany was called with correct IDs
       expect(prisma.servicePlaylistTrack.deleteMany).toHaveBeenCalledWith({

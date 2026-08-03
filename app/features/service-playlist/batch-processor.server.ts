@@ -1,7 +1,14 @@
 import { pickCoverThumbnailUrl } from "#app/types/transformations";
 import { getOrCreateArtistTx } from "#app/utils/artist-management.server";
 import { prisma } from "#app/utils/db.server";
+import {
+  classifyAbsentPlaylistTracks,
+  isYouTubeVideoId,
+  type AbsentPlaylistTrackRow,
+  type VideoExistenceLookup,
+} from "./absent-track-classification.server";
 import { type ArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
+import { type ResolveVideoExistence } from "./playlist-sync-provider.server";
 import { findAllServicePlaylistTracks } from "./service-playlist-track-queries.server";
 import { planUnavailableItemProcessing } from "./unavailable-item-plan.server";
 import { type TrackSyncProcessor } from "./youtube-track-sync.server";
@@ -104,9 +111,14 @@ export interface ProcessTracksResult {
   processedIds: ProcessedIdSets;
   pendingMatches: PendingMatch[];
   deletedVideosWithoutMatch: DeletedVideoWithoutMatch[];
+  /** ServicePlaylistTrack ids classified for deletion this sync. */
+  removeSptIds: Set<string>;
+  /** ServicePlaylistTrack ids left untouched (lookup failure / non-probeable). */
+  leaveAloneSptIds: Set<string>;
 }
 
 type PlaylistTrackForOrphanDetection = {
+  id: string;
   track: {
     id: string;
     title: string;
@@ -141,6 +153,23 @@ export function filterOrphanedTracks(
   allPlaylistTracks: PlaylistTrackForOrphanDetection[],
   processedIds: ProcessedIdSets,
 ): OrphanCandidate[] {
+  return filterAbsentPlaylistTracks(allPlaylistTracks, processedIds).map((track) => ({
+    id: track.trackId,
+    title: track.title,
+    artist: track.artist,
+    externalId: track.externalId,
+    position: track.position,
+    isDeleted: track.isDeleted,
+  }));
+}
+
+/**
+ * Absent non-deleted playlist memberships (SPT-level), for videos.list classification.
+ */
+export function filterAbsentPlaylistTracks(
+  allPlaylistTracks: PlaylistTrackForOrphanDetection[],
+  processedIds: ProcessedIdSets,
+): AbsentPlaylistTrackRow[] {
   return allPlaylistTracks
     .filter((playlistTrack) => {
       const externalId = playlistTrack.track.externalId;
@@ -153,13 +182,68 @@ export function filterOrphanedTracks(
       return true;
     })
     .map((playlistTrack) => ({
-      id: playlistTrack.track.id,
+      sptId: playlistTrack.id,
+      trackId: playlistTrack.track.id,
       title: playlistTrack.track.title,
       artist: playlistTrack.track.artist?.name || "Unknown Artist",
       externalId: playlistTrack.track.externalId,
       position: playlistTrack.position,
       isDeleted: playlistTrack.isDeleted,
     }));
+}
+
+async function lookupVideoExistence(
+  absentTracks: AbsentPlaylistTrackRow[],
+  accessToken: string | undefined,
+  resolveVideoExistence: ResolveVideoExistence | undefined,
+): Promise<VideoExistenceLookup | "no-probe"> {
+  if (!resolveVideoExistence || !accessToken) {
+    return "no-probe";
+  }
+
+  const idsToProbe = [
+    ...new Set(
+      absentTracks.map((t) => t.externalId).filter((id): id is string => isYouTubeVideoId(id)),
+    ),
+  ];
+
+  if (idsToProbe.length === 0) {
+    return { status: "ok", existingIds: new Set() };
+  }
+
+  try {
+    const existingIds = await resolveVideoExistence(idsToProbe, accessToken);
+    return { status: "ok", existingIds };
+  } catch (error) {
+    console.error("Failed to resolve video existence during playlist sync:", error);
+    return { status: "error" };
+  }
+}
+
+function classifyWithoutProbe(
+  absentTracks: AbsentPlaylistTrackRow[],
+  hasDeferredDeletedItems: boolean,
+): ReturnType<typeof classifyAbsentPlaylistTracks> {
+  if (hasDeferredDeletedItems) {
+    return {
+      removeSptIds: new Set(),
+      leaveAloneSptIds: new Set(),
+      candidateTracks: absentTracks.map((track) => ({
+        id: track.trackId,
+        title: track.title,
+        artist: track.artist,
+        externalId: track.externalId,
+        position: track.position,
+        isDeleted: track.isDeleted,
+      })),
+    };
+  }
+
+  return {
+    removeSptIds: new Set(absentTracks.map((t) => t.sptId)),
+    leaveAloneSptIds: new Set(),
+    candidateTracks: [],
+  };
 }
 
 /**
@@ -197,38 +281,67 @@ export async function loadPlaylistTracksForOrphanDetection(
 }
 
 /**
- * After all sync batches: either open pending matches (when playlist orphans exist)
- * or auto-create "Deleted video" tracks (ADR-005 first-sync fallback).
+ * After all sync batches: classify absences (optional videos.list), open pending
+ * matches or auto-create "Deleted video" tracks (ADR-005 first-sync fallback).
  */
 export async function resolveDeletedVideosAfterSync(
   playlistId: string,
   serviceId: string,
   deletedVideosWithoutMatch: DeletedVideoWithoutMatch[],
   processedIds: ProcessedIdSets,
+  options?: {
+    accessToken?: string;
+    resolveVideoExistence?: ResolveVideoExistence;
+  },
 ): Promise<{
   pendingMatches: PendingMatch[];
   autoCreatedCount: number;
   deletedTracks: SyncTrackInfo[];
   processedIds: ProcessedIdSets;
+  removeSptIds: Set<string>;
+  leaveAloneSptIds: Set<string>;
 }> {
-  if (deletedVideosWithoutMatch.length === 0) {
+  const allPlaylistTracks = await loadPlaylistTracksForOrphanDetection(prisma, playlistId);
+  const absentTracks = filterAbsentPlaylistTracks(allPlaylistTracks, processedIds);
+  const hasDeferredDeletedItems = deletedVideosWithoutMatch.length > 0;
+
+  const lookup = await lookupVideoExistence(
+    absentTracks,
+    options?.accessToken,
+    options?.resolveVideoExistence,
+  );
+
+  const classification =
+    lookup === "no-probe"
+      ? classifyWithoutProbe(absentTracks, hasDeferredDeletedItems)
+      : classifyAbsentPlaylistTracks({
+          absentTracks,
+          lookup,
+          hasDeferredDeletedItems,
+        });
+
+  if (!hasDeferredDeletedItems) {
     return {
       pendingMatches: [],
       autoCreatedCount: 0,
       deletedTracks: [],
       processedIds,
+      removeSptIds: classification.removeSptIds,
+      leaveAloneSptIds: classification.leaveAloneSptIds,
     };
   }
 
-  const allPlaylistTracks = await loadPlaylistTracksForOrphanDetection(prisma, playlistId);
-  const orphanCandidates = filterOrphanedTracks(allPlaylistTracks, processedIds);
-
-  if (orphanCandidates.length > 0) {
+  if (classification.candidateTracks.length > 0) {
     return {
-      pendingMatches: buildPendingMatches(deletedVideosWithoutMatch, orphanCandidates),
+      pendingMatches: buildPendingMatches(
+        deletedVideosWithoutMatch,
+        classification.candidateTracks,
+      ),
       autoCreatedCount: 0,
       deletedTracks: [],
       processedIds,
+      removeSptIds: classification.removeSptIds,
+      leaveAloneSptIds: classification.leaveAloneSptIds,
     };
   }
 
@@ -283,6 +396,8 @@ export async function resolveDeletedVideosAfterSync(
     autoCreatedCount: deletedTracks.length,
     deletedTracks,
     processedIds: nextProcessedIds,
+    removeSptIds: classification.removeSptIds,
+    leaveAloneSptIds: classification.leaveAloneSptIds,
   };
 }
 
@@ -662,5 +777,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     processedIds,
     pendingMatches: [],
     deletedVideosWithoutMatch,
+    removeSptIds: new Set(),
+    leaveAloneSptIds: new Set(),
   };
 }

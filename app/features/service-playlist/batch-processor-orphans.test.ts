@@ -6,6 +6,7 @@ describe("filterOrphanedTracks", () => {
     const orphaned = filterOrphanedTracks(
       [
         {
+          id: "spt-1",
           position: 1,
           isDeleted: false,
           track: {
@@ -16,6 +17,7 @@ describe("filterOrphanedTracks", () => {
           },
         },
         {
+          id: "spt-2",
           position: 2,
           isDeleted: false,
           track: {
@@ -26,6 +28,7 @@ describe("filterOrphanedTracks", () => {
           },
         },
         {
+          id: "spt-3",
           position: 3,
           isDeleted: false,
           track: {
@@ -36,6 +39,7 @@ describe("filterOrphanedTracks", () => {
           },
         },
         {
+          id: "spt-4",
           position: 4,
           isDeleted: true,
           track: {
@@ -68,6 +72,7 @@ describe("filterOrphanedTracks", () => {
     const orphaned = filterOrphanedTracks(
       [
         {
+          id: "spt-a",
           position: 1,
           isDeleted: false,
           track: {
@@ -78,6 +83,7 @@ describe("filterOrphanedTracks", () => {
           },
         },
         {
+          id: "spt-b",
           position: 2,
           isDeleted: false,
           track: {

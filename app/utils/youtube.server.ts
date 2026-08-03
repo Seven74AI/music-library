@@ -3,11 +3,14 @@ import { YOUTUBE_API_VERSION } from "#app/config/youtube";
 import {
   YouTubePlaylistListResponseSchema,
   YouTubePlaylistItemListResponseSchema,
+  YouTubeVideoListResponseSchema,
   type YouTubePlaylistItem,
   type YouTubePlaylist,
   type YouTubePlaylistListResponse,
   type YouTubePlaylistItemListResponse,
+  type YouTubeVideoListResponse,
 } from "#app/types/youtube-api";
+import { chunkArray } from "#app/utils/chunk-array";
 import {
   createFakerYouTubePlaylist,
   createFakerYouTubePlaylistItem,
@@ -22,6 +25,8 @@ import {
   YOUTUBE_ERROR_CODES,
 } from "#app/utils/youtube-errors";
 import { shouldMockYouTube } from "#app/utils/youtube-mock-utils";
+
+const VIDEOS_LIST_BATCH_SIZE = 50;
 
 export class YouTubeService {
   private youtube: any;
@@ -194,6 +199,52 @@ export class YouTubeService {
         500,
       );
     }
+  }
+
+  /**
+   * Check which video IDs still exist on YouTube (batch videos.list).
+   * Uses the playlist owner's OAuth token so owned private videos are visible.
+   * IDs not returned are treated as gone (deleted / others' private / unavailable).
+   */
+  async checkVideosExist(videoIds: string[], accessToken: string): Promise<Set<string>> {
+    const uniqueIds = [...new Set(videoIds.filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      return new Set();
+    }
+
+    if (shouldMockYouTube()) {
+      return new Set(uniqueIds);
+    }
+
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+
+    const youtube = google.youtube({
+      version: YOUTUBE_API_VERSION,
+      auth: oauth2Client,
+    });
+
+    const existingIds = new Set<string>();
+
+    for (const idChunk of chunkArray(uniqueIds, VIDEOS_LIST_BATCH_SIZE)) {
+      const response = await youtube.videos.list({
+        part: ["id"],
+        id: idChunk,
+      });
+
+      const validated = validateYouTubeAPIResponse(
+        response.data,
+        YouTubeVideoListResponseSchema,
+      ) as YouTubeVideoListResponse;
+
+      for (const item of validated.items ?? []) {
+        if (item?.id) {
+          existingIds.add(item.id);
+        }
+      }
+    }
+
+    return existingIds;
   }
 
   /**
