@@ -7,6 +7,7 @@
  * Public exports:
  * - createServicePlaylistService, ServicePlaylistService, SyncServicePlaylistResult
  * - PendingMatch, SyncTrackInfo
+ * - confirmOrphanedMatches — resolve pending deleted-video / orphan matches
  * - getServiceByName — resolve a Service row by name (import flows)
  * - SERVICE_PLAYLIST_TRACK_PAGE_SIZE — pagination size for playlist track queries
  *
@@ -14,7 +15,8 @@
  * - batch-processor.server.ts, playlist-utils.server.ts,
  *   service-playlist-track-queries.server.ts, youtube-playlist-provider.server.ts,
  *   youtube-track-sync.server.ts, image-processor.server.ts,
- *   archive-enqueue-adapter.server.ts, playlist-sync-provider.server.ts
+ *   archive-enqueue-adapter.server.ts, playlist-sync-provider.server.ts,
+ *   orphaned-match-confirm.server.ts, unavailable-item-plan.server.ts
  */
 import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { resolveServiceAccessToken } from "#app/features/service-connection/service-connection.server";
@@ -27,7 +29,6 @@ import {
   createProductionArchiveEnqueueAdapter,
 } from "./archive-enqueue-adapter.server";
 import {
-  confirmOrphanedMatches as doConfirmOrphanedMatches,
   processTracksInBatches,
   resolveDeletedVideosAfterSync,
   type PendingMatch,
@@ -114,8 +115,10 @@ export class ServicePlaylistService {
     const accumulated: ProcessTracksResult = {
       processedCount: 0,
       deletedTracks: [],
-      processedExternalIds: new Set<string>(),
-      processedTrackIds: new Set<string>(),
+      processedIds: {
+        externalIds: new Set<string>(),
+        trackIds: new Set<string>(),
+      },
       pendingMatches: [],
       deletedVideosWithoutMatch: [],
     };
@@ -134,8 +137,7 @@ export class ServicePlaylistService {
               trackProcessor,
               this.archiveEnqueueAdapter,
               batchStart,
-              accumulated.processedExternalIds,
-              accumulated.processedTrackIds,
+              accumulated.processedIds,
             );
           },
           { timeout: 30000 },
@@ -143,8 +145,12 @@ export class ServicePlaylistService {
 
         accumulated.processedCount += batchResult.processedCount;
         accumulated.deletedTracks.push(...batchResult.deletedTracks);
-        batchResult.processedExternalIds.forEach((id) => accumulated.processedExternalIds.add(id));
-        batchResult.processedTrackIds.forEach((id) => accumulated.processedTrackIds.add(id));
+        batchResult.processedIds.externalIds.forEach((id) =>
+          accumulated.processedIds.externalIds.add(id),
+        );
+        batchResult.processedIds.trackIds.forEach((id) =>
+          accumulated.processedIds.trackIds.add(id),
+        );
         accumulated.deletedVideosWithoutMatch.push(...batchResult.deletedVideosWithoutMatch);
       } catch (batchError) {
         console.error(
@@ -166,14 +172,13 @@ export class ServicePlaylistService {
       playlistId,
       serviceId,
       accumulated.deletedVideosWithoutMatch,
-      accumulated.processedExternalIds,
-      accumulated.processedTrackIds,
+      accumulated.processedIds,
     );
 
     accumulated.pendingMatches = resolution.pendingMatches;
     accumulated.deletedTracks.push(...resolution.deletedTracks);
     accumulated.processedCount += resolution.autoCreatedCount;
-    accumulated.processedTrackIds = resolution.processedTrackIds;
+    accumulated.processedIds = resolution.processedIds;
     // Clear stubs once resolved so callers don't re-process
     accumulated.deletedVideosWithoutMatch = [];
 
@@ -467,8 +472,8 @@ export class ServicePlaylistService {
       }
 
       const shouldRemove = externalId
-        ? !processResult.processedExternalIds.has(externalId)
-        : !processResult.processedTrackIds.has(trackId);
+        ? !processResult.processedIds.externalIds.has(externalId)
+        : !processResult.processedIds.trackIds.has(trackId);
 
       if (shouldRemove) {
         removedTracks.push({
@@ -682,24 +687,6 @@ export class ServicePlaylistService {
       tracks,
     };
   }
-
-  async confirmOrphanedMatches(
-    playlistId: string,
-    matches: Array<{
-      deletedItemId: string | undefined;
-      selectedTrackId: string | null;
-      position: number;
-      action: "match" | "new" | "skip";
-    }>,
-    userId: string,
-  ): Promise<{
-    success: boolean;
-    processedCount: number;
-    message: string;
-    error?: string;
-  }> {
-    return doConfirmOrphanedMatches(playlistId, matches, userId);
-  }
 }
 
 export function createServicePlaylistService(options?: {
@@ -709,5 +696,6 @@ export function createServicePlaylistService(options?: {
 }
 
 export type { PendingMatch, SyncTrackInfo };
+export { confirmOrphanedMatches } from "./orphaned-match-confirm.server";
 export { getServiceByName } from "./playlist-utils.server";
 export { SERVICE_PLAYLIST_TRACK_PAGE_SIZE } from "./service-playlist-track-queries.server";

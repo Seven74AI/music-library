@@ -31,7 +31,10 @@ import { Button } from "#app/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#app/components/ui/card";
 import { Icon } from "#app/components/ui/icon";
 import { YOUTUBE_SERVICE } from "#app/constants/services";
-import { createServicePlaylistService } from "#app/features/service-playlist/service-playlist.server";
+import {
+  createServicePlaylistService,
+  confirmOrphanedMatches,
+} from "#app/features/service-playlist/service-playlist.server";
 import {
   isPlaylistWithTracks,
   isTrackWithUserStatus,
@@ -179,11 +182,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
             action: "match" | "new" | "skip";
           }>;
 
-          const result = await servicePlaylistService.confirmOrphanedMatches(
-            params.id!,
-            matches,
-            userId,
-          );
+          const result = await confirmOrphanedMatches(params.id!, matches, userId);
 
           if (result.success) {
             return data({

@@ -1,15 +1,8 @@
 import { describe, expect, test } from "vitest";
-import {
-  buildPendingMatches,
-  filterOrphanedTracks,
-  getDuplicateMatchedTrackIds,
-} from "./batch-processor.server";
+import { buildPendingMatches, filterOrphanedTracks } from "./batch-processor.server";
 
 describe("filterOrphanedTracks", () => {
   test("returns tracks missing from the current sync that are not deleted", () => {
-    const processedExternalIds = new Set(["video-1"]);
-    const processedTrackIds = new Set<string>();
-
     const orphaned = filterOrphanedTracks(
       [
         {
@@ -53,8 +46,10 @@ describe("filterOrphanedTracks", () => {
           },
         },
       ],
-      new Set(["video-1", "video-later"]),
-      processedTrackIds,
+      {
+        externalIds: new Set(["video-1", "video-later"]),
+        trackIds: new Set(),
+      },
     );
 
     expect(orphaned).toEqual([
@@ -93,8 +88,7 @@ describe("filterOrphanedTracks", () => {
           },
         },
       ],
-      new Set(),
-      new Set(),
+      { externalIds: new Set(), trackIds: new Set() },
     );
 
     expect(orphaned.map((t) => t.id)).toEqual(["orphan-a", "orphan-b"]);
@@ -154,28 +148,5 @@ describe("buildPendingMatches", () => {
         [],
       ),
     ).toEqual([]);
-  });
-});
-
-describe("getDuplicateMatchedTrackIds", () => {
-  test("returns empty when each matched track is unique", () => {
-    expect(
-      getDuplicateMatchedTrackIds([
-        { action: "match", selectedTrackId: "t1" },
-        { action: "match", selectedTrackId: "t2" },
-        { action: "new", selectedTrackId: null },
-        { action: "skip", selectedTrackId: null },
-      ]),
-    ).toEqual([]);
-  });
-
-  test("returns track ids selected more than once", () => {
-    expect(
-      getDuplicateMatchedTrackIds([
-        { action: "match", selectedTrackId: "t1" },
-        { action: "match", selectedTrackId: "t2" },
-        { action: "match", selectedTrackId: "t1" },
-      ]),
-    ).toEqual(["t1"]);
   });
 });
