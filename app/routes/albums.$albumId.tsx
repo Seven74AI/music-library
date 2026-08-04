@@ -1,17 +1,25 @@
 import { data, Link } from "react-router";
 import { Breadcrumbs, type BreadcrumbHandle } from "#app/components/breadcrumbs.tsx";
+import { MusicEntityHeader } from "#app/components/music-entity-header.tsx";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
+import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
+import { getUserId } from "#app/utils/auth.server.ts";
 import { getAlbumTitle } from "#app/utils/breadcrumb-utils.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { formatDuration } from "#app/utils/format-duration.ts";
+import {
+  loadLibraryStatusByTrackId,
+  loadUserPlaylists,
+} from "#app/utils/track-list-loader.server.ts";
 import { type Route } from "./+types/albums.$albumId.ts";
 
 export const handle: BreadcrumbHandle = {
   breadcrumb: ({ loaderData }) => getAlbumTitle(loaderData),
 };
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const userId = await getUserId(request);
+
   const album = await prisma.album.findUnique({
     where: { id: params.albumId },
     select: {
@@ -28,10 +36,18 @@ export async function loader({ params }: Route.LoaderArgs) {
           id: true,
           title: true,
           duration: true,
+          createdAt: true,
+          serviceUrl: true,
           artist: {
             select: { id: true, name: true },
           },
           coverImage: { select: { objectKey: true } },
+          service: {
+            select: {
+              displayName: true,
+              logoUrl: true,
+            },
+          },
           audioFiles: {
             select: { id: true, format: true, objectKey: true },
           },
@@ -45,75 +61,92 @@ export async function loader({ params }: Route.LoaderArgs) {
     throw new Response("Album not found", { status: 404 });
   }
 
-  return data({ album });
+  const trackIds = album.tracks.map((track) => track.id);
+  const [{ libraryTrackIds, userTrackCreatedAtByTrackId }, playlists] = await Promise.all([
+    loadLibraryStatusByTrackId(userId, trackIds),
+    loadUserPlaylists(userId),
+  ]);
+
+  const tracks = album.tracks.map((track) => ({
+    ...track,
+    isInUserLibrary: libraryTrackIds.has(track.id),
+    userTrackCreatedAt:
+      userTrackCreatedAtByTrackId.get(track.id)?.toISOString() ?? track.createdAt.toISOString(),
+  }));
+
+  return data({
+    album: {
+      ...album,
+      tracks,
+    },
+    playlists,
+  });
 }
 
 export default function AlbumRoute({ loaderData }: Route.ComponentProps) {
-  const { album } = loaderData;
+  const { album, playlists } = loaderData;
+  const coverImageUrl = album.coverImage ? `/resources/images/${album.coverImage.objectKey}` : null;
 
   return (
     <OfflineRouteBlocker>
       <div className="py-8">
         <Breadcrumbs />
 
-        {/* Album header */}
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
-          {album.coverImage ? (
-            <img
-              src={`/resources/images/${album.coverImage.objectKey}`}
-              alt={album.name}
-              className="h-48 w-48 rounded-md object-cover shadow-lg"
-            />
-          ) : (
-            <div className="flex h-48 w-48 items-center justify-center rounded-md bg-muted shadow-lg">
-              <Icon name="file-text" className="h-16 w-16 text-muted-foreground" />
-            </div>
-          )}
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium text-muted-foreground">Album</p>
-            <h1 className="text-4xl font-bold">{album.name}</h1>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <MusicEntityHeader
+          label="Album"
+          title={album.name}
+          imageUrl={coverImageUrl}
+          fallbackIcon="camera"
+          metadata={
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <Link
                 to={`/artists/${album.artist.id}`}
                 className="font-medium text-foreground hover:underline"
               >
                 {album.artist.name}
               </Link>
-              {album.year && <span>· {album.year}</span>}
+              {album.year ? <span aria-hidden="true">·</span> : null}
+              {album.year ? <span>{album.year}</span> : null}
+              <span aria-hidden="true">·</span>
               <span>
-                · {album.tracks.length} track{album.tracks.length !== 1 ? "s" : ""}
+                {album.tracks.length} track{album.tracks.length !== 1 ? "s" : ""}
               </span>
             </div>
-          </div>
-        </div>
+          }
+        />
 
-        {/* Tracks */}
         {album.tracks.length > 0 ? (
           <section>
-            <div className="space-y-1">
-              {album.tracks.map((track, i) => (
-                <Link
+            <h2 className="mb-4 text-xl font-semibold">Tracks ({album.tracks.length})</h2>
+            <div role="grid" aria-label={`Tracks from ${album.name}`}>
+              {album.tracks.map((track, index) => (
+                <TrackListItem
                   key={track.id}
-                  to={`/library/${track.id}`}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted/50"
-                >
-                  <span className="w-8 text-center text-sm text-muted-foreground">{i + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{track.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">{track.artist.name}</p>
-                  </div>
-                  {track.duration && (
-                    <span className="text-xs text-muted-foreground">
-                      {formatDuration(track.duration)}
-                    </span>
-                  )}
-                </Link>
+                  track={{
+                    id: track.id,
+                    title: track.title,
+                    artist: track.artist,
+                    duration: track.duration,
+                    coverImage: track.coverImage,
+                    serviceUrl: track.serviceUrl,
+                    service: track.service,
+                    audioFiles: track.audioFiles,
+                    isInUserLibrary: track.isInUserLibrary,
+                  }}
+                  userTrack={{ createdAt: track.userTrackCreatedAt }}
+                  index={index}
+                  playlists={playlists}
+                  variant="compact"
+                  showQuickAddToPlaylist
+                  playlistContext={{ type: "library" }}
+                  showDuration
+                />
               ))}
             </div>
           </section>
         ) : (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <Icon name="file-text" className="mb-4 h-12 w-12 text-muted-foreground" />
+            <Icon name="camera" className="mb-4 h-12 w-12 text-muted-foreground" />
             <p className="text-muted-foreground">No tracks in this album yet.</p>
           </div>
         )}

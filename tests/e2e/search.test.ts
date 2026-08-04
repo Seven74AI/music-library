@@ -167,6 +167,10 @@ test.describe("Global Search", () => {
     await artistLink.click();
 
     await expect(page).toHaveURL(/\/artists\//);
-    await expect(page.getByText("Unique Search Artist").first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("heading", { name: "Unique Search Artist" })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.getByRole("heading", { name: /Tracks/i })).toBeVisible();
+    await expect(page.getByText("Artist Nav Track")).toBeVisible();
   });
 });
