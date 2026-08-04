@@ -208,7 +208,7 @@ export default function SearchPage() {
 
   return (
     <OfflineRouteBlocker>
-      <div className="fixed inset-0 z-[80] flex h-[100dvh] flex-col bg-background">
+      <div className="fixed inset-0 z-40 flex h-dvh flex-col bg-background">
         {/* Header with search bar */}
         <div className="shrink-0 border-b">
           <div className="container flex items-center gap-3 py-3">
