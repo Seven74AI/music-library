@@ -209,7 +209,7 @@ test("mobile more-actions button opens sheet without starting playback", async (
   expect(mockPlayTrack).not.toHaveBeenCalled();
 });
 
-test("mobile actions sheet dismiss does not start playback", async () => {
+test("mobile actions sheet Play next does not start row playback", async () => {
   mockIsMobile = true;
   const user = userEvent.setup();
 
@@ -219,5 +219,24 @@ test("mobile actions sheet dismiss does not start playback", async () => {
   await user.click(screen.getByText("Play next"));
 
   expect(mockPlayNextTrack).toHaveBeenCalled();
+  expect(mockPlayTrack).not.toHaveBeenCalled();
+});
+
+test("mobile actions sheet overlay dismiss does not start playback", async () => {
+  mockIsMobile = true;
+  const user = userEvent.setup();
+
+  renderTrackListItem({ track: playableTrack });
+
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  expect(screen.getByText("View track details")).toBeDefined();
+
+  // Portaled overlay click must not React-bubble into the row's onClick=play
+  // (sheets are siblings of the row for this reason — see track-list-item.tsx).
+  const overlay = document.querySelector(".fixed.inset-0.z-50");
+  expect(overlay).not.toBeNull();
+  await user.click(overlay!);
+
+  expect(screen.queryByText("View track details")).toBeNull();
   expect(mockPlayTrack).not.toHaveBeenCalled();
 });

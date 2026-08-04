@@ -151,10 +151,11 @@ export const TrackListItem = memo(function TrackListItem({
 
   const hasAudioFiles = isPlayableTrack({ audioFiles: track.audioFiles, isDeleted });
 
-  // Radix dropdowns/sheets portal outside the row. When the menu closes, the browser can
-  // synthesize a click on the element underneath (this row's onClick=play). stopPropagation
-  // on the actions container does not help — portaled content is not a DOM child of the row.
-  // preventDefault on pointerdown stops that ghost click from being created.
+  // Radix dropdowns portal outside the row. React still bubbles events through the
+  // portal's React tree (not the DOM tree), so dropdown content must stopPropagation /
+  // preventDefault or the row's onClick=play would fire.
+  // Mobile sheets avoid this by rendering as siblings of the row (see below) — overlay
+  // dismiss cannot be fixed with stopPropagation on SheetContent alone (Overlay is a sibling).
   // See: https://github.com/radix-ui/primitives/issues/1242
   //      https://github.com/radix-ui/primitives/issues/2267
   //      https://github.com/radix-ui/primitives/issues/3099
@@ -171,20 +172,9 @@ export const TrackListItem = memo(function TrackListItem({
     event.stopPropagation();
   }, []);
 
-  // Backup click guard — some Radix/browser combos fire ghost clicks
-  // even after pointerdown preventDefault, especially with nested portals.
+  // Backup click guard for nested dropdown portals.
   const handleMenuClick = useCallback((event: React.MouseEvent) => {
     event.stopPropagation();
-  }, []);
-
-  const handleActionsTriggerPointerDown = useCallback((event: PointerEvent) => {
-    event.stopPropagation();
-  }, []);
-
-  const handlePointerDownOutside = useCallback((event: Event) => {
-    if (event instanceof CustomEvent && "originalEvent" in (event.detail ?? {})) {
-      (event.detail as { originalEvent: Event }).originalEvent.preventDefault();
-    }
   }, []);
 
   const handlePlayTrack = useCallback(() => {
@@ -235,286 +225,285 @@ export const TrackListItem = memo(function TrackListItem({
   const isCurrentlyPlaying = currentTrack?.id === track.id && currentIndex === index;
 
   return (
-    <div
-      className={`group flex items-center gap-4 px-4 py-2 rounded-md hover:bg-muted/50 transition-colors h-20 ${
-        isCurrentlyPlaying ? "bg-primary/5" : ""
-      } ${isDeleted ? "opacity-60" : ""}`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onClick={hasAudioFiles ? handlePlayTrack : undefined}
-      role="gridcell"
-      aria-label={`Track ${index + 1}: ${track.title} by ${track.artist.name}${isDeleted ? " (Deleted from YouTube)" : ""}`}
-      style={hasAudioFiles ? { cursor: "pointer" } : undefined}
-    >
-      {/* Track Number / Play Button */}
-      <div className="w-8 flex items-center justify-center min-w-8">
-        {hasAudioFiles && (isHovered || isCurrentlyPlaying) ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePlayTrack();
-            }}
-            aria-label={isCurrentlyPlaying ? "Pause track" : `Play ${track.title}`}
-          >
-            <Icon name={isCurrentlyPlaying ? "pause" : "play"} className="h-4 w-4" />
-          </Button>
-        ) : (
-          <span
-            className="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
-            aria-label={`Track number ${index + 1}`}
-          >
-            {index + 1}
-          </span>
-        )}
-      </div>
-
-      {/* Track Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-3">
-          {/* Thumbnail */}
-          <div className="flex-shrink-0">
-            <TrackThumbnail
-              coverImage={track.coverImage}
-              thumbnailUrl={track.thumbnailUrl}
-              alt={track.title}
-              size="sm"
-            />
-          </div>
-
-          {/* Title and Artist */}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <div className="font-medium text-sm truncate group-hover:text-foreground transition-colors">
-                {track.title}
-              </div>
-              {isDeleted && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex-shrink-0">
-                      <Icon
-                        name="question-mark-circled"
-                        className="h-4 w-4 text-muted-foreground"
-                      />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>This video has been deleted from YouTube</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-              {track.service?.displayName === "YouTube" && !isDeleted && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex-shrink-0">
-                      <Icon name="youtube" className="h-4 w-4 text-red-500" />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>This track comes from YouTube</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <div className="text-xs text-muted-foreground truncate">
-              {track.artist.name}
-              {isDeleted && (
-                <span className="ml-2 text-muted-foreground/70">• Deleted from YouTube</span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Duration */}
-      {showDuration && (
-        <div className="hidden md:flex text-xs text-muted-foreground w-12 text-center">
-          {formatDuration(track.duration)}
-        </div>
-      )}
-
-      {/* Actions */}
+    <>
       <div
-        className="flex items-center gap-1 w-8"
-        onClick={(e) => e.stopPropagation()}
-        onPointerDown={(e) => e.stopPropagation()}
+        className={`group flex items-center gap-4 px-4 py-2 rounded-md hover:bg-muted/50 transition-colors h-20 ${
+          isCurrentlyPlaying ? "bg-primary/5" : ""
+        } ${isDeleted ? "opacity-60" : ""}`}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={hasAudioFiles ? handlePlayTrack : undefined}
+        role="gridcell"
+        aria-label={`Track ${index + 1}: ${track.title} by ${track.artist.name}${isDeleted ? " (Deleted from YouTube)" : ""}`}
+        style={hasAudioFiles ? { cursor: "pointer" } : undefined}
       >
-        {isMobile ? (
-          /* Mobile: Bottom Sheet */
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            aria-label="More actions"
-            onPointerDown={handleActionsTriggerPointerDown}
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsActionsSheetOpen(true);
-            }}
-          >
-            <Icon name="dots-horizontal" className="h-4 w-4" />
-          </Button>
-        ) : (
-          /* Desktop: Dropdown Menu */
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label="More actions">
-                <Icon name="dots-horizontal" className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              onPointerDown={handleMenuPointerDown}
-              onClick={handleMenuClick}
+        {/* Track Number / Play Button */}
+        <div className="w-8 flex items-center justify-center min-w-8">
+          {hasAudioFiles && (isHovered || isCurrentlyPlaying) ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePlayTrack();
+              }}
+              aria-label={isCurrentlyPlaying ? "Pause track" : `Play ${track.title}`}
             >
-              <Dialog>
-                <DialogTrigger asChild>
-                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                    <Icon name="eye-open" className="h-4 w-4 mr-2" />
-                    View track details
-                  </DropdownMenuItem>
-                </DialogTrigger>
-                <DialogContent className="max-w-md">
-                  <DialogHeader>
-                    <DialogTitle className="text-left">
-                      <div className="flex items-center gap-3">
-                        <TrackThumbnail
-                          coverImage={track.coverImage}
-                          thumbnailUrl={track.thumbnailUrl}
-                          alt={track.title}
-                          size="md"
+              <Icon name={isCurrentlyPlaying ? "pause" : "play"} className="h-4 w-4" />
+            </Button>
+          ) : (
+            <span
+              className="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
+              aria-label={`Track number ${index + 1}`}
+            >
+              {index + 1}
+            </span>
+          )}
+        </div>
+
+        {/* Track Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3">
+            {/* Thumbnail */}
+            <div className="flex-shrink-0">
+              <TrackThumbnail
+                coverImage={track.coverImage}
+                thumbnailUrl={track.thumbnailUrl}
+                alt={track.title}
+                size="sm"
+              />
+            </div>
+
+            {/* Title and Artist */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <div className="font-medium text-sm truncate group-hover:text-foreground transition-colors">
+                  {track.title}
+                </div>
+                {isDeleted && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex-shrink-0">
+                        <Icon
+                          name="question-mark-circled"
+                          className="h-4 w-4 text-muted-foreground"
                         />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium text-sm truncate" title={track.title}>
-                            {track.title}
-                          </div>
-                          <div
-                            className="text-xs text-muted-foreground truncate"
-                            title={track.artist.name}
-                          >
-                            {track.artist.name}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>This video has been deleted from YouTube</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                {track.service?.displayName === "YouTube" && !isDeleted && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex-shrink-0">
+                        <Icon name="youtube" className="h-4 w-4 text-red-500" />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>This track comes from YouTube</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground truncate">
+                {track.artist.name}
+                {isDeleted && (
+                  <span className="ml-2 text-muted-foreground/70">• Deleted from YouTube</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Duration */}
+        {showDuration && (
+          <div className="hidden md:flex text-xs text-muted-foreground w-12 text-center">
+            {formatDuration(track.duration)}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div
+          className="flex items-center gap-1 w-8"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {isMobile ? (
+            /* Mobile: Bottom Sheet */
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              aria-label="More actions"
+              onClick={() => setIsActionsSheetOpen(true)}
+            >
+              <Icon name="dots-horizontal" className="h-4 w-4" />
+            </Button>
+          ) : (
+            /* Desktop: Dropdown Menu */
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label="More actions">
+                  <Icon name="dots-horizontal" className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onPointerDown={handleMenuPointerDown}
+                onClick={handleMenuClick}
+              >
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      <Icon name="eye-open" className="h-4 w-4 mr-2" />
+                      View track details
+                    </DropdownMenuItem>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle className="text-left">
+                        <div className="flex items-center gap-3">
+                          <TrackThumbnail
+                            coverImage={track.coverImage}
+                            thumbnailUrl={track.thumbnailUrl}
+                            alt={track.title}
+                            size="md"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium text-sm truncate" title={track.title}>
+                              {track.title}
+                            </div>
+                            <div
+                              className="text-xs text-muted-foreground truncate"
+                              title={track.artist.name}
+                            >
+                              {track.artist.name}
+                            </div>
                           </div>
                         </div>
+                      </DialogTitle>
+                    </DialogHeader>
+                    <div className="mt-6 space-y-4">
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium">Track Information</div>
+                        <div className="text-sm text-muted-foreground space-y-1">
+                          <div>Artist: {track.artist.name}</div>
+                          <div>Duration: {formatDuration(track.duration)}</div>
+                          <div>Added: {new Date(userTrack.createdAt).toLocaleDateString()}</div>
+                          {track.service?.displayName && (
+                            <div>Source: {track.service.displayName}</div>
+                          )}
+                        </div>
                       </div>
-                    </DialogTitle>
-                  </DialogHeader>
-                  <div className="mt-6 space-y-4">
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium">Track Information</div>
-                      <div className="text-sm text-muted-foreground space-y-1">
-                        <div>Artist: {track.artist.name}</div>
-                        <div>Duration: {formatDuration(track.duration)}</div>
-                        <div>Added: {new Date(userTrack.createdAt).toLocaleDateString()}</div>
-                        {track.service?.displayName && (
-                          <div>Source: {track.service.displayName}</div>
-                        )}
-                      </div>
+                      {track.serviceUrl && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              track.serviceUrl && window.open(track.serviceUrl, "_blank")
+                            }
+                            className="flex-1"
+                          >
+                            <Icon name="link-2" className="h-4 w-4 mr-2" />
+                            Open on YouTube
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    {track.serviceUrl && (
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            track.serviceUrl && window.open(track.serviceUrl, "_blank")
-                          }
-                          className="flex-1"
-                        >
-                          <Icon name="link-2" className="h-4 w-4 mr-2" />
-                          Open on YouTube
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
-              {track.serviceUrl && (
-                <DropdownMenuItem asChild>
-                  <a
-                    href={track.serviceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center"
-                  >
-                    <Icon name="link-2" className="h-4 w-4 mr-2" />
-                    Open on YouTube
-                  </a>
-                </DropdownMenuItem>
-              )}
-              {playlists != null && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <Icon name="plus" className="h-4 w-4 mr-2" />
-                    Add to Playlist
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent
-                    onPointerDown={handleMenuPointerDown}
-                    onClick={handleMenuClick}
-                  >
-                    <AddToPlaylistMenu
-                      trackId={track.id}
-                      trackTitle={track.title}
-                      playlists={playlists}
-                    />
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              {hasAudioFiles && (
-                <>
-                  <DropdownMenuItem onClick={handlePlayNext}>
-                    <Icon name="arrow-right" className="h-4 w-4 mr-2" />
-                    Play next
+                  </DialogContent>
+                </Dialog>
+                {track.serviceUrl && (
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={track.serviceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center"
+                    >
+                      <Icon name="link-2" className="h-4 w-4 mr-2" />
+                      Open on YouTube
+                    </a>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleAddToUpNext}>
-                    <Icon name="list-bullet" className="h-4 w-4 mr-2" />
-                    Add to up next
+                )}
+                {playlists != null && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Icon name="plus" className="h-4 w-4 mr-2" />
+                      Add to Playlist
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent
+                      onPointerDown={handleMenuPointerDown}
+                      onClick={handleMenuClick}
+                    >
+                      <AddToPlaylistMenu
+                        trackId={track.id}
+                        trackTitle={track.title}
+                        playlists={playlists}
+                      />
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
+                {hasAudioFiles && (
+                  <>
+                    <DropdownMenuItem onClick={handlePlayNext}>
+                      <Icon name="arrow-right" className="h-4 w-4 mr-2" />
+                      Play next
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleAddToUpNext}>
+                      <Icon name="list-bullet" className="h-4 w-4 mr-2" />
+                      Add to up next
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleAddToQueue}>
+                      <Icon name="plus" className="h-4 w-4 mr-2" />
+                      Add to queue
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {showQueueActions && (
+                  <DropdownMenuItem onClick={handleRemoveFromQueue}>
+                    <Icon name="trash" className="h-4 w-4 mr-2" />
+                    Remove from Queue
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleAddToQueue}>
-                    <Icon name="plus" className="h-4 w-4 mr-2" />
-                    Add to queue
+                )}
+                {showPlaylistActions && onRemoveFromPlaylist && (
+                  <DropdownMenuItem onClick={() => onRemoveFromPlaylist(track.id)}>
+                    <Icon name="trash" className="h-4 w-4 mr-2" />
+                    Remove from Playlist
                   </DropdownMenuItem>
-                </>
-              )}
-              {showQueueActions && (
-                <DropdownMenuItem onClick={handleRemoveFromQueue}>
-                  <Icon name="trash" className="h-4 w-4 mr-2" />
-                  Remove from Queue
-                </DropdownMenuItem>
-              )}
-              {showPlaylistActions && onRemoveFromPlaylist && (
-                <DropdownMenuItem onClick={() => onRemoveFromPlaylist(track.id)}>
-                  <Icon name="trash" className="h-4 w-4 mr-2" />
-                  Remove from Playlist
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+
+        {/* Custom actions from render prop */}
+        <div onClick={(e) => e.stopPropagation()}>
+          {itemActions?.({
+            trackId: track.id,
+            isInLibrary: !!track.isInUserLibrary,
+            isDeleted: !!isDeleted,
+          })}
+        </div>
       </div>
 
-      {/* Custom actions from render prop */}
-      <div onClick={(e) => e.stopPropagation()}>
-        {itemActions?.({
-          trackId: track.id,
-          isInLibrary: !!track.isInUserLibrary,
-          isDeleted: !!isDeleted,
-        })}
-      </div>
-
-      {/* Mobile Sheets (rendered outside the button) */}
+      {/*
+        Mobile sheets must be siblings of the row, not children of the onClick=play node.
+        Sheet overlay/content portal to document.body, but React still bubbles events through
+        this component tree (https://github.com/radix-ui/primitives/issues/1242,
+        https://react.dev/reference/react-dom/createPortal#handling-events-from-a-portal).
+        If the Sheet is under the row div, tapping the dimmed overlay to dismiss fires the
+        row's play handler. stopPropagation on SheetContent does not cover the Overlay sibling.
+      */}
       {isMobile && (
         <>
           {/* Actions Sheet */}
           <Sheet open={isActionsSheetOpen} onOpenChange={setIsActionsSheetOpen}>
-            <SheetContent
-              side="bottom"
-              className="h-[60vh]"
-              onPointerDownOutside={handlePointerDownOutside}
-              onPointerDown={handleMenuPointerDown}
-              onClick={handleMenuClick}
-            >
+            <SheetContent side="bottom" className="h-[60vh]">
               <SheetHeader>
                 <SheetTitle className="text-left">
                   <div className="flex items-center gap-3">
@@ -625,13 +614,7 @@ export const TrackListItem = memo(function TrackListItem({
 
           {/* Playlist Selection Sheet */}
           <Sheet open={isPlaylistSheetOpen} onOpenChange={setIsPlaylistSheetOpen}>
-            <SheetContent
-              side="bottom"
-              className="h-[80vh]"
-              onPointerDownOutside={handlePointerDownOutside}
-              onPointerDown={handleMenuPointerDown}
-              onClick={handleMenuClick}
-            >
+            <SheetContent side="bottom" className="h-[80vh]">
               <SheetHeader>
                 <SheetTitle>Add to Playlist</SheetTitle>
               </SheetHeader>
@@ -648,13 +631,7 @@ export const TrackListItem = memo(function TrackListItem({
 
           {/* Track Details Sheet (mobile) */}
           <Sheet open={isDetailsSheetOpen} onOpenChange={setIsDetailsSheetOpen}>
-            <SheetContent
-              side="bottom"
-              className="h-[80vh]"
-              onPointerDownOutside={handlePointerDownOutside}
-              onPointerDown={handleMenuPointerDown}
-              onClick={handleMenuClick}
-            >
+            <SheetContent side="bottom" className="h-[80vh]">
               <SheetHeader>
                 <SheetTitle className="text-left">
                   <div className="flex items-center gap-3">
@@ -706,6 +683,6 @@ export const TrackListItem = memo(function TrackListItem({
           </Sheet>
         </>
       )}
-    </div>
+    </>
   );
 });
