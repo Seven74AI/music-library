@@ -13,11 +13,18 @@ export async function resolvePlaybackAudioUrl(trackId: string): Promise<string |
   const storage = getOfflineStorage();
   try {
     const blob = await storage.resolvePlaybackBlob(trackId);
-    if (!blob) return null;
+    if (!blob) {
+      const stale = blobUrlCache.get(trackId);
+      if (stale) {
+        URL.revokeObjectURL(stale);
+        blobUrlCache.delete(trackId);
+      }
+      return null;
+    }
 
     const existing = blobUrlCache.get(trackId);
     if (existing) {
-      URL.revokeObjectURL(existing);
+      return existing;
     }
 
     const url = URL.createObjectURL(blob);

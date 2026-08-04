@@ -60,6 +60,10 @@ vi.mock("#app/features/offline-storage/resolve-playback-url.client.ts", () => ({
   clearBlobUrlCache: vi.fn(),
 }));
 
+vi.mock("#app/features/offline-storage/cover-cache.client.ts", () => ({
+  resolveCachedCoverUrl: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("#app/components/audio-player-provider", () => ({
   useAudioPlayer: vi.fn(() => createAudioPlayerMock()),
   AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
@@ -154,6 +158,132 @@ test("shows playback error with user-friendly message for MEDIA_ERR_NETWORK (cod
   });
 
   consoleSpy.mockRestore();
+});
+
+test("recovers from MEDIA_ERR_NETWORK with cached blob and resumes even when element is paused", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  const { resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(resolvePlaybackAudioUrl).mockResolvedValue("blob:cached-track-1");
+
+  const playSpy = vi
+    .spyOn(window.HTMLMediaElement.prototype, "play")
+    .mockImplementation(function (this: HTMLMediaElement) {
+      Object.defineProperty(this, "paused", { configurable: true, value: false });
+      return Promise.resolve();
+    });
+
+  const { audioEl } = await renderPlayer();
+
+  // User was playing; network failure pauses the element before error recovery runs.
+  audioEl.dispatchEvent(new Event("play"));
+  Object.defineProperty(audioEl, "paused", { configurable: true, value: true });
+  Object.defineProperty(audioEl, "currentTime", {
+    configurable: true,
+    value: 42,
+    writable: true,
+  });
+  Object.defineProperty(audioEl, "error", {
+    configurable: true,
+    value: { code: 2, message: "A network error caused the audio download to fail" },
+  });
+
+  playSpy.mockClear();
+  audioEl.dispatchEvent(new Event("error"));
+
+  await waitFor(() => {
+    expect(playSpy).toHaveBeenCalled();
+  });
+  expect(screen.queryByTestId("player-playback-error")).not.toBeInTheDocument();
+
+  consoleSpy.mockRestore();
+});
+
+test("swaps to cached blob and resumes when going offline while playing", async () => {
+  const { resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+
+  let resolveOfflineUrl: ((url: string | null) => void) | undefined;
+  vi.mocked(resolvePlaybackAudioUrl).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveOfflineUrl = resolve;
+      }),
+  );
+
+  const playSpy = vi
+    .spyOn(window.HTMLMediaElement.prototype, "play")
+    .mockImplementation(function (this: HTMLMediaElement) {
+      Object.defineProperty(this, "paused", { configurable: true, value: false });
+      return Promise.resolve();
+    });
+
+  // Ensure a true online → offline transition.
+  window.dispatchEvent(new Event("online"));
+
+  const { audioEl } = await renderPlayer();
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "https://cdn.example/track-1.mp3");
+  });
+
+  let currentTime = 42;
+  Object.defineProperty(audioEl, "currentTime", {
+    configurable: true,
+    get: () => currentTime,
+    set: (value: number) => {
+      currentTime = value;
+    },
+  });
+
+  audioEl.dispatchEvent(new Event("play"));
+  Object.defineProperty(audioEl, "paused", { configurable: true, value: false });
+
+  playSpy.mockClear();
+  window.dispatchEvent(new Event("offline"));
+
+  // Wait for the offline effect to start resolving the cached blob.
+  await waitFor(() => {
+    expect(resolveOfflineUrl).toBeTypeOf("function");
+  });
+
+  // Network drain pauses the element while the blob resolve is in flight.
+  Object.defineProperty(audioEl, "paused", { configurable: true, value: true });
+  resolveOfflineUrl?.("blob:cached-track-1");
+
+  await waitFor(() => {
+    expect(playSpy).toHaveBeenCalled();
+  });
+  expect(audioEl).toHaveAttribute("src", "blob:cached-track-1");
+  expect(currentTime).toBe(42);
+});
+
+test("does not re-swap source when already playing from a blob URL", async () => {
+  const { resolveTrackPlaybackSource, resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(resolveTrackPlaybackSource).mockResolvedValue("blob:already-cached");
+
+  // Ensure we observe a true online → offline transition (prior tests may leave offline).
+  window.dispatchEvent(new Event("online"));
+
+  const { audioEl } = await renderPlayer();
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "blob:already-cached");
+  });
+
+  audioEl.dispatchEvent(new Event("play"));
+  Object.defineProperty(audioEl, "paused", { configurable: true, value: false });
+
+  const resolveOffline = vi.mocked(resolvePlaybackAudioUrl);
+  resolveOffline.mockClear();
+  const srcBefore = audioEl.getAttribute("src");
+
+  window.dispatchEvent(new Event("offline"));
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(resolveOffline).not.toHaveBeenCalled();
+  expect(audioEl).toHaveAttribute("src", srcBefore);
 });
 
 test("shows playback error with user-friendly message for MEDIA_ERR_DECODE (code 3)", async () => {
@@ -311,11 +441,15 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.mocked(useAudioPlayer).mockReturnValue(
     createAudioPlayerMock() as unknown as ReturnType<typeof useAudioPlayer>,
   );
   vi.mocked(toast).mockClear();
+  const { resolveTrackPlaybackSource, resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(resolveTrackPlaybackSource).mockResolvedValue("https://cdn.example/track-1.mp3");
+  vi.mocked(resolvePlaybackAudioUrl).mockResolvedValue(null);
 });
 
 test("auto-plays after track change once the new audio URL has loaded", async () => {

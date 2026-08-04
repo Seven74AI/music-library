@@ -317,41 +317,37 @@ describe("revokePlaybackAudioUrl", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Blob URL cache — F7#7: old URL revoked before new one created
+// Blob URL cache — reuse existing URL so mid-play re-resolve does not interrupt
 // ═════════════════════════════════════════════════════════════════════════════
 describe("blob URL cache", () => {
-  test("revokes old blob URL before creating new one for same track", async () => {
+  test("reuses existing blob URL on re-resolve without revoking", async () => {
     mockResolvePlaybackBlob.mockResolvedValue(blob());
 
-    // First resolution: caches 'blob:mock-url'
-    await resolvePlaybackAudioUrl("track-1");
+    const first = await resolvePlaybackAudioUrl("track-1");
+    expect(first).toBe("blob:mock-url");
+    expect(mockCreateObjectURL).toHaveBeenCalledTimes(1);
 
-    // Set up second resolution: different return value
     mockCreateObjectURL.mockReturnValue("blob:mock-url-2");
-
-    const callOrder: string[] = [];
-    mockRevokeObjectURL.mockImplementation(() => callOrder.push("revoke"));
-    mockCreateObjectURL.mockImplementation(() => {
-      callOrder.push("create");
-      return "blob:mock-url-2";
-    });
-
-    // Reset mock state so we only see second-call behavior
-    // Actually, let's just check invocation order directly
     mockRevokeObjectURL.mockClear();
     mockCreateObjectURL.mockClear();
 
-    // Second resolution: should revoke old then create new
+    const second = await resolvePlaybackAudioUrl("track-1");
+
+    expect(second).toBe("blob:mock-url");
+    expect(mockRevokeObjectURL).not.toHaveBeenCalled();
+    expect(mockCreateObjectURL).not.toHaveBeenCalled();
+  });
+
+  test("clears stale cache and returns null when blob is gone", async () => {
     mockResolvePlaybackBlob.mockResolvedValue(blob());
+    await resolvePlaybackAudioUrl("track-1");
+
+    mockResolvePlaybackBlob.mockResolvedValue(null);
+    mockRevokeObjectURL.mockClear();
+
     const result = await resolvePlaybackAudioUrl("track-1");
 
-    expect(result).toBe("blob:mock-url-2");
+    expect(result).toBeNull();
     expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
-    expect(mockCreateObjectURL).toHaveBeenCalled();
-
-    // Verify revoke happened before create
-    const revokeCallIdx = mockRevokeObjectURL.mock.invocationCallOrder[0]!;
-    const createCallIdx = mockCreateObjectURL.mock.invocationCallOrder[0]!;
-    expect(revokeCallIdx).toBeLessThan(createCallIdx);
   });
 });

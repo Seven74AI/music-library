@@ -96,6 +96,31 @@ function getMediaErrorMessage(code: number): string {
   }
 }
 
+/** Swap <audio> to a local blob URL, restore position, and optionally resume play. */
+function swapToOfflineSource(
+  audio: HTMLAudioElement,
+  offlineUrl: string,
+  savedTime: number,
+  shouldResume: boolean,
+) {
+  const restore = () => {
+    if (Number.isFinite(savedTime) && savedTime > 0) {
+      audio.currentTime = savedTime;
+    }
+    if (shouldResume) {
+      void audio.play();
+    }
+  };
+
+  audio.src = offlineUrl;
+  // Attempt immediately (works for many blob swaps / jsdom); re-apply on loadeddata
+  // in case the browser rejected the seek before media was ready.
+  restore();
+  if (audio.readyState < (HTMLMediaElement.HAVE_CURRENT_DATA ?? 2)) {
+    audio.addEventListener("loadeddata", restore, { once: true });
+  }
+}
+
 interface PlayerSeekBarProps {
   currentTime: number;
   duration: number;
@@ -818,6 +843,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const previousTrackIdRef = useRef<string | null>(null);
   const loadedTrackIdRef = useRef<string | null>(null);
   const isManualPlayRef = useRef(false);
+  // User intends playback; not cleared by incidental pause from network/src swaps.
+  const keepPlayingRef = useRef(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
@@ -885,29 +912,27 @@ export function AudioPlayer(props: AudioPlayerProps) {
     const wasOnline = prevOnlineRef.current;
     prevOnlineRef.current = isOnline;
 
-    if (
-      wasOnline &&
-      !isOnline &&
-      track &&
-      audioRef.current &&
-      !audioRef.current.paused &&
-      audioSrc
-    ) {
-      resolvePlaybackAudioUrl(track.id).then((offlineUrl) => {
-        if (offlineUrl && audioRef.current && loadedTrackIdRef.current === track.id) {
-          const savedTime = audioRef.current.currentTime;
-          const wasPlaying = !audioRef.current.paused;
-          audioRef.current.src = offlineUrl;
-          audioRef.current.currentTime = savedTime;
-          if (wasPlaying) {
-            void audioRef.current.play();
-          }
-          setAudioSrc(offlineUrl);
-          setPlaybackError(null);
-        }
+    const audio = audioRef.current;
+    if (!wasOnline || isOnline || !track || !audio || !audioSrc) return;
+
+    // Already on a local blob — no network dependency, do not interrupt.
+    if (audioSrc.startsWith("blob:")) return;
+
+    const shouldResume = keepPlayingRef.current || !audio.paused;
+    if (!shouldResume) return;
+
+    const savedTime = audio.currentTime;
+    const trackId = track.id;
+
+    resolvePlaybackAudioUrl(trackId).then((offlineUrl) => {
+      if (!offlineUrl || !audioRef.current || loadedTrackIdRef.current !== trackId) {
         // No blob — let handleError deal with it when buffer runs out
-      });
-    }
+        return;
+      }
+      swapToOfflineSource(audioRef.current, offlineUrl, savedTime, shouldResume);
+      setAudioSrc(offlineUrl);
+      setPlaybackError(null);
+    });
   }, [isOnline, track, audioSrc]);
 
   useEffect(() => {
@@ -937,15 +962,18 @@ export function AudioPlayer(props: AudioPlayerProps) {
         wantsAutoPlayRef.current = false;
       }
       if (shouldAutoPlay) {
+        keepPlayingRef.current = true;
         audioRef.current.currentTime = 0;
         const playPromise = audioRef.current.play();
         if (playPromise !== undefined) {
           playPromise
             .then(() => {
               setIsPlaying(true);
+              keepPlayingRef.current = true;
             })
             .catch(() => {
               setIsPlaying(false);
+              keepPlayingRef.current = false;
               setPlaybackError("Autoplay was prevented by your browser. Press play to start.");
               recordAutoplayFailure();
               toast({
@@ -975,12 +1003,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
     try {
       if (wasPlaying) {
+        keepPlayingRef.current = false;
         audioRef.current.pause();
       } else {
+        keepPlayingRef.current = true;
         await audioRef.current.play();
       }
     } catch (error) {
       setIsPlaying(!audioRef.current.paused);
+      keepPlayingRef.current = !audioRef.current.paused;
       setPlaybackError("Unable to play this track. Try again or check your connection.");
       toast({
         title: "Playback failed",
@@ -1043,11 +1074,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
     navigator.mediaSession.setActionHandler("play", () => {
       if (audioRef.current?.paused) {
+        keepPlayingRef.current = true;
         void audioRef.current.play();
       }
     });
     navigator.mediaSession.setActionHandler("pause", () => {
       if (audioRef.current && !audioRef.current.paused) {
+        keepPlayingRef.current = false;
         audioRef.current.pause();
       }
     });
@@ -1071,6 +1104,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     });
     navigator.mediaSession.setActionHandler("stop", () => {
       const audio = audioRef.current;
+      keepPlayingRef.current = false;
       if (audio && !audio.paused) {
         audio.pause();
       }
@@ -1103,6 +1137,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       if (isSleepTimerExpired(sleepTimerEndAt)) {
         setSleepTimerEndAt(null);
         setSleepTimerLabel(null);
+        keepPlayingRef.current = false;
         if (audioRef.current) {
           audioRef.current.pause();
         }
@@ -1170,7 +1205,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
         updateMediaSessionPositionState(audio);
       }
     };
-    const handlePlay = () => setIsPlaying(true);
+    const handlePlay = () => {
+      setIsPlaying(true);
+      keepPlayingRef.current = true;
+    };
     const handlePause = () => setIsPlaying(false);
     const handleSeeking = () => {
       // Browser manages seeking state automatically via audio.seeking property
@@ -1194,6 +1232,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     };
     const handleEnded = () => {
       setIsPlaying(false);
+      keepPlayingRef.current = false;
       // Only auto-advance if not looping one track
       if (loopMode !== "one") {
         onNext();
@@ -1212,15 +1251,12 @@ export function AudioPlayer(props: AudioPlayerProps) {
       // because jsdom does not expose the MediaError constructor.
       if (errorCode === 2 && track) {
         const savedTime = audio.currentTime;
-        const wasPlaying = !audio.paused;
+        const shouldResume = keepPlayingRef.current || !audio.paused;
+        const trackId = track.id;
 
-        resolvePlaybackAudioUrl(track.id).then((offlineUrl) => {
-          if (offlineUrl && audioRef.current && loadedTrackIdRef.current === track.id) {
-            audioRef.current.src = offlineUrl;
-            audioRef.current.currentTime = savedTime || 0;
-            if (wasPlaying) {
-              void audioRef.current.play();
-            }
+        resolvePlaybackAudioUrl(trackId).then((offlineUrl) => {
+          if (offlineUrl && audioRef.current && loadedTrackIdRef.current === trackId) {
+            swapToOfflineSource(audioRef.current, offlineUrl, savedTime || 0, shouldResume);
             setAudioSrc(offlineUrl);
             setPlaybackError(null);
           } else {
