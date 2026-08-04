@@ -63,6 +63,77 @@ describe("Search Utilities", () => {
     }
   });
 
+  it("should enrich track search results with playback and action fields", async () => {
+    const timestamp = Date.now();
+    const localService = await prisma.service.upsert({
+      where: { name: "local" },
+      update: {},
+      create: {
+        name: "local",
+        displayName: "Local Upload",
+        baseUrl: "",
+        isActive: true,
+      },
+    });
+
+    const user = await prisma.user.create({
+      data: {
+        email: `enriched-${timestamp}@test.com`,
+        username: `enriched-${timestamp}`,
+      },
+    });
+
+    const artist = await prisma.artist.create({
+      data: {
+        name: "Enriched Artist",
+        normalizedName: "enriched artist",
+      },
+    });
+
+    const track = await prisma.track.create({
+      data: {
+        title: "Enriched Track",
+        artistId: artist.id,
+        serviceId: localService.id,
+        externalId: `enriched-track-${timestamp}`,
+        serviceUrl: "https://youtube.com/watch?v=enriched",
+        duration: 240,
+      },
+    });
+
+    await prisma.trackAudioFile.create({
+      data: {
+        trackId: track.id,
+        objectKey: `audio/enriched-${timestamp}.mp3`,
+        format: "mp3",
+      },
+    });
+
+    const userTrack = await prisma.userTrack.create({
+      data: { userId: user.id, trackId: track.id },
+    });
+
+    const result = await searchTracks("Enriched", 10, undefined, true, user.id);
+
+    expect(result.results.length).toBeGreaterThan(0);
+    const trackResult = result.results.find((r) => r.type === "track" && r.id === track.id);
+    expect(trackResult?.type).toBe("track");
+    if (trackResult?.type === "track") {
+      expect(trackResult.serviceUrl).toBe("https://youtube.com/watch?v=enriched");
+      expect(trackResult.service).toEqual({
+        displayName: "Local Upload",
+        logoUrl: null,
+      });
+      expect(trackResult.audioFiles).toEqual([
+        expect.objectContaining({
+          objectKey: `audio/enriched-${timestamp}.mp3`,
+          format: "mp3",
+        }),
+      ]);
+      expect(trackResult.addedAt).toBe(userTrack.createdAt.toISOString());
+    }
+  });
+
   it("indexes new tracks into tracks_fts via insert trigger", async () => {
     const localService = await prisma.service.upsert({
       where: { name: "local" },

@@ -49,6 +49,16 @@ vi.mock("#app/utils/use-mobile.ts", () => ({
   useIsMobile: () => mockIsMobile,
 }));
 
+vi.mock("./add-to-playlist-menu", () => ({
+  AddToPlaylistMenu: ({ playlists }: { playlists?: Array<{ id: string; title: string }> }) => (
+    <div data-testid="add-to-playlist-menu">
+      {playlists?.map((playlist) => (
+        <div key={playlist.id}>{playlist.title}</div>
+      ))}
+    </div>
+  ),
+}));
+
 // jsdom doesn't implement matchMedia — stub it so useIsMobile() works
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -239,4 +249,37 @@ test("mobile actions sheet overlay dismiss does not start playback", async () =>
 
   expect(screen.queryByText("View track details")).toBeNull();
   expect(mockPlayTrack).not.toHaveBeenCalled();
+});
+
+test("compact variant hides track number column", () => {
+  renderTrackListItem({ variant: "compact", index: 4 });
+
+  expect(screen.queryByLabelText("Track number 5")).toBeNull();
+  expect(screen.getByText("Test Song")).toBeDefined();
+});
+
+test("showQuickAddToPlaylist renders add button and opens playlist menu on desktop", async () => {
+  const user = userEvent.setup();
+
+  renderTrackListItem({
+    showQuickAddToPlaylist: true,
+    playlists: [{ id: "pl-1", title: "My Playlist", description: null, _count: { tracks: 1 } }],
+  });
+
+  await user.click(screen.getByRole("button", { name: "Add to playlist" }));
+  expect(screen.getByText("My Playlist")).toBeDefined();
+});
+
+test("showQuickAddToPlaylist opens playlist sheet directly on mobile", async () => {
+  mockIsMobile = true;
+  const user = userEvent.setup();
+
+  renderTrackListItem({
+    showQuickAddToPlaylist: true,
+    playlists: [{ id: "pl-1", title: "My Playlist", description: null, _count: { tracks: 1 } }],
+  });
+
+  await user.click(screen.getByRole("button", { name: "Add to playlist" }));
+  expect(screen.getByRole("heading", { name: "Add to Playlist" })).toBeDefined();
+  expect(screen.getByText("My Playlist")).toBeDefined();
 });

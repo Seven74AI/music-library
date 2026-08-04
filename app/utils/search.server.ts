@@ -171,6 +171,78 @@ function buildFts5Query(query: string, usePrefix: boolean = true): string {
   return escaped;
 }
 
+async function enrichTrackSearchResults(
+  tracks: TrackSearchResult[],
+  userId?: string,
+): Promise<TrackSearchResult[]> {
+  if (tracks.length === 0) {
+    return tracks;
+  }
+
+  const trackIds = tracks.map((track) => track.id);
+  const enrichedRows = await prisma.track.findMany({
+    where: { id: { in: trackIds } },
+    select: {
+      id: true,
+      serviceUrl: true,
+      coverImage: {
+        select: {
+          objectKey: true,
+        },
+      },
+      service: {
+        select: {
+          displayName: true,
+          logoUrl: true,
+        },
+      },
+      audioFiles: {
+        select: {
+          id: true,
+          format: true,
+          objectKey: true,
+        },
+      },
+      userTracks: userId
+        ? {
+            where: { userId, isActive: true },
+            select: { createdAt: true },
+            take: 1,
+          }
+        : false,
+    },
+  });
+
+  const enrichedById = new Map(enrichedRows.map((row) => [row.id, row]));
+
+  return tracks.map((track) => {
+    const enriched = enrichedById.get(track.id);
+    if (!enriched) {
+      return {
+        ...track,
+        serviceUrl: null,
+        coverImage: null,
+        service: null,
+        audioFiles: [],
+      };
+    }
+
+    return {
+      ...track,
+      serviceUrl: enriched.serviceUrl,
+      coverImage: enriched.coverImage,
+      service: enriched.service
+        ? {
+            displayName: enriched.service.displayName,
+            logoUrl: enriched.service.logoUrl,
+          }
+        : null,
+      audioFiles: enriched.audioFiles,
+      addedAt: enriched.userTracks?.[0]?.createdAt.toISOString(),
+    };
+  });
+}
+
 /**
  * Search tracks using FTS5, optionally scoped to a user's library
  *
@@ -276,6 +348,8 @@ export async function searchTracks(
     }),
   );
 
+  const enrichedTracks = await enrichTrackSearchResults(tracks, userId);
+
   const lastRow = rawResults[rawResults.length - 1];
   const newT = hasNext && lastRow ? lastCursorTuple(lastRow, "title") : null;
   const nextCursor: CompositeCursor = {
@@ -286,7 +360,7 @@ export async function searchTracks(
   };
 
   return {
-    results: tracks,
+    results: enrichedTracks,
     pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
   };
 }

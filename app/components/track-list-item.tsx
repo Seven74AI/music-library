@@ -64,6 +64,10 @@ interface TrackListItemProps {
     _count: { tracks: number };
   }>;
   showDuration?: boolean; // New prop to control duration display
+  variant?: "default" | "compact";
+  showQuickAddToPlaylist?: boolean;
+  /** When false, playTrack resolves spine position by track id instead of list index */
+  usePlaybackIndex?: boolean;
   /** Render prop for custom per-track action buttons. Receives trackId, isInLibrary, and isDeleted. */
   itemActions?: (props: { trackId: string; isInLibrary: boolean; isDeleted: boolean }) => ReactNode;
 }
@@ -112,6 +116,9 @@ export const TrackListItem = memo(function TrackListItem({
   onRemoveFromPlaylist,
   playlists,
   showDuration = true,
+  variant = "default",
+  showQuickAddToPlaylist = false,
+  usePlaybackIndex = true,
   itemActions,
 }: TrackListItemProps) {
   const [isHovered, setIsHovered] = useState(false);
@@ -182,8 +189,18 @@ export const TrackListItem = memo(function TrackListItem({
       return;
     }
     const context = playlistContext || { type: "library" as const };
-    playTrack(track, context, index);
-  }, [hasAudioFiles, track, playlistContext, index, playTrack]);
+    if (usePlaybackIndex) {
+      playTrack(track, context, index);
+      return;
+    }
+    playTrack(track, context);
+  }, [hasAudioFiles, track, playlistContext, index, playTrack, usePlaybackIndex]);
+
+  const handleQuickAddToPlaylist = useCallback(() => {
+    if (isMobile) {
+      setIsPlaylistSheetOpen(true);
+    }
+  }, [isMobile]);
 
   const handlePlayNext = useCallback(() => {
     if (!hasAudioFiles) return;
@@ -222,14 +239,21 @@ export const TrackListItem = memo(function TrackListItem({
   }, [hasAudioFiles, addToQueue, track]);
 
   // Check if this track is currently playing (both ID and position must match for duplicates)
-  const isCurrentlyPlaying = currentTrack?.id === track.id && currentIndex === index;
+  const isCurrentlyPlaying = usePlaybackIndex
+    ? currentTrack?.id === track.id && currentIndex === index
+    : currentTrack?.id === track.id;
+
+  const isCompact = variant === "compact";
+  const rowClassName = isCompact
+    ? "group flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-muted/50 transition-colors h-14"
+    : "group flex items-center gap-4 px-4 py-2 rounded-md hover:bg-muted/50 transition-colors h-20";
 
   return (
     <>
       <div
-        className={`group flex items-center gap-4 px-4 py-2 rounded-md hover:bg-muted/50 transition-colors h-20 ${
-          isCurrentlyPlaying ? "bg-primary/5" : ""
-        } ${isDeleted ? "opacity-60" : ""}`}
+        className={`${rowClassName} ${isCurrentlyPlaying ? "bg-primary/5" : ""} ${
+          isDeleted ? "opacity-60" : ""
+        }`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={hasAudioFiles ? handlePlayTrack : undefined}
@@ -238,29 +262,31 @@ export const TrackListItem = memo(function TrackListItem({
         style={hasAudioFiles ? { cursor: "pointer" } : undefined}
       >
         {/* Track Number / Play Button */}
-        <div className="w-8 flex items-center justify-center min-w-8">
-          {hasAudioFiles && (isHovered || isCurrentlyPlaying) ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0"
-              onClick={(e) => {
-                e.stopPropagation();
-                handlePlayTrack();
-              }}
-              aria-label={isCurrentlyPlaying ? "Pause track" : `Play ${track.title}`}
-            >
-              <Icon name={isCurrentlyPlaying ? "pause" : "play"} className="h-4 w-4" />
-            </Button>
-          ) : (
-            <span
-              className="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
-              aria-label={`Track number ${index + 1}`}
-            >
-              {index + 1}
-            </span>
-          )}
-        </div>
+        {!isCompact && (
+          <div className="w-8 flex items-center justify-center min-w-8">
+            {hasAudioFiles && (isHovered || isCurrentlyPlaying) ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlayTrack();
+                }}
+                aria-label={isCurrentlyPlaying ? "Pause track" : `Play ${track.title}`}
+              >
+                <Icon name={isCurrentlyPlaying ? "pause" : "play"} className="h-4 w-4" />
+              </Button>
+            ) : (
+              <span
+                className="text-sm text-muted-foreground group-hover:text-foreground transition-colors"
+                aria-label={`Track number ${index + 1}`}
+              >
+                {index + 1}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Track Info */}
         <div className="flex-1 min-w-0">
@@ -328,10 +354,49 @@ export const TrackListItem = memo(function TrackListItem({
 
         {/* Actions */}
         <div
-          className="flex items-center gap-1 w-8"
+          className={`flex items-center gap-1 ${showQuickAddToPlaylist ? "shrink-0" : "w-8"}`}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
+          {showQuickAddToPlaylist && playlists != null && (
+            <>
+              {isMobile ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  aria-label="Add to playlist"
+                  onClick={handleQuickAddToPlaylist}
+                >
+                  <Icon name="plus" className="h-4 w-4" />
+                </Button>
+              ) : (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      aria-label="Add to playlist"
+                    >
+                      <Icon name="plus" className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    onPointerDown={handleMenuPointerDown}
+                    onClick={handleMenuClick}
+                  >
+                    <AddToPlaylistMenu
+                      trackId={track.id}
+                      trackTitle={track.title}
+                      playlists={playlists}
+                    />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </>
+          )}
           {isMobile ? (
             /* Mobile: Bottom Sheet */
             <Button

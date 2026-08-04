@@ -22,6 +22,11 @@ export interface TrackSearchResult extends BaseSearchResult {
   duration?: number | null;
   coverImageId?: string | null;
   serviceId?: string | null;
+  serviceUrl?: string | null;
+  coverImage?: { objectKey: string } | null;
+  service?: { displayName: string; logoUrl: string | null } | null;
+  audioFiles?: Array<{ id: string; format: string | null; objectKey: string }>;
+  addedAt?: string;
 }
 
 export interface AlbumSearchResult extends BaseSearchResult {

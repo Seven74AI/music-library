@@ -3,8 +3,17 @@
  */
 
 import { Link } from "react-router";
-import { type SearchResult } from "#app/types/search.ts";
+import { TrackListItem } from "#app/components/track-list-item.tsx";
+import { type SearchResult, type TrackSearchResult } from "#app/types/search.ts";
+import { mapSearchTrackToListItem } from "#app/utils/map-search-track.ts";
 import { Icon } from "./ui/icon.tsx";
+
+interface SearchPlaylist {
+  id: string;
+  title: string;
+  description: string | null;
+  _count: { tracks: number };
+}
 
 interface SearchResultsProps {
   results: SearchResult[];
@@ -12,22 +21,18 @@ interface SearchResultsProps {
   onLoadMore?: () => void;
   hasNext?: boolean;
   isLoading?: boolean;
+  playlists?: SearchPlaylist[];
 }
 
 /** Per-entity configuration — single source of truth for links, icons, subtitles */
 const ENTITY_CONFIG: Record<
-  SearchResult["type"],
+  Exclude<SearchResult["type"], "track">,
   {
     link: (id: string) => string;
     icon: Parameters<typeof Icon>[0]["name"];
     subtitle: (r: SearchResult) => string;
   }
 > = {
-  track: {
-    link: (id) => `/library/${id}`,
-    icon: "play",
-    subtitle: (r) => (r.type === "track" ? `Track — ${r.artistName}` : "Track"),
-  },
   album: {
     link: (id) => `/albums/${id}`,
     icon: "camera",
@@ -46,7 +51,7 @@ const ENTITY_CONFIG: Record<
   },
 };
 
-function ResultImage({ result }: { result: SearchResult }) {
+function ResultImage({ result }: { result: Exclude<SearchResult, TrackSearchResult> }) {
   const config = ENTITY_CONFIG[result.type];
   const imageUrl = result.type === "playlist" ? result.thumbnailUrl : null;
 
@@ -61,12 +66,30 @@ function ResultImage({ result }: { result: SearchResult }) {
   );
 }
 
+function EntityResultRow({ result }: { result: Exclude<SearchResult, TrackSearchResult> }) {
+  const config = ENTITY_CONFIG[result.type];
+
+  return (
+    <Link
+      to={config.link(result.id)}
+      className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
+    >
+      <ResultImage result={result} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{result.name}</p>
+        <p className="truncate text-xs text-muted-foreground">{config.subtitle(result)}</p>
+      </div>
+    </Link>
+  );
+}
+
 export function SearchResults({
   results,
   query,
   onLoadMore,
   hasNext = false,
   isLoading = false,
+  playlists = [],
 }: SearchResultsProps) {
   if (results.length === 0 && !isLoading && query.trim()) {
     return (
@@ -84,25 +107,32 @@ export function SearchResults({
     return null;
   }
 
+  let trackIndex = 0;
+
   return (
     <div>
       {results.map((result) => {
-        const config = ENTITY_CONFIG[result.type];
-        return (
-          <Link
-            key={`${result.type}-${result.id}`}
-            to={config.link(result.id)}
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
-          >
-            <ResultImage result={result} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
-                {result.type === "track" ? result.title : result.name}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">{config.subtitle(result)}</p>
-            </div>
-          </Link>
-        );
+        if (result.type === "track") {
+          const currentTrackIndex = trackIndex;
+          trackIndex += 1;
+
+          return (
+            <TrackListItem
+              key={`track-${result.id}`}
+              track={mapSearchTrackToListItem(result)}
+              userTrack={{ createdAt: result.addedAt ?? new Date(0).toISOString() }}
+              index={currentTrackIndex}
+              playlists={playlists}
+              variant="compact"
+              showQuickAddToPlaylist
+              usePlaybackIndex={false}
+              playlistContext={{ type: "library" }}
+              showDuration
+            />
+          );
+        }
+
+        return <EntityResultRow key={`${result.type}-${result.id}`} result={result} />;
       })}
 
       {hasNext && onLoadMore && (

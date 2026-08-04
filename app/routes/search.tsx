@@ -4,12 +4,22 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { data, useFetcher, useLocation, useNavigate, useSearchParams } from "react-router";
+import {
+  data,
+  useFetcher,
+  useLoaderData,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
 import { SearchResults } from "#app/components/search-results.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
 import { type SearchResponse, type SearchResult } from "#app/types/search.ts";
+import { getUserId } from "#app/utils/auth.server.ts";
+import { prisma } from "#app/utils/db.server.ts";
+import { type Route } from "./+types/search.ts";
 
 const RECENT_SEARCHES_KEY = "music-library:recent-searches";
 const MAX_RECENT = 8;
@@ -48,11 +58,30 @@ const TYPE_FILTERS = [
   { value: "playlists", label: "Playlists" },
 ] as const;
 
-export function loader() {
-  return data({});
+export async function loader({ request }: Route.LoaderArgs) {
+  const userId = await getUserId(request);
+  if (!userId) {
+    return data({ playlists: [] });
+  }
+
+  const playlists = await prisma.userPlaylist.findMany({
+    where: { ownerId: userId },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      _count: {
+        select: { tracks: true },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  return data({ playlists });
 }
 
 export default function SearchPage() {
+  const { playlists } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const fetcher = useFetcher<SearchResponse>({ key: "search" });
   const navigate = useNavigate();
@@ -297,6 +326,7 @@ export default function SearchPage() {
                 onLoadMore={handleLoadMore}
                 hasNext={hasNext}
                 isLoading={isLoading}
+                playlists={playlists}
               />
             )}
 
