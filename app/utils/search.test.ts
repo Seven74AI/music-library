@@ -45,7 +45,7 @@ describe("Search Utilities", () => {
       },
     });
 
-    const track = await prisma.track.create({
+    await prisma.track.create({
       data: {
         title: "Test Track",
         artistId: artist.id,
@@ -54,23 +54,55 @@ describe("Search Utilities", () => {
       },
     });
 
-    // Ensure FTS5 is populated (triggers should handle this automatically, but ensure for test reliability)
-    await prisma.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-			 SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-			 FROM "Track" t
-			 JOIN "Artist" a ON t."artistId" = a.id
-			 LEFT JOIN "Album" alb ON t."albumId" = alb.id
-			 WHERE t.id = ?`,
-      track.id,
-    );
-
     const result = await searchTracks("Test", 10);
 
     expect(result.results.length).toBeGreaterThan(0);
     expect(result.results[0]?.type).toBe("track");
     if (result.results[0]?.type === "track") {
       expect(result.results[0].title).toContain("Test");
+    }
+  });
+
+  it("indexes new tracks into tracks_fts via insert trigger", async () => {
+    const localService = await prisma.service.upsert({
+      where: { name: "local" },
+      update: {},
+      create: {
+        name: "local",
+        displayName: "Local Upload",
+        baseUrl: "",
+        isActive: true,
+      },
+    });
+
+    const artist = await prisma.artist.create({
+      data: {
+        name: "Trigger Artist",
+        normalizedName: "trigger artist",
+      },
+    });
+
+    const track = await prisma.track.create({
+      data: {
+        title: "UniqueTriggerIndexedTrack",
+        artistId: artist.id,
+        serviceId: localService.id,
+        externalId: `fts-trigger-track-${Date.now()}`,
+      },
+    });
+
+    const ftsRows = await prisma.$queryRawUnsafe<Array<{ track_id: string; title: string }>>(
+      `SELECT track_id, title FROM tracks_fts WHERE track_id = ?`,
+      track.id,
+    );
+    expect(ftsRows).toHaveLength(1);
+    expect(ftsRows[0]?.title).toBe("UniqueTriggerIndexedTrack");
+
+    const result = await searchTracks("UniqueTriggerIndexedTrack", 10);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]?.type).toBe("track");
+    if (result.results[0]?.type === "track") {
+      expect(result.results[0].id).toBe(track.id);
     }
   });
 
@@ -155,23 +187,13 @@ describe("Search Utilities", () => {
       },
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    const result = await searchAll("Test", 10, undefined, "all");
 
-    const result = await searchAll("Test", 10);
-
-    // At least one result should be found
-    if (result.results.length > 0) {
-      // If we have results, verify types
-      const hasTrack = result.results.some((r) => r.type === "track");
-      const hasAlbum = result.results.some((r) => r.type === "album");
-      const hasArtist = result.results.some((r) => r.type === "artist");
-      // At least one type should be present
-      expect(hasTrack || hasAlbum || hasArtist).toBe(true);
-    } else {
-      // If no results, it might be because FTS5 needs more time or data isn't indexed yet
-      // This is acceptable for now - the search functionality works, indexing might need time
-      expect(result.results).toHaveLength(0);
-    }
+    expect(result.results.length).toBeGreaterThan(0);
+    const hasTrack = result.results.some((r) => r.type === "track");
+    const hasAlbum = result.results.some((r) => r.type === "album");
+    const hasArtist = result.results.some((r) => r.type === "artist");
+    expect(hasTrack || hasAlbum || hasArtist).toBe(true);
   });
 
   it("should return empty results for empty query", async () => {
@@ -201,9 +223,8 @@ describe("Search Utilities", () => {
     });
 
     // Create multiple tracks
-    const trackIds: string[] = [];
     for (let i = 0; i < 5; i++) {
-      const track = await prisma.track.create({
+      await prisma.track.create({
         data: {
           title: `Test Track ${i}`,
           artistId: artist.id,
@@ -211,19 +232,7 @@ describe("Search Utilities", () => {
           externalId: `test-track-${i}-${Date.now()}`,
         },
       });
-      trackIds.push(track.id);
     }
-
-    // Ensure FTS5 is populated (triggers should handle this, but ensure for tests)
-    await prisma.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-			 SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-			 FROM "Track" t
-			 JOIN "Artist" a ON t."artistId" = a.id
-			 LEFT JOIN "Album" alb ON t."albumId" = alb.id
-			 WHERE t.id IN (${trackIds.map(() => "?").join(",")})`,
-      ...trackIds,
-    );
 
     const result = await searchTracks("Test", 2);
     expect(result.results.length).toBeLessThanOrEqual(2);
@@ -251,7 +260,7 @@ describe("Search Utilities", () => {
       },
     });
 
-    const metalTrack = await prisma.track.create({
+    await prisma.track.create({
       data: {
         title: "Metal",
         artistId: artist.id,
@@ -260,7 +269,7 @@ describe("Search Utilities", () => {
       },
     });
 
-    const metallicTrack = await prisma.track.create({
+    await prisma.track.create({
       data: {
         title: "Metallic",
         artistId: artist.id,
@@ -268,18 +277,6 @@ describe("Search Utilities", () => {
         externalId: `test-track-metallic-${Date.now()}`,
       },
     });
-
-    // Ensure FTS5 is populated (triggers should handle this, but ensure for tests)
-    await prisma.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-			 SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-			 FROM "Track" t
-			 JOIN "Artist" a ON t."artistId" = a.id
-			 LEFT JOIN "Album" alb ON t."albumId" = alb.id
-			 WHERE t.id IN (?, ?)`,
-      metalTrack.id,
-      metallicTrack.id,
-    );
 
     const result = await searchTracks("Metal", 10);
     expect(result.results.length).toBeGreaterThan(0);
@@ -478,18 +475,6 @@ describe("Search Utilities", () => {
         data: { userId: userB.id, trackId: trackB.id },
       });
 
-      // Ensure FTS5 is populated
-      await prisma.$executeRawUnsafe(
-        `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-         SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-         FROM "Track" t
-         JOIN "Artist" a ON t."artistId" = a.id
-         LEFT JOIN "Album" alb ON t."albumId" = alb.id
-         WHERE t.id IN (?, ?)`,
-        trackA.id,
-        trackB.id,
-      );
-
       // User A should see only track A
       const resultA = await searchTracks("User", 10, undefined, true, userA.id);
       const trackIdsA = resultA.results.filter((r) => r.type === "track").map((r) => r.id);
@@ -542,17 +527,6 @@ describe("Search Utilities", () => {
       await prisma.userTrack.create({
         data: { userId: user.id, trackId: track.id },
       });
-
-      // Ensure FTS5 is populated
-      await prisma.$executeRawUnsafe(
-        `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-         SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-         FROM "Track" t
-         JOIN "Artist" a ON t."artistId" = a.id
-         LEFT JOIN "Album" alb ON t."albumId" = alb.id
-         WHERE t.id = ?`,
-        track.id,
-      );
 
       // Without userId, should return the track (no scoping)
       const result = await searchTracks("Public", 10);
