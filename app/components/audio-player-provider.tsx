@@ -46,11 +46,14 @@ import { InstallAppBanner } from "./pwa/install-app-banner";
 
 type Track = FullTrack;
 
-type PlayContext = "library" | "playlist" | "music";
+type PlayContext = "library" | "playlist" | "artist" | "album" | "track" | "music";
 
 interface PlaylistContext {
   type: PlayContext;
   playlistId?: string;
+  artistId?: string;
+  albumId?: string;
+  trackId?: string;
   cursor?: string;
 }
 
@@ -103,6 +106,15 @@ function toQueueSpineContext(context: PlaylistContext): QueueSpineContext | null
   if (context.type === "library") return { type: "library" };
   if (context.type === "playlist" && context.playlistId) {
     return { type: "playlist", playlistId: context.playlistId };
+  }
+  if (context.type === "artist" && context.artistId) {
+    return { type: "artist", artistId: context.artistId };
+  }
+  if (context.type === "album" && context.albumId) {
+    return { type: "album", albumId: context.albumId };
+  }
+  if (context.type === "track" && context.trackId) {
+    return { type: "track", trackId: context.trackId };
   }
   return null;
 }
@@ -364,7 +376,11 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
       if (
         playContext &&
-        (playContext.type !== context.type || playContext.playlistId !== context.playlistId)
+        (playContext.type !== context.type ||
+          playContext.playlistId !== context.playlistId ||
+          playContext.artistId !== context.artistId ||
+          playContext.albumId !== context.albumId ||
+          playContext.trackId !== context.trackId)
       ) {
         resetQueueState();
       }
@@ -388,7 +404,11 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
 
         if (
           playContext &&
-          (playContext.type !== context.type || playContext.playlistId !== context.playlistId)
+          (playContext.type !== context.type ||
+            playContext.playlistId !== context.playlistId ||
+            playContext.artistId !== context.artistId ||
+            playContext.albumId !== context.albumId ||
+            playContext.trackId !== context.trackId)
         ) {
           resetQueueState();
         }

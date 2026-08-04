@@ -126,7 +126,7 @@ export function SearchResults({
               variant="compact"
               showQuickAddToPlaylist
               usePlaybackIndex={false}
-              playlistContext={{ type: "library" }}
+              playlistContext={{ type: "track", trackId: result.id }}
               showDuration
             />
           );

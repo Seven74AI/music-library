@@ -50,6 +50,68 @@ test.describe("Music Library", () => {
     await expect(page.getByText("Test Artist")).toBeVisible({ timeout: 10000 });
   });
 
+  test("playing from track detail uses a one-track queue", async ({
+    page,
+    login,
+    insertNewTrack,
+  }) => {
+    test.setTimeout(60_000);
+    const user = await login();
+    const track = await insertNewTrack({ title: "Detail Queue Track" }, user.id);
+    const otherTrack = await insertNewTrack({ title: "Detail Queue Other" }, user.id);
+
+    for (const playableTrack of [track, otherTrack]) {
+      await testPrisma.trackAudioFile.create({
+        data: {
+          trackId: playableTrack.id,
+          objectKey: `audio/${playableTrack.id}.mp3`,
+          format: "mp3",
+          mimeType: "audio/mpeg",
+        },
+      });
+    }
+
+    await page.goto(`/library/${track.id}`);
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.getByRole("heading", { name: "Detail Queue Track", level: 2 })).toBeVisible({
+      timeout: 10000,
+    });
+    const installBanner = page.getByRole("region", { name: "Install app" });
+    if (await installBanner.isVisible().catch(() => false)) {
+      await page.getByRole("button", { name: "Not now" }).click({ force: true });
+      await expect(installBanner).not.toBeVisible({ timeout: 10000 });
+    }
+    await page.evaluate(() => {
+      const region = document.querySelector('[aria-label="Notifications (F8)"]');
+      if (region) region.remove();
+    });
+
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes("/api/queue-spine") && response.status() === 200,
+        { timeout: 15000 },
+      ),
+      page.getByRole("button", { name: "Play" }).click(),
+    ]);
+
+    const playerBar = page.locator(
+      '[data-testid="player-desktop-bar"]:visible, [data-testid="player-mini-bar"]:visible',
+    );
+    await expect(playerBar.first()).toBeVisible({ timeout: 10000 });
+    await expect(playerBar.getByText("Detail Queue Track")).toBeVisible();
+
+    await page.evaluate(() => {
+      const region = document.querySelector('[aria-label="Notifications (F8)"]');
+      if (region) region.remove();
+    });
+    await playerBar.getByLabel("Open queue").click({ force: true });
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Queue (1 from track)" })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "From Track", exact: true })).toBeVisible();
+    await expect(dialog.getByText("Detail Queue Track")).toBeVisible();
+    await expect(dialog.getByText("Detail Queue Other")).not.toBeVisible();
+  });
+
   test("can create playlist from library track row", async ({ page, login, insertNewTrack }) => {
     const user = await login();
     const track = await insertNewTrack({}, user.id);

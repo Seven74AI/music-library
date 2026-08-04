@@ -166,7 +166,7 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
                   playlists={playlists}
                   variant="compact"
                   showQuickAddToPlaylist
-                  playlistContext={{ type: "library" }}
+                  playlistContext={{ type: "artist", artistId: artist.id }}
                   showDuration
                 />
               ))}

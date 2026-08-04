@@ -14,6 +14,10 @@ vi.mock("#app/utils/db.server.ts", () => ({
     userPlaylistTrack: {
       findMany: vi.fn(),
     },
+    track: {
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+    },
   },
 }));
 
@@ -35,7 +39,7 @@ describe("parseQueueSpineParams", () => {
   });
 
   test("rejects invalid context", () => {
-    const params = new URLSearchParams("context=album");
+    const params = new URLSearchParams("context=bogus");
     expect(parseQueueSpineParams(params)).toEqual({
       ok: false,
       error: "Invalid context parameter",
@@ -71,6 +75,54 @@ describe("parseQueueSpineParams", () => {
     expect(parseQueueSpineParams(params)).toEqual({
       ok: false,
       error: "Playlist ID is required",
+    });
+  });
+
+  test("accepts artist context with artistId", () => {
+    const params = new URLSearchParams("context=artist&artistId=artist-1");
+    expect(parseQueueSpineParams(params)).toEqual({
+      ok: true,
+      value: { context: "artist", artistId: "artist-1" },
+    });
+  });
+
+  test("rejects artist context without artistId", () => {
+    const params = new URLSearchParams("context=artist");
+    expect(parseQueueSpineParams(params)).toEqual({
+      ok: false,
+      error: "Artist ID is required",
+    });
+  });
+
+  test("accepts album context with albumId", () => {
+    const params = new URLSearchParams("context=album&albumId=album-1");
+    expect(parseQueueSpineParams(params)).toEqual({
+      ok: true,
+      value: { context: "album", albumId: "album-1" },
+    });
+  });
+
+  test("rejects album context without albumId", () => {
+    const params = new URLSearchParams("context=album");
+    expect(parseQueueSpineParams(params)).toEqual({
+      ok: false,
+      error: "Album ID is required",
+    });
+  });
+
+  test("accepts track context with trackId", () => {
+    const params = new URLSearchParams("context=track&trackId=track-1");
+    expect(parseQueueSpineParams(params)).toEqual({
+      ok: true,
+      value: { context: "track", trackId: "track-1" },
+    });
+  });
+
+  test("rejects track context without trackId", () => {
+    const params = new URLSearchParams("context=track");
+    expect(parseQueueSpineParams(params)).toEqual({
+      ok: false,
+      error: "Track ID is required",
     });
   });
 });
@@ -153,5 +205,96 @@ describe("fetchQueueSpine", () => {
     );
     expect(result.total).toBe(1);
     expect(result.tracks[0]).not.toHaveProperty("audioFiles");
+  });
+
+  test("returns artist spine ordered like the artist page", async () => {
+    vi.mocked(prisma.track.findMany).mockResolvedValue([
+      {
+        id: "track-3",
+        title: "Newest Artist Song",
+        artist: { id: "artist-3", name: "Artist Three" },
+      },
+    ] as never);
+
+    const result = await fetchQueueSpine("user-1", {
+      context: "artist",
+      artistId: "artist-3",
+    });
+
+    expect(prisma.track.findMany).toHaveBeenCalledWith({
+      where: { artistId: "artist-3" },
+      select: QUEUE_TRACK_SELECT,
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    expect(result).toEqual({
+      tracks: [
+        {
+          id: "track-3",
+          title: "Newest Artist Song",
+          artist: { id: "artist-3", name: "Artist Three" },
+        },
+      ],
+      total: 1,
+    });
+  });
+
+  test("returns album spine ordered like the album page", async () => {
+    vi.mocked(prisma.track.findMany).mockResolvedValue([
+      {
+        id: "track-4",
+        title: "Album Opener",
+        artist: { id: "artist-4", name: "Artist Four" },
+      },
+    ] as never);
+
+    const result = await fetchQueueSpine("user-1", {
+      context: "album",
+      albumId: "album-4",
+    });
+
+    expect(prisma.track.findMany).toHaveBeenCalledWith({
+      where: { albumId: "album-4" },
+      select: QUEUE_TRACK_SELECT,
+      orderBy: { createdAt: "asc" },
+    });
+    expect(result).toEqual({
+      tracks: [
+        {
+          id: "track-4",
+          title: "Album Opener",
+          artist: { id: "artist-4", name: "Artist Four" },
+        },
+      ],
+      total: 1,
+    });
+  });
+
+  test("returns a one-track spine for track context", async () => {
+    vi.mocked(prisma.track.findUnique).mockResolvedValue({
+      id: "track-5",
+      title: "Only Track",
+      artist: { id: "artist-5", name: "Artist Five" },
+    } as never);
+
+    const result = await fetchQueueSpine("user-1", {
+      context: "track",
+      trackId: "track-5",
+    });
+
+    expect(prisma.track.findUnique).toHaveBeenCalledWith({
+      where: { id: "track-5" },
+      select: QUEUE_TRACK_SELECT,
+    });
+    expect(result).toEqual({
+      tracks: [
+        {
+          id: "track-5",
+          title: "Only Track",
+          artist: { id: "artist-5", name: "Artist Five" },
+        },
+      ],
+      total: 1,
+    });
   });
 });

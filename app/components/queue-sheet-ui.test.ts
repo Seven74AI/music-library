@@ -34,6 +34,18 @@ describe("getSpineSectionLabel", () => {
     expect(getSpineSectionLabel({ type: "playlist", playlistId: "p1" })).toBe("from playlist");
   });
 
+  test("uses artist label for artist context", () => {
+    expect(getSpineSectionLabel({ type: "artist" })).toBe("from artist");
+  });
+
+  test("uses album label for album context", () => {
+    expect(getSpineSectionLabel({ type: "album" })).toBe("from album");
+  });
+
+  test("uses track label for track context", () => {
+    expect(getSpineSectionLabel({ type: "track" })).toBe("from track");
+  });
+
   test("falls back when context is unknown", () => {
     expect(getSpineSectionLabel(null)).toBe("from queue");
   });
@@ -46,5 +58,17 @@ describe("getSpineSectionHeading", () => {
 
   test("uses playlist heading for playlist context", () => {
     expect(getSpineSectionHeading({ type: "playlist", playlistId: "p1" })).toBe("From Playlist");
+  });
+
+  test("uses artist heading for artist context", () => {
+    expect(getSpineSectionHeading({ type: "artist" })).toBe("From Artist");
+  });
+
+  test("uses album heading for album context", () => {
+    expect(getSpineSectionHeading({ type: "album" })).toBe("From Album");
+  });
+
+  test("uses track heading for track context", () => {
+    expect(getSpineSectionHeading({ type: "track" })).toBe("From Track");
   });
 });

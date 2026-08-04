@@ -7,7 +7,12 @@ export class AuthExpiredError extends Error {
   }
 }
 
-export type QueueSpineContext = { type: "library" } | { type: "playlist"; playlistId: string };
+export type QueueSpineContext =
+  | { type: "library" }
+  | { type: "playlist"; playlistId: string }
+  | { type: "artist"; artistId: string }
+  | { type: "album"; albumId: string }
+  | { type: "track"; trackId: string };
 
 export type QueueSpineResponse = {
   tracks: QueueTrack[];
@@ -19,8 +24,14 @@ export async function fetchQueueSpine(context: QueueSpineContext): Promise<Queue
 
   if (context.type === "library") {
     url = "/api/queue-spine?context=library&hasAudio=1";
-  } else {
+  } else if (context.type === "playlist") {
     url = `/api/queue-spine?context=playlist&playlistId=${encodeURIComponent(context.playlistId)}`;
+  } else if (context.type === "artist") {
+    url = `/api/queue-spine?context=artist&artistId=${encodeURIComponent(context.artistId)}`;
+  } else if (context.type === "album") {
+    url = `/api/queue-spine?context=album&albumId=${encodeURIComponent(context.albumId)}`;
+  } else {
+    url = `/api/queue-spine?context=track&trackId=${encodeURIComponent(context.trackId)}`;
   }
 
   const base = typeof window !== "undefined" ? window.location.origin : "http://localhost";

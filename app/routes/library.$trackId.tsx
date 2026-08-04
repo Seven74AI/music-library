@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { data, Link } from "react-router";
+import { useAudioPlayer } from "#app/components/audio-player-provider.tsx";
 import { type BreadcrumbHandle } from "#app/components/breadcrumbs.tsx";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
 import { Button } from "#app/components/ui/button.tsx";
@@ -62,6 +63,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
   const { track } = loaderData;
   const [isDownloading, setIsDownloading] = useState(false);
   const hasAudioFiles = track.audioFiles.length > 0;
+  const { playTrack, isLoadingNext } = useAudioPlayer();
 
   const handleDownload = useCallback(async () => {
     setIsDownloading(true);
@@ -79,6 +81,22 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
       setIsDownloading(false);
     }
   }, [track.id]);
+
+  const handlePlay = useCallback(() => {
+    if (!hasAudioFiles) return;
+
+    void playTrack(
+      {
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        duration: track.duration,
+        coverImage: track.coverImage,
+        audioFiles: track.audioFiles,
+      },
+      { type: "track", trackId: track.id },
+    );
+  }, [hasAudioFiles, playTrack, track]);
 
   return (
     <OfflineRouteBlocker>
@@ -131,7 +149,13 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
 
               {hasAudioFiles && (
                 <div>
-                  <h3 className="text-lg font-semibold mb-2">Audio Files</h3>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-lg font-semibold">Audio Files</h3>
+                    <Button onClick={handlePlay} disabled={isLoadingNext}>
+                      <Icon name={isLoadingNext ? "update" : "play"} className="mr-2 h-4 w-4" />
+                      {isLoadingNext ? "Preparing..." : "Play"}
+                    </Button>
+                  </div>
                   <div className="space-y-2">
                     {track.audioFiles.map((file) => (
                       <div key={file.id} className="flex items-center gap-2 text-sm">

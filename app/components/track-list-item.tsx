@@ -49,8 +49,11 @@ interface TrackListItemProps {
   userTrack: UserTrack;
   index: number;
   playlistContext?: {
-    type: "library" | "playlist" | "music";
+    type: "library" | "playlist" | "artist" | "album" | "track" | "music";
     playlistId?: string;
+    artistId?: string;
+    albumId?: string;
+    trackId?: string;
   };
   isDeleted?: boolean;
   showQueueActions?: boolean;

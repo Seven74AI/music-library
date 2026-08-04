@@ -7,26 +7,34 @@ import { expect, test, vi } from "vitest";
 import { type SearchResult } from "#app/types/search.ts";
 import { SearchResults } from "./search-results";
 
+const trackListItemMock = vi.fn();
+
 vi.mock("#app/components/track-list-item.tsx", () => ({
   TrackListItem: ({
     track,
     showQuickAddToPlaylist,
+    playlistContext,
   }: {
     track: { title: string };
     showQuickAddToPlaylist?: boolean;
-  }) => (
-    <div data-testid="track-list-item">
-      <span>{track.title}</span>
-      {showQuickAddToPlaylist ? (
-        <button type="button" aria-label="Add to playlist">
-          +
-        </button>
-      ) : null}
-      <button type="button" aria-label="More actions">
-        ...
-      </button>
-    </div>
-  ),
+    playlistContext?: { type: string; trackId?: string };
+  }) =>
+    (() => {
+      trackListItemMock({ track, showQuickAddToPlaylist, playlistContext });
+      return (
+        <div data-testid="track-list-item">
+          <span>{track.title}</span>
+          {showQuickAddToPlaylist ? (
+            <button type="button" aria-label="Add to playlist">
+              +
+            </button>
+          ) : null}
+          <button type="button" aria-label="More actions">
+            ...
+          </button>
+        </div>
+      );
+    })(),
 }));
 
 const mixedResults: SearchResult[] = [
@@ -64,12 +72,25 @@ function renderSearchResults(results: SearchResult[] = mixedResults) {
 }
 
 test("renders track results with track list item instead of links", () => {
+  trackListItemMock.mockClear();
   renderSearchResults();
 
   expect(screen.getByTestId("track-list-item")).toBeDefined();
   expect(screen.getByText("Search Track")).toBeDefined();
   expect(screen.getByRole("button", { name: "Add to playlist" })).toBeDefined();
   expect(screen.getByRole("button", { name: "More actions" })).toBeDefined();
+});
+
+test("uses one-track playback context for search track results", () => {
+  trackListItemMock.mockClear();
+
+  renderSearchResults();
+
+  expect(trackListItemMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      playlistContext: { type: "track", trackId: "track-1" },
+    }),
+  );
 });
 
 test("keeps artist and album results as navigational links", () => {

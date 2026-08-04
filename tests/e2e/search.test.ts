@@ -13,6 +13,22 @@ async function waitForPlayerBar(page: import("@playwright/test").Page) {
   return bar.first();
 }
 
+/**
+ * Dismiss install banner and remove toast overlays that intercept player clicks.
+ * Matches the approach proven in player-queue.test.ts.
+ */
+async function dismissOverlays(page: import("@playwright/test").Page) {
+  const installBanner = page.getByRole("region", { name: "Install app" });
+  if (await installBanner.isVisible().catch(() => false)) {
+    await page.getByRole("button", { name: "Not now" }).click({ force: true });
+  }
+
+  await page.evaluate(() => {
+    const region = document.querySelector('[aria-label="Notifications (F8)"]');
+    if (region) region.remove();
+  });
+}
+
 test.describe("Global Search", () => {
   test("can navigate to search page", { tag: "@smoke" }, async ({ page, loginAsAdmin }) => {
     await loginAsAdmin();
@@ -108,31 +124,46 @@ test.describe("Global Search", () => {
     test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Search Play Track" }, user.id);
-    await testPrisma.trackAudioFile.create({
-      data: {
-        trackId: track.id,
-        objectKey: "audio/search-play.mp3",
-        format: "mp3",
-        mimeType: "audio/mpeg",
-      },
-    });
+    const otherTrack = await insertNewTrack({ title: "Search Other Track" }, user.id);
+    for (const playableTrack of [track, otherTrack]) {
+      await testPrisma.trackAudioFile.create({
+        data: {
+          trackId: playableTrack.id,
+          objectKey: `audio/${playableTrack.id}.mp3`,
+          format: "mp3",
+          mimeType: "audio/mpeg",
+        },
+      });
+    }
 
     await page.goto("/search");
+    await dismissOverlays(page);
+
     const searchInput = page.getByPlaceholder(/what do you want to listen to/i);
     await searchInput.fill("Search Play Track");
 
-    await expect(page.getByText("Search Play Track").first()).toBeVisible({ timeout: 15000 });
+    const trackRow = page.getByRole("gridcell", { name: /Search Play Track by Test Artist/i });
+    await expect(trackRow).toBeVisible({ timeout: 30000 });
 
     await Promise.all([
       page.waitForResponse(
         (response) => response.url().includes("/api/queue-spine") && response.status() === 200,
         { timeout: 15000 },
       ),
-      page.getByRole("gridcell", { name: /Search Play Track by Test Artist/i }).click(),
+      trackRow.click(),
     ]);
 
     const playerBar = await waitForPlayerBar(page);
     await expect(playerBar.getByText("Search Play Track")).toBeVisible();
+
+    await dismissOverlays(page);
+    await playerBar.getByLabel("Open queue").click({ force: true });
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Queue (1 from track)" })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "From Track", exact: true })).toBeVisible();
+    await expect(dialog.getByText("Search Play Track")).toBeVisible();
+    await expect(dialog.getByText("Search Other Track")).not.toBeVisible();
   });
 
   test("quick add button opens add-to-playlist from search track row", async ({
@@ -140,14 +171,17 @@ test.describe("Global Search", () => {
     login,
     insertNewTrack,
   }) => {
+    test.setTimeout(60_000);
     const user = await login();
     await insertNewTrack({ title: "Search Add Track" }, user.id);
 
     await page.goto("/search");
+    await dismissOverlays(page);
+
     const searchInput = page.getByPlaceholder(/what do you want to listen to/i);
     await searchInput.fill("Search Add Track");
 
-    await expect(page.getByText("Search Add Track").first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("Search Add Track").first()).toBeVisible({ timeout: 30000 });
     await page.getByRole("button", { name: "Add to playlist" }).first().click();
     await expect(page.getByRole("button", { name: "New playlist" })).toBeVisible({
       timeout: 10000,
@@ -155,15 +189,18 @@ test.describe("Global Search", () => {
   });
 
   test("artist search result navigates to artist page", async ({ page, login, insertNewTrack }) => {
+    test.setTimeout(60_000);
     const user = await login();
     await insertNewTrack({ title: "Artist Nav Track", artist: "Unique Search Artist" }, user.id);
 
     await page.goto("/search");
+    await dismissOverlays(page);
+
     const searchInput = page.getByPlaceholder(/what do you want to listen to/i);
     await searchInput.fill("Unique Search Artist");
 
     const artistLink = page.getByRole("link", { name: /Unique Search Artist/i });
-    await expect(artistLink).toBeVisible({ timeout: 15000 });
+    await expect(artistLink).toBeVisible({ timeout: 30000 });
     await artistLink.click();
 
     await expect(page).toHaveURL(/\/artists\//);

@@ -119,6 +119,45 @@ function PlayTrackProbe() {
   );
 }
 
+function PlayArtistTrackProbe() {
+  const { playTrack } = useAudioPlayer();
+
+  return (
+    <button
+      type="button"
+      onClick={() => playTrack(playableTrack, { type: "artist", artistId: "artist-1" }, 0)}
+    >
+      Play artist track
+    </button>
+  );
+}
+
+function PlayAlbumTrackProbe() {
+  const { playTrack } = useAudioPlayer();
+
+  return (
+    <button
+      type="button"
+      onClick={() => playTrack(playableTrack, { type: "album", albumId: "album-1" }, 0)}
+    >
+      Play album track
+    </button>
+  );
+}
+
+function PlaySingleTrackProbe() {
+  const { playTrack } = useAudioPlayer();
+
+  return (
+    <button
+      type="button"
+      onClick={() => playTrack(playableTrack, { type: "track", trackId: "track-1" }, 0)}
+    >
+      Play single track
+    </button>
+  );
+}
+
 function PlayLibraryProbe() {
   const { playLibrary } = useAudioPlayer();
 
@@ -269,6 +308,111 @@ test("playLibrary requests queue spine and hydrates the first track", async () =
   const spineRequestUrl = String(fetchMock.mock.calls[0]?.[0]);
   expect(spineRequestUrl).toContain("/api/queue-spine");
   expect(spineRequestUrl).toContain("hasAudio=1");
+});
+
+test("playTrack requests artist queue spine and hydrates playback", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        tracks: [spineTrack],
+        total: 1,
+      }),
+    } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tracks: [playableTrack] }),
+    } as Response);
+
+  render(
+    <AudioPlayerProvider>
+      <PlayArtistTrackProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play artist track" }));
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  const spineRequestUrl = String(fetchMock.mock.calls[0]?.[0]);
+  expect(spineRequestUrl).toContain("/api/queue-spine");
+  expect(spineRequestUrl).toContain("context=artist");
+  expect(spineRequestUrl).toContain("artistId=artist-1");
+});
+
+test("playTrack requests album queue spine and hydrates playback", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        tracks: [spineTrack],
+        total: 1,
+      }),
+    } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tracks: [playableTrack] }),
+    } as Response);
+
+  render(
+    <AudioPlayerProvider>
+      <PlayAlbumTrackProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play album track" }));
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  const spineRequestUrl = String(fetchMock.mock.calls[0]?.[0]);
+  expect(spineRequestUrl).toContain("/api/queue-spine");
+  expect(spineRequestUrl).toContain("context=album");
+  expect(spineRequestUrl).toContain("albumId=album-1");
+});
+
+test("playTrack requests one-track spine and hydrates playback", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        tracks: [spineTrack],
+        total: 1,
+      }),
+    } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tracks: [playableTrack] }),
+    } as Response);
+
+  render(
+    <AudioPlayerProvider>
+      <PlaySingleTrackProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play single track" }));
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  const spineRequestUrl = String(fetchMock.mock.calls[0]?.[0]);
+  expect(spineRequestUrl).toContain("/api/queue-spine");
+  expect(spineRequestUrl).toContain("context=track");
+  expect(spineRequestUrl).toContain("trackId=track-1");
 });
 
 test("playUserPlaylist requests playlist queue spine and hydrates playback", async () => {
