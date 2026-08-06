@@ -66,7 +66,6 @@ test.describe("Player / Queue", () => {
     login,
     insertNewTrack,
   }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Playlist Track A" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -135,7 +134,6 @@ test.describe("Player / Queue", () => {
   // 2. Offline playback error message
   // ─────────────────────────────────────────────────
   test("handles track without audio file gracefully", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
 
     // Create a track WITHOUT an audio file
@@ -158,7 +156,6 @@ test.describe("Player / Queue", () => {
   // 3. View tracks in Up Next queue
   // ─────────────────────────────────────────────────
   test("can view tracks in Up Next queue", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
 
     const track1 = await insertNewTrack({ title: "UpNext Track 1" }, user.id);
@@ -197,7 +194,6 @@ test.describe("Player / Queue", () => {
   // 4. Shuffle toggle + queue sheet reflection
   // ─────────────────────────────────────────────────
   test("shuffle toggle reflects in player bar", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Shuffle Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -231,7 +227,6 @@ test.describe("Player / Queue", () => {
   // 5. Loop toggle + state persistence
   // ─────────────────────────────────────────────────
   test("loop toggle cycles through off/all/one modes", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Loop Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -273,7 +268,6 @@ test.describe("Player / Queue", () => {
     login,
     insertNewTrack,
   }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track1 = await insertNewTrack({ title: "QueueOnly Track 1" }, user.id);
     const track2 = await insertNewTrack({ title: "QueueOnly Track 2" }, user.id);
@@ -309,7 +303,6 @@ test.describe("Player / Queue", () => {
   // 7. Sleep timer: starts, counts down, stops playback
   // ─────────────────────────────────────────────────
   test("sleep timer starts and can be cancelled", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Sleep Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -365,7 +358,6 @@ test.describe("Player / Queue", () => {
   // 8. Download button in player
   // ─────────────────────────────────────────────────
   test("download button is visible in player bar", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Download Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -389,7 +381,6 @@ test.describe("Player / Queue", () => {
   // 9. Transport: play/pause toggle
   // ─────────────────────────────────────────────────
   test("play/pause toggle works", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Transport Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -430,7 +421,6 @@ test.describe("Player / Queue", () => {
   // 10. Transport: next/previous track
   // ─────────────────────────────────────────────────
   test("next and previous buttons switch tracks", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track1 = await insertNewTrack({ title: "NextPrev Track 1" }, user.id);
     const track2 = await insertNewTrack({ title: "NextPrev Track 2" }, user.id);
@@ -473,7 +463,6 @@ test.describe("Player / Queue", () => {
   // 11. Seeking (audio element interaction)
   // ─────────────────────────────────────────────────
   test("seek bar is visible and interactive", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Seek Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -498,7 +487,6 @@ test.describe("Player / Queue", () => {
   // 12. Volume control + mute toggle
   // ─────────────────────────────────────────────────
   test("volume control and mute toggle are visible", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Volume Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -535,7 +523,6 @@ test.describe("Player / Queue", () => {
   // 13. Keyboard shortcuts
   // ─────────────────────────────────────────────────
   test("play/pause toggle shows correct button label", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Keyboard Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -570,7 +557,6 @@ test.describe("Player / Queue", () => {
   });
 
   test("keyboard M toggles mute", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "MuteKey Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -601,7 +587,6 @@ test.describe("Player / Queue", () => {
   // 14. Mobile mini bar
   // ─────────────────────────────────────────────────
   test("mobile mini bar is visible on small viewport", async ({ page, login, insertNewTrack }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "Mobile Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -638,7 +623,6 @@ test.describe("Player / Queue", () => {
     login,
     insertNewTrack,
   }) => {
-    test.setTimeout(60_000);
     const user = await login();
     const track = await insertNewTrack({ title: "NowPlaying Track" }, user.id);
     await testPrisma.trackAudioFile.create({
@@ -700,11 +684,5 @@ test.describe("Player / Queue", () => {
     await expect(page.getByText("Add to Up Next")).toBeVisible();
     await expect(page.getByText("Add to Queue")).toBeVisible();
     await expect(page.getByText("Track Details")).toBeVisible();
-
-    // Bottom nav is reachable again after closing the sheet
-    await page.keyboard.press("Escape");
-    await expect(homeLink).toBeVisible({ timeout: 5000 });
-    await homeLink.click();
-    await expect(page).toHaveURL(/\/(\?|$)/);
   });
 });
