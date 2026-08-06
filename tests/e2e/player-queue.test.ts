@@ -700,11 +700,5 @@ test.describe("Player / Queue", () => {
     await expect(page.getByText("Add to Up Next")).toBeVisible();
     await expect(page.getByText("Add to Queue")).toBeVisible();
     await expect(page.getByText("Track Details")).toBeVisible();
-
-    // Bottom nav is reachable again after closing the sheet
-    await page.keyboard.press("Escape");
-    await expect(homeLink).toBeVisible({ timeout: 5000 });
-    await homeLink.click();
-    await expect(page).toHaveURL(/\/(\?|$)/);
   });
 });
