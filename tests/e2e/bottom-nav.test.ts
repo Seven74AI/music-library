@@ -66,7 +66,7 @@ test.describe("Bottom Navigation", () => {
       "page",
     );
 
-    // Dismiss search overlay via back arrow (search now sits above bottom nav at z-[80])
+    // Dismiss search overlay via back arrow (search sits above bottom nav at z-52)
     await page.getByRole("button", { name: /back/i }).click();
     await expect(page).not.toHaveURL(/\/search/);
 

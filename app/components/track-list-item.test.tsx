@@ -243,7 +243,7 @@ test("mobile actions sheet overlay dismiss does not start playback", async () =>
 
   // Portaled overlay click must not React-bubble into the row's onClick=play
   // (sheets are siblings of the row for this reason — see track-list-item.tsx).
-  const overlay = document.querySelector(".fixed.inset-0.z-50");
+  const overlay = document.querySelector(".fixed.inset-0.z-53");
   expect(overlay).not.toBeNull();
   await user.click(overlay!);
 

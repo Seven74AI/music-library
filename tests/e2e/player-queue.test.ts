@@ -657,15 +657,24 @@ test.describe("Player / Queue", () => {
     const miniBar = page.getByTestId("player-mini-bar");
     await expect(miniBar).toBeVisible({ timeout: 10000 });
 
+    const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
+    const homeLink = bottomNav.getByRole("link", { name: /^home$/i });
+
     // Close any lingering sheet from previous tests to avoid overlay interception
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
+
+    // Bottom nav stays above mini player when no sheet is open
+    await expect(homeLink).toBeVisible();
 
     // Open the now-playing sheet
     await miniBar.getByLabel("Open now playing").click();
 
     const sheet = page.getByTestId("player-now-playing-sheet");
     await expect(sheet).toBeVisible({ timeout: 5000 });
+
+    // Sheet must cover bottom nav (regression: nav at z-51 was above sheet at z-50)
+    await expect(homeLink).toBeHidden();
 
     // Heading
     await expect(sheet.getByRole("heading", { name: "Now playing" })).toBeVisible();
@@ -691,5 +700,11 @@ test.describe("Player / Queue", () => {
     await expect(page.getByText("Add to Up Next")).toBeVisible();
     await expect(page.getByText("Add to Queue")).toBeVisible();
     await expect(page.getByText("Track Details")).toBeVisible();
+
+    // Bottom nav is reachable again after closing the sheet
+    await page.keyboard.press("Escape");
+    await expect(homeLink).toBeVisible({ timeout: 5000 });
+    await homeLink.click();
+    await expect(page).toHaveURL(/\/(\?|$)/);
   });
 });
