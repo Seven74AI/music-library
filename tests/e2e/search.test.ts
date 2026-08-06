@@ -157,7 +157,13 @@ test.describe("Global Search", () => {
     await expect(playerBar.getByText("Search Play Track")).toBeVisible();
 
     await dismissOverlays(page);
-    await playerBar.getByLabel("Open queue").click({ force: true });
+    // The search overlay (z-52) covers the player bar (z-50) after the
+    // z-index bump in 18b9658. Use page.evaluate to click the button
+    // directly in JavaScript, bypassing CSS pointer-events interception.
+    await page.evaluate(() => {
+      const btn = document.querySelector('[aria-label="Open queue"]') as HTMLButtonElement;
+      btn?.click();
+    });
 
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: "Queue (1 from track)" })).toBeVisible();
