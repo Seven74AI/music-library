@@ -46,6 +46,7 @@ const mockAdminUser = {
   email: "admin@example.com",
   username: "admin",
   name: "Admin User",
+  disabledAt: null,
   createdAt: new Date("2024-01-01"),
   updatedAt: new Date("2024-01-01"),
 };

@@ -48,8 +48,15 @@ export async function action({ request }: Route.ActionArgs) {
       LoginFormSchema.transform(async (data, ctx) => {
         if (intent !== null) return { ...data, session: null };
 
-        const session = await login(data);
-        if (!session) {
+        const loginResult = await login(data);
+        if (loginResult.status === "disabled") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "This account has been disabled",
+          });
+          return z.NEVER;
+        }
+        if (loginResult.status !== "success") {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Invalid username or password",
@@ -57,7 +64,7 @@ export async function action({ request }: Route.ActionArgs) {
           return z.NEVER;
         }
 
-        return { ...data, session };
+        return { ...data, session: loginResult.session };
       }),
     async: true,
   });

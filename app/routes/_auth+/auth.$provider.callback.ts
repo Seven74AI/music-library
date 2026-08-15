@@ -1,4 +1,8 @@
 import { redirect } from "react-router";
+import {
+  recordUsageEvent,
+  USAGE_EVENT_TYPES,
+} from "#app/features/usage-analytics/record-usage.server.ts";
 import { authenticator, getSessionExpirationDate, getUserId } from "#app/utils/auth.server.ts";
 import { ProviderNameSchema, providerLabels } from "#app/utils/connections.tsx";
 import { prisma } from "#app/utils/db.server.ts";
@@ -171,6 +175,22 @@ async function makeSession(
   responseInit?: ResponseInit,
 ) {
   redirectTo ??= "/";
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { disabledAt: true },
+  });
+  if (user?.disabledAt) {
+    return redirectWithToast(
+      "/login",
+      {
+        title: "Account disabled",
+        description: "This account has been disabled.",
+        type: "error",
+      },
+      { headers: destroyRedirectTo },
+    );
+  }
+
   const session = await prisma.session.create({
     select: { id: true, expirationDate: true, userId: true },
     data: {
@@ -178,6 +198,7 @@ async function makeSession(
       userId,
     },
   });
+  void recordUsageEvent({ type: USAGE_EVENT_TYPES.login, userId }).catch(() => {});
   return handleNewSession(
     { request, session, redirectTo, remember: true },
     { headers: combineHeaders(responseInit?.headers, destroyRedirectTo) },

@@ -19,6 +19,13 @@ vi.mock("#app/utils/db.server", () => ({
   },
 }));
 
+vi.mock("#app/features/usage-analytics/record-usage.server.ts", () => ({
+  USAGE_EVENT_TYPES: {
+    library_add: "library_add",
+  },
+  recordUsageEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe("user-library", () => {
   let prisma: Awaited<typeof import("#app/utils/db.server")>["prisma"];
 

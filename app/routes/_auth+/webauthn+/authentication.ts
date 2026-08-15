@@ -2,6 +2,10 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
+import {
+  recordUsageEvent,
+  USAGE_EVENT_TYPES,
+} from "#app/features/usage-analytics/record-usage.server.ts";
 import { getSessionExpirationDate } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { handleNewSession } from "../login.server.ts";
@@ -45,6 +49,9 @@ export async function action({ request }: Route.ActionArgs) {
     if (!passkey) {
       throw new Error("Passkey not found");
     }
+    if (passkey.user.disabledAt) {
+      throw new Error("This account has been disabled");
+    }
 
     const config = getWebAuthnConfig(request);
 
@@ -77,6 +84,11 @@ export async function action({ request }: Route.ActionArgs) {
         userId: passkey.userId,
       },
     });
+
+    void recordUsageEvent({
+      type: USAGE_EVENT_TYPES.login,
+      userId: passkey.userId,
+    }).catch(() => {});
 
     const response = await handleNewSession(
       {

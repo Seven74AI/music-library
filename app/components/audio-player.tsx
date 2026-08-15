@@ -39,6 +39,7 @@ import {
   resolveTrackPlaybackSource,
   revokePlaybackAudioUrl,
 } from "#app/features/offline-storage/resolve-playback-url.client.ts";
+import { reportPlayEvent } from "#app/features/usage-analytics/report-play-event.client.ts";
 import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { triggerBrowserDownload } from "#app/utils/download.ts";
@@ -845,6 +846,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const isManualPlayRef = useRef(false);
   // User intends playback; not cleared by incidental pause from network/src swaps.
   const keepPlayingRef = useRef(false);
+  const playStartedForTrackRef = useRef<string | null>(null);
+  const playCompletedForTrackRef = useRef<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
@@ -970,6 +973,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
             .then(() => {
               setIsPlaying(true);
               keepPlayingRef.current = true;
+              if (track && playStartedForTrackRef.current !== track.id) {
+                playStartedForTrackRef.current = track.id;
+                playCompletedForTrackRef.current = null;
+                reportPlayEvent("play_started", track.id);
+              }
             })
             .catch(() => {
               setIsPlaying(false);
@@ -1008,6 +1016,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
       } else {
         keepPlayingRef.current = true;
         await audioRef.current.play();
+        if (track && playStartedForTrackRef.current !== track.id) {
+          playStartedForTrackRef.current = track.id;
+          playCompletedForTrackRef.current = null;
+          reportPlayEvent("play_started", track.id);
+        }
       }
     } catch (error) {
       setIsPlaying(!audioRef.current.paused);
@@ -1019,7 +1032,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         variant: "destructive",
       });
     }
-  }, []);
+  }, [track]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -1204,6 +1217,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
         setCurrentTime(audio.currentTime);
         updateMediaSessionPositionState(audio);
       }
+      if (
+        track &&
+        playCompletedForTrackRef.current !== track.id &&
+        audio.duration > 0 &&
+        audio.currentTime / audio.duration >= 0.5
+      ) {
+        playCompletedForTrackRef.current = track.id;
+        reportPlayEvent("play_completed", track.id);
+      }
     };
     const handlePlay = () => {
       setIsPlaying(true);
@@ -1233,6 +1255,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
     const handleEnded = () => {
       setIsPlaying(false);
       keepPlayingRef.current = false;
+      if (track && playCompletedForTrackRef.current !== track.id) {
+        playCompletedForTrackRef.current = track.id;
+        reportPlayEvent("play_completed", track.id);
+      }
       // Only auto-advance if not looping one track
       if (loopMode !== "one") {
         onNext();

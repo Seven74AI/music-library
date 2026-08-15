@@ -73,6 +73,24 @@ export function UserDropdown() {
           </DropdownMenuItem>
           {isAdmin && (
             <DropdownMenuItem asChild>
+              <Link prefetch="intent" to="/admin">
+                <Icon className="text-body-md" name="laptop">
+                  Admin Overview
+                </Icon>
+              </Link>
+            </DropdownMenuItem>
+          )}
+          {isAdmin && (
+            <DropdownMenuItem asChild>
+              <Link prefetch="intent" to="/admin/users">
+                <Icon className="text-body-md" name="avatar">
+                  Admin Users
+                </Icon>
+              </Link>
+            </DropdownMenuItem>
+          )}
+          {isAdmin && (
+            <DropdownMenuItem asChild>
               <Link prefetch="intent" to="/admin/audio-queue">
                 <Icon className="text-body-md" name="file-text">
                   Audio Queue Admin

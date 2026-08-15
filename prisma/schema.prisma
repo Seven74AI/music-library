@@ -13,6 +13,7 @@ model User {
   email            String            @unique
   username         String            @unique
   name             String?
+  disabledAt       DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   connections      Connection[]
@@ -24,7 +25,42 @@ model User {
   playlists        UserPlaylist[]
   userTracks       UserTrack[]
   notifications    UserNotification[]
+  usageEvents      UsageEvent[]
+  dailyActiveUsers DailyActiveUser[]
   roles            Role[]            @relation("RoleToUser")
+}
+
+model UsageEvent {
+  id        String   @id @default(cuid())
+  type      String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  trackId   String?
+  meta      String?
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt])
+  @@index([userId, createdAt])
+}
+
+model DailyUsageStat {
+  id     String   @id @default(cuid())
+  day    DateTime
+  metric String
+  value  Int      @default(0)
+
+  @@unique([day, metric])
+  @@index([metric, day])
+}
+
+model DailyActiveUser {
+  id     String   @id @default(cuid())
+  day    DateTime
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([day, userId])
+  @@index([day])
 }
 
 model UserNotification {

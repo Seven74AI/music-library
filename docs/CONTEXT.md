@@ -92,6 +92,14 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 
 - **MOCKS** — Environment variable (`MOCKS=true`) enabling server-side mocking of all external services (YouTube API, yt-dlp, Tigris uploads, Telegram). Used in development and CI.
 
+- **UsageEvent** — Append-only product analytics row (`signup`, `login`, `library_add`, `play_started`, `play_completed`). Written via `recordUsageEvent`; powers the admin user activity feed.
+
+- **DailyUsageStat** — Per-UTC-day counter for admin time-series charts (`signups`, `logins`, `library_adds`, `plays_*`, `dau`). Incremented when usage events are recorded.
+
+- **DailyActiveUser** — Dedupes DAU: at most one row per `(UTC day, userId)` so the `dau` metric increments once per user per day.
+
+- **disabledAt** — Optional timestamp on `User`. When set, the account cannot create sessions and existing sessions are rejected in `getUserId`.
+
 ### PWA
 
 - **Installed App** — Music Library added to the device home screen and opened in a standalone window (no browser chrome). Driven by the web app manifest and a registered service worker.

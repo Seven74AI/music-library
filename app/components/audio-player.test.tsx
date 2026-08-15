@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { useAudioPlayer } from "#app/components/audio-player-provider";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { toast } from "#app/components/ui/use-toast";
+import { reportPlayEvent } from "#app/features/usage-analytics/report-play-event.client.ts";
 import type { UseSwipeGestureOptions } from "#app/hooks/use-swipe-gesture";
 import { AudioPlayer } from "./audio-player";
 
@@ -75,6 +76,12 @@ vi.mock("#app/hooks/use-swipe-gesture", () => ({
     swipeMocks.onSwipeRight = options.onSwipeRight ?? null;
     return { offsetX: 0, isSwiping: false };
   }),
+}));
+
+// Without this the player POSTs to /resources/play-event, which MSW reports as an
+// unhandled request — and the test setup turns that warning into a thrown error.
+vi.mock("#app/features/usage-analytics/report-play-event.client.ts", () => ({
+  reportPlayEvent: vi.fn(),
 }));
 
 const mockTrack: FullTrack = {
@@ -655,4 +662,101 @@ test("swipe callbacks are not wired when hasNext and hasPrevious are both false"
 
   expect(swipeMocks.onSwipeLeft).toBeNull();
   expect(swipeMocks.onSwipeRight).toBeNull();
+});
+
+function setPaused(audioEl: HTMLAudioElement, paused: boolean) {
+  Object.defineProperty(audioEl, "paused", { configurable: true, value: paused });
+}
+
+function setProgress(audioEl: HTMLAudioElement, currentTime: number, duration: number) {
+  Object.defineProperty(audioEl, "currentTime", { configurable: true, value: currentTime });
+  Object.defineProperty(audioEl, "duration", { configurable: true, value: duration });
+}
+
+function mockPlay() {
+  return vi
+    .spyOn(window.HTMLMediaElement.prototype, "play")
+    .mockImplementation(function (this: HTMLMediaElement) {
+      setPaused(this, false);
+      return Promise.resolve();
+    });
+}
+
+/**
+ * The transport button swaps its label between Play and Pause, but the handler
+ * branches on `audio.paused`, which these tests drive directly via setPaused.
+ */
+function clickTransport(user: ReturnType<typeof userEvent.setup>) {
+  const miniBar = screen.getByTestId("player-mini-bar");
+  return user.click(within(miniBar).getByRole("button", { name: /^(Play|Pause)$/ }));
+}
+
+test("reports play_started once per track, and again once the track changes", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl, rerender } = await renderPlayer();
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1");
+  });
+  expect(reportPlayEvent).toHaveBeenCalledTimes(1);
+
+  // Pausing and resuming the same track must not count as a second play.
+  setPaused(audioEl, true);
+  await clickTransport(user);
+  expect(reportPlayEvent).toHaveBeenCalledTimes(1);
+
+  const nextTrack: FullTrack = { ...mockTrack, id: "track-2", title: "Second Song" };
+  rerender(<AudioPlayer {...defaultProps} track={nextTrack} />);
+  setPaused(audioEl, true);
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-2");
+  });
+});
+
+test("reports play_completed once playback passes the halfway mark", async () => {
+  vi.mocked(reportPlayEvent).mockClear();
+  const { audioEl } = await renderPlayer();
+
+  setProgress(audioEl, 40, 100);
+  fireEvent.timeUpdate(audioEl);
+  expect(reportPlayEvent).not.toHaveBeenCalledWith("play_completed", "track-1");
+
+  setProgress(audioEl, 50, 100);
+  fireEvent.timeUpdate(audioEl);
+  expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1");
+
+  // Further progress on the same track must not report again.
+  setProgress(audioEl, 90, 100);
+  fireEvent.timeUpdate(audioEl);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(1);
+});
+
+test("reports play_completed when a short track ends without passing the halfway check", async () => {
+  vi.mocked(reportPlayEvent).mockClear();
+  const { audioEl } = await renderPlayer();
+
+  fireEvent.ended(audioEl);
+
+  expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1");
+});
+
+test("does not report play_completed twice when a track ends after passing halfway", async () => {
+  vi.mocked(reportPlayEvent).mockClear();
+  const { audioEl } = await renderPlayer();
+
+  setProgress(audioEl, 60, 100);
+  fireEvent.timeUpdate(audioEl);
+  fireEvent.ended(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(1);
 });

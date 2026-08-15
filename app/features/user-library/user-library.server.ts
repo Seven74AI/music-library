@@ -1,3 +1,7 @@
+import {
+  recordUsageEvent,
+  USAGE_EVENT_TYPES,
+} from "#app/features/usage-analytics/record-usage.server.ts";
 import { chunkArray } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server";
 
@@ -20,12 +24,22 @@ export async function addTrackToUserLibrary(
         where: { id: existing.id },
         data: { isActive: true, deletedAt: null },
       });
+      void recordUsageEvent({
+        type: USAGE_EVENT_TYPES.library_add,
+        userId,
+        trackId,
+      }).catch(() => {});
       return { success: true, message: "Track re-added to library" };
     }
 
     await prisma.userTrack.create({
       data: { userId, trackId },
     });
+    void recordUsageEvent({
+      type: USAGE_EVENT_TYPES.library_add,
+      userId,
+      trackId,
+    }).catch(() => {});
     return { success: true, message: "Track added to library" };
   } catch (error) {
     console.error("Error adding track to user library:", error);
@@ -93,6 +107,14 @@ export async function addTracksToUserLibrary(
     });
 
     const addedCount = toReactivate.length + toCreate.length;
+    if (addedCount > 0) {
+      void recordUsageEvent({
+        type: USAGE_EVENT_TYPES.library_add,
+        userId,
+        meta: { count: addedCount },
+        amount: addedCount,
+      }).catch(() => {});
+    }
     return {
       success: true,
       message: `${addedCount} track${addedCount !== 1 ? "s" : ""} added to library`,

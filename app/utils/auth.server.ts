@@ -4,12 +4,17 @@ import { redirect } from "react-router";
 import { Authenticator } from "remix-auth";
 import { safeRedirect } from "remix-utils/safe-redirect";
 import { type Connection, type Password, type User } from "#prisma/client.js";
+import {
+  recordUsageEvent,
+  USAGE_EVENT_TYPES,
+} from "#app/features/usage-analytics/record-usage.server.ts";
 import { providers } from "./connections.server.ts";
 import { prisma } from "./db.server.ts";
 import { combineHeaders, downloadFile } from "./misc.tsx";
 import { type ProviderUser } from "./providers/provider.ts";
 import { authSessionStorage } from "./session.server.ts";
 import { uploadProfileImage } from "./storage.server.ts";
+import { createToastHeaders } from "./toast.server.ts";
 
 export const SESSION_EXPIRATION_TIME = 1000 * 60 * 60 * 24 * 30;
 export const getSessionExpirationDate = () => new Date(Date.now() + SESSION_EXPIRATION_TIME);
@@ -30,9 +35,25 @@ export async function getUserId(request: Request) {
   const sessionId = authSession.get(sessionKey);
   if (!sessionId) return null;
   const session = await prisma.session.findUnique({
-    select: { userId: true },
+    select: { userId: true, user: { select: { disabledAt: true } } },
     where: { id: sessionId, expirationDate: { gt: new Date() } },
   });
+
+  // A disabled account gets an explanation; an expired session is routine and
+  // is bounced silently.
+  if (session?.user.disabledAt) {
+    throw redirect("/", {
+      headers: combineHeaders(
+        { "set-cookie": await authSessionStorage.destroySession(authSession) },
+        await createToastHeaders({
+          type: "error",
+          title: "Account disabled",
+          description: "This account has been disabled. Contact an administrator.",
+        }),
+      ),
+    });
+  }
+
   if (!session?.userId) {
     throw redirect("/", {
       headers: {
@@ -66,15 +87,32 @@ export async function requireAnonymous(request: Request) {
   }
 }
 
+export type LoginResult =
+  | {
+      status: "success";
+      session: { id: string; expirationDate: Date; userId: string };
+    }
+  | { status: "invalid" }
+  | { status: "disabled" };
+
 export async function login({
   username,
   password,
 }: {
   username: User["username"];
   password: string;
-}) {
+}): Promise<LoginResult> {
   const user = await verifyUserPassword({ username }, password);
-  if (!user) return null;
+  if (!user) return { status: "invalid" };
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { disabledAt: true },
+  });
+  if (dbUser?.disabledAt) {
+    return { status: "disabled" };
+  }
+
   const session = await prisma.session.create({
     select: { id: true, expirationDate: true, userId: true },
     data: {
@@ -82,7 +120,10 @@ export async function login({
       userId: user.id,
     },
   });
-  return session;
+
+  void recordUsageEvent({ type: USAGE_EVENT_TYPES.login, userId: user.id }).catch(() => {});
+
+  return { status: "success", session };
 }
 
 export async function resetUserPassword({
@@ -147,8 +188,10 @@ export async function signup({
         },
       },
     },
-    select: { id: true, expirationDate: true },
+    select: { id: true, expirationDate: true, userId: true },
   });
+
+  void recordUsageEvent({ type: USAGE_EVENT_TYPES.signup, userId: session.userId }).catch(() => {});
 
   return session;
 }
@@ -192,6 +235,8 @@ export async function signupWithConnection({
       },
     });
   }
+
+  void recordUsageEvent({ type: USAGE_EVENT_TYPES.signup, userId: user.id }).catch(() => {});
 
   // Create and return the session
   const session = await prisma.session.create({

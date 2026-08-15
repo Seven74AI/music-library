@@ -134,6 +134,8 @@ async function cleanupUserData(userIds: string[]): Promise<void> {
       testPrisma.passkey.deleteMany({ where: whereUserId }),
       testPrisma.userImage.deleteMany({ where: whereUserId }),
       testPrisma.password.deleteMany({ where: whereUserId }),
+      testPrisma.dailyActiveUser.deleteMany({ where: whereUserId }),
+      testPrisma.usageEvent.deleteMany({ where: whereUserId }),
     ]);
 
     // Finally delete the users (ServicePlaylist will be auto-deleted via CASCADE)
