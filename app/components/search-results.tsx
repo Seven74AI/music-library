@@ -16,7 +16,7 @@ interface SearchPlaylist {
 }
 
 interface SearchResultsProps {
-  results: SearchResult[];
+  results?: SearchResult[];
   query: string;
   onLoadMore?: () => void;
   hasNext?: boolean;
@@ -84,7 +84,7 @@ function EntityResultRow({ result }: { result: Exclude<SearchResult, TrackSearch
 }
 
 export function SearchResults({
-  results,
+  results = [],
   query,
   onLoadMore,
   hasNext = false,

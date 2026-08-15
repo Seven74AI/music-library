@@ -18,7 +18,8 @@ const MAX_QUERY_WORDS = 20;
 
 /**
  * Search query validation schema
- * Validates and sanitizes user input for search queries
+ * Validates DoS limits (length, word count). Punctuation-only queries are allowed
+ * through; the FTS literalizer returns empty MATCH and the API returns empty results.
  */
 export const SearchQuerySchema = z
   .string()
@@ -33,16 +34,6 @@ export const SearchQuerySchema = z
     },
     {
       message: `Query cannot exceed ${MAX_QUERY_WORDS} words`,
-    },
-  )
-  .refine(
-    (query) => {
-      // Reject queries with only special characters (potential injection attempts)
-      const hasAlphanumeric = /[a-zA-Z0-9]/.test(query);
-      return hasAlphanumeric;
-    },
-    {
-      message: "Query must contain at least one alphanumeric character",
     },
   );
 

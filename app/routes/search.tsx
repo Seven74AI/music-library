@@ -16,7 +16,7 @@ import { OfflineRouteBlocker } from "#app/components/offline/offline-route-block
 import { SearchResults } from "#app/components/search-results.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
-import { type SearchResponse, type SearchResult } from "#app/types/search.ts";
+import { type SearchResponse, type SearchResult, isSearchResponse } from "#app/types/search.ts";
 import { getUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { type Route } from "./+types/search.ts";
@@ -103,6 +103,13 @@ export default function SearchPage() {
   // Merge fetcher results: replace on new search, append on load more
   useEffect(() => {
     if (!data) return;
+    if (!isSearchResponse(data)) {
+      if (!isLoadMore.current) {
+        setAccumulated([]);
+      }
+      isLoadMore.current = false;
+      return;
+    }
     if (isLoadMore.current) {
       setAccumulated((prev) => [...prev, ...data.results]);
       isLoadMore.current = false;
@@ -112,10 +119,15 @@ export default function SearchPage() {
   }, [data]);
 
   const results = accumulated;
-  const hasNext = data?.pagination?.hasNext ?? false;
+  const hasNext = isSearchResponse(data) ? data.pagination.hasNext : false;
   const isLoading = fetcher.state === "loading";
   const hasError =
-    fetcher.state === "idle" && fetcher.data === undefined && query.trim().length > 0;
+    fetcher.state === "idle" &&
+    query.trim().length > 0 &&
+    data != null &&
+    typeof data === "object" &&
+    "error" in data &&
+    Boolean((data as { error?: unknown }).error);
 
   // Auto-focus the input on every navigation to the search page
   useEffect(() => {
@@ -192,7 +204,7 @@ export default function SearchPage() {
 
   // Handle load more
   const handleLoadMore = () => {
-    const cursor = data?.pagination?.nextCursor;
+    const cursor = isSearchResponse(data) ? data.pagination.nextCursor : null;
     if (!cursor) return;
     isLoadMore.current = true;
     const params = new URLSearchParams({

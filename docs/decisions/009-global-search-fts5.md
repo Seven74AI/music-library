@@ -45,11 +45,13 @@ We will implement a global search system using SQLite FTS5 (Full-Text Search 5) 
 
 ### Security Measures
 
-- **Input Validation**: Zod schemas validate query length (max 200 chars), word count (max 20), and format
-- **SQL Injection Prevention**: Comprehensive escaping of FTS5 special characters (", ', \, ?, *, AND, OR, NOT)
+- **Input Validation**: Zod schemas validate query length (max 200 chars) and word count (max 20)
+- **Literal FTS5 queries**: User input is never treated as FTS5 syntax. Each token is double-quoted (`"token"*` for prefix search); punctuation-only tokens are dropped. See `toLiteralFts5Query` in `app/utils/fts5-query.server.ts`
+- **LIKE literals**: Playlist search escapes `%`, `_`, and `\` with `ESCAPE '\\'`
+- **Stable API shape**: Responses always include `results` and `pagination` (including 400/500) so clients cannot crash on missing fields
 - **DoS Prevention**: Query length and word count limits prevent expensive queries
 - **XSS Protection**: React's automatic escaping for all user input in UI
-- **Error Handling**: Sanitized error messages that don't expose internal details
+- **Error Handling**: Sanitized error messages that don't expose internal details; MATCH failures return empty results shape
 
 ### API Design
 

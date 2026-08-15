@@ -895,4 +895,62 @@ describe("Search Utilities", () => {
       expect(result.results).toHaveLength(0);
     });
   });
+
+  describe("resilient special-character queries", () => {
+    it("does not throw for punctuation-only or FTS operator queries", async () => {
+      const queries = ["-", "*", "***", "???", "AND", "OR", "NOT", "NEAR(", "col:name", "^start"];
+      for (const q of queries) {
+        await expect(searchAll(q, 10)).resolves.toMatchObject({
+          results: expect.any(Array),
+          pagination: expect.objectContaining({ hasNext: expect.any(Boolean) }),
+        });
+      }
+    });
+
+    it("finds hyphenated artist names", async () => {
+      const artist = await prisma.artist.create({
+        data: {
+          name: "AC-DC",
+          normalizedName: "ac-dc",
+        },
+      });
+
+      const result = await searchArtists("AC-DC", 10);
+      expect(result.results.some((r) => r.type === "artist" && r.id === artist.id)).toBe(true);
+    });
+
+    it("finds tracks when mid-typing a hyphenated prefix", async () => {
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Hyphen Artist",
+          normalizedName: "hyphen artist",
+        },
+      });
+
+      await prisma.track.create({
+        data: {
+          title: "Rock-n-Roll",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `hyphen-track-${Date.now()}`,
+        },
+      });
+
+      const result = await searchTracks("Rock-", 10);
+      expect(result.results.some((r) => r.type === "track" && r.title === "Rock-n-Roll")).toBe(
+        true,
+      );
+    });
+  });
 });

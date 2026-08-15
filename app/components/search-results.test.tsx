@@ -100,3 +100,13 @@ test("keeps artist and album results as navigational links", () => {
   expect(links.some((link) => link.getAttribute("href") === "/artists/artist-1")).toBe(true);
   expect(links.some((link) => link.getAttribute("href") === "/albums/album-1")).toBe(true);
 });
+
+test("renders empty state safely when results are omitted", () => {
+  render(
+    <MemoryRouter>
+      <SearchResults query="-" playlists={[]} />
+    </MemoryRouter>,
+  );
+
+  expect(screen.getByText("No results found")).toBeDefined();
+});
