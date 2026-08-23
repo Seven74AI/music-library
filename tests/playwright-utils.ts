@@ -1,5 +1,5 @@
 import path from "node:path";
-import { test as base, type Response } from "@playwright/test";
+import { test as base, type Page, type Response } from "@playwright/test";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { href, type Register } from "react-router";
 import * as setCookieParser from "set-cookie-parser";
@@ -354,6 +354,38 @@ export const test = base.extend<{
   },
 });
 export const { expect } = test;
+
+/**
+ * Dismiss a visible toast by clicking its body/text (not action buttons).
+ */
+export async function dismissVisibleToasts(page: Page) {
+  const toast = page.getByRole("status").first();
+  if (!(await toast.isVisible().catch(() => false))) {
+    return;
+  }
+
+  const toastBody = toast.locator("div.grid.gap-1").first();
+  if (await toastBody.isVisible().catch(() => false)) {
+    await toastBody.click();
+  } else {
+    await toast.click({ position: { x: 30, y: 20 } });
+  }
+
+  await expect(toast).not.toBeVisible({ timeout: 5000 });
+}
+
+/**
+ * Dismiss install banner and any visible toast notifications blocking UI clicks.
+ */
+export async function dismissOverlays(page: Page) {
+  const installBanner = page.getByRole("region", { name: "Install app" });
+  if (await installBanner.isVisible().catch(() => false)) {
+    await page.getByRole("button", { name: "Not now" }).click({ force: true });
+    await expect(installBanner).not.toBeVisible({ timeout: 10000 });
+  }
+
+  await dismissVisibleToasts(page);
+}
 
 /**
  * This allows you to wait for something (like an email to be available).

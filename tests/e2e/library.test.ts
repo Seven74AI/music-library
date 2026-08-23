@@ -1,5 +1,11 @@
 import { prisma } from "#app/utils/db.server.ts";
-import { test, expect, testPrisma } from "#tests/playwright-utils.ts";
+import {
+  test,
+  expect,
+  testPrisma,
+  dismissOverlays,
+  dismissVisibleToasts,
+} from "#tests/playwright-utils.ts";
 
 test.describe("Music Library", () => {
   test("can view library page", { tag: "@smoke" }, async ({ page, login }) => {
@@ -76,15 +82,7 @@ test.describe("Music Library", () => {
     await expect(page.getByRole("heading", { name: "Detail Queue Track", level: 2 })).toBeVisible({
       timeout: 10000,
     });
-    const installBanner = page.getByRole("region", { name: "Install app" });
-    if (await installBanner.isVisible().catch(() => false)) {
-      await page.getByRole("button", { name: "Not now" }).click({ force: true });
-      await expect(installBanner).not.toBeVisible({ timeout: 10000 });
-    }
-    await page.evaluate(() => {
-      const region = document.querySelector('[aria-label="Notifications (F8)"]');
-      if (region) region.remove();
-    });
+    await dismissOverlays(page);
 
     await Promise.all([
       page.waitForResponse(
@@ -100,11 +98,8 @@ test.describe("Music Library", () => {
     await expect(playerBar.first()).toBeVisible({ timeout: 10000 });
     await expect(playerBar.getByText("Detail Queue Track")).toBeVisible();
 
-    await page.evaluate(() => {
-      const region = document.querySelector('[aria-label="Notifications (F8)"]');
-      if (region) region.remove();
-    });
-    await playerBar.getByLabel("Open queue").click({ force: true });
+    await dismissVisibleToasts(page);
+    await playerBar.getByLabel("Open queue").click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: "Queue (1 from track)" })).toBeVisible();
     await expect(dialog.getByRole("heading", { name: "From Track", exact: true })).toBeVisible();

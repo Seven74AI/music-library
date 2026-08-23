@@ -8,6 +8,7 @@ import {
   ToastViewport,
 } from "#app/components/ui/toast.tsx";
 import { useToast } from "#app/components/ui/use-toast.ts";
+import { cn } from "#app/utils/misc.tsx";
 
 /**
  * Main toaster component that renders all active toasts
@@ -17,12 +18,23 @@ import { useToast } from "#app/components/ui/use-toast.ts";
  * @returns Toast provider with all active toasts rendered
  */
 export function Toaster() {
-  const { toasts } = useToast();
+  const { toasts, dismiss } = useToast();
 
   return (
     <ToastProvider>
-      {toasts.map(({ id, title, description, action, variant, ...props }) => (
-        <Toast key={id} variant={variant} {...props}>
+      {toasts.map(({ id, title, description, action, variant, className, onClick, ...props }) => (
+        <Toast
+          key={id}
+          variant={variant}
+          {...props}
+          className={cn("cursor-pointer", className)}
+          onClick={(event) => {
+            onClick?.(event);
+            const target = event.target as HTMLElement;
+            if (target.closest("button")) return;
+            dismiss(id);
+          }}
+        >
           <div className="flex items-start gap-3">
             <ToastIcon variant={variant ?? "default"} />
             <div className="grid gap-1 flex-1">

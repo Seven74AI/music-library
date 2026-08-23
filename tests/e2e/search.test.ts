@@ -3,7 +3,7 @@
  * Tests the full-screen search page with overlay UX
  */
 
-import { test, expect, testPrisma } from "#tests/playwright-utils.ts";
+import { test, expect, testPrisma, dismissOverlays } from "#tests/playwright-utils.ts";
 
 async function waitForPlayerBar(page: import("@playwright/test").Page) {
   const bar = page.locator(
@@ -11,22 +11,6 @@ async function waitForPlayerBar(page: import("@playwright/test").Page) {
   );
   await bar.first().waitFor({ state: "visible" });
   return bar.first();
-}
-
-/**
- * Dismiss install banner and remove toast overlays that intercept player clicks.
- * Matches the approach proven in player-queue.test.ts.
- */
-async function dismissOverlays(page: import("@playwright/test").Page) {
-  const installBanner = page.getByRole("region", { name: "Install app" });
-  if (await installBanner.isVisible().catch(() => false)) {
-    await page.getByRole("button", { name: "Not now" }).click({ force: true });
-  }
-
-  await page.evaluate(() => {
-    const region = document.querySelector('[aria-label="Notifications (F8)"]');
-    if (region) region.remove();
-  });
 }
 
 test.describe("Global Search", () => {

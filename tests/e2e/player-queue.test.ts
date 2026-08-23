@@ -7,29 +7,7 @@
  * Uses the existing insertNewTrack fixture from playwright-utils.ts
  * (which handles service/serviceId correctly) and adds audio via testPrisma.
  */
-import { test, expect, testPrisma } from "#tests/playwright-utils.ts";
-
-/**
- * Helper: dismiss the "Install app" banner if it's visible.
- * Also dismisses the "Autoplay blocked" toast that intercepts
- * pointer events on the player bar in headless Chromium.
- */
-async function dismissInstallBanner(page: import("@playwright/test").Page) {
-  const installBanner = page.getByRole("region", { name: "Install app" });
-  if (await installBanner.isVisible().catch(() => false)) {
-    await page.getByRole("button", { name: "Not now" }).click({ force: true });
-  }
-
-  // Remove any Radix Toast notifications from the DOM entirely.
-  // The toast viewport has aria-label="Notifications (F8)" and intercepts
-  // pointer events on the player bar. Radix Toast close buttons have
-  // opacity-0 and force:true clicks are unreliable in headless Chromium.
-  // Direct DOM removal is the only reliable approach.
-  await page.evaluate(() => {
-    const region = document.querySelector('[aria-label="Notifications (F8)"]');
-    if (region) region.remove();
-  });
-}
+import { test, expect, testPrisma, dismissOverlays } from "#tests/playwright-utils.ts";
 
 /**
  * Helper: play a track from the library by clicking its gridcell row.
@@ -101,7 +79,7 @@ test.describe("Player / Queue", () => {
     // strict mode violation (title appears as both breadcrumb and heading)
     await expect(page.getByText("Test Playlist Context").first()).toBeVisible({ timeout: 10000 });
 
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     // On the playlist page, play the track via "More queue actions" → "Play next".
     // There's no direct "Play" button; the hero has "Add to up next" + dropdown.
@@ -117,7 +95,7 @@ test.describe("Player / Queue", () => {
     await expect(playerBar).toBeVisible({ timeout: 10000 });
     await expect(playerBar.getByText("Playlist Track A")).toBeVisible();
 
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     // Open queue sheet and verify playlist context
     await playerBar.getByLabel("Open queue").click();
@@ -176,7 +154,7 @@ test.describe("Player / Queue", () => {
     // This ensures track1 is the "next" track and is visible in the queue.
     await playTrackFromLibrary(page, "UpNext Track 2");
 
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     // Open queue sheet — it should show now playing + upcoming tracks
     const playerBar = page.getByTestId("player-desktop-bar");
@@ -206,7 +184,7 @@ test.describe("Player / Queue", () => {
     });
 
     await playTrackFromLibrary(page, "Shuffle Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
 
@@ -239,7 +217,7 @@ test.describe("Player / Queue", () => {
     });
 
     await playTrackFromLibrary(page, "Loop Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
 
@@ -286,7 +264,7 @@ test.describe("Player / Queue", () => {
     // Play Track 2 first (newest, first in the createdAt-desc spine).
     // This ensures Track 1 is the "next" track and is visible in the queue.
     await playTrackFromLibrary(page, "QueueOnly Track 2");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
     await expect(playerBar).toBeVisible();
@@ -315,7 +293,7 @@ test.describe("Player / Queue", () => {
     });
 
     await playTrackFromLibrary(page, "Sleep Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
 
@@ -370,7 +348,7 @@ test.describe("Player / Queue", () => {
     });
 
     await playTrackFromLibrary(page, "Download Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
     const downloadButton = playerBar.getByLabel("Download track");
@@ -393,7 +371,7 @@ test.describe("Player / Queue", () => {
     });
 
     await playTrackFromLibrary(page, "Transport Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
 
@@ -439,7 +417,7 @@ test.describe("Player / Queue", () => {
     // Play Track 2 (newest, so first in the createdAt-desc spine).
     // This ensures Track 1 is the "next" track in the queue.
     await playTrackFromLibrary(page, "NextPrev Track 2");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
 
@@ -475,7 +453,7 @@ test.describe("Player / Queue", () => {
     });
 
     await playTrackFromLibrary(page, "Seek Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
     const seekInput = playerBar.getByLabel("Seek");
@@ -499,7 +477,7 @@ test.describe("Player / Queue", () => {
     });
 
     await playTrackFromLibrary(page, "Volume Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
 
@@ -535,7 +513,7 @@ test.describe("Player / Queue", () => {
     });
 
     await playTrackFromLibrary(page, "Keyboard Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
 
@@ -569,7 +547,7 @@ test.describe("Player / Queue", () => {
     });
 
     await playTrackFromLibrary(page, "MuteKey Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const playerBar = page.getByTestId("player-desktop-bar");
     await page.getByRole("heading", { name: /music library/i }).click();
@@ -600,7 +578,7 @@ test.describe("Player / Queue", () => {
 
     await page.setViewportSize({ width: 375, height: 667 });
     await playTrackFromLibrary(page, "Mobile Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const miniBar = page.getByTestId("player-mini-bar");
     await expect(miniBar).toBeVisible({ timeout: 10000 });
@@ -636,7 +614,7 @@ test.describe("Player / Queue", () => {
 
     await page.setViewportSize({ width: 375, height: 667 });
     await playTrackFromLibrary(page, "NowPlaying Track");
-    await dismissInstallBanner(page);
+    await dismissOverlays(page);
 
     const miniBar = page.getByTestId("player-mini-bar");
     await expect(miniBar).toBeVisible({ timeout: 10000 });

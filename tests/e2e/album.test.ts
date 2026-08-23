@@ -2,7 +2,7 @@
  * E2E tests for album page browsing and track playback.
  */
 
-import { test, expect, testPrisma } from "#tests/playwright-utils.ts";
+import { test, expect, testPrisma, dismissOverlays } from "#tests/playwright-utils.ts";
 
 async function waitForPlayerBar(page: import("@playwright/test").Page) {
   const bar = page.locator(
@@ -10,23 +10,6 @@ async function waitForPlayerBar(page: import("@playwright/test").Page) {
   );
   await bar.first().waitFor({ state: "visible", timeout: 15000 });
   return bar.first();
-}
-
-/**
- * Dismiss install banner and remove toast overlays that intercept player clicks.
- * Matches the approach proven in player-queue.test.ts.
- */
-async function dismissOverlays(page: import("@playwright/test").Page) {
-  const installBanner = page.getByRole("region", { name: "Install app" });
-  if (await installBanner.isVisible().catch(() => false)) {
-    await page.getByRole("button", { name: "Not now" }).click({ force: true });
-    await expect(installBanner).not.toBeVisible({ timeout: 10000 });
-  }
-
-  await page.evaluate(() => {
-    const region = document.querySelector('[aria-label="Notifications (F8)"]');
-    if (region) region.remove();
-  });
 }
 
 test.describe("Album Page", () => {
@@ -104,7 +87,7 @@ test.describe("Album Page", () => {
     await expect(playerBar.getByText("Album Page Track One")).toBeVisible();
 
     await dismissOverlays(page);
-    await playerBar.getByLabel("Open queue").click({ force: true });
+    await playerBar.getByLabel("Open queue").click();
 
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: "Queue (2 from album)" })).toBeVisible();
