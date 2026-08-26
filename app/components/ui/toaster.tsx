@@ -28,6 +28,7 @@ export function Toaster() {
           variant={variant}
           {...props}
           className={cn("cursor-pointer", className)}
+          data-testid="toast"
           onClick={(event) => {
             onClick?.(event);
             const target = event.target as HTMLElement;

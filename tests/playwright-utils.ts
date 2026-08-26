@@ -359,7 +359,7 @@ export const { expect } = test;
  * Dismiss a visible toast by clicking its body/text (not action buttons).
  */
 export async function dismissVisibleToasts(page: Page) {
-  const toast = page.getByRole("status").first();
+  const toast = page.getByTestId("toast").first();
   if (!(await toast.isVisible().catch(() => false))) {
     return;
   }
