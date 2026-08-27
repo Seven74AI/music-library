@@ -4,6 +4,7 @@ import { handleMockAction } from "#app/utils/connections.server.ts";
 import { ProviderNameSchema } from "#app/utils/connections.tsx";
 import { getReferrerRoute } from "#app/utils/misc.tsx";
 import { getRedirectCookieHeader } from "#app/utils/redirect-cookie.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/auth_.$provider.ts";
 
 export async function loader() {
@@ -29,4 +30,8 @@ export async function action({ request, params }: Route.ActionArgs) {
     }
     throw error;
   }
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
 }
