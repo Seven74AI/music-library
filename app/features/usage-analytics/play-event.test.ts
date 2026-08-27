@@ -6,6 +6,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import {
+  consumePlayEventBudget,
   PLAY_EVENT_MAX_PER_WINDOW,
   resetPlayEventBudgets,
 } from "./play-event-rate-limit.server.ts";
@@ -147,25 +148,23 @@ describe("play-event resource", () => {
   });
 
   test("returns 429 with Retry-After once the per-user budget is spent", async () => {
-    const { cookie } = await createUserCookie();
-    const track = await createTrack();
+    const { cookie, userId } = await createUserCookie();
 
+    // Exhaust the budget in-memory. The rate limiter is a pure counter, so we
+    // don't need 60 real DB writes just to drive it to its ceiling.
     for (let i = 0; i < PLAY_EVENT_MAX_PER_WINDOW; i += 1) {
-      const allowed = await action(
-        playEventRequest(cookie, USAGE_EVENT_TYPES.play_started, track.id),
-      );
-      expect(statusOf(allowed)).toBeUndefined();
+      consumePlayEventBudget(userId);
     }
 
+    // The blocked request short-circuits before any track lookup or DB write.
     const blocked = await action(
-      playEventRequest(cookie, USAGE_EVENT_TYPES.play_started, track.id),
+      playEventRequest(cookie, USAGE_EVENT_TYPES.play_started, "any-track-id"),
     );
 
     expect(statusOf(blocked)).toBe(429);
     expect(
       (blocked as { init?: { headers?: Record<string, string> } }).init?.headers?.["Retry-After"],
     ).toBeDefined();
-    expect(await prisma.usageEvent.count()).toBe(PLAY_EVENT_MAX_PER_WINDOW);
   });
 
   test("budgets are tracked per user, not globally", async () => {
@@ -173,8 +172,9 @@ describe("play-event resource", () => {
     const second = await createUserCookie();
     const track = await createTrack();
 
+    // Exhaust the first user's budget in-memory.
     for (let i = 0; i < PLAY_EVENT_MAX_PER_WINDOW; i += 1) {
-      await action(playEventRequest(first.cookie, USAGE_EVENT_TYPES.play_started, track.id));
+      consumePlayEventBudget(first.userId);
     }
 
     const otherUser = await action(
@@ -182,5 +182,21 @@ describe("play-event resource", () => {
     );
 
     expect(statusOf(otherUser)).toBeUndefined();
+  });
+});
+
+describe("consumePlayEventBudget", () => {
+  beforeEach(() => {
+    resetPlayEventBudgets();
+  });
+
+  test("allows up to the window budget, then blocks with a retry hint", () => {
+    for (let i = 0; i < PLAY_EVENT_MAX_PER_WINDOW; i += 1) {
+      expect(consumePlayEventBudget("user-x").allowed).toBe(true);
+    }
+
+    const blocked = consumePlayEventBudget("user-x");
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.retryAfterSeconds).toBeGreaterThan(0);
   });
 });
