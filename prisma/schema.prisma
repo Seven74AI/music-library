@@ -367,7 +367,7 @@ model ServicePlaylist {
   service      Service                @relation(fields: [serviceId], references: [id])
   tracks       ServicePlaylistTrack[]
 
-  @@unique([serviceId, externalId])
+  @@unique([serviceId, externalId, ownerId])
   @@index([ownerId])
   @@index([ownerId, updatedAt])
   @@index([serviceId, externalId])

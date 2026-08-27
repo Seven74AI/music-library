@@ -343,9 +343,10 @@ export class ServicePlaylistService {
 
     const playlist = await prisma.servicePlaylist.upsert({
       where: {
-        serviceId_externalId: {
+        serviceId_externalId_ownerId: {
           serviceId: service.id,
           externalId: externalPlaylistId,
+          ownerId: userId,
         },
       },
       update: {
