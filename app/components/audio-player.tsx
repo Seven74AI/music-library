@@ -862,6 +862,28 @@ export function AudioPlayer(props: AudioPlayerProps) {
     };
   }, []);
 
+  // Clear the media element's "user gesture lock" on the first interaction.
+  // Chromium blocks audible autoplay unless the element's lock is cleared by
+  // calling play()/load() within a user gesture (chromium docs/media/autoplay.md).
+  // Without this, the first autoplay from a track tap (not the play button) is
+  // rejected because the eventual play() runs in an effect, outside the gesture.
+  useEffect(() => {
+    let unlocked = false;
+    const unlock = () => {
+      if (unlocked) return;
+      unlocked = true;
+      audioRef.current?.load();
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
   const audioFile = track?.audioFiles?.length ? selectBestAudioFile(track.audioFiles) : null;
   const [audioSrc, setAudioSrc] = useState<string | undefined>(undefined);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -1379,17 +1401,26 @@ export function AudioPlayer(props: AudioPlayerProps) {
     // The seeked event will fire when seeking completes
   };
 
+  // Always mounted so the element's user-gesture lock can be unlocked on the
+  // first interaction, before any track is loaded.
+  const audioElement = (
+    <audio ref={audioRef} src={audioSrc} loop={loopMode === "one"} preload="metadata" />
+  );
+
   if (!isVisible) {
-    return null;
+    return audioElement;
   }
 
   if (!track) {
     return (
-      <QueueOnlyPlayerBar
-        onClose={onClose}
-        onStartPlayback={onStartQueuePlayback}
-        hasQueuedPlayback={hasQueuedPlayback}
-      />
+      <>
+        {audioElement}
+        <QueueOnlyPlayerBar
+          onClose={onClose}
+          onStartPlayback={onStartQueuePlayback}
+          hasQueuedPlayback={hasQueuedPlayback}
+        />
+      </>
     );
   }
 
@@ -1441,7 +1472,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         <PlayerDesktopBar {...chromeProps} />
       </div>
 
-      <audio ref={audioRef} src={audioSrc} loop={loopMode === "one"} preload="metadata" />
+      {audioElement}
     </div>
   );
 }

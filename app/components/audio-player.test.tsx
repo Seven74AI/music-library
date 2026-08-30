@@ -493,6 +493,46 @@ test("auto-plays after track change once the new audio URL has loaded", async ()
   });
 });
 
+test("unlocks the audio element on the first pointer gesture", async () => {
+  const loadSpy = vi.spyOn(window.HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+
+  await renderPlayer();
+
+  window.dispatchEvent(new Event("pointerdown"));
+
+  expect(loadSpy).toHaveBeenCalledOnce();
+});
+
+test("unlocks the audio element on the first keydown", async () => {
+  const loadSpy = vi.spyOn(window.HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+
+  await renderPlayer();
+
+  window.dispatchEvent(new Event("keydown"));
+
+  expect(loadSpy).toHaveBeenCalledOnce();
+});
+
+test("unlock is one-shot — later gestures of either type do not reload", async () => {
+  const loadSpy = vi.spyOn(window.HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+
+  await renderPlayer();
+
+  window.dispatchEvent(new Event("pointerdown"));
+  window.dispatchEvent(new Event("pointerdown"));
+  window.dispatchEvent(new Event("keydown"));
+
+  expect(loadSpy).toHaveBeenCalledOnce();
+});
+
+test("keeps the audio element mounted when hidden or trackless", async () => {
+  const hidden = render(<AudioPlayer {...defaultProps} isVisible={false} />);
+  expect(hidden.container.querySelector("audio")).not.toBeNull();
+
+  const trackless = render(<AudioPlayer {...defaultProps} track={null} />);
+  expect(trackless.container.querySelector("audio")).not.toBeNull();
+});
+
 test("keeps player chrome visible while the next track audio URL is loading", async () => {
   const { resolveTrackPlaybackSource } =
     await import("#app/features/offline-storage/resolve-playback-url.client.ts");
