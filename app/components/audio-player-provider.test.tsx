@@ -57,6 +57,10 @@ vi.mock("#app/features/offline-storage/offline-storage.client.ts", () => ({
   }),
 }));
 
+vi.mock("#app/features/offline-storage/resolve-playback-url.client.ts", () => ({
+  prefetchPlaybackAudioUrl: vi.fn(),
+}));
+
 const playableTrack: FullTrack = {
   id: "track-1",
   title: "Test Song",

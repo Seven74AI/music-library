@@ -969,7 +969,16 @@ export function AudioPlayer(props: AudioPlayerProps) {
       playbackToken !== previousPlaybackTokenRef.current
     ) {
       previousPlaybackTokenRef.current = playbackToken;
-      setIsPlaying(false);
+      const shouldAutoPlay = wantsAutoPlayRef?.current || !isManualPlayRef.current;
+      if (wantsAutoPlayRef) {
+        wantsAutoPlayRef.current = false;
+      }
+      // Only clear the "playing" flag when NOT auto-advancing. Keeping it set
+      // through gapless transitions keeps navigator.mediaSession in "playing",
+      // so background audio isn't dropped on lock screens.
+      if (!shouldAutoPlay) {
+        setIsPlaying(false);
+      }
       setCurrentTime(0);
       if (track.id !== previousTrackIdRef.current) {
         previousTrackIdRef.current = track.id;
@@ -982,10 +991,6 @@ export function AudioPlayer(props: AudioPlayerProps) {
         setDuration(audioRef.current.duration);
       }
       audioRef.current.volume = isMuted ? 0 : volume;
-      const shouldAutoPlay = wantsAutoPlayRef?.current || !isManualPlayRef.current;
-      if (wantsAutoPlayRef) {
-        wantsAutoPlayRef.current = false;
-      }
       if (shouldAutoPlay) {
         keepPlayingRef.current = true;
         audioRef.current.currentTime = 0;
@@ -1275,15 +1280,25 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
     };
     const handleEnded = () => {
-      setIsPlaying(false);
-      keepPlayingRef.current = false;
       if (track && playCompletedForTrackRef.current !== track.id) {
         playCompletedForTrackRef.current = track.id;
         reportPlayEvent("play_completed", track.id);
       }
       // Only auto-advance if not looping one track
-      if (loopMode !== "one") {
+      if (loopMode === "one") {
+        // Single-track loop: the `loop` attribute restarts it automatically.
+        return;
+      }
+      if (hasNext) {
+        // Auto-advance: keep the "playing" state (and Media Session) continuous
+        // through the transition so background audio isn't dropped on lock
+        // screens.
+        keepPlayingRef.current = true;
         onNext();
+      } else {
+        // End of queue: actually stop.
+        setIsPlaying(false);
+        keepPlayingRef.current = false;
       }
     };
     const handleError = () => {
@@ -1338,7 +1353,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  }, [onNext, loopMode, track, audioSrc]);
+  }, [onNext, loopMode, track, audioSrc, hasNext]);
 
   const handleDownload = async () => {
     if (!track) return;

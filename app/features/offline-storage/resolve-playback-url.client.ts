@@ -2,6 +2,12 @@ import { getOfflineStorage } from "#app/features/offline-storage/offline-storage
 
 const blobUrlCache = new Map<string, string>();
 
+// Presigned remote URLs are cached so the next track can be prefetched while
+// the current one plays. This keeps the auto-advance transition off the
+// network (critical on lock screens, where background fetches are throttled).
+const remoteUrlCache = new Map<string, string>();
+const pendingRemoteFetches = new Set<string>();
+
 export class OfflineDataCorruptedError extends Error {
   constructor(message = "Offline data is corrupted or unavailable") {
     super(message);
@@ -56,13 +62,37 @@ export async function fetchRemotePlaybackAudioUrl(trackId: string): Promise<stri
   return data.url;
 }
 
+/** Fire-and-forget prefetch of a track's presigned URL (deduped per track). */
+export function prefetchPlaybackAudioUrl(trackId: string): void {
+  if (typeof window === "undefined") return;
+  if (remoteUrlCache.has(trackId) || pendingRemoteFetches.has(trackId)) return;
+
+  pendingRemoteFetches.add(trackId);
+  void fetchRemotePlaybackAudioUrl(trackId)
+    .then((url) => {
+      if (url) remoteUrlCache.set(trackId, url);
+    })
+    .catch(() => {
+      // Ignore — resolveTrackPlaybackSource will retry on demand.
+    })
+    .finally(() => {
+      pendingRemoteFetches.delete(trackId);
+    });
+}
+
 export async function resolveTrackPlaybackSource(trackId: string): Promise<string | null> {
   const offlineUrl = await resolvePlaybackAudioUrl(trackId);
   if (offlineUrl) return offlineUrl;
 
+  const cached = remoteUrlCache.get(trackId);
+  if (cached) return cached;
+
   try {
     const remoteUrl = await fetchRemotePlaybackAudioUrl(trackId);
-    if (remoteUrl) return remoteUrl;
+    if (remoteUrl) {
+      remoteUrlCache.set(trackId, remoteUrl);
+      return remoteUrl;
+    }
   } catch {
     // no-op: offline blob already checked above
   }

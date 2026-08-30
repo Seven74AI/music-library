@@ -27,6 +27,8 @@ vi.mock("#app/components/ui/use-toast.ts", () => ({
 
 vi.mock("#app/features/offline-storage/resolve-playback-url.client.ts", () => ({
   resolveTrackPlaybackSource: vi.fn().mockResolvedValue("https://cdn.example/track.mp3"),
+  resolvePlaybackAudioUrl: vi.fn().mockResolvedValue(null),
+  prefetchPlaybackAudioUrl: vi.fn(),
   revokePlaybackAudioUrl: vi.fn(),
   clearBlobUrlCache: vi.fn(),
 }));

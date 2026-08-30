@@ -376,7 +376,7 @@ test("does not show playback error when audio error is null (no MediaError)", as
 test("calls onNext when audio ends and loopMode is off", async () => {
   const onNext = vi.fn();
 
-  const { audioEl } = await renderPlayer({ onNext, loopMode: "off" });
+  const { audioEl } = await renderPlayer({ onNext, loopMode: "off", hasNext: true });
 
   audioEl.dispatchEvent(new Event("ended"));
 
@@ -386,7 +386,17 @@ test("calls onNext when audio ends and loopMode is off", async () => {
 test("does NOT call onNext when audio ends and loopMode is one", async () => {
   const onNext = vi.fn();
 
-  const { audioEl } = await renderPlayer({ onNext, loopMode: "one" });
+  const { audioEl } = await renderPlayer({ onNext, loopMode: "one", hasNext: true });
+
+  audioEl.dispatchEvent(new Event("ended"));
+
+  expect(onNext).not.toHaveBeenCalled();
+});
+
+test("does NOT call onNext when audio ends with no next track", async () => {
+  const onNext = vi.fn();
+
+  const { audioEl } = await renderPlayer({ onNext, loopMode: "off", hasNext: false });
 
   audioEl.dispatchEvent(new Event("ended"));
 
