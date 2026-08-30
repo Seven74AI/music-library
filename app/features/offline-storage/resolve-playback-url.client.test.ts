@@ -10,6 +10,7 @@ const mockGetOfflineStorage = vi.fn(() => ({
 let resolveTrackPlaybackSource: (trackId: string) => Promise<string | null>;
 let resolvePlaybackAudioUrl: (trackId: string) => Promise<string | null>;
 let fetchRemotePlaybackAudioUrl: (trackId: string) => Promise<string | null>;
+let prefetchPlaybackAudioUrl: (trackId: string) => void;
 let revokePlaybackAudioUrl: (trackId: string) => void;
 let mockCreateObjectURL: ReturnType<typeof vi.fn>;
 let mockRevokeObjectURL: ReturnType<typeof vi.fn>;
@@ -31,6 +32,7 @@ beforeEach(async () => {
   resolveTrackPlaybackSource = mod.resolveTrackPlaybackSource;
   resolvePlaybackAudioUrl = mod.resolvePlaybackAudioUrl;
   fetchRemotePlaybackAudioUrl = mod.fetchRemotePlaybackAudioUrl;
+  prefetchPlaybackAudioUrl = mod.prefetchPlaybackAudioUrl;
   revokePlaybackAudioUrl = mod.revokePlaybackAudioUrl;
 
   // Stub URL.createObjectURL / revokeObjectURL for deterministic tests
@@ -349,5 +351,53 @@ describe("blob URL cache", () => {
 
     expect(result).toBeNull();
     expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// prefetchPlaybackAudioUrl — warm the remote URL cache ahead of a track transition
+// ═════════════════════════════════════════════════════════════════════════════
+describe("prefetchPlaybackAudioUrl", () => {
+  beforeEach(() => {
+    // The client guard bails without `window` (SSR). This suite runs in node.
+    vi.stubGlobal("window", {});
+  });
+
+  test("fetches and caches the remote URL so resolve returns it without re-fetching", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "https://cdn.example/prefetched.mp3" }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    mockResolvePlaybackBlob.mockResolvedValue(null);
+
+    prefetchPlaybackAudioUrl("track-prefetch");
+    expect(fetchSpy).toHaveBeenCalledWith("/resources/audio/track-prefetch");
+
+    // Flush the fire-and-forget .then() that populates the cache.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    fetchSpy.mockClear();
+    const result = await resolveTrackPlaybackSource("track-prefetch");
+
+    expect(result).toBe("https://cdn.example/prefetched.mp3");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test("dedupes concurrent prefetches for the same track", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "https://cdn.example/dedup.mp3" }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    mockResolvePlaybackBlob.mockResolvedValue(null);
+
+    prefetchPlaybackAudioUrl("track-dedup");
+    prefetchPlaybackAudioUrl("track-dedup");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

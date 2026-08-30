@@ -11,6 +11,7 @@ import {
 import { isOfflineEnvironment } from "#app/features/offline-app/is-offline-environment.client.ts";
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
 import { offlineSummaryToFullTrack } from "#app/features/offline-storage/offline-track-summary.client.ts";
+import { prefetchPlaybackAudioUrl } from "#app/features/offline-storage/resolve-playback-url.client.ts";
 import {
   collectHydrationIds,
   hydratePlaybackCacheInBatches,
@@ -865,6 +866,20 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
       }
     })();
   }, [currentTrack?.id, hydrateAround, isPlayerVisible, navigationState]);
+
+  // Prefetch the next track's presigned URL while the current one plays so the
+  // auto-advance transition needs no network round-trip. On a locked screen the
+  // page is hidden and background fetches are throttled, so resolving the URL
+  // at transition time is what makes the next track stall/silent.
+  useEffect(() => {
+    if (!currentTrack || isOfflineEnvironment()) return;
+    const nextTarget = resolveNextTrack(navigationState);
+    if (!nextTarget) return;
+    const nextQueueTrack = getTrackAtTarget(navigationState, nextTarget);
+    if (nextQueueTrack) {
+      prefetchPlaybackAudioUrl(nextQueueTrack.id);
+    }
+  }, [currentTrack?.id, navigationState]);
 
   return (
     <AudioPlayerContext.Provider
