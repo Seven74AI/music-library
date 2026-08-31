@@ -88,12 +88,15 @@ export async function recordUsageEvent({
   type,
   userId,
   trackId,
+  playId,
   meta,
   amount = 1,
 }: {
   type: UsageEventType;
   userId?: string | null;
   trackId?: string | null;
+  /** Correlation ID linking a play's `play_started` and `play_completed` events. */
+  playId?: string | null;
   meta?: Record<string, unknown> | null;
   /** How much to add to the daily metric (default 1). */
   amount?: number;
@@ -105,6 +108,7 @@ export async function recordUsageEvent({
       type,
       userId: userId ?? null,
       trackId: trackId ?? null,
+      playId: playId ?? null,
       meta: meta ? JSON.stringify(meta) : null,
     },
   });

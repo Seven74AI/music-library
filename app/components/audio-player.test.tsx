@@ -750,7 +750,7 @@ test("reports play_started once per track, and again once the track changes", as
 
   await clickTransport(user);
   await waitFor(() => {
-    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1");
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
   });
   expect(reportPlayEvent).toHaveBeenCalledTimes(1);
 
@@ -765,7 +765,7 @@ test("reports play_started once per track, and again once the track changes", as
 
   await clickTransport(user);
   await waitFor(() => {
-    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-2");
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-2", expect.any(String));
   });
 });
 
@@ -779,7 +779,7 @@ test("reports play_completed once playback passes the halfway mark", async () =>
 
   setProgress(audioEl, 50, 100);
   fireEvent.timeUpdate(audioEl);
-  expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1");
+  expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1", null);
 
   // Further progress on the same track must not report again.
   setProgress(audioEl, 90, 100);
@@ -795,7 +795,7 @@ test("reports play_completed when a short track ends without passing the halfway
 
   fireEvent.ended(audioEl);
 
-  expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1");
+  expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1", null);
 });
 
 test("does not report play_completed twice when a track ends after passing halfway", async () => {
@@ -809,4 +809,29 @@ test("does not report play_completed twice when a track ends after passing halfw
   expect(
     vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
   ).toHaveLength(1);
+});
+
+test("correlates a track's play_started and play_completed with the same playId", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer();
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  const startedPlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(startedPlayId).toBeTypeOf("string");
+
+  setProgress(audioEl, 60, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1", startedPlayId);
+  });
 });

@@ -4,12 +4,19 @@
  */
 export type PlayEventType = "play_started" | "play_completed";
 
-export function reportPlayEvent(type: PlayEventType, trackId: string): void {
+export function reportPlayEvent(
+  type: PlayEventType,
+  trackId: string,
+  playId?: string | null,
+): void {
   if (typeof window === "undefined" || !trackId) return;
 
   const body = new FormData();
   body.set("type", type);
   body.set("trackId", trackId);
+  if (playId) {
+    body.set("playId", playId);
+  }
 
   void fetch("/resources/play-event", {
     method: "POST",

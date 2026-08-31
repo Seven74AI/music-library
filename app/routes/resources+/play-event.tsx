@@ -13,6 +13,9 @@ import { type Route } from "./+types/play-event.ts";
 const PlayEventSchema = z.object({
   type: z.enum([USAGE_EVENT_TYPES.play_started, USAGE_EVENT_TYPES.play_completed]),
   trackId: z.string().min(1),
+  // Client-generated UUID correlating a play's `play_started` and
+  // `play_completed` events. Optional so older clients still report fine.
+  playId: z.string().max(64).optional(),
 });
 
 export async function action({ request }: Route.ActionArgs) {
@@ -30,6 +33,7 @@ export async function action({ request }: Route.ActionArgs) {
   const parsed = PlayEventSchema.safeParse({
     type: formData.get("type"),
     trackId: formData.get("trackId"),
+    playId: formData.get("playId") || undefined,
   });
 
   if (!parsed.success) {
@@ -50,6 +54,7 @@ export async function action({ request }: Route.ActionArgs) {
     type: parsed.data.type,
     userId,
     trackId: track.id,
+    playId: parsed.data.playId ?? null,
   });
 
   return data({ ok: true });
