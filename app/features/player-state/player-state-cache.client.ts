@@ -1,4 +1,4 @@
-import { type LoopMode } from "#app/features/queue/queue-navigation.ts";
+import { LOOP_MODES, type LoopMode } from "#app/features/queue/queue-navigation.ts";
 import { type PlayContextJson, type PlayerStateData } from "./player-state.ts";
 
 /**
@@ -9,8 +9,6 @@ import { type PlayContextJson, type PlayerStateData } from "./player-state.ts";
  * hitting the network. The resolved track list (spine) is never cached here.
  */
 const PLAYER_STATE_LOCAL_KEY = "music-library:player-state";
-
-const LOOP_MODES: readonly LoopMode[] = ["off", "all", "one"];
 
 function isPlayContextJson(value: unknown): value is PlayContextJson {
   if (value === null || typeof value !== "object") return false;

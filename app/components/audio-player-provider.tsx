@@ -31,6 +31,7 @@ import {
   hasPreviousTrack,
   resolveNextTrack,
   resolvePreviousTrack,
+  type LoopMode,
   type QueueNavigationState,
   type QueueTarget,
 } from "#app/features/queue/queue-navigation.ts";
@@ -73,8 +74,6 @@ interface PlaylistContext {
   trackId?: string;
   cursor?: string;
 }
-
-type LoopMode = "off" | "all" | "one";
 
 interface AudioPlayerContextType {
   currentTrack: Track | null;
