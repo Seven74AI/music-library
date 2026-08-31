@@ -12,6 +12,7 @@ import {
 } from "#app/features/play-history/play-history.server.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { formatDuration } from "#app/utils/format-duration.ts";
+import { formatRelativeTime } from "#app/utils/format-relative-time.ts";
 import { cn } from "#app/utils/misc.tsx";
 import { isPlayableTrack } from "#app/utils/playable-track";
 import { type Route } from "./+types/history.ts";
@@ -70,18 +71,18 @@ function HistoryRow({ item }: { item: HistoryItem }) {
             <div className="truncate text-xs text-muted-foreground">{track.artist.name}</div>
           </div>
         </div>
+        <time
+          className="mt-0.5 block text-xs text-muted-foreground"
+          dateTime={new Date(item.playedAt).toISOString()}
+          title={formatPlayedAt(item.playedAt)}
+        >
+          {formatRelativeTime(item.playedAt)}
+        </time>
       </div>
 
       <div className="hidden shrink-0 text-xs text-muted-foreground sm:block">
         {formatDuration(track.duration)}
       </div>
-
-      <time
-        className="hidden shrink-0 text-xs text-muted-foreground md:block"
-        dateTime={new Date(item.playedAt).toISOString()}
-      >
-        {formatPlayedAt(item.playedAt)}
-      </time>
 
       <span
         className={cn(
