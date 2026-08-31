@@ -7,6 +7,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi, beforeEach, afterEach } from "vitest";
+import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
+import { writeCachedPlayerState } from "#app/features/player-state/player-state-cache.client.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { AudioPlayerProvider, useAudioPlayer } from "./audio-player-provider";
 
@@ -21,7 +23,7 @@ vi.mock("#app/components/pwa/install-app-banner", () => ({
 }));
 
 vi.mock("#app/features/offline-storage/offline-storage.client.ts", () => ({
-  getOfflineStorage: () => ({
+  getOfflineStorage: vi.fn(() => ({
     cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
     listDownloaded: vi.fn().mockResolvedValue([
       {
@@ -54,7 +56,7 @@ vi.mock("#app/features/offline-storage/offline-storage.client.ts", () => ({
       },
     ]),
     listForPlaylist: vi.fn().mockResolvedValue([]),
-  }),
+  })),
 }));
 
 vi.mock("#app/features/offline-storage/resolve-playback-url.client.ts", () => ({
@@ -530,4 +532,161 @@ test("restores the saved queue on mount, paused, without autoplay", async () => 
   expect(screen.getByTestId("player-visible").textContent).toBe("true");
   expect(screen.getByTestId("up-next-count").textContent).toBe("1");
   expect(screen.getByTestId("wants-autoplay").textContent).toBe("false");
+});
+
+function mockOfflineStorage(downloadedSummaries: Array<Record<string, unknown>>) {
+  vi.mocked(getOfflineStorage).mockReturnValue({
+    cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
+    listDownloaded: vi.fn().mockResolvedValue(downloadedSummaries),
+    listPinned: vi.fn().mockResolvedValue([]),
+    listForPlaylist: vi.fn().mockResolvedValue([]),
+  } as unknown as ReturnType<typeof getOfflineStorage>);
+}
+
+const downloadedSummary = (trackId: string, title: string) => ({
+  trackId,
+  title,
+  artistId: "artist-1",
+  artistName: "Test Artist",
+  duration: 180,
+  coverObjectKey: "covers/test.jpg",
+  audioFormat: "mp3",
+  isPinned: true,
+  isQueueCached: false,
+  fileSizeBytes: 1000,
+  lastAccessedAt: Date.now(),
+});
+
+test("offline load restores the current track + Up Next from downloaded tracks without fetching the spine", async () => {
+  const fetchMock = vi.mocked(fetch);
+  window.localStorage.clear();
+
+  // Mirror the saved queue as if it was persisted before going offline.
+  writeCachedPlayerState({
+    playContext: { type: "library" },
+    currentTrackId: "track-1",
+    upNextIds: ["track-2"],
+    shuffleSeed: null,
+    loopMode: "off",
+  });
+
+  // Only track-1 is downloaded; track-2 is not → partial restore drops it.
+  mockOfflineStorage([downloadedSummary("track-1", "Test Song")]);
+  vi.stubGlobal("navigator", { onLine: false });
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <QueueProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  // Restore-and-wait: paused, visible, and the un-downloaded Up Next is dropped.
+  expect(screen.getByTestId("player-visible").textContent).toBe("true");
+  expect(screen.getByTestId("up-next-count").textContent).toBe("0");
+  expect(screen.getByTestId("wants-autoplay").textContent).toBe("false");
+
+  // The spine is never fetched while offline (no network round-trips at all).
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test("offline load restores downloaded Up Next tracks in order", async () => {
+  window.localStorage.clear();
+
+  writeCachedPlayerState({
+    playContext: { type: "library" },
+    currentTrackId: "track-1",
+    upNextIds: ["track-2", "track-3"],
+    shuffleSeed: null,
+    loopMode: "off",
+  });
+
+  // track-2 is downloaded, track-3 is not → only track-2 survives in Up Next.
+  mockOfflineStorage([
+    downloadedSummary("track-1", "Test Song"),
+    downloadedSummary("track-2", "Up Next Song"),
+  ]);
+  vi.stubGlobal("navigator", { onLine: false });
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <QueueProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+});
+
+test("reconnect backfills the spine after an offline partial restore", async () => {
+  const fetchMock = vi.mocked(fetch);
+  window.localStorage.clear();
+
+  writeCachedPlayerState({
+    playContext: { type: "library" },
+    currentTrackId: "track-1",
+    upNextIds: ["track-2"],
+    shuffleSeed: null,
+    loopMode: "off",
+  });
+
+  mockOfflineStorage([downloadedSummary("track-1", "Test Song")]);
+  vi.stubGlobal("navigator", { onLine: false });
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <QueueProbe />
+    </AudioPlayerProvider>,
+  );
+
+  // Offline partial restore completes with no network round-trips.
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
+
+  // Network returns: the full online restore backfills the spine.
+  fetchMock
+    .mockResolvedValueOnce({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        playContext: { type: "library" },
+        currentTrackId: "track-1",
+        upNextIds: ["track-2"],
+        shuffleSeed: null,
+        loopMode: "off",
+      }),
+    } as Response)
+    .mockResolvedValueOnce({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        tracks: [playableTrack, { ...playableTrack, id: "track-2", title: "Up Next Song" }],
+      }),
+    } as Response)
+    .mockResolvedValueOnce({
+      status: 200,
+      ok: true,
+      json: async () => ({ tracks: [spineTrack, { ...spineTrack, id: "track-2" }], total: 2 }),
+    } as Response);
+
+  window.dispatchEvent(new Event("online"));
+
+  await waitFor(() => {
+    const spineCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/api/queue-spine"),
+    );
+    expect(spineCall).toBeDefined();
+  });
+
+  // The queue is now complete: current track + Up Next are re-resolved from the
+  // server and the spine is backfilled.
+  expect(screen.getByTestId("up-next-count").textContent).toBe("1");
 });
