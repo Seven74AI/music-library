@@ -46,11 +46,16 @@ import {
   type QueueSpineContext,
 } from "#app/features/queue/queue-spine.ts";
 import {
+  readCachedPlayerState,
+  writeCachedPlayerState,
+} from "#app/features/player-state/player-state-cache.client.ts";
+import {
   fetchPlayerState,
   persistPlayerState,
   type PlayContextJson,
   type PlayerStateData,
 } from "#app/features/player-state/player-state.ts";
+import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
 import { type FullTrack, type QueueTrack } from "#app/types/frontend/shared";
 import { isPlayableTrack } from "#app/utils/playable-track";
 import { AudioPlayer } from "./audio-player";
@@ -194,6 +199,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   // restore). Debounced persistence is gated on this so the initial empty state
   // can never overwrite a saved queue before it has been fetched.
   const restoreSettledRef = useRef(false);
+  // Track which restore path has run so a connectivity change doesn't re-run it
+  // (or clobber an already-complete queue): offline partial restore runs at most
+  // once, and a full online restore (initial load or post-offline backfill) runs
+  // at most once.
+  const offlineRestoreDoneRef = useRef(false);
+  const onlineRestoreDoneRef = useRef(false);
+
+  const isOnline = useOnlineStatus();
 
   const navigationState = useMemo<QueueNavigationState>(
     () => ({
@@ -1028,6 +1041,57 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     [loadSpineForContext],
   );
 
+  // Offline partial restore: rebuild the current track + Up Next from the
+  // locally mirrored player state, resolving only tracks that are downloaded
+  // for offline playback. The spine is intentionally NOT re-derived (no network
+  // round-trips); it backfills via a full online restore once the network
+  // returns. A client-side spine snapshot is never cached.
+  const restoreQueueOffline = useCallback(async () => {
+    const saved = readCachedPlayerState();
+    if (!saved) return;
+
+    const storage = getOfflineStorage();
+    const downloaded = await storage.listDownloaded();
+    const byId = new Map(downloaded.map((summary) => [summary.trackId, summary]));
+
+    const toFullTrack = (id: string): FullTrack | null => {
+      const summary = byId.get(id);
+      return summary ? offlineSummaryToFullTrack(summary) : null;
+    };
+
+    const currentFullTrack = saved.currentTrackId ? toFullTrack(saved.currentTrackId) : null;
+    const resolvedUpNext = saved.upNextIds
+      .map(toFullTrack)
+      .filter((track): track is FullTrack => track !== null);
+
+    for (const track of [currentFullTrack, ...resolvedUpNext]) {
+      if (track) playbackCacheRef.current.set(track);
+    }
+    setCacheVersion((version) => version + 1);
+
+    setPlayContext(saved.playContext);
+    setLoopMode(saved.loopMode);
+    setShuffleSeed(saved.shuffleSeed);
+    setUpNext(resolvedUpNext.map(queueTrackFromFullTrack));
+    setUpNextPlayNextCount(0);
+    upNextPlayNextCountRef.current = 0;
+    // No spine offline — leave it empty and backfill on reconnect.
+    setSpine([]);
+    setSpineTotal(0);
+    setSpineOrder([]);
+    setSpinePosition(0);
+
+    if (currentFullTrack && isPlayableTrack(currentFullTrack)) {
+      setCurrentTrack(currentFullTrack);
+    }
+
+    // Restore-and-wait: show the player paused, never auto-play.
+    wantsAutoPlayRef.current = false;
+    if (currentFullTrack || resolvedUpNext.length > 0) {
+      setIsPlayerVisible(true);
+    }
+  }, []);
+
   // Keep the serializable-state mirror in sync for the debounced write + flush.
   useEffect(() => {
     playerStateRef.current = {
@@ -1047,6 +1111,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     persistTimerRef.current = setTimeout(() => {
+      writeCachedPlayerState(playerStateRef.current);
       persistPlayerState(playerStateRef.current);
     }, 1000);
 
@@ -1061,6 +1126,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
     const flush = () => {
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      writeCachedPlayerState(playerStateRef.current);
       persistPlayerState(playerStateRef.current, { keepalive: true });
     };
     window.addEventListener("beforeunload", flush);
@@ -1072,10 +1138,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     };
   }, [userId]);
 
-  // Restore the saved queue once per sign-in (skip offline — that's handled by
-  // the separate offline partial-restore slice).
+  // Online full restore: fetch the saved queue from the server and re-derive the
+  // spine. Runs once per sign-in when the network is available — on initial load
+  // and again as a backfill when the network returns after an offline partial
+  // restore.
   useEffect(() => {
-    if (!userId || isOfflineEnvironment()) return;
+    if (!userId || !isOnline || onlineRestoreDoneRef.current) return;
 
     let cancelled = false;
     void (async () => {
@@ -1085,6 +1153,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         if (saved) {
           await restoreQueueFromServer(saved);
         }
+        onlineRestoreDoneRef.current = true;
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to restore player state:", error);
@@ -1097,7 +1166,35 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     return () => {
       cancelled = true;
     };
-  }, [userId, restoreQueueFromServer]);
+  }, [userId, isOnline, restoreQueueFromServer]);
+
+  // Offline partial restore: rebuild the current track + Up Next from the local
+  // mirror *if those tracks are downloaded*, without any spine fetch. Runs at
+  // most once, only when the app loads offline (a full online restore has not
+  // yet happened).
+  useEffect(() => {
+    if (!userId || isOnline || offlineRestoreDoneRef.current || onlineRestoreDoneRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    offlineRestoreDoneRef.current = true;
+    void (async () => {
+      try {
+        await restoreQueueOffline();
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to restore player state offline:", error);
+        }
+      } finally {
+        restoreSettledRef.current = true;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, isOnline, restoreQueueOffline]);
 
   return (
     <AudioPlayerContext.Provider
