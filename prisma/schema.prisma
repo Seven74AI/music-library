@@ -36,6 +36,7 @@ model UsageEvent {
   userId    String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   trackId   String?
+  playId    String?
   meta      String?
   createdAt DateTime @default(now())
 

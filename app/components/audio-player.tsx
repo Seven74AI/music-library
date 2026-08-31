@@ -77,6 +77,23 @@ function isDurationKnown(duration: number): boolean {
   return duration > 0 && isFinite(duration) && !isNaN(duration);
 }
 
+/**
+ * Generates a UUID v4 used to correlate a play's `play_started` and
+ * `play_completed` usage events. Falls back to a Math.random-based UUID for
+ * environments without Web Crypto `randomUUID` (older WebViews, non-secure
+ * contexts).
+ */
+function generatePlayId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
 function getPlaybackProgressPercent(currentTime: number, duration: number) {
   if (duration <= 0 || !isFinite(duration)) return 0;
   return Math.min(100, Math.max(0, (currentTime / duration) * 100));
@@ -848,6 +865,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const keepPlayingRef = useRef(false);
   const playStartedForTrackRef = useRef<string | null>(null);
   const playCompletedForTrackRef = useRef<string | null>(null);
+  const playIdRef = useRef<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
@@ -1003,7 +1021,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
               if (track && playStartedForTrackRef.current !== track.id) {
                 playStartedForTrackRef.current = track.id;
                 playCompletedForTrackRef.current = null;
-                reportPlayEvent("play_started", track.id);
+                playIdRef.current = generatePlayId();
+                reportPlayEvent("play_started", track.id, playIdRef.current);
               }
             })
             .catch(() => {
@@ -1046,7 +1065,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
         if (track && playStartedForTrackRef.current !== track.id) {
           playStartedForTrackRef.current = track.id;
           playCompletedForTrackRef.current = null;
-          reportPlayEvent("play_started", track.id);
+          playIdRef.current = generatePlayId();
+          reportPlayEvent("play_started", track.id, playIdRef.current);
         }
       }
     } catch (error) {
@@ -1251,7 +1271,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         audio.currentTime / audio.duration >= 0.5
       ) {
         playCompletedForTrackRef.current = track.id;
-        reportPlayEvent("play_completed", track.id);
+        reportPlayEvent("play_completed", track.id, playIdRef.current);
       }
     };
     const handlePlay = () => {
@@ -1282,7 +1302,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     const handleEnded = () => {
       if (track && playCompletedForTrackRef.current !== track.id) {
         playCompletedForTrackRef.current = track.id;
-        reportPlayEvent("play_completed", track.id);
+        reportPlayEvent("play_completed", track.id, playIdRef.current);
       }
       // Only auto-advance if not looping one track
       if (loopMode === "one") {
