@@ -482,3 +482,52 @@ test("playTrack falls back to offline downloads when online spine fetch fails", 
   consoleError.mockRestore();
   vi.unstubAllGlobals();
 });
+
+test("restores the saved queue on mount, paused, without autoplay", async () => {
+  const fetchMock = vi.mocked(fetch);
+
+  // 1. GET /resources/player-state — a saved library queue with an Up Next
+  //    addition and shuffle enabled.
+  fetchMock
+    .mockResolvedValueOnce({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        playContext: { type: "library" },
+        currentTrackId: "track-1",
+        upNextIds: ["track-2"],
+        shuffleSeed: 42,
+        loopMode: "off",
+      }),
+    } as Response)
+    // 2. GET /api/tracks/playback — resolve current track + Up Next ids.
+    .mockResolvedValueOnce({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        tracks: [playableTrack, { ...playableTrack, id: "track-2", title: "Up Next Song" }],
+      }),
+    } as Response)
+    // 3. GET /api/queue-spine — re-derived library spine.
+    .mockResolvedValueOnce({
+      status: 200,
+      ok: true,
+      json: async () => ({ tracks: [spineTrack], total: 1 }),
+    } as Response);
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <QueueProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  // Restore-and-wait: the player is visible, the current track is restored,
+  // and no autoplay was requested.
+  expect(screen.getByTestId("player-visible").textContent).toBe("true");
+  expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+  expect(screen.getByTestId("wants-autoplay").textContent).toBe("false");
+});

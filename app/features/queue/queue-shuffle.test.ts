@@ -3,6 +3,7 @@ import {
   createSeededRandom,
   createShuffledOrder,
   fisherYatesShuffle,
+  generateShuffleSeed,
   reshuffleFromCurrent,
 } from "./queue-shuffle.ts";
 
@@ -30,6 +31,20 @@ describe("createSeededRandom", () => {
     const sequenceA = Array.from({ length: 10 }, () => a());
     const sequenceB = Array.from({ length: 10 }, () => b());
     expect(sequenceA).not.toEqual(sequenceB);
+  });
+});
+
+describe("generateShuffleSeed", () => {
+  test("returns a 32-bit unsigned integer", () => {
+    const seed = generateShuffleSeed();
+    expect(Number.isInteger(seed)).toBe(true);
+    expect(seed).toBeGreaterThanOrEqual(0);
+    expect(seed).toBeLessThanOrEqual(0xffffffff);
+  });
+
+  test("produces varied seeds across calls", () => {
+    const seeds = new Set(Array.from({ length: 50 }, () => generateShuffleSeed()));
+    expect(seeds.size).toBeGreaterThan(1);
   });
 });
 
