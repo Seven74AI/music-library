@@ -28,6 +28,20 @@ model User {
   usageEvents      UsageEvent[]
   dailyActiveUsers DailyActiveUser[]
   roles            Role[]            @relation("RoleToUser")
+  playerState      PlayerState?
+}
+
+model PlayerState {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  playContext    String?
+  currentTrackId String?
+  upNextIds      String   @default("[]")
+  shuffleSeed    Int?
+  loopMode       String   @default("off")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model UsageEvent {
