@@ -54,10 +54,13 @@ async function createTrack() {
   });
 }
 
-function playEventRequest(cookie: string, type: string, trackId: string) {
+function playEventRequest(cookie: string, type: string, trackId: string, playId?: string) {
   const formData = new FormData();
   formData.set("type", type);
   formData.set("trackId", trackId);
+  if (playId) {
+    formData.set("playId", playId);
+  }
   const request = new Request("http://localhost/resources/play-event", {
     method: "POST",
     headers: { cookie },
@@ -105,6 +108,7 @@ describe("play-event resource", () => {
       type: "play_started",
       userId,
       trackId: track.id,
+      playId: null,
     });
 
     const day = getUtcDayStart();
@@ -112,6 +116,34 @@ describe("play-event resource", () => {
       where: { day_metric: { day, metric: USAGE_METRICS.plays_started } },
     });
     expect(stat?.value).toBe(1);
+  });
+
+  test("stores the same playId on matching play_started and play_completed events", async () => {
+    const { cookie } = await createUserCookie();
+    const track = await createTrack();
+    const playId = "4c8f1a7e-9c3d-4a1b-8e6f-2d7a5b3c9e01";
+
+    await action(playEventRequest(cookie, USAGE_EVENT_TYPES.play_started, track.id, playId));
+    await action(playEventRequest(cookie, USAGE_EVENT_TYPES.play_completed, track.id, playId));
+
+    const started = await prisma.usageEvent.findFirstOrThrow({
+      where: { type: "play_started" },
+    });
+    const completed = await prisma.usageEvent.findFirstOrThrow({
+      where: { type: "play_completed" },
+    });
+    expect(started.playId).toBe(playId);
+    expect(completed.playId).toBe(playId);
+  });
+
+  test("stores a null playId when the client omits it", async () => {
+    const { cookie } = await createUserCookie();
+    const track = await createTrack();
+
+    await action(playEventRequest(cookie, USAGE_EVENT_TYPES.play_started, track.id));
+
+    const event = await prisma.usageEvent.findFirstOrThrow();
+    expect(event.playId).toBeNull();
   });
 
   test("rejects invalid payload", async () => {

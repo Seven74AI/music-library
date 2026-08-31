@@ -160,4 +160,35 @@ describe("recordUsageEvent", () => {
     const event = await prisma.usageEvent.findFirstOrThrow();
     expect(event.meta).toBe(JSON.stringify({ reason: "ended" }));
   });
+
+  test("stores a playId when provided and null when omitted", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+
+    await recordUsageEvent({
+      type: USAGE_EVENT_TYPES.play_started,
+      userId: user.id,
+      trackId: "track-1",
+      playId: "play-123",
+    });
+    await recordUsageEvent({
+      type: USAGE_EVENT_TYPES.play_completed,
+      userId: user.id,
+      trackId: "track-1",
+      playId: "play-123",
+    });
+    await recordUsageEvent({
+      type: USAGE_EVENT_TYPES.library_add,
+      userId: user.id,
+      trackId: "track-1",
+    });
+
+    const events = await prisma.usageEvent.findMany();
+    const started = events.find((event) => event.type === "play_started");
+    const completed = events.find((event) => event.type === "play_completed");
+    const libraryAdd = events.find((event) => event.type === "library_add");
+
+    expect(started?.playId).toBe("play-123");
+    expect(completed?.playId).toBe("play-123");
+    expect(libraryAdd?.playId).toBeNull();
+  });
 });
