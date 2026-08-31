@@ -362,7 +362,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <OpenImgContextProvider optimizerEndpoint="/resources/images" getSrc={getImgSrc}>
-        <AudioPlayerProvider>
+        <AudioPlayerProvider userId={data.user?.id ?? null}>
           <ShellLayout />
           <Toaster />
           <AutoplayGuideDialog />

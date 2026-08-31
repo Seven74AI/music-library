@@ -14,6 +14,7 @@ import { offlineSummaryToFullTrack } from "#app/features/offline-storage/offline
 import { prefetchPlaybackAudioUrl } from "#app/features/offline-storage/resolve-playback-url.client.ts";
 import {
   collectHydrationIds,
+  fetchPlaybackBatch,
   hydratePlaybackCacheInBatches,
   PlaybackHydrationCache,
   resolveFullTrack,
@@ -33,13 +34,23 @@ import {
   type QueueNavigationState,
   type QueueTarget,
 } from "#app/features/queue/queue-navigation.ts";
-import { createShuffledOrder, reshuffleFromCurrent } from "#app/features/queue/queue-shuffle.ts";
+import {
+  createShuffledOrder,
+  generateShuffleSeed,
+  reshuffleFromCurrent,
+} from "#app/features/queue/queue-shuffle.ts";
 import {
   AuthExpiredError,
   fetchQueueSpine,
   queueTrackFromFullTrack,
   type QueueSpineContext,
 } from "#app/features/queue/queue-spine.ts";
+import {
+  fetchPlayerState,
+  persistPlayerState,
+  type PlayContextJson,
+  type PlayerStateData,
+} from "#app/features/player-state/player-state.ts";
 import { type FullTrack, type QueueTrack } from "#app/types/frontend/shared";
 import { isPlayableTrack } from "#app/utils/playable-track";
 import { AudioPlayer } from "./audio-player";
@@ -101,6 +112,8 @@ const AudioPlayerContext = createContext<AudioPlayerContextType | undefined>(und
 
 interface AudioPlayerProviderProps {
   children: ReactNode;
+  /** The authenticated user's id, or `null` when signed out. Drives queue persistence + restore. */
+  userId?: string | null;
 }
 
 function toQueueSpineContext(context: PlaylistContext): QueueSpineContext | null {
@@ -120,7 +133,26 @@ function toQueueSpineContext(context: PlaylistContext): QueueSpineContext | null
   return null;
 }
 
-export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
+/** Reduce a client `PlaylistContext` to the persisted spine-reconstructing subset. */
+function playContextToJson(context: PlaylistContext | null): PlayContextJson | null {
+  if (!context) return null;
+  if (context.type === "library") return { type: "library" };
+  if (context.type === "playlist" && context.playlistId) {
+    return { type: "playlist", playlistId: context.playlistId };
+  }
+  if (context.type === "artist" && context.artistId) {
+    return { type: "artist", artistId: context.artistId };
+  }
+  if (context.type === "album" && context.albumId) {
+    return { type: "album", albumId: context.albumId };
+  }
+  if (context.type === "track" && context.trackId) {
+    return { type: "track", trackId: context.trackId };
+  }
+  return null; // "music" has no spine
+}
+
+export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderProps) {
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const [upNext, setUpNext] = useState<QueueTrack[]>([]);
@@ -131,10 +163,12 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
   const [spinePosition, setSpinePosition] = useState(0);
   const [playContext, setPlayContext] = useState<PlaylistContext | null>(null);
   const [loopMode, setLoopMode] = useState<LoopMode>("off");
-  const [isShuffleEnabled, setIsShuffleEnabled] = useState(false);
+  const [shuffleSeed, setShuffleSeed] = useState<number | null>(null);
   const [isLoadingNext, setIsLoadingNext] = useState(false);
   const [playbackToken, setPlaybackToken] = useState(0);
   const [cacheVersion, setCacheVersion] = useState(0);
+
+  const isShuffleEnabled = shuffleSeed !== null;
 
   const playbackCacheRef = useRef(new PlaybackHydrationCache());
   const playlistFetchEpochRef = useRef(0);
@@ -145,6 +179,21 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
   // flush as a single batch 300ms after the last scroll event.
   const pendingHydrationIdsRef = useRef(new Set<string>());
   const hydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Mirror of the serializable queue state, kept in a ref so the debounced
+  // write and the beforeunload flush always read the latest committed values.
+  const playerStateRef = useRef<PlayerStateData>({
+    playContext: null,
+    currentTrackId: null,
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+  });
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True once the restore attempt has settled (fetched + applied, or nothing to
+  // restore). Debounced persistence is gated on this so the initial empty state
+  // can never overwrite a saved queue before it has been fetched.
+  const restoreSettledRef = useRef(false);
 
   const navigationState = useMemo<QueueNavigationState>(
     () => ({
@@ -203,6 +252,12 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
     playbackCacheRef.current.set(track);
     setCacheVersion((version) => version + 1);
   }, []);
+
+  /** Build a play order for a fresh spine, honouring the current shuffle seed. */
+  const buildShuffledOrder = useCallback(
+    (length: number) => createShuffledOrder(length, shuffleSeed !== null, shuffleSeed ?? undefined),
+    [shuffleSeed],
+  );
 
   const hydrateAround = useCallback(
     async (trackId: string | null) => {
@@ -322,7 +377,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
         const loadedSpine = await loadSpineForContext(context);
         if (epoch !== playlistFetchEpochRef.current) return;
 
-        const order = createShuffledOrder(loadedSpine.tracks.length, isShuffleEnabled);
+        const order = buildShuffledOrder(loadedSpine.tracks.length);
         const resolvedPosition = (() => {
           if (explicitIndex !== undefined && loadedSpine.tracks[explicitIndex]?.id === track.id) {
             return order.findIndex((index) => index === explicitIndex);
@@ -356,7 +411,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
         }
       }
     },
-    [beginPlayback, hydrateAround, isShuffleEnabled, loadSpineForContext, rememberTrack],
+    [beginPlayback, buildShuffledOrder, hydrateAround, loadSpineForContext, rememberTrack],
   );
 
   const playResolvedTrack = useCallback(
@@ -415,7 +470,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
         }
 
         const loadedSpine = playableTracks.map(queueTrackFromFullTrack);
-        const order = createShuffledOrder(loadedSpine.length, isShuffleEnabled);
+        const order = buildShuffledOrder(loadedSpine.length);
         const startTrack = playableTracks[resolvedStartIndex >= 0 ? resolvedStartIndex : 0];
         if (!startTrack) return;
 
@@ -442,7 +497,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
         setIsLoadingNext(false);
       }
     },
-    [beginPlayback, hydrateAround, isShuffleEnabled, playContext, resetQueueState],
+    [beginPlayback, buildShuffledOrder, hydrateAround, playContext, resetQueueState],
   );
 
   const playLibrary = useCallback(async () => {
@@ -455,7 +510,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
       const loadedSpine = await loadSpineForContext({ type: "library" });
       if (loadedSpine.tracks.length === 0) return;
 
-      const order = createShuffledOrder(loadedSpine.tracks.length, isShuffleEnabled);
+      const order = buildShuffledOrder(loadedSpine.tracks.length);
       const firstQueueTrack = loadedSpine.tracks[order[0] ?? 0];
       if (!firstQueueTrack) return;
 
@@ -480,8 +535,8 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
     }
   }, [
     beginPlayback,
+    buildShuffledOrder,
     hydrateAround,
-    isShuffleEnabled,
     loadSpineForContext,
     playContext?.type,
     resetQueueState,
@@ -501,7 +556,7 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
         });
         if (loadedSpine.tracks.length === 0) return;
 
-        const order = createShuffledOrder(loadedSpine.tracks.length, isShuffleEnabled);
+        const order = buildShuffledOrder(loadedSpine.tracks.length);
         const firstQueueTrack = loadedSpine.tracks[order[0] ?? 0];
         if (!firstQueueTrack) return;
 
@@ -527,8 +582,8 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
     },
     [
       beginPlayback,
+      buildShuffledOrder,
       hydrateAround,
-      isShuffleEnabled,
       loadSpineForContext,
       playContext?.playlistId,
       playContext?.type,
@@ -808,28 +863,29 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
   }, []);
 
   const toggleShuffle = useCallback(() => {
-    setIsShuffleEnabled((prev) => {
-      const next = !prev;
-
-      if (next) {
-        setSpineOrder((order) =>
-          reshuffleFromCurrent(
-            order.length === spine.length ? order : createShuffledOrder(spine.length, false),
-            spinePosition,
-          ),
-        );
-      } else {
-        const currentSpineIndex = spineOrder[spinePosition];
-        const identityOrder = createShuffledOrder(spine.length, false);
-        setSpineOrder(identityOrder);
-        if (currentSpineIndex !== undefined) {
-          setSpinePosition(currentSpineIndex);
-        }
+    if (shuffleSeed === null) {
+      // Shuffle ON: mint a fresh seed and reshuffle from the current position,
+      // so the identical permutation can be regenerated on restore.
+      const seed = generateShuffleSeed();
+      setShuffleSeed(seed);
+      setSpineOrder((order) =>
+        reshuffleFromCurrent(
+          order.length === spine.length ? order : createShuffledOrder(spine.length, false),
+          spinePosition,
+          seed,
+        ),
+      );
+    } else {
+      // Shuffle OFF: restore identity order and drop the seed.
+      setShuffleSeed(null);
+      const currentSpineIndex = spineOrder[spinePosition];
+      const identityOrder = createShuffledOrder(spine.length, false);
+      setSpineOrder(identityOrder);
+      if (currentSpineIndex !== undefined) {
+        setSpinePosition(currentSpineIndex);
       }
-
-      return next;
-    });
-  }, [spine.length, spineOrder, spinePosition]);
+    }
+  }, [shuffleSeed, spine.length, spineOrder, spinePosition]);
 
   const closePlayer = useCallback(() => {
     playlistFetchEpochRef.current += 1;
@@ -880,6 +936,168 @@ export function AudioPlayerProvider({ children }: AudioPlayerProviderProps) {
       prefetchPlaybackAudioUrl(nextQueueTrack.id);
     }
   }, [currentTrack?.id, navigationState]);
+
+  // Rebuild the restored queue from a saved `PlayerState`: re-derive the spine
+  // from the play context, replay Up Next + position on top, and leave the
+  // player paused (restore-and-wait — no autoplay).
+  const restoreQueueFromServer = useCallback(
+    async (saved: PlayerStateData) => {
+      const context: PlaylistContext | null = saved.playContext;
+
+      // Resolve the current track + Up Next ids to full tracks via the playback
+      // batch endpoint, which enforces the user's library access and therefore
+      // drops tracks removed since the last session.
+      const idsToResolve = [
+        ...(saved.currentTrackId ? [saved.currentTrackId] : []),
+        ...saved.upNextIds,
+      ];
+      let resolvedTracks: FullTrack[] = [];
+      if (idsToResolve.length > 0) {
+        try {
+          resolvedTracks = await fetchPlaybackBatch(idsToResolve);
+        } catch (error) {
+          console.error("Failed to resolve player state tracks:", error);
+          resolvedTracks = [];
+        }
+      }
+      const byId = new Map(resolvedTracks.map((track) => [track.id, track]));
+      for (const track of resolvedTracks) {
+        playbackCacheRef.current.set(track);
+      }
+
+      // Re-derive the spine from the play context (never snapshotted).
+      let spineTracks: QueueTrack[] = [];
+      let total = 0;
+      if (context) {
+        const loaded = await loadSpineForContext(context);
+        spineTracks = loaded.tracks;
+        total = loaded.total;
+      }
+
+      const resolvedUpNext = saved.upNextIds
+        .map((id) => byId.get(id))
+        .filter((track): track is FullTrack => track !== undefined)
+        .map(queueTrackFromFullTrack);
+
+      const order = createShuffledOrder(
+        spineTracks.length,
+        saved.shuffleSeed !== null,
+        saved.shuffleSeed ?? undefined,
+      );
+
+      setPlayContext(context);
+      setLoopMode(saved.loopMode);
+      setShuffleSeed(saved.shuffleSeed);
+      setUpNext(resolvedUpNext);
+      setUpNextPlayNextCount(0);
+      upNextPlayNextCountRef.current = 0;
+      setSpine(spineTracks);
+      setSpineTotal(total);
+      setSpineOrder(order);
+
+      const currentFullTrack = saved.currentTrackId
+        ? (byId.get(saved.currentTrackId) ?? null)
+        : null;
+
+      if (currentFullTrack && isPlayableTrack(currentFullTrack)) {
+        // Position the current track within the reconstructed play order; a null
+        // position means it lives in Up Next (or nowhere), in which case the
+        // spine keeps its default position.
+        const position = findSpinePositionForTrackId(
+          {
+            upNext: resolvedUpNext,
+            spine: spineTracks,
+            spineOrder: order,
+            spinePosition: 0,
+            loopMode: saved.loopMode,
+          },
+          currentFullTrack.id,
+        );
+        if (position !== null) setSpinePosition(position);
+
+        setCurrentTrack(currentFullTrack);
+        setCacheVersion((version) => version + 1);
+      }
+
+      // Restore-and-wait: show the player paused, never auto-play.
+      wantsAutoPlayRef.current = false;
+      if (currentFullTrack || resolvedUpNext.length > 0 || spineTracks.length > 0) {
+        setIsPlayerVisible(true);
+      }
+    },
+    [loadSpineForContext],
+  );
+
+  // Keep the serializable-state mirror in sync for the debounced write + flush.
+  useEffect(() => {
+    playerStateRef.current = {
+      playContext: playContextToJson(playContext),
+      currentTrackId: currentTrack?.id ?? null,
+      upNextIds: upNext.map((track) => track.id),
+      shuffleSeed,
+      loopMode,
+    };
+  }, [playContext, currentTrack?.id, upNext, shuffleSeed, loopMode]);
+
+  // Debounced write: ~1s after the last queue mutation. Gated on the restore
+  // settling so the initial empty state never overwrites a saved queue before
+  // it has been fetched.
+  useEffect(() => {
+    if (!userId || !restoreSettledRef.current) return;
+
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      persistPlayerState(playerStateRef.current);
+    }, 1000);
+
+    return () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+  }, [userId, playContext, currentTrack?.id, upNext, shuffleSeed, loopMode]);
+
+  // Flush on page unload so the latest state survives a tab close / navigation.
+  useEffect(() => {
+    if (!userId) return;
+
+    const flush = () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      persistPlayerState(playerStateRef.current, { keepalive: true });
+    };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [userId]);
+
+  // Restore the saved queue once per sign-in (skip offline — that's handled by
+  // the separate offline partial-restore slice).
+  useEffect(() => {
+    if (!userId || isOfflineEnvironment()) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const saved = await fetchPlayerState();
+        if (cancelled) return;
+        if (saved) {
+          await restoreQueueFromServer(saved);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to restore player state:", error);
+        }
+      } finally {
+        restoreSettledRef.current = true;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, restoreQueueFromServer]);
 
   return (
     <AudioPlayerContext.Provider
