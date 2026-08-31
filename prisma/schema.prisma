@@ -42,6 +42,7 @@ model UsageEvent {
 
   @@index([type, createdAt])
   @@index([userId, createdAt])
+  @@index([userId, type, createdAt])
 }
 
 model DailyUsageStat {
