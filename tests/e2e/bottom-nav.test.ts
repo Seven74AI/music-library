@@ -15,22 +15,23 @@ async function dismissInstallBanner(page: import("@playwright/test").Page) {
 }
 
 test.describe("Bottom Navigation", () => {
-  test("bottom nav is visible with 4 tabs", { tag: "@smoke" }, async ({ page }) => {
+  test("bottom nav is visible with 5 tabs", { tag: "@smoke" }, async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
     await expect(bottomNav).toBeVisible();
 
-    // 4 tabs: Home, Search, My Library, My Playlists
+    // 5 tabs: Home, Search, My Library, My Playlists, History
     const tabs = bottomNav.getByRole("listitem");
-    await expect(tabs).toHaveCount(4);
+    await expect(tabs).toHaveCount(5);
 
     // Check each tab label
     await expect(bottomNav.getByText("Home")).toBeVisible();
     await expect(bottomNav.getByText("Search")).toBeVisible();
     await expect(bottomNav.getByText("My Library")).toBeVisible();
     await expect(bottomNav.getByText("My Playlists")).toBeVisible();
+    await expect(bottomNav.getByText("History")).toBeVisible();
   });
 
   test("home tab is active on homepage", async ({ page }) => {

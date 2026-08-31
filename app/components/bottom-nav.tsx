@@ -13,6 +13,7 @@ const tabs: TabConfig[] = [
   { label: "Search", icon: "magnifying-glass", to: "/search" },
   { label: "My Library", icon: "file-text", to: "/library" },
   { label: "My Playlists", icon: "list-bullet", to: "/playlists" },
+  { label: "History", icon: "clock", to: "/history" },
 ];
 
 export function BottomNav() {
