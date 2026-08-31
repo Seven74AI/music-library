@@ -13,7 +13,6 @@ import {
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { formatDuration } from "#app/utils/format-duration.ts";
 import { formatRelativeTime } from "#app/utils/format-relative-time.ts";
-import { cn } from "#app/utils/misc.tsx";
 import { isPlayableTrack } from "#app/utils/playable-track";
 import { type Route } from "./+types/history.ts";
 
@@ -71,30 +70,27 @@ function HistoryRow({ item }: { item: HistoryItem }) {
             <div className="truncate text-xs text-muted-foreground">{track.artist.name}</div>
           </div>
         </div>
-        <time
-          className="mt-0.5 block text-xs text-muted-foreground"
-          dateTime={new Date(item.playedAt).toISOString()}
-          title={formatPlayedAt(item.playedAt)}
-        >
-          {formatRelativeTime(item.playedAt)}
-        </time>
+        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span
+            className={
+              item.completed ? "font-medium text-emerald-600 dark:text-emerald-400" : undefined
+            }
+          >
+            {item.completed ? "Completed" : "Skipped"}
+          </span>
+          <span aria-hidden="true">-</span>
+          <time
+            dateTime={new Date(item.playedAt).toISOString()}
+            title={formatPlayedAt(item.playedAt)}
+          >
+            {formatRelativeTime(item.playedAt)}
+          </time>
+        </div>
       </div>
 
       <div className="hidden shrink-0 text-xs text-muted-foreground sm:block">
         {formatDuration(track.duration)}
       </div>
-
-      <span
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-          item.completed
-            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-            : "bg-muted text-muted-foreground",
-        )}
-      >
-        <Icon name={item.completed ? "check-circled" : "forward"} className="h-3.5 w-3.5" />
-        {item.completed ? "Completed" : "Skipped"}
-      </span>
     </li>
   );
 }
