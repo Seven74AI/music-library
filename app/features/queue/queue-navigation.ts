@@ -1,6 +1,8 @@
 import { type QueueTrack } from "#app/types/frontend/shared.ts";
 
-export type LoopMode = "off" | "all" | "one";
+export const LOOP_MODES = ["off", "all", "one"] as const;
+
+export type LoopMode = (typeof LOOP_MODES)[number];
 
 export type QueueZone = "upNext" | "spine";
 
