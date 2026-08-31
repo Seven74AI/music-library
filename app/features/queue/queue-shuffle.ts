@@ -3,6 +3,20 @@ export type RandomFn = () => number;
 const defaultRandom: RandomFn = () => Math.random();
 
 /**
+ * Generate a fresh 32-bit unsigned shuffle seed using the platform CSPRNG when
+ * available, falling back to `Math.random` in environments without
+ * `crypto.getRandomValues` (e.g. some test runners).
+ */
+export function generateShuffleSeed(): number {
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const buffer = new Uint32Array(1);
+    crypto.getRandomValues(buffer);
+    return buffer[0]!;
+  }
+  return Math.floor(Math.random() * 0xffffffff) >>> 0;
+}
+
+/**
  * Build a deterministic pseudo-random function from a 32-bit integer seed
  * (mulberry32). The returned function produces floats in [0, 1) and always
  * yields the same sequence for the same seed.
