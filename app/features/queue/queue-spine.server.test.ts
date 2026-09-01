@@ -207,7 +207,7 @@ describe("fetchQueueSpine", () => {
     expect(result.tracks[0]).not.toHaveProperty("audioFiles");
   });
 
-  test("returns artist spine ordered like the artist page", async () => {
+  test("returns the full artist discography (no 50-track cap)", async () => {
     vi.mocked(prisma.track.findMany).mockResolvedValue([
       {
         id: "track-3",
@@ -225,8 +225,12 @@ describe("fetchQueueSpine", () => {
       where: { artistId: "artist-3" },
       select: QUEUE_TRACK_SELECT,
       orderBy: { createdAt: "desc" },
-      take: 50,
     });
+    // Regression guard: the artist context must return the full discography,
+    // not cap the spine at 50 tracks (library/playlist/album return every track).
+    expect(prisma.track.findMany).toHaveBeenCalledWith(
+      expect.not.objectContaining({ take: expect.anything() }),
+    );
     expect(result).toEqual({
       tracks: [
         {
