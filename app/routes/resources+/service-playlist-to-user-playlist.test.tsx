@@ -2,7 +2,10 @@ import { describe, expect, test, vi, beforeEach } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { userPlaylistTitleTaken } from "#app/utils/user-playlist.server.ts";
+import {
+  bumpUserPlaylistUpdatedAt,
+  userPlaylistTitleTaken,
+} from "#app/utils/user-playlist.server.ts";
 import { action } from "./service-playlist-to-user-playlist.tsx";
 
 vi.mock("#app/utils/auth.server.ts", () => ({
@@ -32,6 +35,7 @@ vi.mock("#app/utils/db.server.ts", () => ({
 
 vi.mock("#app/utils/user-playlist.server.ts", () => ({
   userPlaylistTitleTaken: vi.fn(),
+  bumpUserPlaylistUpdatedAt: vi.fn(),
   normalizeUserPlaylistTitle: (t: string) => t.trim().toLowerCase(),
 }));
 
@@ -279,6 +283,11 @@ describe("service-playlist-to-user-playlist action", () => {
           addedCount: 2,
           skippedCount: 1,
         },
+      });
+
+      expect(bumpUserPlaylistUpdatedAt).toHaveBeenCalledWith({
+        playlistId: "up-1",
+        userId: "user-1",
       });
     });
 
