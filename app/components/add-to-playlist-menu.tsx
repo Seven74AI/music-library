@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
+import { Skeleton } from "./ui/skeleton";
 
 /**
  * Playlist data structure for the add-to-playlist menu
@@ -91,6 +92,10 @@ export function AddToPlaylistMenu({
     if (!searchQuery) return localPlaylists;
     return localPlaylists.filter((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [localPlaylists, searchQuery]);
+
+  // Skeleton rows while the self-fetch is in flight and no data has arrived yet.
+  const isLoadingPlaylists =
+    shouldFetchPlaylists && playlistsFetcher.state !== "idle" && !playlistsFetcher.data;
 
   const handleAddToPlaylist = useCallback(
     (playlist: Playlist, force = false) => {
@@ -202,7 +207,16 @@ export function AddToPlaylistMenu({
         </div>
 
         <ScrollArea className="h-64">
-          {filteredPlaylists.length === 0 ? (
+          {isLoadingPlaylists ? (
+            <div role="status" aria-label="Loading playlists" className="space-y-1">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="px-2 py-2" aria-hidden="true">
+                  <Skeleton className="h-4 w-2/3 mb-1.5" />
+                  <Skeleton className="h-3 w-1/4" />
+                </div>
+              ))}
+            </div>
+          ) : filteredPlaylists.length === 0 ? (
             <div
               className="py-8 text-center text-sm text-muted-foreground"
               role="status"

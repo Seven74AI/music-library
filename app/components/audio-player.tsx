@@ -1606,11 +1606,13 @@ function QueueSectionHeading({ children }: { children: ReactNode }) {
 function VirtualQueueTrackList({
   tracks,
   onRemoveTrack,
+  onPlayTrack,
   parentRef,
   hydrateTracksForDisplay,
 }: {
   tracks: Track[];
   onRemoveTrack: (index: number) => void;
+  onPlayTrack?: (index: number) => void;
   parentRef: React.RefObject<HTMLDivElement | null>;
   hydrateTracksForDisplay: (ids: string[]) => void;
 }) {
@@ -1682,6 +1684,7 @@ function VirtualQueueTrackList({
             track={track}
             isCurrentlyPlaying={false}
             onRemove={() => onRemoveTrack(index)}
+            onPlay={onPlayTrack ? () => onPlayTrack(index) : undefined}
           />
         ))}
       </>
@@ -1716,6 +1719,7 @@ function VirtualQueueTrackList({
               track={track}
               isCurrentlyPlaying={false}
               onRemove={() => onRemoveTrack(virtualItem.index)}
+              onPlay={onPlayTrack ? () => onPlayTrack(virtualItem.index) : undefined}
             />
           </div>
         );
@@ -1734,6 +1738,7 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
     playContext,
     removeTrackFromPlaylist,
     removeCurrentFromQueue,
+    playQueueTrack,
     hydrateTracksForDisplay,
   } = useAudioPlayer();
   const upNextScrollRef = useRef<HTMLDivElement>(null);
@@ -1775,6 +1780,20 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
       });
     },
     [removeTrackFromPlaylist, spinePosition],
+  );
+
+  const playUpNextTrack = useCallback(
+    (index: number) => {
+      playQueueTrack({ zone: "upNext", index });
+    },
+    [playQueueTrack],
+  );
+
+  const playSpineTrack = useCallback(
+    (displayIndex: number) => {
+      playQueueTrack({ zone: "spine", index: spinePosition + 1 + displayIndex });
+    },
+    [playQueueTrack, spinePosition],
   );
 
   const removeCurrentTrack = useCallback(() => {
@@ -1836,6 +1855,7 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
                         <VirtualQueueTrackList
                           tracks={upNext}
                           onRemoveTrack={removeUpNextTrack}
+                          onPlayTrack={playUpNextTrack}
                           parentRef={upNextScrollRef}
                           hydrateTracksForDisplay={hydrateTracksForDisplay}
                         />
@@ -1848,6 +1868,7 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
                         track={track}
                         isCurrentlyPlaying={false}
                         onRemove={() => removeUpNextTrack(index)}
+                        onPlay={() => playUpNextTrack(index)}
                       />
                     ))
                   )}
@@ -1864,6 +1885,7 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
                           <VirtualQueueTrackList
                             tracks={spine}
                             onRemoveTrack={removeSpineTrack}
+                            onPlayTrack={playSpineTrack}
                             parentRef={spineScrollRef}
                             hydrateTracksForDisplay={hydrateTracksForDisplay}
                           />
@@ -1876,6 +1898,7 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
                           track={track}
                           isCurrentlyPlaying={false}
                           onRemove={() => removeSpineTrack(index)}
+                          onPlay={() => playSpineTrack(index)}
                         />
                       ))
                     )
@@ -1953,12 +1976,32 @@ function QueueTrackItem({
   track,
   isCurrentlyPlaying,
   onRemove,
+  onPlay,
 }: {
   track: Track;
   isCurrentlyPlaying: boolean;
   onRemove: () => void;
+  onPlay?: () => void;
 }) {
   const coverImage = "coverImage" in track ? track.coverImage : null;
+
+  const thumbnail = (
+    <div className="flex-shrink-0 relative">
+      <TrackThumbnail coverImage={coverImage} alt={track.title} size="md" />
+      {isCurrentlyPlaying && (
+        <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
+          <Icon name="play" className="h-2 w-2 text-primary-foreground" />
+        </div>
+      )}
+    </div>
+  );
+
+  const info = (
+    <div className="flex-1 min-w-0">
+      <div className="font-medium text-sm truncate">{track.title}</div>
+      <div className="text-xs text-muted-foreground truncate">{track.artist.name}</div>
+    </div>
+  );
 
   return (
     <div
@@ -1966,19 +2009,22 @@ function QueueTrackItem({
         isCurrentlyPlaying ? "bg-primary/10 border-l-4 border-primary" : ""
       }`}
     >
-      <div className="flex-shrink-0 relative">
-        <TrackThumbnail coverImage={coverImage} alt={track.title} size="md" />
-        {isCurrentlyPlaying && (
-          <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
-            <Icon name="play" className="h-2 w-2 text-primary-foreground" />
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm truncate">{track.title}</div>
-        <div className="text-xs text-muted-foreground truncate">{track.artist.name}</div>
-      </div>
+      {onPlay ? (
+        <button
+          type="button"
+          onClick={onPlay}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left cursor-pointer"
+          aria-label={`Play ${track.title}`}
+        >
+          {thumbnail}
+          {info}
+        </button>
+      ) : (
+        <>
+          {thumbnail}
+          {info}
+        </>
+      )}
 
       <div className="flex-shrink-0">
         <Button

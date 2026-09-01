@@ -779,6 +779,51 @@ describe("queue sheet integration", () => {
     expect(spineTitlesInSheet(sheet)).toEqual(["Spine-Charlie-Upcoming"]);
   });
 
+  test("clicking a spine row jumps playback and drops the skipped tracks", async () => {
+    const user = userEvent.setup();
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    const sheet = await openQueueSheet(user);
+    expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Alpha-Now");
+    expect(spineTitlesInSheet(sheet)).toEqual(["Spine-Bravo-Upcoming", "Spine-Charlie-Upcoming"]);
+
+    // Jump straight to Charlie, skipping Bravo — Bravo is discarded.
+    await user.click(within(sheet).getByRole("button", { name: "Play Spine-Charlie-Upcoming" }));
+
+    await waitFor(() => {
+      expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Charlie-Upcoming");
+    });
+    // Charlie was the last upcoming spine track — nothing remains.
+    expect(within(sheet).getByText("No more tracks in this queue.")).toBeTruthy();
+  });
+
+  test("clicking an up next row plays it and drops it and everything before it", async () => {
+    const user = userEvent.setup();
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    // Build Up Next = [Echo (play-next), Delta].
+    await user.click(screen.getByRole("button", { name: "Add Delta to up next" }));
+    await user.click(screen.getByRole("button", { name: "Play next Echo" }));
+    await expectUpNextIds(["track-e", "track-d"]);
+
+    const sheet = await openQueueSheet(user);
+    expect(upNextTitlesInSheet(sheet)).toEqual(["Inject-Echo-88", "Inject-Delta-99"]);
+
+    // Jump to the second Up Next row (Delta) — Echo and Delta are both dropped.
+    await user.click(within(sheet).getByRole("button", { name: "Play Inject-Delta-99" }));
+
+    await waitFor(() => {
+      expect(nowPlayingTitleInSheet(sheet)).toBe("Inject-Delta-99");
+    });
+    await expectUpNextIds([]);
+  });
+
   test("shows up next tracks when more than the virtual list threshold", async () => {
     const user = userEvent.setup();
     mockSpineAndHydration(vi.mocked(fetch));

@@ -29,6 +29,7 @@ import {
   getQueueSpineDisplayTracks,
   hasNextTrack,
   hasPreviousTrack,
+  jumpToTarget,
   resolveNextTrack,
   resolvePreviousTrack,
   type LoopMode,
@@ -107,6 +108,7 @@ interface AudioPlayerContextType {
   playNextTrack: (track: Track) => void;
   addToUpNext: (track: Track) => void;
   addToQueue: (track: Track) => void;
+  playQueueTrack: (target: QueueTarget) => void;
   hydrateTracksForDisplay: (ids: string[]) => void;
   /** @deprecated Use addToUpNext instead */
   addToCurrentPlaylist: (track: Track) => void;
@@ -824,6 +826,42 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     advanceToTarget(target);
   }, [advanceToTarget, navigationState]);
 
+  /**
+   * Jump the queue to a specific track and play it immediately.
+   *
+   * Spine: advance `spinePosition` to the target, dropping the skipped tracks.
+   * Up Next: play the target and drop it plus everything before it, decrementing
+   * the "play next" count by however many of those discarded items were play-next.
+   * Loop mode is left untouched — `loop="one"` re-applies to the new current track.
+   */
+  const playQueueTrack = useCallback(
+    (target: QueueTarget) => {
+      const queueTrack = getTrackAtTarget(navigationState, target);
+      if (!queueTrack) return;
+
+      const nextState = jumpToTarget(navigationState, target);
+      setUpNext(nextState.upNext);
+
+      if (target.zone === "upNext") {
+        // Discarding 0..target.index drops the clicked track and everything before
+        // it. Play-next items sit at the front of Up Next, so decrement the count
+        // by however many of them fall inside the discarded range.
+        const playNextDiscarded = Math.min(target.index + 1, upNextPlayNextCount);
+        if (playNextDiscarded > 0) {
+          setUpNextPlayNextCount((count) => {
+            const next = Math.max(0, count - playNextDiscarded);
+            upNextPlayNextCountRef.current = next;
+            return next;
+          });
+        }
+      }
+
+      setSpinePosition(nextState.spinePosition);
+      void playResolvedTrack(queueTrack);
+    },
+    [navigationState, playResolvedTrack, upNextPlayNextCount],
+  );
+
   const startQueuePlayback = useCallback(() => {
     if (currentTrack) return;
 
@@ -1229,6 +1267,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         playNextTrack,
         addToUpNext,
         addToQueue,
+        playQueueTrack,
         hydrateTracksForDisplay,
         addToCurrentPlaylist,
       }}

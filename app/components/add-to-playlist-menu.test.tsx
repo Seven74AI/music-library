@@ -35,7 +35,7 @@ const mockCreateFetcher = {
 };
 
 const mockPlaylistsFetcher = {
-  state: "idle" as const,
+  state: "idle" as "idle" | "submitting" | "loading",
   data: undefined as
     | {
         playlists: Array<{
@@ -210,4 +210,24 @@ test("renders fetched playlists from self-fetch", () => {
 
   expect(screen.getByText("Fetched Playlist")).toBeDefined();
   expect(screen.getByText("7 tracks")).toBeDefined();
+});
+
+test("shows skeleton rows while the self-fetch is loading", () => {
+  mockPlaylistsFetcher.state = "loading";
+  mockPlaylistsFetcher.data = undefined;
+
+  renderMenu(undefined);
+
+  expect(screen.getByRole("status", { name: "Loading playlists" })).toBeDefined();
+  expect(screen.queryByText("No playlists yet")).toBeNull();
+});
+
+test("shows empty state only after the self-fetch settles with no results", () => {
+  mockPlaylistsFetcher.state = "idle";
+  mockPlaylistsFetcher.data = { playlists: [] };
+
+  renderMenu(undefined);
+
+  expect(screen.getByText("No playlists yet")).toBeDefined();
+  expect(screen.queryByRole("status", { name: "Loading playlists" })).toBeNull();
 });

@@ -6,6 +6,7 @@ import {
   getUpcomingSpinePlayOrder,
   hasNextTrack,
   hasPreviousTrack,
+  jumpToTarget,
   resolveNextTrack,
   resolvePreviousTrack,
   type QueueNavigationState,
@@ -162,6 +163,59 @@ describe("getUpcomingSpinePlayOrder", () => {
     const state = baseState({ spinePosition: 2 });
 
     expect(getUpcomingSpinePlayOrder(state)).toEqual([]);
+  });
+});
+
+describe("jumpToTarget", () => {
+  test("advances the spine position to the target", () => {
+    const state = baseState({
+      spineOrder: [2, 0, 1],
+      spinePosition: 0,
+    });
+
+    const next = jumpToTarget(state, { zone: "spine", index: 2 });
+
+    expect(next.spinePosition).toBe(2);
+  });
+
+  test("preserves the spine order permutation on a spine jump", () => {
+    const state = baseState({
+      spineOrder: [2, 0, 1],
+      spinePosition: 0,
+    });
+
+    const next = jumpToTarget(state, { zone: "spine", index: 1 });
+
+    expect(next.spineOrder).toEqual([2, 0, 1]);
+    expect(next.spinePosition).toBe(1);
+  });
+
+  test("trims Up Next through the clicked index", () => {
+    const state = baseState({
+      upNext: [track("u1"), track("u2"), track("u3")],
+    });
+
+    const next = jumpToTarget(state, { zone: "upNext", index: 1 });
+
+    expect(next.upNext.map((item) => item.id)).toEqual(["u3"]);
+  });
+
+  test("trims Up Next to empty when the last item is clicked", () => {
+    const state = baseState({
+      upNext: [track("u1"), track("u2")],
+    });
+
+    const next = jumpToTarget(state, { zone: "upNext", index: 1 });
+
+    expect(next.upNext).toEqual([]);
+  });
+
+  test("preserves loop mode on a jump", () => {
+    const state = baseState({ loopMode: "one", spinePosition: 1 });
+
+    const next = jumpToTarget(state, { zone: "spine", index: 2 });
+
+    expect(next.loopMode).toBe("one");
   });
 });
 
