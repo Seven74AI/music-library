@@ -4,7 +4,10 @@ import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { createToastHeaders } from "#app/utils/toast.server.ts";
-import { userPlaylistTitleTaken } from "#app/utils/user-playlist.server.ts";
+import {
+  bumpUserPlaylistUpdatedAt,
+  userPlaylistTitleTaken,
+} from "#app/utils/user-playlist.server.ts";
 import { type Route } from "./+types/service-playlist-to-user-playlist";
 
 /**
@@ -245,6 +248,11 @@ export async function action({ request }: Route.ActionArgs) {
           })),
         });
       }
+
+      await bumpUserPlaylistUpdatedAt({
+        playlistId: targetPlaylistId,
+        userId,
+      });
 
       return data(
         {

@@ -159,6 +159,25 @@ export async function createUserPlaylistWithTrack({
   };
 }
 
+/**
+ * Bumps a user playlist's `updatedAt` so "last modified" sorting reflects
+ * content changes (add/remove/reorder), not just renames or creation.
+ * `@updatedAt` auto-tracks the change; we touch it explicitly because
+ * content mutations only write to `UserPlaylistTrack`, never the parent row.
+ */
+export async function bumpUserPlaylistUpdatedAt({
+  playlistId,
+  userId,
+}: {
+  playlistId: string;
+  userId: string;
+}): Promise<void> {
+  await prisma.userPlaylist.update({
+    where: { id: playlistId, ownerId: userId },
+    data: { updatedAt: new Date() },
+  });
+}
+
 export async function addTrackToUserPlaylist({
   userId,
   playlistId,
@@ -200,6 +219,8 @@ export async function addTrackToUserPlaylist({
       position: (maxPosition._max.position ?? -1) + 1,
     },
   });
+
+  await bumpUserPlaylistUpdatedAt({ playlistId, userId });
 
   return { status: "success", playlistTitle: playlist.title };
 }

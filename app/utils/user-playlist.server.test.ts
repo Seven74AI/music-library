@@ -15,6 +15,7 @@ vi.mock("#app/utils/db.server.ts", () => ({
       findMany: vi.fn(),
       create: vi.fn(),
       delete: vi.fn(),
+      update: vi.fn(),
     },
     userPlaylistTrack: {
       findFirst: vi.fn(),
@@ -185,6 +186,30 @@ describe("addTrackToUserPlaylist", () => {
     expect(result).toEqual({
       status: "success",
       playlistTitle: "My Playlist",
+    });
+  });
+
+  test("bumps playlist updatedAt when a track is added", async () => {
+    vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
+      id: "playlist-1",
+      title: "My Playlist",
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
+      _max: { position: 2 },
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.create).mockResolvedValue({} as never);
+
+    const result = await addTrackToUserPlaylist({
+      userId: "user-1",
+      playlistId: "playlist-1",
+      trackId: "track-1",
+    });
+
+    expect(result).toEqual({ status: "success", playlistTitle: "My Playlist" });
+    expect(prisma.userPlaylist.update).toHaveBeenCalledWith({
+      where: { id: "playlist-1", ownerId: "user-1" },
+      data: { updatedAt: expect.any(Date) },
     });
   });
 
