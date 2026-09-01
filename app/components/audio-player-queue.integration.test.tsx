@@ -824,6 +824,67 @@ describe("queue sheet integration", () => {
     await expectUpNextIds([]);
   });
 
+  test("clicking the now playing row toggles pause/resume without rebuilding the queue", async () => {
+    const user = userEvent.setup();
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    // jsdom leaves the media element's play/pause unimplemented (and
+    // `restoreMocks: true` clears `beforeAll` spies before each test), so mock
+    // them per-test and fire the matching events a real browser would.
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(
+      function (this: HTMLMediaElement) {
+        Object.defineProperty(this, "paused", { configurable: true, value: false });
+        this.dispatchEvent(new Event("play"));
+        return Promise.resolve();
+      },
+    );
+    vi.spyOn(window.HTMLMediaElement.prototype, "pause").mockImplementation(
+      function (this: HTMLMediaElement) {
+        Object.defineProperty(this, "paused", { configurable: true, value: true });
+        this.dispatchEvent(new Event("pause"));
+      },
+    );
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    // Autoplay settles into a "playing" state before we toggle.
+    const desktopBar = screen.getByTestId("player-desktop-bar");
+    await waitFor(() => {
+      expect(within(desktopBar).getByLabelText("Pause")).toBeTruthy();
+    });
+
+    const sheet = await openQueueSheet(user);
+    expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Alpha-Now");
+
+    const nowPlayingSection = within(sheet).getByText("Now playing").closest("section");
+    if (!nowPlayingSection) throw new Error("Expected Now playing section");
+
+    // Playing → click pauses.
+    await user.click(
+      within(nowPlayingSection).getByRole("button", { name: "Pause Spine-Alpha-Now" }),
+    );
+    await waitFor(() => {
+      expect(
+        within(nowPlayingSection).getByRole("button", { name: "Play Spine-Alpha-Now" }),
+      ).toBeTruthy();
+    });
+
+    // No rebuild/reorder — now playing and spine are unchanged.
+    expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Alpha-Now");
+    expect(spineTitlesInSheet(sheet)).toEqual(["Spine-Bravo-Upcoming", "Spine-Charlie-Upcoming"]);
+
+    // Paused → click resumes.
+    await user.click(
+      within(nowPlayingSection).getByRole("button", { name: "Play Spine-Alpha-Now" }),
+    );
+    await waitFor(() => {
+      expect(
+        within(nowPlayingSection).getByRole("button", { name: "Pause Spine-Alpha-Now" }),
+      ).toBeTruthy();
+    });
+  });
+
   test("shows up next tracks when more than the virtual list threshold", async () => {
     const user = userEvent.setup();
     mockSpineAndHydration(vi.mocked(fetch));
