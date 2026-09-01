@@ -1,17 +1,17 @@
-import { data } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { data, useFetcher } from "react-router";
 import { AlbumCard } from "#app/components/album-card.tsx";
 import { Breadcrumbs, type BreadcrumbHandle } from "#app/components/breadcrumbs.tsx";
+import { InfiniteScrollSentinel } from "#app/components/infinite-scroll-sentinel.tsx";
 import { MusicEntityHeader } from "#app/components/music-entity-header.tsx";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
+import { getArtistTracksPage } from "#app/features/artist/artist-tracks.server.ts";
 import { getUserId } from "#app/utils/auth.server.ts";
 import { getArtistTitle } from "#app/utils/breadcrumb-utils.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import {
-  loadLibraryStatusByTrackId,
-  loadUserPlaylists,
-} from "#app/utils/track-list-loader.server.ts";
+import { loadUserPlaylists } from "#app/utils/track-list-loader.server.ts";
 import { type Route } from "./+types/artists.$artistId.ts";
 
 export const handle: BreadcrumbHandle = {
@@ -40,30 +40,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         },
         orderBy: { year: "asc" },
       },
-      tracks: {
-        select: {
-          id: true,
-          title: true,
-          duration: true,
-          createdAt: true,
-          serviceUrl: true,
-          albumRecord: {
-            select: { id: true, name: true },
-          },
-          coverImage: { select: { objectKey: true } },
-          service: {
-            select: {
-              displayName: true,
-              logoUrl: true,
-            },
-          },
-          audioFiles: {
-            select: { id: true, format: true, objectKey: true },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      },
+      _count: { select: { tracks: true } },
     },
   });
 
@@ -71,24 +48,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw new Response("Artist not found", { status: 404 });
   }
 
-  const trackIds = artist.tracks.map((track) => track.id);
-  const [{ libraryTrackIds, userTrackCreatedAtByTrackId }, playlists] = await Promise.all([
-    loadLibraryStatusByTrackId(userId, trackIds),
+  const { _count, ...artistData } = artist;
+
+  const [{ tracks, pagination }, playlists] = await Promise.all([
+    getArtistTracksPage(userId, params.artistId),
     loadUserPlaylists(userId),
   ]);
 
-  const tracks = artist.tracks.map((track) => ({
-    ...track,
-    isInUserLibrary: libraryTrackIds.has(track.id),
-    userTrackCreatedAt:
-      userTrackCreatedAtByTrackId.get(track.id)?.toISOString() ?? track.createdAt.toISOString(),
-  }));
-
   return data({
-    artist: {
-      ...artist,
-      tracks,
-    },
+    artist: { ...artistData, trackCount: _count.tracks },
+    initialTracks: tracks,
+    pagination,
     playlists,
   });
 }
@@ -101,8 +71,52 @@ function formatArtistSummary(albumCount: number, trackCount: number) {
   return parts.join(" · ");
 }
 
+type ArtistTrack = Route.ComponentProps["loaderData"]["initialTracks"][number];
+
+type ArtistTracksResponse = {
+  tracks: ArtistTrack[];
+  pagination: { limit: number; hasNext: boolean; nextCursor: string | null };
+};
+
 export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
-  const { artist, playlists } = loaderData;
+  const { artist, initialTracks, pagination: initialPagination, playlists } = loaderData;
+
+  const fetcher = useFetcher<ArtistTracksResponse>();
+  const [tracks, setTracks] = useState(initialTracks);
+  const [pagination, setPagination] = useState(initialPagination);
+  const requestedArtistRef = useRef<string | null>(null);
+
+  // Reset the accumulated list whenever navigation re-runs the loader with a
+  // fresh page 1 (e.g. navigating to a different artist).
+  useEffect(() => {
+    setTracks(initialTracks);
+    setPagination(initialPagination);
+  }, [initialTracks, initialPagination]);
+
+  // Append the next page once the fetcher finishes, skipping any response that
+  // was in flight for a different artist when the route changed.
+  useEffect(() => {
+    const next = fetcher.data;
+    if (!next || requestedArtistRef.current !== artist.id) return;
+    setTracks((prev) => {
+      const seen = new Set(prev.map((track) => track.id));
+      return [...prev, ...next.tracks.filter((track) => !seen.has(track.id))];
+    });
+    setPagination(next.pagination);
+  }, [fetcher.data, artist.id]);
+
+  const isLoading = fetcher.state !== "idle";
+
+  const handleLoadMore = () => {
+    if (isLoading || !pagination.hasNext || !pagination.nextCursor) return;
+    requestedArtistRef.current = artist.id;
+    const params = new URLSearchParams({
+      artistId: artist.id,
+      cursor: pagination.nextCursor,
+      limit: String(pagination.limit),
+    });
+    fetcher.load(`/api/artist-tracks?${params.toString()}`);
+  };
 
   return (
     <OfflineRouteBlocker>
@@ -119,7 +133,7 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               {artist.genre ? <span>{artist.genre}</span> : null}
               {artist.genre ? <span aria-hidden="true">·</span> : null}
-              <span>{formatArtistSummary(artist.albums.length, artist.tracks.length)}</span>
+              <span>{formatArtistSummary(artist.albums.length, artist.trackCount)}</span>
             </div>
           }
           description={artist.bio}
@@ -143,11 +157,11 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
           </section>
         ) : null}
 
-        {artist.tracks.length > 0 ? (
+        {tracks.length > 0 ? (
           <section>
-            <h2 className="mb-4 text-xl font-semibold">Tracks ({artist.tracks.length})</h2>
+            <h2 className="mb-4 text-xl font-semibold">Tracks ({artist.trackCount})</h2>
             <div role="grid" aria-label={`Tracks by ${artist.name}`}>
-              {artist.tracks.map((track, index) => (
+              {tracks.map((track, index) => (
                 <TrackListItem
                   key={track.id}
                   track={{
@@ -167,14 +181,29 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
                   variant="compact"
                   showQuickAddToPlaylist
                   playlistContext={{ type: "artist", artistId: artist.id }}
+                  usePlaybackIndex={false}
                   showDuration
                 />
               ))}
             </div>
+
+            {(pagination.hasNext || isLoading) && (
+              <InfiniteScrollSentinel
+                enabled={pagination.hasNext && !isLoading}
+                onIntersect={handleLoadMore}
+                className="flex items-center justify-center py-8"
+              >
+                {isLoading ? (
+                  <Icon name="update" className="h-6 w-6 animate-spin text-muted-foreground" />
+                ) : (
+                  <span className="text-sm text-muted-foreground">Scroll to load more</span>
+                )}
+              </InfiniteScrollSentinel>
+            )}
           </section>
         ) : null}
 
-        {artist.albums.length === 0 && artist.tracks.length === 0 ? (
+        {artist.albums.length === 0 && artist.trackCount === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <Icon name="avatar" className="mb-4 h-12 w-12 text-muted-foreground" />
             <p className="text-muted-foreground">No albums or tracks yet.</p>
