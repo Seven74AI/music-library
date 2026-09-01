@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { data, NavLink } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { data, NavLink, useFetcher, useSearchParams } from "react-router";
+import { InfiniteScrollSentinel } from "#app/components/infinite-scroll-sentinel.tsx";
 import { OfflinePlaylistsIndexView } from "#app/components/offline/offline-playlists-index-view.tsx";
 import { PlaylistCard } from "#app/components/playlist-card";
 import { Button } from "#app/components/ui/button.tsx";
@@ -16,16 +17,47 @@ import { type PlaylistsIndexOfflineLoaderData } from "#app/features/offline-app/
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { cn } from "#app/utils/misc.tsx";
+import { type Prisma } from "#prisma/client.js";
 import { type Route } from "./+types/playlists.index.ts";
+
+const SORT_OPTIONS = ["name", "created", "updated", "tracks"] as const;
+type SortOption = (typeof SORT_OPTIONS)[number];
+
+const SORT_ORDER: Record<SortOption, Prisma.UserPlaylistOrderByWithRelationInput[]> = {
+  updated: [{ updatedAt: "desc" }, { id: "desc" }],
+  created: [{ createdAt: "desc" }, { id: "desc" }],
+  name: [{ title: "asc" }, { id: "asc" }],
+  tracks: [{ tracks: { _count: "desc" } }, { id: "desc" }],
+};
+
+function parseSort(raw: string | null): SortOption {
+  return SORT_OPTIONS.includes(raw as SortOption) ? (raw as SortOption) : "updated";
+}
 
 export async function loader({ request, url }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
 
-  const cursor = url.searchParams.get("cursor");
-  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "12")));
+  const sort = parseSort(url.searchParams.get("sort"));
+  const q = (url.searchParams.get("q") ?? "").trim();
+  const cursor = url.searchParams.get("cursor") || undefined;
 
+  const parsedLimit = Number.parseInt(url.searchParams.get("limit") || "12", 10);
+  const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 12;
+
+  const where: Prisma.UserPlaylistWhereInput = {
+    ownerId: userId,
+    ...(q
+      ? {
+          OR: [{ title: { contains: q } }, { description: { contains: q } }],
+        }
+      : {}),
+  };
+
+  // Fetch one extra row to know whether another page exists without a second
+  // query. Cursor pagination is keyset-style: the `id` tiebreaker keeps the
+  // order deterministic across every sort (including by track count).
   const playlists = await prisma.userPlaylist.findMany({
-    where: { ownerId: userId },
+    where,
     select: {
       id: true,
       title: true,
@@ -58,42 +90,87 @@ export async function loader({ request, url }: Route.LoaderArgs) {
         orderBy: { position: "asc" },
       },
     },
-    orderBy: { updatedAt: "desc" },
-    take: limit,
+    orderBy: SORT_ORDER[sort],
+    take: limit + 1,
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : undefined,
   });
 
-  // Get next cursor for pagination
-  const nextCursor = playlists.length === limit ? playlists[playlists.length - 1]?.id : null;
+  const hasNext = playlists.length > limit;
+  const page = hasNext ? playlists.slice(0, limit) : playlists;
+  const nextCursor = hasNext ? (page[page.length - 1]?.id ?? null) : null;
 
   return data({
-    playlists,
+    playlists: page,
     pagination: {
       limit,
-      hasNext: !!nextCursor,
+      hasNext,
       nextCursor,
     },
+    sort,
+    q,
   });
 }
 
-type SortOption = "name" | "created" | "updated" | "tracks";
 type ViewMode = "grid" | "list";
+type LoaderData = Route.ComponentProps["loaderData"];
 
 export default function PlaylistsIndexRoute({
   loaderData,
 }: {
-  loaderData: Route.ComponentProps["loaderData"] | PlaylistsIndexOfflineLoaderData;
+  loaderData: LoaderData | PlaylistsIndexOfflineLoaderData;
 }) {
-  const { playlists, pagination } = loaderData;
   const offline = "offline" in loaderData && loaderData.offline;
   const offlinePlaylists =
-    "offlinePlaylists" in loaderData && Array.isArray(loaderData.offlinePlaylists)
+    "offline" in loaderData && Array.isArray(loaderData.offlinePlaylists)
       ? loaderData.offlinePlaylists
       : [];
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<SortOption>("updated");
+
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const sort = parseSort(searchParams.get("sort"));
+  const q = searchParams.get("q") ?? "";
+
+  const initialPlaylists = loaderData.playlists;
+  const initialPagination = loaderData.pagination;
+
+  const fetcher = useFetcher<LoaderData>();
+  const [items, setItems] = useState(initialPlaylists);
+  const [pagination, setPagination] = useState(initialPagination);
+
+  const [searchInput, setSearchInput] = useState(q);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset the accumulated list whenever navigation re-runs the loader with a
+  // fresh page 1 (sort/search change, or back/forward to a different query).
+  useEffect(() => {
+    setItems(initialPlaylists);
+    setPagination(initialPagination);
+  }, [initialPlaylists, initialPagination]);
+
+  // Append the next page once the fetcher finishes (skip stale responses).
+  useEffect(() => {
+    const next = fetcher.data;
+    if (!next || next.sort !== sort || next.q !== q) return;
+    setItems((prev) => {
+      const seen = new Set(prev.map((playlist) => playlist.id));
+      return [...prev, ...next.playlists.filter((playlist) => !seen.has(playlist.id))];
+    });
+    setPagination(next.pagination);
+  }, [fetcher.data, sort, q]);
+
+  // Keep the search box in sync with the URL (e.g. back/forward navigation).
+  useEffect(() => {
+    setSearchInput(q);
+  }, [q]);
+
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    },
+    [],
+  );
 
   if (offline) {
     return (
@@ -109,27 +186,46 @@ export default function PlaylistsIndexRoute({
     );
   }
 
-  // Filter and sort playlists
-  const filteredPlaylists = playlists
-    .filter(
-      (playlist) =>
-        playlist.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        playlist.description?.toLowerCase().includes(searchQuery.toLowerCase()),
-    )
-    .sort((a, b) => {
-      switch (sortBy) {
-        case "name":
-          return a.title.localeCompare(b.title);
-        case "created":
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        case "updated":
-          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-        case "tracks":
-          return b.tracks.length - a.tracks.length;
-        default:
-          return 0;
-      }
+  const isLoading = fetcher.state !== "idle";
+
+  const handleLoadMore = () => {
+    if (isLoading || !pagination.hasNext || !pagination.nextCursor) return;
+    const params = new URLSearchParams({
+      cursor: pagination.nextCursor,
+      limit: String(pagination.limit),
+      sort,
     });
+    if (q) params.set("q", q);
+    fetcher.load(`/playlists?${params.toString()}`);
+  };
+
+  const resetToFirstPage = (mutate: (params: URLSearchParams) => void) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        mutate(params);
+        params.delete("cursor");
+        params.delete("limit");
+        return params;
+      },
+      { replace: true },
+    );
+  };
+
+  const handleSortChange = (value: SortOption) => {
+    resetToFirstPage((params) => params.set("sort", value));
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      resetToFirstPage((params) => {
+        if (value.trim()) params.set("q", value.trim());
+        else params.delete("q");
+      });
+    }, 300);
+  };
 
   return (
     <div className="space-y-6">
@@ -138,7 +234,7 @@ export default function PlaylistsIndexRoute({
         <div>
           <h1 className="text-3xl font-bold">My Playlists</h1>
           <p className="text-muted-foreground">
-            {filteredPlaylists.length} playlist{filteredPlaylists.length !== 1 ? "s" : ""}
+            {items.length} playlist{items.length !== 1 ? "s" : ""}
           </p>
         </div>
         <NavLink
@@ -165,14 +261,14 @@ export default function PlaylistsIndexRoute({
           />
           <Input
             placeholder="Search playlists..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-9"
           />
         </div>
 
         {/* Sort */}
-        <Select value={sortBy} onValueChange={(value: SortOption) => setSortBy(value)}>
+        <Select value={sort} onValueChange={(value: SortOption) => handleSortChange(value)}>
           <SelectTrigger className="w-full sm:w-40">
             <SelectValue />
           </SelectTrigger>
@@ -206,18 +302,18 @@ export default function PlaylistsIndexRoute({
       </div>
 
       {/* Content */}
-      {filteredPlaylists.length === 0 ? (
+      {items.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Icon name="file-text" className="h-16 w-16 text-muted-foreground mb-4" />
           <h3 className="text-xl font-semibold mb-2">
-            {searchQuery ? "No playlists found" : "No playlists yet"}
+            {q ? "No playlists found" : "No playlists yet"}
           </h3>
           <p className="text-muted-foreground mb-6 max-w-md">
-            {searchQuery
-              ? `No playlists match "${searchQuery}". Try a different search term.`
+            {q
+              ? `No playlists match "${q}". Try a different search term.`
               : "Start organizing your music by creating your first playlist."}
           </p>
-          {!searchQuery && (
+          {!q && (
             <NavLink
               to="new"
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -238,7 +334,7 @@ export default function PlaylistsIndexRoute({
                 : "grid-cols-1",
             )}
           >
-            {filteredPlaylists.map((playlist) => (
+            {items.map((playlist) => (
               <PlaylistCard
                 key={playlist.id}
                 id={playlist.id}
@@ -251,17 +347,19 @@ export default function PlaylistsIndexRoute({
             ))}
           </div>
 
-          {/* Pagination */}
-          {pagination.hasNext && (
-            <div className="flex items-center justify-center mt-8">
-              <NavLink
-                to={`?cursor=${pagination.nextCursor}&limit=${pagination.limit}`}
-                className="inline-flex items-center gap-2 rounded-lg border px-6 py-3 hover:bg-accent transition-colors"
-              >
-                Load More
-                <Icon name="arrow-right" className="h-4 w-4" />
-              </NavLink>
-            </div>
+          {/* Infinite scroll sentinel (replaces the "Load More" link) */}
+          {(pagination.hasNext || isLoading) && (
+            <InfiniteScrollSentinel
+              enabled={pagination.hasNext && !isLoading}
+              onIntersect={handleLoadMore}
+              className="flex items-center justify-center py-8"
+            >
+              {isLoading ? (
+                <Icon name="update" className="h-6 w-6 animate-spin text-muted-foreground" />
+              ) : (
+                <span className="text-sm text-muted-foreground">Scroll to load more</span>
+              )}
+            </InfiniteScrollSentinel>
           )}
         </>
       )}
