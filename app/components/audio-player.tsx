@@ -445,7 +445,11 @@ function PlayerMiniBar({
             className={`h-5 w-5 ${isPlaying ? "" : "ml-0.5"}`}
           />
         </Button>
-        <QueueSheet triggerClassName="h-11 w-11 shrink-0 p-0" />
+        <QueueSheet
+          triggerClassName="h-11 w-11 shrink-0 p-0"
+          isPlaying={isPlaying}
+          onTogglePlayPause={onTogglePlayPause}
+        />
         <Button
           variant="ghost"
           size="sm"
@@ -570,7 +574,11 @@ function PlayerNowPlayingSheet({
               size="large"
             />
             <div className="flex-1 flex justify-end">
-              <QueueSheet triggerClassName="h-11 w-11 shrink-0 p-0" />
+              <QueueSheet
+                triggerClassName="h-11 w-11 shrink-0 p-0"
+                isPlaying={isPlaying}
+                onTogglePlayPause={onTogglePlayPause}
+              />
             </div>
           </div>
           <div className="flex items-center justify-center gap-1">
@@ -789,7 +797,7 @@ function PlayerDesktopBar({
         onClear={onClearSleepTimer}
       />
       <div className="flex shrink-0 items-center gap-1">
-        <QueueSheet />
+        <QueueSheet isPlaying={isPlaying} onTogglePlayPause={onTogglePlayPause} />
         <PlayerLoopShuffleDownload
           loopMode={loopMode}
           isShuffleEnabled={isShuffleEnabled}
@@ -1728,7 +1736,15 @@ function VirtualQueueTrackList({
   );
 }
 
-function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: string }) {
+function QueueSheet({
+  triggerClassName = "h-8 w-8 p-0",
+  isPlaying,
+  onTogglePlayPause,
+}: {
+  triggerClassName?: string;
+  isPlaying?: boolean;
+  onTogglePlayPause?: () => void;
+}) {
   const {
     upNext,
     spine,
@@ -1835,7 +1851,9 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
                   <QueueTrackItem
                     track={currentTrack}
                     isCurrentlyPlaying
+                    isPlaying={isPlaying}
                     onRemove={removeCurrentTrack}
+                    onTogglePlayPause={onTogglePlayPause}
                   />
                 </section>
               ) : null}
@@ -1977,11 +1995,15 @@ function QueueTrackItem({
   isCurrentlyPlaying,
   onRemove,
   onPlay,
+  isPlaying,
+  onTogglePlayPause,
 }: {
   track: Track;
   isCurrentlyPlaying: boolean;
   onRemove: () => void;
   onPlay?: () => void;
+  isPlaying?: boolean;
+  onTogglePlayPause?: () => void;
 }) {
   const coverImage = "coverImage" in track ? track.coverImage : null;
 
@@ -2009,7 +2031,17 @@ function QueueTrackItem({
         isCurrentlyPlaying ? "bg-primary/10 border-l-4 border-primary" : ""
       }`}
     >
-      {onPlay ? (
+      {onTogglePlayPause ? (
+        <button
+          type="button"
+          onClick={onTogglePlayPause}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left cursor-pointer"
+          aria-label={isPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
+        >
+          {thumbnail}
+          {info}
+        </button>
+      ) : onPlay ? (
         <button
           type="button"
           onClick={onPlay}
