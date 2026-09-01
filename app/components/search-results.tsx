@@ -3,6 +3,7 @@
  */
 
 import { Link } from "react-router";
+import { InfiniteScrollSentinel } from "#app/components/infinite-scroll-sentinel.tsx";
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { type SearchResult, type TrackSearchResult } from "#app/types/search.ts";
 import { mapSearchTrackToListItem } from "#app/utils/map-search-track.ts";
@@ -135,16 +136,18 @@ export function SearchResults({
         return <EntityResultRow key={`${result.type}-${result.id}`} result={result} />;
       })}
 
-      {hasNext && onLoadMore && (
-        <div className="flex justify-center pt-4">
-          <button
-            onClick={onLoadMore}
-            disabled={isLoading}
-            className="rounded-md bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {isLoading ? "Loading..." : "Load More"}
-          </button>
-        </div>
+      {hasNext && onLoadMore && results.length > 0 && (
+        <InfiniteScrollSentinel
+          enabled={!isLoading}
+          onIntersect={onLoadMore}
+          className="flex justify-center pt-4"
+        >
+          {isLoading ? (
+            <Icon name="update" className="h-6 w-6 animate-spin text-muted-foreground" />
+          ) : (
+            <span className="text-sm text-muted-foreground">Scroll to load more</span>
+          )}
+        </InfiniteScrollSentinel>
       )}
     </div>
   );
