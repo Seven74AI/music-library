@@ -157,7 +157,6 @@ export async function fetchQueueSpine(
       where: { artistId: params.artistId },
       select: QUEUE_TRACK_SELECT,
       orderBy: { createdAt: "desc" },
-      take: 50,
     });
     return { tracks, total: tracks.length };
   }
