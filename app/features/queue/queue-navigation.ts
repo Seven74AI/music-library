@@ -94,6 +94,30 @@ export function advanceAfterPlay(
   };
 }
 
+/**
+ * Advance the queue to a jumped-to target, discarding everything skipped over.
+ *
+ * Spine: move `spinePosition` to the target (tracks before it are dropped).
+ * Up Next: trim to `slice(target.index + 1)` — the clicked track and everything
+ * before it are dropped. Loop mode is left untouched.
+ */
+export function jumpToTarget(
+  state: QueueNavigationState,
+  target: QueueTarget,
+): QueueNavigationState {
+  if (target.zone === "upNext") {
+    return {
+      ...state,
+      upNext: state.upNext.slice(target.index + 1),
+    };
+  }
+
+  return {
+    ...state,
+    spinePosition: target.index,
+  };
+}
+
 export function getTrackAtTarget(
   state: QueueNavigationState,
   target: QueueTarget,
