@@ -3,9 +3,37 @@
  */
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { type SearchResult } from "#app/types/search.ts";
 import { SearchResults } from "./search-results";
+
+type Entry = { isIntersecting: boolean };
+type ObserverCallback = (entries: Entry[], observer: unknown) => void;
+
+let observers: Array<{ callback: ObserverCallback; element: Element | null }> = [];
+
+class MockIntersectionObserver {
+  callback: ObserverCallback;
+  element: Element | null = null;
+
+  constructor(callback: ObserverCallback, _options?: IntersectionObserverInit) {
+    this.callback = callback;
+    observers.push(this);
+  }
+
+  observe(element: Element) {
+    this.element = element;
+  }
+
+  unobserve() {}
+
+  disconnect() {}
+}
+
+beforeEach(() => {
+  observers = [];
+  vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+});
 
 const trackListItemMock = vi.fn();
 
@@ -109,4 +137,47 @@ test("renders empty state safely when results are omitted", () => {
   );
 
   expect(screen.getByText("No results found")).toBeDefined();
+});
+
+test("triggers onLoadMore when the infinite-scroll sentinel enters the viewport", () => {
+  const onLoadMore = vi.fn();
+  render(
+    <MemoryRouter>
+      <SearchResults
+        results={mixedResults}
+        query="search"
+        playlists={[]}
+        onLoadMore={onLoadMore}
+        hasNext
+      />
+    </MemoryRouter>,
+  );
+
+  expect(observers).toHaveLength(1);
+  expect(observers[0]!.element).not.toBeNull();
+
+  observers[0]!.callback([{ isIntersecting: true }], observers[0]!);
+  expect(onLoadMore).toHaveBeenCalledTimes(1);
+});
+
+test("shows a spinner instead of a Load More button while the next page loads", () => {
+  const onLoadMore = vi.fn();
+  render(
+    <MemoryRouter>
+      <SearchResults
+        results={mixedResults}
+        query="search"
+        playlists={[]}
+        onLoadMore={onLoadMore}
+        hasNext
+        isLoading
+      />
+    </MemoryRouter>,
+  );
+
+  expect(screen.queryByRole("button", { name: "Load More" })).toBeNull();
+  expect(screen.getByTestId("infinite-scroll-sentinel")).toBeDefined();
+
+  // While loading the observer is disabled so it can't re-trigger onLoadMore.
+  expect(observers).toHaveLength(0);
 });
