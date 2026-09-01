@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — proposed. Decisions below are locked and complete.
+Accepted — shipped (Aug–Sep 2026).
 
 ## Context
 
@@ -25,11 +25,13 @@ The queue is re-derivable from a **spine** (ADR-015): a deterministic track list
 model PlayerState {
   id             String   @id @default(cuid())
   userId         String   @unique
-  playContext    Json     // { type, playlistId?, artistId?, albumId?, trackId? }
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  playContext    String?  // JSON-encoded PlaylistContext: { type, playlistId?, artistId?, albumId?, trackId? }
   currentTrackId String?
-  upNextIds      Json     // string[] — manual "play next" additions (small)
+  upNextIds      String   @default("[]") // JSON-encoded string[] — manual "play next" additions (small)
   shuffleSeed    Int?     // null = shuffle off
   loopMode       String   @default("off")
+  createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
 ```

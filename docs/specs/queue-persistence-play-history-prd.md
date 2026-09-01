@@ -38,7 +38,7 @@ The player keeps its entire state in memory, so the queue, current track, shuffl
 
 - **Persist queue + current track, not intra-track position.** The current track restarts at 0:00 on restore. Mid-song `currentTime` resume is out of scope (goes stale across device switches and risks two live players).
 - **Re-derive the spine; persist only ephemeral state.** Store the play context, current track ID, Up Next track IDs, shuffle seed, and loop mode. On restore, fetch the spine from the play context and replay position/order/up-next on top. Do not snapshot the resolved track list — a snapshot would resurrect tracks removed from the playlist/library since the last session, and would cost ~420KB per write at 15k-track library scale.
-- **New `PlayerState` model, one row per user** (unique `userId`), with: `playContext` (JSON: `{ type, playlistId?, artistId?, albumId?, trackId? }`), `currentTrackId` (nullable string), `upNextIds` (JSON string array), `shuffleSeed` (nullable int — `null` = shuffle off), `loopMode` (string), `updatedAt`.
+- **New `PlayerState` model, one row per user** (unique `userId`), with: `playContext` (nullable string, JSON-encoded `{ type, playlistId?, artistId?, albumId?, trackId? }`), `currentTrackId` (nullable string), `upNextIds` (JSON-encoded string array, default `"[]"`), `shuffleSeed` (nullable int — `null` = shuffle off), `loopMode` (string), `createdAt`, `updatedAt`.
 - **Seeded shuffle.** Replace the client Fisher-Yates shuffle's `Math.random()` with a seeded PRNG. Generate a 32-bit seed when shuffle is toggled on or reshuffled, store it, and regenerate the identical permutation on restore. The current track is the position anchor (resolved by finding its position in the reconstructed play order), not a raw index. Accepted tradeoff: a seed is positional — if the spine length changes between sessions, the same seed yields a different (but deterministic) order.
 - **Restore-and-wait.** On load, restore the queue → set current track → show the player → paused. No `play()` call (autoplay is blocked without a gesture anyway, and auto-resume risks two devices playing the same queue).
 - **Debounced write + unload flush.** Queue mutations (play/next/previous/up-next add/remove/shuffle/loop toggle/auto-advance) update in-memory state immediately; the DB write is debounced ~1s after the last change, plus a flush on page unload (sendBeacon or `fetch` with `keepalive`). Every `currentTrack` change counts as a mutation.
@@ -57,7 +57,7 @@ The player keeps its entire state in memory, so the queue, current track, shuffl
 
 ### Schema changes (summary)
 
-- New `PlayerState` model (one row per user).
+- New `PlayerState` model (one row per user); `playContext` and `upNextIds` are stored as JSON-encoded strings (nullable `String?` and `String @default("[]")`, respectively), not Prisma `Json` columns.
 - `UsageEvent.playId String?` column.
 - New index on `UsageEvent`: `[userId, type, createdAt]`.
 
