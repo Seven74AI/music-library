@@ -62,7 +62,10 @@ import { prisma } from "#app/utils/db.server.ts";
 import { filterPlayableTracks } from "#app/utils/playable-track.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { createToastHeaders } from "#app/utils/toast.server.ts";
-import { userPlaylistTitleTaken } from "#app/utils/user-playlist.server.ts";
+import {
+  bumpUserPlaylistUpdatedAt,
+  userPlaylistTitleTaken,
+} from "#app/utils/user-playlist.server.ts";
 import { type Route } from "./+types/playlists.$playlistId.ts";
 
 export const handle: BreadcrumbHandle = {
@@ -292,6 +295,11 @@ export async function action({ request, params }: Route.ActionArgs) {
         ),
       );
 
+      await bumpUserPlaylistUpdatedAt({
+        playlistId: params.playlistId,
+        userId,
+      });
+
       return data(
         { success: true, message: "Tracks reordered successfully" },
         {
@@ -364,6 +372,11 @@ export async function action({ request, params }: Route.ActionArgs) {
       where: {
         id: trackId,
       },
+    });
+
+    await bumpUserPlaylistUpdatedAt({
+      playlistId: params.playlistId,
+      userId,
     });
 
     return data(
@@ -449,6 +462,11 @@ export async function action({ request, params }: Route.ActionArgs) {
           },
         });
       }
+
+      await bumpUserPlaylistUpdatedAt({
+        playlistId: params.playlistId,
+        userId,
+      });
 
       return data(
         { success: true, message: `${trackIdArray.length} tracks removed successfully` },
