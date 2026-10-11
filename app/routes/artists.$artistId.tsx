@@ -15,6 +15,7 @@ import { Icon } from "#app/components/ui/icon.tsx";
 import { getArtistTracksPage } from "#app/features/artist/artist-tracks.server.ts";
 import { getUserId } from "#app/utils/auth.server.ts";
 import { getArtistTitle } from "#app/utils/breadcrumb-utils.ts";
+import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { loadUserPlaylists } from "#app/utils/track-list-loader.server.ts";
 import { useOptionalUser, userHasPermission, userIsCuratorOrAdmin } from "#app/utils/user.ts";
@@ -140,7 +141,7 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
         <MusicEntityHeader
           label="Artist"
           title={artist.name}
-          imageUrl={artist.imageUrl}
+          imageUrl={coverImageUrl(artist.imageUrl, entityHeaderCoverPixelSize) || null}
           imageShape="circle"
           fallbackIcon="avatar"
           metadata={

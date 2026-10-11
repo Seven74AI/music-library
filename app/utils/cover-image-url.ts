@@ -37,3 +37,9 @@ export const nowPlayingCoverPixelSize = 320;
  * Retina size for MusicEntityHeader covers (h-48 / 192px CSS → 384px).
  */
 export const entityHeaderCoverPixelSize = 384;
+
+/**
+ * Album cards are fluid squares in a 2–5 column grid inside a 1400px container.
+ * The widest card image is about 230px, so 512px stays sharp at 2×.
+ */
+export const albumCardCoverPixelSize = 512;

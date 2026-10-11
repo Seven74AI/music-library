@@ -53,7 +53,7 @@ const loaderData = {
     name: "Flagged Artist",
     genre: "Jazz",
     bio: null,
-    imageUrl: null,
+    imageUrl: null as string | null,
     country: null,
     website: null,
     createdAt: new Date("2024-01-01"),
@@ -77,14 +77,14 @@ function userWith(role: string, canEdit: boolean): MockUser {
   };
 }
 
-function renderArtist() {
+function renderArtist(data: typeof loaderData = loaderData) {
   const router = createMemoryRouter(
     [
       {
         path: "/artists/:artistId",
         element: (
           <ArtistRoute
-            loaderData={loaderData as never}
+            loaderData={data as never}
             params={{ artistId: "artist-1" }}
             matches={[] as never}
           />
@@ -102,6 +102,42 @@ function renderArtist() {
 
 beforeEach(() => {
   userState.current = undefined;
+});
+
+test("loads the artist photo through the image proxy", () => {
+  renderArtist({
+    ...loaderData,
+    artist: {
+      ...loaderData.artist,
+      imageUrl: "images/artists/artist-1/photo.jpg",
+    },
+  });
+
+  expect(screen.getByRole("img", { name: "Flagged Artist" })).toHaveAttribute(
+    "src",
+    "/resources/images?src=images%2Fartists%2Fartist-1%2Fphoto.jpg&w=384&h=384&fit=cover&format=webp",
+  );
+});
+
+test("proxies an external artist image url", () => {
+  renderArtist({
+    ...loaderData,
+    artist: {
+      ...loaderData.artist,
+      imageUrl: "https://i.ytimg.com/vi/abc/hqdefault.jpg",
+    },
+  });
+
+  expect(screen.getByRole("img", { name: "Flagged Artist" })).toHaveAttribute(
+    "src",
+    "/resources/images?src=https%3A%2F%2Fi.ytimg.com%2Fvi%2Fabc%2Fhqdefault.jpg&w=384&h=384&fit=cover&format=webp",
+  );
+});
+
+test("shows a placeholder when the artist has no photo", () => {
+  renderArtist();
+
+  expect(screen.queryByRole("img", { name: "Flagged Artist" })).not.toBeInTheDocument();
 });
 
 test("shows curator notes on the artist page", () => {

@@ -122,6 +122,28 @@ test("passes the CoverImage id into the editor, not the object key", () => {
   expect(dialogAlbum.current?.coverImageId).toBe("cover-real-id");
 });
 
+test("loads the album cover through the image proxy", () => {
+  renderAlbum({
+    ...loaderData,
+    album: {
+      ...loaderData.album,
+      coverImage: { objectKey: "images/albums/flagged.jpg" },
+    },
+  });
+
+  expect(screen.getByRole("img", { name: "Flagged Album" })).toHaveAttribute(
+    "src",
+    "/resources/images?src=images%2Falbums%2Fflagged.jpg&w=384&h=384&fit=cover&format=webp",
+  );
+});
+
+test("shows a placeholder when the album has no cover", () => {
+  renderAlbum();
+
+  expect(screen.queryByRole("img", { name: "Flagged Album" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Flagged Album" })).toBeInTheDocument();
+});
+
 test("shows curator notes on the album page", () => {
   userState.current = userWith("curator", true);
   renderAlbum();

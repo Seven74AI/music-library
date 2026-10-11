@@ -11,6 +11,7 @@ import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { getUserId } from "#app/utils/auth.server.ts";
 import { getAlbumTitle } from "#app/utils/breadcrumb-utils.ts";
+import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   loadLibraryStatusByTrackId,
@@ -97,7 +98,8 @@ export default function AlbumRoute({ loaderData }: Route.ComponentProps) {
   const canFlagForReview = userIsCuratorOrAdmin(user);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [flagDialogOpen, setFlagDialogOpen] = useState(false);
-  const coverImageUrl = album.coverImage ? `/resources/images/${album.coverImage.objectKey}` : null;
+  const headerCoverUrl =
+    coverImageUrl(album.coverImage?.objectKey, entityHeaderCoverPixelSize) || null;
 
   return (
     <OfflineRouteBlocker>
@@ -107,7 +109,7 @@ export default function AlbumRoute({ loaderData }: Route.ComponentProps) {
         <MusicEntityHeader
           label="Album"
           title={album.name}
-          imageUrl={coverImageUrl}
+          imageUrl={headerCoverUrl}
           fallbackIcon="camera"
           metadata={
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
