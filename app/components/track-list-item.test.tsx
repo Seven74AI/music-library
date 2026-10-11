@@ -183,6 +183,7 @@ function renderTrackListItem(props: Partial<ComponentProps<typeof TrackListItem>
         path: "/",
         element: <TrackListItem track={mockTrack} userTrack={mockUserTrack} index={0} {...props} />,
       },
+      { path: "/albums/:albumId", element: <div>Album page</div> },
     ],
     { initialEntries: ["/"] },
   );
@@ -212,6 +213,59 @@ beforeEach(() => {
   mockAddToUpNext.mockReset();
   mockAddToQueue.mockReset();
   mockToast.mockReset();
+});
+
+test("shows Archiving when the track has no audio", () => {
+  renderTrackListItem();
+
+  expect(screen.getByText("Archiving")).toBeDefined();
+});
+
+test("hides Archiving when the missing audio is a deleted video", () => {
+  renderTrackListItem({ isDeleted: true });
+
+  expect(screen.queryByText("Archiving")).toBeNull();
+  expect(screen.getByText(/Deleted from YouTube/)).toBeDefined();
+});
+
+test("shows the album under the artist without starting playback", async () => {
+  const user = userEvent.setup();
+  renderTrackListItem({
+    track: {
+      ...playableTrack,
+      album: { id: "album-1", name: "Test Album" },
+    },
+  });
+
+  await user.click(screen.getByRole("link", { name: "Test Album" }));
+
+  expect(mockPlayTrack).not.toHaveBeenCalled();
+});
+
+test("adds an unsaved track to the library", async () => {
+  const user = userEvent.setup();
+  renderTrackListItem({
+    track: { ...playableTrack, isInUserLibrary: false },
+    showAddToLibrary: true,
+  });
+
+  await user.click(screen.getByRole("button", { name: "Add to library" }));
+
+  expect(mockSubmit).toHaveBeenCalledWith(
+    { trackId: "track-1", action: "add" },
+    { method: "post", action: "/resources/track-library" },
+  );
+  expect(mockPlayTrack).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Add to library" })).toBeNull();
+});
+
+test("hides add to library when the track is already saved", () => {
+  renderTrackListItem({
+    track: { ...playableTrack, isInUserLibrary: true },
+    showAddToLibrary: true,
+  });
+
+  expect(screen.queryByRole("button", { name: "Add to library" })).toBeNull();
 });
 
 test("renders itemActions render prop when provided", () => {
@@ -540,7 +594,7 @@ test("non-curator desktop row menu keeps the read-only track details view", asyn
     expect(screen.getByText("Track Information")).toBeDefined();
     expect(screen.getByText("Artist: Test Artist")).toBeDefined();
     expect(screen.getByText(/Duration:/)).toBeDefined();
-    expect(screen.getByText(/Added:/)).toBeDefined();
+    expect(screen.queryByText(/^Added:/)).toBeNull();
     expect(screen.queryByRole("tab", { name: "Basic" })).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Curator track details" })).toBeNull();
     expect(mockPlayTrack).not.toHaveBeenCalled();

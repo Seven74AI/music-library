@@ -46,6 +46,10 @@ describe("getSpineSectionLabel", () => {
     expect(getSpineSectionLabel({ type: "track" })).toBe("from track");
   });
 
+  test("uses discover label for discover context", () => {
+    expect(getSpineSectionLabel({ type: "discover" })).toBe("from discover");
+  });
+
   test("uses on-repeat label for snapshot context", () => {
     expect(getSpineSectionLabel({ type: "onRepeatSnapshot", snapshotId: "s1" })).toBe(
       "from on-repeat",
@@ -76,6 +80,10 @@ describe("getSpineSectionHeading", () => {
 
   test("uses track heading for track context", () => {
     expect(getSpineSectionHeading({ type: "track" })).toBe("From Track");
+  });
+
+  test("uses discover heading for discover context", () => {
+    expect(getSpineSectionHeading({ type: "discover" })).toBe("From Discover");
   });
 
   test("uses on-repeat heading for snapshot context", () => {

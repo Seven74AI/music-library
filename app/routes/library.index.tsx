@@ -60,6 +60,7 @@ type UserTrack = {
     coverImage: {
       objectKey: string;
     } | null;
+    albumRecord?: { id: string; name: string } | null;
     serviceUrl: string | null;
     createdAt?: Date;
     releaseDate?: Date | null;
@@ -116,11 +117,12 @@ function LibraryTrackListItem({
 }: LibraryTrackListItemProps) {
   return (
     <TrackListItem
-      track={track}
+      track={{ ...track, album: track.albumRecord ?? null }}
       userTrack={userTrack}
       index={index}
       playlists={playlists}
       playlistContext={{ type: "library", librarySort, sortDirection }}
+      showQuickAddToPlaylist
       showAudioFileDownload
       showCheckbox={showCheckbox}
       isSelected={isSelected}
@@ -597,7 +599,6 @@ export default function LibraryIndexRoute({
                     <div className="flex items-center gap-4 px-1 py-3 text-sm font-medium text-muted-foreground sm:px-4">
                       <div className="w-8 flex items-center justify-center min-w-8">#</div>
                       <div className="flex-1 min-w-0">Title</div>
-                      <div className="hidden lg:flex items-center justify-center w-20">Saved</div>
                       <div className="hidden md:flex text-xs text-muted-foreground w-12 text-center">
                         Duration
                       </div>

@@ -204,6 +204,7 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
                     id: track.id,
                     title: track.title,
                     artist: { id: artist.id, name: artist.name },
+                    album: track.albumRecord,
                     duration: track.duration,
                     coverImage: track.coverImage,
                     serviceUrl: track.serviceUrl,
@@ -214,8 +215,9 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
                   userTrack={{ createdAt: track.userTrackCreatedAt }}
                   index={index}
                   playlists={playlists}
-                  variant="compact"
                   showQuickAddToPlaylist
+                  showAddToLibrary
+                  showAudioFileDownload={track.isInUserLibrary}
                   playlistContext={{ type: "artist", artistId: artist.id }}
                   usePlaybackIndex={false}
                   showDuration

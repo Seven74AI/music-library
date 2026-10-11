@@ -5,12 +5,14 @@ export function mapSearchTrackToListItem(result: TrackSearchResult) {
     id: result.id,
     title: result.title,
     artist: { id: result.artistId, name: result.artistName },
+    album:
+      result.albumId && result.albumName ? { id: result.albumId, name: result.albumName } : null,
     duration: result.duration ?? null,
     coverImage: result.coverImage ?? null,
     serviceUrl: result.serviceUrl ?? null,
     service: result.service ?? null,
     audioFiles: result.audioFiles ?? [],
-    isInUserLibrary: true,
+    isInUserLibrary: Boolean(result.addedAt),
     popularityStats: result.popularityStats,
   };
 }

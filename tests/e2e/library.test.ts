@@ -367,7 +367,7 @@ test.describe("Music Library", () => {
     await expect(dialog.getByText("Track Information")).toBeVisible();
     await expect(dialog.getByText(/Artist: Test Artist/)).toBeVisible();
     await expect(dialog.getByText(/Duration:/)).toBeVisible();
-    await expect(dialog.getByText(/Added:/)).toBeVisible();
+    await expect(dialog.getByText(/Added:/)).toHaveCount(0);
     await expect(dialog.getByRole("tab", { name: "Basic" })).toHaveCount(0);
     expect(requestedDetails).toBe(false);
   });

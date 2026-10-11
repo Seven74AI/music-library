@@ -3,7 +3,7 @@ import { useLayoutEffect, useState, type RefObject } from "react";
 
 /** Column header inside virtualized library and discover lists. */
 export const TRACK_LIST_HEADER_HEIGHT_PX = 64;
-/** Default `TrackListItem` row (`h-20`). */
+/** Default `TrackListItem` row (`min-h-20`). */
 export const TRACK_LIST_ROW_HEIGHT_PX = 80;
 
 type TrackListVirtualizer = Virtualizer<Window, Element>;

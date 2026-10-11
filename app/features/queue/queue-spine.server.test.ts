@@ -74,6 +74,30 @@ describe("parseQueueSpineParams", () => {
     });
   });
 
+  test("accepts discover context and defaults sort to recently added", () => {
+    const params = new URLSearchParams("context=discover");
+    expect(parseQueueSpineParams(params)).toEqual({
+      ok: true,
+      value: {
+        context: "discover",
+        sort: "recentlyAdded",
+        direction: "desc",
+      },
+    });
+  });
+
+  test("accepts a discover sort and direction", () => {
+    const params = new URLSearchParams("context=discover&sort=mostPlayed&dir=asc");
+    expect(parseQueueSpineParams(params)).toEqual({
+      ok: true,
+      value: {
+        context: "discover",
+        sort: "mostPlayed",
+        direction: "asc",
+      },
+    });
+  });
+
   test("rejects missing context", () => {
     const params = new URLSearchParams("hasAudio=1");
     expect(parseQueueSpineParams(params)).toEqual({
@@ -413,6 +437,43 @@ describe("fetchQueueSpine", () => {
           id: "track-4",
           title: "Album Opener",
           artist: { id: "artist-4", name: "Artist Four" },
+        },
+      ],
+      total: 1,
+    });
+  });
+
+  test("returns the playable discover catalog without a page cap", async () => {
+    vi.mocked(prisma.track.findMany).mockResolvedValue([
+      {
+        id: "track-d",
+        title: "Discover Song",
+        createdAt: new Date("2024-01-01"),
+        artist: { id: "artist-d", name: "Discover Artist" },
+      },
+    ] as never);
+
+    const result = await fetchQueueSpine("user-1", {
+      context: "discover",
+      sort: "recentlyAdded",
+      direction: "desc",
+    });
+
+    expect(prisma.track.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { audioFiles: { some: {} } },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+    );
+    expect(prisma.track.findMany).toHaveBeenCalledWith(
+      expect.not.objectContaining({ take: expect.anything() }),
+    );
+    expect(result).toEqual({
+      tracks: [
+        {
+          id: "track-d",
+          title: "Discover Song",
+          artist: { id: "artist-d", name: "Discover Artist" },
         },
       ],
       total: 1,

@@ -135,6 +135,7 @@ type LoaderData = {
     }>;
   };
   isInUserLibrary: boolean;
+  canDownload?: boolean;
   playlists: Array<{
     id: string;
     title: string;
@@ -420,7 +421,9 @@ test("explains when the track cannot be played or downloaded", async () => {
   expect(player.playTrack).not.toHaveBeenCalled();
   expect(screen.getByText("Audio is not available for this track yet.")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Download" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  expect(screen.getByRole("menuitem", { name: "Report issue" })).toBeInTheDocument();
+  expect(screen.queryByRole("menuitem", { name: "Play next" })).not.toBeInTheDocument();
 });
 
 test("shows audio quality, details, lyrics, playlists, and album neighbors", async () => {
@@ -440,7 +443,8 @@ test("shows audio quality, details, lyrics, playlists, and album neighbors", asy
   expect(screen.getByText("Naïve")).toBeInTheDocument();
   expect(screen.getByText("USAAA1234567")).toBeInTheDocument();
   expect(screen.getByText("Oct 17, 2011")).toBeInTheDocument();
-  expect(screen.getByText("Jan 2, 2024")).toBeInTheDocument();
+  expect(screen.queryByText("Jan 2, 2024")).not.toBeInTheDocument();
+  expect(screen.queryByText("Added")).not.toBeInTheDocument();
   expect(screen.getByText(/Waiting in the car/)).toBeInTheDocument();
   expect(screen.getByText(/The city is my church/)).toBeInTheDocument();
 
@@ -469,18 +473,18 @@ test("shows audio quality, details, lyrics, playlists, and album neighbors", asy
   expect(player.playNextTrack).toHaveBeenCalledWith(expect.objectContaining({ id: "track-1" }));
 });
 
-test("toggles library membership from the track page", async () => {
-  const user = userEvent.setup();
+test("hides library actions when the track is already saved", () => {
   renderTrack(makeData({ isInUserLibrary: true }));
 
-  await user.click(screen.getByRole("button", { name: "Remove from library" }));
-  expect(await screen.findByRole("button", { name: "Add to library" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Add to library" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Remove from library" })).not.toBeInTheDocument();
 });
 
 test("offers add to library when the track is not saved", () => {
-  renderTrack(makeData({ isInUserLibrary: false, containingPlaylists: [] }));
+  renderTrack(makeData({ isInUserLibrary: false, containingPlaylists: [], canDownload: false }));
 
   expect(screen.getByRole("button", { name: "Add to library" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Download" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "In your playlists" })).not.toBeInTheDocument();
 });
 

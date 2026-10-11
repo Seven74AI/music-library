@@ -8,6 +8,7 @@ import { FlagForReviewDialog } from "#app/components/flag-for-review-dialog.tsx"
 import { MusicEntityHeader } from "#app/components/music-entity-header.tsx";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
 import { AddToRoomQueueAction } from "#app/components/party-room/add-to-room-queue-action.tsx";
+import { ReportIssueDialog } from "#app/components/report-issue-dialog.tsx";
 import { TrackDetailsDialog } from "#app/components/track-details-dialog.tsx";
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
@@ -132,6 +133,7 @@ type RelatedTrackRow = {
   serviceUrl: string | null;
   artist: { id: string; name: string };
   coverImage: { objectKey: string } | null;
+  albumRecord: { id: string; name: string } | null;
   service: { displayName: string; logoUrl: string | null } | null;
   audioFiles: Array<{ id: string; format: string | null; objectKey: string }>;
   userTracks: Array<{ createdAt: Date }>;
@@ -145,6 +147,7 @@ function relatedTrackSelect(userId: string) {
     createdAt: true,
     serviceUrl: true,
     artist: { select: { id: true, name: true } },
+    albumRecord: { select: { id: true, name: true } },
     coverImage: { select: { objectKey: true } },
     service: { select: { displayName: true, logoUrl: true } },
     audioFiles: { select: { id: true, format: true, objectKey: true } },
@@ -208,6 +211,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         select: { id: true },
         take: 1,
       },
+      servicePlaylistTracks: {
+        where: {
+          isDeleted: false,
+          deletedAt: null,
+          playlist: { ownerId: userId, isActive: true },
+        },
+        select: { id: true },
+        take: 1,
+      },
     },
   });
 
@@ -243,11 +255,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     }),
   ]);
 
-  const { userTracks, ...track } = trackRaw;
+  const { userTracks, servicePlaylistTracks, ...track } = trackRaw;
 
   return data({
     track,
     isInUserLibrary: userTracks.length > 0,
+    canDownload:
+      userTracks.length > 0 || containingPlaylists.length > 0 || servicePlaylistTracks.length > 0,
     playlists,
     containingPlaylists,
     related: chooseRelatedTracks({
@@ -278,6 +292,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
   const isInUserLibrary = loaderData.isInUserLibrary ?? false;
   const playlists = loaderData.playlists ?? [];
   const containingPlaylists = loaderData.containingPlaylists ?? [];
+  const canDownload = loaderData.canDownload ?? (isInUserLibrary || containingPlaylists.length > 0);
   const related = loaderData.related ?? null;
   const user = useOptionalUser();
   const canCurate = userIsCuratorOrAdmin(user);
@@ -294,6 +309,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
   const [inLibrary, setInLibrary] = useState(isInUserLibrary);
   const [editOpen, setEditOpen] = useState(false);
   const [flagOpen, setFlagOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     setInLibrary(isInUserLibrary);
@@ -341,12 +357,11 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
     toast({ title: "Success", description, variant: "success" });
   };
 
-  const toggleLibrary = () => {
-    if (libraryPending) return;
-    const nextAction = inLibrary ? "remove" : "add";
-    setInLibrary(!inLibrary);
+  const addToLibrary = () => {
+    if (libraryPending || inLibrary) return;
+    setInLibrary(true);
     void libraryFetcher.submit(
-      { trackId: track.id, action: nextAction },
+      { trackId: track.id, action: "add" },
       { method: "post", action: "/resources/track-library" },
     );
   };
@@ -361,13 +376,12 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
     { label: "Label", value: track.label },
     { label: "ISRC", value: track.isrc },
     { label: "Released", value: formatTrackDate(track.releaseDate) },
-    { label: "Added", value: formatTrackDate(track.createdAt) },
   ].filter((fact): fact is { label: string; value: string } => Boolean(fact.value));
 
   const sourceLabel = track.service?.displayName
     ? `Open on ${track.service.displayName}`
     : "Open source";
-  const showMore = hasAudio || Boolean(track.serviceUrl);
+  const showMore = hasAudio || Boolean(track.serviceUrl) || Boolean(user);
   const relatedHref = related
     ? related.source === "album"
       ? `/albums/${related.id}`
@@ -444,7 +458,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
                   />
                   {isLoadingNext ? "Preparing..." : "Play"}
                 </Button>
-                {hasAudio ? (
+                {hasAudio && canDownload ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -473,15 +487,17 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
                     />
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={toggleLibrary}
-                  disabled={libraryPending}
-                >
-                  <Icon name={inLibrary ? "check-circled" : "plus"} className="mr-2 h-4 w-4" />
-                  {inLibrary ? "Remove from library" : "Add to library"}
-                </Button>
+                {inLibrary ? null : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addToLibrary}
+                    disabled={libraryPending}
+                  >
+                    <Icon name="plus" className="mr-2 h-4 w-4" />
+                    {libraryPending ? "Adding..." : "Add to library"}
+                  </Button>
+                )}
                 {showMore ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -525,6 +541,16 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
                             <Icon name="link-2" className="mr-2 h-4 w-4" />
                             {sourceLabel}
                           </a>
+                        </DropdownMenuItem>
+                      ) : null}
+                      {user ? (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            window.setTimeout(() => setReportOpen(true), 0);
+                          }}
+                        >
+                          <Icon name="question-mark-circled" className="mr-2 h-4 w-4" />
+                          Report issue
                         </DropdownMenuItem>
                       ) : null}
                     </DropdownMenuContent>
@@ -621,12 +647,19 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
                 {related.tracks.map((relatedTrack, index) => (
                   <TrackListItem
                     key={relatedTrack.id}
-                    track={relatedTrack}
+                    track={{
+                      ...relatedTrack,
+                      album:
+                        related.source === "artist" && relatedTrack.albumRecord
+                          ? relatedTrack.albumRecord
+                          : null,
+                    }}
                     userTrack={{ createdAt: relatedTrack.createdAt }}
                     index={index}
                     playlists={playlists}
-                    variant="compact"
                     showQuickAddToPlaylist
+                    showAddToLibrary
+                    showAudioFileDownload={relatedTrack.isInUserLibrary}
                     playlistContext={relatedContext}
                     showDuration
                     isCurator={canCurate}
@@ -644,6 +677,14 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
           ) : null}
         </div>
 
+        {reportOpen ? (
+          <ReportIssueDialog
+            trackId={track.id}
+            trackTitle={track.title}
+            open={reportOpen}
+            onOpenChange={setReportOpen}
+          />
+        ) : null}
         {canCurate ? (
           <>
             <TrackDetailsDialog trackId={track.id} open={editOpen} onOpenChange={setEditOpen} />

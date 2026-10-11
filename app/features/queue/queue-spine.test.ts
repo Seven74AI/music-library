@@ -94,6 +94,36 @@ describe("fetchQueueSpine", () => {
     expect(url).toContain("sort=title");
   });
 
+  test("requests discover spine and omits the default sort", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tracks: [], total: 0 }),
+    } as Response);
+
+    await fetchQueueSpine({ type: "discover" });
+
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("context=discover");
+    expect(url).not.toContain("sort=");
+    expect(url).not.toContain("dir=");
+  });
+
+  test("requests discover spine with a non-default sort and direction", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tracks: [], total: 0 }),
+    } as Response);
+
+    await fetchQueueSpine({ type: "discover", sort: "mostPlayed", direction: "asc" });
+
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("context=discover");
+    expect(url).toContain("sort=mostPlayed");
+    expect(url).toContain("dir=asc");
+  });
+
   test("throws AuthExpiredError on redirect (302) response", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({

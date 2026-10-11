@@ -164,8 +164,9 @@ export default function AlbumRoute({ loaderData }: Route.ComponentProps) {
                   userTrack={{ createdAt: track.userTrackCreatedAt }}
                   index={index}
                   playlists={playlists}
-                  variant="compact"
                   showQuickAddToPlaylist
+                  showAddToLibrary
+                  showAudioFileDownload={track.isInUserLibrary}
                   playlistContext={{ type: "album", albumId: album.id }}
                   showDuration
                 />

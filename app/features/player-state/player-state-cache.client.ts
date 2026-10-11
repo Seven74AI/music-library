@@ -1,4 +1,5 @@
 import { LOOP_MODES, type LoopMode } from "#app/features/queue/queue-navigation.ts";
+import { DISCOVER_SORT_OPTIONS } from "#app/utils/discover.ts";
 import { type PlayContextJson, type PlayerStateData } from "./player-state.ts";
 
 /**
@@ -45,6 +46,12 @@ function isPlayContextJson(value: unknown): value is PlayContextJson {
       return typeof context.trackId === "string" && context.trackId.length > 0;
     case "onRepeatSnapshot":
       return typeof context.snapshotId === "string" && context.snapshotId.length > 0;
+    case "discover":
+      return (
+        context.sort === undefined ||
+        (typeof context.sort === "string" &&
+          DISCOVER_SORT_OPTIONS.includes(context.sort as (typeof DISCOVER_SORT_OPTIONS)[number]))
+      );
     default:
       return false;
   }

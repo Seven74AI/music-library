@@ -46,6 +46,8 @@ interface SortableListTrack {
   artist: { id: string; name: string };
   duration: number | null;
   coverImage: { objectKey: string } | null;
+  album?: { id: string; name: string } | null;
+  albumRecord?: { id: string; name: string } | null;
   /** Placeholder thumbnail URL (e.g., from YouTube) when coverImage is not available */
   thumbnailUrl?: string | null;
   serviceUrl: string | null;
@@ -169,7 +171,10 @@ function SortableTrackItem({
         id={`track-${track.id}-description`}
       >
         <TrackListItem
-          track={track.track}
+          track={{
+            ...track.track,
+            album: track.track.album ?? track.track.albumRecord ?? null,
+          }}
           userTrack={{ createdAt: track.track.createdAt }}
           index={index}
           playlistContext={{
@@ -179,6 +184,9 @@ function SortableTrackItem({
             sortDirection,
           }}
           playlists={playlists}
+          showQuickAddToPlaylist
+          showAddToLibrary
+          showAudioFileDownload
           showPlaylistActions={true}
           onRemoveFromPlaylist={() => onRemove(track.id)}
           itemActions={itemActions}

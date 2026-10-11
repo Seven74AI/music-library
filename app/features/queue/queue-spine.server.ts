@@ -1,4 +1,10 @@
 import { listLibraryQueueSpineTracks } from "#app/features/listening-insights/library-tracks.server.ts";
+import { listDiscoverSpineTracks } from "#app/utils/discover-tracks.server.ts";
+import {
+  defaultDiscoverSortDirection,
+  parseDiscoverSort,
+  type DiscoverSortOption,
+} from "#app/utils/discover.ts";
 import {
   DEFAULT_LIBRARY_SORT,
   defaultLibrarySortDirection,
@@ -60,13 +66,20 @@ type OnRepeatSnapshotSpineParams = {
   snapshotId: string;
 };
 
+type DiscoverSpineParams = {
+  context: "discover";
+  sort: DiscoverSortOption;
+  direction: SortDirection;
+};
+
 export type QueueSpineParams =
   | LibrarySpineParams
   | PlaylistSpineParams
   | ArtistSpineParams
   | AlbumSpineParams
   | TrackSpineParams
-  | OnRepeatSnapshotSpineParams;
+  | OnRepeatSnapshotSpineParams
+  | DiscoverSpineParams;
 
 type ParseResult = { ok: true; value: QueueSpineParams } | { ok: false; error: string };
 
@@ -147,6 +160,18 @@ export function parseQueueSpineParams(searchParams: URLSearchParams): ParseResul
     };
   }
 
+  if (context === "discover") {
+    const sort = parseDiscoverSort(searchParams.get("sort"));
+    return {
+      ok: true,
+      value: {
+        context: "discover",
+        sort,
+        direction: parseSortDirection(searchParams.get("dir"), defaultDiscoverSortDirection(sort)),
+      },
+    };
+  }
+
   if (context === "onRepeatSnapshot") {
     const snapshotId = searchParams.get("snapshotId");
     if (!snapshotId) {
@@ -218,6 +243,14 @@ export async function fetchQueueSpine(
       where: { albumId: params.albumId },
       select: QUEUE_TRACK_SELECT,
       orderBy: { createdAt: "asc" },
+    });
+    return { tracks, total: tracks.length };
+  }
+
+  if (params.context === "discover") {
+    const tracks = await listDiscoverSpineTracks({
+      sort: params.sort,
+      direction: params.direction,
     });
     return { tracks, total: tracks.length };
   }

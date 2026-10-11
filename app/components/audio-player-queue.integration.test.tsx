@@ -7,7 +7,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ComponentProps, StrictMode, type ReactNode } from "react";
-import { MemoryRouter } from "react-router";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { toast } from "#app/components/ui/use-toast.ts";
@@ -245,15 +245,23 @@ function QueueStateProbe() {
   );
 }
 
-function renderQueueApp(children: ReactNode) {
-  return render(
-    <MemoryRouter>
-      <AudioPlayerProvider>
-        <QueueStateProbe />
-        {children}
-      </AudioPlayerProvider>
-    </MemoryRouter>,
+function renderQueueApp(children: ReactNode, { strict = false }: { strict?: boolean } = {}) {
+  const tree = (
+    <AudioPlayerProvider>
+      <QueueStateProbe />
+      {children}
+    </AudioPlayerProvider>
   );
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/",
+        element: strict ? <StrictMode>{tree}</StrictMode> : tree,
+      },
+    ],
+    { initialEntries: ["/"] },
+  );
+  return render(<RouterProvider router={router} />);
 }
 
 function queueProbe() {
@@ -613,16 +621,7 @@ describe("queue sheet integration", () => {
     const user = userEvent.setup();
     mockSpineAndHydration(vi.mocked(fetch));
 
-    render(
-      <MemoryRouter>
-        <StrictMode>
-          <AudioPlayerProvider>
-            <QueueStateProbe />
-            <WarmPlaybackControls />
-          </AudioPlayerProvider>
-        </StrictMode>
-      </MemoryRouter>,
-    );
+    renderQueueApp(<WarmPlaybackControls />, { strict: true });
     await startWarmLibraryPlayback(user);
     await user.click(screen.getByRole("button", { name: "Add Bravo to up next" }));
     await user.click(screen.getByRole("button", { name: "Play next Delta" }));

@@ -1,5 +1,10 @@
 import { type FullTrack, type QueueTrack } from "#app/types/frontend/shared.ts";
 import { type LibrarySortOption } from "#app/features/listening-insights/heavy-rotation.ts";
+import {
+  DEFAULT_DISCOVER_SORT,
+  defaultDiscoverSortDirection,
+  type DiscoverSortOption,
+} from "#app/utils/discover.ts";
 import { type PlaylistTrackSortOption } from "#app/utils/playlist-track-sort.ts";
 import { type SortDirection } from "#app/utils/sort-direction.ts";
 
@@ -21,7 +26,8 @@ export type QueueSpineContext =
   | { type: "artist"; artistId: string }
   | { type: "album"; albumId: string }
   | { type: "track"; trackId: string }
-  | { type: "onRepeatSnapshot"; snapshotId: string };
+  | { type: "onRepeatSnapshot"; snapshotId: string }
+  | { type: "discover"; sort?: DiscoverSortOption; direction?: SortDirection };
 
 export type QueueSpineResponse = {
   tracks: QueueTrack[];
@@ -61,6 +67,13 @@ export async function fetchQueueSpine(context: QueueSpineContext): Promise<Queue
     url = `/api/queue-spine?context=album&albumId=${encodeURIComponent(context.albumId)}`;
   } else if (context.type === "onRepeatSnapshot") {
     url = `/api/queue-spine?context=onRepeatSnapshot&snapshotId=${encodeURIComponent(context.snapshotId)}`;
+  } else if (context.type === "discover") {
+    const params = new URLSearchParams({ context: "discover" });
+    const sort = context.sort ?? DEFAULT_DISCOVER_SORT;
+    if (sort !== DEFAULT_DISCOVER_SORT) params.set("sort", sort);
+    const direction = context.direction ?? defaultDiscoverSortDirection(sort);
+    if (direction !== defaultDiscoverSortDirection(sort)) params.set("dir", direction);
+    url = `/api/queue-spine?${params.toString()}`;
   } else {
     url = `/api/queue-spine?context=track&trackId=${encodeURIComponent(context.trackId)}`;
   }

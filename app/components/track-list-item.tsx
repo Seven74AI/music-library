@@ -7,6 +7,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
+import { Link, useFetcher } from "react-router";
 import { useAudioPlayer } from "#app/components/audio-player-provider";
 import { FlagForReviewDialog } from "#app/components/flag-for-review-dialog.tsx";
 import { TrackThumbnail } from "#app/components/track-thumbnail";
@@ -37,6 +38,7 @@ import {
   type OfflineDownloadTrack,
 } from "#app/hooks/use-offline-track-download.ts";
 import { useTrackAudioFileDownload } from "#app/hooks/use-track-audio-file-download.ts";
+import { type DiscoverSortOption } from "#app/utils/discover.ts";
 import { formatDuration } from "#app/utils/format-duration.ts";
 import { isPlayableTrack } from "#app/utils/playable-track";
 import { formatServiceDateAdded } from "#app/utils/service-date.ts";
@@ -67,6 +69,7 @@ interface TrackListItemData {
   serviceUrl: string | null;
   service?: { displayName: string; logoUrl: string | null } | null;
   audioFiles?: Array<{ id: string; format: string | null; objectKey: string }>;
+  album?: { id: string; name: string } | null;
   isInUserLibrary?: boolean;
   releaseDate?: string | Date | null;
   originalDate?: string | Date | null;
@@ -83,13 +86,22 @@ interface TrackListItemProps {
   userTrack: UserTrack;
   index: number;
   playlistContext?: {
-    type: "library" | "playlist" | "artist" | "album" | "track" | "music" | "onRepeatSnapshot";
+    type:
+      | "library"
+      | "playlist"
+      | "artist"
+      | "album"
+      | "track"
+      | "music"
+      | "discover"
+      | "onRepeatSnapshot";
     playlistId?: string;
     artistId?: string;
     albumId?: string;
     trackId?: string;
     sort?: "custom" | "title" | "artist" | "duration" | "dateAdded";
     librarySort?: "dateAdded" | "mostPlayedMonth" | "mostPlayedEver";
+    discoverSort?: DiscoverSortOption;
     sortDirection?: "asc" | "desc";
     snapshotId?: string;
   };
@@ -107,6 +119,8 @@ interface TrackListItemProps {
   showDuration?: boolean; // New prop to control duration display
   variant?: "default" | "compact";
   showQuickAddToPlaylist?: boolean;
+  /** Visible control beside add-to-playlist. Hidden once the track is saved. */
+  showAddToLibrary?: boolean;
   /** When false, playTrack resolves spine position by track id instead of list index */
   usePlaybackIndex?: boolean;
   /** Render prop for custom per-track action buttons. Receives trackId, isInLibrary, and isDeleted. */
@@ -169,7 +183,7 @@ interface TrackListItemProps {
  */
 export const TrackListItem = memo(function TrackListItem({
   track,
-  userTrack,
+  userTrack: _userTrack,
   index,
   playlistContext,
   isDeleted,
@@ -181,6 +195,7 @@ export const TrackListItem = memo(function TrackListItem({
   showDuration = true,
   variant = "default",
   showQuickAddToPlaylist = false,
+  showAddToLibrary = false,
   usePlaybackIndex = true,
   itemActions,
   itemActionsContent,
@@ -199,6 +214,8 @@ export const TrackListItem = memo(function TrackListItem({
   const [isDetailsSheetOpen, setIsDetailsSheetOpen] = useState(false);
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [isFlagDialogOpen, setIsFlagDialogOpen] = useState(false);
+  const [addedToLibrary, setAddedToLibrary] = useState(false);
+  const libraryFetcher = useFetcher();
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorRestore, setEditorRestore] = useState<{
@@ -280,6 +297,32 @@ export const TrackListItem = memo(function TrackListItem({
   }, [isCurator, restoredTrackDialog, track.id]);
 
   const hasAudioFiles = isPlayableTrack({ audioFiles: track.audioFiles, isDeleted });
+  const showArchiving = !isDeleted && (track.audioFiles?.length ?? 0) === 0;
+  const showLibraryButton = showAddToLibrary && track.isInUserLibrary === false && !addedToLibrary;
+  const canDownloadAudio = showAudioFileDownload || addedToLibrary;
+
+  useEffect(() => {
+    setAddedToLibrary(false);
+  }, [track.id, track.isInUserLibrary]);
+
+  useEffect(() => {
+    const result = libraryFetcher.data;
+    if (!result || libraryFetcher.state !== "idle" || typeof result !== "object") return;
+    if ("status" in result && result.status === "error") setAddedToLibrary(false);
+  }, [libraryFetcher.data, libraryFetcher.state]);
+
+  const handleAddToLibrary = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      if (libraryFetcher.state !== "idle") return;
+      setAddedToLibrary(true);
+      void libraryFetcher.submit(
+        { trackId: track.id, action: "add" },
+        { method: "post", action: "/resources/track-library" },
+      );
+    },
+    [libraryFetcher, track.id],
+  );
 
   // Radix dropdowns portal outside the row. React still bubbles events through the
   // portal's React tree (not the DOM tree), so dropdown content must stopPropagation /
@@ -368,8 +411,8 @@ export const TrackListItem = memo(function TrackListItem({
 
   const isCompact = variant === "compact";
   const rowClassName = isCompact
-    ? "group flex items-center gap-3 rounded-lg px-1 py-2.5 sm:px-3 hover:bg-muted/50 transition-colors h-14"
-    : "group flex items-center gap-3 px-1 py-2 sm:gap-4 sm:px-4 rounded-md hover:bg-muted/50 transition-colors h-20";
+    ? "group flex items-center gap-3 rounded-lg px-1 py-2.5 sm:px-3 hover:bg-muted/50 transition-colors min-h-14"
+    : "group flex items-center gap-3 px-1 py-2 sm:gap-4 sm:px-4 rounded-md hover:bg-muted/50 transition-colors min-h-20";
 
   const serviceDateAdded = formatServiceDateAdded({
     releaseDate: track.releaseDate,
@@ -453,6 +496,11 @@ export const TrackListItem = memo(function TrackListItem({
                   {track.title}
                 </div>
                 <NotesBadge count={curatorNotesCount} onClick={() => setIsNotesOpen(true)} />
+                {showArchiving ? (
+                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    Archiving
+                  </span>
+                ) : null}
                 {isDeleted && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -487,6 +535,15 @@ export const TrackListItem = memo(function TrackListItem({
                   <span className="ml-2 text-muted-foreground/70">• Deleted from YouTube</span>
                 )}
               </div>
+              {track.album?.name ? (
+                <Link
+                  to={`/albums/${track.album.id}`}
+                  className="block truncate text-xs text-muted-foreground hover:underline"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {track.album.name}
+                </Link>
+              ) : null}
               {track.popularityStats && formatPopularityStats(track.popularityStats, true) && (
                 <div className="text-xs text-muted-foreground/80 truncate">
                   {formatPopularityStats(track.popularityStats, true)}
@@ -505,7 +562,9 @@ export const TrackListItem = memo(function TrackListItem({
 
         {/* Actions */}
         <div
-          className={`flex items-center gap-1 ${showQuickAddToPlaylist ? "shrink-0" : "w-8"}`}
+          className={`flex items-center gap-1 ${
+            showQuickAddToPlaylist || showLibraryButton ? "shrink-0" : "w-8"
+          }`}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
@@ -546,6 +605,22 @@ export const TrackListItem = memo(function TrackListItem({
                 </DropdownMenuContent>
               </DropdownMenu>
             ))}
+          {showLibraryButton ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 px-2"
+              aria-label="Add to library"
+              disabled={libraryFetcher.state !== "idle"}
+              onClick={handleAddToLibrary}
+            >
+              {libraryFetcher.state !== "idle" ? (
+                <Icon name="update" className="h-4 w-4 animate-spin" />
+              ) : (
+                "Add to library"
+              )}
+            </Button>
+          ) : null}
           {isMobile ? (
             /* Mobile: Bottom Sheet */
             <Button
@@ -618,7 +693,7 @@ export const TrackListItem = memo(function TrackListItem({
                           <div className="text-sm text-muted-foreground space-y-1">
                             <div>Artist: {track.artist.name}</div>
                             <div>Duration: {formatDuration(track.duration)}</div>
-                            <div>Added: {new Date(userTrack.createdAt).toLocaleDateString()}</div>
+                            {track.album?.name ? <div>Album: {track.album.name}</div> : null}
                             {track.service?.displayName && (
                               <div>Source: {track.service.displayName}</div>
                             )}
@@ -721,7 +796,7 @@ export const TrackListItem = memo(function TrackListItem({
                     <AddToRoomQueueAction trackId={track.id} variant="dropdown" />
                   </>
                 )}
-                {showAudioFileDownload && hasAudioFiles ? (
+                {canDownloadAudio && hasAudioFiles ? (
                   <AudioFileDownloadDropdownItem trackId={track.id} title={track.title} />
                 ) : null}
                 {offlineDownloadTrack ? (
@@ -916,7 +991,7 @@ export const TrackListItem = memo(function TrackListItem({
                     />
                   </>
                 )}
-                {showAudioFileDownload && hasAudioFiles ? (
+                {canDownloadAudio && hasAudioFiles ? (
                   <AudioFileDownloadSheetButton
                     trackId={track.id}
                     title={track.title}
@@ -1009,7 +1084,7 @@ export const TrackListItem = memo(function TrackListItem({
                   <div className="text-sm text-muted-foreground space-y-1">
                     <div>Artist: {track.artist.name}</div>
                     <div>Duration: {formatDuration(track.duration)}</div>
-                    <div>Added: {new Date(userTrack.createdAt).toLocaleDateString()}</div>
+                    {track.album?.name ? <div>Album: {track.album.name}</div> : null}
                     {track.service?.displayName && <div>Source: {track.service.displayName}</div>}
                     {serviceDateAdded && <div>Date added: {serviceDateAdded}</div>}
                   </div>

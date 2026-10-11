@@ -51,6 +51,10 @@ export type DiscoverTrack = {
     id: string;
     name: string;
   };
+  albumRecord: {
+    id: string;
+    name: string;
+  } | null;
   coverImage: {
     objectKey: string;
   } | null;

@@ -40,6 +40,12 @@ const TRACK_SELECT = {
       name: true,
     },
   },
+  albumRecord: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
   coverImage: {
     select: {
       objectKey: true,
@@ -370,4 +376,63 @@ async function listDiscoverTracksByUserCount({
       nextCursor,
     },
   };
+}
+
+const PLAYABLE_TRACK_WHERE = { audioFiles: { some: {} } } as const;
+
+const SPINE_TRACK_SELECT = {
+  id: true,
+  title: true,
+  createdAt: true,
+  artist: { select: { id: true, name: true } },
+} as const;
+
+/**
+ * Full playable Discover catalog in the same order as the Discover page.
+ * Tracks without audio are omitted so playback can continue through the list.
+ */
+export async function listDiscoverSpineTracks({
+  sort,
+  direction = defaultDiscoverSortDirection(sort),
+}: {
+  sort: DiscoverSortOption;
+  direction?: SortDirection;
+}) {
+  if (sort === "mostPlayed" || sort === "mostLiked") {
+    const tracks = await prisma.track.findMany({
+      where: PLAYABLE_TRACK_WHERE,
+      select: SPINE_TRACK_SELECT,
+    });
+    const ids = tracks.map((track) => track.id);
+    const counts =
+      sort === "mostPlayed" ? await getTrackPlayCounts(ids) : await discoverLibraryCounts(ids);
+
+    const sorted = [...tracks].sort((a, b) => {
+      const countA = counts.get(a.id) ?? 0;
+      const countB = counts.get(b.id) ?? 0;
+      if (countB !== countA) return countB - countA;
+      const timeDiff = b.createdAt.getTime() - a.createdAt.getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return a.id.localeCompare(b.id);
+    });
+    const ordered = direction === "asc" ? sorted.reverse() : sorted;
+    return ordered.map(({ id, title, artist }) => ({ id, title, artist }));
+  }
+
+  const tracks = await prisma.track.findMany({
+    where: PLAYABLE_TRACK_WHERE,
+    select: SPINE_TRACK_SELECT,
+    orderBy: getOrderByForSort(sort, direction),
+  });
+  return tracks.map(({ id, title, artist }) => ({ id, title, artist }));
+}
+
+async function discoverLibraryCounts(trackIds: string[]) {
+  if (trackIds.length === 0) return new Map<string, number>();
+  const userCounts = await prisma.userTrack.groupBy({
+    by: ["trackId"],
+    where: { trackId: { in: trackIds }, isActive: true, deletedAt: null },
+    _count: { userId: true },
+  });
+  return new Map(userCounts.map((row) => [row.trackId, row._count.userId]));
 }

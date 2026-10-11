@@ -34,6 +34,12 @@ const FULL_TRACK_INCLUDE = {
       objectKey: true,
     },
   },
+  albumRecord: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
   service: {
     select: {
       name: true,

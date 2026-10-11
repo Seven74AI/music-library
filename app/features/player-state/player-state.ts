@@ -1,4 +1,5 @@
 import { type LoopMode } from "#app/features/queue/queue-navigation.ts";
+import { type DiscoverSortOption } from "#app/utils/discover.ts";
 
 /**
  * Persisted play context — the subset of the client `PlaylistContext` needed to
@@ -25,7 +26,14 @@ export type PlayContextJson =
   | { type: "artist"; artistId: string }
   | { type: "album"; albumId: string }
   | { type: "track"; trackId: string }
-  | { type: "onRepeatSnapshot"; snapshotId: string };
+  | { type: "onRepeatSnapshot"; snapshotId: string }
+  | {
+      type: "discover";
+      /** Omitted means recently added. */
+      sort?: DiscoverSortOption;
+      /** Omitted means the default direction for the chosen sort. */
+      direction?: "asc" | "desc";
+    };
 
 /** Serializable player state, as stored in the `PlayerState` row and sent over the wire. */
 export type PlayerStateData = {

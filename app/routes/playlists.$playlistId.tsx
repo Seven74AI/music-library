@@ -122,6 +122,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
                   objectKey: true,
                 },
               },
+              albumRecord: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
               serviceUrl: true,
               createdAt: true,
               releaseDate: true,

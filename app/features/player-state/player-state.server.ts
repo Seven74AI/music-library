@@ -4,10 +4,12 @@ import { clampShuffleSeed } from "#app/features/queue/queue-shuffle.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { PLAYLIST_TRACK_SORT_OPTIONS } from "#app/utils/playlist-track-sort.ts";
 import { LIBRARY_SORT_OPTIONS } from "#app/features/listening-insights/heavy-rotation.ts";
+import { DISCOVER_SORT_OPTIONS } from "#app/utils/discover.ts";
 import { type PlayContextJson, type PlayerStateData } from "./player-state.ts";
 
 const playlistSortSchema = z.enum(PLAYLIST_TRACK_SORT_OPTIONS);
 const librarySortSchema = z.enum(LIBRARY_SORT_OPTIONS);
+const discoverSortSchema = z.enum(DISCOVER_SORT_OPTIONS);
 const sortDirectionSchema = z.enum(["asc", "desc"]);
 
 const playContextSchema = z.discriminatedUnion("type", [
@@ -26,6 +28,11 @@ const playContextSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("album"), albumId: z.string().min(1) }),
   z.object({ type: z.literal("track"), trackId: z.string().min(1) }),
   z.object({ type: z.literal("onRepeatSnapshot"), snapshotId: z.string().min(1) }),
+  z.object({
+    type: z.literal("discover"),
+    sort: discoverSortSchema.optional(),
+    direction: sortDirectionSchema.optional(),
+  }),
 ]);
 
 const playerStateSchema = z.object({

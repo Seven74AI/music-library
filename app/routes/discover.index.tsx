@@ -1,11 +1,9 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useWindowVirtualizer, defaultRangeExtractor, type Range } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useRef } from "react";
-import { data, useFetcher, useSearchParams } from "react-router";
+import { data, useSearchParams } from "react-router";
 import { SortDirectionToggle } from "#app/components/sort-direction-toggle.tsx";
 import { TrackListItem } from "#app/components/track-list-item";
-import { Badge } from "#app/components/ui/badge.tsx";
-import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import {
   Select,
@@ -15,7 +13,6 @@ import {
   SelectValue,
 } from "#app/components/ui/select.tsx";
 import { TrackListSkeleton } from "#app/components/ui/track-list-skeleton";
-import { toast } from "#app/components/ui/use-toast.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
@@ -33,7 +30,6 @@ import {
   useListScrollMargin,
   virtualRowOffset,
 } from "#app/utils/track-list-virtualizer.ts";
-import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/discover.index.ts";
 
 export async function loader({ request, url }: Route.LoaderArgs) {
@@ -80,57 +76,11 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   });
 }
 
-export async function action({ request }: Route.ActionArgs) {
-  const userId = await requireUserId(request);
-  const formData = await request.formData();
-  const intent = formData.get("intent");
-  const trackId = formData.get("trackId");
-
-  if (intent === "addToLibrary" && typeof trackId === "string") {
-    const existing = await prisma.userTrack.findUnique({
-      where: {
-        userId_trackId: {
-          userId,
-          trackId,
-        },
-      },
-    });
-
-    if (existing) {
-      if (!existing.isActive || existing.deletedAt) {
-        await prisma.userTrack.update({
-          where: { id: existing.id },
-          data: {
-            isActive: true,
-            deletedAt: null,
-          },
-        });
-        return data({ success: true, message: "Track re-added to your library" });
-      }
-      return data({ success: false, message: "Track is already in your library" });
-    }
-
-    await prisma.userTrack.create({
-      data: {
-        userId,
-        trackId,
-        isActive: true,
-      },
-    });
-
-    return data({ success: true, message: "Track added to your library" });
-  }
-
-  return data({ success: false, message: "Invalid request" });
-}
-
-export async function clientAction(args: Route.ClientActionArgs) {
-  return proxyClientActionToServer(args);
-}
-
 type DiscoverTrackListItemProps = {
   track: DiscoverTrack;
   index: number;
+  sort: DiscoverSortOption;
+  direction: SortDirection;
   playlists: Array<{
     id: string;
     title: string;
@@ -139,76 +89,40 @@ type DiscoverTrackListItemProps = {
   }>;
 };
 
-function DiscoverTrackListItem({ track, index, playlists }: DiscoverTrackListItemProps) {
-  const fetcher = useFetcher();
-  const isAddingToLibrary = fetcher.state !== "idle";
-
-  const hasAudioFiles = track.audioFiles && track.audioFiles.length > 0;
-
-  const handleAddToLibrary = useCallback(() => {
-    const formData = new FormData();
-    formData.append("intent", "addToLibrary");
-    formData.append("trackId", track.id);
-    fetcher.submit(formData, { method: "POST" });
-  }, [track.id, fetcher]);
-
-  useEffect(() => {
-    if (fetcher.data && fetcher.state === "idle") {
-      if (fetcher.data.success) {
-        toast({
-          title: "Success",
-          description: fetcher.data.message,
-          variant: "success",
-        });
-      } else {
-        toast({
-          title: "Error",
-          description: fetcher.data.message,
-          variant: "destructive",
-        });
-      }
-    }
-  }, [fetcher.data, fetcher.state]);
-
-  const userTrack = {
-    createdAt: track.userTrackCreatedAt ?? track.createdAt,
-  };
-
+function DiscoverTrackListItem({
+  track,
+  index,
+  sort,
+  direction,
+  playlists,
+}: DiscoverTrackListItemProps) {
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 min-w-0">
-        <TrackListItem
-          track={track}
-          userTrack={userTrack}
-          index={index}
-          playlists={track.isInUserLibrary ? playlists : undefined}
-          playlistContext={{ type: "music" }}
-          showAudioFileDownload={false}
-          usePlaybackIndex={false}
-        />
-      </div>
-      {!hasAudioFiles && (
-        <Badge variant="secondary" className="shrink-0 mr-2">
-          Archiving
-        </Badge>
-      )}
-      {!track.isInUserLibrary && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleAddToLibrary}
-          disabled={isAddingToLibrary}
-          className="shrink-0 mr-2"
-        >
-          {isAddingToLibrary ? (
-            <Icon name="update" className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <Icon name="plus" className="h-4 w-4 mr-2" />
-          )}
-          Add to Library
-        </Button>
-      )}
-    </div>
+    <TrackListItem
+      track={{
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        album: track.albumRecord,
+        duration: track.duration,
+        coverImage: track.coverImage,
+        serviceUrl: track.serviceUrl,
+        service: track.service,
+        audioFiles: track.audioFiles,
+        isInUserLibrary: track.isInUserLibrary,
+        releaseDate: track.releaseDate,
+        originalDate: track.originalDate,
+        createdAt: track.createdAt,
+        popularityStats: track.popularityStats,
+      }}
+      userTrack={{ createdAt: track.userTrackCreatedAt ?? track.createdAt }}
+      index={index}
+      playlists={playlists}
+      playlistContext={{ type: "discover", discoverSort: sort, sortDirection: direction }}
+      showQuickAddToPlaylist
+      showAddToLibrary
+      showAudioFileDownload={track.isInUserLibrary}
+      usePlaybackIndex={false}
+    />
   );
 }
 
@@ -477,7 +391,13 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
                   ref={virtualizer.measureElement}
                   style={rowStyle}
                 >
-                  <DiscoverTrackListItem track={item} index={itemIndex} playlists={playlists} />
+                  <DiscoverTrackListItem
+                    track={item}
+                    index={itemIndex}
+                    sort={sort}
+                    direction={direction}
+                    playlists={playlists}
+                  />
                 </div>
               );
             })}
