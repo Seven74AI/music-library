@@ -383,11 +383,13 @@ function PlayerTrackIdentity({
   titleClassName,
   artistClassName,
   className,
+  onNavigate,
 }: {
   track: Track;
   titleClassName: string;
   artistClassName: string;
   className?: string;
+  onNavigate?: () => void;
 }) {
   const artistHref = artistPagePath(track.artist.id);
 
@@ -396,6 +398,7 @@ function PlayerTrackIdentity({
       <Link
         to={`/library/${track.id}`}
         prefetch="intent"
+        onClick={onNavigate}
         className="block hover:underline focus-visible:underline"
       >
         <MarqueeText className={titleClassName}>{track.title}</MarqueeText>
@@ -404,6 +407,7 @@ function PlayerTrackIdentity({
         <Link
           to={artistHref}
           prefetch="intent"
+          onClick={onNavigate}
           className="block hover:underline focus-visible:underline"
         >
           <MarqueeText className={artistClassName}>{track.artist.name}</MarqueeText>
@@ -599,10 +603,12 @@ function PlayerNowPlayingSheet({
               className="shadow-lg h-40 w-40"
             />
             <div className="w-full text-center">
-              <MarqueeText className="text-lg font-semibold">{track.title}</MarqueeText>
-              <MarqueeText className="text-sm text-muted-foreground">
-                {track.artist.name}
-              </MarqueeText>
+              <PlayerTrackIdentity
+                track={track}
+                titleClassName="text-lg font-semibold"
+                artistClassName="text-sm text-muted-foreground"
+                onNavigate={() => onOpenChange(false)}
+              />
             </div>
           </div>
           <PlayerSeekBar

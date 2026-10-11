@@ -1022,8 +1022,7 @@ test("links the track title and artist from the desktop player", async () => {
   );
 });
 
-test("keeps the mobile mini bar and now playing sheet title and artist as plain text", async () => {
-  const user = userEvent.setup();
+test("keeps the mobile mini bar title and artist as plain text", async () => {
   await renderPlayer();
 
   const miniBar = screen.getByTestId("player-mini-bar");
@@ -1031,13 +1030,26 @@ test("keeps the mobile mini bar and now playing sheet title and artist as plain 
   expect(within(miniBar).queryByRole("link", { name: "Test Artist" })).toBeNull();
   expect(within(miniBar).getByText("Test Song")).toBeTruthy();
   expect(within(miniBar).getByText("Test Artist")).toBeTruthy();
+});
+
+test("links the track title and artist in the now playing sheet and closes it", async () => {
+  const user = userEvent.setup();
+  await renderPlayer();
 
   await user.click(screen.getByLabelText("Open now playing"));
   const sheet = await screen.findByTestId("player-now-playing-sheet");
-  expect(within(sheet).queryByRole("link", { name: "Test Song" })).toBeNull();
-  expect(within(sheet).queryByRole("link", { name: "Test Artist" })).toBeNull();
-  expect(within(sheet).getByText("Test Song")).toBeTruthy();
-  expect(within(sheet).getByText("Test Artist")).toBeTruthy();
+
+  expect(within(sheet).getByRole("link", { name: "Test Song" })).toHaveAttribute(
+    "href",
+    "/library/track-1",
+  );
+  const artistLink = within(sheet).getByRole("link", { name: "Test Artist" });
+  expect(artistLink).toHaveAttribute("href", "/artists/artist-1");
+
+  await user.click(artistLink);
+  await waitFor(() => {
+    expect(screen.queryByTestId("player-now-playing-sheet")).toBeNull();
+  });
 });
 
 test("leaves the artist name unlinked when playback has no artist page", async () => {
