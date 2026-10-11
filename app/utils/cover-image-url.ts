@@ -32,3 +32,8 @@ export const playlistCoverPixelSizes = {
  * is visible — the sheet remounts on each open and would otherwise refetch.
  */
 export const nowPlayingCoverPixelSize = 320;
+
+/**
+ * Retina size for MusicEntityHeader covers (h-48 / 192px CSS → 384px).
+ */
+export const entityHeaderCoverPixelSize = 384;

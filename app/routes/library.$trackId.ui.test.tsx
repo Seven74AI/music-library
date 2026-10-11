@@ -348,7 +348,7 @@ test("shows the track as a playable music page", async () => {
   expect(screen.getByRole("heading", { level: 1, name: "Midnight City" })).toBeInTheDocument();
   expect(screen.getByRole("img", { name: "Midnight City" })).toHaveAttribute(
     "src",
-    "/resources/images/covers/midnight.jpg",
+    "/resources/images?src=covers%2Fmidnight.jpg&w=384&h=384&fit=cover&format=webp",
   );
   expect(screen.getByRole("link", { name: "M83" })).toHaveAttribute("href", "/artists/artist-1");
   expect(screen.getByRole("link", { name: "Hurry Up, We're Dreaming" })).toHaveAttribute(
@@ -370,6 +370,20 @@ test("shows the track as a playable music page", async () => {
 
   await user.click(screen.getByRole("button", { name: "Download" }));
   expect(download.downloadAudioFile).toHaveBeenCalledOnce();
+});
+
+test("shows a placeholder when the track has no cover", () => {
+  renderTrack(
+    makeData({
+      track: {
+        ...makeData().track,
+        coverImage: null,
+      },
+    }),
+  );
+
+  expect(screen.queryByRole("img", { name: "Midnight City" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Midnight City" })).toBeInTheDocument();
 });
 
 test("lists other tracks by the artist when the track has no album", async () => {

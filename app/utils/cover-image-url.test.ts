@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   coverImageUrl,
+  entityHeaderCoverPixelSize,
   nowPlayingCoverPixelSize,
   playlistCoverPixelSizes,
   trackThumbnailPixelSizes,
@@ -46,5 +47,9 @@ describe("pixel size maps", () => {
 
   test("now-playing sheet cover uses a dedicated retina size", () => {
     expect(nowPlayingCoverPixelSize).toBe(320);
+  });
+
+  test("entity header cover is 2x the 192px display size", () => {
+    expect(entityHeaderCoverPixelSize).toBe(384);
   });
 });

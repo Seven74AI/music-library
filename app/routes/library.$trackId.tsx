@@ -28,6 +28,7 @@ import { formatDuration } from "#app/utils/format-duration.ts";
 import { isPlayableTrack } from "#app/utils/playable-track.ts";
 import { loadUserPlaylists } from "#app/utils/track-list-loader.server.ts";
 import { useTrackAudioFileDownload } from "#app/hooks/use-track-audio-file-download.ts";
+import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { useOptionalUser, userIsCuratorOrAdmin } from "#app/utils/user.ts";
 import { type Route } from "./+types/library.$trackId.ts";
 
@@ -327,9 +328,8 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
   const hasAudio = isPlayableTrack({ audioFiles });
   const genreNames = orderedGenreNames(track.genres, track.genre);
   const bestAudio = selectBestAudioFile(audioFiles);
-  const coverImageUrl = track.coverImage?.objectKey
-    ? `/resources/images/${track.coverImage.objectKey}`
-    : null;
+  const headerCoverUrl =
+    coverImageUrl(track.coverImage?.objectKey, entityHeaderCoverPixelSize) || null;
   const lyrics = track.lyrics?.trim() ? track.lyrics.trim() : null;
   const libraryPending = libraryFetcher.state !== "idle";
 
@@ -399,7 +399,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
         <MusicEntityHeader
           label="Track"
           title={track.title}
-          imageUrl={coverImageUrl}
+          imageUrl={headerCoverUrl}
           fallbackIcon="file-text"
           metadata={
             <div className="flex flex-col gap-4">
