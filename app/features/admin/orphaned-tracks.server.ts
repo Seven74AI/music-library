@@ -54,6 +54,18 @@ function unusedTrackAgeCutoff(ageDays: number | null): Date | null {
   return new Date(Date.now() - ageDays * 24 * 60 * 60 * 1000);
 }
 
+/** Tracks nobody saved that are also unused by rooms and service playlists. */
+function unusedTrackWhere(ageDays: number | null) {
+  const ageFilter = unusedTrackAgeCutoff(ageDays);
+  return {
+    userTracks: { none: {} },
+    playlists: { none: {} },
+    servicePlaylistTracks: { none: {} },
+    roomQueueItems: { none: {} },
+    ...(ageFilter ? { createdAt: { lt: ageFilter } } : {}),
+  };
+}
+
 function categorizeError(errorHistoryJson: string): string {
   try {
     const errors = JSON.parse(errorHistoryJson);
@@ -95,14 +107,8 @@ export async function getOrphanedTrackStats(
   const storageWasteBytes = Number(orphanedFilesSize[0]?.totalSize ?? 0);
   const storageWasteMB = Math.round(storageWasteBytes / (1024 * 1024));
 
-  const ageFilter = unusedTrackAgeCutoff(unusedTracksAgeDays);
-
   const unusedTracks = await prisma.track.count({
-    where: {
-      userTracks: { none: {} },
-      playlists: { none: {} },
-      ...(ageFilter ? { createdAt: { lt: ageFilter } } : {}),
-    },
+    where: unusedTrackWhere(unusedTracksAgeDays),
   });
 
   return {
@@ -207,14 +213,8 @@ export async function getOrphanedAudioFiles(): Promise<OrphanedAudioFile[]> {
 }
 
 export async function getUnusedTracks(ageDays: number | null = 30): Promise<UnusedTrack[]> {
-  const ageFilter = unusedTrackAgeCutoff(ageDays);
-
   const tracks = await prisma.track.findMany({
-    where: {
-      userTracks: { none: {} },
-      playlists: { none: {} },
-      ...(ageFilter ? { createdAt: { lt: ageFilter } } : {}),
-    },
+    where: unusedTrackWhere(ageDays),
     take: MAX_ROWS,
     orderBy: { createdAt: "desc" },
     select: {
@@ -303,8 +303,18 @@ export async function deleteTracks(trackIds: string[]): Promise<{ deleted: numbe
     return { deleted: 0 };
   }
 
-  const audioFiles = await prisma.trackAudioFile.findMany({
+  const queuedOnRooms = await prisma.roomQueueItem.findMany({
     where: { trackId: { in: trackIds } },
+    select: { trackId: true },
+  });
+  const blockedIds = new Set(queuedOnRooms.map((row) => row.trackId));
+  const deletableIds = trackIds.filter((id) => !blockedIds.has(id));
+  if (deletableIds.length === 0) {
+    return { deleted: 0 };
+  }
+
+  const audioFiles = await prisma.trackAudioFile.findMany({
+    where: { trackId: { in: deletableIds } },
     select: { objectKey: true },
   });
 
@@ -312,7 +322,7 @@ export async function deleteTracks(trackIds: string[]): Promise<{ deleted: numbe
   // persistTrackAudio can reuse the same objectKey for another track; a
   // pre-delete cleanup would wipe audio still needed for playback.
   const result = await prisma.track.deleteMany({
-    where: { id: { in: trackIds } },
+    where: { id: { in: deletableIds } },
   });
 
   await deleteUnreferencedObjectKeys(audioFiles.map((file) => file.objectKey));

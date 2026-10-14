@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
 import { processTracksInBatches } from "./batch-processor.server";
 import { createYouTubeTrackSyncProcessor } from "./youtube-track-sync.server";
@@ -96,5 +97,49 @@ describe("processTracksInBatches - artist naming", () => {
         data: expect.objectContaining({ name: "Unknown Artist" }),
       }),
     );
+  });
+});
+
+describe("processTracksInBatches - ingest failure", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("still marks a playlist item as seen when preparation throws so re-sync will not drop it", async () => {
+    consoleError.mockImplementation(() => {});
+    const { tx, artistCreate } = createTxMock();
+    artistCreate
+      .mockRejectedValueOnce(new Error("unique constraint"))
+      .mockImplementation(({ data }: { data: { name: string } }) =>
+        Promise.resolve({ id: `artist-${data.name}`, name: data.name }),
+      );
+
+    const result = await processTracksInBatches(
+      [
+        {
+          snippet: {
+            title: "Fails to prepare",
+            resourceId: { videoId: "video-fail" },
+            videoOwnerChannelTitle: "Broken Artist",
+          },
+        },
+        {
+          snippet: {
+            title: "Succeeds",
+            resourceId: { videoId: "video-ok" },
+            videoOwnerChannelTitle: "Healthy Artist",
+          },
+        },
+      ],
+      "service-1",
+      "playlist-1",
+      tx,
+      createYouTubeTrackSyncProcessor(),
+      noopArchiveEnqueueAdapter,
+    );
+
+    expect(result.processedIds.externalIds.has("video-fail")).toBe(true);
+    expect(result.processedIds.externalIds.has("video-ok")).toBe(true);
+    expect(result.processedCount).toBe(1);
   });
 });

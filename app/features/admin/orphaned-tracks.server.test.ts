@@ -126,6 +126,189 @@ describe("unused tracks age=all", () => {
   });
 });
 
+describe("unused tracks still in use elsewhere", () => {
+  const createdTrackIds: string[] = [];
+  const createdArtistIds: string[] = [];
+  const createdUserIds: string[] = [];
+  const createdRoomIds: string[] = [];
+  const createdPlaylistIds: string[] = [];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(deleteFile).mockResolvedValue(undefined);
+  });
+
+  afterEach(async () => {
+    if (createdRoomIds.length > 0) {
+      await prisma.roomQueueItem.deleteMany({ where: { roomId: { in: createdRoomIds } } });
+      await prisma.roomParticipant.deleteMany({ where: { roomId: { in: createdRoomIds } } });
+      await prisma.room.deleteMany({ where: { id: { in: createdRoomIds } } });
+      createdRoomIds.length = 0;
+    }
+    if (createdPlaylistIds.length > 0) {
+      await prisma.servicePlaylist.deleteMany({ where: { id: { in: createdPlaylistIds } } });
+      createdPlaylistIds.length = 0;
+    }
+    if (createdTrackIds.length > 0) {
+      await prisma.track.deleteMany({ where: { id: { in: createdTrackIds } } }).catch(() => {});
+      createdTrackIds.length = 0;
+    }
+    if (createdArtistIds.length > 0) {
+      await prisma.artist.deleteMany({ where: { id: { in: createdArtistIds } } }).catch(() => {});
+      createdArtistIds.length = 0;
+    }
+    if (createdUserIds.length > 0) {
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }).catch(() => {});
+      createdUserIds.length = 0;
+    }
+  });
+
+  test("does not list a catalog track that is on a live party room queue", async () => {
+    const queued = await createTrackWithAudio({
+      title: "Queued in a room",
+      objectKey: `audio/tracks/local/room-queued-${Date.now()}.mp3`,
+    });
+    const trulyUnused = await createTrackWithAudio({
+      title: "Truly unused",
+      objectKey: `audio/tracks/local/truly-unused-${Date.now()}.mp3`,
+    });
+    createdTrackIds.push(queued.track.id, trulyUnused.track.id);
+    createdArtistIds.push(queued.artist.id, trulyUnused.artist.id);
+
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const host = await prisma.user.create({
+      data: {
+        email: `unused-room-${suffix}@example.com`,
+        username: `unroom${suffix}`.slice(0, 20),
+      },
+    });
+    createdUserIds.push(host.id);
+    const room = await prisma.room.create({
+      data: {
+        code: suffix.slice(-6).toUpperCase(),
+        status: "open",
+        originalHostUserId: host.id,
+      },
+    });
+    createdRoomIds.push(room.id);
+    const participant = await prisma.roomParticipant.create({
+      data: {
+        roomId: room.id,
+        userId: host.id,
+        displayName: "Host",
+        role: "host",
+      },
+    });
+    await prisma.roomQueueItem.create({
+      data: {
+        roomId: room.id,
+        trackId: queued.track.id,
+        position: 0,
+        addedByParticipantId: participant.id,
+      },
+    });
+
+    const unusedIds = (await getUnusedTracks(null)).map((track) => track.id);
+    expect(unusedIds).not.toContain(queued.track.id);
+    expect(unusedIds).toContain(trulyUnused.track.id);
+  });
+
+  test("does not list a catalog track that still belongs to a service playlist", async () => {
+    const onPlaylist = await createTrackWithAudio({
+      title: "On a YouTube playlist",
+      objectKey: `audio/tracks/local/svc-pl-${Date.now()}.mp3`,
+    });
+    createdTrackIds.push(onPlaylist.track.id);
+    createdArtistIds.push(onPlaylist.artist.id);
+
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const owner = await prisma.user.create({
+      data: {
+        email: `unused-pl-${suffix}@example.com`,
+        username: `unpl${suffix}`.slice(0, 20),
+      },
+    });
+    createdUserIds.push(owner.id);
+    const playlist = await prisma.servicePlaylist.create({
+      data: {
+        serviceId: onPlaylist.service.id,
+        externalId: `pl-${suffix}`,
+        title: `Playlist ${suffix}`,
+        itemCount: 1,
+        ownerId: owner.id,
+      },
+    });
+    createdPlaylistIds.push(playlist.id);
+    await prisma.servicePlaylistTrack.create({
+      data: {
+        playlistId: playlist.id,
+        trackId: onPlaylist.track.id,
+        position: 0,
+      },
+    });
+
+    const unusedIds = (await getUnusedTracks(null)).map((track) => track.id);
+    expect(unusedIds).not.toContain(onPlaylist.track.id);
+  });
+
+  test("deleteTracks leaves a room-queued track and its audio in place", async () => {
+    const queued = await createTrackWithAudio({
+      title: "Do not delete queued",
+      objectKey: `audio/tracks/local/keep-queued-${Date.now()}.mp3`,
+    });
+    const throwaway = await createTrackWithAudio({
+      title: "Safe to delete",
+      objectKey: `audio/tracks/local/safe-delete-${Date.now()}.mp3`,
+    });
+    createdTrackIds.push(queued.track.id, throwaway.track.id);
+    createdArtistIds.push(queued.artist.id, throwaway.artist.id);
+
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const host = await prisma.user.create({
+      data: {
+        email: `unused-del-${suffix}@example.com`,
+        username: `undel${suffix}`.slice(0, 20),
+      },
+    });
+    createdUserIds.push(host.id);
+    const room = await prisma.room.create({
+      data: {
+        code: suffix.slice(-6).toUpperCase(),
+        status: "open",
+        originalHostUserId: host.id,
+      },
+    });
+    createdRoomIds.push(room.id);
+    const participant = await prisma.roomParticipant.create({
+      data: {
+        roomId: room.id,
+        userId: host.id,
+        displayName: "Host",
+        role: "host",
+      },
+    });
+    await prisma.roomQueueItem.create({
+      data: {
+        roomId: room.id,
+        trackId: queued.track.id,
+        position: 0,
+        addedByParticipantId: participant.id,
+      },
+    });
+
+    const result = await deleteTracks([queued.track.id, throwaway.track.id]);
+
+    expect(result.deleted).toBe(1);
+    expect(await prisma.track.findUnique({ where: { id: queued.track.id } })).not.toBeNull();
+    expect(await prisma.track.findUnique({ where: { id: throwaway.track.id } })).toBeNull();
+    expect(await prisma.roomQueueItem.count({ where: { trackId: queued.track.id } })).toBe(1);
+    expect(deleteFile).toHaveBeenCalledTimes(1);
+    expect(deleteFile).toHaveBeenCalledWith(
+      expect.stringContaining("audio/tracks/local/safe-delete-"),
+    );
+  });
+});
+
 describe("orphaned-tracks delete storage safety", () => {
   const createdTrackIds: string[] = [];
   const createdArtistIds: string[] = [];

@@ -93,6 +93,51 @@ describe("party-room queue mutations", () => {
     await cleanup();
   });
 
+  test("concurrent adds from two DJs get unique dense positions", async () => {
+    const host = await makeUser();
+    const dj = await makeUser("DJ");
+    const room = await createRoom({
+      userId: host.id,
+      displayName: "Host",
+      defaultJoinRole: "dj",
+    });
+    await joinRoom({
+      code: room.code,
+      actor: { type: "user", userId: dj.id },
+    });
+    const trackA = await makeTrackWithAudio("A");
+    const trackB = await makeTrackWithAudio("B");
+
+    await Promise.all([
+      addTrackToQueue({
+        roomId: room.id,
+        actor: { type: "user", userId: host.id },
+        trackId: trackA.id,
+      }),
+      addTrackToQueue({
+        roomId: room.id,
+        actor: { type: "user", userId: dj.id },
+        trackId: trackB.id,
+      }),
+    ]);
+
+    const items = await prisma.roomQueueItem.findMany({
+      where: { roomId: room.id },
+      orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+    });
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.position)).toEqual([0, 1]);
+
+    const skipped = await skipNext({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+    });
+    expect(skipped?.currentIndex).toBe(1);
+    expect(skipped?.queue.find((row) => row.position === skipped.currentIndex)?.trackId).toBe(
+      items[1]!.trackId,
+    );
+  });
+
   test("Host/DJ can add tracks with audio; Listener cannot", async () => {
     const host = await makeUser();
     const room = await createRoom({ userId: host.id, displayName: "Host" });

@@ -68,6 +68,42 @@ describe("filterOrphanedTracks", () => {
     ]);
   });
 
+  test("does not treat a still-present video as absent when ingest failed after seeing it", () => {
+    const orphaned = filterOrphanedTracks(
+      [
+        {
+          id: "spt-fail",
+          position: 1,
+          isDeleted: false,
+          track: {
+            id: "track-fail",
+            title: "Still on YouTube",
+            artist: { id: "artist-1", name: "Artist" },
+            externalId: "video-fail",
+          },
+        },
+        {
+          id: "spt-removed",
+          position: 2,
+          isDeleted: false,
+          track: {
+            id: "track-removed",
+            title: "Taken off the playlist",
+            artist: { id: "artist-2", name: "Other Artist" },
+            externalId: "video-removed",
+          },
+        },
+      ],
+      {
+        // video-fail was in this sync's API payload but preparation threw
+        externalIds: new Set(["video-fail"]),
+        trackIds: new Set(),
+      },
+    );
+
+    expect(orphaned.map((track) => track.id)).toEqual(["track-removed"]);
+  });
+
   test("does not exclude tracks merely because they appeared as candidates elsewhere", () => {
     const orphaned = filterOrphanedTracks(
       [

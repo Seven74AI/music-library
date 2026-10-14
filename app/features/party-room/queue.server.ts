@@ -38,6 +38,65 @@ async function assertTrackHasAudio(trackId: string) {
   }
 }
 
+/**
+ * Append rows with dense positions. Locks the room row first so concurrent
+ * Host/DJ adds cannot both read the same max position and write duplicates.
+ * `currentIndex` is both the pointer and a position value, so collisions
+ * make skip/now-playing miss the added tracks.
+ */
+async function appendTracksToOpenRoomQueue({
+  roomId,
+  rows,
+}: {
+  roomId: string;
+  rows: Array<{ trackId: string; addedByParticipantId: string }>;
+}): Promise<{ addedCount: number; truncated: boolean }> {
+  if (rows.length === 0) {
+    return { addedCount: 0, truncated: false };
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const room = await tx.room.findUnique({ where: { id: roomId } });
+    if (!room) throw new PartyRoomError("not_found", "Room not found", 404);
+    if (room.status !== ROOM_STATUS.open) {
+      throw new PartyRoomError("room_ended", "Room has ended", 410);
+    }
+
+    await tx.room.update({
+      where: { id: roomId },
+      data: { roomVersion: { increment: 1 } },
+    });
+
+    const count = await tx.roomQueueItem.count({ where: { roomId } });
+    if (count >= MAX_QUEUE_TRACKS) {
+      throw new PartyRoomError("queue_full", "Room queue is full", 409);
+    }
+
+    const toAdd = rows.slice(0, MAX_QUEUE_TRACKS - count);
+    const maxPos =
+      (
+        await tx.roomQueueItem.aggregate({
+          where: { roomId },
+          _max: { position: true },
+        })
+      )._max.position ?? -1;
+
+    await tx.roomQueueItem.createMany({
+      data: toAdd.map((row, i) => ({
+        roomId,
+        trackId: row.trackId,
+        position: maxPos + 1 + i,
+        addedByParticipantId: row.addedByParticipantId,
+      })),
+    });
+
+    return {
+      addedCount: toAdd.length,
+      truncated: toAdd.length < rows.length,
+    };
+  });
+}
+
 export async function addTrackToQueue({
   roomId,
   actor,
@@ -60,33 +119,10 @@ export async function addTrackToQueue({
 
   await assertTrackHasAudio(trackId);
 
-  const count = await prisma.roomQueueItem.count({ where: { roomId } });
-  if (count >= MAX_QUEUE_TRACKS) {
-    throw new PartyRoomError("queue_full", "Room queue is full", 409);
-  }
-
-  const nextPosition =
-    (
-      await prisma.roomQueueItem.aggregate({
-        where: { roomId },
-        _max: { position: true },
-      })
-    )._max.position ?? -1;
-
-  await prisma.$transaction([
-    prisma.roomQueueItem.create({
-      data: {
-        roomId,
-        trackId,
-        position: nextPosition + 1,
-        addedByParticipantId: participant.id,
-      },
-    }),
-    prisma.room.update({
-      where: { id: roomId },
-      data: { roomVersion: { increment: 1 } },
-    }),
-  ]);
+  await appendTracksToOpenRoomQueue({
+    roomId,
+    rows: [{ trackId, addedByParticipantId: participant.id }],
+  });
 
   return emitSnapshot(roomId);
 }
@@ -125,41 +161,19 @@ export async function addPlaylistToQueue({
   }
 
   const withAudio = playlist.tracks.filter((t) => t.track.audioFiles.length > 0);
-  const currentCount = await prisma.roomQueueItem.count({ where: { roomId } });
-  const remaining = MAX_QUEUE_TRACKS - currentCount;
-  if (remaining <= 0) {
-    throw new PartyRoomError("queue_full", "Room queue is full", 409);
-  }
-
-  const toAdd = withAudio.slice(0, remaining);
-  const maxPos =
-    (
-      await prisma.roomQueueItem.aggregate({
-        where: { roomId },
-        _max: { position: true },
-      })
-    )._max.position ?? -1;
-
-  await prisma.$transaction([
-    prisma.roomQueueItem.createMany({
-      data: toAdd.map((row, i) => ({
-        roomId,
-        trackId: row.trackId,
-        position: maxPos + 1 + i,
-        addedByParticipantId: participant.id,
-      })),
-    }),
-    prisma.room.update({
-      where: { id: roomId },
-      data: { roomVersion: { increment: 1 } },
-    }),
-  ]);
+  const appended = await appendTracksToOpenRoomQueue({
+    roomId,
+    rows: withAudio.map((row) => ({
+      trackId: row.trackId,
+      addedByParticipantId: participant.id,
+    })),
+  });
 
   return {
     snapshot: await emitSnapshot(roomId),
-    addedCount: toAdd.length,
+    addedCount: appended.addedCount,
     skippedNoAudio: playlist.tracks.length - withAudio.length,
-    truncated: withAudio.length > toAdd.length,
+    truncated: appended.truncated,
   };
 }
 

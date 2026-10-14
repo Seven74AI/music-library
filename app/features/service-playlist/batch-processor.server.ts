@@ -533,6 +533,10 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       const externalId = plan.externalId;
       existingTrack = plan.existingTrack;
 
+      // Seen in this sync's API payload. Mark before ingest so a preparation
+      // error cannot classify the membership as "removed from the playlist".
+      processedIds.externalIds.add(externalId);
+
       try {
         // Get or create artist.
         // videoOwnerChannelTitle = the channel that uploaded the video (the artist).
@@ -593,16 +597,12 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           position, // Use the calculated position that includes globalStartPosition
           item,
         });
-
-        // Mark as processed after successful preparation
-        // Always add externalId, even for deleted videos with generated IDs
-        processedIds.externalIds.add(externalId);
       } catch (error) {
         console.error(
           `Error preparing track ${item.snippet?.resourceId?.videoId || "unknown"}:`,
           error,
         );
-        // externalId is NOT added to processedIds.externalIds on error, so it will be removed if it exists
+        // externalId stays in processedIds so a failed preparation is not treated as removal
       }
     }
 
