@@ -20,6 +20,13 @@ FROM base as deps
 
 WORKDIR /myapp
 
+# better-sqlite3 ships a linux prebuild and sets "gypfile": false. npm ci
+# still runs `node-gyp rebuild` when binding.gyp is present, because the
+# lockfile does not carry that flag. The rebuild is a no-op when the prebuild
+# exists, and node-gyp will not start unless make is installed.
+RUN apt-get update && apt-get install -y --no-install-recommends make \
+    && rm -rf /var/lib/apt/lists/*
+
 ADD package.json package-lock.json .npmrc ./
 RUN npm ci --include=dev
 
