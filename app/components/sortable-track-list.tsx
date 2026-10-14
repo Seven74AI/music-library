@@ -352,7 +352,7 @@ export function SortableTrackList({
       {/* Bulk Actions Bar - Sticky */}
       {showSelection && (
         <div
-          className="sticky top-0 z-40 flex items-center justify-between p-4 bg-background/95 backdrop-blur-sm border-b border-border/50 shadow-sm animate-in slide-in-from-top-2 duration-300"
+          className="sticky top-0 z-40 flex flex-col gap-3 p-4 bg-background/95 backdrop-blur-sm border-b border-border/50 shadow-sm animate-in slide-in-from-top-2 duration-300 sm:flex-row sm:items-center sm:justify-between"
           role="toolbar"
           aria-label="Bulk actions for selected tracks"
         >
@@ -366,7 +366,11 @@ export function SortableTrackList({
               {selectedTracks.size} track{selectedTracks.size !== 1 ? "s" : ""} selected
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div
+            className="flex flex-wrap items-center gap-2"
+            role="group"
+            aria-label="Bulk track actions"
+          >
             <div className="flex">
               <Button
                 variant="outline"

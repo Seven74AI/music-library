@@ -10,6 +10,10 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import getPort, { portNumbers } from "get-port";
 import morgan from "morgan";
 import { type ServerBuild } from "react-router";
+import {
+  ADMIN_MUTATION_LIMIT_PER_MINUTE,
+  mutationRateLimitTier,
+} from "../app/utils/mutation-rate-limit.ts";
 import { createRouterLoadContext } from "../app/utils/router-context.server.ts";
 
 const MODE = process.env.NODE_ENV ?? "development";
@@ -163,6 +167,12 @@ const strongestRateLimit = rateLimit({
   limit: 10 * maxMultiple,
 });
 
+const adminRateLimit = rateLimit({
+  ...rateLimitDefault,
+  windowMs: 60 * 1000,
+  limit: ADMIN_MUTATION_LIMIT_PER_MINUTE * maxMultiple,
+});
+
 const strongRateLimit = rateLimit({
   ...rateLimitDefault,
   windowMs: 60 * 1000,
@@ -171,31 +181,16 @@ const strongRateLimit = rateLimit({
 
 const generalRateLimit = rateLimit(rateLimitDefault);
 app.use((req, res, next) => {
-  const strongPaths = [
-    "/login",
-    "/signup",
-    "/verify",
-    "/admin",
-    "/onboarding",
-    "/reset-password",
-    "/settings/profile",
-    "/resources/login",
-    "/resources/verify",
-  ];
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    if (strongPaths.some((p) => req.path.includes(p))) {
+  switch (mutationRateLimitTier(req.method, req.path)) {
+    case "admin":
+      return adminRateLimit(req, res, next);
+    case "sensitive":
       return strongestRateLimit(req, res, next);
-    }
-    return strongRateLimit(req, res, next);
+    case "general":
+      return strongRateLimit(req, res, next);
+    default:
+      return generalRateLimit(req, res, next);
   }
-
-  // the verify route is a special case because it's a GET route that
-  // can have a token in the query string
-  if (req.path.includes("/verify")) {
-    return strongestRateLimit(req, res, next);
-  }
-
-  return generalRateLimit(req, res, next);
 });
 
 async function getBuild() {

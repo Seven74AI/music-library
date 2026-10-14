@@ -245,6 +245,27 @@ export async function action({ request }: Route.ActionArgs) {
       return data({ success: true, action: "long-break" });
     }
 
+    case "retry-all-failed": {
+      // One POST requeues every failed job. /admin mutations are limited to
+      // 60 per minute for every caller, including a logged-in admin.
+      const result = await prisma.archiveJob.updateMany({
+        where: { status: "failed" },
+        data: {
+          status: "pending",
+          priority: true,
+          retryCount: 0,
+          errorHistory: "[]",
+        },
+      });
+
+      scheduleQueueTick();
+      return data({
+        success: true,
+        action: "retry-all-failed",
+        count: result.count,
+      });
+    }
+
     case "retry-recoverable-failures": {
       const failedJobs = await prisma.archiveJob.findMany({
         where: { status: "failed" },
@@ -462,20 +483,36 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
             <CardDescription>Failed</CardDescription>
             <CardTitle className="text-2xl text-destructive">{queueStats.failed}</CardTitle>
           </CardHeader>
-          {queueStats.recoverableFailed > 0 && (
-            <CardContent className="pt-0">
+          {queueStats.failed > 0 && (
+            <CardContent className="flex flex-col gap-2 pt-0">
               <Form method="post">
                 <Button
                   type="submit"
                   name="intent"
-                  value="retry-recoverable-failures"
+                  value="retry-all-failed"
                   variant="outline"
                   size="sm"
+                  className="h-auto whitespace-normal"
                 >
                   <Icon name="arrow-path" className="mr-1" />
-                  Retry cookie & format failures ({queueStats.recoverableFailed})
+                  Retry all ({queueStats.failed})
                 </Button>
               </Form>
+              {queueStats.recoverableFailed > 0 && (
+                <Form method="post">
+                  <Button
+                    type="submit"
+                    name="intent"
+                    value="retry-recoverable-failures"
+                    variant="outline"
+                    size="sm"
+                    className="h-auto whitespace-normal"
+                  >
+                    <Icon name="arrow-path" className="mr-1" />
+                    Retry cookie & format failures ({queueStats.recoverableFailed})
+                  </Button>
+                </Form>
+              )}
             </CardContent>
           )}
         </Card>
