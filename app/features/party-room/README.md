@@ -20,16 +20,16 @@ This package currently mixes:
 | `POST` | `/api/rooms/:code/join`         | Smart join                                                                                |
 | `POST` | `/api/rooms/:code/leave`        | Leave                                                                                     |
 | `POST` | `/api/rooms/:code/end`          | Host end                                                                                  |
-| `POST` | `/api/rooms/:code/heartbeat`    | Host heartbeat                                                                            |
+| `POST` | `/api/rooms/:code/heartbeat`    | Presence heartbeat for any seated participant                                             |
 | `POST` | `/api/rooms/:code/become-host`  | Takeover                                                                                  |
-| `POST` | `/api/rooms/:code/reclaim-host` | Original host reclaim                                                                     |
+| `POST` | `/api/rooms/:code/reclaim-host` | Reclaim host for `reclaimParticipantId`                                                   |
 | `POST` | `/api/rooms/:code/settings`     | `defaultJoinRole`                                                                         |
 | `POST` | `/api/rooms/:code/queue`        | Intent: `add_track`, `add_playlist`, `remove`, `reorder`, `play`, `pause`, `skip`, `jump` |
 | `GET`  | `/api/rooms/:code/events`       | SSE                                                                                       |
 | `POST` | `/api/rooms/:code/play-events`  | `room_play_started` / `room_play_completed`                                               |
 | `GET`  | `/api/rooms/:code/qr`           | QR data URL                                                                               |
 
-No `/api/rooms/current` — active code is stored in `sessionStorage` (`party-room.active-code`) after create/join.
+`GET /api/rooms/current` returns the signed-in user's open seat. `sessionStorage` (`party-room.active-code`) caches that code after a successful response. A missing cache is not "no room." Guests return through the `en_room_guest` cookie.
 
 ## UI surfaces
 

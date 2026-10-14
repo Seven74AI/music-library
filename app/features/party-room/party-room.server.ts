@@ -6,8 +6,6 @@ import {
   EMPTY_ROOM_TTL_MS,
   GUEST_DISPLAY_NAME_MAX,
   GUEST_DISPLAY_NAME_MIN,
-  HOST_GRACE_MS,
-  MAX_ACTIVE_ROOMS_PER_CREATOR,
   MAX_PARTICIPANTS,
   ROOM_ROLE,
   ROOM_STATUS,
@@ -15,6 +13,7 @@ import {
   type RoomRole,
 } from "./constants.ts";
 import { createGuestToken, hashGuestToken } from "./guest-token.server.ts";
+import { isParticipantAway } from "./presence.ts";
 import { publishRoomEvent } from "./sse.server.ts";
 
 export type PartyRoomErrorCode =
@@ -105,11 +104,90 @@ export async function maybeAutoCloseEmptyRoom(roomId: string, now = new Date()) 
   return endRoom({ roomId, actor: { type: "system" } });
 }
 
+type RoomPresence = {
+  hostTakeoverAvailable: boolean;
+  emptySince: string | null;
+  participants: Array<{ id: string; lastSeenAt: string }>;
+};
+
+/**
+ * Set emptySince when every seated participant is Away; clear it when anyone is here.
+ * Closing a tab does not set leftAt — Away is lastSeenAt age only.
+ * Speaker uses the 30s silence window; everyone else uses the 10s window.
+ */
+async function reconcileRoomPresence(roomId: string, now: Date): Promise<RoomPresence> {
+  const room = await prisma.room.findUnique({
+    where: { id: roomId },
+    select: {
+      status: true,
+      emptySince: true,
+      currentHostParticipantId: true,
+      participants: {
+        where: { leftAt: null },
+        select: { id: true, lastSeenAt: true },
+      },
+    },
+  });
+
+  if (!room || room.status !== ROOM_STATUS.open) {
+    return { hostTakeoverAvailable: false, emptySince: null, participants: [] };
+  }
+
+  const nowMs = now.getTime();
+  const anyoneHere = room.participants.some(
+    (participant) =>
+      !isParticipantAway(
+        participant.lastSeenAt,
+        participant.id === room.currentHostParticipantId,
+        nowMs,
+      ),
+  );
+
+  let emptySince = room.emptySince;
+  if (anyoneHere && room.emptySince) {
+    emptySince = null;
+  } else if (!anyoneHere && !room.emptySince) {
+    // Vacuous when nobody is seated: the room is empty, so the TTL can start.
+    emptySince = now;
+  }
+
+  if (emptySince !== room.emptySince) {
+    await prisma.room.update({
+      where: { id: roomId },
+      data: { emptySince, roomVersion: { increment: 1 } },
+    });
+    await emitRoomSnapshot(roomId);
+  }
+
+  const host = room.currentHostParticipantId
+    ? (room.participants.find((participant) => participant.id === room.currentHostParticipantId) ??
+      null)
+    : null;
+
+  return {
+    hostTakeoverAvailable: !host || isParticipantAway(host.lastSeenAt, true, nowMs),
+    emptySince: emptySince ? emptySince.toISOString() : null,
+    participants: room.participants.map((participant) => ({
+      id: participant.id,
+      lastSeenAt: participant.lastSeenAt.toISOString(),
+    })),
+  };
+}
+
 /**
  * Close open rooms that have been empty longer than EMPTY_ROOM_TTL_MS.
  * Opportunistic + scheduler — rooms nobody looks up still expire.
+ * Reconciles Away presence first so a live seat clears emptySince before expiry.
  */
 export async function sweepExpiredEmptyRooms(now = new Date()) {
+  const openRooms = await prisma.room.findMany({
+    where: { status: ROOM_STATUS.open },
+    select: { id: true },
+  });
+  for (const openRoom of openRooms) {
+    await reconcileRoomPresence(openRoom.id, now);
+  }
+
   const cutoff = new Date(now.getTime() - EMPTY_ROOM_TTL_MS);
   const expired = await prisma.room.findMany({
     where: {
@@ -147,13 +225,6 @@ export async function createRoom({
   }
   if (!isDefaultJoinRole(defaultJoinRole)) {
     throw new PartyRoomError("invalid_role", "defaultJoinRole must be listener or dj", 400);
-  }
-
-  const activeAsCreator = await prisma.room.count({
-    where: { originalHostUserId: userId, status: ROOM_STATUS.open },
-  });
-  if (activeAsCreator >= MAX_ACTIVE_ROOMS_PER_CREATOR) {
-    throw new PartyRoomError("creator_has_active_room", "You already have an active room", 409);
   }
 
   const activeAsParticipant = await prisma.roomParticipant.findFirst({
@@ -204,7 +275,10 @@ export async function createRoom({
 
     return tx.room.update({
       where: { id: created.id },
-      data: { currentHostParticipantId: host.id },
+      data: {
+        currentHostParticipantId: host.id,
+        reclaimParticipantId: host.id,
+      },
       include: {
         participants: { where: { leftAt: null } },
         queueItems: { orderBy: { position: "asc" } },
@@ -287,23 +361,22 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
       "User";
 
     if (existingHere) {
+      // Leave then come back with the code: role is the room's current
+      // defaultJoinRole. Do not point reclaimParticipantId back at this seat.
+      // A refresh while still seated keeps the role, except a stale host seat
+      // that is no longer the speaker.
+      const role = existingHere.leftAt
+        ? joinRole
+        : existingHere.role === ROOM_ROLE.host && room.currentHostParticipantId !== existingHere.id
+          ? joinRole
+          : existingHere.role;
       const participant = await prisma.roomParticipant.update({
         where: { id: existingHere.id },
         data: {
           leftAt: null,
           lastSeenAt: now,
           displayName,
-          // Rejoining does not steal host; keep prior role unless they left as host
-          // and room already has another host — revive as default join role if was host.
-          role:
-            existingHere.role === ROOM_ROLE.host &&
-            room.currentHostParticipantId !== existingHere.id
-              ? joinRole
-              : existingHere.leftAt
-                ? existingHere.role === ROOM_ROLE.host
-                  ? joinRole
-                  : existingHere.role
-                : existingHere.role,
+          role,
         },
       });
       await prisma.room.update({
@@ -370,18 +443,20 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
       where: { roomId: room.id, guestTokenHash: tokenHash },
     });
     if (existing) {
+      // Same browser (same guest token) coming back after Leave takes the
+      // current defaultJoinRole and does not regain reclaimParticipantId.
+      const role = existing.leftAt
+        ? joinRole
+        : existing.role === ROOM_ROLE.host
+          ? joinRole
+          : existing.role;
       const participant = await prisma.roomParticipant.update({
         where: { id: existing.id },
         data: {
           leftAt: null,
           lastSeenAt: now,
           displayName,
-          role:
-            existing.role === ROOM_ROLE.host
-              ? joinRole
-              : existing.leftAt
-                ? joinRole
-                : existing.role,
+          role,
         },
       });
       await prisma.room.update({ where: { id: room.id }, data: { emptySince: null } });
@@ -391,6 +466,7 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
     }
   }
 
+  // A different device is a new seat. Do not copy reclaimParticipantId onto it.
   token = createGuestToken();
   tokenHash = hashGuestToken(token);
 
@@ -456,12 +532,24 @@ export async function leaveRoom({ roomId, actor }: { roomId: string; actor: Part
   const updates: {
     emptySince?: Date | null;
     currentHostParticipantId?: string | null;
+    reclaimParticipantId?: string;
     isPlaying?: boolean;
     roomVersion: { increment: number };
   } = { roomVersion: { increment: 1 } };
 
   if (remaining === 0) {
     updates.emptySince = now;
+  }
+
+  // The pass follows the speaker when the holder Leaves and is not the host.
+  // Do not clear it. A current host who Leaves through this API is out of scope
+  // (the UI ends the room) and does not move the pass.
+  if (
+    room.reclaimParticipantId === participant.id &&
+    room.currentHostParticipantId &&
+    room.currentHostParticipantId !== participant.id
+  ) {
+    updates.reclaimParticipantId = room.currentHostParticipantId;
   }
 
   if (room.currentHostParticipantId === participant.id) {
@@ -613,7 +701,8 @@ export async function heartbeat({ roomId, actor }: { roomId: string; actor: Part
     where: { id: participant.id },
     data: { lastSeenAt: now },
   });
-  return { ok: true as const, lastSeenAt: now.toISOString() };
+  const presence = await reconcileRoomPresence(roomId, now);
+  return { ok: true as const, lastSeenAt: now.toISOString(), ...presence };
 }
 
 export async function becomeHost({
@@ -643,8 +732,7 @@ export async function becomeHost({
         where: { id: room.currentHostParticipantId },
       });
       if (currentHost && !currentHost.leftAt) {
-        const silentFor = now.getTime() - currentHost.lastSeenAt.getTime();
-        if (silentFor < HOST_GRACE_MS) {
+        if (!isParticipantAway(currentHost.lastSeenAt, true, now.getTime())) {
           throw new PartyRoomError("host_still_present", "Current Host is still connected", 409);
         }
         await tx.roomParticipant.update({
@@ -672,18 +760,15 @@ export async function becomeHost({
 }
 
 export async function reclaimHost({ roomId, actor }: { roomId: string; actor: ParticipantActor }) {
-  if (actor.type !== "user") {
-    throw new PartyRoomError("forbidden", "Only the original host user can reclaim", 403);
-  }
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   if (!room || room.status !== ROOM_STATUS.open) {
     throw new PartyRoomError("not_found", "Room not found", 404);
   }
-  if (room.originalHostUserId !== actor.userId) {
-    throw new PartyRoomError("not_original_host", "Only the original host can reclaim", 403);
-  }
 
   const participant = await requireParticipant(roomId, actor);
+  if (participant.id !== room.reclaimParticipantId) {
+    throw new PartyRoomError("not_original_host", "Only the reclaim holder can reclaim", 403);
+  }
   const now = new Date();
 
   if (room.currentHostParticipantId && room.currentHostParticipantId !== participant.id) {
@@ -755,9 +840,7 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
   const host = room.currentHostParticipantId
     ? room.participants.find((p) => p.id === room.currentHostParticipantId)
     : null;
-  const hostSeatEmpty = !host;
-  const hostGraceElapsed = host ? Date.now() - host.lastSeenAt.getTime() > HOST_GRACE_MS : true;
-  const hostTakeoverAvailable = hostSeatEmpty || hostGraceElapsed;
+  const hostTakeoverAvailable = !host || isParticipantAway(host.lastSeenAt, true);
 
   let me: {
     id: string;
@@ -793,6 +876,7 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
     roomVersion: room.roomVersion,
     isPlaying: room.isPlaying,
     originalHostUserId: room.originalHostUserId,
+    reclaimParticipantId: room.reclaimParticipantId,
     currentHostParticipantId: room.currentHostParticipantId,
     hostTakeoverAvailable,
     emptySince: room.emptySince?.toISOString() ?? null,

@@ -3,7 +3,7 @@ import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provid
 import { toast } from "#app/components/ui/use-toast.ts";
 
 /**
- * Become host (after 10s grace) / Reclaim host (original host) controls.
+ * Become host (after the speaker's 30s silence) / Reclaim host (seat that holds the pass).
  */
 export function HostFailoverControls() {
   const party = useOptionalPartyRoom();

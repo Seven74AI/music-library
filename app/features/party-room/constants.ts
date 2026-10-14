@@ -20,8 +20,15 @@ export const AUDITION_GRANT_RATE_PER_MIN = 20;
 /** Auto-close after this long with zero connected participants. */
 export const EMPTY_ROOM_TTL_MS = 45 * 60 * 1000;
 
-/** Host heartbeat grace before another participant may Become host. */
+/** Non-speaker is Away when lastSeenAt is older than this. */
 export const HOST_GRACE_MS = 10_000;
+
+/**
+ * Speaker is Away when lastSeenAt is older than this.
+ * Become host stays hidden until the speaker crosses this silence window,
+ * including after playback progress heartbeats stop.
+ */
+export const SPEAKER_SILENCE_GRACE_MS = 30_000;
 
 export const ROOM_STATUS = {
   open: "open",
@@ -55,7 +62,7 @@ export type RoomPlayEventType = (typeof ROOM_PLAY_EVENT_TYPES)[keyof typeof ROOM
 
 export const RATE_LIMIT_WINDOW_MS = 60_000;
 
-/** Client host heartbeat interval (target ~2–3s; grace is HOST_GRACE_MS). */
+/** Client presence heartbeat interval (target ~2–3s; non-speaker Away is HOST_GRACE_MS). */
 export const ROOM_HOST_HEARTBEAT_INTERVAL_MS = 2500;
 
 /** Client-facing aliases (logged-in UX module). */

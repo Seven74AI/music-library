@@ -1,10 +1,11 @@
 /**
  * Guest Shell Room tab — live queue (SSE via PartyRoomProvider), DJ edit,
- * Become host, and leave.
+ * Become host, leave, or end the room when this seat is Host.
  */
 
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+import { EndRoomButton } from "#app/components/party-room/end-room-button.tsx";
 import { HostFailoverControls } from "#app/components/party-room/host-failover-controls.tsx";
 import { RoomQueuePanel } from "#app/components/party-room/room-queue-panel.tsx";
 import { Button } from "#app/components/ui/button.tsx";
@@ -12,7 +13,7 @@ import { toast } from "#app/components/ui/use-toast.ts";
 import { writeActiveRoomCode } from "#app/features/party-room/api.client.ts";
 import { canAddTracks } from "#app/features/party-room/capabilities.ts";
 import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
-import { type RoomRole } from "#app/features/party-room/constants.ts";
+import { ROOM_ROLE, type RoomRole } from "#app/features/party-room/constants.ts";
 
 export function GuestRoomLivePanel({
   code,
@@ -27,6 +28,8 @@ export function GuestRoomLivePanel({
   const navigate = useNavigate();
   const canAdd = canAddTracks(role);
   const refresh = party?.refresh;
+  const seatRole = party?.room?.me?.role ?? role;
+  const isHostSeat = seatRole === ROOM_ROLE.host;
 
   useEffect(() => {
     writeActiveRoomCode(code);
@@ -66,31 +69,54 @@ export function GuestRoomLivePanel({
         <p>
           Room <span className="font-mono text-foreground">{code}</span>
         </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void (async () => {
-              try {
-                if (!party) {
-                  throw new Error("Not in a room");
+        {isHostSeat ? (
+          <EndRoomButton
+            onConfirm={() => {
+              void (async () => {
+                try {
+                  if (!party) {
+                    throw new Error("Not in a room");
+                  }
+                  await party.end();
+                  toast({ title: "Room ended" });
+                  void navigate("/");
+                } catch (err: unknown) {
+                  toast({
+                    title: "Could not end room",
+                    description: err instanceof Error ? err.message : undefined,
+                    variant: "destructive",
+                  });
                 }
-                await party.leave(code);
-                toast({ title: "Left room" });
-                void navigate("/");
-              } catch (err: unknown) {
-                toast({
-                  title: "Could not leave",
-                  description: err instanceof Error ? err.message : undefined,
-                  variant: "destructive",
-                });
-              }
-            })();
-          }}
-        >
-          Leave room
-        </Button>
+              })();
+            }}
+          />
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void (async () => {
+                try {
+                  if (!party) {
+                    throw new Error("Not in a room");
+                  }
+                  await party.leave(code);
+                  toast({ title: "Left room" });
+                  void navigate("/");
+                } catch (err: unknown) {
+                  toast({
+                    title: "Could not leave",
+                    description: err instanceof Error ? err.message : undefined,
+                    variant: "destructive",
+                  });
+                }
+              })();
+            }}
+          >
+            Leave room
+          </Button>
+        )}
       </section>
     </div>
   );

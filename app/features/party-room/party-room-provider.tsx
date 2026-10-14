@@ -27,6 +27,7 @@ import {
   ROOM_API,
   sendHostHeartbeat,
   sendRoomTransport,
+  type RoomHeartbeatResult,
   setParticipantRole,
   updateRoomSettings,
   writeActiveRoomCode,
@@ -78,6 +79,22 @@ type PartyRoomContextValue = {
 };
 
 const PartyRoomContext = createContext<PartyRoomContextValue | null>(null);
+
+function mergeHeartbeat(room: RoomSnapshot, beat: RoomHeartbeatResult): RoomSnapshot {
+  const seenAt = new Map(
+    beat.participants.map((participant) => [participant.id, participant.lastSeenAt]),
+  );
+  const hostLast = seenAt.get(room.currentHostParticipantId);
+  return {
+    ...room,
+    hostTakeoverAvailable: beat.hostTakeoverAvailable,
+    hostLastHeartbeatAt: hostLast ?? room.hostLastHeartbeatAt,
+    participants: room.participants.map((participant) => {
+      const lastHeartbeatAt = seenAt.get(participant.id);
+      return lastHeartbeatAt ? { ...participant, lastHeartbeatAt } : participant;
+    }),
+  };
+}
 
 function errorMessage(err: unknown): string {
   if (err instanceof RoomApiError) {
@@ -222,17 +239,31 @@ export function PartyRoomProvider({
     };
   }, [applyRoom, meUserId, refresh, room?.code, room?.status]);
 
-  // Host heartbeat ~2–3s
+  // Every open room page heartbeats ~2.5s, for every role. Visible pages keep
+  // this interval even while playback is paused. A locked screen throttles it;
+  // the speaker also heartbeats from playback progress while audio advances.
+  // Depend on code/status only so a presence merge does not restart the timer.
+  const roomCode = room?.code ?? null;
+  const roomStatus = room?.status ?? null;
   useEffect(() => {
-    if (!room || !isCurrentHost(room) || room.status !== "open") return;
+    if (!roomCode || roomStatus !== "open") return;
+    let cancelled = false;
 
     const tick = () => {
-      void sendHostHeartbeat(room.code).catch(() => {});
+      void sendHostHeartbeat(roomCode)
+        .then((beat) => {
+          if (cancelled || !beat) return;
+          setRoom((prev) => (prev && prev.code === roomCode ? mergeHeartbeat(prev, beat) : prev));
+        })
+        .catch(() => {});
     };
     tick();
     const id = window.setInterval(tick, ROOM_HOST_HEARTBEAT_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [room]);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [roomCode, roomStatus]);
 
   const create = useCallback(
     async (defaultJoinRole: RoomDefaultJoinRole = "listener") => {

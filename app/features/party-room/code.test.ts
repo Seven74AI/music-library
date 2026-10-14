@@ -8,7 +8,7 @@ import {
 } from "./code.ts";
 import { ROOM_CODE_LENGTH } from "./constants.ts";
 import { canBecomeHost, canReclaimHost, isCurrentHost, splitRoomQueue } from "./index.ts";
-import { type RoomQueueItemDto, type RoomSnapshot } from "./types.ts";
+import { type RoomParticipantDto, type RoomQueueItemDto, type RoomSnapshot } from "./types.ts";
 
 function item(position: number, id = `item-${position}`): RoomQueueItemDto {
   return {
@@ -29,6 +29,19 @@ function item(position: number, id = `item-${position}`): RoomQueueItemDto {
   };
 }
 
+function participant(id: string, overrides: Partial<RoomParticipantDto> = {}): RoomParticipantDto {
+  return {
+    id,
+    displayName: id,
+    role: "listener",
+    userId: null,
+    isGuest: true,
+    lastHeartbeatAt: null,
+    isOriginalHost: false,
+    ...overrides,
+  };
+}
+
 function baseRoom(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
   return {
     id: "room-1",
@@ -39,6 +52,7 @@ function baseRoom(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
     createdAt: new Date().toISOString(),
     endedAt: null,
     originalHostParticipantId: "host-1",
+    reclaimParticipantId: "host-1",
     currentHostParticipantId: "host-1",
     hostLastHeartbeatAt: new Date().toISOString(),
     hostTakeoverAvailable: false,
@@ -132,21 +146,94 @@ describe("host failover helpers", () => {
     ).toBe(false);
   });
 
-  it("allows reclaim for original host who lost the seat", () => {
+  it("offers reclaim to the seated pass holder who is not the current host, including during playback", () => {
+    const holder = participant("host-1", {
+      displayName: "Kody",
+      role: "dj",
+      userId: "user-1",
+      isGuest: false,
+      isOriginalHost: true,
+    });
     expect(canReclaimHost(baseRoom())).toBe(false);
     expect(
       canReclaimHost(
         baseRoom({
+          reclaimParticipantId: "host-1",
           currentHostParticipantId: "dj-1",
-          me: {
-            id: "host-1",
-            displayName: "Kody",
-            role: "dj",
+          participants: [
+            holder,
+            participant("dj-1", { role: "host", userId: "u2", isGuest: false }),
+          ],
+          playback: { isPlaying: true, currentIndex: 0, currentTrackId: "track-0" },
+          me: holder,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not offer reclaim from the original-host flag, a missing seat, or the current host", () => {
+    const creator = participant("host-1", {
+      displayName: "Kody",
+      role: "dj",
+      userId: "user-1",
+      isGuest: false,
+      isOriginalHost: true,
+    });
+    expect(
+      canReclaimHost(
+        baseRoom({
+          reclaimParticipantId: "guest-1",
+          currentHostParticipantId: "dj-1",
+          participants: [creator, participant("guest-1", { role: "host" })],
+          playback: { isPlaying: true, currentIndex: 0, currentTrackId: "track-0" },
+          me: creator,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      canReclaimHost(
+        baseRoom({
+          reclaimParticipantId: "host-1",
+          currentHostParticipantId: "dj-1",
+          participants: [],
+          me: creator,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      canReclaimHost(
+        baseRoom({
+          reclaimParticipantId: "host-1",
+          currentHostParticipantId: "host-1",
+          participants: [
+            participant("host-1", {
+              role: "host",
+              userId: "user-1",
+              isGuest: false,
+              isOriginalHost: true,
+            }),
+          ],
+          me: participant("host-1", {
+            role: "host",
             userId: "user-1",
             isGuest: false,
-            lastHeartbeatAt: null,
             isOriginalHost: true,
-          },
+          }),
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("offers reclaim to a guest seat that holds the pass during playback", () => {
+    const guest = participant("guest-1", { displayName: "Walkup", role: "dj" });
+    expect(
+      canReclaimHost(
+        baseRoom({
+          reclaimParticipantId: "guest-1",
+          currentHostParticipantId: "host-2",
+          participants: [guest, participant("host-2", { role: "host" })],
+          playback: { isPlaying: true, currentIndex: 1, currentTrackId: "track-1" },
+          me: guest,
         }),
       ),
     ).toBe(true);

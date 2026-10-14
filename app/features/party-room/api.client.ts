@@ -3,6 +3,7 @@
  *
  * Routes use the room **code** (not id):
  *   POST   /api/rooms
+ *   GET    /api/rooms/current
  *   GET    /api/rooms/:code
  *   POST   /api/rooms/:code/join
  *   POST   /api/rooms/:code/leave
@@ -16,11 +17,12 @@
  *   POST   /api/rooms/:code/play-events
  *   GET    /api/rooms/:code/qr
  *
- * There is no `/api/rooms/current` — the active code is kept in sessionStorage
- * after create/join (see ACTIVE_ROOM_CODE_KEY).
+ * GET /api/rooms/current is the signed-in seat lookup. sessionStorage
+ * (ACTIVE_ROOM_CODE_KEY) caches that code after a successful response.
+ * A missing cache is not "no room".
  */
 
-import { type RoomDefaultJoinRole, type RoomRole } from "./constants.ts";
+import { SPEAKER_SILENCE_GRACE_MS, type RoomDefaultJoinRole, type RoomRole } from "./constants.ts";
 import {
   type CreateRoomInput,
   type JoinRoomInput,
@@ -33,6 +35,7 @@ export const ACTIVE_ROOM_CODE_KEY = "party-room.active-code";
 
 export const ROOM_API = {
   create: "/api/rooms",
+  current: "/api/rooms/current",
   room: (code: string) => `/api/rooms/${code}`,
   join: (code: string) => `/api/rooms/${code}/join`,
   leave: (code: string) => `/api/rooms/${code}/leave`,
@@ -166,6 +169,8 @@ export function normalizeRoomSnapshot(
   const participants = Array.isArray(raw.participants) ? raw.participants : [];
   const queue = Array.isArray(raw.queue) ? raw.queue : [];
   const currentHostParticipantId = String(raw.currentHostParticipantId ?? "");
+  const reclaimParticipantId =
+    typeof raw.reclaimParticipantId === "string" ? raw.reclaimParticipantId : null;
   const originalHostUserId =
     typeof raw.originalHostUserId === "string" ? raw.originalHostUserId : null;
 
@@ -244,10 +249,12 @@ export function normalizeRoomSnapshot(
   const hostLast =
     mappedParticipants.find((p) => p.id === currentHostParticipantId)?.lastHeartbeatAt ?? null;
 
-  // Empty host seat (host left) or grace elapsed → others may Become host.
+  // Empty host seat, or speaker silent for SPEAKER_SILENCE_GRACE_MS → others may Become host.
   const hostSeatEmpty =
     !currentHostParticipantId || !mappedParticipants.some((p) => p.id === currentHostParticipantId);
-  const hostGraceElapsed = hostLast ? Date.now() - Date.parse(hostLast) > 10_000 : hostSeatEmpty;
+  const hostGraceElapsed = hostLast
+    ? Date.now() - Date.parse(hostLast) > SPEAKER_SILENCE_GRACE_MS
+    : hostSeatEmpty;
   const hostTakeoverAvailable = Boolean(
     raw.hostTakeoverAvailable ??
     (me && me.id !== currentHostParticipantId && (hostSeatEmpty || hostGraceElapsed)),
@@ -264,6 +271,7 @@ export function normalizeRoomSnapshot(
     originalHostParticipantId: String(
       raw.originalHostParticipantId ?? mappedParticipants.find((p) => p.isOriginalHost)?.id ?? "",
     ),
+    reclaimParticipantId,
     currentHostParticipantId,
     hostLastHeartbeatAt: hostLast,
     hostTakeoverAvailable,
@@ -294,19 +302,23 @@ export async function fetchRoomByCode(
   return normalizeRoomSnapshot(raw, meUserId);
 }
 
-/** Restore current room from sessionStorage + GET snapshot. */
+/**
+ * Restore the signed-in user's open seat.
+ * Always asks the server — sessionStorage is only a cache of the last code.
+ */
 export async function fetchCurrentRoom(meUserId?: string | null): Promise<RoomSnapshot | null> {
-  const code = readActiveRoomCode();
-  if (!code) return null;
-  try {
-    return await fetchRoomByCode(code, meUserId);
-  } catch (err) {
-    if (err instanceof RoomApiError && (err.status === 404 || err.status === 410)) {
-      writeActiveRoomCode(null);
-      return null;
-    }
-    throw err;
+  const raw = await roomFetch<Record<string, unknown>>(
+    ROOM_API.current,
+    { method: "GET" },
+    { allowNoContent: true },
+  );
+  if (!raw) {
+    writeActiveRoomCode(null);
+    return null;
   }
+  const room = normalizeRoomSnapshot(raw, meUserId);
+  writeActiveRoomCode(room.code || null);
+  return room;
 }
 
 export async function createRoom(
@@ -353,8 +365,20 @@ export async function endRoom(code: string): Promise<void> {
   writeActiveRoomCode(null);
 }
 
-export async function sendHostHeartbeat(code: string): Promise<void> {
-  await roomFetch(ROOM_API.heartbeat(code), { method: "POST" }, { allowNoContent: true });
+export type RoomHeartbeatResult = {
+  ok: true;
+  lastSeenAt: string;
+  hostTakeoverAvailable: boolean;
+  emptySince: string | null;
+  participants: Array<{ id: string; lastSeenAt: string }>;
+};
+
+export async function sendHostHeartbeat(code: string): Promise<RoomHeartbeatResult | null> {
+  return roomFetch<RoomHeartbeatResult>(
+    ROOM_API.heartbeat(code),
+    { method: "POST" },
+    { allowNoContent: true },
+  );
 }
 
 export async function becomeHost(code: string, meUserId?: string | null): Promise<RoomSnapshot> {

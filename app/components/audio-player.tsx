@@ -43,7 +43,8 @@ import {
   revokePlaybackAudioUrl,
 } from "#app/features/offline-storage/resolve-playback-url.client.ts";
 import { reportPlayEvent } from "#app/features/usage-analytics/report-play-event.client.ts";
-import { reportRoomPlayEvent } from "#app/features/party-room/api.client.ts";
+import { reportRoomPlayEvent, sendHostHeartbeat } from "#app/features/party-room/api.client.ts";
+import { speakerProgressHeartbeatDue } from "#app/features/party-room/speaker-progress-heartbeat.ts";
 import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { triggerBrowserDownload } from "#app/utils/download.ts";
@@ -978,6 +979,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const playStartedForTrackRef = useRef<string | null>(null);
   const playCompletedForTrackRef = useRef<string | null>(null);
   const playIdRef = useRef<string | null>(null);
+  // Playback-progress presence for a locked speaker. Page timers are throttled
+  // while the screen is hidden; timeupdate keeps lastSeenAt fresh only while
+  // the playhead is actually moving.
+  const speakerProgressRef = useRef<{ time: number | null; sentAt: number }>({
+    time: null,
+    sentAt: 0,
+  });
   const [isDownloading, setIsDownloading] = useState(false);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
@@ -1535,6 +1543,21 @@ export function AudioPlayer(props: AudioPlayerProps) {
         setCurrentTime(audio.currentTime);
         updateMediaSessionPositionState(audio);
       }
+      const sample = speakerProgressRef.current;
+      const decision = speakerProgressHeartbeatDue({
+        active: Boolean(roomSpeaker?.code),
+        paused: audio.paused,
+        seeking: audio.seeking,
+        currentTime: audio.currentTime,
+        previousTime: sample.time,
+        lastSentAtMs: sample.sentAt,
+        nowMs: Date.now(),
+      });
+      sample.time = decision.previousTime;
+      if (decision.due && roomSpeaker?.code) {
+        sample.sentAt = Date.now();
+        void sendHostHeartbeat(roomSpeaker.code).catch(() => {});
+      }
       if (
         trackId &&
         playCompletedForTrackRef.current !== trackId &&
@@ -1671,7 +1694,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  }, [onNext, loopMode, trackId, audioSrc, hasNext, emitPlayEvent]);
+  }, [onNext, loopMode, trackId, audioSrc, hasNext, emitPlayEvent, roomSpeaker]);
 
   const handleDownload = async () => {
     if (!track) return;

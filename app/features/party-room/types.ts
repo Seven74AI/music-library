@@ -16,7 +16,7 @@ export type RoomParticipantDto = {
   role: RoomRole;
   userId: string | null;
   isGuest: boolean;
-  /** ISO timestamp of last host heartbeat when this participant is current host. */
+  /** ISO timestamp of this participant's last presence heartbeat. */
   lastHeartbeatAt: string | null;
   isOriginalHost: boolean;
 };
@@ -48,6 +48,8 @@ export type RoomSnapshot = {
   createdAt: string;
   endedAt: string | null;
   originalHostParticipantId: string;
+  /** Seat allowed to reclaim the speaker. Null only before a holder exists. */
+  reclaimParticipantId: string | null;
   currentHostParticipantId: string;
   /** ISO of last successful host heartbeat (server clock). */
   hostLastHeartbeatAt: string | null;

@@ -36,6 +36,7 @@ import { href as iconsHref } from "./components/ui/icon.tsx";
 import { Icon } from "./components/ui/icon.tsx";
 import { DuplicatePlaylistDialogProvider } from "./components/duplicate-playlist-dialog.tsx";
 import { Toaster } from "./components/ui/toaster.tsx";
+import { maybeRedirectLoggedOutGuestToOpenRoom } from "./features/party-room/guest-return.server.ts";
 import { PartyRoomProvider } from "./features/party-room/party-room-provider.tsx";
 import { RoomSpeakerBridge } from "./components/party-room/room-speaker-bridge.tsx";
 import { offlineClientMiddleware } from "./middleware/offline-client.middleware.client.ts";
@@ -117,6 +118,11 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     type: "getUserId",
     desc: "getUserId in root",
   });
+
+  // Same browser, open guest seat: re-enter the room without a Room Code.
+  if (!userId) {
+    await maybeRedirectLoggedOutGuestToOpenRoom(request);
+  }
 
   const user = userId
     ? await time(

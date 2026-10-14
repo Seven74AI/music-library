@@ -29,13 +29,8 @@ describe("party-room api.client (backend #294 contract)", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns null for current room when no active code stored", async () => {
-    await expect(fetchCurrentRoom()).resolves.toBeNull();
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-  });
-
-  it("fetches current room via GET /api/rooms/:code from sessionStorage", async () => {
-    writeActiveRoomCode("AB3K9Q");
+  it("fetches the signed-in seat from GET /api/rooms/current when the cache is empty", async () => {
+    expect(sessionStorage.getItem(ACTIVE_ROOM_CODE_KEY)).toBeNull();
     vi.mocked(globalThis.fetch).mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -58,7 +53,16 @@ describe("party-room api.client (backend #294 contract)", () => {
               createdAt: new Date().toISOString(),
             },
           ],
-          queue: [],
+          queue: [
+            {
+              id: "q1",
+              trackId: "t1",
+              position: 0,
+              addedByParticipantId: "host-1",
+              createdAt: new Date().toISOString(),
+              track: { id: "t1", title: "One", artist: { name: "A" } },
+            },
+          ],
           createdAt: new Date().toISOString(),
           endedAt: null,
         }),
@@ -66,12 +70,27 @@ describe("party-room api.client (backend #294 contract)", () => {
       ),
     );
     const room = await fetchCurrentRoom("user-1");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "/api/rooms/AB3K9Q",
+      "/api/rooms/current",
       expect.objectContaining({ method: "GET" }),
     );
     expect(room?.code).toBe("AB3K9Q");
     expect(room?.me?.role).toBe("host");
+    expect(room?.queue).toHaveLength(1);
+    expect(room?.joinUrl).toContain("/rooms/AB3K9Q");
+    expect(sessionStorage.getItem(ACTIVE_ROOM_CODE_KEY)).toBe("AB3K9Q");
+  });
+
+  it("clears the sessionStorage cache when GET /api/rooms/current has no seat", async () => {
+    writeActiveRoomCode("AB3K9Q");
+    vi.mocked(globalThis.fetch).mockResolvedValue(new Response(null, { status: 204 }));
+    await expect(fetchCurrentRoom("user-1")).resolves.toBeNull();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/rooms/current",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(sessionStorage.getItem(ACTIVE_ROOM_CODE_KEY)).toBeNull();
   });
 
   it("creates a room via POST /api/rooms and stores code", async () => {
@@ -198,6 +217,38 @@ describe("party-room api.client (backend #294 contract)", () => {
     expect(room.code).toBe("AB3K9Q");
     expect(room.queue).toHaveLength(1);
     expect(room.me?.role).toBe("host");
+  });
+
+  it("copies reclaimParticipantId onto the snapshot", () => {
+    const room = normalizeRoomSnapshot(
+      {
+        roomId: "room-1",
+        code: "AB3K9Q",
+        status: "open",
+        defaultJoinRole: "listener",
+        roomVersion: 2,
+        currentIndex: 0,
+        isPlaying: true,
+        currentHostParticipantId: "host-2",
+        reclaimParticipantId: "guest-1",
+        participants: [
+          {
+            id: "guest-1",
+            userId: null,
+            displayName: "Walkup",
+            role: "dj",
+            lastSeenAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        queue: [],
+        createdAt: new Date().toISOString(),
+        endedAt: null,
+      },
+      null,
+    );
+    expect(room.reclaimParticipantId).toBe("guest-1");
+    expect(room.playback.isPlaying).toBe(true);
   });
 
   it("marks hostTakeoverAvailable when host seat is empty", () => {

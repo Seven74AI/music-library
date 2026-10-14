@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { GotACodeJoin } from "#app/components/party-room/got-a-code-join.tsx";
@@ -20,6 +20,8 @@ const addPlaylist = vi.fn();
 const reorderUpcoming = vi.fn();
 const setRole = vi.fn();
 const kick = vi.fn();
+const end = vi.fn();
+const leave = vi.fn();
 
 const queueItem = (id: string, position: number, title: string) => ({
   id,
@@ -52,8 +54,8 @@ const baseParty = {
   refresh: vi.fn(),
   create: vi.fn(),
   join,
-  leave: vi.fn(),
-  end: vi.fn(),
+  leave,
+  end,
   becomeHostNow,
   reclaimHostNow,
   setDefaultJoinRole: vi.fn(),
@@ -82,6 +84,82 @@ function renderWithRouter(ui: React.ReactNode) {
   return render(<RouterProvider router={router} />);
 }
 
+function seat(
+  partial: { id: string; displayName: string; role: "host" | "dj" | "listener" } & Record<
+    string,
+    unknown
+  >,
+) {
+  return {
+    userId: null,
+    isGuest: false,
+    lastHeartbeatAt: null,
+    isOriginalHost: false,
+    ...partial,
+  };
+}
+
+function renderOpenHub({
+  role,
+  isOriginalHost = role === "host",
+  meId = "p1",
+  displayName = "Kody",
+  participants,
+}: {
+  role: "host" | "dj" | "listener";
+  isOriginalHost?: boolean;
+  meId?: string;
+  displayName?: string;
+  participants?: Array<Record<string, unknown>>;
+}) {
+  if (role === "host") {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ playlists: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  }
+  const me = seat({
+    id: meId,
+    displayName,
+    role,
+    userId: "u1",
+    isOriginalHost,
+  });
+  mockParty = {
+    ...mockParty,
+    canManage: role === "host",
+    isHost: role === "host",
+    end,
+    leave,
+    room: {
+      id: "r1",
+      code: "AB3K9Q",
+      status: "open",
+      roomVersion: 1,
+      defaultJoinRole: "listener",
+      me,
+      participants: participants ?? [me],
+      queue: [],
+      playback: { isPlaying: false, currentIndex: 0, currentTrackId: null },
+      joinUrl: "/rooms/AB3K9Q",
+      qrDataUrl: null,
+    },
+  };
+  return renderWithRouter(<RoomsHub />);
+}
+
+function openEndRoomConfirmation() {
+  fireEvent.click(screen.getByRole("button", { name: /^end room$/i }));
+  const dialog = screen.getByRole("alertdialog");
+  expect(dialog).toHaveTextContent(/everyone will be disconnected/i);
+  expect(dialog).toHaveTextContent(/code will stop working/i);
+  expect(end).not.toHaveBeenCalled();
+  expect(leave).not.toHaveBeenCalled();
+  return dialog;
+}
+
 describe("Party Room UI affordances", () => {
   beforeEach(() => {
     mockParty = {
@@ -104,6 +182,8 @@ describe("Party Room UI affordances", () => {
     reorderUpcoming.mockReset();
     setRole.mockReset();
     kick.mockReset();
+    end.mockReset();
+    leave.mockReset();
   });
 
   it("renders Got a code? join form when not in a room", () => {
@@ -274,7 +354,7 @@ describe("Party Room UI affordances", () => {
   });
 
   it("guest Leave room posts using the known join code even before snapshot sync", async () => {
-    const leave = vi.fn().mockResolvedValue(undefined);
+    leave.mockResolvedValue(undefined);
     mockParty = {
       ...mockParty,
       room: null,
@@ -285,6 +365,8 @@ describe("Party Room UI affordances", () => {
     renderWithRouter(<GuestRoomLivePanel code="AB3K9Q" role="listener" displayName="Walkup" />);
     fireEvent.click(screen.getByRole("button", { name: /leave room/i }));
     await waitFor(() => expect(leave).toHaveBeenCalledWith("AB3K9Q"));
+    expect(end).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("guest Room tab reflects live host role after takeover", () => {
@@ -309,6 +391,8 @@ describe("Party Room UI affordances", () => {
     expect(screen.getByText(/signed in as/i).textContent).toMatch(/host/i);
     expect(screen.queryByRole("button", { name: /become host/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^play$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^end room$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /leave room/i })).not.toBeInTheDocument();
   });
 
   it("lets Host promote and kick other participants", async () => {
@@ -364,5 +448,230 @@ describe("Party Room UI affordances", () => {
     await waitFor(() => expect(kick).toHaveBeenCalledWith("p2"));
     expect(screen.getByText(/add playlist to queue/i)).toBeInTheDocument();
     vi.mocked(globalThis.fetch).mockRestore();
+  });
+
+  it("asks the Host to confirm before ending the room for everyone", async () => {
+    end.mockResolvedValue(undefined);
+    renderOpenHub({ role: "host", isOriginalHost: true });
+    const dialog = openEndRoomConfirmation();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^end room$/i }));
+    await waitFor(() => expect(end).toHaveBeenCalledTimes(1));
+    expect(end).toHaveBeenCalledWith();
+    expect(leave).not.toHaveBeenCalled();
+  });
+
+  it("leaves the room open when the Host dismisses End room", () => {
+    renderOpenHub({ role: "host" });
+    const dialog = openEndRoomConfirmation();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+    expect(end).not.toHaveBeenCalled();
+    expect(leave).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "AB3K9Q" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^end room$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("ends the room when a replacement Host confirms, including for the creator", async () => {
+    end.mockResolvedValue(undefined);
+    const creator = seat({
+      id: "p-creator",
+      displayName: "Kody",
+      role: "dj",
+      userId: "u1",
+      isOriginalHost: true,
+    });
+    renderOpenHub({
+      role: "host",
+      isOriginalHost: false,
+      meId: "p-guest",
+      displayName: "Alex",
+      participants: [
+        creator,
+        seat({
+          id: "p-guest",
+          displayName: "Alex",
+          role: "host",
+          userId: null,
+          isGuest: true,
+          isOriginalHost: false,
+        }),
+      ],
+    });
+    const dialog = openEndRoomConfirmation();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^end room$/i }));
+    await waitFor(() => expect(end).toHaveBeenCalledTimes(1));
+    expect(leave).not.toHaveBeenCalled();
+  });
+
+  it("DJ Leave only removes that seat and does not end the room", async () => {
+    leave.mockResolvedValue(undefined);
+    renderOpenHub({ role: "dj", isOriginalHost: true });
+    expect(screen.queryByRole("button", { name: /^end room$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^leave$/i }));
+    await waitFor(() => expect(leave).toHaveBeenCalledTimes(1));
+    expect(leave).toHaveBeenCalledWith();
+    expect(end).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("Listener Leave only removes that seat and does not end the room", async () => {
+    leave.mockResolvedValue(undefined);
+    renderOpenHub({ role: "listener" });
+    fireEvent.click(screen.getByRole("button", { name: /^leave$/i }));
+    await waitFor(() => expect(leave).toHaveBeenCalledTimes(1));
+    expect(end).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("guest Host confirms End room instead of a quiet Leave", async () => {
+    end.mockResolvedValue(undefined);
+    mockParty = {
+      ...mockParty,
+      isHost: true,
+      canManage: true,
+      canTransport: true,
+      refresh: vi.fn(),
+      end,
+      leave,
+      room: {
+        id: "r1",
+        code: "AB3K9Q",
+        status: "open",
+        roomVersion: 4,
+        me: {
+          id: "g1",
+          role: "host",
+          userId: null,
+          isGuest: true,
+          displayName: "Alex",
+          isOriginalHost: false,
+        },
+        queue: [],
+        playback: { isPlaying: false, currentIndex: 0, currentTrackId: null },
+      },
+    };
+    renderWithRouter(<GuestRoomLivePanel code="AB3K9Q" role="dj" displayName="Alex" />);
+    expect(screen.queryByRole("button", { name: /leave room/i })).not.toBeInTheDocument();
+    const dialog = openEndRoomConfirmation();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^end room$/i }));
+    await waitFor(() => expect(end).toHaveBeenCalledTimes(1));
+    expect(end).toHaveBeenCalledWith();
+    expect(leave).not.toHaveBeenCalled();
+  });
+
+  it("leaves the guest room open when the Host dismisses End room", () => {
+    mockParty = {
+      ...mockParty,
+      isHost: true,
+      canManage: true,
+      refresh: vi.fn(),
+      end,
+      leave,
+      room: {
+        id: "r1",
+        code: "AB3K9Q",
+        status: "open",
+        me: { id: "g1", role: "host", userId: null, isGuest: true, displayName: "Alex" },
+        queue: [],
+        playback: { isPlaying: false, currentIndex: 0, currentTrackId: null },
+      },
+    };
+    renderWithRouter(<GuestRoomLivePanel code="AB3K9Q" role="host" displayName="Alex" />);
+    const dialog = openEndRoomConfirmation();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^cancel$/i }));
+    expect(end).not.toHaveBeenCalled();
+    expect(leave).not.toHaveBeenCalled();
+    expect(screen.getByText("AB3K9Q")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^end room$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("guest DJ Leave room only removes that seat", async () => {
+    leave.mockResolvedValue(undefined);
+    mockParty = {
+      ...mockParty,
+      refresh: vi.fn(),
+      end,
+      leave,
+      room: {
+        id: "r1",
+        code: "AB3K9Q",
+        status: "open",
+        me: { id: "g1", role: "dj", userId: null, isGuest: true, displayName: "Walkup" },
+        queue: [],
+        playback: { isPlaying: false, currentIndex: 0, currentTrackId: null },
+      },
+    };
+    renderWithRouter(<GuestRoomLivePanel code="AB3K9Q" role="dj" displayName="Walkup" />);
+    expect(screen.queryByRole("button", { name: /^end room$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^leave room$/i }));
+    await waitFor(() => expect(leave).toHaveBeenCalledWith("AB3K9Q"));
+    expect(end).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps Away participants, marks them Away, and drops the original host label", () => {
+    const now = Date.now();
+    mockParty = {
+      ...mockParty,
+      canManage: false,
+      isHost: false,
+      room: {
+        id: "r1",
+        code: "AB3K9Q",
+        status: "open",
+        roomVersion: 1,
+        defaultJoinRole: "listener",
+        currentHostParticipantId: "p1",
+        me: { id: "p3", role: "listener", userId: "u3", displayName: "Sam" },
+        participants: [
+          {
+            id: "p1",
+            displayName: "Kody",
+            role: "host",
+            userId: "u1",
+            isGuest: false,
+            // Speaker within the 30s silence window — still here.
+            lastHeartbeatAt: new Date(now - 15_000).toISOString(),
+            isOriginalHost: true,
+          },
+          {
+            id: "p2",
+            displayName: "Alex",
+            role: "dj",
+            userId: "u2",
+            isGuest: false,
+            // Non-speaker past the 10s Away threshold.
+            lastHeartbeatAt: new Date(now - 15_000).toISOString(),
+            isOriginalHost: false,
+          },
+          {
+            id: "p3",
+            displayName: "Sam",
+            role: "listener",
+            userId: "u3",
+            isGuest: false,
+            lastHeartbeatAt: new Date(now - 1_000).toISOString(),
+            isOriginalHost: false,
+          },
+        ],
+        queue: [],
+        playback: { isPlaying: false, currentIndex: 0, currentTrackId: null },
+        joinUrl: "/rooms/AB3K9Q",
+        qrDataUrl: null,
+      },
+    };
+    renderWithRouter(<RoomsHub />);
+
+    const items = screen.getAllByRole("listitem");
+    const text = (name: string) => items.find((item) => item.textContent?.includes(name));
+    expect(text("Kody")).toBeTruthy();
+    expect(text("Alex")).toBeTruthy();
+    expect(text("Sam")).toBeTruthy();
+    expect(text("Alex")?.textContent).toMatch(/Away/);
+    expect(text("Kody")?.textContent).not.toMatch(/Away/);
+    expect(text("Sam")?.textContent).not.toMatch(/Away/);
+    expect(screen.queryByText(/original host/i)).not.toBeInTheDocument();
   });
 });

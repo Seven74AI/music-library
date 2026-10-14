@@ -4,6 +4,7 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { loader as currentRoomLoader } from "#app/routes/api+/rooms+/current.tsx";
 import { action as createRoomAction } from "#app/routes/api+/rooms+/index.tsx";
 import { action as joinRoomAction } from "#app/routes/api+/rooms+/$roomCode.join.tsx";
 import { action as leaveRoomAction } from "#app/routes/api+/rooms+/$roomCode.leave.tsx";
@@ -259,6 +260,111 @@ describe("rooms API", () => {
       where: { roomId: roomA.roomId, leftAt: null },
     });
     expect(activeA).toBe(1);
+  });
+
+  test("GET /api/rooms/current returns the signed-in open seat or 204", async () => {
+    const host = await createUserCookie("Host");
+    const other = await createUserCookie("Listener");
+
+    const anonymous = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current"),
+    });
+    expect(anonymous.status).toBe(204);
+
+    const none = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current", {
+        headers: { cookie: host.cookie },
+      }),
+    });
+    expect(none.status).toBe(204);
+
+    const createRes = await createRoomAction({
+      request: new Request("http://localhost/api/rooms", {
+        method: "POST",
+        headers: { cookie: host.cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: "Host", defaultJoinRole: "listener" }),
+      }),
+    });
+    expect(createRes.status).toBe(200);
+    const created = (await createRes.json()) as { code: string; roomId: string };
+
+    const track = await makeTrackWithAudio("Now Playing");
+    const queueRes = await queueAction({
+      request: new Request(`http://localhost/api/rooms/${created.code}/queue`, {
+        method: "POST",
+        headers: { cookie: host.cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ intent: "add_track", trackId: track.id }),
+      }),
+      params: { roomCode: created.code },
+    });
+    expect(queueRes.status).toBe(200);
+
+    const current = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current", {
+        headers: { cookie: host.cookie },
+      }),
+    });
+    expect(current.status).toBe(200);
+    const body = (await current.json()) as {
+      code: string;
+      roomId: string;
+      status: string;
+      queue: Array<{ trackId: string }>;
+      participants: Array<{ userId: string | null }>;
+      me: { userId: string | null; role: string } | null;
+    };
+    expect(body.code).toBe(created.code);
+    expect(body.roomId).toBe(created.roomId);
+    expect(body.status).toBe("open");
+    expect(body.queue.map((item) => item.trackId)).toEqual([track.id]);
+    expect(body.participants.some((p) => p.userId === host.userId)).toBe(true);
+    expect(body.me).toMatchObject({ userId: host.userId, role: "host" });
+
+    const stranger = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current", {
+        headers: { cookie: other.cookie },
+      }),
+    });
+    expect(stranger.status).toBe(204);
+
+    const joinRes = await joinRoomAction({
+      request: new Request(`http://localhost/api/rooms/${created.code}/join`, {
+        method: "POST",
+        headers: { cookie: other.cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: "Listener" }),
+      }),
+      params: { roomCode: created.code },
+    });
+    expect(joinRes.status).toBe(200);
+
+    const joined = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current", {
+        headers: { cookie: other.cookie },
+      }),
+    });
+    expect(joined.status).toBe(200);
+    const joinedBody = (await joined.json()) as { code: string; me: { role: string } | null };
+    expect(joinedBody.code).toBe(created.code);
+    expect(joinedBody.me?.role).toBe("listener");
+
+    const leaveRes = await leaveRoomAction({
+      request: new Request(`http://localhost/api/rooms/${created.code}/leave`, {
+        method: "POST",
+        headers: { cookie: host.cookie },
+      }),
+      params: { roomCode: created.code },
+    });
+    expect(leaveRes.status).toBe(200);
+
+    const afterLeave = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current", {
+        headers: { cookie: host.cookie },
+      }),
+    });
+    expect(afterLeave.status).toBe(204);
+
+    const stillOpen = await prisma.room.findUniqueOrThrow({ where: { id: created.roomId } });
+    expect(stillOpen.status).toBe("open");
   });
 
   test("skip at last queue item stops playback instead of staying playing", async () => {

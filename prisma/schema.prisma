@@ -679,7 +679,11 @@ model Room {
   /// Current Host participant seat (speaker device in v1).
   currentHostParticipantId String?  @unique
   currentHostParticipant   RoomParticipant? @relation("RoomCurrentHost", fields: [currentHostParticipantId], references: [id], onDelete: SetNull)
-  /// Set when the last connected participant leaves; used for empty-room TTL.
+  /// Seat allowed to reclaim the speaker. Starts as the creating host.
+  /// When that seat Leaves and is not the current host, the pass moves to the current host seat.
+  reclaimParticipantId     String?  @unique
+  reclaimParticipant       RoomParticipant? @relation("RoomReclaimHost", fields: [reclaimParticipantId], references: [id], onDelete: SetNull)
+  /// Set when every seated participant is Away, or the last seat Leaves. Empty-room TTL.
   emptySince               DateTime?
   endedAt                  DateTime?
   createdAt                DateTime @default(now())
@@ -713,6 +717,7 @@ model RoomParticipant {
 
   addedQueueItems RoomQueueItem[]
   hostedRoom      Room? @relation("RoomCurrentHost")
+  reclaimRoom     Room? @relation("RoomReclaimHost")
 
   @@index([roomId, leftAt])
   @@index([userId, leftAt])
