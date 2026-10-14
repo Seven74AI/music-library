@@ -21,7 +21,6 @@ export function RoomSpeakerBridge() {
   const party = useOptionalPartyRoom();
   const audio = useAudioPlayer();
   const wasSpeakerRef = useRef(false);
-  const lastRoomTrackRef = useRef<string | null>(null);
   const lastPlayIdRef = useRef<string | null>(null);
 
   const room = party?.room ?? null;
@@ -35,27 +34,30 @@ export function RoomSpeakerBridge() {
       suspendPersonalPlayerSnapshot(audio.getPersonalPlayerSnapshot(), audio.isPlayerVisible);
     } else if (!isSpeaker && wasSpeakerRef.current) {
       wasSpeakerRef.current = false;
-      lastRoomTrackRef.current = null;
       const suspended = takeSuspendedPersonalPlayer();
       audio.resumePersonalPersistence();
-      if (suspended) {
-        void audio.restorePersonalPlayerSnapshot(suspended.snapshot, suspended.wasVisible);
-      }
+      void audio.restorePersonalPlayerSnapshot(
+        suspended?.snapshot ?? {
+          playContext: null,
+          currentTrackId: null,
+          upNextIds: [],
+          shuffleSeed: null,
+          loopMode: "off",
+        },
+        suspended?.wasVisible ?? false,
+      );
     }
   }, [isSpeaker, audio]);
 
-  // Host: drive playback from room queue pointer
+  // Host: replace the on-screen queue with the room queue, including an empty room.
   useEffect(() => {
     if (!isSpeaker || !room || !party) return;
-    const { nowPlaying } = splitRoomQueue(room);
-    if (!nowPlaying) return;
-    if (lastRoomTrackRef.current === nowPlaying.trackId) return;
-    lastRoomTrackRef.current = nowPlaying.trackId;
-
-    const stub = roomQueueItemToFullTrack(nowPlaying.track);
-    audio.playRoomSpeakerTrack(stub, {
+    const { nowPlaying, upcoming } = splitRoomQueue(room);
+    audio.syncRoomSpeakerQueue({
       roomId: room.id,
       code: room.code,
+      nowPlaying: nowPlaying ? roomQueueItemToFullTrack(nowPlaying.track) : null,
+      upcoming: upcoming.map((item) => roomQueueItemToFullTrack(item.track)),
       onEnded: () => {
         void party.transport({ action: "skip" });
       },
