@@ -1080,7 +1080,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
       if (unlocked) return;
       unlocked = true;
       const audio = audioRef.current;
-      if (!audio) return;
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      // A click that leaves the room must not stop audio that is already playing.
+      if (!audio || !audio.paused) return;
       const wasMuted = audio.muted;
       audio.muted = true;
       try {
@@ -1098,8 +1101,6 @@ export function AudioPlayer(props: AudioPlayerProps) {
         audio.muted = wasMuted;
         audio.load();
       }
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
     };
     window.addEventListener("pointerdown", unlock);
     window.addEventListener("keydown", unlock);
@@ -1358,7 +1359,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       audioRef.current.pause();
       setIsPlaying(false);
     }
-  }, [roomSpeaker, roomPlaying]);
+  }, [roomSpeaker, roomPlaying, track?.id]);
 
   useEffect(() => {
     if (!isVisible) return;

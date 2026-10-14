@@ -791,6 +791,24 @@ test("unlocks the audio element on the first keydown", async () => {
   expect(playSpy).toHaveBeenCalledOnce();
 });
 
+test("keeps already-playing audio going when the first gesture is a click", async () => {
+  const pauseSpy = vi
+    .spyOn(window.HTMLMediaElement.prototype, "pause")
+    .mockImplementation(() => {});
+  vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
+
+  await renderPlayer();
+  const audio = document.querySelector("audio");
+  if (!audio) throw new Error("missing audio element");
+  Object.defineProperty(audio, "paused", { configurable: true, get: () => false });
+  pauseSpy.mockClear();
+
+  window.dispatchEvent(new Event("pointerdown"));
+  await Promise.resolve();
+
+  expect(pauseSpy).not.toHaveBeenCalled();
+});
+
 test("unlock is one-shot — later gestures of either type do not reload", async () => {
   const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (
     this: HTMLMediaElement,

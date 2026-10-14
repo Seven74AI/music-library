@@ -20,11 +20,13 @@ vi.mock("./audio-player", () => ({
   AudioPlayer: ({
     wantsAutoPlayRef,
     unlockAutoplayRef,
+    playbackToken,
   }: {
     wantsAutoPlayRef?: React.MutableRefObject<boolean>;
     unlockAutoplayRef?: React.MutableRefObject<
       ((trackId: string, cachedUrl: string) => boolean) | null
     >;
+    playbackToken?: number;
   }) => {
     // Mock the unlock function
     if (unlockAutoplayRef) {
@@ -36,7 +38,12 @@ vi.mock("./audio-player", () => ({
         return true;
       };
     }
-    return <span data-testid="wants-autoplay">{String(wantsAutoPlayRef?.current ?? false)}</span>;
+    return (
+      <>
+        <span data-testid="wants-autoplay">{String(wantsAutoPlayRef?.current ?? false)}</span>
+        <span data-testid="playback-token">{playbackToken ?? 0}</span>
+      </>
+    );
   },
 }));
 
@@ -222,6 +229,309 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+test("speaker mode replaces a personal queue with the room queue", async () => {
+  const user = userEvent.setup();
+  const personalNext: FullTrack = {
+    ...playableTrack,
+    id: "personal-next",
+    title: "Personal Next",
+  };
+  const roomTrack: FullTrack = {
+    ...playableTrack,
+    id: "room-track",
+    title: "Room Song",
+    artist: { id: "room-artist", name: "Room Artist" },
+  };
+  const roomNext: FullTrack = {
+    ...playableTrack,
+    id: "room-next",
+    title: "Room Next",
+  };
+  const roomLater: FullTrack = {
+    ...playableTrack,
+    id: "room-later",
+    title: "Room Later",
+  };
+
+  function Probe() {
+    const audio = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => audio.playNextTrack(playableTrack)}>
+          Load personal
+        </button>
+        <button type="button" onClick={() => audio.addToUpNext(personalNext)}>
+          Add personal next
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            audio.suspendPersonalPersistence();
+            audio.syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: null,
+              upcoming: [],
+            });
+          }}
+        >
+          Enter empty room
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            audio.syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: roomTrack,
+              upcoming: [roomNext],
+            })
+          }
+        >
+          Show room queue
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            audio.syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: roomTrack,
+              upcoming: [roomNext, roomLater],
+            })
+          }
+        >
+          Update room upcoming
+        </button>
+        <span data-testid="current-track-id">{audio.currentTrack?.id ?? ""}</span>
+        <span data-testid="current-track-title">{audio.currentTrack?.title ?? ""}</span>
+        <span data-testid="up-next-ids">{audio.upNext.map((track) => track.id).join(",")}</span>
+        <span data-testid="player-visible">{String(audio.isPlayerVisible)}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Load personal" }));
+  await user.click(screen.getByRole("button", { name: "Add personal next" }));
+  expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  expect(screen.getByTestId("up-next-ids").textContent).toBe("personal-next");
+
+  await user.click(screen.getByRole("button", { name: "Enter empty room" }));
+  expect(screen.getByTestId("current-track-id").textContent).toBe("");
+  expect(screen.getByTestId("up-next-ids").textContent).toBe("");
+  expect(screen.getByTestId("player-visible").textContent).toBe("false");
+
+  await user.click(screen.getByRole("button", { name: "Show room queue" }));
+  expect(screen.getByTestId("current-track-id").textContent).toBe("room-track");
+  expect(screen.getByTestId("current-track-title").textContent).toBe("Room Song");
+  expect(screen.getByTestId("up-next-ids").textContent).toBe("room-next");
+  expect(screen.getByTestId("player-visible").textContent).toBe("true");
+  const token = screen.getByTestId("playback-token").textContent;
+
+  await user.click(screen.getByRole("button", { name: "Update room upcoming" }));
+  expect(screen.getByTestId("current-track-id").textContent).toBe("room-track");
+  expect(screen.getByTestId("up-next-ids").textContent).toBe("room-next,room-later");
+  expect(screen.getByTestId("playback-token").textContent).toBe(token);
+});
+
+test("a paused room shows its track without starting playback", async () => {
+  const user = userEvent.setup();
+  const roomTrack: FullTrack = {
+    ...playableTrack,
+    id: "room-track",
+    title: "Room Song",
+  };
+
+  function Probe() {
+    const audio = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => audio.playNextTrack(playableTrack)}>
+          Load personal
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            audio.suspendPersonalPersistence();
+            audio.syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: roomTrack,
+              upcoming: [],
+              autoplay: false,
+            });
+          }}
+        >
+          Show paused room
+        </button>
+        <span data-testid="current-track-id">{audio.currentTrack?.id ?? ""}</span>
+        <span data-testid="player-visible">{String(audio.isPlayerVisible)}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Load personal" }));
+  const token = screen.getByTestId("playback-token").textContent;
+  await user.click(screen.getByRole("button", { name: "Show paused room" }));
+
+  expect(screen.getByTestId("current-track-id").textContent).toBe("room-track");
+  expect(screen.getByTestId("player-visible").textContent).toBe("true");
+  expect(screen.getByTestId("playback-token").textContent).toBe(token);
+  expect(screen.getByTestId("wants-autoplay").textContent).toBe("false");
+});
+
+test("speaker mode ignores personal queue edits", async () => {
+  const user = userEvent.setup();
+  const roomTrack: FullTrack = {
+    ...playableTrack,
+    id: "room-track",
+    title: "Room Song",
+  };
+  const roomNext: FullTrack = {
+    ...playableTrack,
+    id: "room-next",
+    title: "Room Next",
+  };
+
+  function Probe() {
+    const audio = useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() =>
+            audio.syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: roomTrack,
+              upcoming: [roomNext],
+            })
+          }
+        >
+          Show room queue
+        </button>
+        <button type="button" onClick={() => audio.playNextTrack(playableTrack)}>
+          Load personal
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            audio.addToUpNext({ ...playableTrack, id: "personal-next", title: "Personal Next" })
+          }
+        >
+          Add personal next
+        </button>
+        <span data-testid="current-track-id">{audio.currentTrack?.id ?? ""}</span>
+        <span data-testid="up-next-ids">{audio.upNext.map((track) => track.id).join(",")}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Show room queue" }));
+  await user.click(screen.getByRole("button", { name: "Load personal" }));
+  await user.click(screen.getByRole("button", { name: "Add personal next" }));
+
+  expect(screen.getByTestId("current-track-id").textContent).toBe("room-track");
+  expect(screen.getByTestId("up-next-ids").textContent).toBe("room-next");
+});
+
+test("becoming speaker discards an in-flight personal queue restore", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  let releasePlayerState: (response: Response) => void = () => {};
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE)) {
+      return new Promise<Response>((resolve) => {
+        releasePlayerState = resolve;
+      });
+    }
+    if (url.includes("/api/tracks/playback")) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ tracks: [playableTrack] }),
+      } as Response);
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ tracks: [], total: 0 }),
+    } as Response);
+  });
+
+  function Probe() {
+    const audio = useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            audio.suspendPersonalPersistence();
+            audio.syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: null,
+              upcoming: [],
+            });
+          }}
+        >
+          Enter empty room
+        </button>
+        <span data-testid="current-track-id">{audio.currentTrack?.id ?? ""}</span>
+        <span data-testid="player-visible">{String(audio.isPlayerVisible)}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Enter empty room" }));
+  releasePlayerState({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      playContext: null,
+      currentTrackId: "track-1",
+      upNextIds: [],
+      shuffleSeed: null,
+      loopMode: "off",
+    }),
+  } as Response);
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledWith(
+      PLAYER_STATE_ROUTE,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(screen.getByTestId("current-track-id").textContent).toBe("");
+  expect(screen.getByTestId("player-visible").textContent).toBe("false");
 });
 
 test("playNextTrack on cold start cues track as current without autoplay", async () => {

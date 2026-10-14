@@ -80,8 +80,14 @@ vi.mock("#app/components/ui/use-toast.ts", () => ({
 let mockParty = { ...baseParty };
 
 function renderWithRouter(ui: React.ReactNode) {
-  const router = createMemoryRouter([{ path: "/", element: ui }], { initialEntries: ["/"] });
-  return render(<RouterProvider router={router} />);
+  const router = createMemoryRouter(
+    [
+      { path: "/", element: ui },
+      { path: "/rooms/:code", element: <p>Opened room</p> },
+    ],
+    { initialEntries: ["/"] },
+  );
+  return { router, ...render(<RouterProvider router={router} />) };
 }
 
 function seat(
@@ -194,15 +200,16 @@ describe("Party Room UI affordances", () => {
 
   it("joins with a normalized code from the home form", async () => {
     join.mockResolvedValue({ code: "AB3K9Q" });
-    renderWithRouter(<GotACodeJoin />);
+    const { router } = renderWithRouter(<GotACodeJoin />);
     fireEvent.change(screen.getByLabelText(/room code or join link/i), {
       target: { value: "ab3k9q" },
     });
     fireEvent.click(screen.getByRole("button", { name: /join room/i }));
     await waitFor(() => expect(join).toHaveBeenCalledWith("AB3K9Q"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/rooms/AB3K9Q"));
   });
 
-  it("shows in-room chip with code when participating", () => {
+  it("shows in-room chip with code when participating", async () => {
     mockParty = {
       ...mockParty,
       isHost: true,
@@ -213,9 +220,45 @@ describe("Party Room UI affordances", () => {
         me: { id: "p1", role: "host" },
       },
     };
-    renderWithRouter(<InRoomChip />);
-    expect(screen.getByLabelText(/in room AB3K9Q/i)).toBeInTheDocument();
+    const { router } = renderWithRouter(<InRoomChip />);
+    const chip = screen.getByRole("link", { name: /in room AB3K9Q/i });
+    expect(chip).toHaveAttribute("href", "/rooms/AB3K9Q");
     expect(screen.getByText("Host")).toBeInTheDocument();
+    fireEvent.click(chip);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/rooms/AB3K9Q"));
+  });
+
+  it("opens the current room from home without leaving the app", async () => {
+    mockParty = {
+      ...mockParty,
+      room: {
+        id: "r1",
+        code: "AB3K9Q",
+        status: "open",
+        me: { id: "p1", role: "host" },
+      },
+    };
+    const { router } = renderWithRouter(<GotACodeJoin />);
+    fireEvent.click(screen.getByRole("link", { name: /open room/i }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/rooms/AB3K9Q"));
+  });
+
+  it("creates a room and opens it in the app", async () => {
+    const created = vi.fn().mockResolvedValue({ code: "AB3K9Q" });
+    mockParty = { ...mockParty, create: created };
+    const { router } = renderWithRouter(<RoomsHub />);
+    fireEvent.click(screen.getByRole("button", { name: /create room/i }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/rooms/AB3K9Q"));
+  });
+
+  it("joins from the hub and opens the room in the app", async () => {
+    join.mockResolvedValue({ code: "AB3K9Q" });
+    const { router } = renderWithRouter(<RoomsHub />);
+    fireEvent.change(screen.getByRole("textbox", { name: /room code/i }), {
+      target: { value: "AB3K9Q" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^join$/i }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/rooms/AB3K9Q"));
   });
 
   it("shows Become host when takeover is available", () => {

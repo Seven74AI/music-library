@@ -157,6 +157,20 @@ interface AudioPlayerContextType {
   resumePersonalPersistence: () => void;
   getPersonalPlayerSnapshot: () => PlayerStateData;
   restorePersonalPlayerSnapshot: (snapshot: PlayerStateData, wasVisible: boolean) => Promise<void>;
+  /**
+   * Party Room host: show the room queue on this device.
+   * An empty room hides the player so a personal queue is not left on screen.
+   * The same room track does not restart when only the upcoming list changes.
+   */
+  syncRoomSpeakerQueue: (options: {
+    roomId: string;
+    code: string;
+    nowPlaying: Track | null;
+    upcoming: Track[];
+    onEnded?: () => void;
+    /** When false, show the room track and leave it paused. */
+    autoplay?: boolean;
+  }) => void;
   /** Party Room host: play a room-queue track; personal UsageEvents suppressed. */
   playRoomSpeakerTrack: (
     track: Track,
@@ -395,7 +409,13 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const [roomSpeaker, setRoomSpeaker] = useState<{ roomId: string; code: string } | null>(null);
   const [roomPlaying, setRoomPlaying] = useState<boolean | null>(null);
   const persistenceSuspendedRef = useRef(false);
+  // Explicit personal restore may run while persistence is still suspended so
+  // the room queue cannot be written as PlayerState on the way out.
+  const allowRestoreWhileSuspendedRef = useRef(false);
   const roomOnEndedRef = useRef<(() => void) | null>(null);
+  const roomSpeakerRef = useRef<{ roomId: string; code: string } | null>(null);
+  const roomQueueSignatureRef = useRef<string | null>(null);
+  const roomTrackIdRef = useRef<string | null>(null);
 
   const isShuffleEnabled = shuffleSeed !== null;
 
@@ -468,6 +488,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       persistTimerRef.current = null;
     }
     playerStateRef.current = EMPTY_PLAYER_STATE;
+    persistenceSuspendedRef.current = false;
+    allowRestoreWhileSuspendedRef.current = false;
+    roomOnEndedRef.current = null;
+    roomSpeakerRef.current = null;
+    roomQueueSignatureRef.current = null;
+    roomTrackIdRef.current = null;
+    setRoomSpeaker(null);
+    setRoomPlaying(null);
     setCurrentTrack(null);
     setIsPlayerVisible(false);
     setUpNext([]);
@@ -750,6 +778,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const playTrack = useCallback(
     async (track: Track, context: PlaylistContext, index?: number) => {
+      if (roomSpeakerRef.current) return;
       if (!isPlayableTrack(track)) return;
 
       noteUserQueueMutation();
@@ -765,6 +794,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const playPlaylist = useCallback(
     (tracks: Track[], context: PlaylistContext, startIndex: number = 0) => {
+      if (roomSpeakerRef.current) return;
       noteUserQueueMutation();
       setIsLoadingNext(true);
       try {
@@ -822,6 +852,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const playLibrary = useCallback(
     async (sort: LibrarySortOption = DEFAULT_LIBRARY_SORT) => {
+      if (roomSpeakerRef.current) return;
       noteUserQueueMutation();
       setIsLoadingNext(true);
       try {
@@ -873,6 +904,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const playUserPlaylist = useCallback(
     async (playlistId: string, sort: PlaylistTrackSortOption = "custom") => {
+      if (roomSpeakerRef.current) return;
       noteUserQueueMutation();
       setIsLoadingNext(true);
       try {
@@ -925,6 +957,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const addTrackToPlaylist = useCallback(
     (track: Track, position: "next" | "upNext" | "end" = "end") => {
+      if (roomSpeakerRef.current) return;
       if (!isPlayableTrack(track)) return;
 
       noteUserQueueMutation();
@@ -965,6 +998,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const removeTrackFromPlaylist = useCallback(
     (target: QueueTarget) => {
+      if (roomSpeakerRef.current) return;
       if (target.zone === "upNext") {
         setUpNext((prev) => prev.filter((_, itemIndex) => itemIndex !== target.index));
         if (target.index < upNextPlayNextCount) {
@@ -1013,6 +1047,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   );
 
   const removeCurrentFromQueue = useCallback(() => {
+    if (roomSpeakerRef.current) return;
     if (!currentTrack) return;
 
     const upNextIndex = upNext.findIndex((track) => track.id === currentTrack.id);
@@ -1058,6 +1093,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const playNextTrack = useCallback(
     (track: Track) => {
+      if (roomSpeakerRef.current) return;
       if (!isPlayableTrack(track)) return;
 
       noteUserQueueMutation();
@@ -1092,6 +1128,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const addToUpNext = useCallback(
     (track: Track) => {
+      if (roomSpeakerRef.current) return;
       if (!isPlayableTrack(track)) return;
 
       addTrackToPlaylist(track, "upNext");
@@ -1105,6 +1142,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const addToQueue = useCallback(
     (track: Track) => {
+      if (roomSpeakerRef.current) return;
       if (!isPlayableTrack(track)) return;
 
       addTrackToPlaylist(track, "end");
@@ -1125,6 +1163,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const advanceToTarget = useCallback(
     (target: QueueTarget) => {
+      if (roomSpeakerRef.current) return;
       const queueTrack = getTrackAtTarget(navigationState, target);
       if (!queueTrack) return;
 
@@ -1196,6 +1235,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
    */
   const playQueueTrack = useCallback(
     (target: QueueTarget) => {
+      if (roomSpeakerRef.current) return;
       const queueTrack = getTrackAtTarget(navigationState, target);
       if (!queueTrack) return;
 
@@ -1260,6 +1300,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   );
 
   const startQueuePlayback = useCallback(() => {
+    if (roomSpeakerRef.current) return;
     if (currentTrack) return;
 
     if (upNext.length > 0) {
@@ -1284,6 +1325,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   ]);
 
   const playPrevious = useCallback(() => {
+    if (roomSpeakerRef.current) return;
     const target = resolvePreviousTrack(navigationState);
     if (!target) return;
 
@@ -1335,6 +1377,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   }, [shuffleSeed, spine.length, spineOrder, spinePosition]);
 
   const closePlayer = useCallback(() => {
+    if (roomSpeakerRef.current) return;
     playlistFetchEpochRef.current += 1;
     wantsAutoPlayRef.current = false;
     setIsPlayerVisible(false);
@@ -1387,10 +1430,21 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   }, []);
 
   const resumePersonalPersistence = useCallback(() => {
-    persistenceSuspendedRef.current = false;
+    // Leave persistence suspended until the personal snapshot is applied.
+    // Clearing it here would let this render's room queue be saved as PlayerState.
+    roomSpeakerRef.current = null;
+    roomQueueSignatureRef.current = null;
+    roomTrackIdRef.current = null;
+    roomOnEndedRef.current = null;
     setRoomSpeaker(null);
     setRoomPlaying(null);
-    roomOnEndedRef.current = null;
+  }, []);
+
+  const releasePersonalPersistence = useCallback(() => {
+    queueMicrotask(() => {
+      persistenceSuspendedRef.current = false;
+      setPersistEpoch((value) => value + 1);
+    });
   }, []);
 
   const getPersonalPlayerSnapshot = useCallback((): PlayerStateData => {
@@ -1401,31 +1455,97 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     async (snapshot: PlayerStateData, wasVisible: boolean) => {
       setRoomSpeaker(null);
       roomOnEndedRef.current = null;
-      if (!wasVisible || !hasPersistableQueue(snapshot)) {
-        closePlayer();
-        return;
+      roomSpeakerRef.current = null;
+      roomQueueSignatureRef.current = null;
+      roomTrackIdRef.current = null;
+      try {
+        if (!wasVisible || !hasPersistableQueue(snapshot)) {
+          closePlayer();
+          return;
+        }
+        allowRestoreWhileSuspendedRef.current = true;
+        await restoreQueueFromServerRef.current?.(snapshot);
+      } finally {
+        allowRestoreWhileSuspendedRef.current = false;
+        if (!roomSpeakerRef.current) {
+          releasePersonalPersistence();
+        }
       }
-      await restoreQueueFromServerRef.current?.(snapshot);
     },
-    [closePlayer],
+    [closePlayer, releasePersonalPersistence],
   );
 
-  const playRoomSpeakerTrack = useCallback(
-    (track: Track, options: { roomId: string; code: string; onEnded?: () => void }) => {
-      setRoomSpeaker({ roomId: options.roomId, code: options.code });
+  const syncRoomSpeakerQueue = useCallback(
+    (options: {
+      roomId: string;
+      code: string;
+      nowPlaying: Track | null;
+      upcoming: Track[];
+      onEnded?: () => void;
+      autoplay?: boolean;
+    }) => {
       roomOnEndedRef.current = options.onEnded ?? null;
-      wantsAutoPlayRef.current = true;
-      setCurrentTrack(track);
-      setIsPlayerVisible(true);
-      setPlaybackToken((token) => token + 1);
-      setUpNext([]);
+      const signature = `${options.code}|${options.nowPlaying?.id ?? ""}|${options.upcoming
+        .map((track) => track.id)
+        .join(",")}`;
+      if (roomQueueSignatureRef.current === signature) return;
+
+      roomQueueSignatureRef.current = signature;
+      const speaker = { roomId: options.roomId, code: options.code };
+      roomSpeakerRef.current = speaker;
+      setRoomSpeaker(speaker);
+
+      setPlayContext(null);
+      setShuffleSeed(null);
       setSpine([]);
       setSpineOrder([]);
       setSpinePosition(0);
       setSpineTotal(0);
-      setPlayContext(null);
+      setUpNextPlayNextCount(0);
+      upNextPlayNextCountRef.current = 0;
+      setUpNext(options.upcoming.map(queueTrackFromFullTrack));
+
+      for (const track of [options.nowPlaying, ...options.upcoming]) {
+        if (track && isPlayableTrack(track)) {
+          playbackCacheRef.current.set(track);
+        }
+      }
+      setCacheVersion((version) => version + 1);
+
+      const nextId = options.nowPlaying?.id ?? null;
+      const trackChanged = roomTrackIdRef.current !== nextId;
+      roomTrackIdRef.current = nextId;
+
+      if (!options.nowPlaying) {
+        wantsAutoPlayRef.current = false;
+        setCurrentTrack(null);
+        setIsPlayerVisible(false);
+        return;
+      }
+
+      setCurrentTrack(options.nowPlaying);
+      setIsPlayerVisible(true);
+      if (trackChanged && options.autoplay !== false) {
+        wantsAutoPlayRef.current = true;
+        setPlaybackToken((token) => token + 1);
+      } else if (options.autoplay === false) {
+        wantsAutoPlayRef.current = false;
+      }
     },
     [],
+  );
+
+  const playRoomSpeakerTrack = useCallback(
+    (track: Track, options: { roomId: string; code: string; onEnded?: () => void }) => {
+      syncRoomSpeakerQueue({
+        roomId: options.roomId,
+        code: options.code,
+        nowPlaying: track,
+        upcoming: [],
+        onEnded: options.onEnded,
+      });
+    },
+    [syncRoomSpeakerQueue],
   );
 
   const setRoomPlaybackPlaying = useCallback((playing: boolean) => {
@@ -1476,6 +1596,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       resumePersonalPersistence,
       getPersonalPlayerSnapshot,
       restorePersonalPlayerSnapshot,
+      syncRoomSpeakerQueue,
       playRoomSpeakerTrack,
       setRoomPlaybackPlaying,
       roomSpeaker,
@@ -1519,6 +1640,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       resumePersonalPersistence,
       getPersonalPlayerSnapshot,
       restorePersonalPlayerSnapshot,
+      syncRoomSpeakerQueue,
       playRoomSpeakerTrack,
       setRoomPlaybackPlaying,
       roomSpeaker,
@@ -1546,7 +1668,10 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     async (saved: PlayerStateData) => {
       const epoch = restoreEpochRef.current;
       const shouldAbortRestore = () =>
-        userMutatedQueueRef.current || epoch !== restoreEpochRef.current;
+        userMutatedQueueRef.current ||
+        roomSpeakerRef.current !== null ||
+        (persistenceSuspendedRef.current && !allowRestoreWhileSuspendedRef.current) ||
+        epoch !== restoreEpochRef.current;
 
       if (shouldAbortRestore()) return;
 
@@ -1654,11 +1779,25 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     const epoch = restoreEpochRef.current;
     const saved = readCachedPlayerState(restoreUserId);
     if (!saved) return;
-    if (userMutatedQueueRef.current || epoch !== restoreEpochRef.current) return;
+    if (
+      userMutatedQueueRef.current ||
+      roomSpeakerRef.current !== null ||
+      (persistenceSuspendedRef.current && !allowRestoreWhileSuspendedRef.current) ||
+      epoch !== restoreEpochRef.current
+    ) {
+      return;
+    }
 
     const storage = getOfflineStorage();
     const downloaded = await storage.listDownloaded();
-    if (userMutatedQueueRef.current || epoch !== restoreEpochRef.current) return;
+    if (
+      userMutatedQueueRef.current ||
+      roomSpeakerRef.current !== null ||
+      (persistenceSuspendedRef.current && !allowRestoreWhileSuspendedRef.current) ||
+      epoch !== restoreEpochRef.current
+    ) {
+      return;
+    }
     const byId = new Map(downloaded.map((summary) => [summary.trackId, summary]));
 
     const toFullTrack = (id: string): FullTrack | null => {
@@ -1806,7 +1945,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       try {
         const saved = await fetchPlayerState();
         if (epoch !== restoreEpochRef.current) return;
-        if (saved && !userMutatedQueueRef.current) {
+        if (
+          saved &&
+          !userMutatedQueueRef.current &&
+          !roomSpeakerRef.current &&
+          !(persistenceSuspendedRef.current && !allowRestoreWhileSuspendedRef.current)
+        ) {
           await restoreQueueFromServer(saved);
         }
         if (epoch !== restoreEpochRef.current) return;
