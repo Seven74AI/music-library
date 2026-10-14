@@ -367,6 +367,71 @@ describe("rooms API", () => {
     expect(stillOpen.status).toBe("open");
   });
 
+  test("GET /api/rooms/current returns the guest cookie seat so presence can heartbeat", async () => {
+    const host = await createUserCookie("Host");
+
+    const createRes = await createRoomAction({
+      request: new Request("http://localhost/api/rooms", {
+        method: "POST",
+        headers: { cookie: host.cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: "Host", defaultJoinRole: "listener" }),
+      }),
+    });
+    expect(createRes.status).toBe(200);
+    const created = (await createRes.json()) as { code: string; roomId: string };
+
+    const joinRes = await joinRoomAction({
+      request: new Request(`http://localhost/api/rooms/${created.code}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: "Walkup" }),
+      }),
+      params: { roomCode: created.code },
+    });
+    expect(joinRes.status).toBe(200);
+    const guestSetCookie = joinRes.headers.get("Set-Cookie");
+    expect(guestSetCookie).toBeTruthy();
+    const guestCookie = parseString(guestSetCookie!)!;
+    const guestCookieHeader = `${guestCookie.name}=${guestCookie.value}`;
+
+    const current = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current", {
+        headers: { cookie: guestCookieHeader },
+      }),
+    });
+    expect(current.status).toBe(200);
+    const body = (await current.json()) as {
+      code: string;
+      roomId: string;
+      status: string;
+      me: { displayName: string; role: string; userId: string | null } | null;
+    };
+    expect(body.code).toBe(created.code);
+    expect(body.roomId).toBe(created.roomId);
+    expect(body.status).toBe("open");
+    expect(body.me).toMatchObject({
+      displayName: "Walkup",
+      role: "listener",
+      userId: null,
+    });
+
+    const afterLeave = await leaveRoomAction({
+      request: new Request(`http://localhost/api/rooms/${created.code}/leave`, {
+        method: "POST",
+        headers: { cookie: guestCookieHeader },
+      }),
+      params: { roomCode: created.code },
+    });
+    expect(afterLeave.status).toBe(200);
+
+    const left = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current", {
+        headers: { cookie: guestCookieHeader },
+      }),
+    });
+    expect(left.status).toBe(204);
+  });
+
   test("skip at last queue item stops playback instead of staying playing", async () => {
     const { cookie } = await createUserCookie("Host");
 

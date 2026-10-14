@@ -17,9 +17,9 @@
  *   POST   /api/rooms/:code/play-events
  *   GET    /api/rooms/:code/qr
  *
- * GET /api/rooms/current is the signed-in seat lookup. sessionStorage
- * (ACTIVE_ROOM_CODE_KEY) caches that code after a successful response.
- * A missing cache is not "no room".
+ * GET /api/rooms/current is the open-seat lookup (signed-in user or guest
+ * cookie). sessionStorage (ACTIVE_ROOM_CODE_KEY) caches that code after a
+ * successful response. A missing cache is not "no room".
  */
 
 import { SPEAKER_SILENCE_GRACE_MS, type RoomDefaultJoinRole, type RoomRole } from "./constants.ts";
@@ -303,7 +303,7 @@ export async function fetchRoomByCode(
 }
 
 /**
- * Restore the signed-in user's open seat.
+ * Restore this browser's open seat (account or guest cookie).
  * Always asks the server — sessionStorage is only a cache of the last code.
  */
 export async function fetchCurrentRoom(meUserId?: string | null): Promise<RoomSnapshot | null> {

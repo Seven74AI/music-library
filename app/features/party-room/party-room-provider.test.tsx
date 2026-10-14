@@ -140,4 +140,27 @@ describe("PartyRoomProvider leave before snapshot", () => {
       expect(calls).toContain("POST /api/rooms/AB3K9Q/heartbeat");
     });
   });
+
+  it("does not heartbeat when GET /api/rooms/current has no seat", async () => {
+    writeActiveRoomCode("AB3K9Q");
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push(`${method} ${url}`);
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <div />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(calls).toContain("GET /api/rooms/current");
+    });
+    expect(calls.some((call) => call.includes("/heartbeat"))).toBe(false);
+    expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
+  });
 });
