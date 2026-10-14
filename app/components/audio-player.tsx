@@ -1359,7 +1359,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       audioRef.current.pause();
       setIsPlaying(false);
     }
-  }, [roomSpeaker, roomPlaying]);
+  }, [roomSpeaker, roomPlaying, track?.id]);
 
   useEffect(() => {
     if (!isVisible) return;

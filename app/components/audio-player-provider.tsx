@@ -168,6 +168,8 @@ interface AudioPlayerContextType {
     nowPlaying: Track | null;
     upcoming: Track[];
     onEnded?: () => void;
+    /** When false, show the room track and leave it paused. */
+    autoplay?: boolean;
   }) => void;
   /** Party Room host: play a room-queue track; personal UsageEvents suppressed. */
   playRoomSpeakerTrack: (
@@ -1480,6 +1482,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       nowPlaying: Track | null;
       upcoming: Track[];
       onEnded?: () => void;
+      autoplay?: boolean;
     }) => {
       roomOnEndedRef.current = options.onEnded ?? null;
       const signature = `${options.code}|${options.nowPlaying?.id ?? ""}|${options.upcoming
@@ -1522,9 +1525,11 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
       setCurrentTrack(options.nowPlaying);
       setIsPlayerVisible(true);
-      if (trackChanged) {
+      if (trackChanged && options.autoplay !== false) {
         wantsAutoPlayRef.current = true;
         setPlaybackToken((token) => token + 1);
+      } else if (options.autoplay === false) {
+        wantsAutoPlayRef.current = false;
       }
     },
     [],

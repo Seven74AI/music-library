@@ -342,6 +342,58 @@ test("speaker mode replaces a personal queue with the room queue", async () => {
   expect(screen.getByTestId("playback-token").textContent).toBe(token);
 });
 
+test("a paused room shows its track without starting playback", async () => {
+  const user = userEvent.setup();
+  const roomTrack: FullTrack = {
+    ...playableTrack,
+    id: "room-track",
+    title: "Room Song",
+  };
+
+  function Probe() {
+    const audio = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => audio.playNextTrack(playableTrack)}>
+          Load personal
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            audio.suspendPersonalPersistence();
+            audio.syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: roomTrack,
+              upcoming: [],
+              autoplay: false,
+            });
+          }}
+        >
+          Show paused room
+        </button>
+        <span data-testid="current-track-id">{audio.currentTrack?.id ?? ""}</span>
+        <span data-testid="player-visible">{String(audio.isPlayerVisible)}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Load personal" }));
+  const token = screen.getByTestId("playback-token").textContent;
+  await user.click(screen.getByRole("button", { name: "Show paused room" }));
+
+  expect(screen.getByTestId("current-track-id").textContent).toBe("room-track");
+  expect(screen.getByTestId("player-visible").textContent).toBe("true");
+  expect(screen.getByTestId("playback-token").textContent).toBe(token);
+  expect(screen.getByTestId("wants-autoplay").textContent).toBe("false");
+});
+
 test("speaker mode ignores personal queue edits", async () => {
   const user = userEvent.setup();
   const roomTrack: FullTrack = {

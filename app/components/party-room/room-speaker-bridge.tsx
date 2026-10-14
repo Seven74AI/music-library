@@ -58,6 +58,7 @@ export function RoomSpeakerBridge() {
       code: room.code,
       nowPlaying: nowPlaying ? roomQueueItemToFullTrack(nowPlaying.track) : null,
       upcoming: upcoming.map((item) => roomQueueItemToFullTrack(item.track)),
+      autoplay: room.playback.isPlaying,
       onEnded: () => {
         void party.transport({ action: "skip" });
       },
