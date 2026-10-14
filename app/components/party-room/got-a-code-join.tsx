@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { Link, useNavigate } from "react-router";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
@@ -10,6 +11,7 @@ import { parseRoomCodeInput } from "#app/features/party-room/code.ts";
  */
 export function GotACodeJoin({ className }: { className?: string }) {
   const party = useOptionalPartyRoom();
+  const navigate = useNavigate();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export function GotACodeJoin({ className }: { className?: string }) {
             <p className="text-sm text-muted-foreground">Open the room to see the shared queue.</p>
           </div>
           <Button asChild size="sm">
-            <a href={`/rooms/${party.room.code}`}>Open room</a>
+            <Link to={`/rooms/${party.room.code}`}>Open room</Link>
           </Button>
         </div>
       </section>
@@ -43,8 +45,7 @@ export function GotACodeJoin({ className }: { className?: string }) {
     setBusy(true);
     try {
       const room = await party.join(code);
-      // Hard nav: avoids RR manifest mismatch on stale post-deploy tabs.
-      window.location.assign(`/rooms/${room.code}`);
+      void navigate(`/rooms/${room.code}`);
     } catch {
       setLocalError(party.error ?? "Could not join room");
     } finally {
@@ -81,7 +82,7 @@ export function GotACodeJoin({ className }: { className?: string }) {
             {busy ? "Joining…" : "Join room"}
           </Button>
           <Button type="button" variant="outline" asChild>
-            <a href="/rooms">Create room</a>
+            <Link to="/rooms">Create room</Link>
           </Button>
         </div>
         {(localError || party.error) && !party.apiUnavailable ? (

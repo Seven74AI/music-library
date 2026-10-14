@@ -6,7 +6,7 @@ import { cn } from "#app/utils/misc.tsx";
 
 /**
  * Persistent chip while the signed-in user is in an open Party Room.
- * Links to the room page; Host badge when speaking.
+ * Client navigation back to the room keeps the speaker's audio element alive.
  */
 export function InRoomChip({ className }: { className?: string }) {
   const party = useOptionalPartyRoom();
@@ -16,7 +16,6 @@ export function InRoomChip({ className }: { className?: string }) {
   return (
     <Link
       to={`/rooms/${room.code}`}
-      reloadDocument
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-foreground hover:bg-primary/15",
         className,
