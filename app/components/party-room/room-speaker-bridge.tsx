@@ -1,14 +1,15 @@
 import { useEffect, useRef } from "react";
 import { Link } from "react-router";
+import { roomStateAfterAutoplay } from "#app/components/audio-player-room-playback.ts";
 import { useAudioPlayer } from "#app/components/audio-player-provider";
 import { Icon } from "#app/components/ui/icon.tsx";
-import { reportRoomPlayEvent } from "#app/features/party-room/api.client.ts";
 import { isCurrentHost, splitRoomQueue } from "#app/features/party-room/index.ts";
 import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
 import {
   suspendPersonalPlayerSnapshot,
   takeSuspendedPersonalPlayer,
 } from "#app/features/party-room/player-suspend.ts";
+import { type RoomSnapshot } from "#app/features/party-room/types.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
 
 /**
@@ -21,10 +22,14 @@ export function RoomSpeakerBridge() {
   const party = useOptionalPartyRoom();
   const audio = useAudioPlayer();
   const wasSpeakerRef = useRef(false);
-  const lastPlayIdRef = useRef<string | null>(null);
+  const blockedAttemptRef = useRef<string | null>(null);
+  const partyRef = useRef(party);
+  partyRef.current = party;
 
   const room = party?.room ?? null;
   const isSpeaker = Boolean(room && room.status === "open" && isCurrentHost(room));
+  const roomRef = useRef(room);
+  roomRef.current = room;
 
   // Enter / leave speaker mode → suspend or restore personal PlayerState
   useEffect(() => {
@@ -65,11 +70,38 @@ export function RoomSpeakerBridge() {
     });
   }, [isSpeaker, room, party, audio]);
 
-  // Host: sync play/pause from room playback flag
+  // Host: ask the media element to play only while this attempt has not been blocked.
   useEffect(() => {
     if (!isSpeaker || !room) return;
-    audio.setRoomPlaybackPlaying(room.playback.isPlaying);
-  }, [isSpeaker, room?.playback.isPlaying, room, audio]);
+    if (!room.playback.isPlaying) {
+      blockedAttemptRef.current = null;
+      audio.setRoomPlaybackPlaying(false);
+      return;
+    }
+    const attemptKey = roomPlayAttemptKey(room);
+    if (blockedAttemptRef.current === attemptKey) {
+      audio.setRoomPlaybackPlaying(false);
+      return;
+    }
+    audio.setRoomPlaybackPlaying(true);
+  }, [isSpeaker, room, audio]);
+
+  // Blocked autoplay keeps the room paused. Started audio is reported by the
+  // player itself; this bridge does not send a second play event.
+  useEffect(() => {
+    if (!isSpeaker) return;
+    return audio.subscribeRoomAutoplay((outcome) => {
+      const next = roomStateAfterAutoplay(outcome);
+      const currentRoom = roomRef.current;
+      const currentParty = partyRef.current;
+      if (!currentRoom || !currentParty || next.reportPlaying) return;
+      const attemptKey = roomPlayAttemptKey(currentRoom);
+      if (blockedAttemptRef.current === attemptKey) return;
+      blockedAttemptRef.current = attemptKey;
+      audio.setRoomPlaybackPlaying(false);
+      void currentParty.transport({ action: "pause" });
+    });
+  }, [isSpeaker, audio]);
 
   if (!room || room.status !== "open") return null;
 
@@ -96,6 +128,11 @@ export function RoomSpeakerBridge() {
             <p className="truncate text-xs text-muted-foreground">
               {nowPlaying.track.artistName} · Room {room.code}
             </p>
+            {speakerDisplayName(room) ? (
+              <p className="truncate text-xs text-muted-foreground">
+                {speakerDisplayName(room)} is the speaker
+              </p>
+            ) : null}
           </div>
           <span className="text-xs text-muted-foreground">View queue</span>
         </Link>
@@ -103,11 +140,20 @@ export function RoomSpeakerBridge() {
     );
   }
 
-  // Keep room play attribution module aware (used by AudioPlayer via context)
-  void reportRoomPlayEvent;
-  void lastPlayIdRef;
-
   return null;
+}
+
+function roomPlayAttemptKey(room: RoomSnapshot): string {
+  return `${room.id}:${room.playback.currentTrackId ?? ""}:${room.playback.currentIndex}`;
+}
+
+function speakerDisplayName(room: RoomSnapshot): string | null {
+  const participants = room.participants ?? [];
+  const host =
+    participants.find((participant) => participant.id === room.currentHostParticipantId) ??
+    (room.me?.id === room.currentHostParticipantId ? room.me : null);
+  const name = host?.displayName?.trim();
+  return name ? name : null;
 }
 
 function roomQueueItemToFullTrack(track: {

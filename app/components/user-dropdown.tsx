@@ -41,7 +41,8 @@ export function UserDropdown() {
         <DropdownMenuContent
           sideOffset={8}
           align="end"
-          className="max-h-[calc(100dvh-12.5rem)] overflow-y-auto"
+          collisionPadding={8}
+          className="max-h-[calc(100dvh-12.5rem)] max-w-[calc(100%-1rem)] overflow-y-auto"
         >
           <DropdownMenuLabel>Account</DropdownMenuLabel>
           <DropdownMenuItem asChild>

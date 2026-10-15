@@ -15,20 +15,30 @@ import { canAddTracks } from "#app/features/party-room/capabilities.ts";
 import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
 import { ROOM_ROLE, type RoomRole } from "#app/features/party-room/constants.ts";
 
+export function formatRoomRole(role: string): string {
+  if (role === ROOM_ROLE.dj) return "DJ";
+  if (role === ROOM_ROLE.host) return "Host";
+  if (role === ROOM_ROLE.listener) return "Listener";
+  return role;
+}
+
 export function GuestRoomLivePanel({
   code,
   role,
   displayName,
+  onLeaveStart,
 }: {
   code: string;
   role: RoomRole;
   displayName: string;
+  onLeaveStart?: () => void;
 }) {
   const party = useOptionalPartyRoom();
   const navigate = useNavigate();
-  const canAdd = canAddTracks(role);
   const refresh = party?.refresh;
-  const seatRole = party?.room?.me?.role ?? role;
+  const liveRole = party?.room?.code === code ? party.room.me?.role : undefined;
+  const seatRole = liveRole ?? role;
+  const canAdd = canAddTracks(seatRole);
   const isHostSeat = seatRole === ROOM_ROLE.host;
 
   useEffect(() => {
@@ -63,8 +73,10 @@ export function GuestRoomLivePanel({
       <section className="space-y-3 border-t border-border/60 pt-4 text-sm text-muted-foreground">
         <p>
           Signed in as{" "}
-          <span className="text-foreground">{party?.room?.me?.displayName ?? displayName}</span> (
-          <span className="capitalize">{party?.room?.me?.role ?? role}</span>)
+          <span className="text-foreground">
+            {party?.room?.code === code ? (party.room.me?.displayName ?? displayName) : displayName}
+          </span>{" "}
+          (<span>{formatRoomRole(seatRole)}</span>)
         </p>
         <p>
           Room <span className="font-mono text-foreground">{code}</span>
@@ -98,10 +110,22 @@ export function GuestRoomLivePanel({
             onClick={() => {
               void (async () => {
                 try {
-                  if (!party) {
-                    throw new Error("Not in a room");
+                  onLeaveStart?.();
+                  if (party) {
+                    await party.leave(code);
+                  } else {
+                    const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/leave`, {
+                      method: "POST",
+                      credentials: "same-origin",
+                    });
+                    if (!res.ok) {
+                      const body = (await res.json().catch(() => null)) as {
+                        error?: string;
+                      } | null;
+                      throw new Error(body?.error ?? "Could not leave");
+                    }
+                    writeActiveRoomCode(null);
                   }
-                  await party.leave(code);
                   toast({ title: "Left room" });
                   void navigate("/");
                 } catch (err: unknown) {

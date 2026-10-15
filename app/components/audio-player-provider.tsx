@@ -8,6 +8,10 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
+import {
+  roomStateAfterAutoplay,
+  type RoomAutoplayOutcome,
+} from "#app/components/audio-player-room-playback.ts";
 import { isOfflineEnvironment } from "#app/features/offline-app/is-offline-environment.client.ts";
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
 import { offlineSummaryToFullTrack } from "#app/features/offline-storage/offline-track-summary.client.ts";
@@ -168,7 +172,10 @@ interface AudioPlayerContextType {
     nowPlaying: Track | null;
     upcoming: Track[];
     onEnded?: () => void;
-    /** When false, show the room track and leave it paused. */
+    /**
+     * Kept for callers. Play/pause is `setRoomPlaybackPlaying`; this does not
+     * arm the personal autoplay path.
+     */
     autoplay?: boolean;
   }) => void;
   /** Party Room host: play a room-queue track; personal UsageEvents suppressed. */
@@ -177,6 +184,11 @@ interface AudioPlayerContextType {
     options: { roomId: string; code: string; onEnded?: () => void },
   ) => void;
   setRoomPlaybackPlaying: (playing: boolean) => void;
+  /**
+   * Room speaker: hear when the media element accepts or rejects play().
+   * A blocked outcome means the room must stay paused.
+   */
+  subscribeRoomAutoplay: (listener: (outcome: RoomAutoplayOutcome) => void) => () => void;
   /** Active room speaker session (null when not speaking for a room). */
   roomSpeaker: { roomId: string; code: string } | null;
 }
@@ -416,6 +428,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const roomSpeakerRef = useRef<{ roomId: string; code: string } | null>(null);
   const roomQueueSignatureRef = useRef<string | null>(null);
   const roomTrackIdRef = useRef<string | null>(null);
+  const roomAutoplayListenersRef = useRef(new Set<(outcome: RoomAutoplayOutcome) => void>());
 
   const isShuffleEnabled = shuffleSeed !== null;
 
@@ -1513,11 +1526,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       setCacheVersion((version) => version + 1);
 
       const nextId = options.nowPlaying?.id ?? null;
-      const trackChanged = roomTrackIdRef.current !== nextId;
       roomTrackIdRef.current = nextId;
+      // Room playback does not use the personal autoplay token. That path
+      // stacks a toast, an inline error, and the autoplay dialog when the
+      // browser blocks play(). setRoomPlaybackPlaying asks the media element
+      // to play; the element reports whether audio actually started.
+      wantsAutoPlayRef.current = false;
 
       if (!options.nowPlaying) {
-        wantsAutoPlayRef.current = false;
         setCurrentTrack(null);
         setIsPlayerVisible(false);
         return;
@@ -1525,12 +1541,6 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
       setCurrentTrack(options.nowPlaying);
       setIsPlayerVisible(true);
-      if (trackChanged && options.autoplay !== false) {
-        wantsAutoPlayRef.current = true;
-        setPlaybackToken((token) => token + 1);
-      } else if (options.autoplay === false) {
-        wantsAutoPlayRef.current = false;
-      }
     },
     [],
   );
@@ -1550,6 +1560,23 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const setRoomPlaybackPlaying = useCallback((playing: boolean) => {
     setRoomPlaying(playing);
+  }, []);
+
+  const notifyRoomAutoplayOutcome = useCallback((outcome: RoomAutoplayOutcome) => {
+    const next = roomStateAfterAutoplay(outcome);
+    if (!next.isPlaying) {
+      setRoomPlaying(false);
+    }
+    for (const listener of roomAutoplayListenersRef.current) {
+      listener(outcome);
+    }
+  }, []);
+
+  const subscribeRoomAutoplay = useCallback((listener: (outcome: RoomAutoplayOutcome) => void) => {
+    roomAutoplayListenersRef.current.add(listener);
+    return () => {
+      roomAutoplayListenersRef.current.delete(listener);
+    };
   }, []);
 
   const handleRoomSpeakerEnded = useCallback(() => {
@@ -1599,6 +1626,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       syncRoomSpeakerQueue,
       playRoomSpeakerTrack,
       setRoomPlaybackPlaying,
+      subscribeRoomAutoplay,
       roomSpeaker,
     }),
     [
@@ -1643,6 +1671,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       syncRoomSpeakerQueue,
       playRoomSpeakerTrack,
       setRoomPlaybackPlaying,
+      subscribeRoomAutoplay,
       roomSpeaker,
     ],
   );
@@ -2016,6 +2045,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         unlockAutoplayRef={unlockAutoplayRef}
         roomSpeaker={roomSpeaker}
         roomPlaying={roomPlaying}
+        onRoomAutoplayOutcome={notifyRoomAutoplayOutcome}
         audioSrcOverride={
           roomSpeaker && currentTrack ? `/resources/rooms/audio/${currentTrack.id}` : undefined
         }

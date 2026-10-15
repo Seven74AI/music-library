@@ -30,32 +30,46 @@ import { type RoomQueueItemDto, type RoomSnapshot } from "#app/features/party-ro
 import { formatDuration } from "#app/utils/format-duration.ts";
 import { cn } from "#app/utils/misc.tsx";
 
+function trackCountLabel(count: number) {
+  return count === 1 ? "1 track" : `${count} tracks`;
+}
+
+/** Hosts can add a playlist. Listeners and DJs who cannot are told who adds tracks. */
+function emptyQueueCopy(canAddPlaylist: boolean) {
+  return canAddPlaylist
+    ? "Queue is empty — add tracks from the library or a playlist."
+    : "Queue is empty — a host or DJ adds tracks.";
+}
+
 function QueueRow({
   item,
   label,
   canRemove,
   onRemove,
-  isNowPlaying,
+  isCurrent,
+  isPlaying,
   dragHandle,
 }: {
   item: RoomQueueItemDto;
   label?: string;
   canRemove: boolean;
   onRemove: () => void;
-  isNowPlaying?: boolean;
+  isCurrent?: boolean;
+  isPlaying?: boolean;
   dragHandle?: ReactNode;
 }) {
   return (
     <li
+      aria-current={isCurrent ? "true" : undefined}
       className={cn(
         "flex items-center gap-2 border-b border-border/60 px-2 py-2 last:border-b-0",
-        isNowPlaying && "bg-primary/10",
+        isCurrent && "bg-primary/10",
       )}
     >
       {dragHandle}
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">
-          {isNowPlaying ? "▶ " : null}
+          {isCurrent && isPlaying ? "▶ " : null}
           {item.track.title}
         </p>
         <p className="truncate text-xs text-muted-foreground">
@@ -201,7 +215,7 @@ function RoomQueuePanelBody({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Room queue</h2>
-        <span className="text-xs text-muted-foreground">{room.queue.length} tracks</span>
+        <span className="text-xs text-muted-foreground">{trackCountLabel(room.queue.length)}</span>
       </div>
 
       {history.length > 0 ? (
@@ -220,15 +234,22 @@ function RoomQueuePanelBody({
       {nowPlaying ? (
         <section>
           <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Now playing
+            {room.playback.isPlaying ? "Now playing" : "Ready"}
           </h3>
           <ul className="rounded-md border border-primary/40">
-            <QueueRow item={nowPlaying} isNowPlaying canRemove={false} onRemove={() => {}} />
+            <QueueRow
+              item={nowPlaying}
+              isCurrent
+              isPlaying={room.playback.isPlaying}
+              label={room.playback.isPlaying ? undefined : "Paused"}
+              canRemove={false}
+              onRemove={() => {}}
+            />
           </ul>
         </section>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Queue is empty — add tracks from the library.
+          {emptyQueueCopy(role === "host" || Boolean(party.canManage))}
         </p>
       )}
 
@@ -282,7 +303,7 @@ function RoomQueuePanelBody({
         </section>
       ) : null}
 
-      {party.isHost && party.canTransport ? (
+      {party.isHost && party.canTransport && room.queue.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"

@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { GotACodeJoin } from "#app/components/party-room/got-a-code-join.tsx";
 import { InstallAppHomePrompt } from "#app/components/pwa/install-app-home-prompt.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
@@ -18,6 +19,7 @@ export function OnboardingHome({ youtubeConnected, isAdmin }: OnboardingHomeProp
     <main className="py-12">
       <div className="mx-auto max-w-lg">
         <InstallAppHomePrompt />
+        <GotACodeJoin className="mb-10" />
         <div className="text-center">
           <h1 className="text-3xl font-bold">Welcome to your music library</h1>
           <p className="text-muted-foreground mt-3">

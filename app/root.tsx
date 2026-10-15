@@ -24,6 +24,7 @@ import appleTouchIconAssetUrl from "./assets/favicons/apple-touch-icon.png";
 import faviconAssetUrl from "./assets/favicons/favicon.svg";
 import { InRoomChip } from "./components/party-room/in-room-chip.tsx";
 import { AudioPlayerProvider, useAudioPlayer } from "./components/audio-player-provider";
+import { roomChromeScrollClearance } from "./components/pwa/install-app-banner.tsx";
 import { AutoplayGuideDialog } from "./components/autoplay-guide-dialog";
 import { BottomNav } from "./components/bottom-nav.tsx";
 import { DesktopNav } from "./components/desktop-nav.tsx";
@@ -385,10 +386,7 @@ function ShellLayout() {
         </nav>
       </header>
 
-      <div
-        className="flex flex-1 flex-col pb-[calc(var(--bottom-bar-height)+var(--player-error-height,0px)+env(safe-area-inset-bottom))] md:pb-0"
-        id="main-content"
-      >
+      <div className={`flex flex-1 flex-col ${roomChromeScrollClearance}`} id="main-content">
         <div className="container">
           <PullToRefreshProvider>
             <Outlet />

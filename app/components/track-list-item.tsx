@@ -58,6 +58,7 @@ import {
   getServerRestoredDialogs,
   subscribeRestoredDialogs,
 } from "#app/features/curator/session-restore.ts";
+import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
 
 interface TrackListItemData {
   id: string;
@@ -234,6 +235,13 @@ export const TrackListItem = memo(function TrackListItem({
   );
   const user = useOptionalUser();
   const canFlagForReview = userIsCuratorOrAdmin(user);
+  const party = useOptionalPartyRoom();
+  // A Listener in an open room has no "Add to room queue". Name the personal
+  // queue so Play next / Add to queue are not read as room controls.
+  const labelPersonalQueue = Boolean(user) && party?.room?.status === "open" && !party.canAddTracks;
+  const playNextLabel = labelPersonalQueue ? "Play next in your queue" : "Play next";
+  const addToUpNextLabel = labelPersonalQueue ? "Add to up next in your queue" : "Add to up next";
+  const addToQueueLabel = labelPersonalQueue ? "Add to your queue" : "Add to queue";
   const { currentTrack, currentIndex, playTrack, playNextTrack, addToUpNext, addToQueue } =
     useAudioPlayer();
 
@@ -783,15 +791,15 @@ export const TrackListItem = memo(function TrackListItem({
                   <>
                     <DropdownMenuItem onClick={handlePlayNext}>
                       <Icon name="arrow-right" className="h-4 w-4 mr-2" />
-                      Play next
+                      {playNextLabel}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={handleAddToUpNext}>
                       <Icon name="list-bullet" className="h-4 w-4 mr-2" />
-                      Add to up next
+                      {addToUpNextLabel}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={handleAddToQueue}>
                       <Icon name="plus" className="h-4 w-4 mr-2" />
-                      Add to queue
+                      {addToQueueLabel}
                     </DropdownMenuItem>
                     <AddToRoomQueueAction trackId={track.id} variant="dropdown" />
                   </>
@@ -966,7 +974,7 @@ export const TrackListItem = memo(function TrackListItem({
                       onClick={handlePlayNext}
                     >
                       <Icon name="arrow-right" className="h-5 w-5 mr-3" />
-                      Play next
+                      {playNextLabel}
                     </Button>
                     <Button
                       variant="ghost"
@@ -974,7 +982,7 @@ export const TrackListItem = memo(function TrackListItem({
                       onClick={handleAddToUpNext}
                     >
                       <Icon name="list-bullet" className="h-5 w-5 mr-3" />
-                      Add to up next
+                      {addToUpNextLabel}
                     </Button>
                     <Button
                       variant="ghost"
@@ -982,7 +990,7 @@ export const TrackListItem = memo(function TrackListItem({
                       onClick={handleAddToQueue}
                     >
                       <Icon name="plus" className="h-5 w-5 mr-3" />
-                      Add to queue
+                      {addToQueueLabel}
                     </Button>
                     <AddToRoomQueueAction
                       trackId={track.id}

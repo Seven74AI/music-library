@@ -53,8 +53,10 @@ type PartyRoomContextValue = {
   room: RoomSnapshot | null;
   loading: boolean;
   error: string | null;
-  /** Backend APIs not yet available (404 / network). */
+  /** Backend APIs not yet available (501, or a 404 that is not a Party Room error). */
   apiUnavailable: boolean;
+  /** Set when the open room's join QR could not be loaded. */
+  qrLoadError: string | null;
   isHost: boolean;
   canAddTracks: boolean;
   canTransport: boolean;
@@ -96,9 +98,51 @@ function mergeHeartbeat(room: RoomSnapshot, beat: RoomHeartbeatResult): RoomSnap
   };
 }
 
+const QR_LOAD_ERROR = "The join QR code could not be loaded.";
+
+/** Codes returned by Party Room JSON errors. A 404 without one of these is an undeployed route. */
+const PARTY_ROOM_ERROR_CODES = new Set([
+  "unauthorized",
+  "forbidden",
+  "not_found",
+  "room_ended",
+  "invalid_code",
+  "invalid_display_name",
+  "invalid_role",
+  "room_full",
+  "already_in_room",
+  "creator_has_active_room",
+  "host_still_present",
+  "not_original_host",
+  "rate_limited",
+  "queue_full",
+  "track_no_audio",
+  "invalid_queue_op",
+  "conflict",
+]);
+
+function partyRoomErrorCode(err: RoomApiError): string | null {
+  const body = err.body;
+  if (!body || typeof body !== "object" || !("code" in body)) return null;
+  const code = (body as { code: unknown }).code;
+  return typeof code === "string" && code.length > 0 ? code : null;
+}
+
+function isApiUnavailableError(err: unknown): boolean {
+  if (!(err instanceof RoomApiError)) return false;
+  if (err.status === 501) return true;
+  if (err.status === 404 && !PARTY_ROOM_ERROR_CODES.has(partyRoomErrorCode(err) ?? "")) {
+    return true;
+  }
+  return false;
+}
+
 function errorMessage(err: unknown): string {
   if (err instanceof RoomApiError) {
-    if (err.status === 404) {
+    const code = partyRoomErrorCode(err);
+    if (code === "not_found") return "No room with that code.";
+    if (code === "room_ended") return "This room has ended.";
+    if (isApiUnavailableError(err)) {
       return "Party Room APIs are not available yet. Backend #286–#288 must land first.";
     }
     return err.message;
@@ -121,18 +165,34 @@ export function PartyRoomProvider({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiUnavailable, setApiUnavailable] = useState(false);
+  const [qrLoadError, setQrLoadError] = useState<string | null>(null);
   const roomCodeRef = useRef<string | null>(null);
+  const qrByCodeRef = useRef<{ code: string; qrDataUrl: string } | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const applyRoom = useCallback((next: RoomSnapshot | null) => {
+    let snapshot = next;
+    if (!snapshot) {
+      qrByCodeRef.current = null;
+      setQrLoadError(null);
+    } else if (snapshot.qrDataUrl) {
+      qrByCodeRef.current = { code: snapshot.code, qrDataUrl: snapshot.qrDataUrl };
+      setQrLoadError(null);
+    } else if (qrByCodeRef.current?.code === snapshot.code) {
+      snapshot = { ...snapshot, qrDataUrl: qrByCodeRef.current.qrDataUrl };
+      setQrLoadError(null);
+    } else {
+      qrByCodeRef.current = null;
+    }
+
     setRoom((prev) => {
-      if (!next) return null;
+      if (!snapshot) return null;
       // SSE / shared snapshots often omit `me`. Keep the local seat when still present.
-      if (!next.me && prev?.me) {
-        const stillHere = next.participants.find((p) => p.id === prev.me!.id);
+      if (!snapshot.me && prev?.me) {
+        const stillHere = snapshot.participants.find((p) => p.id === prev.me!.id);
         if (stillHere) {
           return {
-            ...next,
+            ...snapshot,
             me: {
               ...prev.me,
               ...stillHere,
@@ -141,10 +201,33 @@ export function PartyRoomProvider({
           };
         }
       }
-      return next;
+      return snapshot;
     });
-    roomCodeRef.current = next?.code ?? null;
-    if (next?.code) writeActiveRoomCode(next.code);
+    roomCodeRef.current = snapshot?.code ?? null;
+    if (snapshot?.code) writeActiveRoomCode(snapshot.code);
+  }, []);
+
+  const ensureQr = useCallback(async (snapshot: RoomSnapshot) => {
+    if (!snapshot.code) return;
+    if (
+      snapshot.qrDataUrl ||
+      (qrByCodeRef.current?.code === snapshot.code && qrByCodeRef.current.qrDataUrl)
+    ) {
+      setQrLoadError(null);
+      return;
+    }
+    const qr = await fetchRoomQrDataUrl(snapshot.code);
+    if (qr) {
+      qrByCodeRef.current = { code: snapshot.code, qrDataUrl: qr };
+      setQrLoadError(null);
+      setRoom((prev) => (prev && prev.code === snapshot.code ? { ...prev, qrDataUrl: qr } : prev));
+      return;
+    }
+    if (qrByCodeRef.current?.code === snapshot.code && qrByCodeRef.current.qrDataUrl) {
+      setQrLoadError(null);
+      return;
+    }
+    setQrLoadError(QR_LOAD_ERROR);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -158,22 +241,22 @@ export function PartyRoomProvider({
       const current = await fetchCurrentRoom(meUserId);
       applyRoom(current);
       setApiUnavailable(false);
-      setError(null);
-      if (current && !current.qrDataUrl) {
-        const qr = await fetchRoomQrDataUrl(current.code);
-        if (qr) applyRoom({ ...current, qrDataUrl: qr });
-      }
+      // A join/create error can land while this refresh is in flight. Do not
+      // wipe it when the open seat arrives — the room page needs that sentence.
+      if (current) await ensureQr(current);
     } catch (err) {
-      if (err instanceof RoomApiError && (err.status === 404 || err.status === 501)) {
+      if (isApiUnavailableError(err)) {
         setApiUnavailable(true);
+        setError(errorMessage(err));
         applyRoom(null);
       } else {
+        setApiUnavailable(false);
         setError(errorMessage(err));
       }
     } finally {
       setLoading(false);
     }
-  }, [applyRoom, enabled, meUserId]);
+  }, [applyRoom, enabled, ensureQr, meUserId]);
 
   useEffect(() => {
     void refresh();
@@ -272,17 +355,15 @@ export function PartyRoomProvider({
         const next = await createRoom({ defaultJoinRole }, meUserId);
         applyRoom(next);
         setApiUnavailable(false);
+        await ensureQr(next);
         return next;
       } catch (err) {
-        const msg = errorMessage(err);
-        setError(msg);
-        if (err instanceof RoomApiError && (err.status === 404 || err.status === 501)) {
-          setApiUnavailable(true);
-        }
+        setError(errorMessage(err));
+        setApiUnavailable(isApiUnavailableError(err));
         throw err;
       }
     },
-    [applyRoom, meUserId],
+    [applyRoom, ensureQr, meUserId],
   );
 
   const join = useCallback(
@@ -298,17 +379,15 @@ export function PartyRoomProvider({
         const next = await joinRoom({ code, displayName }, meUserId);
         applyRoom(next);
         setApiUnavailable(false);
+        await ensureQr(next);
         return next;
       } catch (err) {
-        const msg = errorMessage(err);
-        setError(msg);
-        if (err instanceof RoomApiError && (err.status === 404 || err.status === 501)) {
-          setApiUnavailable(true);
-        }
+        setError(errorMessage(err));
+        setApiUnavailable(isApiUnavailableError(err));
         throw err;
       }
     },
-    [applyRoom, meUserId],
+    [applyRoom, ensureQr, meUserId],
   );
 
   const leave = useCallback(
@@ -442,6 +521,7 @@ export function PartyRoomProvider({
       loading,
       error,
       apiUnavailable,
+      qrLoadError,
       isHost: room ? isCurrentHost(room) : false,
       canAddTracks: role ? canAddToRoomQueue(role) : false,
       canTransport: role ? canControlTransport(role) : false,
@@ -469,6 +549,7 @@ export function PartyRoomProvider({
     loading,
     error,
     apiUnavailable,
+    qrLoadError,
     refresh,
     create,
     join,

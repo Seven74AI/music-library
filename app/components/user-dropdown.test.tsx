@@ -43,6 +43,16 @@ test("includes Party Room link for all viewports", async () => {
   expect(rooms).toHaveAttribute("href", "/rooms");
 });
 
+test("keeps the user menu inside the viewport", async () => {
+  const user = userEvent.setup();
+  renderDropdown();
+
+  await user.click(screen.getByRole("button", { name: /user menu/i }));
+
+  const menu = await screen.findByRole("menu");
+  expect(menu.className).toContain("max-w-[calc(100%-1rem)]");
+});
+
 test("includes My reports for every signed-in user", async () => {
   const user = userEvent.setup();
   renderDropdown();

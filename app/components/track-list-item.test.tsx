@@ -91,6 +91,19 @@ vi.mock("#app/utils/use-mobile.ts", () => ({
   useIsMobile: () => mockIsMobile,
 }));
 
+type MockPartyRoom = {
+  room: { status: string } | null;
+  canAddTracks: boolean;
+};
+
+const partyState = vi.hoisted(() => ({
+  current: null as MockPartyRoom | null,
+}));
+
+vi.mock("#app/features/party-room/party-room-provider.tsx", () => ({
+  useOptionalPartyRoom: () => partyState.current,
+}));
+
 vi.mock("./track-details-dialog", () => ({
   TrackDetailsDialog: ({
     trackId,
@@ -213,6 +226,7 @@ beforeEach(() => {
   mockAddToUpNext.mockReset();
   mockAddToQueue.mockReset();
   mockToast.mockReset();
+  partyState.current = null;
 });
 
 test("shows Archiving when the track has no audio", () => {
@@ -357,6 +371,84 @@ test("shows queue actions when track has audio files", async () => {
   expect(screen.getByText("Play next")).toBeDefined();
   expect(screen.getByText("Add to up next")).toBeDefined();
   expect(screen.getByText("Add to queue")).toBeDefined();
+});
+
+test("labels personal queue actions for a listener in an open room", async () => {
+  partyState.current = { room: { status: "open" }, canAddTracks: false };
+  const user = userEvent.setup();
+
+  renderTrackListItem({ track: playableTrack });
+
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  expect(screen.getByText("Play next in your queue")).toBeDefined();
+  expect(screen.getByText("Add to up next in your queue")).toBeDefined();
+  expect(screen.getByText("Add to your queue")).toBeDefined();
+  expect(screen.queryByText("Play next")).toBeNull();
+  expect(screen.queryByText("Add to up next")).toBeNull();
+  expect(screen.queryByText("Add to queue")).toBeNull();
+  expect(screen.queryByText("Add to room queue")).toBeNull();
+});
+
+test("labels personal queue actions in the mobile sheet for a listener in an open room", async () => {
+  mockIsMobile = true;
+  partyState.current = { room: { status: "open" }, canAddTracks: false };
+  const user = userEvent.setup();
+
+  renderTrackListItem({ track: playableTrack });
+
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  expect(screen.getByRole("button", { name: "Play next in your queue" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Add to up next in your queue" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Add to your queue" })).toBeDefined();
+  expect(screen.queryByRole("button", { name: "Play next" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Add to up next" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Add to queue" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Add to room queue" })).toBeNull();
+});
+
+test("keeps Add to room queue and current personal labels for a DJ in an open room", async () => {
+  partyState.current = { room: { status: "open" }, canAddTracks: true };
+  const user = userEvent.setup();
+
+  renderTrackListItem({ track: playableTrack });
+
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  expect(screen.getByText("Add to room queue")).toBeDefined();
+  expect(screen.getByText("Play next")).toBeDefined();
+  expect(screen.getByText("Add to up next")).toBeDefined();
+  expect(screen.getByText("Add to queue")).toBeDefined();
+  expect(screen.queryByText("Play next in your queue")).toBeNull();
+  expect(screen.queryByText("Add to your queue")).toBeNull();
+});
+
+test("keeps the current personal queue labels when the user is not in a room", async () => {
+  partyState.current = { room: null, canAddTracks: false };
+  const user = userEvent.setup();
+
+  renderTrackListItem({ track: playableTrack });
+
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  expect(screen.getByText("Play next")).toBeDefined();
+  expect(screen.getByText("Add to up next")).toBeDefined();
+  expect(screen.getByText("Add to queue")).toBeDefined();
+  expect(screen.queryByText("Play next in your queue")).toBeNull();
+  expect(screen.queryByText("Add to up next in your queue")).toBeNull();
+  expect(screen.queryByText("Add to your queue")).toBeNull();
+  expect(screen.queryByText("Add to room queue")).toBeNull();
+});
+
+test("keeps the current personal queue labels when the room is not open", async () => {
+  partyState.current = { room: { status: "ended" }, canAddTracks: false };
+  const user = userEvent.setup();
+
+  renderTrackListItem({ track: playableTrack });
+
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  expect(screen.getByText("Play next")).toBeDefined();
+  expect(screen.getByText("Add to up next")).toBeDefined();
+  expect(screen.getByText("Add to queue")).toBeDefined();
+  expect(screen.queryByText("Play next in your queue")).toBeNull();
+  expect(screen.queryByText("Add to room queue")).toBeNull();
 });
 
 test("mobile more-actions button opens sheet without starting playback", async () => {

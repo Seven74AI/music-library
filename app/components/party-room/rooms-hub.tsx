@@ -20,11 +20,51 @@ import { ROOM_ROLE, type RoomDefaultJoinRole } from "#app/features/party-room/co
 import { usePartyRoom } from "#app/features/party-room/party-room-provider.tsx";
 import { isParticipantAway } from "#app/features/party-room/presence.ts";
 
-function copyText(text: string) {
+const QR_LOAD_ERROR = "The join QR code could not be loaded.";
+
+function copyText(text: string, successTitle: string) {
   void navigator.clipboard.writeText(text).then(
-    () => toast({ title: "Copied" }),
+    () => toast({ title: successTitle }),
     () => toast({ title: "Could not copy", variant: "destructive" }),
   );
+}
+
+function roleLabel(role: string): string {
+  if (role === "dj") return "DJ";
+  if (role === "host") return "Host";
+  if (role === "listener") return "Listener";
+  return role;
+}
+
+function RoomJoinQr({
+  code,
+  src,
+  loadError,
+}: {
+  code: string;
+  src: string | null;
+  loadError: string | null;
+}) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const broken = Boolean(src) && failedSrc === src;
+  if (src && !broken) {
+    return (
+      <img
+        src={src}
+        alt={`QR code to join room ${code}`}
+        className="mt-3 h-40 w-40 rounded-md border border-border bg-white p-2"
+        onError={() => setFailedSrc(src)}
+      />
+    );
+  }
+  if (broken || loadError) {
+    return (
+      <p className="mt-3 text-sm text-muted-foreground" role="status">
+        {loadError || QR_LOAD_ERROR}
+      </p>
+    );
+  }
+  return null;
 }
 
 export function RoomsHub() {
@@ -52,19 +92,32 @@ export function RoomsHub() {
         <header className="space-y-2">
           <p className="text-sm text-muted-foreground">Current room</p>
           <h1 className="font-mono text-4xl font-bold tracking-[0.2em]">{room.code}</h1>
+          {party.error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {party.error}
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
               variant="outline"
               onClick={() =>
-                copyText(room.joinUrl || `${window.location.origin}/rooms/${room.code}`)
+                copyText(
+                  room.joinUrl || `${window.location.origin}/rooms/${room.code}`,
+                  "Link copied",
+                )
               }
             >
               <Icon name="link-2" className="mr-1 h-4 w-4" />
               Copy link
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => copyText(room.code)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => copyText(room.code, "Code copied")}
+            >
               Copy code
             </Button>
             {room.me?.role === ROOM_ROLE.host ? (
@@ -86,13 +139,7 @@ export function RoomsHub() {
               </Button>
             )}
           </div>
-          {room.qrDataUrl ? (
-            <img
-              src={room.qrDataUrl}
-              alt={`QR code to join room ${room.code}`}
-              className="mt-3 h-40 w-40 rounded-md border border-border bg-white p-2"
-            />
-          ) : null}
+          <RoomJoinQr code={room.code} src={room.qrDataUrl} loadError={party.qrLoadError ?? null} />
         </header>
 
         <HostFailoverControls />
@@ -140,7 +187,7 @@ export function RoomsHub() {
                     {away ? <span className="text-muted-foreground"> · Away</span> : null}
                   </span>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="capitalize text-muted-foreground">{p.role}</span>
+                    <span className="text-muted-foreground">{roleLabel(p.role)}</span>
                     {canManageParticipant ? (
                       <>
                         {p.role !== "dj" ? (

@@ -3,8 +3,15 @@ import { Link, useNavigate } from "react-router";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
-import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
 import { parseRoomCodeInput } from "#app/features/party-room/code.ts";
+import { ROOM_ROLE, type RoomRole } from "#app/features/party-room/constants.ts";
+import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
+
+function roomRoleLabel(role: RoomRole): string {
+  if (role === ROOM_ROLE.host) return "Host";
+  if (role === ROOM_ROLE.dj) return "DJ";
+  return "Listener";
+}
 
 /**
  * Home affordance: join a Party Room by code or pasted link.
@@ -18,12 +25,14 @@ export function GotACodeJoin({ className }: { className?: string }) {
 
   if (!party) return null;
   if (party.room?.status === "open") {
+    const role = party.room.me?.role;
     return (
       <section className={className}>
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
           <Icon name="speaker-wave" className="h-5 w-5 text-primary" />
           <div className="min-w-0 flex-1">
             <p className="font-medium">You&apos;re in room {party.room.code}</p>
+            {role ? <p className="text-sm text-muted-foreground">{roomRoleLabel(role)}</p> : null}
             <p className="text-sm text-muted-foreground">Open the room to see the shared queue.</p>
           </div>
           <Button asChild size="sm">

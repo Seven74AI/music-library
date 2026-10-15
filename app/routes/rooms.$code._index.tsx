@@ -3,10 +3,11 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Form, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
+import { redirect, useFetcher, useLoaderData, useOutletContext } from "react-router";
 import {
   GUEST_DISPLAY_NAME_MAX,
   GUEST_DISPLAY_NAME_MIN,
+  type RoomRole,
 } from "#app/features/party-room/constants.ts";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { GuestRoomLivePanel } from "#app/components/party-room/guest-room-live-panel.tsx";
@@ -22,6 +23,12 @@ import { Input } from "#app/components/ui/input.tsx";
 import { Label } from "#app/components/ui/label.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/rooms.$code._index.ts";
+
+export type GuestRoomOutletContext = {
+  role?: RoomRole;
+  displayName?: string;
+  onLeaveStart?: () => void;
+};
 
 export async function loader({ request, params }: { request: Request; params: { code?: string } }) {
   const code = parseRoomCodeInput(params.code ?? "") ?? (params.code ?? "").toUpperCase();
@@ -56,7 +63,7 @@ export async function action({ request, params }: { request: Request; params: { 
           : error.code === "not_found"
             ? "Room not found"
             : error.code === "room_ended"
-              ? "This room has ended"
+              ? "This room has ended."
               : error.code === "room_full"
                 ? "Room is full"
                 : error.message;
@@ -66,27 +73,16 @@ export async function action({ request, params }: { request: Request; params: { 
   }
 }
 
-export default function GuestJoinOrRoom() {
-  const { seated, participant, code } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const navigation = useNavigation();
+export function GuestJoinForm({ code, notice }: { code: string; notice?: string | null }) {
+  const fetcher = useFetcher<typeof action>();
   const inputRef = useRef<HTMLInputElement>(null);
+  const busy = fetcher.state !== "idle";
+  const actionError = fetcher.data && "error" in fetcher.data ? fetcher.data.error : null;
 
   useEffect(() => {
-    if (!seated) inputRef.current?.focus();
-  }, [seated]);
+    inputRef.current?.focus();
+  }, []);
 
-  if (seated && participant) {
-    return (
-      <GuestRoomLivePanel
-        code={code}
-        role={participant.role}
-        displayName={participant.displayName}
-      />
-    );
-  }
-
-  const busy = navigation.state !== "idle";
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center gap-6 px-4">
       <div className="space-y-2 text-center">
@@ -96,31 +92,59 @@ export default function GuestJoinOrRoom() {
           Pick a display name to enter the guest shell.
         </p>
       </div>
-      <Form method="post" action="?index" className="space-y-4">
+      {notice ? (
+        <p className="text-center text-sm text-destructive" role="alert">
+          {notice}
+        </p>
+      ) : null}
+      <fetcher.Form method="post" action={`/rooms/${code}?index`} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="displayName">Display name</Label>
+          <p id="displayName-hint" className="text-xs text-muted-foreground">
+            {GUEST_DISPLAY_NAME_MIN}–{GUEST_DISPLAY_NAME_MAX} characters
+          </p>
           <Input
             ref={inputRef}
             id="displayName"
             name="displayName"
+            minLength={GUEST_DISPLAY_NAME_MIN}
             maxLength={GUEST_DISPLAY_NAME_MAX}
+            aria-describedby="displayName-hint"
             autoComplete="nickname"
             placeholder="Your name"
             required
             disabled={busy}
           />
         </div>
-        {actionData && "error" in actionData && actionData.error ? (
+        {actionError ? (
           <p className="text-sm text-destructive" role="alert">
-            {actionData.error}
+            {actionError}
           </p>
         ) : null}
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Joining…" : "Join room"}
         </Button>
-      </Form>
+      </fetcher.Form>
     </div>
   );
+}
+
+export default function GuestJoinOrRoom() {
+  const { seated, participant, code } = useLoaderData<typeof loader>();
+  const outlet = useOutletContext<GuestRoomOutletContext | null>();
+
+  if (seated && participant) {
+    return (
+      <GuestRoomLivePanel
+        code={code}
+        role={outlet?.role ?? participant.role}
+        displayName={outlet?.displayName ?? participant.displayName}
+        onLeaveStart={outlet?.onLeaveStart}
+      />
+    );
+  }
+
+  return <GuestJoinForm code={code} />;
 }
 
 export function ErrorBoundary() {

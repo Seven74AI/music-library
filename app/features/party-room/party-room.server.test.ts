@@ -16,12 +16,14 @@ import {
   getRoomSnapshot,
   heartbeat,
   joinRoom,
+  kickParticipant,
   leaveRoom,
   PartyRoomError,
   reclaimHost,
   setDefaultJoinRole,
   sweepExpiredEmptyRooms,
 } from "./party-room.server.ts";
+import { addTrackToQueue } from "./queue.server.ts";
 import { resetRoomSseConnections } from "./sse.server.ts";
 
 async function cleanup() {
@@ -62,6 +64,33 @@ async function agePastGrace(participantId: string) {
     where: { id: participantId },
     data: { lastSeenAt: new Date(Date.now() - SPEAKER_SILENCE_GRACE_MS - 1000) },
   });
+}
+
+async function makeTrackWithAudio(title: string) {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const service = await prisma.service.upsert({
+    where: { name: "local" },
+    update: {},
+    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
+  });
+  const track = await prisma.track.create({
+    data: {
+      title,
+      externalId: `ext-${suffix}`,
+      service: { connect: { id: service.id } },
+      artist: {
+        create: { name: `Artist ${suffix}`, normalizedName: `artist ${suffix}` },
+      },
+    },
+  });
+  await prisma.trackAudioFile.create({
+    data: {
+      trackId: track.id,
+      objectKey: `audio/tracks/local/${track.id}.mp3`,
+      format: "mp3",
+    },
+  });
+  return track;
 }
 
 describe("party-room lifecycle", () => {
@@ -794,5 +823,71 @@ describe("party-room lifecycle", () => {
     expect(snapshot?.currentHostParticipantId).toBeNull();
     expect(snapshot?.hostTakeoverAvailable).toBe(true);
     expect(snapshot?.participants).toHaveLength(1);
+  });
+
+  test("queue row keeps the adder display name after the host kicks them", async () => {
+    const host = await makeUser("Host");
+    const room = await createRoom({
+      userId: host.id,
+      displayName: "Host",
+      defaultJoinRole: "dj",
+    });
+    const guest = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Riley" },
+    });
+    const track = await makeTrackWithAudio("Added Song");
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: guest.guestToken! },
+      trackId: track.id,
+    });
+
+    await kickParticipant({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      targetParticipantId: guest.participant.id,
+    });
+
+    const snapshot = await getRoomSnapshot(room.id);
+    expect(snapshot?.participants.map((participant) => participant.id)).not.toContain(
+      guest.participant.id,
+    );
+    expect(snapshot?.queue).toEqual([
+      expect.objectContaining({
+        addedByParticipantId: guest.participant.id,
+        addedByDisplayName: "Riley",
+      }),
+    ]);
+  });
+
+  test("queue row keeps the adder display name after they leave", async () => {
+    const host = await makeUser("Host");
+    const room = await createRoom({
+      userId: host.id,
+      displayName: "Host",
+      defaultJoinRole: "dj",
+    });
+    const guest = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Riley" },
+    });
+    const track = await makeTrackWithAudio("Added Song");
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: guest.guestToken! },
+      trackId: track.id,
+    });
+
+    await leaveRoom({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: guest.guestToken! },
+    });
+
+    const snapshot = await getRoomSnapshot(room.id);
+    expect(snapshot?.participants.map((participant) => participant.displayName)).not.toContain(
+      "Riley",
+    );
+    expect(snapshot?.queue[0]?.addedByDisplayName).toBe("Riley");
   });
 });

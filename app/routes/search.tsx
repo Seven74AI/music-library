@@ -13,13 +13,30 @@ import {
   useSearchParams,
 } from "react-router";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
+import { InRoomChip } from "#app/components/party-room/in-room-chip.tsx";
 import { SearchResults } from "#app/components/search-results.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
+import { isCurrentHost, splitRoomQueue } from "#app/features/party-room/index.ts";
+import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
+import { type RoomSnapshot } from "#app/features/party-room/types.ts";
 import { type SearchResponse, type SearchResult, isSearchResponse } from "#app/types/search.ts";
 import { getUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { cn } from "#app/utils/misc.tsx";
 import { type Route } from "./+types/search.ts";
+
+/**
+ * Listener now-playing bar sits at z-50, above the bottom nav and below dialogs (z-53).
+ * Inset this overlay (z-52) by the bar offset plus the bar height instead of raising the bar.
+ */
+const ROOM_BAR_CLEARANCE =
+  "calc(var(--bottom-bar-height, 64px) + var(--player-error-height, 0px) + env(safe-area-inset-bottom) + 4rem)";
+
+function listenerRoomBarVisible(room: RoomSnapshot | null): boolean {
+  if (!room || room.status !== "open" || isCurrentHost(room)) return false;
+  return splitRoomQueue(room).nowPlaying != null;
+}
 
 const RECENT_SEARCHES_KEY = "music-library:recent-searches";
 const SEARCH_SCOPE_KEY = "music-library:search-scope";
@@ -100,6 +117,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function SearchPage() {
   const { playlists } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
+  const party = useOptionalPartyRoom();
   const fetcher = useFetcher<SearchResponse>({ key: "search" });
   const navigate = useNavigate();
   const location = useLocation();
@@ -156,7 +174,7 @@ export default function SearchPage() {
 
   // Debounced search
   const doSearch = useCallback(
-    (q: string, type: string, scope: "library" | "all") => {
+    (q: string, type: string, scope: "library" | "all", options?: { immediate?: boolean }) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
 
       // Reset accumulated results for new search
@@ -168,13 +186,38 @@ export default function SearchPage() {
         return;
       }
 
-      debounceRef.current = setTimeout(() => {
+      const run = () => {
         const params = new URLSearchParams({ q: q.trim(), type, scope });
         fetcher.load(`/api/search?${params}`);
-      }, 400);
+      };
+
+      if (options?.immediate) {
+        run();
+        return;
+      }
+
+      debounceRef.current = setTimeout(run, 400);
     },
     [fetcher],
   );
+
+  const queryFromUrl = searchParams.get("q") ?? "";
+  const typeFromUrl = searchParams.get("type") ?? "all";
+  const activeScopeRef = useRef(activeScope);
+  activeScopeRef.current = activeScope;
+  const doSearchRef = useRef(doSearch);
+  doSearchRef.current = doSearch;
+
+  // Opening /search?q=... runs that search without another keystroke.
+  useEffect(() => {
+    if (!queryFromUrl.trim()) return;
+    setQuery(queryFromUrl);
+    setActiveType(typeFromUrl);
+    doSearchRef.current(queryFromUrl, typeFromUrl, activeScopeRef.current, { immediate: true });
+  }, [queryFromUrl, typeFromUrl]);
+
+  const roomOpen = party?.room?.status === "open";
+  const roomBarVisible = listenerRoomBarVisible(party?.room ?? null);
 
   // Handle input changes
   const handleInputChange = (value: string) => {
@@ -246,9 +289,21 @@ export default function SearchPage() {
 
   return (
     <OfflineRouteBlocker>
-      <div className="fixed inset-0 z-52 flex h-dvh flex-col bg-background">
+      <div
+        data-testid="search-overlay"
+        className={cn(
+          "fixed z-52 flex flex-col bg-background",
+          roomBarVisible ? "inset-x-0 top-0" : "inset-0 h-dvh",
+        )}
+        style={roomBarVisible ? { bottom: ROOM_BAR_CLEARANCE } : undefined}
+      >
         {/* Header with search bar */}
         <div className="shrink-0 border-b">
+          {roomOpen ? (
+            <div className="container flex items-center pt-3">
+              <InRoomChip />
+            </div>
+          ) : null}
           <div className="container flex items-center gap-3 py-3">
             {/* Back arrow */}
             <button

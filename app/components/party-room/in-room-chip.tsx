@@ -13,6 +13,7 @@ export function InRoomChip({ className }: { className?: string }) {
   if (!party?.room || party.room.status !== "open") return null;
 
   const { room, isHost } = party;
+  const roleLabel = isHost ? "host" : room.me?.role;
   return (
     <Link
       to={`/rooms/${room.code}`}
@@ -20,16 +21,16 @@ export function InRoomChip({ className }: { className?: string }) {
         "inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-foreground hover:bg-primary/15",
         className,
       )}
-      aria-label={`In room ${room.code}`}
+      aria-label={roleLabel ? `In room ${room.code}, ${roleLabel}` : `In room ${room.code}`}
     >
-      <Icon name="speaker-wave" className="h-3.5 w-3.5 text-primary" />
+      <Icon name="speaker-wave" className="h-3.5 w-3.5 shrink-0 text-primary" />
       <span className="font-mono tracking-wider">{room.code}</span>
       {isHost ? (
-        <span className="rounded bg-primary/20 px-1 py-0.5 text-[10px] uppercase tracking-wide text-primary">
+        <span className="hidden rounded bg-primary/20 px-1 py-0.5 text-[10px] uppercase tracking-wide text-primary sm:inline">
           Host
         </span>
       ) : room.me ? (
-        <span className="text-muted-foreground capitalize">{room.me.role}</span>
+        <span className="hidden text-muted-foreground capitalize sm:inline">{room.me.role}</span>
       ) : null}
     </Link>
   );

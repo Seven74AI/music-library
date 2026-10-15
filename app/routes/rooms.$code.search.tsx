@@ -6,9 +6,10 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useLoaderData } from "react-router";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
-import { canAddTracks } from "#app/features/party-room/capabilities.ts";
+import { canAddTracks, isRoomRole } from "#app/features/party-room/capabilities.ts";
 import { parseRoomCodeInput } from "#app/features/party-room/codes.ts";
 import { resolveRoomParticipantByCode } from "#app/features/party-room/participant-seat.server.ts";
+import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
 import { type SearchResult } from "#app/types/search.ts";
@@ -35,7 +36,10 @@ type AuditionState = {
 } | null;
 
 export default function GuestSearchTab() {
-  const { code, canAddTracks: canAdd } = useLoaderData<typeof loader>();
+  const { code, canAddTracks: loaderCanAdd } = useLoaderData<typeof loader>();
+  const party = useOptionalPartyRoom();
+  const liveRole = party?.room?.code === code ? party.room.me?.role : undefined;
+  const canAdd = liveRole && isRoomRole(liveRole) ? canAddTracks(liveRole) : loaderCanAdd;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState<string | null>(null);

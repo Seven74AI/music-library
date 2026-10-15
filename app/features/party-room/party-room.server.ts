@@ -820,6 +820,9 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
           position: true,
           addedByParticipantId: true,
           createdAt: true,
+          // displayName stays on the participant row after Kick or Leave.
+          // The participants query above still omits seats with leftAt set.
+          addedBy: { select: { displayName: true } },
           track: {
             select: {
               id: true,
@@ -834,8 +837,6 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
     },
   });
   if (!room) return null;
-
-  const nameByParticipantId = new Map(room.participants.map((p) => [p.id, p.displayName] as const));
 
   const host = room.currentHostParticipantId
     ? room.participants.find((p) => p.id === room.currentHostParticipantId)
@@ -894,7 +895,7 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
       trackId: item.trackId,
       position: item.position,
       addedByParticipantId: item.addedByParticipantId,
-      addedByDisplayName: nameByParticipantId.get(item.addedByParticipantId) ?? "Unknown",
+      addedByDisplayName: item.addedBy?.displayName ?? "Unknown",
       createdAt: item.createdAt.toISOString(),
       track: item.track,
     })),

@@ -166,6 +166,43 @@ function openEndRoomConfirmation() {
   return dialog;
 }
 
+function renderQueuePanel({
+  role = "host",
+  isHost = role === "host",
+  canTransport = role === "host",
+  canManage = role === "host",
+  queue = [],
+  isPlaying = false,
+  currentIndex = 0,
+  currentTrackId = null,
+}: {
+  role?: "host" | "dj" | "listener";
+  isHost?: boolean;
+  canTransport?: boolean;
+  canManage?: boolean;
+  queue?: ReturnType<typeof queueItem>[];
+  isPlaying?: boolean;
+  currentIndex?: number;
+  currentTrackId?: string | null;
+} = {}) {
+  mockParty = {
+    ...mockParty,
+    isHost,
+    canTransport,
+    canManage,
+    room: {
+      id: "r1",
+      code: "AB3K9Q",
+      status: "open",
+      roomVersion: 1,
+      me: { id: "p1", role, userId: "u1" },
+      queue,
+      playback: { isPlaying, currentIndex, currentTrackId },
+    },
+  };
+  return renderWithRouter(<RoomQueuePanel />);
+}
+
 describe("Party Room UI affordances", () => {
   beforeEach(() => {
     mockParty = {
@@ -716,5 +753,133 @@ describe("Party Room UI affordances", () => {
     expect(text("Kody")?.textContent).not.toMatch(/Away/);
     expect(text("Sam")?.textContent).not.toMatch(/Away/);
     expect(screen.queryByText(/original host/i)).not.toBeInTheDocument();
+  });
+
+  it("counts one queued track as singular", () => {
+    renderQueuePanel({
+      queue: [queueItem("q0", 0, "Only")],
+      currentTrackId: "track-q0",
+    });
+    expect(screen.getByText("1 track")).toBeInTheDocument();
+    expect(screen.queryByText("1 tracks")).not.toBeInTheDocument();
+  });
+
+  it("counts more than one queued track as plural", () => {
+    renderQueuePanel({
+      queue: [queueItem("q0", 0, "First"), queueItem("q1", 1, "Second")],
+      currentTrackId: "track-q0",
+    });
+    expect(screen.getByText("2 tracks")).toBeInTheDocument();
+  });
+
+  it("hides Play and Skip while the queue is empty", () => {
+    renderQueuePanel({ queue: [], canTransport: true, isHost: true });
+    expect(screen.getByText("0 tracks")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^play$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^pause$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^skip$/i })).not.toBeInTheDocument();
+  });
+
+  it("shows Play and Skip once the queue has a track", () => {
+    renderQueuePanel({
+      queue: [queueItem("q0", 0, "Only")],
+      canTransport: true,
+      isHost: true,
+      currentTrackId: "track-q0",
+    });
+    expect(screen.getByRole("button", { name: /^play$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^skip$/i })).toBeInTheDocument();
+  });
+
+  it("tells a listener that a host or DJ adds tracks when the queue is empty", () => {
+    renderQueuePanel({
+      role: "listener",
+      isHost: false,
+      canTransport: false,
+      canManage: false,
+      queue: [],
+    });
+    const empty = screen.getByText(/queue is empty/i);
+    expect(empty).toHaveTextContent(/a host or dj adds tracks/i);
+    expect(empty).not.toHaveTextContent(/library/i);
+    expect(empty).not.toHaveTextContent(/playlist/i);
+  });
+
+  it("tells a DJ who cannot add a playlist that a host or DJ adds tracks", () => {
+    renderQueuePanel({
+      role: "dj",
+      isHost: false,
+      canTransport: false,
+      canManage: false,
+      queue: [],
+    });
+    const empty = screen.getByText(/queue is empty/i);
+    expect(empty).toHaveTextContent(/a host or dj adds tracks/i);
+    expect(empty).not.toHaveTextContent(/library/i);
+    expect(empty).not.toHaveTextContent(/playlist/i);
+  });
+
+  it("lets the host empty queue mention the library or a playlist", () => {
+    renderQueuePanel({ role: "host", canManage: true, queue: [] });
+    const empty = screen.getByText(/queue is empty/i);
+    expect(empty.textContent).toMatch(/library|playlist/i);
+    expect(empty).not.toHaveTextContent(/a host or dj adds tracks/i);
+  });
+
+  it("labels the current row Ready until playback is actually playing", () => {
+    renderQueuePanel({
+      queue: [queueItem("q0", 0, "Warmup"), queueItem("q1", 1, "Later")],
+      isPlaying: false,
+      currentIndex: 0,
+      currentTrackId: "track-q0",
+    });
+    expect(screen.queryByRole("heading", { name: /^now playing$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^ready$/i })).toBeInTheDocument();
+    const current = screen.getByRole("listitem", { current: true });
+    expect(current).toHaveTextContent("Warmup");
+    expect(current).not.toHaveTextContent("Later");
+    expect(current).not.toHaveTextContent(/now playing/i);
+    expect(current.className).toMatch(/bg-primary/);
+  });
+
+  it("labels the current row Now playing only while playback is playing", () => {
+    renderQueuePanel({
+      queue: [queueItem("q0", 0, "Warmup"), queueItem("q1", 1, "Later")],
+      isPlaying: true,
+      currentIndex: 0,
+      currentTrackId: "track-q0",
+    });
+    expect(screen.getByRole("heading", { name: /^now playing$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^ready$/i })).not.toBeInTheDocument();
+    const current = screen.getByRole("listitem", { current: true });
+    expect(current).toHaveTextContent("Warmup");
+    expect(current).not.toHaveTextContent(/paused/i);
+  });
+
+  it("keeps a paused current row identifiable", () => {
+    renderQueuePanel({
+      role: "listener",
+      isHost: false,
+      canTransport: false,
+      canManage: false,
+      queue: [
+        queueItem("q0", 0, "Done"),
+        queueItem("q1", 1, "Warmup"),
+        queueItem("q2", 2, "Later"),
+      ],
+      isPlaying: false,
+      currentIndex: 1,
+      currentTrackId: "track-q1",
+    });
+    expect(screen.queryByRole("heading", { name: /^now playing$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^played$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^ready$/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^up next$/i })).toBeInTheDocument();
+    const current = screen.getByRole("listitem", { current: true });
+    expect(current).toHaveTextContent("Warmup");
+    expect(current).toHaveTextContent(/paused/i);
+    expect(current).not.toHaveTextContent("Done");
+    expect(current).not.toHaveTextContent("Later");
+    expect(current.className).toMatch(/bg-primary/);
   });
 });

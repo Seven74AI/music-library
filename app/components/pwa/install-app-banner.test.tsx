@@ -4,7 +4,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { InstallAppBanner } from "./install-app-banner.tsx";
+import { InstallAppBanner, roomChromeScrollClearance } from "./install-app-banner.tsx";
 
 const pwa = vi.hoisted(() => ({
   visible: true,
@@ -74,5 +74,42 @@ describe("InstallAppBanner", () => {
 
     await user.click(screen.getByRole("button", { name: "Not now" }));
     expect(pwa.dismiss).toHaveBeenCalledOnce();
+  });
+
+  test("scroll clearance still accounts for the player and the nav", () => {
+    expect(roomChromeScrollClearance).toContain("--bottom-bar-height");
+    expect(roomChromeScrollClearance).toContain("--player-error-height");
+    expect(roomChromeScrollClearance).toContain("--toast-bottom-offset");
+    expect(roomChromeScrollClearance).toContain("--install-banner-height");
+    expect(roomChromeScrollClearance).toContain("env(safe-area-inset-bottom)");
+    expect(roomChromeScrollClearance).not.toContain("md:pb-0");
+  });
+
+  test("publishes its height so the page can scroll clear of the player and the nav", () => {
+    const proto = HTMLElement.prototype;
+    const original = Object.getOwnPropertyDescriptor(proto, "offsetHeight");
+    Object.defineProperty(proto, "offsetHeight", {
+      configurable: true,
+      get() {
+        return this.getAttribute("data-testid") === "install-app-banner" ? 133 : 0;
+      },
+    });
+
+    try {
+      const { rerender } = render(<InstallAppBanner playerVisible />);
+      const banner = bannerRoot();
+      expect(banner).toHaveClass("z-51");
+      expect(banner.className).toContain("--toast-bottom-offset");
+      expect(banner.className).toContain("--bottom-bar-height");
+      expect(banner.className).toContain("--player-error-height");
+      expect(document.body.style.getPropertyValue("--install-banner-height")).toBe("133px");
+
+      pwa.visible = false;
+      rerender(<InstallAppBanner playerVisible />);
+      expect(document.body.style.getPropertyValue("--install-banner-height")).toBe("");
+    } finally {
+      if (original) Object.defineProperty(proto, "offsetHeight", original);
+      document.body.style.removeProperty("--install-banner-height");
+    }
   });
 });

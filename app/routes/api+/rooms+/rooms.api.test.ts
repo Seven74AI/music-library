@@ -394,6 +394,22 @@ describe("rooms API", () => {
     const guestCookie = parseString(guestSetCookie!)!;
     const guestCookieHeader = `${guestCookie.name}=${guestCookie.value}`;
 
+    const signedOut = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current"),
+    });
+    expect(signedOut.status).toBe(204);
+
+    const track = await makeTrackWithAudio("Guest Queue");
+    const queueRes = await queueAction({
+      request: new Request(`http://localhost/api/rooms/${created.code}/queue`, {
+        method: "POST",
+        headers: { cookie: host.cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ intent: "add_track", trackId: track.id }),
+      }),
+      params: { roomCode: created.code },
+    });
+    expect(queueRes.status).toBe(200);
+
     const current = await currentRoomLoader({
       request: new Request("http://localhost/api/rooms/current", {
         headers: { cookie: guestCookieHeader },
@@ -404,11 +420,13 @@ describe("rooms API", () => {
       code: string;
       roomId: string;
       status: string;
+      queue: Array<{ trackId: string }>;
       me: { displayName: string; role: string; userId: string | null } | null;
     };
     expect(body.code).toBe(created.code);
     expect(body.roomId).toBe(created.roomId);
     expect(body.status).toBe("open");
+    expect(body.queue.map((item) => item.trackId)).toEqual([track.id]);
     expect(body.me).toMatchObject({
       displayName: "Walkup",
       role: "listener",

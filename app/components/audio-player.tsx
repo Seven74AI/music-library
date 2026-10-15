@@ -12,6 +12,11 @@ import { Link } from "react-router";
 import { useAudioPlayer } from "#app/components/audio-player-provider";
 import { AddToPlaylistMenu } from "#app/components/add-to-playlist-menu";
 import { MarqueeText } from "#app/components/marquee-text";
+import {
+  outcomeFromPlayCall,
+  roomStateAfterAutoplay,
+  type RoomAutoplayOutcome,
+} from "#app/components/audio-player-room-playback.ts";
 import { recordAutoplayFailure } from "#app/hooks/use-autoplay-guide";
 import { useSwipeGesture } from "#app/hooks/use-swipe-gesture";
 import { TrackDetailsDialog } from "#app/components/track-details-dialog";
@@ -904,6 +909,11 @@ interface AudioPlayerProps {
   roomSpeaker?: { roomId: string; code: string } | null;
   /** Server-driven play/pause while in room speaker mode. */
   roomPlaying?: boolean | null;
+  /**
+   * Room speaker only. Fired after play() settles so a blocked autoplay can
+   * leave the room paused without the personal toast/dialog stack.
+   */
+  onRoomAutoplayOutcome?: (outcome: RoomAutoplayOutcome) => void;
   /** Prefer this audio URL (e.g. speaker grant) over personal /resources/audio. */
   audioSrcOverride?: string;
 }
@@ -957,6 +967,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     unlockAutoplayRef,
     roomSpeaker = null,
     roomPlaying = null,
+    onRoomAutoplayOutcome,
     audioSrcOverride,
   } = props;
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -973,6 +984,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const previousPlaybackTokenRef = useRef<number | null>(null);
   const previousTrackIdRef = useRef<string | null>(null);
   const loadedTrackIdRef = useRef<string | null>(null);
+  // Which track the latest audioSrc state belongs to. Updated beside setAudioSrc
+  // so room play() does not start the previous URL during a track change.
+  const audioSrcForTrackRef = useRef<{ src: string; trackId: string } | null>(null);
   const isManualPlayRef = useRef(false);
   // User intends playback; not cleared by incidental pause from network/src swaps.
   const keepPlayingRef = useRef(false);
@@ -986,6 +1000,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
     time: null,
     sentAt: 0,
   });
+  const onRoomAutoplayOutcomeRef = useRef(onRoomAutoplayOutcome);
+  onRoomAutoplayOutcomeRef.current = onRoomAutoplayOutcome;
   const [isDownloading, setIsDownloading] = useState(false);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
@@ -1141,6 +1157,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
   useEffect(() => {
     if (!audioFile || !trackId) {
       loadedTrackIdRef.current = null;
+      audioSrcForTrackRef.current = null;
       setAudioSrc(undefined);
       setPlaybackError(null);
       if (audioRef.current) {
@@ -1164,6 +1181,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     const cachedUrl = peekCachedPlaybackUrl(trackId);
     if (cachedUrl) {
       loadedTrackIdRef.current = trackId;
+      audioSrcForTrackRef.current = { src: cachedUrl, trackId };
       setAudioSrc(cachedUrl);
       setPlaybackError(null);
       return () => {
@@ -1172,12 +1190,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
     }
 
     loadedTrackIdRef.current = null;
+    audioSrcForTrackRef.current = null;
     setAudioSrc(undefined);
     setPlaybackError(null);
 
     let cancelled = false;
     if (audioSrcOverride) {
       loadedTrackIdRef.current = trackId;
+      audioSrcForTrackRef.current = { src: audioSrcOverride, trackId };
       setAudioSrc(audioSrcOverride);
       setPlaybackError(null);
       return () => {
@@ -1190,6 +1210,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         if (cancelled) return;
         if (url) {
           loadedTrackIdRef.current = trackId;
+          audioSrcForTrackRef.current = { src: url, trackId };
           setAudioSrc(url);
           setPlaybackError(null);
         } else {
@@ -1251,7 +1272,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
       playbackToken !== previousPlaybackTokenRef.current
     ) {
       previousPlaybackTokenRef.current = playbackToken;
-      const shouldAutoPlay = wantsAutoPlayRef?.current || !isManualPlayRef.current;
+      // Room speaker playback is handled by the room effect below. The personal
+      // autoplay path would toast, paint the red line, and open the guide dialog
+      // for the same blocked play().
+      const shouldAutoPlay =
+        !roomSpeaker && (wantsAutoPlayRef?.current || !isManualPlayRef.current);
       if (wantsAutoPlayRef) {
         wantsAutoPlayRef.current = false;
       }
@@ -1304,7 +1329,17 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
       isManualPlayRef.current = false;
     }
-  }, [trackId, track, audioSrc, playbackToken, volume, isMuted, wantsAutoPlayRef, emitPlayEvent]);
+  }, [
+    trackId,
+    track,
+    audioSrc,
+    playbackToken,
+    volume,
+    isMuted,
+    wantsAutoPlayRef,
+    emitPlayEvent,
+    roomSpeaker,
+  ]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -1345,21 +1380,66 @@ export function AudioPlayer(props: AudioPlayerProps) {
     }
   }, [track, emitPlayEvent]);
 
-  // Room speaker: honor server play/pause without personal transport controls.
+  // Room speaker: honor server play/pause. Play stays false until the browser
+  // actually starts audio. One inline explanation — no toast, no guide dialog.
   useEffect(() => {
     if (!roomSpeaker || roomPlaying === null || !audioRef.current) return;
-    if (roomPlaying) {
-      keepPlayingRef.current = true;
-      void audioRef.current.play().catch(() => {
+    const audio = audioRef.current;
+    if (!roomPlaying) {
+      keepPlayingRef.current = false;
+      audio.pause();
+      setIsPlaying(false);
+      return;
+    }
+    const ownedSrc = audioSrcForTrackRef.current;
+    if (
+      !audioSrc ||
+      !track ||
+      !ownedSrc ||
+      ownedSrc.src !== audioSrc ||
+      ownedSrc.trackId !== track.id
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    keepPlayingRef.current = true;
+    try {
+      audio.currentTime = 0;
+    } catch {
+      // The element may not be seekable until metadata arrives.
+    }
+    let playResult: Promise<void> | void;
+    try {
+      playResult = audio.play();
+    } catch {
+      playResult = Promise.reject(new Error("play threw"));
+    }
+    void outcomeFromPlayCall(playResult).then((outcome) => {
+      if (cancelled) return;
+      const next = roomStateAfterAutoplay(outcome);
+      if (!next.isPlaying) {
         setIsPlaying(false);
         keepPlayingRef.current = false;
-      });
-    } else {
-      keepPlayingRef.current = false;
-      audioRef.current.pause();
-      setIsPlaying(false);
-    }
-  }, [roomSpeaker, roomPlaying, track?.id]);
+        if (next.explanation) setPlaybackError(next.explanation);
+        onRoomAutoplayOutcomeRef.current?.(outcome);
+        return;
+      }
+      setPlaybackError(null);
+      setIsPlaying(true);
+      keepPlayingRef.current = true;
+      if (next.reportPlaying && track && playStartedForTrackRef.current !== track.id) {
+        playStartedForTrackRef.current = track.id;
+        playCompletedForTrackRef.current = null;
+        playIdRef.current = generatePlayId();
+        emitPlayEvent("play_started", track.id, playIdRef.current);
+      }
+      onRoomAutoplayOutcomeRef.current?.(outcome);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [roomSpeaker, roomPlaying, track, audioSrc, emitPlayEvent]);
 
   useEffect(() => {
     if (!isVisible) return;

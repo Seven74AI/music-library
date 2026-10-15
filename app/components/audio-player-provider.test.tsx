@@ -4,7 +4,7 @@
  * Provider fetch wiring and cold-start flags. AudioPlayer is mocked for speed.
  * Queue ordering and queue sheet UX are covered in audio-player-queue.integration.test.tsx.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi, beforeEach, afterEach } from "vitest";
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
@@ -14,20 +14,28 @@ import { writeCachedPlayerState } from "#app/features/player-state/player-state-
 import { PLAYER_STATE_ROUTE } from "#app/features/player-state/player-state.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
+import { type RoomAutoplayOutcome } from "./audio-player-room-playback.ts";
 import { AudioPlayerProvider, useAudioPlayer } from "./audio-player-provider";
+
+let capturedRoomAutoplay: ((outcome: RoomAutoplayOutcome) => void) | null = null;
 
 vi.mock("./audio-player", () => ({
   AudioPlayer: ({
     wantsAutoPlayRef,
     unlockAutoplayRef,
     playbackToken,
+    roomPlaying,
+    onRoomAutoplayOutcome,
   }: {
     wantsAutoPlayRef?: React.MutableRefObject<boolean>;
     unlockAutoplayRef?: React.MutableRefObject<
       ((trackId: string, cachedUrl: string) => boolean) | null
     >;
     playbackToken?: number;
+    roomPlaying?: boolean | null;
+    onRoomAutoplayOutcome?: (outcome: RoomAutoplayOutcome) => void;
   }) => {
+    capturedRoomAutoplay = onRoomAutoplayOutcome ?? null;
     // Mock the unlock function
     if (unlockAutoplayRef) {
       unlockAutoplayRef.current = (_trackId: string, _cachedUrl: string) => {
@@ -42,6 +50,7 @@ vi.mock("./audio-player", () => ({
       <>
         <span data-testid="wants-autoplay">{String(wantsAutoPlayRef?.current ?? false)}</span>
         <span data-testid="playback-token">{playbackToken ?? 0}</span>
+        <span data-testid="room-playing">{String(roomPlaying)}</span>
       </>
     );
   },
@@ -392,6 +401,59 @@ test("a paused room shows its track without starting playback", async () => {
   expect(screen.getByTestId("player-visible").textContent).toBe("true");
   expect(screen.getByTestId("playback-token").textContent).toBe(token);
   expect(screen.getByTestId("wants-autoplay").textContent).toBe("false");
+});
+
+test("blocked autoplay leaves room playback paused and does not report it as playing", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const roomTrack: FullTrack = {
+    ...playableTrack,
+    id: "room-track",
+    title: "Room Song",
+  };
+
+  function Probe() {
+    const audio = useAudioPlayer();
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          audio.suspendPersonalPersistence();
+          audio.syncRoomSpeakerQueue({
+            roomId: "room-1",
+            code: "AB3K9Q",
+            nowPlaying: roomTrack,
+            upcoming: [],
+            autoplay: true,
+          });
+          audio.setRoomPlaybackPlaying(true);
+        }}
+      >
+        Play room
+      </button>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play room" }));
+  expect(screen.getByTestId("wants-autoplay").textContent).toBe("false");
+  expect(screen.getByTestId("room-playing").textContent).toBe("true");
+  expect(capturedRoomAutoplay).toEqual(expect.any(Function));
+
+  await act(async () => {
+    capturedRoomAutoplay!("blocked");
+  });
+
+  expect(screen.getByTestId("room-playing").textContent).toBe("false");
+  expect(fetchMock).not.toHaveBeenCalledWith(
+    expect.stringContaining("play-events"),
+    expect.anything(),
+  );
 });
 
 test("speaker mode ignores personal queue edits", async () => {
