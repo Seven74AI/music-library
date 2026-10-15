@@ -16,17 +16,15 @@ const MIN_PRODUCTION_KEY_LENGTH = 32;
 
 /**
  * Secret for AES-256-GCM encryption of `Connection.tokens`.
- * Production requires a key of at least 32 characters that is not the dev fallback.
- * Dev and test use {@link DEV_TOKEN_ENCRYPTION_KEY} when the env var is unset.
+ * Returns null in production when the key is unset so startup can continue.
+ * A key that is set in production must be at least 32 characters and must not
+ * be the dev fallback. Dev and test use {@link DEV_TOKEN_ENCRYPTION_KEY} when unset.
  */
-export function getTokenEncryptionKey(): string {
+export function getTokenEncryptionKey(): string | null {
   const secret = process.env.TOKEN_ENCRYPTION_KEY;
   if (process.env.NODE_ENV === "production") {
-    if (
-      !secret ||
-      secret.length < MIN_PRODUCTION_KEY_LENGTH ||
-      secret === DEV_TOKEN_ENCRYPTION_KEY
-    ) {
+    if (!secret) return null;
+    if (secret.length < MIN_PRODUCTION_KEY_LENGTH || secret === DEV_TOKEN_ENCRYPTION_KEY) {
       throw new Error(
         "TOKEN_ENCRYPTION_KEY environment variable is required in production. " +
           "Generate one with: openssl rand -hex 32",
@@ -49,8 +47,9 @@ export function isEncryptedConnectionTokens(stored: string): boolean {
  */
 export function encryptConnectionTokens(
   plaintext: string,
-  secret = getTokenEncryptionKey(),
+  secret: string | null = getTokenEncryptionKey(),
 ): string {
+  if (!secret) return plaintext;
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv("aes-256-gcm", deriveAesKey(secret), iv);
   const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
@@ -63,9 +62,14 @@ export function encryptConnectionTokens(
  * AES-256-GCM. A value without the `enc1:` prefix is legacy plaintext JSON
  * and is returned unchanged so the next write can store ciphertext.
  */
-export function decryptConnectionTokens(stored: string, secret = getTokenEncryptionKey()): string {
+export function decryptConnectionTokens(stored: string, secret?: string | null): string {
   if (!isEncryptedConnectionTokens(stored)) {
     return stored;
+  }
+
+  const key = secret === undefined ? getTokenEncryptionKey() : secret;
+  if (!key) {
+    throw new Error("Failed to decrypt service connection tokens");
   }
 
   const packed = Buffer.from(stored.slice(TOKEN_CIPHER_PREFIX.length), "base64url");
@@ -78,7 +82,7 @@ export function decryptConnectionTokens(stored: string, secret = getTokenEncrypt
   const ciphertext = packed.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
 
   try {
-    const decipher = createDecipheriv("aes-256-gcm", deriveAesKey(secret), iv);
+    const decipher = createDecipheriv("aes-256-gcm", deriveAesKey(key), iv);
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
   } catch {

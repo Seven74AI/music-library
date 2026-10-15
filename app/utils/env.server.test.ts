@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { formatInvalidEnvMessage, getEnv } from "./env.server.ts";
+import { DEV_TOKEN_ENCRYPTION_KEY } from "./token-cipher.server.ts";
+import { formatInvalidEnvMessage, getEnv, validateEnv } from "./env.server.ts";
 
 describe("getEnv", () => {
   const originalDisableServiceWorker = process.env.DISABLE_SERVICE_WORKER;
@@ -22,6 +23,26 @@ describe("getEnv", () => {
     process.env.PLAYWRIGHT_TEST_BASE_URL = "http://localhost:3000/";
     expect(getEnv().DISABLE_SERVICE_WORKER).toBeUndefined();
     delete process.env.PLAYWRIGHT_TEST_BASE_URL;
+  });
+});
+
+describe("validateEnv", () => {
+  test("production starts when TOKEN_ENCRYPTION_KEY is unset and rejects the dev placeholder", () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const env = { ...process.env };
+    delete env.TOKEN_ENCRYPTION_KEY;
+
+    try {
+      expect(validateEnv(env).success).toBe(true);
+      expect(validateEnv({ ...env, TOKEN_ENCRYPTION_KEY: DEV_TOKEN_ENCRYPTION_KEY }).success).toBe(
+        false,
+      );
+      expect(validateEnv({ ...env, TOKEN_ENCRYPTION_KEY: "short" }).success).toBe(false);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
   });
 });
 
