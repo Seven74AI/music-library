@@ -29,7 +29,7 @@ This package currently mixes:
 | `POST` | `/api/rooms/:code/play-events`  | `room_play_started` / `room_play_completed`                                               |
 | `GET`  | `/api/rooms/:code/qr`           | QR data URL                                                                               |
 
-`GET /api/rooms/current` returns the signed-in user's open seat. `sessionStorage` (`party-room.active-code`) caches that code after a successful response. A missing cache is not "no room." Guests return through the `en_room_guest` cookie.
+`GET /api/rooms/current` returns this browser's open seat (signed-in user or `en_room_guest` cookie). `sessionStorage` (`party-room.active-code`) caches that code after a successful response. A missing cache is not "no room." Guests also return through that cookie on document GETs.
 
 ## UI surfaces
 
