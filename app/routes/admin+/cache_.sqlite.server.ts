@@ -1,8 +1,17 @@
+import { timingSafeEqual } from "node:crypto";
 import { redirect } from "react-router";
 import { z } from "zod";
 import { cache } from "#app/utils/cache.server.ts";
 import { getInstanceInfo, getInternalInstanceDomain } from "#app/utils/litefs.server";
 import { type Route } from "./+types/cache_.sqlite.ts";
+
+function bearerIsAuthorized(authorization: string | null, token: string | undefined) {
+  if (!authorization || !token) return false;
+  const expected = Buffer.from(`Bearer ${token}`);
+  const provided = Buffer.from(authorization);
+  if (expected.length !== provided.length) return false;
+  return timingSafeEqual(expected, provided);
+}
 
 export async function updatePrimaryCacheValue({
   key,
@@ -37,7 +46,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
   const token = process.env.INTERNAL_COMMAND_TOKEN;
-  const isAuthorized = request.headers.get("Authorization") === `Bearer ${token}`;
+  const isAuthorized = bearerIsAuthorized(request.headers.get("Authorization"), token);
   if (!isAuthorized) {
     // nah, you can't be here...
     return redirect("https://www.youtube.com/watch?v=dQw4w9WgXcQ");

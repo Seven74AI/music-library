@@ -1,5 +1,7 @@
-// @context7: crypto, Buffer, Prisma, sharp
+// @context7: crypto, dns, net, Buffer, Prisma, sharp
 import { createHash } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { BlockList, isIP } from "node:net";
 import { prisma } from "#app/utils/db.server";
 import { type Prisma } from "#prisma/client.js";
 import { uploadFile } from "./storage.server";
@@ -10,7 +12,21 @@ export const IMAGE_DOWNLOAD_TIMEOUT_MS = 15_000;
 /** Retry transient network/timeout failures a few times before giving up */
 export const IMAGE_DOWNLOAD_MAX_ATTEMPTS = 3;
 
+/** Redirect hops to follow. Each hop is resolved and checked before connecting. */
+const IMAGE_DOWNLOAD_MAX_REDIRECTS = 3;
+
 const IMAGE_DOWNLOAD_RETRY_BASE_DELAY_MS = 1_000;
+
+const blockedImageAddresses = new BlockList();
+blockedImageAddresses.addSubnet("127.0.0.0", 8, "ipv4");
+blockedImageAddresses.addSubnet("10.0.0.0", 8, "ipv4");
+blockedImageAddresses.addSubnet("172.16.0.0", 12, "ipv4");
+blockedImageAddresses.addSubnet("192.168.0.0", 16, "ipv4");
+// Link-local, including cloud metadata (169.254.169.254 and 169.254.170.2).
+blockedImageAddresses.addSubnet("169.254.0.0", 16, "ipv4");
+blockedImageAddresses.addAddress("::1", "ipv6");
+blockedImageAddresses.addSubnet("fe80::", 10, "ipv6");
+blockedImageAddresses.addSubnet("fc00::", 7, "ipv6");
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -31,11 +47,76 @@ export function isRetriableImageDownloadError(error: unknown): boolean {
   );
 }
 
-async function downloadExternalImageOnce(url: string, maxSize: number): Promise<Buffer | null> {
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(IMAGE_DOWNLOAD_TIMEOUT_MS),
-  });
+function isRedirectStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
 
+/** Node's URL.hostname keeps the brackets around IPv6 addresses. */
+function hostnameForResolution(hostname: string): string {
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
+}
+
+function isBlockedImageAddress(address: string): boolean {
+  const normalized = address.toLowerCase();
+  const family = isIP(normalized);
+  if (family === 4) return blockedImageAddresses.check(normalized, "ipv4");
+  if (family === 6) return blockedImageAddresses.check(normalized, "ipv6");
+  return true;
+}
+
+async function resolveHostAddresses(hostname: string): Promise<string[]> {
+  if (isIP(hostname)) return [hostname];
+
+  try {
+    const records = await lookup(hostname, { all: true, verbatim: true });
+    return records.map((record) => record.address);
+  } catch (error) {
+    // Undici previously surfaced resolver failures as "fetch failed", which retries.
+    throw new Error("fetch failed", { cause: error });
+  }
+}
+
+/**
+ * Accept only https URLs whose resolved addresses are public.
+ * Returns null for policy rejections so they are not retried.
+ */
+async function validatePublicHttpsUrl(rawUrl: string): Promise<URL | null> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    console.warn(`Refusing invalid image URL: ${rawUrl}`);
+    return null;
+  }
+
+  if (url.protocol !== "https:") {
+    console.warn(`Refusing non-https image URL: ${rawUrl}`);
+    return null;
+  }
+
+  const hostname = hostnameForResolution(url.hostname);
+  if (!hostname) {
+    console.warn(`Refusing invalid image URL: ${rawUrl}`);
+    return null;
+  }
+
+  const addresses = await resolveHostAddresses(hostname);
+  if (addresses.length === 0 || addresses.some((address) => isBlockedImageAddress(address))) {
+    console.warn(`Refusing non-public image URL: ${rawUrl}`);
+    return null;
+  }
+
+  return url;
+}
+
+async function readDownloadedImage(
+  response: Response,
+  url: string,
+  maxSize: number,
+): Promise<Buffer | null> {
   if (!response.ok) {
     console.warn(`Failed to download image from ${url}: ${response.status} ${response.statusText}`);
     return null;
@@ -64,8 +145,51 @@ async function downloadExternalImageOnce(url: string, maxSize: number): Promise<
   return buffer;
 }
 
+async function downloadExternalImageOnce(url: string, maxSize: number): Promise<Buffer | null> {
+  let currentUrl = url;
+
+  for (let redirectCount = 0; redirectCount <= IMAGE_DOWNLOAD_MAX_REDIRECTS; redirectCount++) {
+    const safeUrl = await validatePublicHttpsUrl(currentUrl);
+    if (!safeUrl) return null;
+
+    const response = await fetch(safeUrl.href, {
+      signal: AbortSignal.timeout(IMAGE_DOWNLOAD_TIMEOUT_MS),
+      redirect: "manual",
+    });
+
+    if (!isRedirectStatus(response.status)) {
+      return readDownloadedImage(response, safeUrl.href, maxSize);
+    }
+
+    if (redirectCount === IMAGE_DOWNLOAD_MAX_REDIRECTS) {
+      console.warn(`Too many redirects while downloading image from ${url}`);
+      return null;
+    }
+
+    const location = response.headers.get("location");
+    if (!location) {
+      console.warn(`Redirect from ${safeUrl.href} is missing a location`);
+      return null;
+    }
+
+    try {
+      currentUrl = new URL(location, safeUrl).href;
+    } catch {
+      console.warn(`Redirect from ${safeUrl.href} has an invalid location`);
+      return null;
+    }
+  }
+
+  return null;
+}
+
 /**
- * Download image from external URL
+ * Download image from an external https URL.
+ *
+ * Loopback, link-local (including cloud metadata), and private addresses are
+ * rejected before the request and again on every redirect. At most 3 redirects
+ * are followed. YouTube thumbnail hosts such as i.ytimg.com and img.youtube.com
+ * still download when they resolve to public addresses.
  *
  * @param url - External image URL (e.g., YouTube thumbnail)
  * @param maxSize - Maximum file size in bytes (default: 5MB)

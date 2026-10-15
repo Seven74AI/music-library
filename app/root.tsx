@@ -28,7 +28,7 @@ import { roomChromeScrollClearance } from "./components/pwa/install-app-banner.t
 import { AutoplayGuideDialog } from "./components/autoplay-guide-dialog";
 import { BottomNav } from "./components/bottom-nav.tsx";
 import { DesktopNav } from "./components/desktop-nav.tsx";
-import { OfflineAwareErrorBoundary } from "./components/offline/offline-aware-error-boundary.tsx";
+import { RootErrorBoundary } from "./components/root-error-boundary.tsx";
 import { OfflineStatusBanner } from "./components/offline/offline-status-banner.tsx";
 import { PullToRefreshProvider } from "./components/pull-to-refresh.tsx";
 import { EpicProgress } from "./components/progress-bar.tsx";
@@ -470,4 +470,4 @@ export default AppWithProviders;
 
 // this is a last resort error boundary. There's not much useful information we
 // can offer at this level.
-export const ErrorBoundary = OfflineAwareErrorBoundary;
+export const ErrorBoundary = RootErrorBoundary;

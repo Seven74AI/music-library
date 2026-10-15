@@ -1,8 +1,15 @@
 import { http, HttpResponse } from "msw";
 import { describe, expect, test } from "vitest";
+import { createPassword, createUser } from "#tests/db-utils.ts";
 import { server } from "#tests/mocks";
 import { consoleWarn } from "#tests/setup/setup-test-env.ts";
-import { checkIsCommonPassword, getPasswordHashParts } from "./auth.server.ts";
+import {
+  checkIsCommonPassword,
+  getPasswordHash,
+  getPasswordHashParts,
+  login,
+} from "./auth.server.ts";
+import { prisma } from "./db.server.ts";
 
 test("checkIsCommonPassword returns true when password is found in breach database", async () => {
   const password = "testpassword";
@@ -98,4 +105,35 @@ describe("timeout handling", () => {
     expect(result).toBe(false);
     expect(consoleWarn).toHaveBeenCalledWith("Password check timed out");
   });
+});
+
+test("login accepts a pre-existing password shorter than 12 characters without rewriting the hash", async () => {
+  const password = "abcdef";
+  const { hash } = createPassword(password);
+  const user = await prisma.user.create({
+    data: {
+      ...createUser(),
+      password: { create: { hash } },
+    },
+  });
+
+  try {
+    const result = await login({ username: user.username, password });
+    expect(result.status).toBe("success");
+
+    const stored = await prisma.password.findUniqueOrThrow({
+      where: { userId: user.id },
+      select: { hash: true },
+    });
+    expect(stored.hash).toBe(hash);
+    expect(stored.hash).toMatch(/^\$2[ab]\$10\$/);
+  } finally {
+    await prisma.usageEvent.deleteMany({ where: { userId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  }
+});
+
+test("getPasswordHash keeps bcrypt cost 10", async () => {
+  const hashed = await getPasswordHash("abcdefghijkl");
+  expect(hashed).toMatch(/^\$2[ab]\$10\$/);
 });

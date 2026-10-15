@@ -16,7 +16,7 @@ import { login, requireAnonymous } from "#app/utils/auth.server.ts";
 import { checkHoneypot } from "#app/utils/honeypot.server.ts";
 import { getErrorMessage, useIsPending } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { PasswordSchema, UsernameSchema } from "#app/utils/user-validation.ts";
+import { ExistingPasswordSchema, UsernameSchema } from "#app/utils/user-validation.ts";
 import { type Route } from "./+types/login.ts";
 import { handleNewSession } from "./login.server.ts";
 
@@ -26,7 +26,7 @@ export const handle: SEOHandle = {
 
 const LoginFormSchema = z.object({
   username: UsernameSchema,
-  password: PasswordSchema,
+  password: ExistingPasswordSchema,
   redirectTo: z.string().optional(),
   remember: z.boolean().optional(),
 });

@@ -21,7 +21,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
-import { PasswordSchema } from "#app/utils/user-validation.ts";
+import { ExistingPasswordSchema, PasswordSchema } from "#app/utils/user-validation.ts";
 import { type Route } from "./+types/profile.password.ts";
 import { type BreadcrumbHandle } from "./profile.tsx";
 
@@ -32,7 +32,7 @@ export const handle: BreadcrumbHandle & SEOHandle = {
 
 const ChangePasswordForm = z
   .object({
-    currentPassword: PasswordSchema,
+    currentPassword: ExistingPasswordSchema,
     newPassword: PasswordSchema,
     confirmNewPassword: PasswordSchema,
   })

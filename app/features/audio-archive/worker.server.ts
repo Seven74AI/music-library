@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { persistTrackAudio } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
@@ -20,6 +21,8 @@ import { getCookieFilePath } from "./youtube-cookie.server";
 import {
   executeYtDlp,
   ErrorCategory,
+  isAllowedArchiveDownloadUrl,
+  resolveContainedOutputPath,
   type ErrorCategory as ErrorCategoryType,
 } from "./yt-dlp.server";
 
@@ -226,23 +229,50 @@ async function processJob(
   currentlyProcessingSet.add(jobId);
 
   try {
-    // 1. Download via yt-dlp
-    const result = await executeYtDlp(url, { cookieFile });
+    const outputDir = os.tmpdir();
 
-    if (result.exitCode !== 0 || !result.filePath) {
+    if (!isAllowedArchiveDownloadUrl(url)) {
       await handleJobError(
         jobId,
-        result.errorCategory ?? "UNKNOWN",
-        result.errorMessage ?? null,
+        ErrorCategory.UNKNOWN,
+        "Refusing to download a URL that is not an allowed YouTube watch URL",
+        url,
+      );
+      return;
+    }
+
+    // 1. Download via yt-dlp
+    const result = await executeYtDlp(url, { cookieFile, outputDir });
+
+    if (result.exitCode !== 0 || !result.filePath) {
+      const missingContainedFile = result.exitCode === 0 && !result.filePath;
+      await handleJobError(
+        jobId,
+        missingContainedFile ? ErrorCategory.FILE_NOT_FOUND : (result.errorCategory ?? "UNKNOWN"),
+        result.errorMessage ??
+          (missingContainedFile
+            ? "Refusing to read a download path outside the output directory"
+            : null),
+        url,
+      );
+      return;
+    }
+
+    const containedPath = resolveContainedOutputPath(result.filePath, outputDir);
+    if (!containedPath) {
+      await handleJobError(
+        jobId,
+        ErrorCategory.FILE_NOT_FOUND,
+        "Refusing to read a download path outside the output directory",
         url,
       );
       return;
     }
 
     // 2. Persist audio: upload → TrackAudioFile → best-effort metadata backfill
-    const audioBuffer = readFileSync(result.filePath);
-    const extractedMetadata = await extractAudioMetadata(audioBuffer, result.filePath);
-    const extension = path.extname(result.filePath).slice(1) || extractedMetadata.format || "mp3";
+    const audioBuffer = readFileSync(containedPath);
+    const extractedMetadata = await extractAudioMetadata(audioBuffer, containedPath);
+    const extension = path.extname(containedPath).slice(1) || extractedMetadata.format || "mp3";
 
     await persistTrackAudio({
       trackId,

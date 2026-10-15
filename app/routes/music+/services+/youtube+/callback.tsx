@@ -6,6 +6,7 @@ import {
 } from "#app/features/security/track-event.server.ts";
 import { requireUserId } from "#app/utils/auth.server";
 import { prisma } from "#app/utils/db.server";
+import { encryptConnectionTokens } from "#app/utils/token-cipher.server.ts";
 import { createYouTubeOAuthService } from "#app/utils/youtube-oauth.server";
 import { createYouTubeService } from "#app/utils/youtube.server";
 
@@ -53,6 +54,7 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
     }
 
     // Store tokens for the user
+    const sealedTokens = encryptConnectionTokens(JSON.stringify(tokens));
     await prisma.connection.upsert({
       where: {
         providerName_providerId: {
@@ -61,13 +63,13 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
         },
       },
       update: {
-        tokens: JSON.stringify(tokens),
+        tokens: sealedTokens,
       },
       create: {
         userId,
         providerName: YOUTUBE_SERVICE.NAME,
         providerId: userInfo.id,
-        tokens: JSON.stringify(tokens),
+        tokens: sealedTokens,
       },
     });
 

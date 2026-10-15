@@ -14,7 +14,7 @@ import { checkHoneypot } from "#app/utils/honeypot.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { EmailSchema, UsernameSchema } from "#app/utils/user-validation.ts";
 import { type Route } from "./+types/forgot-password.ts";
-import { prepareVerification } from "./verify.server.ts";
+import { getRedirectToUrl, prepareVerification } from "./verify.server.ts";
 
 export const handle: SEOHandle = {
   getSitemapEntries: () => null,
@@ -27,24 +27,8 @@ const ForgotPasswordSchema = z.object({
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   await checkHoneypot(formData);
-  const submission = await parseWithZod(formData, {
-    schema: ForgotPasswordSchema.superRefine(async (formValues, ctx) => {
-      const user = await prisma.user.findFirst({
-        where: {
-          OR: [{ email: formValues.usernameOrEmail }, { username: formValues.usernameOrEmail }],
-        },
-        select: { id: true },
-      });
-      if (!user) {
-        ctx.addIssue({
-          path: ["usernameOrEmail"],
-          code: z.ZodIssueCode.custom,
-          message: "No user exists with this username or email",
-        });
-        return;
-      }
-    }),
-    async: true,
+  const submission = parseWithZod(formData, {
+    schema: ForgotPasswordSchema,
   });
   if (submission.status !== "success") {
     return data(
@@ -54,32 +38,44 @@ export async function action({ request }: Route.ActionArgs) {
   }
   const { usernameOrEmail } = submission.value;
 
-  const user = await prisma.user.findFirstOrThrow({
+  const user = await prisma.user.findFirst({
     where: { OR: [{ email: usernameOrEmail }, { username: usernameOrEmail }] },
     select: { email: true, username: true },
   });
 
-  const { verifyUrl, redirectTo, otp } = await prepareVerification({
-    period: 10 * 60,
+  // Unknown accounts use the same redirect as known accounts so the response
+  // does not reveal whether the username or email exists.
+  let redirectTo = getRedirectToUrl({
     request,
     type: "reset-password",
     target: usernameOrEmail,
   });
 
-  const response = await sendEmail({
-    to: user.email,
-    subject: `Music Library Password Reset`,
-    react: <ForgotPasswordEmail onboardingUrl={verifyUrl.toString()} otp={otp} />,
-  });
+  if (user) {
+    const prepared = await prepareVerification({
+      period: 10 * 60,
+      request,
+      type: "reset-password",
+      target: usernameOrEmail,
+    });
+    const response = await sendEmail({
+      to: user.email,
+      subject: `Music Library Password Reset`,
+      react: (
+        <ForgotPasswordEmail onboardingUrl={prepared.verifyUrl.toString()} otp={prepared.otp} />
+      ),
+    });
 
-  if (response.status === "success") {
-    return redirect(redirectTo.toString());
-  } else {
-    return data(
-      { result: submission.reply({ formErrors: [response.error.message] }) },
-      { status: 500 },
-    );
+    if (response.status !== "success") {
+      return data(
+        { result: submission.reply({ formErrors: [response.error.message] }) },
+        { status: 500 },
+      );
+    }
+    redirectTo = prepared.redirectTo;
   }
+
+  return redirect(redirectTo.toString());
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {

@@ -1,6 +1,10 @@
 import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { type YouTubeTokenData } from "#app/types/youtube";
 import { prisma } from "#app/utils/db.server";
+import {
+  decryptConnectionTokens,
+  encryptConnectionTokens,
+} from "#app/utils/token-cipher.server.ts";
 import { shouldMockYouTube } from "#app/utils/youtube-mock-utils";
 import { createYouTubeOAuthService } from "#app/utils/youtube-oauth.server";
 
@@ -71,11 +75,19 @@ async function resolveYouTubeAccessToken(userId: string): Promise<ServiceAccessT
     return null;
   }
 
+  let tokenJson: string;
+  try {
+    tokenJson = decryptConnectionTokens(connection.tokens);
+  } catch {
+    console.error("Failed to decrypt YouTube OAuth tokens");
+    return null;
+  }
+
   let tokenData: YouTubeTokenData;
   try {
-    tokenData = JSON.parse(connection.tokens) as YouTubeTokenData;
-  } catch (error) {
-    console.error("Invalid YouTube OAuth token format:", error);
+    tokenData = JSON.parse(tokenJson) as YouTubeTokenData;
+  } catch {
+    console.error("Invalid YouTube OAuth token format");
     return null;
   }
 
@@ -111,7 +123,7 @@ async function resolveYouTubeAccessToken(userId: string): Promise<ServiceAccessT
 
     await prisma.connection.update({
       where: { id: connection.id },
-      data: { tokens: JSON.stringify(updatedTokenData) },
+      data: { tokens: encryptConnectionTokens(JSON.stringify(updatedTokenData)) },
     });
 
     console.log("YouTube OAuth token refreshed successfully");

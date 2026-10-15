@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import AdmZip from "adm-zip";
 import { parseString } from "set-cookie-parser";
 import { expect, test } from "vitest";
 import { LOCAL_SERVICE } from "#app/constants/services.ts";
@@ -127,3 +128,39 @@ test("a valid file still uploads when another file in the batch is empty", async
     await prisma.user.delete({ where: { id: userId } });
   }
 }, 20_000);
+
+test("an over-cap audio ZIP returns 400 and does not upload a partial set", async () => {
+  const { userId, cookie } = await createAdminCookie();
+  const uploadId = `upload-over-cap-${Date.now()}`;
+  const zip = new AdmZip();
+  for (let index = 0; index < 101; index++) {
+    zip.addFile(`track-${index}.mp3`, Buffer.alloc(1024, 1));
+  }
+  const zipBytes = new Uint8Array(zip.toBuffer());
+
+  try {
+    const formData = new FormData();
+    formData.append("uploadId", uploadId);
+    formData.append("zipFile", new File([zipBytes], "album.zip", { type: "application/zip" }));
+
+    const response = await action({
+      request: new Request("http://localhost/api/upload-audio-batch", {
+        method: "POST",
+        headers: { cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.init?.status).toBe(400);
+    expect(response.data).toMatchObject({
+      success: false,
+      error: expect.stringMatching(/more than 100 audio files/),
+    });
+    expect(getUploadProgress(uploadId)).toBeUndefined();
+  } finally {
+    await prisma.session.deleteMany({ where: { userId } });
+    await prisma.user.delete({ where: { id: userId } });
+  }
+});

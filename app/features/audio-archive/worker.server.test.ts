@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 // Mock prisma
@@ -36,21 +38,15 @@ vi.mock("#app/utils/db.server.ts", () => ({
   prisma: mockPrisma,
 }));
 
-// Mock yt-dlp service
+// Mock yt-dlp execution. Keep the real URL and path guards.
 const mockExecuteYtDlp = vi.fn();
-vi.mock("./yt-dlp.server", () => ({
-  executeYtDlp: mockExecuteYtDlp,
-  ErrorCategory: {
-    AUTH: "AUTH",
-    RATE_LIMITED: "RATE_LIMITED",
-    GEO_BLOCKED: "GEO_BLOCKED",
-    VIDEO_UNAVAILABLE: "VIDEO_UNAVAILABLE",
-    NETWORK: "NETWORK",
-    COOKIE_EXPIRED: "COOKIE_EXPIRED",
-    UNKNOWN: "UNKNOWN",
-    FILE_NOT_FOUND: "FILE_NOT_FOUND",
-  },
-}));
+vi.mock("./yt-dlp.server", async () => {
+  const actual = await vi.importActual<typeof import("./yt-dlp.server.ts")>("./yt-dlp.server.ts");
+  return {
+    ...actual,
+    executeYtDlp: mockExecuteYtDlp,
+  };
+});
 
 // Mock track audio ingest
 const mockPersistTrackAudio = vi.fn();
@@ -211,7 +207,7 @@ describe("processQueueTick", () => {
             track: {
               id: "track-1",
               service: { name: "youtube" },
-              serviceUrl: "https://youtube.com/watch?v=1",
+              serviceUrl: "https://youtube.com/watch?v=aaaaaaaaaa1",
             },
           },
         ],
@@ -221,7 +217,7 @@ describe("processQueueTick", () => {
             track: {
               id: "track-2",
               service: { name: "youtube" },
-              serviceUrl: "https://youtube.com/watch?v=2",
+              serviceUrl: "https://youtube.com/watch?v=aaaaaaaaaa2",
             },
           },
         ],
@@ -257,7 +253,7 @@ describe("processQueueTick", () => {
             track: {
               id: "track-1",
               service: { name: "youtube" },
-              serviceUrl: "https://youtube.com/watch?v=1",
+              serviceUrl: "https://youtube.com/watch?v=aaaaaaaaaa1",
             },
           },
         ],
@@ -267,7 +263,7 @@ describe("processQueueTick", () => {
             track: {
               id: "track-2",
               service: { name: "youtube" },
-              serviceUrl: "https://youtube.com/watch?v=2",
+              serviceUrl: "https://youtube.com/watch?v=aaaaaaaaaa2",
             },
           },
         ],
@@ -340,7 +336,7 @@ describe("processQueueTick", () => {
           errorHistory: "[]",
           track: {
             id: "track-1",
-            serviceUrl: "https://youtube.com/watch?v=abc123",
+            serviceUrl: "https://youtube.com/watch?v=abc123xxxxx",
             service: { name: "youtube" },
           },
         },
@@ -351,7 +347,7 @@ describe("processQueueTick", () => {
       await processQueueTick();
 
       expect(mockExecuteYtDlp).toHaveBeenCalledWith(
-        "https://youtube.com/watch?v=abc123",
+        "https://youtube.com/watch?v=abc123xxxxx",
         expect.objectContaining({ cookieFile: "/data/youtube-cookies.txt" }),
       );
       expect(mockPersistTrackAudio).toHaveBeenCalledWith(
@@ -391,7 +387,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-keep",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=keep",
+            serviceUrl: "https://youtube.com/watch?v=keepxxxxxxx",
           },
         },
       ]);
@@ -420,7 +416,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-persist-ok",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=ok",
+            serviceUrl: "https://youtube.com/watch?v=okxxxxxxxxx",
           },
         },
       ]);
@@ -448,6 +444,102 @@ describe("processQueueTick", () => {
     });
   });
 
+  describe("download confinement", () => {
+    const allowedUrl = "https://youtube.com/watch?v=dQw4w9WgXcQ";
+
+    function queueJob(serviceUrl: string) {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-confine",
+          status: "pending",
+          priority: false,
+          retryCount: 0,
+          errorHistory: "[]",
+          track: {
+            id: "track-confine",
+            service: { name: "youtube" },
+            serviceUrl,
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({
+        retryCount: 0,
+        errorHistory: "[]",
+      });
+    }
+
+    function jobStatuses(): unknown[] {
+      return mockPrisma.archiveJob.update.mock.calls.map((call) => call[0]?.data?.status);
+    }
+
+    it("does not start yt-dlp for a non-YouTube URL", async () => {
+      queueJob("https://example.com/watch?v=dQw4w9WgXcQ");
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockExecuteYtDlp).not.toHaveBeenCalled();
+      expect(mockReadFileSync).not.toHaveBeenCalled();
+      expect(mockPersistTrackAudio).not.toHaveBeenCalled();
+      expect(jobStatuses()).not.toContain("completed");
+    });
+
+    it("does not start yt-dlp for a dash-leading string", async () => {
+      queueJob("-https://youtube.com/watch?v=dQw4w9WgXcQ");
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockExecuteYtDlp).not.toHaveBeenCalled();
+      expect(mockReadFileSync).not.toHaveBeenCalled();
+      expect(mockPersistTrackAudio).not.toHaveBeenCalled();
+      expect(jobStatuses()).not.toContain("completed");
+    });
+
+    it("reads and uploads an output path inside the temp directory", async () => {
+      queueJob(allowedUrl);
+      const inside = path.join(os.tmpdir(), "dQw4w9WgXcQ.mp3");
+      mockExecuteYtDlp.mockResolvedValue({
+        exitCode: 0,
+        stdout: `[ExtractAudio] Destination: ${inside}`,
+        stderr: "",
+        filePath: inside,
+        errorCategory: null,
+        errorMessage: null,
+      });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockExecuteYtDlp).toHaveBeenCalledWith(allowedUrl, expect.any(Object));
+      expect(mockReadFileSync).toHaveBeenCalledWith(path.resolve(inside));
+      expect(mockPersistTrackAudio).toHaveBeenCalled();
+      expect(jobStatuses()).toContain("completed");
+    });
+
+    it("fails the job without reading an output path outside the temp directory", async () => {
+      queueJob(allowedUrl);
+      const outside = `${os.tmpdir()}/../outside-archive.mp3`;
+      mockExecuteYtDlp.mockResolvedValue({
+        exitCode: 0,
+        stdout: `[ExtractAudio] Destination: ${outside}`,
+        stderr: "",
+        filePath: outside,
+        errorCategory: null,
+        errorMessage: null,
+      });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockReadFileSync).not.toHaveBeenCalled();
+      expect(mockPersistTrackAudio).not.toHaveBeenCalled();
+      expect(jobStatuses()).not.toContain("completed");
+      expect(jobStatuses()).toContain("failed");
+    });
+  });
+
   describe("error handling", () => {
     it("handles yt-dlp failure: marks as failed for non-retriable errors", async () => {
       mockPrisma.archiveJob.count.mockResolvedValue(0);
@@ -461,7 +553,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-2",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=xyz",
+            serviceUrl: "https://youtube.com/watch?v=xyzxxxxxxxx",
           },
         },
       ]);
@@ -503,7 +595,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-enoent",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=abc",
+            serviceUrl: "https://youtube.com/watch?v=abcxxxxxxxx",
           },
         },
       ]);
@@ -548,7 +640,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-3",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=net",
+            serviceUrl: "https://youtube.com/watch?v=netxxxxxxxx",
           },
         },
       ]);
@@ -587,7 +679,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-4",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=max",
+            serviceUrl: "https://youtube.com/watch?v=maxxxxxxxxx",
           },
         },
       ]);
@@ -626,7 +718,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-auth",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=403",
+            serviceUrl: "https://youtube.com/watch?v=403xxxxxxxx",
           },
         },
       ]);
@@ -652,7 +744,7 @@ describe("processQueueTick", () => {
       // Should notify admin
       expect(mockNotifyCookieExpired).toHaveBeenCalledWith(
         "job-auth",
-        "https://youtube.com/watch?v=403",
+        "https://youtube.com/watch?v=403xxxxxxxx",
         "HTTP Error 403: Forbidden",
       );
 
@@ -672,7 +764,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-cookie",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=cookie",
+            serviceUrl: "https://youtube.com/watch?v=cookiexxxxx",
           },
         },
       ]);
@@ -695,7 +787,7 @@ describe("processQueueTick", () => {
       });
       expect(mockNotifyCookieExpired).toHaveBeenCalledWith(
         "job-cookie",
-        "https://youtube.com/watch?v=cookie",
+        "https://youtube.com/watch?v=cookiexxxxx",
         "Sign in required",
       );
       expect(mockNotifyJobFailed).not.toHaveBeenCalled();
@@ -711,7 +803,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-1",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=1",
+            serviceUrl: "https://youtube.com/watch?v=aaaaaaaaaa1",
           },
         },
         {
@@ -719,7 +811,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-2",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=2",
+            serviceUrl: "https://youtube.com/watch?v=aaaaaaaaaa2",
           },
         },
         {
@@ -727,7 +819,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-3",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=3",
+            serviceUrl: "https://youtube.com/watch?v=aaaaaaaaaa3",
           },
         },
       ];
@@ -767,7 +859,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-auth",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=403",
+            serviceUrl: "https://youtube.com/watch?v=403xxxxxxxx",
           },
         },
       ]);
@@ -798,7 +890,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-1",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=fail1",
+            serviceUrl: "https://youtube.com/watch?v=fail1xxxxxx",
           },
         },
         {
@@ -806,7 +898,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-2",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=fail2",
+            serviceUrl: "https://youtube.com/watch?v=fail2xxxxxx",
           },
         },
         {
@@ -814,7 +906,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-3",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=ok",
+            serviceUrl: "https://youtube.com/watch?v=okxxxxxxxxx",
           },
         },
         {
@@ -822,7 +914,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-4",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=fail3",
+            serviceUrl: "https://youtube.com/watch?v=fail3xxxxxx",
           },
         },
       ];
@@ -886,7 +978,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-geo",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=geo",
+            serviceUrl: "https://youtube.com/watch?v=geoxxxxxxxx",
           },
         },
       ]);
@@ -910,7 +1002,7 @@ describe("processQueueTick", () => {
       // Should notify about geo-blocked failure
       expect(mockNotifyJobFailed).toHaveBeenCalledWith(
         "job-geo",
-        "https://youtube.com/watch?v=geo",
+        "https://youtube.com/watch?v=geoxxxxxxxx",
         "GEO_BLOCKED",
         "Not available in your country",
       );
@@ -928,7 +1020,7 @@ describe("processQueueTick", () => {
           track: {
             id: "track-net",
             service: { name: "youtube" },
-            serviceUrl: "https://youtube.com/watch?v=net",
+            serviceUrl: "https://youtube.com/watch?v=netxxxxxxxx",
           },
         },
       ]);

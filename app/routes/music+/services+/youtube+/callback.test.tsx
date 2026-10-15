@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server";
 import { createUser } from "#tests/db-utils";
 import { requireUserId } from "#app/utils/auth.server";
+import { decryptConnectionTokens } from "#app/utils/token-cipher.server.ts";
 import { loader } from "./callback";
+
+function readStoredAccessToken(stored: string | null | undefined): string {
+  const decoded = JSON.parse(decryptConnectionTokens(stored ?? "")) as { access_token?: string };
+  return decoded.access_token ?? "";
+}
 
 vi.mock("#app/utils/auth.server", () => ({
   requireUserId: vi.fn(),
@@ -67,11 +73,23 @@ describe("YouTube OAuth callback", () => {
       where: { providerName: "youtube", userId: userB.id },
     });
 
-    // User A must still hold their own token…
-    expect(connA?.tokens).toContain("token-A");
+    expect(connA?.tokens?.startsWith("enc1:")).toBe(true);
+    expect(connA?.tokens).not.toContain("token-A");
     expect(connA?.tokens).not.toContain("token-B");
-    // …and user B must have their own connection, not appear disconnected.
-    expect(connB?.tokens).toContain("token-B");
+    expect(readStoredAccessToken(connA?.tokens)).toBe("token-A");
+
+    expect(connB?.tokens?.startsWith("enc1:")).toBe(true);
+    expect(connB?.tokens).not.toContain("token-B");
+    expect(readStoredAccessToken(connB?.tokens)).toBe("token-B");
+
+    const events = await prisma.securityEvent.findMany({
+      where: { eventType: "service_connected", userId: { in: [userA.id, userB.id] } },
+    });
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect(event.metadata ?? "").not.toContain("token-A");
+      expect(event.metadata ?? "").not.toContain("token-B");
+    }
   });
 
   test("does not steal a YouTube channel already connected to another user", async () => {
@@ -98,7 +116,9 @@ describe("YouTube OAuth callback", () => {
       where: { providerName: "youtube", userId: userB.id },
     });
 
-    expect(connA?.tokens).toContain("token-A");
+    expect(connA?.tokens?.startsWith("enc1:")).toBe(true);
+    expect(connA?.tokens).not.toContain("token-A");
+    expect(readStoredAccessToken(connA?.tokens)).toBe("token-A");
     expect(connB).toBeNull();
   });
 });

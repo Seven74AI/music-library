@@ -2,6 +2,63 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
+const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/**
+ * Archive downloads only accept a canonical watch URL:
+ * `https://youtube.com/watch?v=` or `https://www.youtube.com/watch?v=`
+ * plus an 11-character video id. Userinfo and a leading dash are rejected.
+ */
+export function isAllowedArchiveDownloadUrl(url: string): boolean {
+  if (typeof url !== "string" || url.length === 0 || url.startsWith("-")) return false;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (parsed.username !== "" || parsed.password !== "") return false;
+  if (parsed.protocol !== "https:") return false;
+  if (parsed.hostname !== "youtube.com" && parsed.hostname !== "www.youtube.com") return false;
+  if (parsed.port !== "") return false;
+  if (parsed.pathname !== "/watch") return false;
+  if (parsed.hash !== "") return false;
+
+  const videoId = parsed.searchParams.get("v");
+  if (!videoId || !YOUTUBE_VIDEO_ID.test(videoId)) return false;
+  if ([...parsed.searchParams.keys()].some((key) => key !== "v")) return false;
+  if ([...parsed.searchParams.values()].length !== 1) return false;
+
+  return url === `https://${parsed.hostname}/watch?v=${videoId}`;
+}
+
+/**
+ * Resolve a yt-dlp output path and keep it inside the output directory.
+ * Returns undefined when the path escapes that directory.
+ */
+export function resolveContainedOutputPath(
+  filePath: string,
+  outputDir: string,
+): string | undefined {
+  if (!filePath || !outputDir) return undefined;
+
+  const root = path.resolve(outputDir);
+  const resolved = path.resolve(root, filePath);
+  const relative = path.relative(root, resolved);
+  if (
+    relative === "" ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    return undefined;
+  }
+
+  return resolved;
+}
+
 /**
  * Error categories for yt-dlp failures.
  * These are used to classify errors so the worker can decide
@@ -102,6 +159,16 @@ export async function executeYtDlp(
   } = options;
   const outputDir = outputDirOption ?? os.tmpdir();
 
+  if (!isAllowedArchiveDownloadUrl(url)) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+      errorCategory: ErrorCategory.UNKNOWN,
+      errorMessage: "Refusing to download a URL that is not an allowed YouTube watch URL",
+    };
+  }
+
   // MOCKS mode: return simulated success
   if (process.env.MOCKS === "true") {
     const mockFilePath = path.join(outputDir, "abc123.mp3");
@@ -162,9 +229,8 @@ export async function executeYtDlp(
   });
 }
 
-function resolveOutputPath(filePath: string, outputDir?: string): string {
-  if (path.isAbsolute(filePath)) return filePath;
-  if (outputDir) return path.join(outputDir, filePath);
+function resolveOutputPath(filePath: string, outputDir?: string): string | undefined {
+  if (outputDir) return resolveContainedOutputPath(filePath, outputDir);
   return path.resolve(filePath);
 }
 

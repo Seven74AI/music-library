@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { YOUTUBE_SERVICE } from "#app/constants/services";
+import {
+  decryptConnectionTokens,
+  encryptConnectionTokens,
+} from "#app/utils/token-cipher.server.ts";
 
 const mockRefreshAccessToken = vi.fn();
 
@@ -110,12 +114,116 @@ describe("resolveServiceAccessToken", () => {
 
     expect(result).toEqual({ access_token: "refreshed-token" });
     expect(mockRefreshAccessToken).toHaveBeenCalledWith("refresh-token");
-    expect(prisma.connection.update).toHaveBeenCalledWith({
-      where: { id: "conn-1" },
-      data: {
-        tokens: expect.stringContaining("refreshed-token"),
-      },
+    expect(prisma.connection.update).toHaveBeenCalledTimes(1);
+
+    const stored = vi.mocked(prisma.connection.update).mock.calls[0]?.[0].data.tokens;
+    expect(typeof stored).toBe("string");
+    const sealed = stored as string;
+    expect(sealed.startsWith("enc1:")).toBe(true);
+    expect(sealed).not.toContain("refreshed-token");
+    expect(sealed).not.toContain("refresh-token");
+    expect(sealed).not.toContain("expired-token");
+
+    const decoded = JSON.parse(decryptConnectionTokens(sealed)) as {
+      access_token: string;
+      refresh_token?: string;
+    };
+    expect(decoded.access_token).toBe("refreshed-token");
+    expect(decoded.refresh_token).toBe("refresh-token");
+  });
+
+  it("reads a legacy plaintext JSON token and does not rewrite it", async () => {
+    const legacy = JSON.stringify({
+      access_token: "legacy-plaintext-access-token",
+      refresh_token: "legacy-plaintext-refresh-token",
+      expiry_date: Date.now() + 3600_000,
     });
+    const { prisma } = await import("#app/utils/db.server");
+    vi.mocked(prisma.connection.findFirst).mockResolvedValue({
+      id: "conn-1",
+      providerName: YOUTUBE_SERVICE.NAME,
+      providerId: "yt-1",
+      userId: "user-1",
+      tokens: legacy,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const { resolveServiceAccessToken } = await import("./service-connection.server.ts");
+
+    const result = await resolveServiceAccessToken(YOUTUBE_SERVICE.NAME, "user-1");
+
+    expect(result).toEqual({ access_token: "legacy-plaintext-access-token" });
+    expect(prisma.connection.update).not.toHaveBeenCalled();
+  });
+
+  it("returns a usable access token from encrypted connection tokens", async () => {
+    const stored = encryptConnectionTokens(
+      JSON.stringify({
+        access_token: "fake-access-token",
+        refresh_token: "fake-refresh-token",
+        expiry_date: Date.now() + 3600_000,
+      }),
+    );
+    expect(stored).not.toContain("fake-access-token");
+    expect(stored).not.toContain("fake-refresh-token");
+
+    const { prisma } = await import("#app/utils/db.server");
+    vi.mocked(prisma.connection.findFirst).mockResolvedValue({
+      id: "conn-1",
+      providerName: YOUTUBE_SERVICE.NAME,
+      providerId: "yt-1",
+      userId: "user-1",
+      tokens: stored,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const { resolveServiceAccessToken } = await import("./service-connection.server.ts");
+
+    const result = await resolveServiceAccessToken(YOUTUBE_SERVICE.NAME, "user-1");
+
+    expect(result).toEqual({ access_token: "fake-access-token" });
+    expect(mockRefreshAccessToken).not.toHaveBeenCalled();
+    expect(prisma.connection.update).not.toHaveBeenCalled();
+  });
+
+  it("does not log token material when stored ciphertext cannot be decrypted", async () => {
+    const { consoleError } = await import("#tests/setup/setup-test-env.ts");
+    consoleError.mockImplementation(() => {});
+
+    const stored = encryptConnectionTokens(
+      JSON.stringify({
+        access_token: "fake-access-token",
+        refresh_token: "fake-refresh-token",
+        expiry_date: Date.now() + 3600_000,
+      }),
+    );
+    const tamperAt = stored.indexOf(":") + 8;
+    const tampered =
+      stored.slice(0, tamperAt) +
+      (stored[tamperAt] === "A" ? "B" : "A") +
+      stored.slice(tamperAt + 1);
+
+    const { prisma } = await import("#app/utils/db.server");
+    vi.mocked(prisma.connection.findFirst).mockResolvedValue({
+      id: "conn-1",
+      providerName: YOUTUBE_SERVICE.NAME,
+      providerId: "yt-1",
+      userId: "user-1",
+      tokens: tampered,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const { resolveServiceAccessToken } = await import("./service-connection.server.ts");
+
+    const result = await resolveServiceAccessToken(YOUTUBE_SERVICE.NAME, "user-1");
+
+    expect(result).toBeNull();
+    const logged = consoleError.mock.calls.map((args) => args.map(String).join(" ")).join("\n");
+    expect(logged).not.toContain("fake-access-token");
+    expect(logged).not.toContain("fake-refresh-token");
   });
 
   it("returns null when token is expired and no refresh token exists", async () => {

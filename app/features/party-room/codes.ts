@@ -1,19 +1,38 @@
 import { ROOM_CODE_CHARSET, ROOM_CODE_LENGTH } from "./constants.ts";
 
 /**
+ * Index in [0, max) from Web Crypto, rejecting values that would bias modulo.
+ * `crypto.getRandomValues` exists in browsers and Node, so this module can stay
+ * in the client bundle (party-room UI imports it).
+ */
+function randomCharsetIndex(max: number): number {
+  const limit = Math.floor(0x1_0000_0000 / max) * max;
+  const buffer = new Uint32Array(1);
+  let value = 0;
+  do {
+    crypto.getRandomValues(buffer);
+    value = buffer[0]!;
+  } while (value >= limit);
+  return value % max;
+}
+
+/**
  * Generate a random room code using the ADR charset.
  * Uniqueness among open rooms is enforced by the caller against the DB.
+ *
+ * The default draw uses crypto.getRandomValues once per character. Tests can
+ * inject `random` (a unit-interval source, same contract as Math.random).
  */
-export function generateRoomCode(
-  length: number = ROOM_CODE_LENGTH,
-  random: () => number = Math.random,
-): string {
+export function generateRoomCode(length: number = ROOM_CODE_LENGTH, random?: () => number): string {
   if (length < 1) {
     throw new Error("Room code length must be at least 1");
   }
   let code = "";
   for (let i = 0; i < length; i++) {
-    const index = Math.floor(random() * ROOM_CODE_CHARSET.length);
+    const index =
+      random === undefined
+        ? randomCharsetIndex(ROOM_CODE_CHARSET.length)
+        : Math.floor(random() * ROOM_CODE_CHARSET.length);
     code += ROOM_CODE_CHARSET[index];
   }
   return code;

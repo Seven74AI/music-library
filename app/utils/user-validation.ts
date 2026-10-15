@@ -13,14 +13,25 @@ export const UsernameSchema = z
   // users can type the username in any case, but we store it in lowercase
   .transform((value) => value.toLowerCase());
 
+export const PASSWORD_MIN_LENGTH = 12;
+// bcrypt only uses the first 72 bytes.
+// https://github.com/epicweb-dev/epic-stack/issues/918
+export const PASSWORD_MAX_BYTES = 72;
+
+const passwordWithinBcryptLimit = (password: string) =>
+  new TextEncoder().encode(password).length <= PASSWORD_MAX_BYTES;
+
 export const PasswordSchema = z
   .string({ error: "Password is required" })
-  .min(6, { message: "Password is too short" })
-  // NOTE: bcrypt has a limit of 72 bytes (which should be plenty long)
-  // https://github.com/epicweb-dev/epic-stack/issues/918
-  .refine((val) => new TextEncoder().encode(val).length <= 72, {
-    message: "Password is too long",
-  });
+  .min(PASSWORD_MIN_LENGTH, { message: "Password is too short" })
+  .refine(passwordWithinBcryptLimit, { message: "Password is too long" });
+
+// Checked against a stored hash. Accounts created under the previous minimum
+// can still sign in and confirm that password; new passwords use PasswordSchema.
+export const ExistingPasswordSchema = z
+  .string({ error: "Password is required" })
+  .min(1, { message: "Password is required" })
+  .refine(passwordWithinBcryptLimit, { message: "Password is too long" });
 
 export const NameSchema = z
   .string({ error: "Name is required" })

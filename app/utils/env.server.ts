@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { z } from "zod";
+import { DEV_TOKEN_ENCRYPTION_KEY } from "./token-cipher.server.ts";
 
 // Helper function to create conditional validation
 const createConditionalSchema = (): z.ZodObject<any> => {
@@ -15,6 +16,17 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     // Salt for hashing client IPs on security events. Required in production.
     // Dev/test fall back to DEV_IP_HASH_SALT when unset. See .env.example.
     IP_HASH_SALT: isProduction ? z.string().min(8) : z.string().optional(),
+    // AES-256-GCM secret for Connection.tokens (YouTube OAuth access and refresh tokens).
+    // Required in production. Dev/test fall back to DEV_TOKEN_ENCRYPTION_KEY when unset.
+    // See .env.example. Do not commit a real key.
+    TOKEN_ENCRYPTION_KEY: isProduction
+      ? z
+          .string()
+          .min(32)
+          .refine((value) => value !== DEV_TOKEN_ENCRYPTION_KEY, {
+            message: "must not be the development fallback",
+          })
+      : z.string().optional(),
     INTERNAL_COMMAND_TOKEN: z.string(),
     HONEYPOT_SECRET: z.string(),
     CACHE_DATABASE_PATH: z.string(),
