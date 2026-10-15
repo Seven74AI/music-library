@@ -379,6 +379,24 @@ interface PlayerChromeProps {
 /** Party-room speaker playback stubs this id when the snapshot has no artist id. */
 const ROOM_SPEAKER_ARTIST_ID = "room-artist";
 
+type PendingPlaybackSource = { trackId: string; url: string };
+
+/**
+ * The track is ready to start only when the committed `audioSrc` is the URL we
+ * intend to play. A ref updated in the same effect turn as `setAudioSrc` is
+ * not enough: the previous source is still on the element for that render.
+ */
+function isPlaybackSourceReady(
+  trackId: string | undefined,
+  audioSrc: string | undefined,
+  loadedTrackId: string | null,
+  pending: PendingPlaybackSource | null,
+): boolean {
+  if (!trackId || !audioSrc) return false;
+  if (pending?.trackId === trackId) return pending.url === audioSrc;
+  return loadedTrackId === trackId;
+}
+
 function artistPagePath(artistId: string): string | null {
   if (!artistId || artistId === ROOM_SPEAKER_ARTIST_ID) return null;
   return `/artists/${artistId}`;
@@ -984,9 +1002,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const previousPlaybackTokenRef = useRef<number | null>(null);
   const previousTrackIdRef = useRef<string | null>(null);
   const loadedTrackIdRef = useRef<string | null>(null);
-  // Which track the latest audioSrc state belongs to. Updated beside setAudioSrc
-  // so room play() does not start the previous URL during a track change.
-  const audioSrcForTrackRef = useRef<{ src: string; trackId: string } | null>(null);
+  const pendingAudioSrcRef = useRef<PendingPlaybackSource | null>(null);
   const isManualPlayRef = useRef(false);
   // User intends playback; not cleared by incidental pause from network/src swaps.
   const keepPlayingRef = useRef(false);
@@ -1128,6 +1144,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
   const audioFile = track?.audioFiles?.length ? selectBestAudioFile(track.audioFiles) : null;
   const [audioSrc, setAudioSrc] = useState<string | undefined>(undefined);
+  const audioSrcRef = useRef(audioSrc);
+  audioSrcRef.current = audioSrc;
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const playbackErrorRef = useRef<HTMLDivElement>(null);
 
@@ -1157,7 +1175,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
   useEffect(() => {
     if (!audioFile || !trackId) {
       loadedTrackIdRef.current = null;
-      audioSrcForTrackRef.current = null;
+      pendingAudioSrcRef.current = null;
       setAudioSrc(undefined);
       setPlaybackError(null);
       if (audioRef.current) {
@@ -1178,39 +1196,38 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
     // Prefetched / already-resolved URL: apply synchronously so auto-advance
     // does not blank <audio src> and wait on async storage/network.
+    // Room speaker grants use audioSrcOverride the same way. Do not mark the
+    // track loaded until that URL is the committed state — otherwise autoplay
+    // calls play() on the track that just ended and then drops the token.
     const cachedUrl = peekCachedPlaybackUrl(trackId);
-    if (cachedUrl) {
-      loadedTrackIdRef.current = trackId;
-      audioSrcForTrackRef.current = { src: cachedUrl, trackId };
-      setAudioSrc(cachedUrl);
-      setPlaybackError(null);
+    const directUrl = cachedUrl || audioSrcOverride || null;
+    if (directUrl) {
+      pendingAudioSrcRef.current = { trackId, url: directUrl };
+      if (audioSrcRef.current === directUrl) {
+        loadedTrackIdRef.current = trackId;
+      } else {
+        loadedTrackIdRef.current = null;
+        setAudioSrc(directUrl);
+        setPlaybackError(null);
+      }
       return () => {
-        revokePlaybackAudioUrl(trackId);
+        if (cachedUrl) revokePlaybackAudioUrl(trackId);
       };
     }
 
+    pendingAudioSrcRef.current = null;
     loadedTrackIdRef.current = null;
-    audioSrcForTrackRef.current = null;
     setAudioSrc(undefined);
     setPlaybackError(null);
 
     let cancelled = false;
-    if (audioSrcOverride) {
-      loadedTrackIdRef.current = trackId;
-      audioSrcForTrackRef.current = { src: audioSrcOverride, trackId };
-      setAudioSrc(audioSrcOverride);
-      setPlaybackError(null);
-      return () => {
-        cancelled = true;
-      };
-    }
 
     void resolveTrackPlaybackSource(trackId)
       .then((url) => {
         if (cancelled) return;
         if (url) {
+          pendingAudioSrcRef.current = { trackId, url };
           loadedTrackIdRef.current = trackId;
-          audioSrcForTrackRef.current = { src: url, trackId };
           setAudioSrc(url);
           setPlaybackError(null);
         } else {
@@ -1267,10 +1284,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
     if (
       audioRef.current &&
       track &&
-      audioSrc &&
-      loadedTrackIdRef.current === track.id &&
+      isPlaybackSourceReady(
+        track.id,
+        audioSrc,
+        loadedTrackIdRef.current,
+        pendingAudioSrcRef.current,
+      ) &&
       playbackToken !== previousPlaybackTokenRef.current
     ) {
+      loadedTrackIdRef.current = track.id;
       previousPlaybackTokenRef.current = playbackToken;
       // Room speaker playback is handled by the room effect below. The personal
       // autoplay path would toast, paint the red line, and open the guide dialog
@@ -1380,8 +1402,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
     }
   }, [track, emitPlayEvent]);
 
-  // Room speaker: honor server play/pause. Play stays false until the browser
-  // actually starts audio. One inline explanation — no toast, no guide dialog.
+  // Room speaker: honor server play/pause. Wait until the committed audioSrc
+  // is this track — play() on the song that just ended spends the gesture
+  // token and the next URL stays silent. A blocked play() leaves the room
+  // paused with one explanation and does not report playback.
   useEffect(() => {
     if (!roomSpeaker || roomPlaying === null || !audioRef.current) return;
     const audio = audioRef.current;
@@ -1391,13 +1415,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
       setIsPlaying(false);
       return;
     }
-    const ownedSrc = audioSrcForTrackRef.current;
     if (
-      !audioSrc ||
-      !track ||
-      !ownedSrc ||
-      ownedSrc.src !== audioSrc ||
-      ownedSrc.trackId !== track.id
+      !isPlaybackSourceReady(
+        track?.id,
+        audioSrc,
+        loadedTrackIdRef.current,
+        pendingAudioSrcRef.current,
+      )
     ) {
       return;
     }

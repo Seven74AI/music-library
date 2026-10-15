@@ -12,6 +12,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { useAudioPlayer } from "#app/components/audio-player-provider";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { toast } from "#app/components/ui/use-toast";
+import { reportRoomPlayEvent } from "#app/features/party-room/api.client.ts";
 import { reportPlayEvent } from "#app/features/usage-analytics/report-play-event.client.ts";
 import type { UseSwipeGestureOptions } from "#app/hooks/use-swipe-gesture";
 import { AudioPlayer } from "./audio-player";
@@ -85,6 +86,11 @@ vi.mock("#app/hooks/use-swipe-gesture", () => ({
 // unhandled request — and the test setup turns that warning into a thrown error.
 vi.mock("#app/features/usage-analytics/report-play-event.client.ts", () => ({
   reportPlayEvent: vi.fn(),
+}));
+
+vi.mock("#app/features/party-room/api.client.ts", () => ({
+  reportRoomPlayEvent: vi.fn(),
+  sendHostHeartbeat: vi.fn(),
 }));
 
 vi.mock("#app/components/add-to-playlist-menu", () => ({
@@ -685,6 +691,95 @@ beforeEach(async () => {
     await import("#app/features/offline-storage/resolve-playback-url.client.ts");
   vi.mocked(resolveTrackPlaybackSource).mockResolvedValue("https://cdn.example/track-1.mp3");
   vi.mocked(resolvePlaybackAudioUrl).mockResolvedValue(null);
+});
+
+test("room speaker autoplay starts the next track only after its source is applied", async () => {
+  const wantsAutoPlayRef = { current: true };
+  const playedSrc: Array<string | null> = [];
+  vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (
+    this: HTMLMediaElement,
+  ) {
+    playedSrc.push(this.getAttribute("src"));
+    Object.defineProperty(this, "paused", { configurable: true, value: false });
+    return Promise.resolve();
+  });
+
+  const roomSpeaker = { roomId: "room-1", code: "AB3K9Q" };
+  const { rerender, audioEl } = await renderPlayer({
+    playbackToken: 1,
+    wantsAutoPlayRef,
+    roomSpeaker,
+    roomPlaying: true,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+  });
+
+  await waitFor(() => {
+    expect(playedSrc.some((src) => src?.includes("track-1"))).toBe(true);
+  });
+  expect(audioEl).toHaveAttribute("src", "/resources/rooms/audio/track-1");
+
+  playedSrc.length = 0;
+  wantsAutoPlayRef.current = true;
+
+  rerender(
+    playerUi({
+      track: mockTrack2,
+      playbackToken: 2,
+      wantsAutoPlayRef,
+      roomSpeaker,
+      roomPlaying: true,
+      audioSrcOverride: "/resources/rooms/audio/track-2",
+    }),
+  );
+
+  await waitFor(() => {
+    expect(playedSrc.some((src) => src?.includes("track-2"))).toBe(true);
+  });
+  expect(playedSrc.some((src) => src?.includes("track-1"))).toBe(false);
+  expect(audioEl).toHaveAttribute("src", "/resources/rooms/audio/track-2");
+});
+
+test("paused room does not start playback on its own", async () => {
+  const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => {
+    return Promise.resolve();
+  });
+
+  const { audioEl } = await renderPlayer({
+    wantsAutoPlayRef: { current: true },
+    roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+    roomPlaying: false,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+  });
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "/resources/rooms/audio/track-1");
+  });
+  expect(playSpy).not.toHaveBeenCalled();
+});
+
+test("blocked room autoplay stays paused and explains once", async () => {
+  const onRoomAutoplayOutcome = vi.fn();
+  vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => {
+    return Promise.reject(new Error("NotAllowedError"));
+  });
+
+  await renderPlayer({
+    wantsAutoPlayRef: { current: true },
+    roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+    roomPlaying: true,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+    onRoomAutoplayOutcome,
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("player-playback-error")).toHaveTextContent(
+      "Autoplay was blocked. Press Play to start.",
+    );
+  });
+  expect(onRoomAutoplayOutcome).toHaveBeenCalledTimes(1);
+  expect(onRoomAutoplayOutcome).toHaveBeenCalledWith("blocked");
+  expect(reportRoomPlayEvent).not.toHaveBeenCalled();
+  expect(toast).not.toHaveBeenCalled();
 });
 
 test("auto-plays after track change once the new audio URL has loaded", async () => {
