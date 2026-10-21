@@ -272,6 +272,7 @@ export function PartyRoomProvider({
     }
 
     if (eventSourceRef.current) return;
+    if (typeof EventSource === "undefined") return;
 
     let cancelled = false;
     const es = new EventSource(ROOM_API.events(code));

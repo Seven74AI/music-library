@@ -130,4 +130,51 @@ describe("useLock", () => {
       expect(releaseCalls).toBe(1);
     });
   });
+
+  test("releases the previous entity and locks the new id when the entity changes", async () => {
+    const acquired: string[] = [];
+    const released: string[] = [];
+    server.use(
+      http.post("/api/locks/acquire", async ({ request }) => {
+        const body = (await request.json()) as { entityId: string };
+        acquired.push(body.entityId);
+        return HttpResponse.json({
+          lock: {
+            ...adaLock,
+            entityId: body.entityId,
+            lockedBy: "me",
+            lockedByName: body.entityId === "track-1" ? "Ada" : "Me",
+          },
+        });
+      }),
+      http.post("/api/locks/release", async ({ request }) => {
+        const body = (await request.json()) as { entityId: string };
+        released.push(body.entityId);
+        return HttpResponse.json({ success: true });
+      }),
+    );
+
+    const { result, rerender, unmount } = renderHook(({ id }) => useLock("track", id), {
+      initialProps: { id: "track-1" },
+    });
+
+    await waitFor(() => {
+      expect(result.current.lock?.entityId).toBe("track-1");
+    });
+    expect(result.current.lock?.lockedByName).toBe("Ada");
+
+    rerender({ id: "track-2" });
+
+    await waitFor(() => {
+      expect(result.current.lock?.entityId).toBe("track-2");
+    });
+    expect(result.current.lock?.lockedByName).toBe("Me");
+    expect(result.current.lock?.entityId).not.toBe("track-1");
+    expect(acquired).toEqual(["track-1", "track-2"]);
+    expect(released).toContain("track-1");
+
+    await act(async () => {
+      unmount();
+    });
+  });
 });

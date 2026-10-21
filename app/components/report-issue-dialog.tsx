@@ -46,14 +46,25 @@ export function ReportIssueDialog({
   const fetcher = useFetcher();
   const [issueType, setIssueType] = useState<string>("");
   const [description, setDescription] = useState("");
+  // The track page keeps this dialog mounted while the track id changes.
+  const [draftTrackId, setDraftTrackId] = useState(trackId);
+  const submittedTrackId = useRef<string | null>(null);
+  if (draftTrackId !== trackId) {
+    setDraftTrackId(trackId);
+    setIssueType("");
+    setDescription("");
+  }
 
   const isSubmitting = fetcher.state !== "idle";
   const isValid = issueType && description.trim().length > 0;
   const seenResult = useRef<unknown>(null);
+  const showError =
+    submittedTrackId.current === trackId && fetcher.state === "idle" && fetcher.data?.error;
 
   useEffect(() => {
     if (fetcher.state !== "idle" || !fetcher.data?.success) return;
     if (seenResult.current === fetcher.data) return;
+    if (submittedTrackId.current !== trackId) return;
     seenResult.current = fetcher.data;
     toast({
       title: "Report filed",
@@ -62,12 +73,13 @@ export function ReportIssueDialog({
     setIssueType("");
     setDescription("");
     onOpenChange(false);
-  }, [description, fetcher.data, fetcher.state, onOpenChange, trackTitle]);
+  }, [description, fetcher.data, fetcher.state, onOpenChange, trackId, trackTitle]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValid) return;
 
+    submittedTrackId.current = trackId;
     const formData = new FormData();
     formData.append("trackId", trackId);
     formData.append("issueType", issueType);
@@ -121,7 +133,7 @@ export function ReportIssueDialog({
               <p className="text-xs text-muted-foreground">{description.length}/1000 characters</p>
             </div>
 
-            {fetcher.data?.error && (
+            {showError && (
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <Icon name="question-mark-circled" />
                 <span>{fetcher.data.error}</span>

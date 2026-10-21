@@ -243,6 +243,14 @@ export function SortableTrackList({
   const [items, setItems] = useState(tracks);
   const [selectedTracks, setSelectedTracks] = useState<Set<string>>(new Set());
   const [showSelection, setShowSelection] = useState(false);
+  const [appliedPlaylistId, setAppliedPlaylistId] = useState(playlistId);
+  // Playlist routes reuse this list when only the playlist id changes.
+  if (appliedPlaylistId !== playlistId) {
+    setAppliedPlaylistId(playlistId);
+    setSelectedTracks(new Set());
+    setShowSelection(false);
+    setItems(tracks);
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor),

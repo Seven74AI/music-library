@@ -97,10 +97,15 @@ export function TrackDetailsDialog({
   const [showUndoToast, setShowUndoToast] = useState(false);
   const handledEdit = useRef<unknown>(null);
   const handledRestore = useRef<unknown>(null);
+  const requestedTrackId = useRef<string | null>(null);
+  const seenTrackId = useRef(trackId);
 
-  const track = detailsFetcher.data?.track;
-  const isCurator = detailsFetcher.data?.isCurator ?? false;
-  const isLoading = detailsFetcher.state !== "idle" && !detailsFetcher.data;
+  const loadedTrack = detailsFetcher.data?.track;
+  const track = loadedTrack?.id === trackId ? loadedTrack : undefined;
+  const isCurator = track ? (detailsFetcher.data?.isCurator ?? false) : false;
+  const isStale = loadedTrack != null && loadedTrack.id !== trackId;
+  const isLoading =
+    !track && (detailsFetcher.state !== "idle" || detailsFetcher.data == null || isStale);
 
   // Lock integration - only acquire if curator
   const {
@@ -119,10 +124,29 @@ export function TrackDetailsDialog({
   }, [open, initialTab, trackId]);
 
   useEffect(() => {
-    if (open && detailsFetcher.state === "idle" && !detailsFetcher.data) {
-      detailsFetcher.load(`/resources/track-details?trackId=${encodeURIComponent(trackId)}`);
+    if (seenTrackId.current === trackId) return;
+    seenTrackId.current = trackId;
+    setPendingChanges(null);
+    setShowCommentDialog(false);
+    setShowUndoToast(false);
+    setFieldDraft(null);
+  }, [trackId]);
+
+  useEffect(() => {
+    if (!open) {
+      requestedTrackId.current = null;
+      return;
     }
-  }, [open, trackId, detailsFetcher]);
+    if (detailsFetcher.state !== "idle") return;
+    if (loadedTrack?.id === trackId) {
+      requestedTrackId.current = null;
+      return;
+    }
+    // A failed load leaves the previous payload in place. Don't retry it forever.
+    if (requestedTrackId.current === trackId) return;
+    requestedTrackId.current = trackId;
+    detailsFetcher.load(`/resources/track-details?trackId=${encodeURIComponent(trackId)}`);
+  }, [open, trackId, detailsFetcher, loadedTrack?.id]);
 
   useEffect(() => {
     if (detailsFetcher.state === "idle" && detailsFetcher.data) {
@@ -255,7 +279,7 @@ export function TrackDetailsDialog({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto">
-          {isLoading ? (
+          {isLoading || isStale ? (
             <>
               <div className="flex items-center justify-center py-12">
                 <Icon name="update" className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -328,6 +352,7 @@ export function TrackDetailsDialog({
 
                   <TabsContent value="basic" className="mt-4">
                     <BasicMetadataTab
+                      key={track.id}
                       track={track}
                       onSave={handleSaveChanges}
                       disabled={isLockedByOther}
@@ -338,6 +363,7 @@ export function TrackDetailsDialog({
 
                   <TabsContent value="extended" className="mt-4">
                     <ExtendedMetadataTab
+                      key={track.id}
                       track={track}
                       onSave={handleSaveChanges}
                       disabled={isLockedByOther}
@@ -345,12 +371,13 @@ export function TrackDetailsDialog({
                   </TabsContent>
 
                   <TabsContent value="history" className="mt-4">
-                    <HistoryTab trackId={trackId} onRestore={handleRestore} />
+                    <HistoryTab key={trackId} trackId={trackId} onRestore={handleRestore} />
                   </TabsContent>
 
                   <TabsContent value="notes" className="mt-4">
                     {detailsFetcher.data?.currentUserId && (
                       <CuratorNotes
+                        key={trackId}
                         entityType="track"
                         entityId={trackId}
                         currentUserId={detailsFetcher.data.currentUserId}
@@ -395,7 +422,7 @@ export function TrackDetailsDialog({
         </DialogContent>
       </Dialog>
 
-      {showCommentDialog && (
+      {showCommentDialog && track ? (
         <CommentDialog
           open={showCommentDialog}
           onOpenChange={setShowCommentDialog}
@@ -404,7 +431,7 @@ export function TrackDetailsDialog({
           description="Optionally add a comment explaining why you're making this change."
           required={false}
         />
-      )}
+      ) : null}
 
       {showUndoToast && (
         <UndoToast

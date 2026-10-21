@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { Button } from "#app/components/ui/button";
 import { Input } from "#app/components/ui/input";
@@ -23,6 +23,15 @@ export function ImageUploader({
   const urlFetcher = useFetcher();
   const [imageUrl, setImageUrl] = useState("");
   const [uploadMethod, setUploadMethod] = useState<"file" | "url">("file");
+  const uploadTargetRef = useRef<{ entityType: string; entityId: string } | null>(null);
+  const scope = `${entityType}:${entityId}`;
+  const [appliedScope, setAppliedScope] = useState(scope);
+  // Album and artist editors stay mounted when the route param changes.
+  if (appliedScope !== scope) {
+    setAppliedScope(scope);
+    setImageUrl("");
+    uploadTargetRef.current = null;
+  }
 
   const isUploading = uploadFetcher.state !== "idle" || urlFetcher.state !== "idle";
 
@@ -30,6 +39,7 @@ export function ImageUploader({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    uploadTargetRef.current = { entityType, entityId };
     const formData = new FormData();
     formData.append("image", file);
     formData.append("entityType", entityType);
@@ -45,6 +55,7 @@ export function ImageUploader({
   const handleUrlUpload = () => {
     if (!imageUrl.trim()) return;
 
+    uploadTargetRef.current = { entityType, entityId };
     urlFetcher.submit(
       {
         url: imageUrl,
@@ -59,26 +70,54 @@ export function ImageUploader({
     );
   };
 
+  const uploadStillForThisEntity = () =>
+    uploadTargetRef.current?.entityType === entityType &&
+    uploadTargetRef.current?.entityId === entityId;
+
   // Handle successful uploads
   if (uploadFetcher.data?.success && onImageUploaded) {
     const objectKey = uploadFetcher.data.image.objectKey;
     const imageId = uploadFetcher.data.image.id;
-    setTimeout(() => {
-      onImageUploaded(objectKey, imageId);
-      // Reset fetcher to prevent infinite loop
+    if (!uploadStillForThisEntity()) {
       uploadFetcher.data = null;
-    }, 0);
+    } else {
+      const submittedType = entityType;
+      const submittedId = entityId;
+      setTimeout(() => {
+        if (
+          uploadTargetRef.current?.entityType !== submittedType ||
+          uploadTargetRef.current?.entityId !== submittedId
+        ) {
+          return;
+        }
+        onImageUploaded(objectKey, imageId);
+        // Reset fetcher to prevent infinite loop
+        uploadFetcher.data = null;
+      }, 0);
+    }
   }
 
   if (urlFetcher.data?.success && onImageUploaded) {
     const objectKey = urlFetcher.data.image.objectKey;
     const imageId = urlFetcher.data.image.id;
-    setTimeout(() => {
-      onImageUploaded(objectKey, imageId);
-      setImageUrl("");
-      // Reset fetcher to prevent infinite loop
+    if (!uploadStillForThisEntity()) {
       urlFetcher.data = null;
-    }, 0);
+    } else {
+      const submittedType = entityType;
+      const submittedId = entityId;
+      setTimeout(() => {
+        if (
+          uploadTargetRef.current?.entityType !== submittedType ||
+          uploadTargetRef.current?.entityId !== submittedId
+        ) {
+          return;
+        }
+        onImageUploaded(objectKey, imageId);
+        setImageUrl("");
+        // Reset fetcher to prevent infinite loop
+        urlFetcher.data = null;
+      }, 0);
+    }
   }
 
   return (

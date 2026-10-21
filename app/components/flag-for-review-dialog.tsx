@@ -48,14 +48,26 @@ export function FlagForReviewDialog({
   const fetcher = useFetcher();
   const [flagType, setFlagType] = useState<string>("");
   const [comment, setComment] = useState("");
+  const identity = `${entityType}:${entityId}`;
+  // Album, artist, and track pages keep one dialog mounted and change the entity.
+  const [draftIdentity, setDraftIdentity] = useState(identity);
+  const submittedIdentity = useRef<string | null>(null);
+  if (draftIdentity !== identity) {
+    setDraftIdentity(identity);
+    setFlagType("");
+    setComment("");
+  }
 
   const isSubmitting = fetcher.state !== "idle";
   const isValid = flagType !== "";
   const seenResult = useRef<unknown>(null);
+  const showError =
+    submittedIdentity.current === identity && fetcher.state === "idle" && fetcher.data?.error;
 
   useEffect(() => {
     if (fetcher.state !== "idle" || !fetcher.data?.success) return;
     if (seenResult.current === fetcher.data) return;
+    if (submittedIdentity.current !== identity) return;
     seenResult.current = fetcher.data;
     toast({
       title: "Flag filed",
@@ -67,12 +79,23 @@ export function FlagForReviewDialog({
     setFlagType("");
     setComment("");
     onOpenChange(false);
-  }, [comment, entityName, fetcher.data, fetcher.state, flagType, onOpenChange]);
+  }, [
+    comment,
+    entityId,
+    entityName,
+    entityType,
+    fetcher.data,
+    fetcher.state,
+    flagType,
+    identity,
+    onOpenChange,
+  ]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValid) return;
 
+    submittedIdentity.current = identity;
     const formData = new FormData();
     formData.append("entityType", entityType);
     formData.append("entityId", entityId);
@@ -128,7 +151,7 @@ export function FlagForReviewDialog({
               <p className="text-xs text-muted-foreground">{comment.length}/500 characters</p>
             </div>
 
-            {fetcher.data?.error && (
+            {showError && (
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <Icon name="question-mark-circled" />
                 <span>{fetcher.data.error}</span>

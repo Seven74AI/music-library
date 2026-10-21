@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   createState: "idle" as "idle" | "submitting" | "loading",
   createData: undefined as unknown,
   fetcherSlot: 0,
+  notesData: undefined as { notes: Array<(typeof notes)[number]> } | undefined,
 }));
 
 const notes = [
@@ -65,7 +66,7 @@ vi.mock("react-router", async (importOriginal) => {
       if (index === 0) {
         return {
           state: "idle" as const,
-          data: { notes },
+          data: mocks.notesData,
           load: mocks.notesLoad,
           submit: vi.fn(),
         };
@@ -114,6 +115,7 @@ beforeEach(() => {
   mocks.createState = "idle";
   mocks.createData = undefined;
   mocks.fetcherSlot = 0;
+  mocks.notesData = { notes };
 });
 
 test("keeps edit and reply open after a saved note when the list re-renders", async () => {
@@ -224,4 +226,53 @@ test("resets an open reply when a new submission succeeds", async () => {
   expect(screen.getAllByPlaceholderText("Type @ to mention a curator...")).toHaveLength(1);
   expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
   expect(mocks.notesLoad).toHaveBeenCalledTimes(2);
+});
+
+test("reloads notes when the entity id changes and hides the previous entity", async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(<CuratorNotes {...props} />);
+
+  expect(screen.getByText("First impression")).toBeInTheDocument();
+  await user.type(screen.getByLabelText("Add a note"), "Draft for the first track");
+  expect(mocks.notesLoad).not.toHaveBeenCalled();
+
+  rerender(<CuratorNotes {...props} entityId="track-2" />);
+
+  expect(screen.queryByText("First impression")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Add a note")).toHaveValue("");
+  expect(mocks.notesLoad).toHaveBeenCalledTimes(1);
+  expect(mocks.notesLoad).toHaveBeenCalledWith(
+    "/api/curator/notes?entityType=track&entityId=track-2",
+  );
+
+  mocks.notesData = {
+    notes: [
+      {
+        ...notes[0]!,
+        id: "note-2",
+        entityId: "track-2",
+        content: "Second impression",
+        replies: [],
+      },
+    ],
+  };
+  rerender(<CuratorNotes {...props} entityId="track-2" />);
+
+  expect(screen.getByText("Second impression")).toBeInTheDocument();
+  expect(screen.queryByText("First impression")).not.toBeInTheDocument();
+
+  await user.type(screen.getByLabelText("Add a note"), "For the second track");
+  await user.click(screen.getByRole("button", { name: "Add Note" }));
+  expect(mocks.createSubmit).toHaveBeenCalledWith(
+    {
+      entityType: "track",
+      entityId: "track-2",
+      content: "For the second track",
+    },
+    {
+      method: "POST",
+      action: "/api/curator/notes",
+      encType: "application/json",
+    },
+  );
 });

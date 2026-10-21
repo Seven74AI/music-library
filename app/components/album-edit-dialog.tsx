@@ -42,6 +42,15 @@ interface AlbumEditDialogProps {
   currentUserId?: string;
 }
 
+function albumFormState(album: Album) {
+  return {
+    name: album.name,
+    artistId: album.artistId,
+    year: album.year?.toString() || "",
+    comment: "",
+  };
+}
+
 export function AlbumEditDialog({
   album,
   open,
@@ -54,14 +63,18 @@ export function AlbumEditDialog({
   const [activeTab, setActiveTab] = useState("metadata");
   const [coverImageId, setCoverImageId] = useState(album.coverImageId);
   const [coverObjectKey, setCoverObjectKey] = useState(album.coverImage?.objectKey || null);
-
   const [artistName, setArtistName] = useState(album.artist.name);
-  const [formData, setFormData] = useState({
-    name: album.name,
-    artistId: album.artistId,
-    year: album.year?.toString() || "",
-    comment: "",
-  });
+  const [formData, setFormData] = useState(albumFormState(album));
+  const [formAlbumId, setFormAlbumId] = useState(album.id);
+
+  if (formAlbumId !== album.id) {
+    setFormAlbumId(album.id);
+    setActiveTab("metadata");
+    setCoverImageId(album.coverImageId);
+    setCoverObjectKey(album.coverImage?.objectKey || null);
+    setArtistName(album.artist.name);
+    setFormData(albumFormState(album));
+  }
 
   const isSubmitting = editFetcher.state !== "idle" || restoreFetcher.state !== "idle";
   const hasChanges =

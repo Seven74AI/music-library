@@ -48,6 +48,15 @@ export function ArtistSplitDialog({
   const [newArtistName, setNewArtistName] = useState("");
   const [comment, setComment] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [appliedArtistId, setAppliedArtistId] = useState(artistId);
+  // The artist page keeps this dialog mounted across /artists/:artistId navigations.
+  if (appliedArtistId !== artistId) {
+    setAppliedArtistId(artistId);
+    setSelectedTrackIds(new Set());
+    setNewArtistName("");
+    setComment("");
+    setConfirmed(false);
+  }
 
   const isSubmitting = splitFetcher.state !== "idle";
   const canSubmit =

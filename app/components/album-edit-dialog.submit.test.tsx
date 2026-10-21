@@ -1,7 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { expect, test } from "vitest";
@@ -204,6 +205,87 @@ test("a cover from URL is saved as the CoverImage id", async () => {
     artistId: "artist-1",
     year: 1969,
     coverImageId: "cover-from-url",
+    comment: "",
+  });
+});
+
+test("resets the form when a different album is passed to the open dialog", async () => {
+  const user = userEvent.setup();
+  const albumB: Album = {
+    id: "album-2",
+    name: "Revolver",
+    artistId: "artist-2",
+    year: 1966,
+    coverImageId: "cover-b",
+    coverImage: { objectKey: "images/albums/revolver.jpg" },
+    artist: { id: "artist-2", name: "The Beatles Later" },
+  };
+  let setAlbum = (_album: Album) => {};
+  let actionUrl = "";
+  let submission: Submission | null = null;
+
+  function Harness() {
+    const [current, setCurrent] = useState(album);
+    setAlbum = setCurrent;
+    return <AlbumEditDialog album={current} open onOpenChange={() => {}} />;
+  }
+
+  const router = createMemoryRouter(
+    [
+      { path: "/", element: <Harness /> },
+      {
+        path: "/api/artists/search",
+        loader: () => ({ artists: [] }),
+      },
+      {
+        path: "/api/metadata/albums/:id/edit",
+        action: async ({ request }) => {
+          actionUrl = new URL(request.url).pathname;
+          submission = await readSubmission(request);
+          return { album: { id: "album-2" }, edit: { id: "edit-2" } };
+        },
+      },
+    ],
+    { initialEntries: ["/"] },
+  );
+
+  render(<RouterProvider router={router} />);
+
+  expect(screen.getByLabelText(/name/i)).toHaveValue("Abbey Road");
+  expect(screen.getByLabelText(/^Artist/)).toHaveValue("The Beatles");
+
+  await act(async () => {
+    setAlbum(albumB);
+  });
+
+  expect(screen.getByLabelText(/name/i)).toHaveValue("Revolver");
+  expect(screen.queryByDisplayValue("Abbey Road")).toBeNull();
+  expect(screen.getByLabelText(/^Artist/)).toHaveValue("The Beatles Later");
+  expect((screen.getByLabelText(/^Year/) as HTMLInputElement).value).toBe("1966");
+  expect(screen.getByRole("button", { name: "Save Changes" }).hasAttribute("disabled")).toBe(true);
+
+  await user.click(screen.getByRole("tab", { name: "Cover Art" }));
+  expect(screen.getByText("Current image")).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "Current image" }).getAttribute("src")).toContain(
+    "revolver.jpg",
+  );
+
+  await user.click(screen.getByRole("tab", { name: "Metadata" }));
+  const name = screen.getByLabelText(/name/i);
+  await user.clear(name);
+  await user.type(name, "Revolver Remastered");
+  await user.click(screen.getByRole("button", { name: "Save Changes" }));
+
+  await waitFor(() => {
+    expect(submission).not.toBeNull();
+  });
+
+  expect(actionUrl).toContain("/albums/album-2/edit");
+  expect(submission!.body).toEqual({
+    name: "Revolver Remastered",
+    artistId: "artist-2",
+    year: 1966,
+    coverImageId: "cover-b",
     comment: "",
   });
 });

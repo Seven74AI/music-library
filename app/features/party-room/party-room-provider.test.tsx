@@ -341,6 +341,41 @@ describe("PartyRoomProvider join errors and QR", () => {
     expect(screen.getByTestId("qr-error").textContent).toBe("");
   });
 
+  it("loads a QR after create when EventSource is unavailable", async () => {
+    Reflect.deleteProperty(globalThis, "EventSource");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/qr")) return jsonResponse({ qrDataUrl: QR });
+      if (url.includes("/current")) return new Response(null, { status: 204 });
+      if (method === "POST" && url.endsWith("/api/rooms")) {
+        return jsonResponse({ roomId: "room-1", code: "AB3K9Q", status: "open" });
+      }
+      if (url.includes("/api/rooms/AB3K9Q")) return jsonResponse(roomPayload());
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <RoomProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/rooms/current",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("qr").textContent).toBe(QR);
+    });
+    expect(screen.getByTestId("qr-error").textContent).toBe("");
+  });
+
   it("says when the join QR cannot be loaded", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

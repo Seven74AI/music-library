@@ -40,15 +40,48 @@ export function CuratorNotes({ entityType, entityId, currentUserId }: CuratorNot
   const newNoteRef = useRef<HTMLTextAreaElement | null>(null);
   const replyRef = useRef<HTMLTextAreaElement | null>(null);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
+  const requestKey = `${entityType}:${entityId}`;
+  const notesUrl = `/api/curator/notes?entityType=${entityType}&entityId=${encodeURIComponent(entityId)}`;
+  // Album, artist, and track pages keep this mounted and swap the id.
+  // Drop the previous draft before paint, and don't treat the last payload as the next entity.
+  const [acceptedKey, setAcceptedKey] = useState(requestKey);
+  const [composerKey, setComposerKey] = useState(requestKey);
+  const requestedKeyRef = useRef<string | null>(null);
+  const dataAtRequestRef = useRef<unknown>(undefined);
+  if (composerKey !== requestKey) {
+    setComposerKey(requestKey);
+    setNewNoteContent("");
+    setReplyingTo(null);
+    setReplyContent("");
+    setEditingNote(null);
+    setEditContent("");
+  }
 
-  // Load notes on mount
   useEffect(() => {
-    if (notesFetcher.state === "idle" && !notesFetcher.data) {
-      notesFetcher.load(
-        `/api/curator/notes?entityType=${entityType}&entityId=${encodeURIComponent(entityId)}`,
-      );
+    if (notesFetcher.state !== "idle") return;
+
+    if (requestedKeyRef.current !== requestKey) {
+      // First mount may already be holding this entity's notes. A later id still has to load.
+      if (requestedKeyRef.current === null && notesFetcher.data) {
+        requestedKeyRef.current = requestKey;
+        dataAtRequestRef.current = notesFetcher.data;
+        return;
+      }
+      requestedKeyRef.current = requestKey;
+      dataAtRequestRef.current = notesFetcher.data;
+      notesFetcher.load(notesUrl);
+      return;
     }
-  }, [notesFetcher, entityType, entityId]);
+
+    // An unchanged body means the new load never replaced the previous entity. Stop retrying.
+    if (
+      acceptedKey !== requestKey &&
+      notesFetcher.data &&
+      notesFetcher.data !== dataAtRequestRef.current
+    ) {
+      setAcceptedKey(requestKey);
+    }
+  }, [acceptedKey, notesFetcher, notesFetcher.data, notesFetcher.state, notesUrl, requestKey]);
 
   // notesFetcher is a new object on later renders. Only a new successful
   // submission should reload notes and reset the composer.
@@ -68,7 +101,12 @@ export function CuratorNotes({ entityType, entityId, currentUserId }: CuratorNot
     setEditContent("");
   }, [createFetcher.state, createFetcher.data, notesFetcher, entityType, entityId]);
 
-  const notes = notesFetcher.data?.notes || [];
+  const notesAreCurrent = acceptedKey === requestKey;
+  const loadedNotes = notesAreCurrent ? (notesFetcher.data?.notes ?? []) : [];
+  const notes = loadedNotes.filter(
+    (note) => note.entityId === entityId && note.entityType === entityType,
+  );
+  const showLoading = notesFetcher.state !== "idle" && (!notesAreCurrent || !notesFetcher.data);
 
   const handleCreateNote = () => {
     if (!newNoteContent.trim()) return;
@@ -211,7 +249,7 @@ export function CuratorNotes({ entityType, entityId, currentUserId }: CuratorNot
       </div>
 
       {/* Notes List */}
-      {notesFetcher.state !== "idle" && !notesFetcher.data ? (
+      {showLoading ? (
         <div className="flex items-center justify-center py-8">
           <Icon name="update" className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>

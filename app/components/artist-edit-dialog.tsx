@@ -36,6 +36,18 @@ interface ArtistEditDialogProps {
   currentUserId?: string;
 }
 
+function artistFormState(artist: Artist) {
+  return {
+    name: artist.name,
+    bio: artist.bio || "",
+    genre: artist.genre || "",
+    country: artist.country || "",
+    imageUrl: artist.imageUrl || "",
+    website: artist.website || "",
+    comment: "",
+  };
+}
+
 export function ArtistEditDialog({
   artist,
   open,
@@ -46,16 +58,14 @@ export function ArtistEditDialog({
   const editFetcher = useFetcher();
   const restoreFetcher = useFetcher();
   const [activeTab, setActiveTab] = useState("metadata");
+  const [formData, setFormData] = useState(artistFormState(artist));
+  const [formArtistId, setFormArtistId] = useState(artist.id);
 
-  const [formData, setFormData] = useState({
-    name: artist.name,
-    bio: artist.bio || "",
-    genre: artist.genre || "",
-    country: artist.country || "",
-    imageUrl: artist.imageUrl || "",
-    website: artist.website || "",
-    comment: "",
-  });
+  if (formArtistId !== artist.id) {
+    setFormArtistId(artist.id);
+    setActiveTab("metadata");
+    setFormData(artistFormState(artist));
+  }
 
   const isSubmitting = editFetcher.state !== "idle" || restoreFetcher.state !== "idle";
   const hasChanges =

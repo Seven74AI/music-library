@@ -1,7 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { act, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
 import { TrackDetailsDialog } from "./track-details-dialog";
@@ -192,6 +193,60 @@ test("keeps curators on the basic tab when no initial tab is requested", () => {
   renderDialog(true);
 
   expect(screen.getByRole("tab", { name: "Basic" }).getAttribute("data-state")).toBe("active");
+});
+
+function curatorPayload(id: string, title: string, artistName: string) {
+  return {
+    track: {
+      ...curatorTrack,
+      id,
+      title,
+      artist: { id: `artist-${id}`, name: artistName },
+    },
+    isCurator: true,
+    notesCount: 0,
+    currentUserId: "user-1",
+  };
+}
+
+test("loads the next track instead of keeping the previous track in the editor", async () => {
+  fetcherData = curatorPayload("track-1", "First Title", "First Artist");
+  let updateTrackId = (_trackId: string) => {};
+  let refresh = () => {};
+
+  function Harness() {
+    const [trackId, setTrackId] = useState("track-1");
+    const [, bump] = useState(0);
+    updateTrackId = setTrackId;
+    refresh = () => bump((count) => count + 1);
+    return <TrackDetailsDialog trackId={trackId} open onOpenChange={vi.fn()} />;
+  }
+
+  const router = createMemoryRouter([{ path: "/", element: <Harness /> }], {
+    initialEntries: ["/"],
+  });
+  render(<RouterProvider router={router} />);
+
+  expect(screen.getByDisplayValue("First Title")).toBeDefined();
+  expect(screen.getByDisplayValue("First Artist")).toBeDefined();
+  expect(mockLoad).not.toHaveBeenCalled();
+
+  await act(async () => {
+    updateTrackId("track-2");
+  });
+
+  expect(mockLoad).toHaveBeenCalledWith("/resources/track-details?trackId=track-2");
+  expect(screen.queryByText("First Title")).toBeNull();
+  expect(screen.queryByDisplayValue("First Title")).toBeNull();
+  expect(screen.queryByDisplayValue("First Artist")).toBeNull();
+
+  fetcherData = curatorPayload("track-2", "Second Title", "Second Artist");
+  await act(async () => {
+    refresh();
+  });
+
+  expect(screen.getByDisplayValue("Second Title")).toBeDefined();
+  expect(screen.getByDisplayValue("Second Artist")).toBeDefined();
 });
 
 test("does not show YouTube button when serviceUrl is null", () => {

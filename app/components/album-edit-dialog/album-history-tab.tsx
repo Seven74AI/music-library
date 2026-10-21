@@ -1,5 +1,5 @@
 import { useFetcher } from "react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "#app/components/ui/button";
 import { Icon } from "#app/components/ui/icon";
 import { CommentDialog } from "#app/components/track-details-dialog/comment-dialog";
@@ -33,15 +33,39 @@ export function AlbumHistoryTab({ albumId, onRestore }: AlbumHistoryTabProps) {
   const fetcher = useFetcher<{ history: HistoryEntry[] }>();
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
   const [selectedEditId, setSelectedEditId] = useState<string | null>(null);
+  const [seenAlbumId, setSeenAlbumId] = useState(albumId);
+  const requestedAlbumId = useRef<string | null>(null);
+  const loadedAlbumId = useRef<string | null>(null);
+  const seenData = useRef<unknown>(undefined);
+
+  if (seenAlbumId !== albumId) {
+    setSeenAlbumId(albumId);
+    setShowRestoreDialog(false);
+    setSelectedEditId(null);
+  }
+
+  if (fetcher.data !== seenData.current) {
+    seenData.current = fetcher.data;
+    if (fetcher.data && requestedAlbumId.current) {
+      loadedAlbumId.current = requestedAlbumId.current;
+    }
+  }
+
+  const matchesAlbum = loadedAlbumId.current === albumId && fetcher.data != null;
+  const history = matchesAlbum ? (fetcher.data?.history ?? []) : [];
+  const isLoading = !matchesAlbum;
 
   useEffect(() => {
-    if (fetcher.state === "idle" && !fetcher.data) {
-      fetcher.load(`/api/metadata/albums/${albumId}/history`);
+    if (fetcher.state !== "idle") return;
+    if (loadedAlbumId.current === albumId && fetcher.data) {
+      requestedAlbumId.current = null;
+      return;
     }
+    // A failed load leaves the previous payload in place. Don't retry it forever.
+    if (requestedAlbumId.current === albumId) return;
+    requestedAlbumId.current = albumId;
+    fetcher.load(`/api/metadata/albums/${encodeURIComponent(albumId)}/history`);
   }, [fetcher, albumId]);
-
-  const history = fetcher.data?.history ?? [];
-  const isLoading = fetcher.state !== "idle";
 
   const handleRestoreClick = (editId: string) => {
     setSelectedEditId(editId);

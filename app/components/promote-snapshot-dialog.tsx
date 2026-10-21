@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { Button } from "#app/components/ui/button.tsx";
 import {
@@ -43,9 +43,21 @@ export function PromoteSnapshotDialog({ snapshotId, snapshotLabel }: PromoteSnap
   const [newTitle, setNewTitle] = useState(snapshotLabel);
   const [createError, setCreateError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // The on-repeat route keeps one dialog mounted and swaps snapshotId.
+  const [appliedSnapshotId, setAppliedSnapshotId] = useState(snapshotId);
+  if (appliedSnapshotId !== snapshotId) {
+    setAppliedSnapshotId(snapshotId);
+    setOpen(false);
+    setMode("menu");
+    setNewTitle(snapshotLabel);
+    setCreateError(null);
+    setSearchQuery("");
+  }
 
   const promoteFetcher = useFetcher<PromoteResponse>();
   const playlistsFetcher = useFetcher<{ playlists: Playlist[] }>();
+  const submittedSnapshotId = useRef<string | null>(null);
+  const handledPromoteData = useRef<unknown>(null);
 
   const resetState = useCallback(() => {
     setMode("menu");
@@ -69,18 +81,21 @@ export function PromoteSnapshotDialog({ snapshotId, snapshotLabel }: PromoteSnap
   }, [playlists, searchQuery]);
 
   useEffect(() => {
-    if (promoteFetcher.state === "idle" && promoteFetcher.data) {
-      if (promoteFetcher.data.status === "success") {
-        setOpen(false);
-        resetState();
-      } else if (promoteFetcher.data.status === "duplicate_title") {
-        setCreateError(
-          promoteFetcher.data.message ??
-            `You already have a playlist named "${promoteFetcher.data.existingTitle ?? ""}"`,
-        );
-      }
+    if (promoteFetcher.state !== "idle" || !promoteFetcher.data) return;
+    if (handledPromoteData.current === promoteFetcher.data) return;
+    // A response for the previous snapshot must not close or error the next one.
+    if (submittedSnapshotId.current !== snapshotId) return;
+    handledPromoteData.current = promoteFetcher.data;
+    if (promoteFetcher.data.status === "success") {
+      setOpen(false);
+      resetState();
+    } else if (promoteFetcher.data.status === "duplicate_title") {
+      setCreateError(
+        promoteFetcher.data.message ??
+          `You already have a playlist named "${promoteFetcher.data.existingTitle ?? ""}"`,
+      );
     }
-  }, [promoteFetcher.state, promoteFetcher.data, resetState]);
+  }, [promoteFetcher.state, promoteFetcher.data, resetState, snapshotId]);
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
@@ -97,6 +112,7 @@ export function PromoteSnapshotDialog({ snapshotId, snapshotLabel }: PromoteSnap
       return;
     }
     setCreateError(null);
+    submittedSnapshotId.current = snapshotId;
     void promoteFetcher.submit(
       { snapshotId, action: "create", title: trimmed },
       { method: "POST", action: "/resources/promote-on-repeat-snapshot" },
@@ -105,6 +121,7 @@ export function PromoteSnapshotDialog({ snapshotId, snapshotLabel }: PromoteSnap
 
   const handleAdd = useCallback(
     (targetId: string) => {
+      submittedSnapshotId.current = snapshotId;
       void promoteFetcher.submit(
         { snapshotId, action: "add", targetPlaylistId: targetId },
         { method: "POST", action: "/resources/promote-on-repeat-snapshot" },

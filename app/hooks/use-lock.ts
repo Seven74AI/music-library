@@ -54,6 +54,7 @@ export function useLock(
 
   const mountedRef = useRef(true);
   const ownedRef = useRef(false);
+  const ownedEntityRef = useRef<{ type: EntityType; id: string } | null>(null);
   const myUserIdRef = useRef<string | null>(null);
   const acquireGen = useRef(0);
 
@@ -61,9 +62,23 @@ export function useLock(
   const [isLockedByOther, setIsLockedByOther] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const identity = `${entityType}\0${entityId}`;
+  const [appliedIdentity, setAppliedIdentity] = useState(identity);
+  // The player keeps this hook mounted while the track changes. Drop the previous
+  // holder's name before paint so track A is not still locked on track B.
+  if (appliedIdentity !== identity) {
+    setAppliedIdentity(identity);
+    setLock(null);
+    setIsLockedByOther(false);
+    setError(null);
+  }
 
   const releaseRequest = useCallback((type: EntityType, id: string) => {
-    ownedRef.current = false;
+    // A late release for the entity we just left must not drop the lock we now hold.
+    if (ownedEntityRef.current?.type === type && ownedEntityRef.current.id === id) {
+      ownedRef.current = false;
+      ownedEntityRef.current = null;
+    }
     const key = `${type}:${id}`;
     if (releaseInFlight.has(key)) return;
     releaseInFlight.add(key);
@@ -95,6 +110,7 @@ export function useLock(
   const showMine = useCallback((next: LockInfo) => {
     myUserIdRef.current = next.lockedBy;
     ownedRef.current = true;
+    ownedEntityRef.current = { type: next.entityType, id: next.entityId };
     setLock(next);
     setIsLockedByOther(false);
     setError(null);
@@ -102,6 +118,7 @@ export function useLock(
 
   const showOther = useCallback((next: LockInfo) => {
     ownedRef.current = false;
+    ownedEntityRef.current = null;
     setLock(next);
     setIsLockedByOther(true);
   }, []);
@@ -119,6 +136,12 @@ export function useLock(
       body: JSON.stringify({ entityType: type, entityId: id }),
     })
       .then(async (res) => {
+        const stillCurrent = type === entityTypeRef.current && id === entityIdRef.current;
+        if (!stillCurrent) {
+          // The editor moved on. Release a lock this request won for the old id.
+          if (res.ok && autoReleaseRef.current) releaseRequest(type, id);
+          return;
+        }
         if (!mountedRef.current) {
           // Only the latest acquire may release. An older response must not
           // delete a lock the current editor still holds, or send a second release.
@@ -139,6 +162,7 @@ export function useLock(
           }
           const statusLock = await readStatus().catch(() => null);
           if (!mountedRef.current || generation !== acquireGen.current) return;
+          if (type !== entityTypeRef.current || id !== entityIdRef.current) return;
           if (statusLock && myUserIdRef.current && statusLock.lockedBy === myUserIdRef.current) {
             showMine(statusLock);
             return;
@@ -164,6 +188,10 @@ export function useLock(
         }
 
         const data = (await res.json()) as { lock: LockInfo };
+        if (type !== entityTypeRef.current || id !== entityIdRef.current) {
+          if (autoReleaseRef.current) releaseRequest(type, id);
+          return;
+        }
         if (!mountedRef.current) {
           if (autoReleaseRef.current && generation === acquireGen.current) releaseRequest(type, id);
           return;
@@ -181,12 +209,15 @@ export function useLock(
   }, [readStatus, releaseRequest, showMine, showOther]);
 
   const release = useCallback(() => {
-    const type = entityTypeRef.current;
-    const id = entityIdRef.current;
+    const owned = ownedEntityRef.current;
+    const type = owned?.type ?? entityTypeRef.current;
+    const id = owned?.id ?? entityIdRef.current;
     myUserIdRef.current = null;
+    ownedEntityRef.current = null;
     setLock(null);
     setIsLockedByOther(false);
     if (ownedRef.current) releaseRequest(type, id);
+    ownedRef.current = false;
   }, [releaseRequest]);
 
   const refresh = useCallback(() => {
@@ -196,6 +227,7 @@ export function useLock(
         if (!next) {
           const shouldAcquire = autoAcquireRef.current;
           ownedRef.current = false;
+          ownedEntityRef.current = null;
           myUserIdRef.current = null;
           setLock(null);
           setIsLockedByOther(false);
@@ -218,14 +250,24 @@ export function useLock(
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (!autoReleaseRef.current || !ownedRef.current) return;
-      releaseRequest(entityTypeRef.current, entityIdRef.current);
+      const owned = ownedEntityRef.current;
+      if (!autoReleaseRef.current || !owned) return;
+      ownedEntityRef.current = null;
+      ownedRef.current = false;
+      releaseRequest(owned.type, owned.id);
     };
   }, [releaseRequest]);
 
   useEffect(() => {
+    const owned = ownedEntityRef.current;
+    if (owned && (owned.type !== entityType || owned.id !== entityId)) {
+      ownedEntityRef.current = null;
+      ownedRef.current = false;
+      myUserIdRef.current = null;
+      if (autoReleaseRef.current) releaseRequest(owned.type, owned.id);
+    }
     if (autoAcquire) acquire();
-  }, [autoAcquire, acquire]);
+  }, [entityType, entityId, autoAcquire, acquire, releaseRequest]);
 
   useEffect(() => {
     if (!isLockedByOther) return;
