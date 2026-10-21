@@ -177,6 +177,31 @@ test("sleep timer menu stacks above toasts and cancel clears the countdown", asy
   );
 });
 
+test("mobile now playing sleep timer presets receive the tap", async () => {
+  const user = userEvent.setup();
+  await renderPlayer();
+
+  await user.click(screen.getByLabelText("Open now playing"));
+  const sheet = await screen.findByTestId("player-now-playing-sheet");
+  await user.click(within(sheet).getByRole("button", { name: "Sleep timer" }));
+
+  const preset = await screen.findByRole("button", { name: "15 min" });
+  const popover = preset.closest("[data-side]");
+  // The now-playing sheet is a modal dialog, which sets pointer-events: none on
+  // document.body. The portaled menu must opt back in or the preset tap is lost.
+  expect(popover).toHaveStyle({ pointerEvents: "auto" });
+
+  await user.click(preset);
+  expect(within(sheet).getByRole("button", { name: "Sleep timer" })).toHaveTextContent(/\d+:\d+/);
+  expect(sheet).toHaveAttribute("data-state", "open");
+
+  await user.click(screen.getByRole("button", { name: "Cancel timer" }));
+  expect(within(sheet).getByRole("button", { name: "Sleep timer" })).not.toHaveTextContent(
+    /\d+:\d+/,
+  );
+  expect(sheet).toHaveAttribute("data-state", "open");
+});
+
 test("publishes player clearance so toasts can sit above the bar", async () => {
   const rectSpy = vi
     .spyOn(HTMLElement.prototype, "getBoundingClientRect")

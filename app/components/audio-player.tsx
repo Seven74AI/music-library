@@ -610,6 +610,12 @@ function PlayerNowPlayingSheet({
           side="bottom"
           className="flex max-h-[85vh] flex-col gap-6"
           data-testid="player-now-playing-sheet"
+          onPointerDownOutside={(event) => {
+            // The sleep-timer menu is portaled outside this sheet. A tap on a
+            // preset is "outside" the dialog and would dismiss now-playing
+            // before the duration is applied.
+            if (isSleepTimerMenuTarget(event.target)) event.preventDefault();
+          }}
         >
           <SheetHeader className="flex-shrink-0 text-left">
             <SheetTitle>Now playing</SheetTitle>
@@ -2425,6 +2431,12 @@ function QueueSheet({
   );
 }
 
+const SLEEP_TIMER_MENU_ATTR = "data-sleep-timer-menu";
+
+function isSleepTimerMenuTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest(`[${SLEEP_TIMER_MENU_ATTR}]`));
+}
+
 function SleepTimerControl({
   sleepTimerLabel,
   onStart,
@@ -2453,8 +2465,15 @@ function SleepTimerControl({
         </Button>
       </PopoverTrigger>
       {/* Toast viewport is z-100 so Undo stays above dialogs. This menu has to
-          paint above that toast; otherwise "Sleep timer set" covers Cancel. */}
-      <PopoverContent align="end" className="z-[110] w-56 space-y-3">
+          paint above that toast; otherwise "Sleep timer set" covers Cancel.
+          pointer-events is set inline because the now-playing sheet writes
+          pointer-events: none on document.body, and a portaled menu inherits it. */}
+      <PopoverContent
+        align="end"
+        className="z-[110] w-56 space-y-3"
+        style={{ pointerEvents: "auto" }}
+        data-sleep-timer-menu=""
+      >
         <div>
           <p className="text-sm font-medium">Sleep timer</p>
           <p className="text-xs text-muted-foreground">Stop playback after the selected time.</p>
