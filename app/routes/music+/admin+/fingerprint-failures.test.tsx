@@ -51,6 +51,12 @@ async function createAdminSession() {
   }).toString();
 }
 
+function trustedOrigin() {
+  const configured = process.env.SITE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  return `http://127.0.0.1:${process.env.PORT || "3000"}`;
+}
+
 const emptyLoaderData: FingerprintFailuresLoaderData = {
   stats: {
     total: 0,
@@ -255,4 +261,35 @@ test("Non-admin users get 403 error", async () => {
   render(<App initialEntries={["/music/admin/fingerprint-failures"]} />);
 
   await screen.findByText(/you must be an admin/i, {}, { timeout: 5000 });
+});
+
+test("fingerprint-failures lookup uses a trusted origin and only the session cookie", async () => {
+  const cookieHeader = await createAdminSession();
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    Response.json(emptyLoaderData),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  const request = new Request(
+    "http://evil.example/music/admin/fingerprint-failures?format=flac&page=2",
+    {
+      headers: {
+        cookie: `${cookieHeader}; theme=dark`,
+        authorization: "Bearer leaked-token",
+        "x-forwarded-host": "evil.example",
+      },
+    },
+  );
+
+  await loader({ request, url: new URL(request.url) } as never);
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const [fetchedUrl, init] = fetchMock.mock.calls[0]!;
+  expect(String(fetchedUrl)).toBe(
+    `${trustedOrigin()}/api/admin/fingerprint-failures?format=flac&page=2`,
+  );
+  const headers = new Headers(init?.headers);
+  expect(headers.get("cookie")).toBe(cookieHeader);
+  expect(headers.get("authorization")).toBeNull();
+  expect(headers.get("x-forwarded-host")).toBeNull();
 });
