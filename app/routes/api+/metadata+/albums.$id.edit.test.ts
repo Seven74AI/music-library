@@ -16,6 +16,7 @@ describe("POST /api/metadata/albums/:id/edit", () => {
     vi.mocked(requireUserId).mockResolvedValue(mockUserId);
     await prisma.album.deleteMany();
     await prisma.artist.deleteMany();
+    await prisma.editLock.deleteMany();
     await prisma.user.deleteMany();
   });
 
@@ -468,5 +469,107 @@ describe("POST /api/metadata/albums/:id/edit", () => {
     });
 
     await expect(action({ request, params: { id: "nonexistent" } } as any)).rejects.toThrow();
+  });
+
+  test("rejects edit when another curator holds the lock", async () => {
+    await prisma.role.upsert({
+      where: { name: "curator" },
+      update: {},
+      create: { name: "curator", description: "Curator" },
+    });
+
+    await prisma.user.create({
+      data: {
+        id: mockUserId,
+        email: "curator@test.com",
+        username: "curator",
+        roles: { connect: { name: "curator" } },
+      },
+    });
+
+    const otherUser = await prisma.user.create({
+      data: {
+        id: "other-user",
+        email: "other@test.com",
+        username: "other",
+        name: "Ada",
+        roles: { connect: { name: "curator" } },
+      },
+    });
+
+    const artist = await prisma.artist.create({
+      data: { name: "Artist", normalizedName: "artist" },
+    });
+
+    const album = await prisma.album.create({
+      data: { name: "Album", artistId: artist.id },
+    });
+
+    await prisma.editLock.create({
+      data: {
+        entityType: "album",
+        entityId: album.id,
+        lockedBy: otherUser.id,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const request = new Request(`http://localhost/api/metadata/albums/${album.id}/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Overwrite", artistId: artist.id }),
+    });
+
+    await expect(action({ request, params: { id: album.id } } as any)).rejects.toMatchObject({
+      data: { error: "Locked", message: "Ada is currently editing this album" },
+      init: { status: 409 },
+    });
+  });
+
+  test("releases the lock after a successful save", async () => {
+    await prisma.role.upsert({
+      where: { name: "curator" },
+      update: {},
+      create: { name: "curator", description: "Curator" },
+    });
+
+    await prisma.user.create({
+      data: {
+        id: mockUserId,
+        email: "curator@test.com",
+        username: "curator",
+        roles: { connect: { name: "curator" } },
+      },
+    });
+
+    const artist = await prisma.artist.create({
+      data: { name: "Artist", normalizedName: "artist" },
+    });
+
+    const album = await prisma.album.create({
+      data: { name: "Album", artistId: artist.id },
+    });
+
+    await prisma.editLock.create({
+      data: {
+        entityType: "album",
+        entityId: album.id,
+        lockedBy: mockUserId,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const request = new Request(`http://localhost/api/metadata/albums/${album.id}/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Updated", artistId: artist.id }),
+    });
+
+    await action({ request, params: { id: album.id } } as any);
+
+    const lock = await prisma.editLock.findUnique({
+      where: { entityType_entityId: { entityType: "album", entityId: album.id } },
+    });
+    expect(lock).toBeNull();
   });
 });
