@@ -5,8 +5,13 @@ import { useEffect, useState } from "react";
 import { act, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import { parseString } from "set-cookie-parser";
 import { beforeEach, expect, test, vi } from "vitest";
-import DuplicatesRoute from "./duplicates.tsx";
+import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
+import { prisma } from "#app/utils/db.server.ts";
+import { authSessionStorage } from "#app/utils/session.server.ts";
+import { createUser } from "#tests/db-utils.ts";
+import DuplicatesRoute, { loader } from "./duplicates.tsx";
 
 const { toastSpy, fetcherControls } = vi.hoisted(() => {
   type Snapshot = {
@@ -306,4 +311,69 @@ test("cancel on Delete track does not send DELETE", async () => {
   expect(fetcherControls.get().submit).not.toHaveBeenCalled();
   expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   expect(screen.getByText("Copy Song")).toBeInTheDocument();
+});
+
+async function createAdminSession() {
+  const user = await prisma.user.create({
+    select: { id: true },
+    data: {
+      ...createUser(),
+      roles: {
+        connectOrCreate: {
+          where: { name: "admin" },
+          create: { name: "admin" },
+        },
+      },
+    },
+  });
+  const session = await prisma.session.create({
+    select: { id: true },
+    data: {
+      expirationDate: getSessionExpirationDate(),
+      userId: user.id,
+    },
+  });
+  const authSession = await authSessionStorage.getSession();
+  authSession.set(sessionKey, session.id);
+  const setCookieHeader = await authSessionStorage.commitSession(authSession);
+  const parsedCookie = parseString(setCookieHeader)!;
+  return new URLSearchParams({
+    [parsedCookie.name]: parsedCookie.value,
+  }).toString();
+}
+
+function trustedOrigin() {
+  const configured = process.env.SITE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  return `http://127.0.0.1:${process.env.PORT || "3000"}`;
+}
+
+test("duplicates lookup uses a trusted origin and only the session cookie", async () => {
+  const cookieHeader = await createAdminSession();
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    Response.json({
+      stats: { storageSaved: 0, duplicateGroups: 0, totalDuplicates: 0 },
+      groups: [],
+      filter: "all",
+    }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  const request = new Request("http://evil.example/music/admin/duplicates?filter=intentional", {
+    headers: {
+      cookie: `${cookieHeader}; theme=dark`,
+      authorization: "Bearer leaked-token",
+      "x-forwarded-host": "evil.example",
+    },
+  });
+
+  await loader({ request, url: new URL(request.url) } as never);
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const [fetchedUrl, init] = fetchMock.mock.calls[0]!;
+  expect(String(fetchedUrl)).toBe(`${trustedOrigin()}/api/admin/duplicates?filter=intentional`);
+  const headers = new Headers(init?.headers);
+  expect(headers.get("cookie")).toBe(cookieHeader);
+  expect(headers.get("authorization")).toBeNull();
+  expect(headers.get("x-forwarded-host")).toBeNull();
 });

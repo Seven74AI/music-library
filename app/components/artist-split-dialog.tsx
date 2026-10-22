@@ -104,6 +104,7 @@ export function ArtistSplitDialog({
   // Close dialog and notify parent on successful split
   if (splitFetcher.state === "idle" && splitFetcher.data && open) {
     setTimeout(() => {
+      splitFetcher.reset();
       onOpenChange(false);
       onSplit?.();
       setSelectedTrackIds(new Set());
