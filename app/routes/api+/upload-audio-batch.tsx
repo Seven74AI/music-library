@@ -23,8 +23,7 @@ import {
   addSuccessfulTrack,
   addFailedFile,
   getUploadProgress,
-  type StoredFileData,
-} from "./upload-progress.$uploadId";
+} from "#app/features/upload-progress/progress-store.server";
 import { type Route } from "./+types/upload-audio-batch.ts";
 
 // Maximum file size: 100MB per file, 500MB for ZIP
@@ -71,9 +70,9 @@ function audioFileRejection(file: File): string | null {
   return null;
 }
 
-function recordFileFailure(uploadId: string, fileId: string, error: string) {
-  updateFileProgress(uploadId, fileId, 0, "failed", error);
-  addFailedFile(uploadId, fileId, error);
+async function recordFileFailure(uploadId: string, fileId: string, error: string) {
+  await updateFileProgress(uploadId, fileId, 0, "failed", error);
+  await addFailedFile(uploadId, fileId, error);
 }
 
 /**
@@ -173,7 +172,7 @@ export async function action({ request }: ActionFunctionArgs) {
       const extractedFiles = await extractAudioFilesFromZip(zipBuffer);
 
       // Initialize progress tracking
-      initUploadProgress(
+      await initUploadProgress(
         uploadId,
         extractedFiles.map((f) => f.fileName),
       );
@@ -185,7 +184,7 @@ export async function action({ request }: ActionFunctionArgs) {
           const fileId = `file-${i}`;
 
           try {
-            updateFileProgress(uploadId, fileId, 0, "processing");
+            await updateFileProgress(uploadId, fileId, 0, "processing");
             const metadata = await extractAudioMetadata(
               extractedFile.buffer,
               extractedFile.fileName,
@@ -207,7 +206,7 @@ export async function action({ request }: ActionFunctionArgs) {
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : "Failed to extract metadata";
-            recordFileFailure(uploadId, fileId, message);
+            await recordFileFailure(uploadId, fileId, message);
             console.error(`Error extracting metadata from ${extractedFile.fileName}:`, error);
           }
         },
@@ -242,7 +241,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     // Initialize progress for every file, then reject invalid ones individually
     // so one empty or unsupported file does not fail the rest of the batch.
-    initUploadProgress(
+    await initUploadProgress(
       uploadId,
       audioFiles.map((f) => f.name),
     );
@@ -253,12 +252,12 @@ export async function action({ request }: ActionFunctionArgs) {
         const fileId = `file-${i}`;
         const rejection = audioFileRejection(file);
         if (rejection) {
-          recordFileFailure(uploadId, fileId, rejection);
+          await recordFileFailure(uploadId, fileId, rejection);
           return;
         }
 
         try {
-          updateFileProgress(uploadId, fileId, 0, "processing");
+          await updateFileProgress(uploadId, fileId, 0, "processing");
           const arrayBuffer = await file.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
           const metadata = await extractAudioMetadata(buffer, file.name);
@@ -279,7 +278,7 @@ export async function action({ request }: ActionFunctionArgs) {
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Failed to extract metadata";
-          recordFileFailure(uploadId, fileId, message);
+          await recordFileFailure(uploadId, fileId, message);
           console.error(`Error extracting metadata from ${file.name}:`, error);
         }
       },
@@ -288,7 +287,7 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   if (filesToProcess.length === 0) {
-    const progress = getUploadProgress(uploadId);
+    const progress = await getUploadProgress(uploadId);
     // Every file was rejected after progress was initialized. Return the
     // session so the client can show those failures and offer a retry.
     if (progress && progress.files.length > 0) {
@@ -356,17 +355,17 @@ async function processFilesAsync(
 
         // Validate required fields
         if (!title || !artist) {
-          recordFileFailure(uploadId, fileId, "Title and artist are required");
+          await recordFileFailure(uploadId, fileId, "Title and artist are required");
           return { success: false, error: "Title and artist are required" };
         }
 
-        updateFileProgress(uploadId, fileId, 5, "uploading", undefined, file.buffer.length);
+        await updateFileProgress(uploadId, fileId, 5, "uploading", undefined, file.buffer.length);
 
         // Generate IDs
         const trackId = createId();
         const fileIdForStorage = createId();
 
-        updateFileProgress(uploadId, fileId, 5, "uploading", undefined, file.buffer.length);
+        await updateFileProgress(uploadId, fileId, 5, "uploading", undefined, file.buffer.length);
 
         // Upload the audio to Tigris OUTSIDE the database transaction. SQLite
         // serializes writers, so holding the write lock across a network upload
@@ -396,7 +395,7 @@ async function processFilesAsync(
             if (progress.loaded !== undefined && progress.total && progress.total > 0) {
               const uploadPercentage = (progress.loaded / progress.total) * uploadProgressRange;
               const currentProgress = Math.round(uploadStartProgress + uploadPercentage);
-              updateFileProgress(
+              void updateFileProgress(
                 uploadId,
                 fileId,
                 currentProgress,
@@ -450,7 +449,7 @@ async function processFilesAsync(
           }
 
           // Create track with all metadata fields
-          updateFileProgress(uploadId, fileId, 60, "uploading");
+          await updateFileProgress(uploadId, fileId, 60, "uploading");
           const track = await tx.track.create({
             data: {
               id: trackId,
@@ -488,7 +487,7 @@ async function processFilesAsync(
             },
           });
 
-          updateFileProgress(uploadId, fileId, 75, "uploading");
+          await updateFileProgress(uploadId, fileId, 75, "uploading");
 
           // Create the TrackAudioFile row (the upload already happened above)
           await createTrackAudioFile(
@@ -504,7 +503,7 @@ async function processFilesAsync(
             tx,
           );
 
-          updateFileProgress(uploadId, fileId, 85, "uploading");
+          await updateFileProgress(uploadId, fileId, 85, "uploading");
 
           // Add track to user's library
           await tx.userTrack.create({
@@ -514,10 +513,10 @@ async function processFilesAsync(
             },
           });
 
-          updateFileProgress(uploadId, fileId, 95, "uploading");
+          await updateFileProgress(uploadId, fileId, 95, "uploading");
 
           // Store successful track information
-          addSuccessfulTrack(uploadId, {
+          await addSuccessfulTrack(uploadId, {
             trackId: track.id,
             fileName: file.fileName,
             title: track.title,
@@ -537,39 +536,14 @@ async function processFilesAsync(
         });
 
         // Update to 100% after transaction completes successfully
-        updateFileProgress(uploadId, fileId, 100, "completed", undefined, file.buffer.length);
+        await updateFileProgress(uploadId, fileId, 100, "completed", undefined, file.buffer.length);
 
         return result;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Failed to upload file";
-        updateFileProgress(uploadId, fileId, 0, "failed", errorMessage);
+        await updateFileProgress(uploadId, fileId, 0, "failed", errorMessage);
 
-        // Store failed file data for retry
-        const storedFileData: StoredFileData = {
-          fileName: file.fileName,
-          buffer: file.buffer,
-          mimeType: file.mimeType,
-          metadata: {
-            title: file.metadata.title,
-            artist: file.metadata.artist,
-            album: file.metadata.album,
-            genre: file.metadata.genre?.[0],
-            year: file.metadata.year,
-            trackNumber: file.metadata.track?.no,
-            albumArtist: file.metadata.albumArtist,
-            bpm: file.metadata.bpm,
-            label: file.metadata.label,
-            isrc: file.metadata.isrc,
-            originalDate: file.metadata.originalDate,
-            originalYear: file.metadata.originalYear,
-            releaseDate: file.metadata.releaseDate,
-            totalTracks: file.metadata.totalTracks,
-            totalDiscs: file.metadata.totalDiscs,
-            lyrics: file.metadata.lyrics,
-          },
-          userMetadata: file.userMetadata,
-        };
-        addFailedFile(uploadId, fileId, errorMessage, storedFileData);
+        await addFailedFile(uploadId, fileId, errorMessage);
         console.error(`Error uploading file ${file.fileName}:`, error);
 
         return { success: false, error: errorMessage };
