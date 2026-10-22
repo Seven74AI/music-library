@@ -13,7 +13,7 @@ function createTxMock() {
   return {
     tx: {
       track: {
-        findUnique: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
         upsert: vi
           .fn()
           .mockImplementation(({ create }: any) => Promise.resolve({ id: "track-1", ...create })),
@@ -24,7 +24,7 @@ function createTxMock() {
         create: artistCreate,
       },
       servicePlaylistTrack: {
-        findUnique: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
         upsert: vi.fn().mockResolvedValue({ id: "spt-1" }),
       },
       archiveJob: {
