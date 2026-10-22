@@ -151,4 +151,40 @@ describe("add-all-service-tracks-to-library action", () => {
       data: { status: "error", message: "Internal server error" },
     });
   });
+
+  test("chunks the existing-library check across the SQLite bind limit", async () => {
+    const manyTrackIds = Array.from({ length: 1200 }, (_, i) => `track-${i}`);
+    vi.mocked(getActiveSyncedPlaylistTrackIds).mockResolvedValue({
+      playlistIds: ["pl-1"],
+      trackIds: manyTrackIds,
+    });
+
+    // No tracks already in library: every source track is missing
+    vi.mocked(prisma.userTrack.findMany).mockResolvedValue([] as any);
+    vi.mocked(addTracksToUserLibrary).mockResolvedValue({
+      success: true,
+      message: "1200 tracks added to library",
+      addedCount: 1200,
+    });
+
+    const response = await action({
+      request: makeRequest(),
+    } as never);
+
+    expect(response).toMatchObject({
+      data: { status: "success", addedCount: 1200 },
+    });
+
+    // ceil(1200 / 500) = 3 findMany calls, each chunk <= 500
+    const findManyMock = vi.mocked(prisma.userTrack.findMany);
+    expect(findManyMock).toHaveBeenCalledTimes(3);
+    const chunkSizes = findManyMock.mock.calls.map(
+      (call) => (call[0] as any).where.trackId.in.length,
+    );
+    expect(chunkSizes).toEqual([500, 500, 200]);
+    expect(addTracksToUserLibrary).toHaveBeenCalledTimes(1);
+    const missingIds = vi.mocked(addTracksToUserLibrary).mock.calls[0]![0] as string[];
+    expect(missingIds).toHaveLength(1200);
+    expect(addTracksToUserLibrary).toHaveBeenCalledWith(missingIds, "user-1");
+  });
 });

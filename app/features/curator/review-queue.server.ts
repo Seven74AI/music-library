@@ -3,6 +3,95 @@ import { QUEUE_STATUS_MINE, type ReviewQueueListItem } from "./review-queue.ts";
 
 const PAGE_SIZE = 20;
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
+}
+
+/**
+ * Idempotently create a review queue item, per ADR-035.
+ *
+ * - If an open item already exists for the same (entityType, entityId, issueType,
+ *   source), return it without creating a duplicate.
+ * - For user reports, increment the existing item's reportCount instead.
+ * - The `source` field is part of the dedup key so a system-detected issue and a
+ *   user report about the same track can coexist (matches the quality-check job's
+ *   multi-item-per-track behavior and the partial unique index in migration
+ *   20261022120000_add_review_queue_report_dedup).
+ */
+export async function createOrUpdateQueueItem(data: {
+  entityType: string;
+  entityId: string;
+  source: string;
+  issueType: string;
+  description?: string | null;
+  reporterId?: string | null;
+  priority: number;
+}): Promise<{ id: string; created: boolean }> {
+  const where = {
+    entityType: data.entityType,
+    entityId: data.entityId,
+    issueType: data.issueType,
+    source: data.source,
+    status: "open",
+  };
+
+  const existing = await prisma.reviewQueueItem.findFirst({
+    where,
+    select: { id: true },
+  });
+  if (existing) {
+    if (data.source === "user_report") {
+      await prisma.reviewQueueItem.update({
+        where: { id: existing.id },
+        data: { reportCount: { increment: 1 } },
+      });
+    }
+    return { id: existing.id, created: false };
+  }
+
+  try {
+    const created = await prisma.reviewQueueItem.create({
+      data: {
+        entityType: data.entityType,
+        entityId: data.entityId,
+        source: data.source,
+        issueType: data.issueType,
+        description: data.description ?? null,
+        reporterId: data.reporterId ?? null,
+        status: "open",
+        priority: data.priority,
+        reportCount: 1,
+      },
+      select: { id: true },
+    });
+    return { id: created.id, created: true };
+  } catch (error) {
+    // Concurrent duplicate: another request created the open item between our
+    // findFirst and create. Re-read and increment instead of failing.
+    if (isUniqueConstraintError(error)) {
+      const now = await prisma.reviewQueueItem.findFirst({
+        where,
+        select: { id: true },
+      });
+      if (now) {
+        if (data.source === "user_report") {
+          await prisma.reviewQueueItem.update({
+            where: { id: now.id },
+            data: { reportCount: { increment: 1 } },
+          });
+        }
+        return { id: now.id, created: false };
+      }
+    }
+    throw error;
+  }
+}
+
 export async function listReviewQueue({
   status = "open",
   entityType,

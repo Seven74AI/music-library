@@ -4,6 +4,7 @@
  */
 
 import levenshtein from "js-levenshtein";
+import { chunkArray } from "./chunk-array";
 import { normalizeArtistName, normalizeAlbumName, isExactMatch } from "./normalize.server.ts";
 import { prisma } from "./db.server.ts";
 
@@ -511,6 +512,25 @@ export async function findFuzzyAlbumDuplicates(): Promise<AlbumDuplicateGroup[]>
 }
 
 /**
+ * Replace the normalized-name cache for one entity type in a single transaction:
+ * clear the existing rows, then bulk-insert the recomputed rows.
+ */
+async function replaceNormalizedNames(
+  entityType: "artist" | "album",
+  rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }>,
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.normalizedName.deleteMany({ where: { entityType } }),
+    ...chunkArray(rows).map((chunk) => prisma.normalizedName.createMany({ data: chunk })),
+  ]);
+}
+
+/**
  * Cache artist normalized names in the database
  */
 export async function cacheArtistNormalizedNames(): Promise<void> {
@@ -521,30 +541,26 @@ export async function cacheArtistNormalizedNames(): Promise<void> {
     },
   });
 
+  const rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }> = [];
+
   for (const artist of artists) {
     const normalizedName = normalizeArtistName(artist.name);
     if (!normalizedName) continue;
 
-    await prisma.normalizedName.upsert({
-      where: {
-        entityType_entityId: {
-          entityType: "artist",
-          entityId: artist.id,
-        },
-      },
-      update: {
-        originalName: artist.name,
-        normalizedName,
-        updatedAt: new Date(),
-      },
-      create: {
-        entityType: "artist",
-        entityId: artist.id,
-        originalName: artist.name,
-        normalizedName,
-      },
+    rows.push({
+      entityType: "artist",
+      entityId: artist.id,
+      originalName: artist.name,
+      normalizedName,
     });
   }
+
+  await replaceNormalizedNames("artist", rows);
 }
 
 /**
@@ -558,30 +574,26 @@ export async function cacheAlbumNormalizedNames(): Promise<void> {
     },
   });
 
+  const rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }> = [];
+
   for (const album of albums) {
     const normalizedName = normalizeAlbumName(album.name);
     if (!normalizedName) continue;
 
-    await prisma.normalizedName.upsert({
-      where: {
-        entityType_entityId: {
-          entityType: "album",
-          entityId: album.id,
-        },
-      },
-      update: {
-        originalName: album.name,
-        normalizedName,
-        updatedAt: new Date(),
-      },
-      create: {
-        entityType: "album",
-        entityId: album.id,
-        originalName: album.name,
-        normalizedName,
-      },
+    rows.push({
+      entityType: "album",
+      entityId: album.id,
+      originalName: album.name,
+      normalizedName,
     });
   }
+
+  await replaceNormalizedNames("album", rows);
 }
 
 /**
@@ -592,12 +604,17 @@ export async function saveDuplicateDetectionResults(
   exactGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
   fuzzyGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
 ): Promise<void> {
-  // Delete existing detection records for this entity type
-  await prisma.duplicateDetection.deleteMany({
-    where: { entityType },
-  });
+  const rows: Array<{
+    entityType: string;
+    entityId1: string;
+    entityId2: string;
+    matchType: string;
+    similarity: number;
+    normalizedName: string;
+    status: string;
+  }> = [];
 
-  // Save exact matches
+  // Build exact-match pairs
   for (const group of exactGroups) {
     const entities = "artists" in group ? group.artists : group.albums;
 
@@ -609,22 +626,20 @@ export async function saveDuplicateDetectionResults(
         const entity2 = entities[j];
         if (!entity2) continue;
 
-        await prisma.duplicateDetection.create({
-          data: {
-            entityType,
-            entityId1: entity1.id,
-            entityId2: entity2.id,
-            matchType: "exact",
-            similarity: 0,
-            normalizedName: group.normalizedName,
-            status: "pending",
-          },
+        rows.push({
+          entityType,
+          entityId1: entity1.id,
+          entityId2: entity2.id,
+          matchType: "exact",
+          similarity: 0,
+          normalizedName: group.normalizedName,
+          status: "pending",
         });
       }
     }
   }
 
-  // Save fuzzy matches
+  // Build fuzzy-match pairs
   for (const group of fuzzyGroups) {
     const entities = "artists" in group ? group.artists : group.albums;
 
@@ -647,18 +662,257 @@ export async function saveDuplicateDetectionResults(
 
         const similarity = calculateSimilarity(normalized1, normalized2);
 
-        await prisma.duplicateDetection.create({
-          data: {
-            entityType,
-            entityId1: entity1.id,
-            entityId2: entity2.id,
-            matchType: "fuzzy",
-            similarity,
-            normalizedName: group.normalizedName,
-            status: "pending",
-          },
+        rows.push({
+          entityType,
+          entityId1: entity1.id,
+          entityId2: entity2.id,
+          matchType: "fuzzy",
+          similarity,
+          normalizedName: group.normalizedName,
+          status: "pending",
         });
       }
     }
   }
+
+  // Clear previous results and bulk-insert all pairs in chunked createMany calls.
+  await prisma.$transaction([
+    prisma.duplicateDetection.deleteMany({ where: { entityType } }),
+    ...chunkArray(rows).map((chunk) => prisma.duplicateDetection.createMany({ data: chunk })),
+  ]);
+}
+
+/**
+ * The refresh job writes `NormalizedName` rows for every artist/album before it
+ * saves `DuplicateDetection` pairs. Presence of a row for an entity type is the
+ * signal that a detection pass has run, so an empty `DuplicateDetection` cache
+ * means "no duplicates found" rather than "never ran".
+ */
+async function duplicateCacheIsAuthoritative(entityType: "artist" | "album"): Promise<boolean> {
+  const row = await prisma.normalizedName.findFirst({
+    where: { entityType },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
+/**
+ * Reconstruct artist duplicate groups from the `DuplicateDetection` cache.
+ * ADR-034 mandates reading cached results on the hot path instead of re-running
+ * the O(n²) live detection on every page view.
+ */
+export async function readArtistDuplicateGroupsFromCache(): Promise<{
+  exact: ArtistDuplicateGroup[];
+  fuzzy: ArtistDuplicateGroup[];
+}> {
+  const pairs = await prisma.duplicateDetection.findMany({
+    where: { entityType: "artist", status: "pending" },
+    select: { entityId1: true, entityId2: true, matchType: true, normalizedName: true },
+  });
+
+  if (pairs.length === 0) return { exact: [], fuzzy: [] };
+
+  const entityIds = [...new Set(pairs.flatMap((pair) => [pair.entityId1, pair.entityId2]))];
+  const artists = await prisma.artist.findMany({
+    where: { id: { in: entityIds }, mergedIntoId: null },
+    select: {
+      id: true,
+      name: true,
+      _count: { select: { tracks: true, albums: true } },
+    },
+  });
+  const artistById = new Map(artists.map((artist) => [artist.id, artist]));
+
+  const groups = new Map<
+    string,
+    { matchType: MatchType; normalizedName: string; ids: Set<string> }
+  >();
+
+  for (const pair of pairs) {
+    if (!artistById.has(pair.entityId1) || !artistById.has(pair.entityId2)) continue;
+    const matchType = pair.matchType as MatchType;
+    const key = `${matchType}\u0000${pair.normalizedName}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.ids.add(pair.entityId1);
+      existing.ids.add(pair.entityId2);
+    } else {
+      groups.set(key, {
+        matchType,
+        normalizedName: pair.normalizedName,
+        ids: new Set([pair.entityId1, pair.entityId2]),
+      });
+    }
+  }
+
+  const exact: ArtistDuplicateGroup[] = [];
+  const fuzzy: ArtistDuplicateGroup[] = [];
+
+  for (const group of groups.values()) {
+    if (group.ids.size < 2) continue;
+    const artistList = [...group.ids]
+      .map((id) => {
+        const artist = artistById.get(id)!;
+        return {
+          id: artist.id,
+          name: artist.name,
+          trackCount: artist._count.tracks,
+          albumCount: artist._count.albums,
+        };
+      })
+      .sort((a, b) => b.trackCount - a.trackCount);
+
+    const result: ArtistDuplicateGroup = {
+      normalizedName: group.normalizedName,
+      matchType: group.matchType,
+      artists: artistList,
+      totalTracks: artistList.reduce((sum, artist) => sum + artist.trackCount, 0),
+      totalAlbums: artistList.reduce((sum, artist) => sum + artist.albumCount, 0),
+    };
+    (group.matchType === "exact" ? exact : fuzzy).push(result);
+  }
+
+  exact.sort((a, b) => b.totalTracks - a.totalTracks);
+  fuzzy.sort((a, b) => b.totalTracks - a.totalTracks);
+
+  return { exact, fuzzy };
+}
+
+/**
+ * Reconstruct album duplicate groups from the `DuplicateDetection` cache.
+ * Album groups are keyed by artistId + normalized name (see findExactAlbumDuplicates /
+ * findFuzzyAlbumDuplicates) so same-named albums by different artists stay separate.
+ */
+export async function readAlbumDuplicateGroupsFromCache(): Promise<{
+  exact: AlbumDuplicateGroup[];
+  fuzzy: AlbumDuplicateGroup[];
+}> {
+  const pairs = await prisma.duplicateDetection.findMany({
+    where: { entityType: "album", status: "pending" },
+    select: { entityId1: true, entityId2: true, matchType: true, normalizedName: true },
+  });
+
+  if (pairs.length === 0) return { exact: [], fuzzy: [] };
+
+  const entityIds = [...new Set(pairs.flatMap((pair) => [pair.entityId1, pair.entityId2]))];
+  const albums = await prisma.album.findMany({
+    where: { id: { in: entityIds }, mergedIntoId: null },
+    select: {
+      id: true,
+      name: true,
+      year: true,
+      artistId: true,
+      artist: { select: { id: true, name: true } },
+      _count: { select: { tracks: true } },
+    },
+  });
+  const albumById = new Map(albums.map((album) => [album.id, album]));
+
+  const groups = new Map<
+    string,
+    {
+      matchType: MatchType;
+      normalizedName: string;
+      artistId: string;
+      artistName: string;
+      ids: Set<string>;
+    }
+  >();
+
+  for (const pair of pairs) {
+    const first = albumById.get(pair.entityId1);
+    const second = albumById.get(pair.entityId2);
+    if (!first || !second) continue;
+    if (first.artistId !== second.artistId) continue;
+
+    const matchType = pair.matchType as MatchType;
+    const key = `${matchType}\u0000${first.artistId}\u0000${pair.normalizedName}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.ids.add(pair.entityId1);
+      existing.ids.add(pair.entityId2);
+    } else {
+      groups.set(key, {
+        matchType,
+        normalizedName: pair.normalizedName,
+        artistId: first.artistId,
+        artistName: first.artist.name,
+        ids: new Set([pair.entityId1, pair.entityId2]),
+      });
+    }
+  }
+
+  const exact: AlbumDuplicateGroup[] = [];
+  const fuzzy: AlbumDuplicateGroup[] = [];
+
+  for (const group of groups.values()) {
+    if (group.ids.size < 2) continue;
+    const albumList = [...group.ids]
+      .map((id) => {
+        const album = albumById.get(id)!;
+        return {
+          id: album.id,
+          name: album.name,
+          year: album.year,
+          trackCount: album._count.tracks,
+        };
+      })
+      .sort((a, b) => b.trackCount - a.trackCount);
+
+    const result: AlbumDuplicateGroup = {
+      normalizedName: group.normalizedName,
+      matchType: group.matchType,
+      artistId: group.artistId,
+      artistName: group.artistName,
+      albums: albumList,
+      totalTracks: albumList.reduce((sum, album) => sum + album.trackCount, 0),
+    };
+    (group.matchType === "exact" ? exact : fuzzy).push(result);
+  }
+
+  exact.sort((a, b) => b.totalTracks - a.totalTracks);
+  fuzzy.sort((a, b) => b.totalTracks - a.totalTracks);
+
+  return { exact, fuzzy };
+}
+
+/**
+ * Album duplicate groups for the curator read path. Reads the ADR-034 cache;
+ * on a cold start (refresh job never ran) it runs detection once and caches the
+ * result so subsequent page views never re-run the O(n²) computation.
+ */
+export async function getAlbumDuplicateGroups(): Promise<{
+  exact: AlbumDuplicateGroup[];
+  fuzzy: AlbumDuplicateGroup[];
+}> {
+  if (await duplicateCacheIsAuthoritative("album")) {
+    return readAlbumDuplicateGroupsFromCache();
+  }
+
+  const [exact, fuzzy] = await Promise.all([
+    findExactAlbumDuplicates(),
+    findFuzzyAlbumDuplicates(),
+  ]);
+  await saveDuplicateDetectionResults("album", exact, fuzzy);
+  return { exact, fuzzy };
+}
+
+/**
+ * Artist duplicate groups for the curator read path. Same cold-start
+ * self-healing as getAlbumDuplicateGroups.
+ */
+export async function getArtistDuplicateGroups(): Promise<{
+  exact: ArtistDuplicateGroup[];
+  fuzzy: ArtistDuplicateGroup[];
+}> {
+  if (await duplicateCacheIsAuthoritative("artist")) {
+    return readArtistDuplicateGroupsFromCache();
+  }
+
+  const [exact, fuzzy] = await Promise.all([
+    findExactArtistDuplicates(),
+    findFuzzyArtistDuplicates(),
+  ]);
+  await saveDuplicateDetectionResults("artist", exact, fuzzy);
+  return { exact, fuzzy };
 }

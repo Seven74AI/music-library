@@ -6,6 +6,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { uploadFile } from "#app/utils/storage.server.ts";
 import { downloadExternalImage } from "#app/utils/cover-management.server.ts";
+import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/from-url.ts";
 
@@ -59,6 +60,16 @@ export async function action({ request }: Route.ActionArgs) {
 
   const { url, entityType, entityId } = result.data;
 
+  // The object key must derive from a verified record, never the raw client id.
+  // Reject path segments / `..` and nonexistent artist/album ids before upload.
+  if (!isValidCoverEntityId(entityId)) {
+    return data({ error: "Invalid entityId" }, { status: 400 });
+  }
+  const verifiedEntityId = await verifyCoverEntity(entityType, entityId);
+  if (!verifiedEntityId) {
+    return data({ error: `${entityType} not found` }, { status: 404 });
+  }
+
   // Download image from URL
   const buffer = await downloadExternalImage(url);
 
@@ -102,7 +113,7 @@ export async function action({ request }: Route.ActionArgs) {
     // Upload to storage
     const fileId = createId();
     const timestamp = Date.now();
-    const objectKey = `images/${entityType}s/${entityId}/${timestamp}-${fileId}.${extension}`;
+    const objectKey = `images/${entityType}s/${verifiedEntityId}/${timestamp}-${fileId}.${extension}`;
 
     await uploadFile({
       file: buffer,
