@@ -5,7 +5,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { ArtistSplitDialog, type TrackOption } from "./artist-split-dialog";
 
 const alphaTracks: TrackOption[] = [
@@ -94,4 +94,63 @@ test("clears the split form when the artist id changes", async () => {
       },
     },
   ]);
+});
+
+test("does not re-fire onSplit when reopening after a successful split", async () => {
+  const user = userEvent.setup();
+  const onSplit = vi.fn();
+  let reopen = () => {};
+
+  function Harness() {
+    const [artistId, setArtistId] = useState("artist-a");
+    const [open, setOpen] = useState(true);
+    reopen = () => {
+      setArtistId("artist-b");
+      setOpen(true);
+    };
+    const isAlpha = artistId === "artist-a";
+    return (
+      <ArtistSplitDialog
+        artistId={artistId}
+        artistName={isAlpha ? "Alpha" : "Beta"}
+        tracks={isAlpha ? alphaTracks : betaTracks}
+        open={open}
+        onOpenChange={setOpen}
+        onSplit={onSplit}
+      />
+    );
+  }
+
+  const router = createMemoryRouter(
+    [
+      { path: "/", element: <Harness /> },
+      {
+        path: "/api/metadata/artists/:id/split",
+        action: async () => ({ ok: true }),
+      },
+    ],
+    { initialEntries: ["/"] },
+  );
+
+  render(<RouterProvider router={router} />);
+
+  // First split for artist-a
+  await user.type(screen.getByLabelText(/New Artist Name/), "Spun Off");
+  await user.type(screen.getByLabelText(/Split Reason/), "Separating a feature");
+  await user.click(screen.getByText("Alpha One"));
+  await user.click(screen.getByLabelText(/I understand this will create a new artist/));
+  await user.click(screen.getByRole("button", { name: "Split Artist" }));
+
+  await waitFor(() => {
+    expect(onSplit).toHaveBeenCalledTimes(1);
+  });
+
+  // Reopen for a different artist — stale splitFetcher.data must not auto-close
+  await act(async () => {
+    reopen();
+  });
+
+  expect(onSplit).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("Beta One")).toBeTruthy();
+  expect(screen.getByText("Beta Two")).toBeTruthy();
 });
