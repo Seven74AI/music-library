@@ -12,7 +12,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp for YouTube audio downloading
-ADD https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp /usr/local/bin/yt-dlp
+# yt-dlp_linux is the standalone x64 binary (self-contained, no Python needed);
+# the un-suffixed `yt-dlp` artifact is a zipimport binary that requires Python,
+# which this slim base image does not install.
+ADD https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp_linux /usr/local/bin/yt-dlp
 RUN chmod a+rx /usr/local/bin/yt-dlp
 
 # Install all node_modules, including dev dependencies
