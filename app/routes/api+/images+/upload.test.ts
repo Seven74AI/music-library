@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { action, clientAction } from "./upload.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
   requireCuratorRole: vi.fn(),
+}));
+
+vi.mock("#app/utils/cover-entity.server.ts", () => ({
+  isValidCoverEntityId: vi.fn(),
+  verifyCoverEntity: vi.fn(),
 }));
 
 const TINY_PNG = Buffer.from(
@@ -38,6 +44,8 @@ async function returnedValidation(request: Request) {
 describe("POST /api/images/upload validation", () => {
   beforeEach(() => {
     vi.mocked(requireCuratorRole).mockResolvedValue("curator-1");
+    vi.mocked(isValidCoverEntityId).mockReturnValue(true);
+    vi.mocked(verifyCoverEntity).mockResolvedValue("album-1");
   });
 
   test("returns an undersized image as action data instead of throwing", async () => {
@@ -54,6 +62,39 @@ describe("POST /api/images/upload validation", () => {
       },
       init: { status: 400 },
     });
+  });
+
+  test("returns 404 when the target entity does not exist", async () => {
+    vi.mocked(verifyCoverEntity).mockResolvedValue(null);
+
+    const formData = new FormData();
+    formData.append("image", new File([TINY_PNG], "tiny.png", { type: "image/png" }));
+    formData.append("entityType", "album");
+    formData.append("entityId", "missing-album");
+
+    const result = await returnedValidation(uploadRequest(formData));
+
+    expect(result).toMatchObject({
+      data: { error: "album not found" },
+      init: { status: 404 },
+    });
+  });
+
+  test("returns 400 when entityId carries path segments", async () => {
+    vi.mocked(isValidCoverEntityId).mockReturnValue(false);
+
+    const formData = new FormData();
+    formData.append("image", new File([TINY_PNG], "tiny.png", { type: "image/png" }));
+    formData.append("entityType", "album");
+    formData.append("entityId", "../secrets");
+
+    const result = await returnedValidation(uploadRequest(formData));
+
+    expect(result).toMatchObject({
+      data: { error: "Invalid entityId" },
+      init: { status: 400 },
+    });
+    expect(verifyCoverEntity).not.toHaveBeenCalled();
   });
 });
 

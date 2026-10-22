@@ -1,73 +1,65 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import { prisma } from "./db.server.ts";
-import { acquireLock } from "./locks.server.ts";
+import { beforeEach, describe, expect, test } from "vitest";
+import { prisma } from "#app/utils/db.server.ts";
+import { forceUnlock } from "./locks.server.ts";
+import { createUser } from "#tests/db-utils.ts";
 
-vi.mock("./db.server.ts", () => ({
-  prisma: {
-    editLock: {
-      findUnique: vi.fn(),
-      update: vi.fn(),
-      create: vi.fn(),
-      deleteMany: vi.fn(),
-    },
-  },
-}));
-
-const lockUser = { id: "user-1", name: "Alice", username: "alice" };
-const otherUser = { id: "user-2", name: "Bob", username: "bob" };
-
-function lockRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: "lock-1",
-    entityType: "track",
-    entityId: "track-1",
-    lockedBy: "user-1",
-    user: lockUser,
-    acquiredAt: new Date("2026-01-01T00:00:00Z"),
-    expiresAt: new Date("2026-01-01T00:30:00Z"),
-    ...overrides,
-  };
-}
-
-describe("acquireLock", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(prisma.editLock.deleteMany).mockResolvedValue({ count: 0 });
+describe("forceUnlock", () => {
+  beforeEach(async () => {
+    await prisma.securityEvent.deleteMany();
+    await prisma.editLock.deleteMany();
+    await prisma.session.deleteMany();
+    await prisma.user.deleteMany();
   });
 
-  test("returns null when a concurrent create wins the race (P2002)", async () => {
-    vi.mocked(prisma.editLock.findUnique).mockResolvedValueOnce(null); // initial check
-    vi.mocked(prisma.editLock.create).mockRejectedValue({ code: "P2002" });
-    // Winner of the race is a different user.
-    vi.mocked(prisma.editLock.findUnique).mockResolvedValueOnce(
-      lockRow({ lockedBy: "user-2", user: otherUser }),
+  test("deletes the lock and records the reason in the audit trail", async () => {
+    const owner = await prisma.user.create({ data: createUser() });
+    const actor = await prisma.user.create({ data: createUser() });
+
+    await prisma.editLock.create({
+      data: {
+        entityType: "track",
+        entityId: "track-123",
+        lockedBy: owner.id,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const result = await forceUnlock(
+      "track",
+      "track-123",
+      "Curator inactive, urgent fix",
+      actor.id,
     );
 
-    const result = await acquireLock("track", "track-1", "user-1");
+    expect(result).toBe(true);
+    expect(
+      await prisma.editLock.findUnique({
+        where: { entityType_entityId: { entityType: "track", entityId: "track-123" } },
+      }),
+    ).toBeNull();
 
-    expect(result).toBeNull();
-    expect(prisma.editLock.create).toHaveBeenCalledTimes(1);
+    const event = await prisma.securityEvent.findFirst({
+      where: { eventType: "force_unlock" },
+    });
+    expect(event).not.toBeNull();
+    expect(event?.userId).toBe(actor.id);
+    expect(event?.targetUserId).toBe(owner.id);
+    const metadata = JSON.parse(event?.metadata ?? "{}") as {
+      entityType?: string;
+      entityId?: string;
+      reason?: string;
+    };
+    expect(metadata.entityType).toBe("track");
+    expect(metadata.entityId).toBe("track-123");
+    expect(metadata.reason).toBe("Curator inactive, urgent fix");
   });
 
-  test("extends the winner lock when the concurrent create is the same user", async () => {
-    vi.mocked(prisma.editLock.findUnique).mockResolvedValueOnce(null);
-    vi.mocked(prisma.editLock.create).mockRejectedValue({ code: "P2002" });
-    vi.mocked(prisma.editLock.findUnique).mockResolvedValueOnce(lockRow());
-    vi.mocked(prisma.editLock.update).mockResolvedValue(
-      lockRow({ expiresAt: new Date("2026-01-01T01:00:00Z") }),
-    );
+  test("returns false and writes no audit event when no lock exists", async () => {
+    const actor = await prisma.user.create({ data: createUser() });
 
-    const result = await acquireLock("track", "track-1", "user-1");
+    const result = await forceUnlock("album", "album-404", "no lock", actor.id);
 
-    expect(result).not.toBeNull();
-    expect(result?.lockedBy).toBe("user-1");
-    expect(prisma.editLock.update).toHaveBeenCalledTimes(1);
-  });
-
-  test("rethrows errors that are not unique-constraint violations", async () => {
-    vi.mocked(prisma.editLock.findUnique).mockResolvedValueOnce(null);
-    vi.mocked(prisma.editLock.create).mockRejectedValue(new Error("boom"));
-
-    await expect(acquireLock("track", "track-1", "user-1")).rejects.toThrow("boom");
+    expect(result).toBe(false);
+    expect(await prisma.securityEvent.count({ where: { eventType: "force_unlock" } })).toBe(0);
   });
 });
