@@ -118,12 +118,11 @@ describe("connection token cipher", () => {
     expect(stored).not.toContain(FAKE_ACCESS_TOKEN);
   });
 
-  test("production without a key stores plaintext so the process can boot", () => {
+  test("production without a key fails closed instead of storing plaintext", () => {
     process.env.NODE_ENV = "production";
     delete process.env.TOKEN_ENCRYPTION_KEY;
-    expect(getTokenEncryptionKey()).toBeNull();
-    expect(encryptConnectionTokens(fakeTokenJson)).toBe(fakeTokenJson);
-    expect(decryptConnectionTokens(fakeTokenJson)).toBe(fakeTokenJson);
+    expect(() => getTokenEncryptionKey()).toThrow(/TOKEN_ENCRYPTION_KEY/);
+    expect(() => encryptConnectionTokens(fakeTokenJson)).toThrow(/TOKEN_ENCRYPTION_KEY/);
   });
 
   test("requires a production key that is not the dev fallback when one is set", () => {

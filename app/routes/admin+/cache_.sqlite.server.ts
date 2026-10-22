@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { redirect } from "react-router";
+import { data } from "react-router";
 import { z } from "zod";
 import { cache } from "#app/utils/cache.server.ts";
 import { getInstanceInfo, getInternalInstanceDomain } from "#app/utils/litefs.server";
@@ -35,6 +35,10 @@ export async function updatePrimaryCacheValue({
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ key, cacheValue }),
+    // Do not follow the 401/redirect the primary returns on a bad token —
+    // otherwise fetch() lands on a 200 HTML page and the caller sees a
+    // misleading success.
+    redirect: "manual",
   });
 }
 
@@ -48,8 +52,9 @@ export async function action({ request }: Route.ActionArgs) {
   const token = process.env.INTERNAL_COMMAND_TOKEN;
   const isAuthorized = bearerIsAuthorized(request.headers.get("Authorization"), token);
   if (!isAuthorized) {
-    // nah, you can't be here...
-    return redirect("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    // Reject with 401 (not a redirect) so replica->primary sync failures are
+    // visible as non-2xx responses instead of silently following a rickroll.
+    return data({ error: "Unauthorized" }, { status: 401 });
   }
   const { key, cacheValue } = z
     .object({ key: z.string(), cacheValue: z.unknown().optional() })
