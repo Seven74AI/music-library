@@ -91,40 +91,45 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const stats = await getOrphanedTrackStats(ageDays);
 
+  const skip = (page - 1) * PAGE_SIZE;
   let tabData: unknown[] = [];
   let totalItems = 0;
 
   switch (tab) {
     case "missing-audio": {
-      const tracks = await getTracksWithoutAudio(serviceFilter !== "all" ? serviceFilter : null);
-      tabData = tracks;
-      totalItems = tracks.length;
+      const result = await getTracksWithoutAudio(serviceFilter !== "all" ? serviceFilter : null, {
+        skip,
+        take: PAGE_SIZE,
+      });
+      tabData = result.items;
+      totalItems = result.total;
       break;
     }
     case "failed-downloads": {
-      const tracks = await getTracksWithFailedJobs(
+      const result = await getTracksWithFailedJobs(
         errorCategoryFilter !== "all" ? errorCategoryFilter : null,
+        { skip, take: PAGE_SIZE },
       );
-      tabData = tracks;
-      totalItems = tracks.length;
+      tabData = result.items;
+      totalItems = result.total;
       break;
     }
     case "storage-orphans": {
-      const files = await getOrphanedAudioFiles();
-      tabData = files;
-      totalItems = files.length;
+      const result = await getOrphanedAudioFiles({ skip, take: PAGE_SIZE });
+      tabData = result.items;
+      totalItems = result.total;
       break;
     }
     case "unused-tracks": {
-      const tracks = await getUnusedTracks(ageDays);
-      tabData = tracks;
-      totalItems = tracks.length;
+      const result = await getUnusedTracks(ageDays, { skip, take: PAGE_SIZE });
+      tabData = result.items;
+      totalItems = result.total;
       break;
     }
   }
 
   const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
-  const paginatedData = tabData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const paginatedData = tabData;
 
   return {
     stats,
