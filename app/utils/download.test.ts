@@ -29,9 +29,6 @@ describe("isIOSDevice", () => {
 
 describe("triggerBrowserDownload", () => {
   let click: ReturnType<typeof vi.fn<() => void>>;
-  let createElement: ReturnType<typeof vi.spyOn>;
-  let appendChild: ReturnType<typeof vi.spyOn>;
-  let removeChild: ReturnType<typeof vi.spyOn>;
   let revokeObjectURL: ReturnType<typeof vi.spyOn>;
   let createObjectURL: ReturnType<typeof vi.spyOn>;
 
@@ -47,9 +44,9 @@ describe("triggerBrowserDownload", () => {
     click = vi.fn();
     const link = document.createElement("a");
     link.click = click;
-    createElement = vi.spyOn(document, "createElement").mockReturnValue(link as HTMLAnchorElement);
-    appendChild = vi.spyOn(document.body, "appendChild").mockImplementation(() => link);
-    removeChild = vi.spyOn(document.body, "removeChild").mockImplementation(() => link);
+    vi.spyOn(document, "createElement").mockReturnValue(link as HTMLAnchorElement);
+    vi.spyOn(document.body, "appendChild").mockImplementation(() => link);
+    vi.spyOn(document.body, "removeChild").mockImplementation(() => link);
     revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     createObjectURL = vi
       .spyOn(URL, "createObjectURL")
@@ -144,30 +141,30 @@ describe("triggerBrowserDownload", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const click = vi.fn();
+    const clickMock = vi.fn();
     const link = document.createElement("a");
-    link.click = click;
-    const createElement = vi
+    link.click = clickMock;
+    const createElementMock = vi
       .spyOn(document, "createElement")
       .mockReturnValue(link as HTMLAnchorElement);
-    const appendChild = vi.spyOn(document.body, "appendChild").mockImplementation(() => link);
-    const removeChild = vi.spyOn(document.body, "removeChild").mockImplementation(() => link);
-    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-    const createObjectURL = vi
+    const appendChildMock = vi.spyOn(document.body, "appendChild").mockImplementation(() => link);
+    const removeChildMock = vi.spyOn(document.body, "removeChild").mockImplementation(() => link);
+    const revokeObjectURLMock = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const createObjectURLMock = vi
       .spyOn(URL, "createObjectURL")
       .mockReturnValue("blob:https://app.test/large-audio");
 
     await triggerBrowserDownload("/resources/audio/large.mp3", "Large.mp3");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(click).toHaveBeenCalled();
+    expect(createObjectURLMock).toHaveBeenCalledTimes(1);
+    expect(clickMock).toHaveBeenCalled();
 
-    createElement.mockRestore();
-    appendChild.mockRestore();
-    removeChild.mockRestore();
-    revokeObjectURL.mockRestore();
-    createObjectURL.mockRestore();
+    createElementMock.mockRestore();
+    appendChildMock.mockRestore();
+    removeChildMock.mockRestore();
+    revokeObjectURLMock.mockRestore();
+    createObjectURLMock.mockRestore();
   });
 });
 

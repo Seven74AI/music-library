@@ -1,5 +1,5 @@
 import { promises as fs, constants, existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, resolve, sep, win32 } from "node:path";
 import { invariantResponse } from "@epic-web/invariant";
 import { getImgResponse } from "openimg/node";
 import { getDomainUrl } from "#app/utils/misc.tsx";
@@ -40,6 +40,59 @@ function isStorageKey(value: string): boolean {
   return value.startsWith("images/") || value.startsWith("audio/");
 }
 
+function invalidImagePath(): Response {
+  return new Response("Invalid image path", { status: 400 });
+}
+
+/**
+ * Reject traversal, null bytes, and filesystem-absolute inputs before any read.
+ * A single leading slash is a site path (`/img/...`, `/assets/...`) resolved under public/.
+ */
+function rejectDisallowedImagePath(value: string, mode: "storage" | "public"): void {
+  if (value.includes("..") || value.includes("\0")) {
+    throw invalidImagePath();
+  }
+
+  const sitePath = mode === "public" && value.startsWith("/") && !value.startsWith("//");
+  if (sitePath) return;
+
+  if (
+    value.startsWith("//") ||
+    value.startsWith("\\\\") ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    isAbsolute(value) ||
+    win32.isAbsolute(value)
+  ) {
+    throw invalidImagePath();
+  }
+}
+
+/** Resolve a non-storage src under public/, including /assets sources. */
+function resolvePublicImagePath(src: string): string {
+  rejectDisallowedImagePath(src, "public");
+
+  const relative = src.startsWith("/") ? src.slice(1) : src;
+  if (
+    relative.length === 0 ||
+    relative.startsWith("/") ||
+    relative.includes("..") ||
+    relative.includes("\0") ||
+    isAbsolute(relative) ||
+    win32.isAbsolute(relative) ||
+    /^[A-Za-z]:[\\/]/.test(relative)
+  ) {
+    throw invalidImagePath();
+  }
+
+  const root = resolve(process.cwd(), "public");
+  const resolved = resolve(root, relative);
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  if (resolved !== root && !resolved.startsWith(prefix)) {
+    throw invalidImagePath();
+  }
+  return resolved;
+}
+
 export async function loader({ request, url }: Route.LoaderArgs) {
   const searchParams = url.searchParams;
 
@@ -68,8 +121,14 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     getImgSource: async () => {
       // If objectKey is explicitly provided, use it
       if (objectKey) {
+        rejectDisallowedImagePath(objectKey, "storage");
         // Validate and sanitize the storage key to prevent path traversal
-        const validatedKey = validateStorageKey(objectKey);
+        let validatedKey: string;
+        try {
+          validatedKey = validateStorageKey(objectKey);
+        } catch {
+          throw invalidImagePath();
+        }
 
         // Check for local file first (for local development)
         const localFilePath = join(process.cwd(), "tests", "fixtures", "uploaded", validatedKey);
@@ -104,11 +163,18 @@ export async function loader({ request, url }: Route.LoaderArgs) {
 
       const src = searchParams.get("src");
       invariantResponse(src, "src query parameter is required", { status: 400 });
+      rejectDisallowedImagePath(src, "public");
 
       // Check if src is a storage key (for local dev and Tigris)
       if (isStorageKey(src)) {
+        rejectDisallowedImagePath(src, "storage");
         // Validate and sanitize the storage key to prevent path traversal
-        const validatedKey = validateStorageKey(src);
+        let validatedKey: string;
+        try {
+          validatedKey = validateStorageKey(src);
+        } catch {
+          throw invalidImagePath();
+        }
 
         // Check for local file first (for local development)
         const localFilePath = join(process.cwd(), "tests", "fixtures", "uploaded", validatedKey);
@@ -148,18 +214,10 @@ export async function loader({ request, url }: Route.LoaderArgs) {
           url: src,
         };
       }
-      // Retrieve image from filesystem (public folder)
-      if (src.startsWith("/assets")) {
-        // Files managed by Vite
-        return {
-          type: "fs",
-          path: "." + src,
-        };
-      }
-      // Fallback to files in public folder
+      // Site paths (/assets/...) and other public files stay inside public/.
       return {
         type: "fs",
-        path: "./public" + src,
+        path: resolvePublicImagePath(src),
       };
     },
   });

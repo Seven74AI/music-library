@@ -2,24 +2,33 @@ import { useState } from "react";
 import { useAudioPlayer } from "#app/components/audio-player-provider.tsx";
 import { TrackThumbnail } from "#app/components/track-thumbnail.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
+import { type FullTrack } from "#app/types/frontend/shared.ts";
 import { type HomeRecentTrack } from "#app/utils/home.server.ts";
+import { nowPlayingCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { cn } from "#app/utils/misc.tsx";
 
 type HomeRecentTrackCardProps = {
   userTrack: HomeRecentTrack;
   index: number;
+  playableTracks: FullTrack[];
 };
 
-export function HomeRecentTrackCard({ userTrack, index }: HomeRecentTrackCardProps) {
+export function HomeRecentTrackCard({
+  userTrack,
+  index: _index,
+  playableTracks,
+}: HomeRecentTrackCardProps) {
   const [isHovered, setIsHovered] = useState(false);
-  const { currentTrack, currentIndex, playTrack } = useAudioPlayer();
+  const { currentTrack, playPlaylist } = useAudioPlayer();
   const track = userTrack.track;
   const hasAudio = track.audioFiles.length > 0;
-  const isPlaying = currentTrack?.id === track.id && currentIndex === index;
+  const isPlaying = currentTrack?.id === track.id;
 
   const handlePlay = () => {
-    if (!hasAudio) return;
-    playTrack(track, { type: "library" }, index);
+    if (!hasAudio || playableTracks.length === 0) return;
+    const startIndex = playableTracks.findIndex((playable) => playable.id === track.id);
+    if (startIndex < 0) return;
+    playPlaylist(playableTracks, { type: "library" }, startIndex);
   };
 
   return (
@@ -37,7 +46,7 @@ export function HomeRecentTrackCard({ userTrack, index }: HomeRecentTrackCardPro
           coverImage={track.coverImage}
           alt={track.title}
           size="lg"
-          pixelSize={320}
+          pixelSize={nowPlayingCoverPixelSize}
           className="h-full w-full rounded-lg"
         />
 

@@ -1,5 +1,6 @@
 // @context7: adm-zip, Buffer, TypeScript
 import AdmZip from "adm-zip";
+import { inflateRawSync } from "zlib";
 
 export interface ExtractedAudioFile {
   fileName: string;
@@ -11,6 +12,22 @@ export interface ExtractedAudioFile {
  */
 const AUDIO_EXTENSIONS = new Set(["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "webm"]);
 
+/** Same per-file ceiling as a direct audio upload. */
+const MAX_FILE_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
+const MAX_AUDIO_ENTRIES = 100;
+const MAX_TOTAL_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024;
+const MIN_AUDIO_BYTES = 1024;
+
+/** ZIP compression methods (PKWARE APPNOTE). */
+const ZIP_METHOD_DEFLATED = 8;
+
+class ZipExtractionLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ZipExtractionLimitError";
+  }
+}
+
 /**
  * Check if a file extension is an audio format
  */
@@ -19,8 +36,82 @@ function isAudioFile(fileName: string): boolean {
   return extension ? AUDIO_EXTENSIONS.has(extension) : false;
 }
 
+function declaredUncompressedSize(entry: { header?: { size?: number } }): number | null {
+  const size = entry.header?.size;
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return null;
+  return size;
+}
+
+function assertWithinExtractionLimits(
+  fileName: string,
+  uncompressedBytes: number,
+  audioCount: number,
+  runningTotal: number,
+) {
+  if (uncompressedBytes > MAX_FILE_UNCOMPRESSED_BYTES) {
+    throw new ZipExtractionLimitError(
+      `File ${fileName} exceeds maximum size of ${MAX_FILE_UNCOMPRESSED_BYTES / 1024 / 1024}MB`,
+    );
+  }
+
+  if (audioCount >= MAX_AUDIO_ENTRIES) {
+    throw new ZipExtractionLimitError(
+      `ZIP archive contains more than ${MAX_AUDIO_ENTRIES} audio files`,
+    );
+  }
+
+  if (runningTotal + uncompressedBytes > MAX_TOTAL_UNCOMPRESSED_BYTES) {
+    throw new ZipExtractionLimitError("Uncompressed audio in the ZIP exceeds 1GB");
+  }
+}
+
+/** True when zlib aborted because decompressed output exceeded maxOutputLength. */
+function isMaxOutputExceeded(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ERR_BUFFER_TOO_LARGE" || /larger than/i.test(error.message);
+}
+
 /**
- * Extract all audio files from a ZIP archive
+ * Decompress a single ZIP entry under a hard byte cap. A crafted archive that
+ * declares a small uncompressed size in its header (a high compression-ratio
+ * "zip bomb") must not be allowed to inflate unbounded into memory: the cap is
+ * enforced against OUR per-file limit, independent of the attacker-declared
+ * size, and throws ZipExtractionLimitError as soon as it is exceeded.
+ */
+function decompressEntryWithCap(entry: AdmZip.IZipEntry, fileName: string): Buffer {
+  const header = entry.header as { method?: number } | undefined;
+  const getCompressedData = (entry as unknown as { getCompressedData?: () => Buffer })
+    .getCompressedData;
+
+  // Only the deflate path needs a cap; STORED entries are already uncompressed
+  // (their size is bounded by the archive itself) and any other method is
+  // rejected by adm-zip. When raw compressed bytes are available, inflate them
+  // ourselves so the output is bounded by MAX_FILE_UNCOMPRESSED_BYTES.
+  if (typeof getCompressedData === "function" && header?.method === ZIP_METHOD_DEFLATED) {
+    const compressed = getCompressedData.call(entry);
+    try {
+      return inflateRawSync(compressed, { maxOutputLength: MAX_FILE_UNCOMPRESSED_BYTES });
+    } catch (error) {
+      if (isMaxOutputExceeded(error)) {
+        throw new ZipExtractionLimitError(
+          `File ${fileName} exceeds maximum size of ${MAX_FILE_UNCOMPRESSED_BYTES / 1024 / 1024}MB`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  // Fall back to adm-zip's own decompression (adm-zip >=0.6.1 bounds deflate
+  // output to the declared size, so this path is also memory-bounded).
+  const buffer = entry.getData();
+  return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+}
+
+/**
+ * Extract all audio files from a ZIP archive.
+ * Rejects the whole archive when audio entries exceed 100, a single audio
+ * entry exceeds 100MB, or the running uncompressed total exceeds 1GB.
  *
  * @param zipBuffer - ZIP file buffer
  * @returns Promise resolving to array of extracted audio files with their original filenames
@@ -31,6 +122,7 @@ export async function extractAudioFilesFromZip(zipBuffer: Buffer): Promise<Extra
     const entries = zip.getEntries();
 
     const audioFiles: ExtractedAudioFile[] = [];
+    let runningTotal = 0;
 
     for (const entry of entries) {
       // Skip directories
@@ -55,26 +147,46 @@ export async function extractAudioFilesFromZip(zipBuffer: Buffer): Promise<Extra
         continue;
       }
 
-      // Extract file data (getData returns Buffer directly)
-      const buffer = entry.getData();
-      const fileBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-
+      const declaredSize = declaredUncompressedSize(entry);
       // Skip files that are too small (likely corrupted or metadata files)
-      // Audio files should be at least a few KB
-      if (fileBuffer.length < 1024) {
+      // before decompressing them. Audio files should be at least a few KB.
+      if (declaredSize !== null && declaredSize < MIN_AUDIO_BYTES) {
         continue;
+      }
+
+      if (declaredSize !== null) {
+        assertWithinExtractionLimits(fileName, declaredSize, audioFiles.length, runningTotal);
+      }
+
+      // Extract file data under a hard byte cap (see decompressEntryWithCap) so
+      // a lying small header size cannot force an unbounded decompression.
+      const fileBuffer = decompressEntryWithCap(entry, fileName);
+
+      if (fileBuffer.length < MIN_AUDIO_BYTES) {
+        continue;
+      }
+
+      const uncompressedBytes =
+        declaredSize === null ? fileBuffer.length : Math.max(declaredSize, fileBuffer.length);
+      if (declaredSize === null || uncompressedBytes !== declaredSize) {
+        assertWithinExtractionLimits(fileName, uncompressedBytes, audioFiles.length, runningTotal);
       }
 
       audioFiles.push({
         fileName,
         buffer: fileBuffer,
       });
+      runningTotal += uncompressedBytes;
     }
 
     return audioFiles;
   } catch (error) {
+    if (error instanceof ZipExtractionLimitError) {
+      throw error;
+    }
     throw new Error(
       `Failed to extract audio files from ZIP: ${error instanceof Error ? error.message : "Unknown error"}`,
+      { cause: error },
     );
   }
 }

@@ -60,8 +60,8 @@ export function getServerTimeHeader(timings?: Timings) {
     .map(([key, timingInfos]) => {
       const dur = timingInfos
         .reduce((acc, timingInfo) => {
-          const time = timingInfo.time ?? performance.now() - timingInfo.start;
-          return acc + time;
+          const elapsed = timingInfo.time ?? performance.now() - timingInfo.start;
+          return acc + elapsed;
         }, 0)
         .toFixed(1);
       const desc = timingInfos

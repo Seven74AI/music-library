@@ -18,13 +18,14 @@ export async function searchWithCache(
   type?: "all" | "tracks" | "albums" | "artists" | "playlists",
   usePrefix: boolean = false,
   userId?: string,
+  scope: "library" | "all" = "all",
 ): Promise<SearchResponse> {
-  const cacheKey = `search:${type || "all"}:${userId || "public"}:${query}:${limit}:${cursor || "none"}:${usePrefix ? "prefix" : "full"}`;
+  const cacheKey = `search:${type || "all"}:${userId || "public"}:${query}:${limit}:${cursor || "none"}:${usePrefix ? "prefix" : "full"}:${scope}`;
 
   return cachified({
     key: cacheKey,
     cache,
     ttl: 5 * 60 * 1000, // 5 minutes
-    getFreshValue: () => searchAll(query, limit, cursor, type, usePrefix, userId),
+    getFreshValue: () => searchAll(query, limit, cursor, type, usePrefix, userId, scope),
   });
 }

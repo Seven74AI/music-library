@@ -10,6 +10,7 @@ const mockGetOfflineStorage = vi.fn(() => ({
 let resolveTrackPlaybackSource: (trackId: string) => Promise<string | null>;
 let resolvePlaybackAudioUrl: (trackId: string) => Promise<string | null>;
 let fetchRemotePlaybackAudioUrl: (trackId: string) => Promise<string | null>;
+let prefetchPlaybackAudioUrl: (trackId: string) => void;
 let revokePlaybackAudioUrl: (trackId: string) => void;
 let mockCreateObjectURL: ReturnType<typeof vi.fn>;
 let mockRevokeObjectURL: ReturnType<typeof vi.fn>;
@@ -31,6 +32,7 @@ beforeEach(async () => {
   resolveTrackPlaybackSource = mod.resolveTrackPlaybackSource;
   resolvePlaybackAudioUrl = mod.resolvePlaybackAudioUrl;
   fetchRemotePlaybackAudioUrl = mod.fetchRemotePlaybackAudioUrl;
+  prefetchPlaybackAudioUrl = mod.prefetchPlaybackAudioUrl;
   revokePlaybackAudioUrl = mod.revokePlaybackAudioUrl;
 
   // Stub URL.createObjectURL / revokeObjectURL for deterministic tests
@@ -191,6 +193,33 @@ describe("resolveTrackPlaybackSource", () => {
 
     expect(result).toMatch(/^blob:/);
   });
+
+  test("returns a cached remote URL without awaiting OPFS when the remote cache is warm", async () => {
+    vi.stubGlobal("window", {});
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "https://cdn.example/warm.mp3" }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    // Slow OPFS — must not be awaited on the warm-cache path.
+    let resolveBlob: ((value: null) => void) | undefined;
+    mockResolvePlaybackBlob.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveBlob = resolve;
+        }),
+    );
+
+    prefetchPlaybackAudioUrl("track-warm");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const resultPromise = resolveTrackPlaybackSource("track-warm");
+    await expect(resultPromise).resolves.toBe("https://cdn.example/warm.mp3");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    resolveBlob?.(null);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -317,41 +346,165 @@ describe("revokePlaybackAudioUrl", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Blob URL cache — F7#7: old URL revoked before new one created
+// Blob URL cache — reuse existing URL so mid-play re-resolve does not interrupt
 // ═════════════════════════════════════════════════════════════════════════════
 describe("blob URL cache", () => {
-  test("revokes old blob URL before creating new one for same track", async () => {
+  test("reuses existing blob URL on re-resolve without revoking", async () => {
     mockResolvePlaybackBlob.mockResolvedValue(blob());
 
-    // First resolution: caches 'blob:mock-url'
-    await resolvePlaybackAudioUrl("track-1");
+    const first = await resolvePlaybackAudioUrl("track-1");
+    expect(first).toBe("blob:mock-url");
+    expect(mockCreateObjectURL).toHaveBeenCalledTimes(1);
 
-    // Set up second resolution: different return value
     mockCreateObjectURL.mockReturnValue("blob:mock-url-2");
-
-    const callOrder: string[] = [];
-    mockRevokeObjectURL.mockImplementation(() => callOrder.push("revoke"));
-    mockCreateObjectURL.mockImplementation(() => {
-      callOrder.push("create");
-      return "blob:mock-url-2";
-    });
-
-    // Reset mock state so we only see second-call behavior
-    // Actually, let's just check invocation order directly
     mockRevokeObjectURL.mockClear();
     mockCreateObjectURL.mockClear();
 
-    // Second resolution: should revoke old then create new
+    const second = await resolvePlaybackAudioUrl("track-1");
+
+    expect(second).toBe("blob:mock-url");
+    expect(mockRevokeObjectURL).not.toHaveBeenCalled();
+    expect(mockCreateObjectURL).not.toHaveBeenCalled();
+  });
+
+  test("clears stale cache and returns null when blob is gone", async () => {
     mockResolvePlaybackBlob.mockResolvedValue(blob());
+    await resolvePlaybackAudioUrl("track-1");
+
+    mockResolvePlaybackBlob.mockResolvedValue(null);
+    mockRevokeObjectURL.mockClear();
+
     const result = await resolvePlaybackAudioUrl("track-1");
 
-    expect(result).toBe("blob:mock-url-2");
+    expect(result).toBeNull();
     expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
-    expect(mockCreateObjectURL).toHaveBeenCalled();
+  });
+});
 
-    // Verify revoke happened before create
-    const revokeCallIdx = mockRevokeObjectURL.mock.invocationCallOrder[0]!;
-    const createCallIdx = mockCreateObjectURL.mock.invocationCallOrder[0]!;
-    expect(revokeCallIdx).toBeLessThan(createCallIdx);
+// ═════════════════════════════════════════════════════════════════════════════
+// prefetchPlaybackAudioUrl — warm the remote URL cache ahead of a track transition
+// ═════════════════════════════════════════════════════════════════════════════
+describe("prefetchPlaybackAudioUrl", () => {
+  beforeEach(() => {
+    // The client guard bails without `window` (SSR). This suite runs in node.
+    vi.stubGlobal("window", {});
+  });
+
+  test("fetches and caches the remote URL so resolve returns it without re-fetching", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "https://cdn.example/prefetched.mp3" }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    mockResolvePlaybackBlob.mockResolvedValue(null);
+
+    prefetchPlaybackAudioUrl("track-prefetch");
+    expect(fetchSpy).toHaveBeenCalledWith("/resources/audio/track-prefetch");
+
+    // Flush the fire-and-forget .then() that populates the cache.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    fetchSpy.mockClear();
+    const result = await resolveTrackPlaybackSource("track-prefetch");
+
+    expect(result).toBe("https://cdn.example/prefetched.mp3");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test("dedupes concurrent prefetches for the same track", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: "https://cdn.example/dedup.mp3" }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    mockResolvePlaybackBlob.mockResolvedValue(null);
+
+    prefetchPlaybackAudioUrl("track-dedup");
+    prefetchPlaybackAudioUrl("track-dedup");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("treats cached remote URLs as expired after the TTL safety margin", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ url: "https://cdn.example/stale.mp3" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ url: "https://cdn.example/fresh.mp3" }),
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+    mockResolvePlaybackBlob.mockResolvedValue(null);
+
+    const first = await resolveTrackPlaybackSource("track-ttl");
+    expect(first).toBe("https://cdn.example/stale.mp3");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    // Server signs for 3600s; client TTL uses a safety margin under that.
+    vi.advanceTimersByTime(55 * 60 * 1000 + 1);
+
+    const second = await resolveTrackPlaybackSource("track-ttl");
+    expect(second).toBe("https://cdn.example/fresh.mp3");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+});
+
+describe("invalidateRemotePlaybackUrl / clearBlobUrlCache", () => {
+  test("invalidateRemotePlaybackUrl forces the next resolve to re-fetch", async () => {
+    const { invalidateRemotePlaybackUrl, clearBlobUrlCache } =
+      await import("./resolve-playback-url.client.ts");
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ url: "https://cdn.example/first.mp3" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ url: "https://cdn.example/second.mp3" }),
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+    mockResolvePlaybackBlob.mockResolvedValue(null);
+
+    expect(await resolveTrackPlaybackSource("track-inv")).toBe("https://cdn.example/first.mp3");
+    invalidateRemotePlaybackUrl("track-inv");
+    expect(await resolveTrackPlaybackSource("track-inv")).toBe("https://cdn.example/second.mp3");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    clearBlobUrlCache();
+  });
+
+  test("clearBlobUrlCache also clears the remote URL cache", async () => {
+    const { clearBlobUrlCache } = await import("./resolve-playback-url.client.ts");
+
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ url: "https://cdn.example/a.mp3" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ url: "https://cdn.example/b.mp3" }),
+      });
+    vi.stubGlobal("fetch", fetchSpy);
+    mockResolvePlaybackBlob.mockResolvedValue(null);
+
+    expect(await resolveTrackPlaybackSource("track-clear")).toBe("https://cdn.example/a.mp3");
+    clearBlobUrlCache();
+    expect(await resolveTrackPlaybackSource("track-clear")).toBe("https://cdn.example/b.mp3");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });

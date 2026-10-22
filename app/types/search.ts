@@ -2,6 +2,8 @@
  * Search result types and interfaces for global search functionality
  */
 
+import { type TrackPopularityStats } from "#app/utils/discover.ts";
+
 export type SearchResultType = "track" | "album" | "artist" | "playlist";
 
 export type SearchFilterType = "all" | "tracks" | "albums" | "artists" | "playlists";
@@ -22,6 +24,12 @@ export interface TrackSearchResult extends BaseSearchResult {
   duration?: number | null;
   coverImageId?: string | null;
   serviceId?: string | null;
+  serviceUrl?: string | null;
+  coverImage?: { objectKey: string } | null;
+  service?: { displayName: string; logoUrl: string | null } | null;
+  audioFiles?: Array<{ id: string; format: string | null; objectKey: string }>;
+  addedAt?: string;
+  popularityStats?: TrackPopularityStats;
 }
 
 export interface AlbumSearchResult extends BaseSearchResult {
@@ -62,4 +70,23 @@ export interface SearchResponse {
     hasNext: boolean;
     nextCursor: string | null;
   };
+  /** Present on error responses that still include an empty results shape */
+  error?: string;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** Type guard for a successful/stable search API payload */
+export function isSearchResponse(value: unknown): value is SearchResponse {
+  if (!isObject(value)) return false;
+  if (!Array.isArray(value.results)) return false;
+  if (!isObject(value.pagination)) return false;
+  const { pagination } = value;
+  return (
+    typeof pagination.limit === "number" &&
+    typeof pagination.hasNext === "boolean" &&
+    (pagination.nextCursor === null || typeof pagination.nextCursor === "string")
+  );
 }

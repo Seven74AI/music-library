@@ -61,17 +61,19 @@ export function readOfflineRootShell(): OfflineRootShell | null {
 }
 
 export function createFallbackOfflineRootShell(): OfflineRootShell {
+  const persisted = readOfflineRootShell();
+  const theme = persisted?.requestInfo.userPrefs.theme;
   return {
-    user: readOfflineRootShell()?.user ?? null,
+    user: persisted?.user ?? null,
     notifications: [],
     unreadNotificationCount: 0,
     requestInfo: {
       hints: {},
       origin: typeof window !== "undefined" ? window.location.origin : "",
       path: typeof window !== "undefined" ? window.location.pathname : "/",
-      userPrefs: { theme: "light" },
+      userPrefs: { theme: theme === "dark" || theme === "light" ? theme : "light" },
     },
-    ENV: readOfflineRootShell()?.ENV ?? {},
+    ENV: persisted?.ENV ?? {},
     toast: null,
     honeyProps: {},
     offlineShell: true,

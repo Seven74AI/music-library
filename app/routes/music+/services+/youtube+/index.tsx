@@ -17,7 +17,9 @@ import { hasServiceConnection } from "#app/features/service-connection/service-c
 import { createServicePlaylistService } from "#app/features/service-playlist/service-playlist.server";
 import { isErrorActionResult, isSuccessActionResult } from "#app/types/frontend";
 import { requireUserId } from "#app/utils/auth.server";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type ServicePlaylist } from "#prisma/client.js";
+import { type Route } from "./+types/index.ts";
 
 /**
  * Loader function for YouTube service overview page
@@ -48,6 +50,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
  * @param request - The incoming request with form data
  * @returns Promise resolving to action result
  */
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   const userId = await requireUserId(request);
   const formData = await request.formData();

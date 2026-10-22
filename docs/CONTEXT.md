@@ -70,6 +70,24 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 
 - **UserTrack** — A user's membership in their personal library: an active link between a user and a `Track`. Adding or removing a `UserTrack` is always an explicit user action; playlist sync never creates one.
 
+### Listening Insights
+
+- **On-Repeat Snapshot** — A frozen, system-generated, read-only playlist of the user's top tracks by `play_completed` **UsageEvent** count over the **previous calendar month** (UTC, matching **DailyUsageStat** day boundaries). Generated on a fixed cadence: **1st of each month**. Capped at **30 tracks**, ranked by completed-play count (tie-break TBD at implementation). Each row shows that track's completed-listen count for that month. **Skip generation** when the month has zero `play_completed` events; if 1–29 tracks qualify, still create a short snapshot. Snapshots are dated (by the month they cover) and retained historically with **no retention prune in v1** — not a single replace-in-place playlist. Distinct from **UserPlaylist** (user-curated, editable).
+
+- **Snapshot Shelf** — UI that shows the **latest 3** On-Repeat Snapshots, plus a control to open the full snapshot history page (all snapshots for the user).
+
+- **Promote Snapshot** — From an On-Repeat Snapshot, the user can copy all of its tracks into a **new or existing UserPlaylist** in one action. The snapshot itself stays read-only; promotion is the only edit path.
+
+- **Recently Played Strip** — Listening-hub row of the user's most recently finished tracks, ranked by latest `play_completed` **UsageEvent**. **Distinct tracks only** (collapse repeats — one row per `trackId`, ordered by most recent completion). Cap **20** tiles. Placed **above** the recent-playlists section on `/` (does not replace **recently added**). Distinct from `/history`, which remains a per-play chronological list (ADR-017).
+
+- **Heavy Rotation** — Live ranking of distinct tracks by `play_completed` count. Two windows: **this month** (current UTC calendar month) and **ever** (lifetime). Complements frozen **On-Repeat Snapshot**s (previous month). Surfaces: (1) **two** listening-hub strips — one per window — each capped at **50** and hidden when empty; (2) two mutually exclusive **Personal Library** (`/library`) sort options (“Most played · this month” / “Most played · ever”) that reorder the full library list by the chosen signal with **no 50 cap** (the sorted list is the whole library, searchable/pageable as today). Not dated snapshots — recomputed on read.
+
+- **Weekly Wrap** — Quiet listening-hub summary for the **current UTC calendar week (Monday–Sunday)**. Shows `play_completed` **finishes** count and **unique tracks** count; if the user has a **day streak** > 1 (consecutive UTC days with ≥1 `play_completed` ending today), also show that streak. Home only; **hide when empty** (zero finishes in the week). Not a playlist or strip of tracks — stats copy only. Distinct from admin **DailyUsageStat** charts.
+
+- **Personal Play Boost** — Soft re-ranking of **global FTS** search results using the **current user's lifetime** `play_completed` counts. Affects only that user (not global popularity). Relevance still wins; plays nudge familiar tracks upward among already-matching hits. Does **not** change ServicePlaylist browse or replace **Heavy Rotation** library sorts in v1.
+
+Implementation tickets: [On-Repeat Snapshots #198](https://github.com/mnlamart/music-library/issues/198) · [Recently Played Strip #199](https://github.com/mnlamart/music-library/issues/199) · [Heavy Rotation #200](https://github.com/mnlamart/music-library/issues/200) · [Weekly Wrap #201](https://github.com/mnlamart/music-library/issues/201) · [Personal Play Boost #202](https://github.com/mnlamart/music-library/issues/202).
+
 ### Audio Player & Queue
 
 - **Queue Spine** — Ordered playable tracks for the active play context (library or playlist). Loaded in one request as lightweight `QueueTrack` rows (id, title, artist). The spine is the automatic continuation after **Up Next** is drained; shuffle permutes spine play order client-side.
@@ -86,11 +104,83 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 
 - **LoopMode** — Controls playback repetition when the spine pointer reaches either end: `'off'` (playback stops when no next/previous track exists), `'all'` (wraps the spine — next from end goes to start, previous from start goes to end), `'one'` (repeats the current track indefinitely — both `resolveNextTrack` and `resolvePreviousTrack` return the current spine position). Up Next is never affected by loop mode; it drains independently.
 
+### Party Room
+
+- **Party Room** — Server-hosted in-person party session: shared live queue, roles, optional guests, one speaker device. Distinct from the personal **Queue Spine** / **Up Next** player. See [ADR-030](./decisions/030-party-room.md).
+
+- **RoomParticipant** — A person’s seat in one **Party Room**: linked `userId` **or** guest (display name + opaque token), plus role (**Host** / **DJ** / **Listener**). Prefer this term over “membership.”
+
+- **Host / DJ / Listener** — Room roles on a **RoomParticipant**. **Host:** transport, manage room, speaker (v1), add/edit queue. **DJ:** add and edit others’ upcoming rows (no transport / manage). **Listener:** watch (+ **remove-own**); cannot add unless promoted or **defaultJoinRole** is DJ. Host configures **`defaultJoinRole`** (`listener` | `dj`) for new joiners.
+
+- **Room Queue** — Flat ordered list of track ids for a **Party Room** (cap 500), plus **`currentIndex`**. Not a **Queue Spine**. Starts empty; Host may bulk **Add playlist to queue**. Rows before the pointer are history (read-only); upcoming rows are editable by Host/DJ. Each row records **`addedByParticipantId`** (**remove-own** works for every role).
+
+- **Room Speaker** — The single device that outputs audio for the room (v1: current Host’s device). Personal **PlayerState** is suspended on that device while the room is live.
+
+- **Room Code** — Six-character join code (`ABCDEFGHJKLMNPQRSTUVWXYZ123456789`). The only identity of a **Party Room** (no display name). Same value appears in the join URL. Host UI shows code, copy-link, and a QR encoding the **full URL**. **Smart join:** logged-in users become linked participants; logged-out users enter the **Guest Shell**.
+
+- **Away** — A **RoomParticipant** seat that is still in the room (`leftAt` null) but whose page is gone. The speaker is not Away while that device is playing, nor for ~30s after the sound stops. An open page is not Away, even while paused. See [ADR-030](./decisions/030-party-room.md).
+
+- **Guest Shell** — Minified app for anonymous participants: Room tab + Search tab (artists / albums / tracks with audio only, full archived catalog).
+
+- **Audition** — Participant-gated, short-lived audio URL so a guest (or participant) can play **one track at a time** on their device to verify it — not the room speaker. Rate-limited (~20 grants/participant/min).
+
+- **Room Play Event** — Room-scoped play start/complete for the speaker’s playback. Does **not** write personal `play_started` / `play_completed` **UsageEvent**s and does not feed personal listening insights.
+
+### Curator System
+
+- **Curator** — Trusted user role with permissions to edit track/artist/album metadata, merge duplicates, and manage data quality. Assigned by admins only. See ADR-031.
+
+- **Edit Lock** — Optimistic lock acquired when curator opens edit dialog, preventing concurrent edits. Released on save/close or after 30-minute timeout. Other curators see read-only view until released. Force-unlock available with required reason. See ADR-032.
+
+- **BroadcastChannel Sync** — Real-time synchronization of curator state across browser tabs using BroadcastChannel API. Syncs lock releases, edits, selection state, queue updates. Same-browser only (not cross-device). See ADR-033.
+
+- **Review Queue** — Centralized queue aggregating data quality issues from four sources: user reports, system-detected issues, curator flags, and import errors. Organized in tabs (User Reports, Duplicates, Data Quality, Import Errors). Curators can claim items, resolve with fixes, or dismiss as invalid. See ADR-035.
+
+- **Duplicate Detection** — Automated detection of duplicate artists/albums using Levenshtein distance on normalized names. Runs daily as background job, caches results. Presents exact matches and fuzzy matches separately. Curators review and merge duplicates. See ADR-034.
+
+- **Selection Mode** — Toggleable mode (curator tools menu) that shows checkboxes on track rows in library. Enables multi-track selection for bulk operations. Selection state persists in localStorage and syncs via BroadcastChannel. Curators can disable to use library like regular users.
+
+- **Bulk Edit** — Curator operation to update metadata fields on 2+ selected tracks simultaneously. Soft limit of 100 tracks with override option. Shows live progress log, handles partial failures (keep/rollback/retry), supports cancellation with rollback. Requires comment for audit trail.
+
+- **Merge Operation** — Combining duplicate artists or albums into a single entity. Shows metadata comparison, track list (flat or grouped by album), and smart recommendations. All source entity tracks relinked to target. Source entities soft-deleted with merged marker. Creates audit trail entry.
+
+- **Artist Split** — Separating one artist into two distinct artists (e.g., different artists with same name). Curator manually selects tracks to move, system provides smart suggestions based on patterns. Prompts for new artist names. Creates audit trail entry.
+
+- **Curator Notes** — Threaded comments on tracks/artists/albums visible only to curators and admins. Categorized (Question, Warning, Info, Resolved). Supports @ mentions (notifies mentioned curator). Badge indicator on entity rows shows note count.
+
+- **Audit Trail** — Complete history of all curator actions. Per-entity: edit history tab in details dialogs. System-wide: audit log page with filtering by curator, date range, action type, entity name. All entries include curator name, timestamp, changes, and optional comment.
+
+- **Undo System** — Quick undo (5 minutes, own edits, no comment) via toast notification. Delayed undo/restore (anytime, any curator's edits, comment required) via History tab. Both create audit trail entries. Version-based restore to any point in history.
+
+- **Session Recovery** — Automatic save of curator workflow state (selection, open dialogs with unsaved changes, filters, scroll position) to localStorage. On page load, prompt offers to restore or discard. Expires after 24 hours (selection) or 2 hours (unsaved changes). See ADR-036.
+
+- **Curator Dashboard** — Central hub for curator work. Tabs: Overview (metrics, queue summary, leaderboard, activity feed), Queue (embedded review queue), Reports (data quality reports), Activity (filterable curator actions). Metrics show library completeness percentage, per-field breakdown, trend graphs. Leaderboard ranks curators by edits/merges/quality contributions with time filters.
+
+- **Genre Management** — Multi-genre tagging system (ADR-037). Tracks can have unlimited genres (flat list, no hierarchy). Curators build genre list from scratch. Genre management page supports create, rename, delete, merge, view tracks per genre. Genre select component: multi-select dropdown + tag input, displays as removable pills.
+
+- **Metadata Clipboard** — Three copy/paste modes: (1) Field-level copy icon per field, (2) Selective bulk template (checkbox which fields to copy), (3) Apply from similar track (search, side-by-side comparison, pick fields). Works across windows/tabs.
+
+- **Curator Tools Menu** — Global dropdown (pencil icon in header) providing access to all curator features: Selection Mode toggle, Curator Dashboard, Duplicates, Genre Management, Review Queue, My Stats, Clear Session.
+
+- **Data Quality Dashboard** — Section of curator dashboard showing metadata completeness (overall % + per-field breakdown + trends), problem tracks summary (counts by issue type, clickable to filter library), curator leaderboard, and live activity feed.
+
+- **Duplicate Detection Algorithm** — Levenshtein distance on normalized names (lowercase, trim, remove punctuation, remove "the" prefix). Artists: distance ≤ 2 for names < 10 chars, ≤ 3 for ≥ 10 chars. Albums: same artist + similar name, OR similar artist + similar name + year within ±2. Blocking strategy (group by first 2 chars) reduces comparisons by ~95%.
+
+- **Curator Badge** — Achievement earned for milestones (100 edits, 50 merges, 100 quality fixes, 7-day streak). Progressive levels (1-10). Displayed on profile, leaderboard, and in edit history next to curator name.
+
 ### Generic
 
 - **Epic Stack** — The full-stack framework this project is built on (React Router v7, Prisma, SQLite, Tailwind, Fly.io).
 
 - **MOCKS** — Environment variable (`MOCKS=true`) enabling server-side mocking of all external services (YouTube API, yt-dlp, Tigris uploads, Telegram). Used in development and CI.
+
+- **UsageEvent** — Append-only product analytics row (`signup`, `login`, `library_add`, `play_started`, `play_completed`). Written via `recordUsageEvent`; powers the admin user activity feed, `/history`, **On-Repeat Snapshot** / **Heavy Rotation** / **Weekly Wrap** / **Recently Played Strip** ranking, and **Personal Play Boost** (`play_completed` where noted). **Party Room** speaker plays use **Room Play Event**s instead — they must not inflate these personal signals.
+
+- **DailyUsageStat** — Per-UTC-day counter for admin time-series charts (`signups`, `logins`, `library_adds`, `plays_*`, `dau`). Incremented when usage events are recorded.
+
+- **DailyActiveUser** — Dedupes DAU: at most one row per `(UTC day, userId)` so the `dau` metric increments once per user per day.
+
+- **disabledAt** — Optional timestamp on `User`. When set, the account cannot create sessions and existing sessions are rejected in `getUserId`.
 
 ### PWA
 
@@ -107,6 +197,8 @@ yt-dlp errors are classified into one of six categories for retry decision-makin
 - **Pinned Download** — A track or playlist the user explicitly downloaded. Persisted in device storage until the user removes it; never LRU-evicted automatically. **Offline `/library` shows pinned tracks only** — queue-cached tracks appear on `/downloads` but not in the offline library view.
 
 - **Queue Cache** — Tracks auto-cached from the active queue for listening continuity. Stored in the same device storage as pinned downloads but eligible for LRU eviction when storage is tight. A track that is both pinned and queue-cached counts as pinned.
+
+- **Queue Cache Preference** — Per-user, device-local setting (`localStorage`) for whether Queue Cache auto-writes run while listening. Default is on. Opting out stops new auto-cache writes only; it does not purge existing queue-cached tracks. Managed on `/downloads`.
 
 - **Offline Shell** — Cached HTML, JS, CSS, and static assets so the app loads and navigates without network. Service-worker precache plus a supplemental root shell cache (user, theme, ENV) for warm navigations when loader fetches fail.
 
@@ -152,6 +244,8 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 14. **No `uploadAudioFile` wrapper** — Call `uploadFile` directly with `contentType: 'audio/mpeg'`. The wrapper adds no value — call site already has context, and generic `uploadFile` already accepts `contentType` and `metadata` cleanly.
 
+14b. **SQLite off-volume backups** — Automated `litefs export` on the LiteFS primary to a **separate** Tigris bucket (`BACKUP_BUCKET_NAME`), daily + weekly retention (~30 days), Telegram after exhausted retries, admin status + Backup now at `/admin/db-backup`. Restore is ops-only via `litefs import`. Cookies and `cache.db` are not included. See [ADR-029](./decisions/029-sqlite-off-volume-backups.md).
+
 ### Notifications
 
 15. **Telegram Bot API for admin alerts** — Chosen over email (RESEND has deliverability issues for system alerts), Discord webhook (adds a dependency), and in-app notifications (admin might not be logged in). Telegram is reliable, free, and the admin already uses it. Direct `fetch()` to `https://api.telegram.org/bot{TOKEN}/sendMessage` from the worker. Two env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ADMIN_CHAT_ID`.
@@ -182,7 +276,7 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 24. **Library add/remove on service playlist pages only** — The `itemActions` render prop (per-track add/remove library buttons) and "Add All Missing" bulk button belong on the YouTube playlist sync page (`playlist.$id.tsx`), NOT on user-created playlist pages (`playlists.$playlistId.tsx`). User playlist pages are for playlist management only (reorder, remove from playlist, add to queue). Per-track toggles POST to `/resources/track-library` with `trackId` + `action`. **Add All Missing** sends **one** request with repeated `trackIds` fields (not one request per track) so large playlists don't hit rate limits.
 
-25. **Library track row → user playlist (Spotify-like)** — When `TrackListItem` receives a `playlists` prop (including an empty `[]`), show **Add to Playlist** on library and user-playlist pages. `AddToPlaylistMenu` lists existing playlists (searchable) and offers **+ New playlist** inline (name-only field, no page navigation). Inline create POSTs to `/resources/create-playlist-with-track`; adding to an existing playlist POSTs to `/resources/add-track-to-playlist` (duplicate track detection with confirm). Shared helpers live in `app/utils/user-playlist.server.ts` (`createUserPlaylistWithTrack`, `createUserPlaylist`, `userPlaylistTitleTaken`). **Per-user playlist titles are unique case-insensitively** — enforced on inline create, `/playlists/new`, and playlist rename. Standalone `/playlists/new` still redirects to `/playlists/{id}`. Do not gate the menu on `playlists.length > 0`.
+25. **Library track row → user playlist (Spotify-like)** — When `TrackListItem` receives a `playlists` prop (including an empty `[]`), show **Add to Playlist** on library and user-playlist pages. `AddToPlaylistMenu` lists existing playlists (searchable) and offers **+ New playlist** inline (name-only field, no page navigation). Inline create POSTs to `/resources/create-playlist-with-track`; adding to an existing playlist POSTs to `/resources/add-track-to-playlist` (duplicate track detection with confirm: **Add Duplicate** or **Remove from Playlist** via `/resources/remove-track-from-playlist`). The duplicate confirm dialog is hosted by `DuplicatePlaylistDialogProvider` in `root.tsx` so it survives desktop dropdown unmount when focus moves to the dialog. Shared helpers live in `app/utils/user-playlist.server.ts` (`createUserPlaylistWithTrack`, `createUserPlaylist`, `userPlaylistTitleTaken`, `removeTrackFromUserPlaylist`). **Per-user playlist titles are unique case-insensitively** — enforced on inline create, `/playlists/new`, and playlist rename. Standalone `/playlists/new` still redirects to `/playlists/{id}`. Do not gate the menu on `playlists.length > 0`.
 
 26. **Admin links in UserDropdown** — Admin-only pages (audio queue, YouTube cookies) are linked from the user dropdown menu, gated by `userHasRole(user, 'admin')`. No separate admin sidebar or nav — the dropdown pattern scales until admin pages outgrow it.
 
@@ -224,7 +318,7 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 
 31. **Covers are downloaded post-sync, deduplicated, and proxied** — After a playlist sync responds, a background job downloads each track's thumbnail, dedupes by SHA-256 content hash (`CoverImage.contentHash`), re-encodes via sharp (max 1000x1000 JPEG q85), and uploads to Tigris (`images/tracks/{trackId}/cover/…`). Covers are served through the `/resources/images` openimg proxy — its `allowlistedOrigins` must include BOTH storage origins (`getStorageOrigins()`: the raw endpoint and the virtual-hosted `{bucket}.` origin), because openimg matches presigned-URL origins exactly. Until a cover is processed, the UI hotlinks the YouTube thumbnail (CSP `img-src` allows `https://i.ytimg.com` and `https://img.youtube.com`). **Large playlists:** cover processing paginates by `playlistId` (cursor, 100 rows/page) — do not pass 1000+ IDs in a single Prisma `IN` clause; SQLite limits bind parameters to 999. Use `chunkArray()` from `app/utils/chunk-array.ts` (500 IDs/chunk) for any remaining bulk `IN` queries; prefer relational filters (`some: { playlistId }`) when possible.
 
-32. **CSP is configured in two places — keep them in sync** — HTML documents get an enforcing policy from `createCSP()` in `app/entry.server.tsx` (`app/utils/csp.server.ts`). Express also sets Helmet CSP in `server/index.ts` (report-only in dev, enforced in prod). **When adding a host** (e.g. a new image CDN), update **both** files or the stricter/mismatched policy will still block resources. Processed covers use `'self'` (`/resources/images`); hotlinked YouTube art needs `img-src`; presigned audio needs `media-src` for `https://*.fly.storage.tigris.dev`.
+32. **CSP is set in ONE place — `createCSP()` in `app/entry.server.tsx`** — Every HTML document gets a nonce-based enforcing policy from `createCSP()` (`app/utils/csp.server.ts`), the sole CSP source of truth. It emits `Content-Security-Policy-Report-Only` when `MOCKS=true` (dev/test) and enforced `Content-Security-Policy` in production, satisfying "report-only in dev, enforced in prod". Helmet CSP in `server/index.ts` is **deliberately disabled** (`contentSecurityPolicy: false`) — a per-request nonce is only known at document render time, so a second middleware-level policy would duplicate the nonce and every host allowlist (a drift hazard) with no defense-in-depth gain. **`script-src` is `'nonce-…' 'strict-dynamic'`** (no `'self'`): the nonce is the sole script gate and `'strict-dynamic'` transitively trusts nonced scripts while ignoring host allowlists. Same-origin workers (`/sw.js` service worker, OPFS dedicated worker) load via `Worker`/`serviceWorker.register` rather than nonced tags, so they are granted by `worker-src 'self'`. **When adding a host** (e.g. a new image CDN), update `createCSP()` only. Processed covers use `'self'` (`/resources/images`); hotlinked YouTube art needs `img-src`; presigned audio needs `media-src` for `https://*.fly.storage.tigris.dev`.
 
 33. **Display sizes are proxied, not stored** — Only one cover file exists per unique image (see #31). UI components request on-the-fly square resizes via `/resources/images?w=&h=&fit=cover&format=webp`, built by `coverImageUrl()` in `app/utils/cover-image-url.ts`. `TrackThumbnail` and `PlaylistCover` use default pixel maps at **2× CSS size** for retina (`trackThumbnailPixelSizes`, `playlistCoverPixelSizes`). When a component displays larger than its `size` variant (e.g. a full-width card), pass `pixelSize` on `TrackThumbnail` or extend the shared maps — do not reuse a small `size` with a large `className` without bumping the requested pixels.
 
@@ -236,7 +330,7 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 
 44. **Install prompt: smart, dual placement** — Platform-aware install UX (Android `beforeinstallprompt` button; iOS Share → Add to Home Screen coach mark). Shown when not already in standalone mode; dismissible with `localStorage` so it does not nag. **Two surfaces:** (1) global bottom banner above the audio player, (2) contextual block on the logged-in home page. Hide both once installed or permanently dismissed.
 
-45. **Cached Playback: manual downloads + queue auto-cache** — Device storage (not presigned URLs). Users can explicitly download tracks or playlists for planned offline listening; the app also auto-caches the current queue track plus the next three while online. **Hybrid storage:** track/playlist metadata in IndexedDB, audio bytes in OPFS (via a Web Worker on iOS). Request `navigator.storage.persist()` where supported. Do not store audio in the service-worker Cache API.
+45. **Cached Playback: manual downloads + queue auto-cache** — Device storage (not presigned URLs). Users can explicitly download tracks or playlists for planned offline listening; the app also auto-caches the current queue track plus lookahead while online, gated by **Queue Cache Preference** (default on; per-user `localStorage`; toggle on `/downloads`). Opting out stops new Queue Cache writes only — existing queue-cached bytes stay until LRU eviction or an explicit purge. **Clear auto-cached tracks** on `/downloads` deletes queue-only tracks (`isQueueCached && !isPinned`); Pinned Downloads are kept. Remote/presigned URL prefetch for seamless online skips is unaffected by the preference. **Hybrid storage:** track/playlist metadata in IndexedDB, audio bytes in OPFS (via a Web Worker on iOS). Request `navigator.storage.persist()` where supported. Do not store audio in the service-worker Cache API.
 
 46. **Manual offline downloads: per-track and per-playlist** — Download action on individual track rows plus bulk "Download playlist" on user playlists and synced YouTube playlists. No "download entire library" in v1.
 
@@ -267,3 +361,19 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 59. **Mobile player sheet — Add to Playlist self-fetching** — `AddToPlaylistMenu`'s `playlists` prop becomes optional. When omitted, the component self-fetches the user's playlists from a new `GET /resources/playlists` route on mount. This avoids passing playlist data through the audio player component tree.
 
 60. **Mobile player sheet — Track details dialog with lazy fetch** — Tapping "Track Details" in the overflow sheet opens a dialog modal. Track detail data (service name, source URL, added date) is fetched on-demand from a new `GET /resources/track-details?trackId=...` route. `FullTrack` is not enriched — the player stays lightweight.
+
+### Listening Insights
+
+61. **On-Repeat Snapshot from `play_completed` only** — Rank by `play_completed` **UsageEvent**s (not `play_started`). **Cadence:** generate on the **1st of each month**. **Window:** the **previous calendar month** (UTC). Persist dated **snapshots** (not a single replace-in-place list). Cap at **30 tracks**; each row shows the completed-listen count for that month. **Empty month:** skip snapshot creation when there are zero `play_completed` events; **thin month:** still create when 1–29 tracks qualify. **Retention:** keep all snapshots in v1 (no prune; history page pages as needed). UI: **Snapshot Shelf** (latest 3) + full history page. Snapshots are **read-only**; the only mutation path is **Promote Snapshot** (add all tracks to a new or existing **UserPlaylist**). See [ADR-024](./decisions/024-on-repeat-snapshots.md).
+
+62. **Recently Played Strip on listening hub** — On logged-in `/` (listening hub), show a **Recently Played Strip** **above** recent playlists. Source: `play_completed` only. **Collapse to distinct tracks** (one tile per `trackId`, ordered by most recent completion). Cap **20**. Does not replace recently added; does not change `/history` per-play semantics (ADR-017). See [ADR-025](./decisions/025-recently-played-strip.md).
+
+63. **Heavy Rotation (this month + ever)** — Rank distinct tracks by `play_completed` count for **this UTC month** and for **lifetime (ever)**. Home: **two strips**, each cap **50**, **hide** when empty. Library: **two mutually exclusive sort options** (cannot combine); sorts apply to the **full** library list with **no 50 cap**. Complements **On-Repeat Snapshot** (frozen previous month) — Heavy Rotation is live, not persisted. See [ADR-026](./decisions/026-heavy-rotation.md).
+
+64. **Weekly Wrap on listening hub** — Quiet home-only summary for the **current UTC week (Mon–Sun)**: finishes + unique tracks from `play_completed`; show day streak only when > 1. **Hide when empty**. See [ADR-027](./decisions/027-weekly-wrap.md).
+
+65. **Personal Play Boost on global FTS** — Soft-boost global search results by the **current user's lifetime** `play_completed` counts. Personal only; relevance remains primary. No ServicePlaylist browse change in v1. See [ADR-028](./decisions/028-personal-play-boost.md).
+
+### Party Room
+
+66. **Party Room (shared live queue)** — In-person collaborative queue: server-owned **Room Queue** + SSE, roles **Host / DJ / Listener** with Host-configurable **`defaultJoinRole`**, one **Room Speaker**, **RoomParticipant** seats (users or guests), **Room Code** + URL + QR with **smart join** (no display name), **Guest Shell** + **Audition**, catalog = any track with audio, Host **Add playlist to queue**, remove-own for every role. One open seat at a time. Return from the account, or from the joining browser’s guest cookie. Closing the last tab starts a ~45 minute empty clock once everyone is **Away**; the current Host’s exit ends the room after confirmation. **Become host** waits until the sound has been stopped ~30s. **Reclaim host** can interrupt playback and passes to whoever has the speaker if the creator Leaves. Room plays as **Room Play Event**s only (no personal **UsageEvent** inflation). Personal **PlayerState** suspended on the speaker device. Caps and UX details in [ADR-030](./decisions/030-party-room.md) (amended 2026-10-13). Tracking: [#284](https://github.com/mnlamart/music-library/issues/284).

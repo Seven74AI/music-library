@@ -62,4 +62,20 @@ describe("offline root shell", () => {
     expect(shell.offlineShell).toBe(true);
     expect(shell.user?.id).toBe("user-1");
   });
+
+  test("preserves persisted theme preference in the fallback shell", () => {
+    persistOfflineRootShell({
+      user: null,
+      requestInfo: {
+        hints: {},
+        origin: "https://music.test",
+        path: "/",
+        userPrefs: { theme: "dark" },
+      },
+      ENV: {},
+    });
+
+    const shell = createFallbackOfflineRootShell();
+    expect(shell.requestInfo.userPrefs.theme).toBe("dark");
+  });
 });

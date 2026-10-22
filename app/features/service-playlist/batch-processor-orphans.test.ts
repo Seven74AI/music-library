@@ -1,29 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { filterOrphanedTracks } from "./batch-processor.server";
+import { buildPendingMatches, filterOrphanedTracks } from "./batch-processor.server";
 
 describe("filterOrphanedTracks", () => {
-  test("returns tracks missing from the current sync that are not deleted or claimed", () => {
-    const processedExternalIds = new Set(["video-1"]);
-    const processedTrackIds = new Set<string>();
-    const pendingMatches = [
-      {
-        deletedVideo: { position: 1, itemId: "item-1", title: "Deleted", snippet: undefined },
-        candidateTracks: [
-          {
-            id: "claimed-track",
-            title: "Claimed",
-            artist: "Artist",
-            externalId: "video-claimed",
-            position: 3,
-            isDeleted: false,
-          },
-        ],
-      },
-    ];
-
+  test("returns tracks missing from the current sync that are not deleted", () => {
     const orphaned = filterOrphanedTracks(
       [
         {
+          id: "spt-1",
           position: 1,
           isDeleted: false,
           track: {
@@ -34,6 +17,7 @@ describe("filterOrphanedTracks", () => {
           },
         },
         {
+          id: "spt-2",
           position: 2,
           isDeleted: false,
           track: {
@@ -44,16 +28,18 @@ describe("filterOrphanedTracks", () => {
           },
         },
         {
+          id: "spt-3",
           position: 3,
           isDeleted: false,
           track: {
-            id: "claimed-track",
-            title: "Claimed",
+            id: "track-still-synced",
+            title: "Later in YouTube response",
             artist: { id: "artist-3", name: "Artist" },
-            externalId: "video-claimed",
+            externalId: "video-later",
           },
         },
         {
+          id: "spt-4",
           position: 4,
           isDeleted: true,
           track: {
@@ -64,9 +50,10 @@ describe("filterOrphanedTracks", () => {
           },
         },
       ],
-      processedExternalIds,
-      processedTrackIds,
-      pendingMatches,
+      {
+        externalIds: new Set(["video-1", "video-later"]),
+        trackIds: new Set(),
+      },
     );
 
     expect(orphaned).toEqual([
@@ -79,5 +66,129 @@ describe("filterOrphanedTracks", () => {
         isDeleted: false,
       },
     ]);
+  });
+
+  test("does not treat a still-present video as absent when ingest failed after seeing it", () => {
+    const orphaned = filterOrphanedTracks(
+      [
+        {
+          id: "spt-fail",
+          position: 1,
+          isDeleted: false,
+          track: {
+            id: "track-fail",
+            title: "Still on YouTube",
+            artist: { id: "artist-1", name: "Artist" },
+            externalId: "video-fail",
+          },
+        },
+        {
+          id: "spt-removed",
+          position: 2,
+          isDeleted: false,
+          track: {
+            id: "track-removed",
+            title: "Taken off the playlist",
+            artist: { id: "artist-2", name: "Other Artist" },
+            externalId: "video-removed",
+          },
+        },
+      ],
+      {
+        // video-fail was in this sync's API payload but preparation threw
+        externalIds: new Set(["video-fail"]),
+        trackIds: new Set(),
+      },
+    );
+
+    expect(orphaned.map((track) => track.id)).toEqual(["track-removed"]);
+  });
+
+  test("does not exclude tracks merely because they appeared as candidates elsewhere", () => {
+    const orphaned = filterOrphanedTracks(
+      [
+        {
+          id: "spt-a",
+          position: 1,
+          isDeleted: false,
+          track: {
+            id: "orphan-a",
+            title: "Orphan A",
+            artist: { id: "a1", name: "Artist" },
+            externalId: "video-a",
+          },
+        },
+        {
+          id: "spt-b",
+          position: 2,
+          isDeleted: false,
+          track: {
+            id: "orphan-b",
+            title: "Orphan B",
+            artist: { id: "a2", name: "Artist" },
+            externalId: "video-b",
+          },
+        },
+      ],
+      { externalIds: new Set(), trackIds: new Set() },
+    );
+
+    expect(orphaned.map((t) => t.id)).toEqual(["orphan-a", "orphan-b"]);
+  });
+});
+
+describe("buildPendingMatches", () => {
+  const candidates = [
+    {
+      id: "orphan-1",
+      title: "Lost Track",
+      artist: "Artist",
+      externalId: "old-video",
+      position: 5,
+      isDeleted: false,
+    },
+  ];
+
+  test("assigns the same candidate pool to every deleted video", () => {
+    const matches = buildPendingMatches(
+      [
+        {
+          position: 1,
+          itemId: "item-1",
+          title: "Deleted video",
+          snippet: { title: "Deleted video" },
+          externalId: "item-1",
+        },
+        {
+          position: 2,
+          itemId: "item-2",
+          title: "Deleted video",
+          snippet: { title: "Deleted video" },
+          externalId: "item-2",
+        },
+      ],
+      candidates,
+    );
+
+    expect(matches).toHaveLength(2);
+    expect(matches[0]?.candidateTracks).toEqual(candidates);
+    expect(matches[1]?.candidateTracks).toEqual(candidates);
+  });
+
+  test("returns no pending matches when there are no orphan candidates", () => {
+    expect(
+      buildPendingMatches(
+        [
+          {
+            position: 1,
+            itemId: "item-1",
+            title: "Deleted video",
+            snippet: { title: "Deleted video" },
+            externalId: "item-1",
+          },
+        ],
+        [],
+      ),
+    ).toEqual([]);
   });
 });

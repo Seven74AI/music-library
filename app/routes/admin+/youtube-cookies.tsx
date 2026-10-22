@@ -234,16 +234,17 @@ export default function YoutubeCookiesAdminRoute({ loaderData }: Route.Component
   );
 }
 
+function YoutubeCookies403({
+  error,
+}: {
+  error: { data?: { message?: string } };
+  params: Record<string, string | undefined>;
+}) {
+  return <p>You must be an admin to manage YouTube cookies: {error?.data?.message}</p>;
+}
+
 export function ErrorBoundary() {
-  return (
-    <GeneralErrorBoundary
-      statusHandlers={{
-        403: ({ error }) => (
-          <p>You must be an admin to manage YouTube cookies: {error?.data.message}</p>
-        ),
-      }}
-    />
-  );
+  return <GeneralErrorBoundary statusHandlers={{ 403: YoutubeCookies403 }} />;
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {

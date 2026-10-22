@@ -62,9 +62,9 @@ export async function action({ request }: Route.ActionArgs) {
   await checkHoneypot(formData);
   const submission = await parseWithZod(formData, {
     schema: (intent) =>
-      SignupFormSchema.superRefine(async (data, ctx) => {
+      SignupFormSchema.superRefine(async (formValues, ctx) => {
         const existingUser = await prisma.user.findUnique({
-          where: { username: data.username },
+          where: { username: formValues.username },
           select: { id: true },
         });
         if (existingUser) {
@@ -75,7 +75,7 @@ export async function action({ request }: Route.ActionArgs) {
           });
           return;
         }
-        const isCommonPassword = await checkIsCommonPassword(data.password);
+        const isCommonPassword = await checkIsCommonPassword(formValues.password);
         if (isCommonPassword) {
           ctx.addIssue({
             path: ["password"],
@@ -83,11 +83,11 @@ export async function action({ request }: Route.ActionArgs) {
             message: "Password is too common",
           });
         }
-      }).transform(async (data) => {
-        if (intent !== null) return { ...data, session: null };
+      }).transform(async (formValues) => {
+        if (intent !== null) return { ...formValues, session: null };
 
-        const session = await signup({ ...data, email });
-        return { ...data, session };
+        const session = await signup({ ...formValues, email, request });
+        return { ...formValues, session };
       }),
     async: true,
   });

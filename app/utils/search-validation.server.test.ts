@@ -28,6 +28,19 @@ describe("search-validation.server", () => {
     }
   });
 
+  test("accepts punctuation-only query (literalizer returns empty MATCH)", () => {
+    const result = SearchQuerySchema.safeParse("-");
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe("-");
+    }
+  });
+
+  test("accepts hyphenated artist-style query", () => {
+    const result = SearchQuerySchema.safeParse("AC-DC");
+    expect(result.success).toBe(true);
+  });
+
   test("rejects invalid search limit", () => {
     const result = SearchLimitSchema.safeParse(Number.NaN);
     expect(result.success).toBe(false);

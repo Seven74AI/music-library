@@ -9,7 +9,7 @@ import {
   createOpfsOfflineAudioStore,
   isOpfsAudioStoreSupported,
 } from "./opfs-audio-store.client.ts";
-import { selectQueueCacheEvictionCandidates } from "./pin-policy.ts";
+import { isQueueOnlyOfflineTrack, selectQueueCacheEvictionCandidates } from "./pin-policy.ts";
 import {
   mergeOfflineTrackRecord,
   toOfflineTrackRecord,
@@ -38,6 +38,8 @@ export type OfflineStorage = {
   ) => Promise<void>;
   cacheQueueTrack: (track: FullTrack) => Promise<void>;
   removeTrack: (trackId: string) => Promise<void>;
+  /** Deletes all queue-only Cached Playback tracks; Pinned Downloads are kept. */
+  purgeQueueCache: () => Promise<{ removedCount: number }>;
   resolvePlaybackBlob: (trackId: string) => Promise<Blob | null>;
   hasTrack: (trackId: string) => Promise<boolean>;
   listDownloaded: () => Promise<OfflineTrackSummary[]>;
@@ -163,6 +165,16 @@ export function createOfflineStorage(
     );
   }
 
+  async function removeTrack(trackId: string) {
+    const record = await metadataStore.get(trackId);
+    await audioStore.delete(trackId);
+    await metadataStore.delete(trackId);
+    if (record?.coverObjectKey) {
+      const { deleteCachedCover } = await import("./cover-cache.client.ts");
+      await deleteCachedCover(record.coverObjectKey);
+    }
+  }
+
   return {
     async downloadTrack(track, options = {}) {
       const pin = options.pin ?? true;
@@ -187,14 +199,22 @@ export function createOfflineStorage(
       const buffer = await fetchAudioBytes(track.id);
       await storeTrack(track, buffer, { pin: false, queue: true });
     },
-    async removeTrack(trackId) {
-      const record = await metadataStore.get(trackId);
-      await audioStore.delete(trackId);
-      await metadataStore.delete(trackId);
-      if (record?.coverObjectKey) {
-        const { deleteCachedCover } = await import("./cover-cache.client.ts");
-        await deleteCachedCover(record.coverObjectKey);
+    removeTrack,
+    async purgeQueueCache() {
+      const summaries = await metadataStore.list();
+      const fullRecords = await Promise.all(
+        summaries.map(async (summary) => metadataStore.get(summary.trackId)),
+      );
+      const victims = fullRecords.filter(
+        (record): record is OfflineTrackRecord =>
+          record !== null && isQueueOnlyOfflineTrack(record),
+      );
+
+      for (const victim of victims) {
+        await removeTrack(victim.trackId);
       }
+
+      return { removedCount: victims.length };
     },
     async resolvePlaybackBlob(trackId) {
       const record = await metadataStore.get(trackId);

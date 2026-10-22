@@ -20,8 +20,10 @@ const ToastViewport = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ToastPrimitives.Viewport
     ref={ref}
+    data-toast-viewport=""
     className={cn(
-      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
+      // --toast-bottom-offset is the fixed player clearance so the action stays above the bar.
+      "pointer-events-none fixed top-0 z-100 flex max-h-screen w-full flex-col-reverse p-4 sm:right-0 sm:top-auto sm:bottom-[var(--toast-bottom-offset,0px)] sm:flex-col md:max-w-[420px]",
       className,
     )}
     {...props}

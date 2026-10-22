@@ -46,8 +46,21 @@ describe("resolveOfflineData", () => {
     const fallback = (await resolveOfflineData(
       "routes/library.$trackId",
       new Request("https://example.com/library/track-123"),
-    )) as { track: { id: string } };
+    )) as {
+      track: { id: string; audioFiles: unknown[] };
+      isInUserLibrary: boolean;
+      playlists: unknown[];
+      containingPlaylists: unknown[];
+      related: null;
+    };
     expect(fallback.track.id).toBe("track-123");
+    expect(fallback.track.audioFiles).toEqual([]);
+    expect(fallback).toMatchObject({
+      isInUserLibrary: false,
+      playlists: [],
+      containingPlaylists: [],
+      related: null,
+    });
   });
 
   test("returns empty object for unregistered routes", async () => {

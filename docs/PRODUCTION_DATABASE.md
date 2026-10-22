@@ -74,30 +74,50 @@ fly ssh console --app [APP_NAME] -C "cd /myapp && npx prisma migrate deploy"
 
 ### 2. Database Backup
 
-#### Automated Backup Script
+Automated off-volume backups (recommended): set `BACKUP_BUCKET_NAME` to a **separate** Tigris
+bucket (not the media/audio bucket). The app exports with `litefs export` on the LiteFS primary
+around `BACKUP_HOUR_UTC` (default 03:00 UTC), uploads daily + weekly keys, retains 7 dailies and
+4 weeklies, updates the `BackupState` singleton, and Telegram-alerts after exhausted retries.
+Use **Backup now** on `/admin/db-backup`.
 
-Create a backup script that runs periodically:
+Object keys:
+
+- `backups/sqlite/daily/YYYY-MM-DD.db`
+- `backups/sqlite/weekly/YYYY-Www.db`
+
+Create the bucket (once):
 
 ```bash
-# Backup to Fly.io volume
-fly ssh console --app [APP_NAME] -C "
-  BACKUP_DIR=/litefs/data/backups
-  mkdir -p \$BACKUP_DIR
-  cp \$DATABASE_PATH \$BACKUP_DIR/backup-\$(date +%Y%m%d-%H%M%S).db
-  # Keep only last 7 days of backups
-  find \$BACKUP_DIR -name 'backup-*.db' -mtime +7 -delete
-"
+fly storage create --app [APP_NAME]
+# or create a second bucket in the Tigris dashboard / CLI, then:
+fly secrets set BACKUP_BUCKET_NAME=[BACKUP_BUCKET] --app [APP_NAME]
 ```
+
+#### Manual consistent export (on-machine)
+
+```bash
+# Prefer litefs export over raw cp (Epic Stack / LiteFS consistent snapshot)
+fly ssh console --app [APP_NAME] -C "litefs export -name sqlite.db /tmp/backup-$(date +%Y%m%d-%H%M%S).db"
+
+# Download
+fly sftp shell --app [APP_NAME]
+# Then: get /tmp/backup-*.db ./backup.db
+
+# Or via helper:
+tsx scripts/manage-db.ts backup
+```
+
+⚠️ Do **not** rely on copies under `/litefs/data/backups` as your only backup — those live on the
+same volume and do **not** survive volume loss.
 
 #### Download Backup Locally
 
 ```bash
-# Method 1: Using fly sftp
+# Method 1: Using fly sftp after litefs export
 fly sftp shell --app [APP_NAME]
-# Then: get /litefs/data/sqlite.db ./backup-$(date +%Y%m%d).db
+# Then: get /tmp/backup-*.db ./backup.db
 
-# Method 2: Using fly ssh with scp-like command
-fly ssh console --app [APP_NAME] -C "cat \$DATABASE_PATH" > backup.db
+# Method 2: Pull from BACKUP_BUCKET_NAME with the Tigris / S3 CLI
 ```
 
 ### 3. Database Queries
@@ -178,19 +198,24 @@ fly ssh console --app [APP_NAME] -C "sqlite3 \$DATABASE_URL 'PRAGMA wal_checkpoi
 
 ### 5. Restore from Backup
 
-```bash
-# Upload backup to Fly.io
-fly sftp shell --app [APP_NAME]
-# Then: put ./backup.db /tmp/restore.db
+⚠️ **Destructive** — `litefs import` overwrites the live database. Take a fresh export of the
+current DB first. After restore, **re-upload YouTube cookies** at `/admin/youtube-cookies`
+(cookies are not included in SQLite backups).
 
-# Restore (⚠️ DANGEROUS - stops the app)
-fly ssh console --app [APP_NAME] -C "
-  # Stop the app first
-  # Then restore
-  cp /tmp/restore.db \$DATABASE_PATH
-  # Restart the app
-"
+```bash
+# 1. Download a known-good object from BACKUP_BUCKET_NAME to your laptop
+# 2. Upload to the primary machine
+fly sftp shell --app [APP_NAME]
+# put ./backup.db /tmp/restore.db
+
+# 3. Import (overwrites live DB)
+fly ssh console --app [APP_NAME] -C "litefs import -name sqlite.db /tmp/restore.db"
+
+# Or print the guided steps:
+tsx scripts/manage-db.ts restore backups/sqlite/daily/YYYY-MM-DD.db
 ```
+
+Do **not** use raw `cp` over `$DATABASE_PATH` while LiteFS is mounted — prefer `litefs import`.
 
 ### 6. Database Monitoring
 
@@ -270,6 +295,8 @@ Production database is configured via environment variables:
 - `DATABASE_PATH`: `/litefs/data/sqlite.db` (set in Dockerfile)
 - `DATABASE_URL`: `file:$DATABASE_PATH` (set in Dockerfile)
 - `PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK`: `1` (for WAL support)
+- `BACKUP_BUCKET_NAME`: separate Tigris bucket for automated SQLite backups (optional; scheduler no-ops when unset)
+- `BACKUP_HOUR_UTC`: hour (0–23) for the daily backup window (default `3`)
 
 ## LiteFS Considerations
 

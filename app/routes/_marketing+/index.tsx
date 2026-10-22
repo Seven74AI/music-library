@@ -3,7 +3,6 @@ import { ListeningHome } from "#app/components/home/listening-home.tsx";
 import { MarketingHome } from "#app/components/home/marketing-home.tsx";
 import { OnboardingHome } from "#app/components/home/onboarding-home.tsx";
 import { OfflineHome } from "#app/components/offline/offline-home.tsx";
-import { type HomeOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { loadHomeData } from "#app/utils/home.server.ts";
 import { type Route } from "./+types/index.ts";
 

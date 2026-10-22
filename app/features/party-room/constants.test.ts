@@ -1,0 +1,36 @@
+import { expect, test } from "vitest";
+import {
+  ADD_TRACK_RATE_PER_MIN,
+  AUDITION_GRANT_RATE_PER_MIN,
+  DEFAULT_JOIN_ROLE,
+  EMPTY_ROOM_TTL_MS,
+  GUEST_DISPLAY_NAME_MAX,
+  GUEST_DISPLAY_NAME_MIN,
+  HOST_GRACE_MS,
+  MAX_ACTIVE_ROOMS_PER_CREATOR,
+  MAX_PARTICIPANTS,
+  MAX_QUEUE_TRACKS,
+  ROOM_CODE_CHARSET,
+  ROOM_CODE_LENGTH,
+  ROOM_SEARCH_RATE_PER_MIN,
+  SPEAKER_SILENCE_GRACE_MS,
+} from "./constants.ts";
+
+test("ADR-030 caps match expected values", () => {
+  expect(MAX_QUEUE_TRACKS).toBe(500);
+  expect(MAX_PARTICIPANTS).toBe(50);
+  expect(MAX_ACTIVE_ROOMS_PER_CREATOR).toBe(1);
+  expect(GUEST_DISPLAY_NAME_MIN).toBe(1);
+  expect(GUEST_DISPLAY_NAME_MAX).toBe(24);
+  expect(ADD_TRACK_RATE_PER_MIN).toBe(30);
+  expect(ROOM_SEARCH_RATE_PER_MIN).toBe(60);
+  expect(AUDITION_GRANT_RATE_PER_MIN).toBe(20);
+  expect(EMPTY_ROOM_TTL_MS).toBe(45 * 60 * 1000);
+  expect(HOST_GRACE_MS).toBe(10_000);
+  expect(SPEAKER_SILENCE_GRACE_MS).toBe(30_000);
+  expect(ROOM_CODE_LENGTH).toBe(6);
+  expect(ROOM_CODE_CHARSET).toBe("ABCDEFGHJKLMNPQRSTUVWXYZ123456789");
+  expect(ROOM_CODE_CHARSET).not.toMatch(/[0OI]/);
+  expect(DEFAULT_JOIN_ROLE.listener).toBe("listener");
+  expect(DEFAULT_JOIN_ROLE.dj).toBe("dj");
+});

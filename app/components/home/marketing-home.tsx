@@ -5,8 +5,8 @@ export function MarketingHome() {
   return (
     <main className="flex flex-col items-center justify-center py-16 text-center">
       <div className="group grid leading-snug">
-        <span className="text-4xl font-light md:text-5xl">epic</span>
-        <span className="text-4xl font-bold md:text-5xl">music</span>
+        <span className="text-4xl font-light md:text-5xl">7D</span>
+        <span className="text-4xl font-bold md:text-5xl">Music</span>
       </div>
       <p className="text-muted-foreground mt-6 max-w-md text-lg">Your personal music library</p>
       <div className="mt-10 flex flex-wrap items-center justify-center gap-4">

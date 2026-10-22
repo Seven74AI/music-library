@@ -6,9 +6,14 @@ import { ErrorList, Field } from "#app/components/forms.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
+import {
+  recordSecurityEvent,
+  SECURITY_EVENT_TYPES,
+} from "#app/features/security/track-event.server.ts";
 import { checkIsCommonPassword, getPasswordHash, requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { PasswordAndConfirmPasswordSchema } from "#app/utils/user-validation.ts";
 import { type Route } from "./+types/profile.password_.create.ts";
 import { type BreadcrumbHandle } from "./profile.tsx";
@@ -34,6 +39,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
   await requireNoPassword(userId);
   return {};
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -66,7 +75,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   const { password } = submission.value;
 
-  await prisma.user.update({
+  const updated = await prisma.user.update({
     select: { username: true },
     where: { id: userId },
     data: {
@@ -76,6 +85,14 @@ export async function action({ request }: Route.ActionArgs) {
         },
       },
     },
+  });
+
+  await recordSecurityEvent({
+    request,
+    eventType: SECURITY_EVENT_TYPES.passwordChanged,
+    userId,
+    targetUserId: userId,
+    metadata: { username: updated.username, action: "password_created" },
   });
 
   return redirect(`/settings/profile`, { status: 302 });

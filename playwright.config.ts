@@ -99,6 +99,7 @@ export default defineConfig({
       INTERNAL_COMMAND_TOKEN: "test-internal-token",
       HONEYPOT_SECRET: "test-honeypot-secret",
       SESSION_SECRET: "test-session-secret",
+      TOKEN_ENCRYPTION_KEY: "playwright-token-encryption-key-0123456789abcdef",
     },
   },
 });

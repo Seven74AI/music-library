@@ -1,5 +1,11 @@
 import { prisma } from "#app/utils/db.server.ts";
-import { test, expect, testPrisma } from "#tests/playwright-utils.ts";
+import {
+  test,
+  expect,
+  testPrisma,
+  dismissOverlays,
+  dismissVisibleToasts,
+} from "#tests/playwright-utils.ts";
 
 test.describe("Music Library", () => {
   test("can view library page", { tag: "@smoke" }, async ({ page, login }) => {
@@ -43,11 +49,74 @@ test.describe("Music Library", () => {
     // Wait for page to load
     await page.waitForLoadState("domcontentloaded");
 
-    // Should show track details - h2 with track title
-    await expect(page.getByRole("heading", { name: "Test Track", level: 2 })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Test Track", level: 1 })).toBeVisible({
       timeout: 10000,
     });
-    await expect(page.getByText("Test Artist")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("link", { name: "Test Artist", exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+  });
+
+  test("playing from track detail uses a one-track queue", async ({
+    page,
+    login,
+    insertNewTrack,
+  }) => {
+    test.setTimeout(60_000);
+    const user = await login();
+    const track = await insertNewTrack({ title: "Detail Queue Track" }, user.id);
+    const otherTrack = await insertNewTrack({ title: "Detail Queue Other" }, user.id);
+
+    for (const playableTrack of [track, otherTrack]) {
+      await testPrisma.trackAudioFile.create({
+        data: {
+          trackId: playableTrack.id,
+          objectKey: `audio/${playableTrack.id}.mp3`,
+          format: "mp3",
+          mimeType: "audio/mpeg",
+        },
+      });
+    }
+
+    await page.goto(`/library/${track.id}`);
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.getByRole("heading", { name: "Detail Queue Track", level: 1 })).toBeVisible({
+      timeout: 10000,
+    });
+    const playButton = page.getByRole("button", { name: "Play", exact: true });
+    // The button is in the server HTML. Wait until React has hydrated it so the click runs play.
+    await expect
+      .poll(() =>
+        playButton.evaluate((button) =>
+          Object.keys(button).some(
+            (key) => key.startsWith("__reactProps") || key.startsWith("__reactFiber"),
+          ),
+        ),
+      )
+      .toBe(true);
+    await dismissOverlays(page);
+
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes("/api/queue-spine") && response.status() === 200,
+        { timeout: 15000 },
+      ),
+      playButton.click(),
+    ]);
+
+    const playerBar = page.locator(
+      '[data-testid="player-desktop-bar"]:visible, [data-testid="player-mini-bar"]:visible',
+    );
+    await expect(playerBar.first()).toBeVisible({ timeout: 10000 });
+    await expect(playerBar.getByText("Detail Queue Track")).toBeVisible();
+
+    await dismissVisibleToasts(page);
+    await playerBar.getByLabel("Open queue").click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Queue (1 from track)" })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "From Track", exact: true })).toBeVisible();
+    await expect(dialog.getByText("Detail Queue Track")).toBeVisible();
+    await expect(dialog.getByText("Detail Queue Other")).not.toBeVisible();
   });
 
   test("can create playlist from library track row", async ({ page, login, insertNewTrack }) => {
@@ -119,7 +188,7 @@ test.describe("Music Library", () => {
     await playlistNameInput.fill("road trip");
     await playlistNameInput.press("Enter");
 
-    await expect(page.getByRole("alert")).toContainText(/already have a playlist named/i, {
+    await expect(page.getByTestId("toast")).toContainText(/already have a playlist named/i, {
       timeout: 10000,
     });
     await expect(page).toHaveURL("/library");
@@ -162,6 +231,145 @@ test.describe("Music Library", () => {
     await expect(page).not.toHaveURL(/hasAudio=1/);
     await expect(page.getByText("Metadata Only Track")).toBeVisible({ timeout: 10000 });
     await expect(page.getByText("Playable Filter Track")).toBeVisible({ timeout: 10000 });
+  });
+
+  test("curator opens the metadata editor from the library row on desktop without playing", async ({
+    page,
+    login,
+    insertNewTrack,
+  }) => {
+    test.setTimeout(45_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const user = await login({ roles: ["curator", "user"] });
+    const track = await insertNewTrack({ title: "Curator Editor Track" }, user.id);
+    await testPrisma.trackAudioFile.create({
+      data: {
+        trackId: track.id,
+        objectKey: `audio/${track.id}.mp3`,
+        format: "mp3",
+        mimeType: "audio/mpeg",
+      },
+    });
+
+    await page.goto("/library");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.getByText("Curator Editor Track").first()).toBeVisible({ timeout: 10000 });
+    await dismissOverlays(page);
+    expect(page.viewportSize()).toEqual({ width: 1280, height: 800 });
+
+    const detailsResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/resources/track-details") &&
+        response.url().includes(track.id) &&
+        response.ok(),
+    );
+    await page.getByRole("button", { name: "More actions" }).first().click();
+    await page.getByRole("menuitem", { name: "View track details" }).click();
+    await detailsResponse;
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("tab", { name: "Basic" })).toBeVisible();
+    await expect(dialog.getByRole("tab", { name: "Extended" })).toBeVisible();
+    await expect(dialog.getByRole("tab", { name: "History" })).toBeVisible();
+    await expect(dialog.getByRole("tab", { name: "Notes" })).toBeVisible();
+    await expect(page.getByTestId("player-desktop-bar")).toHaveCount(0);
+    await expect(page.getByTestId("player-mini-bar")).toHaveCount(0);
+    expect(page.viewportSize()).toEqual({ width: 1280, height: 800 });
+
+    await dialog.getByRole("tab", { name: "Extended" }).click();
+    await expect(dialog.getByRole("tab", { name: "Extended" })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
+    await expect(page.getByTestId("player-desktop-bar")).toHaveCount(0);
+  });
+
+  test("admin opens the metadata editor from the library row on mobile without playing", async ({
+    page,
+    loginAsAdmin,
+    insertNewTrack,
+  }) => {
+    test.setTimeout(45_000);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const user = await loginAsAdmin();
+    const track = await insertNewTrack({ title: "Admin Mobile Editor Track" }, user.id);
+    await testPrisma.trackAudioFile.create({
+      data: {
+        trackId: track.id,
+        objectKey: `audio/${track.id}.mp3`,
+        format: "mp3",
+        mimeType: "audio/mpeg",
+      },
+    });
+
+    await page.goto("/library");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.getByText("Admin Mobile Editor Track").first()).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page).toHaveURL(/\/library/);
+    await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+
+    // useIsMobile starts false so the first paint is the desktop menu. Wait until
+    // the row has switched to the mobile sheet before opening track details.
+    await expect(async () => {
+      await page.getByRole("button", { name: "More actions" }).first().click();
+      await expect(page.getByRole("button", { name: "View track details" })).toBeVisible({
+        timeout: 1500,
+      });
+    }).toPass({ timeout: 10000 });
+
+    const detailsResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/resources/track-details") &&
+        response.url().includes(track.id) &&
+        response.ok(),
+    );
+    await page.getByRole("button", { name: "View track details" }).click();
+    await detailsResponse;
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("tab", { name: "Basic" })).toBeVisible();
+    await expect(dialog.getByRole("tab", { name: "Extended" })).toBeVisible();
+    await expect(dialog.getByRole("tab", { name: "History" })).toBeVisible();
+    await expect(dialog.getByRole("tab", { name: "Notes" })).toBeVisible();
+    await expect(page.getByText("Track Information")).toHaveCount(0);
+    await expect(page.getByTestId("player-desktop-bar")).toHaveCount(0);
+    await expect(page.getByTestId("player-mini-bar")).toHaveCount(0);
+  });
+
+  test("non-curator library row keeps the read-only track details view", async ({
+    page,
+    login,
+    insertNewTrack,
+  }) => {
+    test.setTimeout(45_000);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const user = await login();
+    await insertNewTrack({ title: "Read Only Details Track" }, user.id);
+
+    await page.goto("/library");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.getByText("Read Only Details Track").first()).toBeVisible({
+      timeout: 10000,
+    });
+    await dismissOverlays(page);
+
+    let requestedDetails = false;
+    page.on("request", (request) => {
+      if (request.url().includes("/resources/track-details")) requestedDetails = true;
+    });
+
+    await page.getByRole("button", { name: "More actions" }).first().click();
+    await page.getByRole("menuitem", { name: "View track details" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Track Information")).toBeVisible();
+    await expect(dialog.getByText(/Artist: Test Artist/)).toBeVisible();
+    await expect(dialog.getByText(/Duration:/)).toBeVisible();
+    await expect(dialog.getByText(/Added:/)).toHaveCount(0);
+    await expect(dialog.getByRole("tab", { name: "Basic" })).toHaveCount(0);
+    expect(requestedDetails).toBe(false);
   });
 
   test("playing from library shows upcoming tracks in the queue sheet", async ({

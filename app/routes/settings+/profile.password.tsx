@@ -8,6 +8,10 @@ import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
 import {
+  recordSecurityEvent,
+  SECURITY_EVENT_TYPES,
+} from "#app/features/security/track-event.server.ts";
+import {
   checkIsCommonPassword,
   getPasswordHash,
   requireUserId,
@@ -15,8 +19,9 @@ import {
 } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
-import { PasswordSchema } from "#app/utils/user-validation.ts";
+import { ExistingPasswordSchema, PasswordSchema } from "#app/utils/user-validation.ts";
 import { type Route } from "./+types/profile.password.ts";
 import { type BreadcrumbHandle } from "./profile.tsx";
 
@@ -27,7 +32,7 @@ export const handle: BreadcrumbHandle & SEOHandle = {
 
 const ChangePasswordForm = z
   .object({
-    currentPassword: PasswordSchema,
+    currentPassword: ExistingPasswordSchema,
     newPassword: PasswordSchema,
     confirmNewPassword: PasswordSchema,
   })
@@ -55,6 +60,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
   await requirePassword(userId);
   return {};
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -97,7 +106,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   const { newPassword } = submission.value;
 
-  await prisma.user.update({
+  const updated = await prisma.user.update({
     select: { username: true },
     where: { id: userId },
     data: {
@@ -107,6 +116,14 @@ export async function action({ request }: Route.ActionArgs) {
         },
       },
     },
+  });
+
+  await recordSecurityEvent({
+    request,
+    eventType: SECURITY_EVENT_TYPES.passwordChanged,
+    userId,
+    targetUserId: userId,
+    metadata: { username: updated.username },
   });
 
   return redirectWithToast(

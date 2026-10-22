@@ -152,7 +152,7 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function YouTubeSyncedPlaylistsPage() {
-  const { playlists, totalTracks, missingTracks } = useLoaderData<typeof loader>();
+  const { playlists, missingTracks } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigate = useNavigate();
 

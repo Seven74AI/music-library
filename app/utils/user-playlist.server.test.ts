@@ -5,6 +5,7 @@ import {
   createUserPlaylist,
   createUserPlaylistWithTrack,
   normalizeUserPlaylistTitle,
+  removeTrackFromUserPlaylist,
   userPlaylistTitleTaken,
 } from "./user-playlist.server";
 
@@ -15,11 +16,13 @@ vi.mock("#app/utils/db.server.ts", () => ({
       findMany: vi.fn(),
       create: vi.fn(),
       delete: vi.fn(),
+      update: vi.fn(),
     },
     userPlaylistTrack: {
       findFirst: vi.fn(),
       aggregate: vi.fn(),
       create: vi.fn(),
+      deleteMany: vi.fn(),
     },
   },
 }));
@@ -188,6 +191,30 @@ describe("addTrackToUserPlaylist", () => {
     });
   });
 
+  test("bumps playlist updatedAt when a track is added", async () => {
+    vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
+      id: "playlist-1",
+      title: "My Playlist",
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
+      _max: { position: 2 },
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.create).mockResolvedValue({} as never);
+
+    const result = await addTrackToUserPlaylist({
+      userId: "user-1",
+      playlistId: "playlist-1",
+      trackId: "track-1",
+    });
+
+    expect(result).toEqual({ status: "success", playlistTitle: "My Playlist" });
+    expect(prisma.userPlaylist.update).toHaveBeenCalledWith({
+      where: { id: "playlist-1", ownerId: "user-1" },
+      data: { updatedAt: expect.any(Date) },
+    });
+  });
+
   test("returns not_found when playlist does not belong to user", async () => {
     vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue(null);
 
@@ -220,5 +247,71 @@ describe("addTrackToUserPlaylist", () => {
       playlistId: "playlist-1",
       playlistTitle: "My Playlist",
     });
+  });
+});
+
+describe("removeTrackFromUserPlaylist", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("removes all matching track entries and bumps updatedAt", async () => {
+    vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
+      id: "playlist-1",
+      title: "My Playlist",
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.deleteMany).mockResolvedValue({ count: 2 } as never);
+
+    const result = await removeTrackFromUserPlaylist({
+      userId: "user-1",
+      playlistId: "playlist-1",
+      trackId: "track-1",
+    });
+
+    expect(result).toEqual({
+      status: "success",
+      playlistTitle: "My Playlist",
+      removedCount: 2,
+    });
+    expect(prisma.userPlaylistTrack.deleteMany).toHaveBeenCalledWith({
+      where: { playlistId: "playlist-1", trackId: "track-1" },
+    });
+    expect(prisma.userPlaylist.update).toHaveBeenCalledWith({
+      where: { id: "playlist-1", ownerId: "user-1" },
+      data: { updatedAt: expect.any(Date) },
+    });
+  });
+
+  test("returns not_found when playlist does not belong to user", async () => {
+    vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue(null);
+
+    const result = await removeTrackFromUserPlaylist({
+      userId: "user-1",
+      playlistId: "playlist-1",
+      trackId: "track-1",
+    });
+
+    expect(result).toEqual({ status: "not_found" });
+    expect(prisma.userPlaylistTrack.deleteMany).not.toHaveBeenCalled();
+  });
+
+  test("returns not_in_playlist when track is not in the playlist", async () => {
+    vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
+      id: "playlist-1",
+      title: "My Playlist",
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.deleteMany).mockResolvedValue({ count: 0 } as never);
+
+    const result = await removeTrackFromUserPlaylist({
+      userId: "user-1",
+      playlistId: "playlist-1",
+      trackId: "track-1",
+    });
+
+    expect(result).toEqual({
+      status: "not_in_playlist",
+      playlistTitle: "My Playlist",
+    });
+    expect(prisma.userPlaylist.update).not.toHaveBeenCalled();
   });
 });

@@ -8,9 +8,15 @@
 import { Link, useLocation } from "react-router";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Route } from "./+types/$.ts";
 
 export function loader() {
   throw new Response("Not found", { status: 404 });
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
 }
 
 export function action() {
@@ -23,23 +29,21 @@ export default function NotFound() {
   return <ErrorBoundary />;
 }
 
-export function ErrorBoundary() {
+function NotFound404() {
   const location = useLocation();
   return (
-    <GeneralErrorBoundary
-      statusHandlers={{
-        404: () => (
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-col gap-3">
-              <h1>We can't find this page:</h1>
-              <pre className="text-body-lg break-all whitespace-pre-wrap">{location.pathname}</pre>
-            </div>
-            <Link to="/" className="text-body-md underline">
-              <Icon name="arrow-left">Back</Icon>
-            </Link>
-          </div>
-        ),
-      }}
-    />
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-3">
+        <h1>We can't find this page:</h1>
+        <pre className="text-body-lg break-all whitespace-pre-wrap">{location.pathname}</pre>
+      </div>
+      <Link to="/" className="text-body-md underline">
+        <Icon name="arrow-left">Back</Icon>
+      </Link>
+    </div>
   );
+}
+
+export function ErrorBoundary() {
+  return <GeneralErrorBoundary statusHandlers={{ 404: NotFound404 }} />;
 }

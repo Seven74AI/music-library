@@ -57,3 +57,14 @@ export function getArtistTitle(data: unknown, fallback = "Artist"): string {
   }
   return fallback;
 }
+
+/**
+ * Safely extract On-Repeat Snapshot label from breadcrumb data
+ */
+export function getOnRepeatSnapshotTitle(data: unknown, fallback = "On-Repeat"): string {
+  if (typeof data === "object" && data !== null && "snapshot" in data) {
+    const d = data as { snapshot?: { label?: string } };
+    return d.snapshot?.label || fallback;
+  }
+  return fallback;
+}

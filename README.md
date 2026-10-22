@@ -36,6 +36,7 @@
    # Required for local development
    SESSION_SECRET=your-session-secret-here
    HONEYPOT_SECRET=your-honeypot-secret-here
+   IP_HASH_SALT=dev-ip-hash-salt-change-me
    SITE_URL=http://localhost:3000
 
    # YouTube Integration (optional for local dev)
@@ -137,6 +138,7 @@ Set the following secrets for both production and staging apps:
 **Required secrets:**
 
 - `SESSION_SECRET` - Session encryption key
+- `IP_HASH_SALT` - Salt for hashing client IPs on security events
 - `HONEYPOT_SECRET` - Form spam protection
 - `RESEND_API_KEY` - Email service API key
 - `SITE_URL` - Your production/staging URL
@@ -148,8 +150,8 @@ Set the following secrets for both production and staging apps:
 
 ```bash
 # Generate random secrets
-fly secrets set SESSION_SECRET=$(openssl rand -hex 32) HONEYPOT_SECRET=$(openssl rand -hex 32) --app [APP_NAME]
-fly secrets set SESSION_SECRET=$(openssl rand -hex 32) HONEYPOT_SECRET=$(openssl rand -hex 32) --app [APP_NAME]-staging
+fly secrets set SESSION_SECRET=$(openssl rand -hex 32) HONEYPOT_SECRET=$(openssl rand -hex 32) IP_HASH_SALT=$(openssl rand -hex 32) --app [APP_NAME]
+fly secrets set SESSION_SECRET=$(openssl rand -hex 32) HONEYPOT_SECRET=$(openssl rand -hex 32) IP_HASH_SALT=$(openssl rand -hex 32) --app [APP_NAME]-staging
 
 # Set URLs
 fly secrets set SITE_URL=https://your-domain.com --app [APP_NAME]
@@ -339,6 +341,7 @@ For authenticated downloads (age-restricted or bot-protected content), upload a 
 
 - `SESSION_SECRET` - Random string for session encryption (generate with `openssl rand -hex 32`)
 - `HONEYPOT_SECRET` - Random string for form spam protection (generate with `openssl rand -hex 32`)
+- `IP_HASH_SALT` - Salt for hashing client IPs on security events (generate with `openssl rand -hex 32`)
 - `SITE_URL` - Your application URL (e.g., `http://localhost:3000` for local dev)
 
 ### Optional Variables

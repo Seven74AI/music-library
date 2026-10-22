@@ -1,0 +1,18 @@
+{
+  "name": "Music Library",
+  "install": "set -e\nexport NVM_DIR=\"$HOME/.nvm\"\n. \"$NVM_DIR/nvm.sh\"\nnvm install 24 >/dev/null 2>&1\nnvm alias default 24 >/dev/null 2>&1\nexport PATH=\"$HOME/.nvm/versions/node/$(nvm version 24)/bin:$PATH\"\nnode -v\n[ -f .env ] || { cp .env.example .env && echo 'SITE_URL=\"http://localhost:3000\"' >> .env; }\nnpm ci\nnpx prisma migrate deploy\nnpx prisma generate --sql\nNEED_SEED=$(node -e \"try{const D=require('better-sqlite3');const db=new D('data.db',{readonly:true});const r=db.prepare('SELECT COUNT(*) c FROM User').get();db.close();process.stdout.write(r.c>0?'no':'yes')}catch(e){process.stdout.write('yes')}\")\nif [ \"$NEED_SEED\" = \"yes\" ]; then echo 'Seeding database'; npx prisma db seed; else echo 'DB already seeded, skipping'; fi",
+  "start": "export NVM_DIR=\"$HOME/.nvm\"\n. \"$NVM_DIR/nvm.sh\"\nexport PATH=\"$HOME/.nvm/versions/node/$(nvm version 24)/bin:$PATH\"\n[ -f .env ] || { cp .env.example .env && echo 'SITE_URL=\"http://localhost:3000\"' >> .env; }\nnpx prisma migrate deploy\nNEED_SEED=$(node -e \"try{const D=require('better-sqlite3');const db=new D('data.db',{readonly:true});const r=db.prepare('SELECT COUNT(*) c FROM User').get();db.close();process.stdout.write(r.c>0?'no':'yes')}catch(e){process.stdout.write('yes')}\")\nif [ \"$NEED_SEED\" = \"yes\" ]; then echo 'Seeding database'; npx prisma db seed; fi",
+  "terminals": [
+    {
+      "name": "Dev Server",
+      "command": "export NVM_DIR=\"$HOME/.nvm\"\n. \"$NVM_DIR/nvm.sh\"\nexport PATH=\"$HOME/.nvm/versions/node/$(nvm version 24)/bin:$PATH\"\nnpm run dev",
+      "description": "Runs the Music Library dev server (React Router + MSW mocks) on http://localhost:3000. Log in with kody / kodylovesyou."
+    }
+  ],
+  "ports": [
+    {
+      "name": "web",
+      "port": 3000
+    }
+  ]
+}

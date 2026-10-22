@@ -3,12 +3,17 @@ import { parseFormData } from "@mjackson/form-data-parser";
 import { createId } from "@paralleldrive/cuid2";
 import { data, type ActionFunctionArgs } from "react-router";
 import { LOCAL_SERVICE } from "#app/constants/services";
-import { persistTrackAudio } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
+import {
+  prepareTrackAudioUpload,
+  createTrackAudioFile,
+} from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
 import { getOrCreateArtistTx, extractArtistMetadata } from "#app/utils/artist-management.server";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
 import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Route } from "./+types/upload-audio.ts";
 
 // Maximum file size: 100MB
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -26,6 +31,10 @@ const ALLOWED_MIME_TYPES = [
   "audio/ogg",
   "audio/webm",
 ];
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
 
 export async function action({ request }: ActionFunctionArgs) {
   const userId = await requireUserWithRole(request, "admin");
@@ -98,7 +107,35 @@ export async function action({ request }: ActionFunctionArgs) {
     const trackId = createId();
     const fileId = createId();
 
-    // Create track and persist audio in transaction
+    // Upload the audio to Tigris OUTSIDE the database transaction. SQLite
+    // serializes writers, so holding the write lock across a network upload can
+    // trip the transaction timeout and roll back the DB writes after the object
+    // was already uploaded (leaving an orphaned Tigris object). The transaction
+    // below now contains only fast DB writes.
+    const preparedAudio = await prepareTrackAudioUpload({
+      trackId,
+      serviceName: LOCAL_SERVICE.NAME,
+      buffer,
+      metadata: extractedMetadata,
+      uploadedBy: userId,
+      serviceId: localService.id,
+      fileName: audioFile.name,
+      storageMetadata: {
+        title,
+        artist,
+        album: album || "",
+        uploadedBy: userId,
+      },
+    });
+
+    // Log duplicate detection
+    if (preparedAudio.isDuplicate && preparedAudio.duplicateTrack) {
+      console.warn(
+        `⚠️  Duplicate: "${audioFile.name}" has same audio as "${preparedAudio.duplicateTrack.title}" by ${preparedAudio.duplicateTrack.artist.name}`,
+      );
+    }
+
+    // Create track and TrackAudioFile rows in a short transaction
     const result = await prisma.$transaction(async (tx) => {
       // Get or create artist
       const artistMetadata = extractArtistMetadata(extractedMetadata);
@@ -148,22 +185,19 @@ export async function action({ request }: ActionFunctionArgs) {
         },
       });
 
-      const { audioFile: audioFileRecord } = await persistTrackAudio({
-        trackId: track.id,
-        serviceName: LOCAL_SERVICE.NAME,
-        buffer,
-        metadata: extractedMetadata,
-        uploadedBy: userId,
-        serviceId: localService.id,
-        fileName: audioFile.name,
-        storageMetadata: {
-          title,
-          artist,
-          album: album || "",
+      // Create the TrackAudioFile row (the upload already happened above)
+      await createTrackAudioFile(
+        {
+          trackId: track.id,
+          serviceId: localService.id,
+          fileName: audioFile.name,
+          metadata: extractedMetadata,
           uploadedBy: userId,
+          buffer,
         },
+        preparedAudio,
         tx,
-      });
+      );
 
       // Add track to user's library
       await tx.userTrack.create({
@@ -173,7 +207,7 @@ export async function action({ request }: ActionFunctionArgs) {
         },
       });
 
-      return { track, audioFile: audioFileRecord };
+      return { track };
     });
 
     // Fetch artist name for response

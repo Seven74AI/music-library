@@ -1,5 +1,78 @@
-import { describe, expect, test } from "vitest";
-import { createShuffledOrder, fisherYatesShuffle, reshuffleFromCurrent } from "./queue-shuffle.ts";
+import { describe, expect, test, vi } from "vitest";
+import {
+  clampShuffleSeed,
+  createSeededRandom,
+  createShuffledOrder,
+  fisherYatesShuffle,
+  generateShuffleSeed,
+  reshuffleFromCurrent,
+} from "./queue-shuffle.ts";
+
+describe("clampShuffleSeed", () => {
+  test("leaves a signed 32-bit seed unchanged", () => {
+    expect(clampShuffleSeed(42)).toBe(42);
+    expect(clampShuffleSeed(0x7fffffff)).toBe(0x7fffffff);
+  });
+
+  test("masks unsigned 32-bit values into Prisma Int range", () => {
+    expect(clampShuffleSeed(0xffffffff)).toBe(0x7fffffff);
+    expect(clampShuffleSeed(0x80000000)).toBe(0);
+  });
+});
+
+describe("createSeededRandom", () => {
+  test("returns values in [0, 1)", () => {
+    const random = createSeededRandom(42);
+    for (let i = 0; i < 1000; i += 1) {
+      const value = random();
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThan(1);
+    }
+  });
+
+  test("is deterministic for the same seed", () => {
+    const a = createSeededRandom(7);
+    const b = createSeededRandom(7);
+    for (let i = 0; i < 20; i += 1) {
+      expect(a()).toBe(b());
+    }
+  });
+
+  test("produces different sequences for different seeds", () => {
+    const a = createSeededRandom(1);
+    const b = createSeededRandom(2);
+    const sequenceA = Array.from({ length: 10 }, () => a());
+    const sequenceB = Array.from({ length: 10 }, () => b());
+    expect(sequenceA).not.toEqual(sequenceB);
+  });
+});
+
+describe("generateShuffleSeed", () => {
+  test("returns a signed 32-bit integer that Prisma Int can store", () => {
+    const seed = generateShuffleSeed();
+    expect(Number.isInteger(seed)).toBe(true);
+    expect(seed).toBeGreaterThanOrEqual(0);
+    expect(seed).toBeLessThanOrEqual(0x7fffffff);
+  });
+
+  test("clamps a CSPRNG value above signed 32-bit max", () => {
+    const spy = vi.spyOn(crypto, "getRandomValues").mockImplementation((buffer) => {
+      (buffer as Uint32Array)[0] = 0xffffffff;
+      return buffer;
+    });
+
+    try {
+      expect(generateShuffleSeed()).toBe(0x7fffffff);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("produces varied seeds across calls", () => {
+    const seeds = new Set(Array.from({ length: 50 }, () => generateShuffleSeed()));
+    expect(seeds.size).toBeGreaterThan(1);
+  });
+});
 
 describe("fisherYatesShuffle", () => {
   test("returns empty array for length 0", () => {
@@ -32,8 +105,24 @@ describe("createShuffledOrder", () => {
     expect(createShuffledOrder(4, false)).toEqual([0, 1, 2, 3]);
   });
 
+  test("returns identity order when shuffle is disabled even with a seed", () => {
+    expect(createShuffledOrder(4, false, 42)).toEqual([0, 1, 2, 3]);
+  });
+
   test("returns shuffled order when shuffle is enabled", () => {
     expect(createShuffledOrder(4, true, () => 0.5)).toHaveLength(4);
+  });
+
+  test("produces an identical permutation for the same seed and length", () => {
+    expect(createShuffledOrder(8, true, 42)).toEqual(createShuffledOrder(8, true, 42));
+  });
+
+  test("produces different permutations for different seeds", () => {
+    expect(createShuffledOrder(8, true, 1)).not.toEqual(createShuffledOrder(8, true, 2));
+  });
+
+  test("produces different permutations for a different length with the same seed", () => {
+    expect(createShuffledOrder(4, true, 42)).not.toEqual(createShuffledOrder(8, true, 42));
   });
 });
 
@@ -51,5 +140,15 @@ describe("reshuffleFromCurrent", () => {
     const reshuffled = reshuffleFromCurrent(order, 2, () => 0.5);
 
     expect(reshuffled).toEqual([1, 0, 2]);
+  });
+
+  test("is deterministic for the same seed, order, and position", () => {
+    const order = [2, 0, 3, 1];
+    expect(reshuffleFromCurrent(order, 1, 42)).toEqual(reshuffleFromCurrent(order, 1, 42));
+  });
+
+  test("produces different results for different seeds", () => {
+    const order = [2, 0, 3, 1];
+    expect(reshuffleFromCurrent(order, 1, 1)).not.toEqual(reshuffleFromCurrent(order, 1, 2));
   });
 });

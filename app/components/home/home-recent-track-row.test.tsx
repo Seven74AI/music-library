@@ -7,13 +7,13 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { type HomeRecentTrack } from "#app/utils/home.server.ts";
 import { HomeRecentTrackRow } from "./home-recent-track-row.tsx";
 
-const mockPlayTrack = vi.fn();
+const mockPlayPlaylist = vi.fn();
 
 vi.mock("#app/components/audio-player-provider.tsx", () => ({
   useAudioPlayer: () => ({
     currentTrack: null,
     currentIndex: 0,
-    playTrack: mockPlayTrack,
+    playPlaylist: mockPlayPlaylist,
   }),
 }));
 
@@ -43,7 +43,7 @@ const makeTrack = (overrides: MakeTrackOverrides = {}): HomeRecentTrack => {
 };
 
 beforeEach(() => {
-  mockPlayTrack.mockClear();
+  mockPlayPlaylist.mockClear();
 });
 
 test("shows empty state when there are no tracks", () => {
@@ -75,15 +75,37 @@ test("renders track title and artist in compact cards", () => {
   expect(screen.getByText("Air")).toBeInTheDocument();
 });
 
-test("plays a track when its card is clicked", async () => {
+test("plays the visible strip in display order when a card is clicked", async () => {
   const user = userEvent.setup();
-  const recentTrack = makeTrack();
+  const first = makeTrack();
+  const second = makeTrack({
+    id: "user-track-2",
+    track: {
+      id: "track-2",
+      title: "La Femme d'argent",
+      artist: { id: "artist-2", name: "Air" },
+      audioFiles: [{ id: "af-2", format: "mp3", objectKey: "audio/air.mp3" }],
+    },
+  });
+  const archiving = makeTrack({
+    id: "user-track-3",
+    track: {
+      id: "track-3",
+      title: "Still Archiving",
+      artist: { id: "artist-3", name: "Wait" },
+      audioFiles: [],
+    },
+  });
 
-  render(<HomeRecentTrackRow recentTracks={[recentTrack]} />);
+  render(<HomeRecentTrackRow recentTracks={[first, archiving, second]} />);
 
-  await user.click(screen.getByRole("button", { name: /midnight city/i }));
+  await user.click(screen.getByRole("button", { name: /la femme d'argent/i }));
 
-  expect(mockPlayTrack).toHaveBeenCalledWith(recentTrack.track, { type: "library" }, 0);
+  expect(mockPlayPlaylist).toHaveBeenCalledWith(
+    [first.track, second.track],
+    { type: "library" },
+    1,
+  );
 });
 
 test("does not play tracks that are still archiving", async () => {
@@ -95,5 +117,5 @@ test("does not play tracks that are still archiving", async () => {
   expect(card).toBeDisabled();
 
   await user.click(card);
-  expect(mockPlayTrack).not.toHaveBeenCalled();
+  expect(mockPlayPlaylist).not.toHaveBeenCalled();
 });

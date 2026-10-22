@@ -8,9 +8,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Link } from "react-router";
 import { useAudioPlayer } from "#app/components/audio-player-provider";
 import { AddToPlaylistMenu } from "#app/components/add-to-playlist-menu";
 import { MarqueeText } from "#app/components/marquee-text";
+import {
+  outcomeFromPlayCall,
+  roomStateAfterAutoplay,
+  type RoomAutoplayOutcome,
+} from "#app/components/audio-player-room-playback.ts";
 import { recordAutoplayFailure } from "#app/hooks/use-autoplay-guide";
 import { useSwipeGesture } from "#app/hooks/use-swipe-gesture";
 import { TrackDetailsDialog } from "#app/components/track-details-dialog";
@@ -35,10 +41,15 @@ import { toast } from "#app/components/ui/use-toast.ts";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import {
   clearBlobUrlCache,
+  invalidateRemotePlaybackUrl,
+  peekCachedPlaybackUrl,
   resolvePlaybackAudioUrl,
   resolveTrackPlaybackSource,
   revokePlaybackAudioUrl,
 } from "#app/features/offline-storage/resolve-playback-url.client.ts";
+import { reportPlayEvent } from "#app/features/usage-analytics/report-play-event.client.ts";
+import { reportRoomPlayEvent, sendHostHeartbeat } from "#app/features/party-room/api.client.ts";
+import { speakerProgressHeartbeatDue } from "#app/features/party-room/speaker-progress-heartbeat.ts";
 import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { triggerBrowserDownload } from "#app/utils/download.ts";
@@ -50,6 +61,7 @@ import {
   updateMediaSessionPositionState,
 } from "#app/utils/media-session.client.ts";
 import { cn } from "#app/utils/misc";
+import { coverImageUrl, nowPlayingCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { adjustVolumeStep, getPlayerKeyboardAction } from "#app/utils/player-keyboard-shortcuts.ts";
 import {
   DEFAULT_PLAYER_VOLUME,
@@ -76,6 +88,23 @@ function isDurationKnown(duration: number): boolean {
   return duration > 0 && isFinite(duration) && !isNaN(duration);
 }
 
+/**
+ * Generates a UUID v4 used to correlate a play's `play_started` and
+ * `play_completed` usage events. Falls back to a Math.random-based UUID for
+ * environments without Web Crypto `randomUUID` (older WebViews, non-secure
+ * contexts).
+ */
+function generatePlayId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = char === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
 function getPlaybackProgressPercent(currentTime: number, duration: number) {
   if (duration <= 0 || !isFinite(duration)) return 0;
   return Math.min(100, Math.max(0, (currentTime / duration) * 100));
@@ -93,6 +122,31 @@ function getMediaErrorMessage(code: number): string {
       return "The audio source could not be found or is not supported.";
     default:
       return "An unexpected playback error occurred. Please try again.";
+  }
+}
+
+/** Swap <audio> to a new source URL, restore position, and optionally resume play. */
+function swapPlaybackSource(
+  audio: HTMLAudioElement,
+  nextUrl: string,
+  savedTime: number,
+  shouldResume: boolean,
+) {
+  const restore = () => {
+    if (Number.isFinite(savedTime) && savedTime > 0) {
+      audio.currentTime = savedTime;
+    }
+    if (shouldResume) {
+      void audio.play();
+    }
+  };
+
+  audio.src = nextUrl;
+  // Attempt immediately (works for many blob swaps / jsdom); re-apply on loadeddata
+  // in case the browser rejected the seek before media was ready.
+  restore();
+  if (audio.readyState < (HTMLMediaElement.HAVE_CURRENT_DATA ?? 2)) {
+    audio.addEventListener("loadeddata", restore, { once: true });
   }
 }
 
@@ -132,7 +186,7 @@ function PlayerSeekBar({
         className="flex-1 h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
         style={{
           background: isDurationKnown(duration)
-            ? `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${getPlaybackProgressPercent(currentTime, duration)}%, hsl(var(--muted)) ${getPlaybackProgressPercent(currentTime, duration)}%, hsl(var(--muted)) 100%)`
+            ? `linear-gradient(to right, var(--primary) 0%, var(--primary) ${getPlaybackProgressPercent(currentTime, duration)}%, var(--muted) ${getPlaybackProgressPercent(currentTime, duration)}%, var(--muted) 100%)`
             : undefined,
         }}
         aria-label="Seek"
@@ -322,6 +376,73 @@ interface PlayerChromeProps {
   onClearSleepTimer: () => void;
 }
 
+/** Party-room speaker playback stubs this id when the snapshot has no artist id. */
+const ROOM_SPEAKER_ARTIST_ID = "room-artist";
+
+type PendingPlaybackSource = { trackId: string; url: string };
+
+/**
+ * The track is ready to start only when the committed `audioSrc` is the URL we
+ * intend to play. A ref updated in the same effect turn as `setAudioSrc` is
+ * not enough: the previous source is still on the element for that render.
+ */
+function isPlaybackSourceReady(
+  trackId: string | undefined,
+  audioSrc: string | undefined,
+  loadedTrackId: string | null,
+  pending: PendingPlaybackSource | null,
+): boolean {
+  if (!trackId || !audioSrc) return false;
+  if (pending?.trackId === trackId) return pending.url === audioSrc;
+  return loadedTrackId === trackId;
+}
+
+function artistPagePath(artistId: string): string | null {
+  if (!artistId || artistId === ROOM_SPEAKER_ARTIST_ID) return null;
+  return `/artists/${artistId}`;
+}
+
+function PlayerTrackIdentity({
+  track,
+  titleClassName,
+  artistClassName,
+  className,
+  onNavigate,
+}: {
+  track: Track;
+  titleClassName: string;
+  artistClassName: string;
+  className?: string;
+  onNavigate?: () => void;
+}) {
+  const artistHref = artistPagePath(track.artist.id);
+
+  return (
+    <div className={cn("min-w-0", className)}>
+      <Link
+        to={`/library/${track.id}`}
+        prefetch="intent"
+        onClick={onNavigate}
+        className="block hover:underline focus-visible:underline"
+      >
+        <MarqueeText className={titleClassName}>{track.title}</MarqueeText>
+      </Link>
+      {artistHref ? (
+        <Link
+          to={artistHref}
+          prefetch="intent"
+          onClick={onNavigate}
+          className="block hover:underline focus-visible:underline"
+        >
+          <MarqueeText className={artistClassName}>{track.artist.name}</MarqueeText>
+        </Link>
+      ) : (
+        <MarqueeText className={artistClassName}>{track.artist.name}</MarqueeText>
+      )}
+    </div>
+  );
+}
+
 interface PlayerMiniBarProps extends PlayerChromeProps {
   onOpenNowPlaying: () => void;
 }
@@ -402,7 +523,11 @@ function PlayerMiniBar({
             className={`h-5 w-5 ${isPlaying ? "" : "ml-0.5"}`}
           />
         </Button>
-        <QueueSheet triggerClassName="h-11 w-11 shrink-0 p-0" />
+        <QueueSheet
+          triggerClassName="h-11 w-11 shrink-0 p-0"
+          isPlaying={isPlaying}
+          onTogglePlayPause={onTogglePlayPause}
+        />
         <Button
           variant="ghost"
           size="sm"
@@ -485,6 +610,12 @@ function PlayerNowPlayingSheet({
           side="bottom"
           className="flex max-h-[85vh] flex-col gap-6"
           data-testid="player-now-playing-sheet"
+          onPointerDownOutside={(event) => {
+            // The sleep-timer menu is portaled outside this sheet. A tap on a
+            // preset is "outside" the dialog and would dismiss now-playing
+            // before the duration is applied.
+            if (isSleepTimerMenuTarget(event.target)) event.preventDefault();
+          }}
         >
           <SheetHeader className="flex-shrink-0 text-left">
             <SheetTitle>Now playing</SheetTitle>
@@ -497,14 +628,17 @@ function PlayerNowPlayingSheet({
               coverImage={track.coverImage}
               alt={track.title}
               size="lg"
-              pixelSize={320}
+              pixelSize={nowPlayingCoverPixelSize}
+              loading="eager"
               className="shadow-lg h-40 w-40"
             />
             <div className="w-full text-center">
-              <MarqueeText className="text-lg font-semibold">{track.title}</MarqueeText>
-              <MarqueeText className="text-sm text-muted-foreground">
-                {track.artist.name}
-              </MarqueeText>
+              <PlayerTrackIdentity
+                track={track}
+                titleClassName="text-lg font-semibold"
+                artistClassName="text-sm text-muted-foreground"
+                onNavigate={() => onOpenChange(false)}
+              />
             </div>
           </div>
           <PlayerSeekBar
@@ -527,7 +661,11 @@ function PlayerNowPlayingSheet({
               size="large"
             />
             <div className="flex-1 flex justify-end">
-              <QueueSheet triggerClassName="h-11 w-11 shrink-0 p-0" />
+              <QueueSheet
+                triggerClassName="h-11 w-11 shrink-0 p-0"
+                isPlaying={isPlaying}
+                onTogglePlayPause={onTogglePlayPause}
+              />
             </div>
           </div>
           <div className="flex items-center justify-center gap-1">
@@ -552,7 +690,8 @@ function PlayerNowPlayingSheet({
               </SheetTrigger>
               <SheetContent
                 side="bottom"
-                className="flex max-h-[60vh] flex-col"
+                className="flex max-h-[60vh] flex-col overflow-y-auto"
+                data-testid="player-add-to-playlist-sheet"
                 onOpenAutoFocus={(e) => e.preventDefault()}
               >
                 <SheetHeader className="text-left flex-shrink-0">
@@ -561,7 +700,7 @@ function PlayerNowPlayingSheet({
                     Add this track to one of your playlists
                   </SheetDescription>
                 </SheetHeader>
-                <AddToPlaylistMenu trackId={track.id} trackTitle={track.title} />
+                <AddToPlaylistMenu constrainHeight trackId={track.id} trackTitle={track.title} />
               </SheetContent>
             </Sheet>
             <SleepTimerControl
@@ -690,10 +829,12 @@ function PlayerDesktopBar({
           size="lg"
           className="shadow-md shrink-0"
         />
-        <div className="min-w-0 flex-1">
-          <MarqueeText className="text-sm font-semibold">{track.title}</MarqueeText>
-          <MarqueeText className="text-xs text-muted-foreground">{track.artist.name}</MarqueeText>
-        </div>
+        <PlayerTrackIdentity
+          track={track}
+          titleClassName="text-sm font-semibold"
+          artistClassName="text-xs text-muted-foreground"
+          className="flex-1"
+        />
       </div>
 
       <div className="flex min-w-0 max-w-2xl flex-1 flex-col items-center gap-2">
@@ -746,7 +887,7 @@ function PlayerDesktopBar({
         onClear={onClearSleepTimer}
       />
       <div className="flex shrink-0 items-center gap-1">
-        <QueueSheet />
+        <QueueSheet isPlaying={isPlaying} onTogglePlayPause={onTogglePlayPause} />
         <PlayerLoopShuffleDownload
           loopMode={loopMode}
           isShuffleEnabled={isShuffleEnabled}
@@ -785,6 +926,49 @@ interface AudioPlayerProps {
   isShuffleEnabled: boolean;
   playbackToken?: number;
   wantsAutoPlayRef?: React.MutableRefObject<boolean>;
+  unlockAutoplayRef?: React.MutableRefObject<
+    ((trackId: string, cachedUrl: string) => boolean) | null
+  >;
+  /** When set, emit room play events instead of personal UsageEvents. */
+  roomSpeaker?: { roomId: string; code: string } | null;
+  /** Server-driven play/pause while in room speaker mode. */
+  roomPlaying?: boolean | null;
+  /**
+   * Room speaker only. Fired after play() settles so a blocked autoplay can
+   * leave the room paused without the personal toast/dialog stack.
+   */
+  onRoomAutoplayOutcome?: (outcome: RoomAutoplayOutcome) => void;
+  /** Prefer this audio URL (e.g. speaker grant) over personal /resources/audio. */
+  audioSrcOverride?: string;
+}
+
+function usePublishToastBottomOffset(
+  chromeRef: React.RefObject<HTMLElement | null>,
+  active: boolean,
+  layoutKey: string,
+) {
+  useLayoutEffect(() => {
+    const node = chromeRef.current;
+    if (!active || !node) {
+      document.body.style.removeProperty("--toast-bottom-offset");
+      return;
+    }
+
+    const apply = () => {
+      const offset = Math.max(0, Math.round(window.innerHeight - node.getBoundingClientRect().top));
+      document.body.style.setProperty("--toast-bottom-offset", `${offset}px`);
+    };
+
+    apply();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(apply);
+    observer?.observe(node);
+    window.addEventListener("resize", apply);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", apply);
+      document.body.style.removeProperty("--toast-bottom-offset");
+    };
+  }, [active, chromeRef, layoutKey]);
 }
 
 export function AudioPlayer(props: AudioPlayerProps) {
@@ -804,8 +988,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
     isShuffleEnabled,
     playbackToken = 0,
     wantsAutoPlayRef,
+    unlockAutoplayRef,
+    roomSpeaker = null,
+    roomPlaying = null,
+    onRoomAutoplayOutcome,
+    audioSrcOverride,
   } = props;
   const audioRef = useRef<HTMLAudioElement>(null);
+  const chromeRef = useRef<HTMLDivElement>(null);
+  usePublishToastBottomOffset(chromeRef, isVisible, track?.id ?? "queue");
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -817,10 +1008,94 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const previousPlaybackTokenRef = useRef<number | null>(null);
   const previousTrackIdRef = useRef<string | null>(null);
   const loadedTrackIdRef = useRef<string | null>(null);
+  const pendingAudioSrcRef = useRef<PendingPlaybackSource | null>(null);
   const isManualPlayRef = useRef(false);
+  // User intends playback; not cleared by incidental pause from network/src swaps.
+  const keepPlayingRef = useRef(false);
+  const playStartedForTrackRef = useRef<string | null>(null);
+  const playCompletedForTrackRef = useRef<string | null>(null);
+  const playIdRef = useRef<string | null>(null);
+  // Playback-progress presence for a locked speaker. Page timers are throttled
+  // while the screen is hidden; timeupdate keeps lastSeenAt fresh only while
+  // the playhead is actually moving.
+  const speakerProgressRef = useRef<{ time: number | null; sentAt: number }>({
+    time: null,
+    sentAt: 0,
+  });
+  const onRoomAutoplayOutcomeRef = useRef(onRoomAutoplayOutcome);
+  onRoomAutoplayOutcomeRef.current = onRoomAutoplayOutcome;
   const [isDownloading, setIsDownloading] = useState(false);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
+
+  const emitPlayEvent = useCallback(
+    (type: "play_started" | "play_completed", id: string, playId?: string | null) => {
+      if (roomSpeaker?.code) {
+        reportRoomPlayEvent(
+          roomSpeaker.code,
+          type === "play_started" ? "room_play_started" : "room_play_completed",
+          id,
+          playId,
+        );
+        return;
+      }
+      reportPlayEvent(type, id, playId);
+    },
+    [roomSpeaker],
+  );
+
+  // Expose a function to apply a prefetched track and play it synchronously within
+  // a user gesture. This maintains autoplay permission across track changes.
+  // Returns true if the track was applied and play() was initiated successfully.
+  useEffect(() => {
+    if (unlockAutoplayRef) {
+      unlockAutoplayRef.current = (trackId: string, cachedUrl: string) => {
+        const audio = audioRef.current;
+        if (!audio) return false;
+
+        // Apply the cached source synchronously within the user gesture.
+        // DO NOT call setAudioSrc here - it schedules a React update that will
+        // interrupt the play() call by resetting the audio element.
+        audio.src = cachedUrl;
+        loadedTrackIdRef.current = trackId;
+        audio.currentTime = 0;
+        audio.volume = isMuted ? 0 : volume;
+
+        // Call play() synchronously to maintain the user-gesture-initiated playback
+        keepPlayingRef.current = true;
+        const playPromise = audio.play();
+
+        if (playPromise) {
+          playPromise
+            .then(() => {
+              setIsPlaying(true);
+              keepPlayingRef.current = true;
+              // The audioSrc React state is intentionally not synced here to avoid
+              // triggering a re-render that would reset the audio element mid-playback.
+              // The state will naturally sync when the track fully loads via the effect.
+            })
+            .catch(() => {
+              setIsPlaying(false);
+              keepPlayingRef.current = false;
+              setPlaybackError("Autoplay was prevented by your browser. Press play to start.");
+              recordAutoplayFailure();
+              toast({
+                title: "Autoplay blocked",
+                description:
+                  "Your browser prevented automatic playback. Press play to start listening.",
+              });
+            });
+        }
+
+        return true;
+      };
+    }
+    return () => {
+      if (unlockAutoplayRef) {
+        unlockAutoplayRef.current = null;
+      }
+    };
+  }, [unlockAutoplayRef, isMuted, volume]);
 
   useEffect(() => {
     setVolume(readStoredVolume());
@@ -832,28 +1107,132 @@ export function AudioPlayer(props: AudioPlayerProps) {
     };
   }, []);
 
+  // Clear the media element's "user gesture lock" on the first interaction.
+  // Chromium blocks audible autoplay unless the element's lock is cleared by
+  // calling play()/load() within a user gesture (chromium docs/media/autoplay.md).
+  // On iOS the reliable unlock is a gesture-initiated play(); we mute+play+pause
+  // so we do not audibly start playback from the unlock itself.
+  useEffect(() => {
+    let unlocked = false;
+    const unlock = () => {
+      if (unlocked) return;
+      unlocked = true;
+      const audio = audioRef.current;
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      // A click that leaves the room must not stop audio that is already playing.
+      if (!audio || !audio.paused) return;
+      const wasMuted = audio.muted;
+      audio.muted = true;
+      try {
+        // jsdom's play() returns undefined; browsers return a Promise.
+        void Promise.resolve(audio.play())
+          .then(() => {
+            audio.pause();
+            audio.muted = wasMuted;
+          })
+          .catch(() => {
+            audio.muted = wasMuted;
+            audio.load();
+          });
+      } catch {
+        audio.muted = wasMuted;
+        audio.load();
+      }
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
   const audioFile = track?.audioFiles?.length ? selectBestAudioFile(track.audioFiles) : null;
   const [audioSrc, setAudioSrc] = useState<string | undefined>(undefined);
+  const audioSrcRef = useRef(audioSrc);
+  audioSrcRef.current = audioSrc;
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const playbackErrorRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!audioFile || !track) {
-      loadedTrackIdRef.current = null;
-      setAudioSrc(undefined);
-      setPlaybackError(null);
+  // The fixed player grows when autoplay is blocked. Publish that extra height
+  // so page padding can scroll the last rows clear of the bar.
+  useLayoutEffect(() => {
+    const node = playbackErrorRef.current;
+    if (!node) {
+      document.body.style.removeProperty("--player-error-height");
       return;
     }
 
-    const trackId = track.id;
+    const apply = () => {
+      document.body.style.setProperty("--player-error-height", `${node.offsetHeight}px`);
+    };
+    apply();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(apply);
+    observer?.observe(node);
+    return () => {
+      observer?.disconnect();
+      document.body.style.removeProperty("--player-error-height");
+    };
+  }, [playbackError]);
+
+  const trackId = track?.id;
+
+  useEffect(() => {
+    if (!audioFile || !trackId) {
+      loadedTrackIdRef.current = null;
+      pendingAudioSrcRef.current = null;
+      setAudioSrc(undefined);
+      setPlaybackError(null);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.removeAttribute("src");
+        audioRef.current.load();
+      }
+      setIsPlaying(false);
+      setCurrentTime(0);
+      return;
+    }
+
+    // If the track is already loaded (e.g., by synchronous unlock), skip to avoid
+    // interrupting ongoing playback with a redundant source update.
+    if (loadedTrackIdRef.current === trackId) {
+      return;
+    }
+
+    // Prefetched / already-resolved URL: apply synchronously so auto-advance
+    // does not blank <audio src> and wait on async storage/network.
+    // Room speaker grants use audioSrcOverride the same way. Do not mark the
+    // track loaded until that URL is the committed state — otherwise autoplay
+    // calls play() on the track that just ended and then drops the token.
+    const cachedUrl = peekCachedPlaybackUrl(trackId);
+    const directUrl = cachedUrl || audioSrcOverride || null;
+    if (directUrl) {
+      pendingAudioSrcRef.current = { trackId, url: directUrl };
+      if (audioSrcRef.current === directUrl) {
+        loadedTrackIdRef.current = trackId;
+      } else {
+        loadedTrackIdRef.current = null;
+        setAudioSrc(directUrl);
+        setPlaybackError(null);
+      }
+      return () => {
+        if (cachedUrl) revokePlaybackAudioUrl(trackId);
+      };
+    }
+
+    pendingAudioSrcRef.current = null;
     loadedTrackIdRef.current = null;
     setAudioSrc(undefined);
     setPlaybackError(null);
 
     let cancelled = false;
+
     void resolveTrackPlaybackSource(trackId)
       .then((url) => {
         if (cancelled) return;
         if (url) {
+          pendingAudioSrcRef.current = { trackId, url };
           loadedTrackIdRef.current = trackId;
           setAudioSrc(url);
           setPlaybackError(null);
@@ -875,7 +1254,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       cancelled = true;
       revokePlaybackAudioUrl(trackId);
     };
-  }, [audioFile, track?.id]);
+  }, [audioFile, trackId, audioSrcOverride]);
 
   // When going offline while a track is playing, proactively swap to the
   // cached blob URL so playback continues seamlessly.  Falls back to
@@ -885,41 +1264,56 @@ export function AudioPlayer(props: AudioPlayerProps) {
     const wasOnline = prevOnlineRef.current;
     prevOnlineRef.current = isOnline;
 
-    if (
-      wasOnline &&
-      !isOnline &&
-      track &&
-      audioRef.current &&
-      !audioRef.current.paused &&
-      audioSrc
-    ) {
-      resolvePlaybackAudioUrl(track.id).then((offlineUrl) => {
-        if (offlineUrl && audioRef.current && loadedTrackIdRef.current === track.id) {
-          const savedTime = audioRef.current.currentTime;
-          const wasPlaying = !audioRef.current.paused;
-          audioRef.current.src = offlineUrl;
-          audioRef.current.currentTime = savedTime;
-          if (wasPlaying) {
-            void audioRef.current.play();
-          }
-          setAudioSrc(offlineUrl);
-          setPlaybackError(null);
-        }
+    const audio = audioRef.current;
+    if (!wasOnline || isOnline || !trackId || !audio || !audioSrc) return;
+
+    // Already on a local blob — no network dependency, do not interrupt.
+    if (audioSrc.startsWith("blob:")) return;
+
+    const shouldResume = keepPlayingRef.current || !audio.paused;
+    if (!shouldResume) return;
+
+    const savedTime = audio.currentTime;
+
+    resolvePlaybackAudioUrl(trackId).then((offlineUrl) => {
+      if (!offlineUrl || !audioRef.current || loadedTrackIdRef.current !== trackId) {
         // No blob — let handleError deal with it when buffer runs out
-      });
-    }
-  }, [isOnline, track, audioSrc]);
+        return;
+      }
+      swapPlaybackSource(audioRef.current, offlineUrl, savedTime, shouldResume);
+      setAudioSrc(offlineUrl);
+      setPlaybackError(null);
+    });
+  }, [isOnline, trackId, audioSrc]);
 
   useEffect(() => {
     if (
       audioRef.current &&
       track &&
-      audioSrc &&
-      loadedTrackIdRef.current === track.id &&
+      isPlaybackSourceReady(
+        track.id,
+        audioSrc,
+        loadedTrackIdRef.current,
+        pendingAudioSrcRef.current,
+      ) &&
       playbackToken !== previousPlaybackTokenRef.current
     ) {
+      loadedTrackIdRef.current = track.id;
       previousPlaybackTokenRef.current = playbackToken;
-      setIsPlaying(false);
+      // Room speaker playback is handled by the room effect below. The personal
+      // autoplay path would toast, paint the red line, and open the guide dialog
+      // for the same blocked play().
+      const shouldAutoPlay =
+        !roomSpeaker && (wantsAutoPlayRef?.current || !isManualPlayRef.current);
+      if (wantsAutoPlayRef) {
+        wantsAutoPlayRef.current = false;
+      }
+      // Only clear the "playing" flag when NOT auto-advancing. Keeping it set
+      // through gapless transitions keeps navigator.mediaSession in "playing",
+      // so background audio isn't dropped on lock screens.
+      if (!shouldAutoPlay) {
+        setIsPlaying(false);
+      }
       setCurrentTime(0);
       if (track.id !== previousTrackIdRef.current) {
         previousTrackIdRef.current = track.id;
@@ -932,20 +1326,25 @@ export function AudioPlayer(props: AudioPlayerProps) {
         setDuration(audioRef.current.duration);
       }
       audioRef.current.volume = isMuted ? 0 : volume;
-      const shouldAutoPlay = wantsAutoPlayRef?.current || !isManualPlayRef.current;
-      if (wantsAutoPlayRef) {
-        wantsAutoPlayRef.current = false;
-      }
       if (shouldAutoPlay) {
+        keepPlayingRef.current = true;
         audioRef.current.currentTime = 0;
         const playPromise = audioRef.current.play();
         if (playPromise !== undefined) {
           playPromise
             .then(() => {
               setIsPlaying(true);
+              keepPlayingRef.current = true;
+              if (track && playStartedForTrackRef.current !== track.id) {
+                playStartedForTrackRef.current = track.id;
+                playCompletedForTrackRef.current = null;
+                playIdRef.current = generatePlayId();
+                emitPlayEvent("play_started", track.id, playIdRef.current);
+              }
             })
             .catch(() => {
               setIsPlaying(false);
+              keepPlayingRef.current = false;
               setPlaybackError("Autoplay was prevented by your browser. Press play to start.");
               recordAutoplayFailure();
               toast({
@@ -958,7 +1357,17 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
       isManualPlayRef.current = false;
     }
-  }, [track?.id, audioSrc, playbackToken, volume, isMuted]);
+  }, [
+    trackId,
+    track,
+    audioSrc,
+    playbackToken,
+    volume,
+    isMuted,
+    wantsAutoPlayRef,
+    emitPlayEvent,
+    roomSpeaker,
+  ]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -975,12 +1384,21 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
     try {
       if (wasPlaying) {
+        keepPlayingRef.current = false;
         audioRef.current.pause();
       } else {
+        keepPlayingRef.current = true;
         await audioRef.current.play();
+        if (track && playStartedForTrackRef.current !== track.id) {
+          playStartedForTrackRef.current = track.id;
+          playCompletedForTrackRef.current = null;
+          playIdRef.current = generatePlayId();
+          emitPlayEvent("play_started", track.id, playIdRef.current);
+        }
       }
-    } catch (error) {
+    } catch (_error) {
       setIsPlaying(!audioRef.current.paused);
+      keepPlayingRef.current = !audioRef.current.paused;
       setPlaybackError("Unable to play this track. Try again or check your connection.");
       toast({
         title: "Playback failed",
@@ -988,7 +1406,70 @@ export function AudioPlayer(props: AudioPlayerProps) {
         variant: "destructive",
       });
     }
-  }, []);
+  }, [track, emitPlayEvent]);
+
+  // Room speaker: honor server play/pause. Wait until the committed audioSrc
+  // is this track — play() on the song that just ended spends the gesture
+  // token and the next URL stays silent. A blocked play() leaves the room
+  // paused with one explanation and does not report playback.
+  useEffect(() => {
+    if (!roomSpeaker || roomPlaying === null || !audioRef.current) return;
+    const audio = audioRef.current;
+    if (!roomPlaying) {
+      keepPlayingRef.current = false;
+      audio.pause();
+      setIsPlaying(false);
+      return;
+    }
+    if (
+      !isPlaybackSourceReady(
+        track?.id,
+        audioSrc,
+        loadedTrackIdRef.current,
+        pendingAudioSrcRef.current,
+      )
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    keepPlayingRef.current = true;
+    try {
+      audio.currentTime = 0;
+    } catch {
+      // The element may not be seekable until metadata arrives.
+    }
+    let playResult: Promise<void> | void;
+    try {
+      playResult = audio.play();
+    } catch {
+      playResult = Promise.reject(new Error("play threw"));
+    }
+    void outcomeFromPlayCall(playResult).then((outcome) => {
+      if (cancelled) return;
+      const next = roomStateAfterAutoplay(outcome);
+      if (!next.isPlaying) {
+        setIsPlaying(false);
+        keepPlayingRef.current = false;
+        if (next.explanation) setPlaybackError(next.explanation);
+        onRoomAutoplayOutcomeRef.current?.(outcome);
+        return;
+      }
+      setPlaybackError(null);
+      setIsPlaying(true);
+      keepPlayingRef.current = true;
+      if (next.reportPlaying && track && playStartedForTrackRef.current !== track.id) {
+        playStartedForTrackRef.current = track.id;
+        playCompletedForTrackRef.current = null;
+        playIdRef.current = generatePlayId();
+        emitPlayEvent("play_started", track.id, playIdRef.current);
+      }
+      onRoomAutoplayOutcomeRef.current?.(outcome);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [roomSpeaker, roomPlaying, track, audioSrc, emitPlayEvent]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -1043,11 +1524,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
     navigator.mediaSession.setActionHandler("play", () => {
       if (audioRef.current?.paused) {
+        keepPlayingRef.current = true;
         void audioRef.current.play();
       }
     });
     navigator.mediaSession.setActionHandler("pause", () => {
       if (audioRef.current && !audioRef.current.paused) {
+        keepPlayingRef.current = false;
         audioRef.current.pause();
       }
     });
@@ -1071,6 +1554,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     });
     navigator.mediaSession.setActionHandler("stop", () => {
       const audio = audioRef.current;
+      keepPlayingRef.current = false;
       if (audio && !audio.paused) {
         audio.pause();
       }
@@ -1103,6 +1587,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       if (isSleepTimerExpired(sleepTimerEndAt)) {
         setSleepTimerEndAt(null);
         setSleepTimerLabel(null);
+        keepPlayingRef.current = false;
         if (audioRef.current) {
           audioRef.current.pause();
         }
@@ -1169,19 +1654,52 @@ export function AudioPlayer(props: AudioPlayerProps) {
         setCurrentTime(audio.currentTime);
         updateMediaSessionPositionState(audio);
       }
+      const sample = speakerProgressRef.current;
+      const decision = speakerProgressHeartbeatDue({
+        active: Boolean(roomSpeaker?.code),
+        paused: audio.paused,
+        seeking: audio.seeking,
+        currentTime: audio.currentTime,
+        previousTime: sample.time,
+        lastSentAtMs: sample.sentAt,
+        nowMs: Date.now(),
+      });
+      sample.time = decision.previousTime;
+      if (decision.due && roomSpeaker?.code) {
+        sample.sentAt = Date.now();
+        void sendHostHeartbeat(roomSpeaker.code).catch(() => {});
+      }
+      if (
+        trackId &&
+        playCompletedForTrackRef.current !== trackId &&
+        audio.duration > 0 &&
+        audio.currentTime / audio.duration >= 0.5
+      ) {
+        playCompletedForTrackRef.current = trackId;
+        emitPlayEvent("play_completed", trackId, playIdRef.current);
+      }
     };
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
+    const handlePlay = () => {
+      setIsPlaying(true);
+      keepPlayingRef.current = true;
+    };
+    const handlePause = () => {
+      // Spec fires pause before ended at natural completion. Ignore that pause
+      // while we intend to auto-advance so Media Session stays "playing".
+      // User pause clears keepPlayingRef first (see togglePlayPause).
+      if (keepPlayingRef.current) return;
+      setIsPlaying(false);
+    };
     const handleSeeking = () => {
       // Browser manages seeking state automatically via audio.seeking property
       // This listener is kept for potential future use (e.g., showing loading indicator)
     };
     const handleSeeked = () => {
-      const audio = audioRef.current;
-      if (!audio) return;
+      const audioElement = audioRef.current;
+      if (!audioElement) return;
       // Sync time after seeking completes - this is the authoritative event
-      setCurrentTime(audio.currentTime);
-      updateMediaSessionPositionState(audio);
+      setCurrentTime(audioElement.currentTime);
+      updateMediaSessionPositionState(audioElement);
     };
     const handleLoadedMetadata = () => {
       if (audioRef.current) {
@@ -1193,41 +1711,74 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
     };
     const handleEnded = () => {
-      setIsPlaying(false);
+      if (trackId && playCompletedForTrackRef.current !== trackId) {
+        playCompletedForTrackRef.current = trackId;
+        emitPlayEvent("play_completed", trackId, playIdRef.current);
+      }
       // Only auto-advance if not looping one track
-      if (loopMode !== "one") {
+      if (loopMode === "one") {
+        // Single-track loop: the `loop` attribute restarts it automatically.
+        return;
+      }
+      if (hasNext) {
+        // Auto-advance: keep the "playing" state (and Media Session) continuous
+        // through the transition so background audio isn't dropped on lock
+        // screens.
+        keepPlayingRef.current = true;
         onNext();
+      } else {
+        // End of queue: actually stop.
+        setIsPlaying(false);
+        keepPlayingRef.current = false;
       }
     };
     const handleError = () => {
-      const audio = audioRef.current;
-      if (!audio?.error) return;
+      const audioElement = audioRef.current;
+      if (!audioElement?.error) return;
 
-      const errorCode = audio.error.code;
-      console.error(`Audio load error: ${audio.error.message} (code: ${errorCode})`);
+      const errorCode = audioElement.error.code;
+      console.error(`Audio load error: ${audioElement.error.message} (code: ${errorCode})`);
 
-      // For network errors while a track is loaded, try to recover from
-      // the offline cache before giving up.
-      // MEDIA_ERR_NETWORK === 2 — numeric constant instead of MediaError.MEDIA_ERR_NETWORK
-      // because jsdom does not expose the MediaError constructor.
-      if (errorCode === 2 && track) {
-        const savedTime = audio.currentTime;
-        const wasPlaying = !audio.paused;
+      // MEDIA_ERR_NETWORK (2) and MEDIA_ERR_SRC_NOT_SUPPORTED (4) often mean a
+      // stale/failed remote URL (expired presign, flaky mobile). Re-resolve a
+      // fresh URL, then fall back to the offline blob before giving up.
+      // Numeric codes (jsdom does not expose MediaError constants).
+      if ((errorCode === 2 || errorCode === 4) && trackId) {
+        const savedTime = audioElement.currentTime;
+        const shouldResume = keepPlayingRef.current || !audioElement.paused;
+        const previousSrc = audioElement.src;
 
-        resolvePlaybackAudioUrl(track.id).then((offlineUrl) => {
-          if (offlineUrl && audioRef.current && loadedTrackIdRef.current === track.id) {
-            audioRef.current.src = offlineUrl;
-            audioRef.current.currentTime = savedTime || 0;
-            if (wasPlaying) {
-              void audioRef.current.play();
+        invalidateRemotePlaybackUrl(trackId);
+
+        void resolveTrackPlaybackSource(trackId)
+          .then((freshUrl) => {
+            if (
+              freshUrl &&
+              freshUrl !== previousSrc &&
+              audioRef.current &&
+              loadedTrackIdRef.current === trackId
+            ) {
+              swapPlaybackSource(audioRef.current, freshUrl, savedTime || 0, shouldResume);
+              setAudioSrc(freshUrl);
+              setPlaybackError(null);
+              return;
             }
-            setAudioSrc(offlineUrl);
-            setPlaybackError(null);
-          } else {
+
+            return resolvePlaybackAudioUrl(trackId).then((offlineUrl) => {
+              if (offlineUrl && audioRef.current && loadedTrackIdRef.current === trackId) {
+                swapPlaybackSource(audioRef.current, offlineUrl, savedTime || 0, shouldResume);
+                setAudioSrc(offlineUrl);
+                setPlaybackError(null);
+              } else {
+                setPlaybackError(getMediaErrorMessage(errorCode));
+                setAudioSrc(undefined);
+              }
+            });
+          })
+          .catch(() => {
             setPlaybackError(getMediaErrorMessage(errorCode));
             setAudioSrc(undefined);
-          }
-        });
+          });
         return;
       }
 
@@ -1254,7 +1805,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  }, [onNext, loopMode, track, audioSrc]);
+  }, [onNext, loopMode, trackId, audioSrc, hasNext, emitPlayEvent, roomSpeaker]);
 
   const handleDownload = async () => {
     if (!track) return;
@@ -1317,17 +1868,27 @@ export function AudioPlayer(props: AudioPlayerProps) {
     // The seeked event will fire when seeking completes
   };
 
+  // Always mounted so the element's user-gesture lock can be unlocked on the
+  // first interaction, before any track is loaded.
+  const audioElement = (
+    <audio ref={audioRef} src={audioSrc} loop={loopMode === "one"} preload="auto" />
+  );
+
   if (!isVisible) {
-    return null;
+    return audioElement;
   }
 
   if (!track) {
     return (
-      <QueueOnlyPlayerBar
-        onClose={onClose}
-        onStartPlayback={onStartQueuePlayback}
-        hasQueuedPlayback={hasQueuedPlayback}
-      />
+      <>
+        {audioElement}
+        <QueueOnlyPlayerBar
+          chromeRef={chromeRef}
+          onClose={onClose}
+          onStartPlayback={onStartQueuePlayback}
+          hasQueuedPlayback={hasQueuedPlayback}
+        />
+      </>
     );
   }
 
@@ -1363,11 +1924,33 @@ export function AudioPlayer(props: AudioPlayerProps) {
   };
 
   return (
-    <div className="fixed bottom-16 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)] md:bottom-0">
+    <div
+      ref={chromeRef}
+      data-testid="player-chrome"
+      className="fixed bottom-16 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)] md:bottom-0"
+    >
       {playbackError ? (
-        <div data-testid="player-playback-error" className="px-4 py-3 text-sm text-destructive">
+        <div
+          ref={playbackErrorRef}
+          data-testid="player-playback-error"
+          className="px-4 py-3 text-sm text-destructive"
+        >
           <p className="container">{playbackError}</p>
         </div>
+      ) : null}
+      {/* Keep the sheet-sized cover decoded while the player is mounted. The
+          now-playing sheet unmounts on close; without this warm image the 320px
+          URL is fetched again on every reopen (mini bar uses a smaller size). */}
+      {track.coverImage?.objectKey ? (
+        <img
+          data-testid="player-warm-cover"
+          src={coverImageUrl(track.coverImage.objectKey, nowPlayingCoverPixelSize)}
+          alt=""
+          aria-hidden
+          loading="eager"
+          decoding="async"
+          className="pointer-events-none absolute h-0 w-0 opacity-0"
+        />
       ) : null}
       <PlayerMiniBar {...chromeProps} onOpenNowPlaying={() => setIsNowPlayingOpen(true)} />
       <PlayerNowPlayingSheet
@@ -1379,7 +1962,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         <PlayerDesktopBar {...chromeProps} />
       </div>
 
-      <audio ref={audioRef} src={audioSrc} loop={loopMode === "one"} preload="metadata" />
+      {audioElement}
     </div>
   );
 }
@@ -1388,16 +1971,19 @@ export function AudioPlayer(props: AudioPlayerProps) {
  * Minimal player chrome when the queue has items but nothing is playing yet (cold queue actions).
  */
 function QueueOnlyPlayerBar({
+  chromeRef,
   onClose,
   onStartPlayback,
   hasQueuedPlayback,
 }: {
+  chromeRef: React.RefObject<HTMLDivElement | null>;
   onClose: () => void;
   onStartPlayback?: () => void;
   hasQueuedPlayback: boolean;
 }) {
   return (
     <div
+      ref={chromeRef}
       className="fixed bottom-16 left-0 right-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur-sm pb-[env(safe-area-inset-bottom)] md:bottom-0"
       data-testid="player-queue-only-bar"
     >
@@ -1475,47 +2061,95 @@ function QueueSectionHeading({ children }: { children: ReactNode }) {
   );
 }
 
+function measureScrollMargin(scrollElement: HTMLElement, listElement: HTMLElement): number {
+  // Prefer offsetTop relative to the scrollport when it is the offsetParent
+  // (queue-sheet-scroll is position:relative). This avoids stale getBoundingClientRect
+  // reads against detached fallback list nodes after the virtualizer mounts.
+  let offset = 0;
+  let node: HTMLElement | null = listElement;
+  while (node && node !== scrollElement) {
+    offset += node.offsetTop;
+    const parent = node.offsetParent as HTMLElement | null;
+    if (parent === scrollElement) {
+      return offset;
+    }
+    if (!parent || !scrollElement.contains(parent)) {
+      break;
+    }
+    node = parent;
+  }
+
+  const scrollRect = scrollElement.getBoundingClientRect();
+  const listRect = listElement.getBoundingClientRect();
+  return listRect.top - scrollRect.top + scrollElement.scrollTop;
+}
+
 function VirtualQueueTrackList({
   tracks,
   onRemoveTrack,
+  onPlayTrack,
   parentRef,
   hydrateTracksForDisplay,
 }: {
   tracks: Track[];
   onRemoveTrack: (index: number) => void;
+  onPlayTrack?: (index: number) => void;
   parentRef: React.RefObject<HTMLDivElement | null>;
   hydrateTracksForDisplay: (ids: string[]) => void;
 }) {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [listElement, setListElement] = useState<HTMLDivElement | null>(null);
   const [scrollReadyEpoch, setScrollReadyEpoch] = useState(0);
+  const [scrollMargin, setScrollMargin] = useState(0);
+
+  const setListRef = useCallback((node: HTMLDivElement | null) => {
+    listRef.current = node;
+    setListElement(node);
+  }, []);
 
   useLayoutEffect(() => {
     const scrollElement = parentRef.current;
-    if (!scrollElement) return;
+    if (!scrollElement || !listElement) return;
 
     let hasMeasured = scrollElement.clientHeight > 0;
-    const markMeasured = () => {
+    const syncMetrics = () => {
+      // Always read the live list node — fallback → virtual swaps the DOM node.
+      const liveList = listRef.current ?? listElement;
+      setScrollMargin(measureScrollMargin(scrollElement, liveList));
       if (hasMeasured) return;
       if ((parentRef.current?.clientHeight ?? 0) <= 0) return;
       hasMeasured = true;
       setScrollReadyEpoch((epoch) => epoch + 1);
     };
 
-    markMeasured();
-    const observer = new ResizeObserver(markMeasured);
+    syncMetrics();
+    const observer = new ResizeObserver(syncMetrics);
     observer.observe(scrollElement);
-    const frame = requestAnimationFrame(markMeasured);
+    observer.observe(listElement);
+    scrollElement.addEventListener("scroll", syncMetrics, { passive: true });
+
+    // Second rAF catches sibling virtualizers committing their total heights
+    // after this list's first layout pass.
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      syncMetrics();
+      raf2 = requestAnimationFrame(syncMetrics);
+    });
 
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
       observer.disconnect();
+      scrollElement.removeEventListener("scroll", syncMetrics);
     };
-  }, [parentRef, tracks.length]);
+  }, [parentRef, listElement, tracks.length]);
 
   const virtualizer = useVirtualizer({
     count: tracks.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 60,
     overscan: 10,
+    scrollMargin,
     rangeExtractor: defaultRangeExtractor,
   });
   void scrollReadyEpoch;
@@ -1530,7 +2164,7 @@ function VirtualQueueTrackList({
       .slice(0, 30)
       .map((_, index) => index)
       .join(",");
-  }, [virtualItems, tracks.length]);
+  }, [virtualItems, tracks]);
 
   useEffect(() => {
     const indices =
@@ -1547,21 +2181,23 @@ function VirtualQueueTrackList({
 
   if (virtualItems.length === 0 && tracks.length > 0) {
     return (
-      <>
+      <div ref={setListRef}>
         {tracks.slice(0, 30).map((track, index) => (
           <QueueTrackItem
             key={`${track.id}-${index}`}
             track={track}
             isCurrentlyPlaying={false}
             onRemove={() => onRemoveTrack(index)}
+            onPlay={onPlayTrack ? () => onPlayTrack(index) : undefined}
           />
         ))}
-      </>
+      </div>
     );
   }
 
   return (
     <div
+      ref={setListRef}
       style={{
         height: `${virtualizer.getTotalSize()}px`,
         width: "100%",
@@ -1581,13 +2217,14 @@ function VirtualQueueTrackList({
               left: 0,
               width: "100%",
               height: `${virtualItem.size}px`,
-              transform: `translateY(${virtualItem.start}px)`,
+              transform: `translateY(${virtualItem.start - scrollMargin}px)`,
             }}
           >
             <QueueTrackItem
               track={track}
               isCurrentlyPlaying={false}
               onRemove={() => onRemoveTrack(virtualItem.index)}
+              onPlay={onPlayTrack ? () => onPlayTrack(virtualItem.index) : undefined}
             />
           </div>
         );
@@ -1596,7 +2233,15 @@ function VirtualQueueTrackList({
   );
 }
 
-function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: string }) {
+function QueueSheet({
+  triggerClassName = "h-8 w-8 p-0",
+  isPlaying,
+  onTogglePlayPause,
+}: {
+  triggerClassName?: string;
+  isPlaying?: boolean;
+  onTogglePlayPause?: () => void;
+}) {
   const {
     upNext,
     spine,
@@ -1606,21 +2251,23 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
     playContext,
     removeTrackFromPlaylist,
     removeCurrentFromQueue,
+    playQueueTrack,
     hydrateTracksForDisplay,
   } = useAudioPlayer();
-  const upNextScrollRef = useRef<HTMLDivElement>(null);
-  const spineScrollRef = useRef<HTMLDivElement>(null);
+  const queueScrollRef = useRef<HTMLDivElement>(null);
   const [isOpen, setIsOpen] = useState(false);
+
+  const currentTrackId = currentTrack?.id;
 
   const queueSheetTrackIds = useMemo(() => {
     const ids: string[] = [];
-    if (currentTrack) ids.push(currentTrack.id);
+    if (currentTrackId) ids.push(currentTrackId);
     ids.push(...upNext.map((track) => track.id));
     if (spine.length < SPINE_VIRTUAL_THRESHOLD) {
       ids.push(...spine.map((track) => track.id));
     }
     return ids.join(",");
-  }, [currentTrack?.id, upNext, spine]);
+  }, [currentTrackId, upNext, spine]);
 
   useEffect(() => {
     if (!isOpen || queueSheetTrackIds.length === 0) return;
@@ -1649,6 +2296,20 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
     [removeTrackFromPlaylist, spinePosition],
   );
 
+  const playUpNextTrack = useCallback(
+    (index: number) => {
+      playQueueTrack({ zone: "upNext", index });
+    },
+    [playQueueTrack],
+  );
+
+  const playSpineTrack = useCallback(
+    (displayIndex: number) => {
+      playQueueTrack({ zone: "spine", index: spinePosition + 1 + displayIndex });
+    },
+    [playQueueTrack, spinePosition],
+  );
+
   const removeCurrentTrack = useCallback(() => {
     removeCurrentFromQueue();
   }, [removeCurrentFromQueue]);
@@ -1666,7 +2327,7 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
           <Icon name="list-bullet" className="h-4 w-4" />
         </Button>
       </SheetTrigger>
-      <SheetContent side="bottom" className="h-[80vh] flex flex-col">
+      <SheetContent side="bottom" className="h-[80vh] flex flex-col overflow-hidden p-2 sm:p-6">
         <SheetHeader className="flex-shrink-0">
           <SheetTitle>{sheetTitle}</SheetTitle>
           <SheetDescription className="sr-only">
@@ -1683,80 +2344,84 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
           ) : (
             <>
               {currentTrack ? (
-                <section>
+                <section className="flex-shrink-0">
                   <QueueSectionHeading>Now playing</QueueSectionHeading>
                   <QueueTrackItem
                     track={currentTrack}
                     isCurrentlyPlaying
+                    isPlaying={isPlaying}
                     onRemove={removeCurrentTrack}
+                    onTogglePlayPause={onTogglePlayPause}
                   />
                 </section>
               ) : null}
 
-              {upNext.length > 0 ? (
-                <section
-                  className={
-                    upNext.length >= UP_NEXT_VIRTUAL_THRESHOLD
-                      ? "flex-1 min-h-0 flex flex-col"
-                      : undefined
-                  }
+              {upNext.length > 0 || spine.length > 0 || spineTotal > 0 ? (
+                <div
+                  ref={queueScrollRef}
+                  data-testid="queue-sheet-scroll"
+                  className="relative flex-1 min-h-0 overflow-y-auto"
                 >
-                  <QueueSectionHeading>Up Next</QueueSectionHeading>
-                  {upNext.length >= UP_NEXT_VIRTUAL_THRESHOLD ? (
-                    <div ref={upNextScrollRef} className="flex-1 w-full min-h-0 overflow-y-auto">
-                      {isOpen ? (
-                        <VirtualQueueTrackList
-                          tracks={upNext}
-                          onRemoveTrack={removeUpNextTrack}
-                          parentRef={upNextScrollRef}
-                          hydrateTracksForDisplay={hydrateTracksForDisplay}
-                        />
-                      ) : null}
-                    </div>
-                  ) : (
-                    upNext.map((track, index) => (
-                      <QueueTrackItem
-                        key={`${track.id}-${index}`}
-                        track={track}
-                        isCurrentlyPlaying={false}
-                        onRemove={() => removeUpNextTrack(index)}
-                      />
-                    ))
-                  )}
-                </section>
-              ) : null}
-
-              {spine.length > 0 || spineTotal > 0 ? (
-                <section className="flex-1 min-h-0 flex flex-col">
-                  <QueueSectionHeading>{spineHeading}</QueueSectionHeading>
-                  {spine.length > 0 ? (
-                    spine.length >= SPINE_VIRTUAL_THRESHOLD ? (
-                      <div ref={spineScrollRef} className="flex-1 w-full min-h-0 overflow-y-auto">
-                        {isOpen ? (
+                  {upNext.length > 0 ? (
+                    <section>
+                      <QueueSectionHeading>Up Next</QueueSectionHeading>
+                      {upNext.length >= UP_NEXT_VIRTUAL_THRESHOLD ? (
+                        isOpen ? (
                           <VirtualQueueTrackList
-                            tracks={spine}
-                            onRemoveTrack={removeSpineTrack}
-                            parentRef={spineScrollRef}
+                            tracks={upNext}
+                            onRemoveTrack={removeUpNextTrack}
+                            onPlayTrack={playUpNextTrack}
+                            parentRef={queueScrollRef}
                             hydrateTracksForDisplay={hydrateTracksForDisplay}
                           />
-                        ) : null}
-                      </div>
-                    ) : (
-                      spine.map((track, index) => (
-                        <QueueTrackItem
-                          key={`${track.id}-${index}`}
-                          track={track}
-                          isCurrentlyPlaying={false}
-                          onRemove={() => removeSpineTrack(index)}
-                        />
-                      ))
-                    )
-                  ) : (
-                    <p className="px-4 py-3 text-sm text-muted-foreground">
-                      No more tracks in this queue.
-                    </p>
-                  )}
-                </section>
+                        ) : null
+                      ) : (
+                        upNext.map((track, index) => (
+                          <QueueTrackItem
+                            key={`${track.id}-${index}`}
+                            track={track}
+                            isCurrentlyPlaying={false}
+                            onRemove={() => removeUpNextTrack(index)}
+                            onPlay={() => playUpNextTrack(index)}
+                          />
+                        ))
+                      )}
+                    </section>
+                  ) : null}
+
+                  {spine.length > 0 || spineTotal > 0 ? (
+                    <section>
+                      <QueueSectionHeading>{spineHeading}</QueueSectionHeading>
+                      {spine.length > 0 ? (
+                        spine.length >= SPINE_VIRTUAL_THRESHOLD ? (
+                          isOpen ? (
+                            <VirtualQueueTrackList
+                              tracks={spine}
+                              onRemoveTrack={removeSpineTrack}
+                              onPlayTrack={playSpineTrack}
+                              parentRef={queueScrollRef}
+                              hydrateTracksForDisplay={hydrateTracksForDisplay}
+                            />
+                          ) : null
+                        ) : (
+                          spine.map((track, index) => (
+                            <QueueTrackItem
+                              key={`${track.id}-${index}`}
+                              track={track}
+                              isCurrentlyPlaying={false}
+                              onRemove={() => removeSpineTrack(index)}
+                              onPlay={() => playSpineTrack(index)}
+                            />
+                          ))
+                        )
+                      ) : (
+                        <p className="px-4 py-3 text-sm text-muted-foreground">
+                          No more tracks in this queue.
+                        </p>
+                      )}
+                    </section>
+                  ) : null}
+                </div>
               ) : null}
             </>
           )}
@@ -1764,6 +2429,12 @@ function QueueSheet({ triggerClassName = "h-8 w-8 p-0" }: { triggerClassName?: s
       </SheetContent>
     </Sheet>
   );
+}
+
+const SLEEP_TIMER_MENU_ATTR = "data-sleep-timer-menu";
+
+function isSleepTimerMenuTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest(`[${SLEEP_TIMER_MENU_ATTR}]`));
 }
 
 function SleepTimerControl({
@@ -1793,7 +2464,16 @@ function SleepTimerControl({
           ) : null}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-56 space-y-3">
+      {/* Toast viewport is z-100 so Undo stays above dialogs. This menu has to
+          paint above that toast; otherwise "Sleep timer set" covers Cancel.
+          pointer-events is set inline because the now-playing sheet writes
+          pointer-events: none on document.body, and a portaled menu inherits it. */}
+      <PopoverContent
+        align="end"
+        className="z-[110] w-56 space-y-3"
+        style={{ pointerEvents: "auto" }}
+        data-sleep-timer-menu=""
+      >
         <div>
           <p className="text-sm font-medium">Sleep timer</p>
           <p className="text-xs text-muted-foreground">Stop playback after the selected time.</p>
@@ -1825,12 +2505,36 @@ function QueueTrackItem({
   track,
   isCurrentlyPlaying,
   onRemove,
+  onPlay,
+  isPlaying,
+  onTogglePlayPause,
 }: {
   track: Track;
   isCurrentlyPlaying: boolean;
   onRemove: () => void;
+  onPlay?: () => void;
+  isPlaying?: boolean;
+  onTogglePlayPause?: () => void;
 }) {
   const coverImage = "coverImage" in track ? track.coverImage : null;
+
+  const thumbnail = (
+    <div className="flex-shrink-0 relative">
+      <TrackThumbnail coverImage={coverImage} alt={track.title} size="md" />
+      {isCurrentlyPlaying && (
+        <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
+          <Icon name="play" className="h-2 w-2 text-primary-foreground" />
+        </div>
+      )}
+    </div>
+  );
+
+  const info = (
+    <div className="flex-1 min-w-0">
+      <div className="font-medium text-sm truncate">{track.title}</div>
+      <div className="text-xs text-muted-foreground truncate">{track.artist.name}</div>
+    </div>
+  );
 
   return (
     <div
@@ -1838,19 +2542,32 @@ function QueueTrackItem({
         isCurrentlyPlaying ? "bg-primary/10 border-l-4 border-primary" : ""
       }`}
     >
-      <div className="flex-shrink-0 relative">
-        <TrackThumbnail coverImage={coverImage} alt={track.title} size="md" />
-        {isCurrentlyPlaying && (
-          <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
-            <Icon name="play" className="h-2 w-2 text-primary-foreground" />
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm truncate">{track.title}</div>
-        <div className="text-xs text-muted-foreground truncate">{track.artist.name}</div>
-      </div>
+      {onTogglePlayPause ? (
+        <button
+          type="button"
+          onClick={onTogglePlayPause}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left cursor-pointer"
+          aria-label={isPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
+        >
+          {thumbnail}
+          {info}
+        </button>
+      ) : onPlay ? (
+        <button
+          type="button"
+          onClick={onPlay}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left cursor-pointer"
+          aria-label={`Play ${track.title}`}
+        >
+          {thumbnail}
+          {info}
+        </button>
+      ) : (
+        <>
+          {thumbnail}
+          {info}
+        </>
+      )}
 
       <div className="flex-shrink-0">
         <Button

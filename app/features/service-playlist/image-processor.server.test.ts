@@ -17,6 +17,10 @@ vi.mock("#app/utils/cover-management.server", () => ({
   findOrCreateCoverImage: vi.fn(),
 }));
 
+vi.mock("#app/features/admin/cover-fetch.server", () => ({
+  smartAlbumInheritance: vi.fn(),
+}));
+
 function makePlaylistTrack(
   id: string,
   trackId: string,

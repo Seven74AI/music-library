@@ -11,12 +11,73 @@
     "react/jsx-no-useless-fragment": "warn",
     "react-hooks/exhaustive-deps": "warn",
     "eslint/no-await-in-loop": "off",
-    "eslint/no-unused-vars": "warn",
+    "eslint/no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
     "eslint/no-empty-pattern": "warn",
     "eslint/no-async-promise-executor": "warn",
     "eslint/no-control-regex": "warn",
-    "import/namespace": "warn"
+    "eslint/no-underscore-dangle": [
+      "warn",
+      {
+        "allow": [
+          "_count",
+          "_max",
+          "_all",
+          "_actionTypes",
+          "_counter",
+          "_mockStatus",
+          "_mockNextLongBreakAt",
+          "_mockLastQueueRun",
+          "_mockCreated",
+          "__dirname",
+          "__filename",
+          "__SW_MANIFEST",
+          "__reactRouterHdrActive"
+        ],
+        "allowFunctionParams": true
+      }
+    ],
+    "import/namespace": "warn",
+    "import/no-unassigned-import": [
+      "warn",
+      {
+        "allow": [
+          "**/*.css",
+          "dotenv/config",
+          "fake-indexeddb/auto",
+          "@testing-library/jest-dom/vitest",
+          "**/env.server*",
+          "**/db-setup*",
+          "**/custom-matchers*",
+          "**/local-storage-polyfill*",
+          "**/instrument.server*",
+          "**/reset.d*",
+          "source-map-support/register"
+        ]
+      }
+    ]
   },
+  "overrides": [
+    {
+      "files": ["tests/**", "**/*.test.ts", "**/*.test.tsx", "playwright.config.ts"],
+      "rules": {
+        "eslint/no-empty-pattern": "off",
+        "import/no-unassigned-import": "off"
+      }
+    },
+    {
+      "files": ["scripts/**", "prisma/**", "index.js", "prisma.config.ts", "types/**", "other/**"],
+      "rules": {
+        "import/no-unassigned-import": "off"
+      }
+    }
+  ],
   "env": {
     "builtin": true,
     "browser": true,

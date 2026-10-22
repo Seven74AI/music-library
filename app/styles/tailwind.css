@@ -32,7 +32,7 @@
   display: none;
 }
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --radius: 0.5rem;
@@ -251,7 +251,14 @@
 
 @utility container {
   margin-inline: auto;
-  padding-inline: 2rem;
+  /* Mobile: keep content close to the screen edge (max 8px) */
+  padding-inline: 0.5rem;
+
+  @media (width >= 640px) {
+    & {
+      padding-inline: 2rem;
+    }
+  }
 
   @media (width >= 1400px) {
     & {
@@ -266,6 +273,14 @@
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: hsl(var(--border));
+    border-color: var(--border);
   }
+}
+
+/* Radix sizes the ScrollArea content wrapper with `display: table`, which
+   ignores the viewport width. Vertical lists then grow a horizontal scrollbar
+   and touch scrolling gets stuck. These scroll areas only scroll vertically. */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+  min-width: 0 !important;
 }

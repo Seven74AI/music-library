@@ -21,6 +21,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       isPrimary: currentInstanceInfo.primaryInstance === instance,
     },
     cacheKey,
-    value: cache.get(cacheKey),
+    value: await cache.get(cacheKey),
   };
 }

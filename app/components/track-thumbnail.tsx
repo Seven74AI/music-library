@@ -10,6 +10,8 @@ interface TrackThumbnailProps {
   size?: keyof typeof sizeClasses;
   /** Override proxy resize dimensions (defaults to 2x the display size for retina). */
   pixelSize?: number;
+  /** Defaults to lazy for list rows; use eager for player-critical covers. */
+  loading?: "lazy" | "eager";
   className?: string;
 }
 
@@ -41,6 +43,7 @@ export function TrackThumbnail({
   alt = "Track cover",
   size = "md",
   pixelSize,
+  loading = "lazy",
   className,
 }: TrackThumbnailProps) {
   const sizeClass = sizeClasses[size];
@@ -56,7 +59,7 @@ export function TrackThumbnail({
         src={imageUrl}
         alt={alt}
         className={cn("rounded object-cover flex-shrink-0", sizeClass, className)}
-        loading="lazy"
+        loading={loading}
       />
     );
   }

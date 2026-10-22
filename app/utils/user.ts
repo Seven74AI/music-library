@@ -23,9 +23,9 @@ export function useUser() {
   return maybeUser;
 }
 
-type Action = "create" | "read" | "update" | "delete";
-type Entity = "user" | "note";
-type Access = "own" | "any" | "own,any" | "any,own";
+type Action = "create" | "read" | "update" | "delete" | "merge" | "restore";
+type Entity = "user" | "note" | "metadata" | "artist" | "album";
+type Access = "own" | "any" | "own,any" | "any,own" | "history";
 export type PermissionString = `${Action}:${Entity}` | `${Action}:${Entity}:${Access}`;
 
 export function parsePermissionString(permissionString: PermissionString) {
@@ -49,10 +49,10 @@ export function userHasPermission(
   const { action, entity, access } = parsePermissionString(permission);
   return user.roles.some((role) =>
     role.permissions.some(
-      (permission) =>
-        permission.entity === entity &&
-        permission.action === action &&
-        (!access || access.includes(permission.access)),
+      (rolePermission) =>
+        rolePermission.entity === entity &&
+        rolePermission.action === action &&
+        (!access || access.includes(rolePermission.access)),
     ),
   );
 }
@@ -60,4 +60,10 @@ export function userHasPermission(
 export function userHasRole(user: Pick<ReturnType<typeof useUser>, "roles"> | null, role: string) {
   if (!user) return false;
   return user.roles.some((r) => r.name === role);
+}
+
+export function userIsCuratorOrAdmin(
+  user: Pick<ReturnType<typeof useUser>, "roles"> | null | undefined,
+) {
+  return userHasRole(user ?? null, "curator") || userHasRole(user ?? null, "admin");
 }

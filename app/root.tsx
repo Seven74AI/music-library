@@ -10,23 +10,36 @@ import {
   Scripts,
   ScrollRestoration,
   useLoaderData,
+  useMatches,
+  useRouteLoaderData,
 } from "react-router";
 import { HoneypotProvider } from "remix-utils/honeypot/react";
 import { useToast } from "#app/components/toaster.tsx";
 import { useServiceWorkerUpdateToast } from "#app/hooks/use-service-worker-update-toast.tsx";
+import { initCuratorSync, cleanupCuratorSync } from "#app/features/curator/sync.client.ts";
+import { SessionRecoveryPrompt } from "#app/components/session-recovery-prompt.tsx";
+import { userIsCuratorOrAdmin } from "#app/utils/user.ts";
 import { type Route } from "./+types/root.ts";
 import appleTouchIconAssetUrl from "./assets/favicons/apple-touch-icon.png";
 import faviconAssetUrl from "./assets/favicons/favicon.svg";
+import { InRoomChip } from "./components/party-room/in-room-chip.tsx";
 import { AudioPlayerProvider, useAudioPlayer } from "./components/audio-player-provider";
+import { roomChromeScrollClearance } from "./components/pwa/install-app-banner.tsx";
 import { AutoplayGuideDialog } from "./components/autoplay-guide-dialog";
 import { BottomNav } from "./components/bottom-nav.tsx";
-import { OfflineAwareErrorBoundary } from "./components/offline/offline-aware-error-boundary.tsx";
+import { DesktopNav } from "./components/desktop-nav.tsx";
+import { RootErrorBoundary } from "./components/root-error-boundary.tsx";
 import { OfflineStatusBanner } from "./components/offline/offline-status-banner.tsx";
+import { PullToRefreshProvider } from "./components/pull-to-refresh.tsx";
 import { EpicProgress } from "./components/progress-bar.tsx";
 import { RouteHydrateFallback } from "./components/route-hydrate-fallback.tsx";
 import { href as iconsHref } from "./components/ui/icon.tsx";
 import { Icon } from "./components/ui/icon.tsx";
+import { DuplicatePlaylistDialogProvider } from "./components/duplicate-playlist-dialog.tsx";
 import { Toaster } from "./components/ui/toaster.tsx";
+import { maybeRedirectLoggedOutGuestToOpenRoom } from "./features/party-room/guest-return.server.ts";
+import { PartyRoomProvider } from "./features/party-room/party-room-provider.tsx";
+import { RoomSpeakerBridge } from "./components/party-room/room-speaker-bridge.tsx";
 import { offlineClientMiddleware } from "./middleware/offline-client.middleware.client.ts";
 import { ThemeSwitch, useOptionalTheme } from "./routes/resources+/theme-switch.tsx";
 import tailwindStyleSheetUrl from "./styles/tailwind.css?url";
@@ -52,6 +65,12 @@ import { useOptionalUser } from "./utils/user.ts";
 const LazyUserDropdown = lazy(() =>
   import("./components/user-dropdown.tsx").then((m) => ({
     default: m.UserDropdown,
+  })),
+);
+
+const LazyHeaderRoleMenus = lazy(() =>
+  import("./components/header-role-menus.tsx").then((m) => ({
+    default: m.HeaderRoleMenus,
   })),
 );
 
@@ -100,6 +119,11 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     type: "getUserId",
     desc: "getUserId in root",
   });
+
+  // Same browser, open guest seat: re-enter the room without a Room Code.
+  if (!userId) {
+    await maybeRedirectLoggedOutGuestToOpenRoom(request);
+  }
 
   const user = userId
     ? await time(
@@ -166,11 +190,13 @@ export const clientMiddleware: Route.ClientMiddlewareFunction[] = [offlineClient
 
 export const headers: Route.HeadersFunction = pipeHeaders;
 
+const EMPTY_ENV: Record<string, string | undefined> = {};
+
 function Document({
   children,
   nonce,
   theme = "light",
-  env = {},
+  env = EMPTY_ENV,
 }: {
   children: React.ReactNode;
   /** Real nonce on SSR; `""` on the client (matches browser nonce hiding). */
@@ -229,6 +255,12 @@ function Document({
           }}
         />
         <ScrollRestoration nonce={nonce} />
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `window.__reactRouterHdrActive = true`,
+          }}
+        />
         <Scripts nonce={nonce} />
       </body>
     </html>
@@ -237,11 +269,11 @@ function Document({
 
 export function Layout({ children }: { children: React.ReactNode }) {
   // if there was an error running the loader, data could be missing
-  const data = useLoaderData<typeof loader | null>();
+  const loaderData = useLoaderData<typeof loader | null>();
   const nonce = useNonce();
   const theme = useOptionalTheme();
   return (
-    <Document nonce={nonce} theme={theme} env={data?.ENV}>
+    <Document nonce={nonce} theme={theme} env={loaderData?.ENV}>
       {children}
     </Document>
   );
@@ -255,9 +287,29 @@ export function Layout({ children }: { children: React.ReactNode }) {
  * Player idle:  64px  (bottom nav only)
  * Player active: ~126px (bottom nav + mini-bar)
  */
+function usePartyRoomGuestShell() {
+  // Prefer loader `guestShell` from `/rooms/:code` so logged-in hub is not forced into guest chrome
+  // when child guest routes also match the URL. (Do not read `UIMatch.data` — not typed on RR matches.)
+  // IMPORTANT: call every hook unconditionally — returning before useMatches() broke Rules of Hooks
+  // when navigating /rooms → /rooms/:code after Create room (Safari: "t.length" / Chrome: reading 'length').
+  const roomRouteData = useRouteLoaderData("routes/rooms.$code") as
+    | { guestShell?: boolean }
+    | undefined;
+  const matches = useMatches();
+
+  if (roomRouteData?.guestShell === true) return true;
+  if (roomRouteData?.guestShell === false) return false;
+
+  return matches.some((match) => {
+    const handle = match.handle as { partyRoomGuestShell?: boolean } | undefined;
+    return handle?.partyRoomGuestShell === true;
+  });
+}
+
 function ShellLayout() {
+  const guestShell = usePartyRoomGuestShell();
   const { isPlayerVisible } = useAudioPlayer();
-  const bottomBarHeight = isPlayerVisible ? "126px" : "64px";
+  const bottomBarHeight = guestShell ? "0px" : isPlayerVisible ? "126px" : "64px";
 
   useEffect(() => {
     document.body.style.setProperty("--bottom-bar-height", bottomBarHeight);
@@ -266,8 +318,26 @@ function ShellLayout() {
     };
   }, [bottomBarHeight]);
 
-  const data = useLoaderData<typeof loader>();
+  const loaderData = useLoaderData<typeof loader>();
   const user = useOptionalUser();
+
+  // Party Room Guest Shell — minified chrome (Room + Search only); no library nav / personal player.
+  if (guestShell) {
+    return (
+      <div className="flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-muted/30">
+        <OfflineStatusBanner />
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50"
+        >
+          Skip to content
+        </a>
+        <div className="flex flex-1 flex-col" id="main-content">
+          <Outlet />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col justify-between">
@@ -279,24 +349,31 @@ function ShellLayout() {
         Skip to content
       </a>
       <header className="container py-6" role="banner">
-        <nav className="flex flex-wrap items-center justify-between gap-2 sm:flex-nowrap sm:gap-4 md:gap-8">
+        <nav className="flex items-center justify-between gap-3 md:gap-4">
           <Logo />
-          <div className="ml-auto hidden max-w-sm flex-1 sm:block">
+          <DesktopNav />
+          <div className="ml-auto hidden min-w-0 max-w-sm flex-1 sm:block">
             <Link
               to="/search"
               className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm text-muted-foreground hover:border-foreground/50 hover:text-foreground transition-colors"
             >
-              <Icon name="magnifying-glass" className="h-4 w-4" />
-              <span>Search tracks, albums, artists...</span>
+              <Icon name="magnifying-glass" className="h-4 w-4 shrink-0" />
+              <span className="truncate">Search tracks, albums, artists...</span>
             </Link>
           </div>
-          <div className="flex items-center gap-4 sm:gap-6 md:gap-10">
-            <ThemeSwitch userPreference={data.requestInfo.userPrefs.theme} />
+          <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
+            {user ? <InRoomChip /> : null}
+            {user ? (
+              <Suspense fallback={null}>
+                <LazyHeaderRoleMenus />
+              </Suspense>
+            ) : null}
+            <ThemeSwitch userPreference={loaderData.requestInfo.userPrefs.theme} />
             {user ? (
               <Suspense fallback={null}>
                 <LazyNotificationBell
-                  notifications={data.notifications}
-                  unreadCount={data.unreadNotificationCount}
+                  notifications={loaderData.notifications}
+                  unreadCount={loaderData.unreadNotificationCount}
                 />
               </Suspense>
             ) : null}
@@ -306,31 +383,21 @@ function ShellLayout() {
               </Suspense>
             ) : null}
           </div>
-          <div className="block w-full sm:hidden">
-            <Link
-              to="/search"
-              className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm text-muted-foreground hover:border-foreground/50 hover:text-foreground transition-colors"
-            >
-              <Icon name="magnifying-glass" className="h-4 w-4" />
-              <span>Search</span>
-            </Link>
-          </div>
         </nav>
       </header>
 
-      <div
-        className="flex flex-1 flex-col pb-[calc(var(--bottom-bar-height)+env(safe-area-inset-bottom))] md:pb-0"
-        id="main-content"
-      >
+      <div className={`flex flex-1 flex-col ${roomChromeScrollClearance}`} id="main-content">
         <div className="container">
-          <Outlet />
+          <PullToRefreshProvider>
+            <Outlet />
+          </PullToRefreshProvider>
         </div>
       </div>
 
       <BottomNav />
 
       <footer
-        className="container py-8 pb-[calc(var(--bottom-bar-height)+2rem+env(safe-area-inset-bottom))] md:pb-8 text-center text-sm text-muted-foreground"
+        className="container py-8 pb-[calc(var(--bottom-bar-height)+var(--player-error-height,0px)+2rem+env(safe-area-inset-bottom))] md:pb-8 text-center text-sm text-muted-foreground"
         role="contentinfo"
       >
         <p>&copy; {new Date().getFullYear()} Music Library</p>
@@ -340,9 +407,17 @@ function ShellLayout() {
 }
 
 function App() {
-  const data = useLoaderData<typeof loader>();
+  const loaderData = useLoaderData<typeof loader>();
   useServiceWorkerUpdateToast();
-  useToast(data.toast);
+  useToast(loaderData.toast);
+
+  // Initialize curator sync on mount
+  useEffect(() => {
+    initCuratorSync();
+    return () => {
+      cleanupCuratorSync();
+    };
+  }, []);
 
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -356,11 +431,17 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <OpenImgContextProvider optimizerEndpoint="/resources/images" getSrc={getImgSrc}>
-        <AudioPlayerProvider>
-          <ShellLayout />
-          <Toaster />
-          <AutoplayGuideDialog />
-          <EpicProgress />
+        <AudioPlayerProvider userId={loaderData.user?.id ?? null}>
+          <PartyRoomProvider enabled>
+            <RoomSpeakerBridge />
+            <DuplicatePlaylistDialogProvider>
+              <ShellLayout />
+              {userIsCuratorOrAdmin(loaderData.user) ? <SessionRecoveryPrompt /> : null}
+              <Toaster />
+              <AutoplayGuideDialog />
+              <EpicProgress />
+            </DuplicatePlaylistDialogProvider>
+          </PartyRoomProvider>
         </AudioPlayerProvider>
       </OpenImgContextProvider>
     </QueryClientProvider>
@@ -370,16 +451,16 @@ function App() {
 function Logo() {
   return (
     <Link to="/" className="group grid leading-snug">
-      <span className="font-light transition group-hover:-translate-x-1">epic</span>
-      <span className="font-bold transition group-hover:translate-x-1">music</span>
+      <span className="font-light transition group-hover:-translate-x-1">7D</span>
+      <span className="font-bold transition group-hover:translate-x-1">Music</span>
     </Link>
   );
 }
 
 function AppWithProviders() {
-  const data = useLoaderData<typeof loader>();
+  const loaderData = useLoaderData<typeof loader>();
   return (
-    <HoneypotProvider {...data.honeyProps}>
+    <HoneypotProvider {...loaderData.honeyProps}>
       <App />
     </HoneypotProvider>
   );
@@ -389,4 +470,4 @@ export default AppWithProviders;
 
 // this is a last resort error boundary. There's not much useful information we
 // can offer at this level.
-export const ErrorBoundary = OfflineAwareErrorBoundary;
+export const ErrorBoundary = RootErrorBoundary;

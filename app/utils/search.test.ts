@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
+import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   searchAlbums,
@@ -17,6 +18,7 @@ describe("Search Utilities", () => {
     // Clean up test data
     await prisma.userPlaylistTrack.deleteMany();
     await prisma.userPlaylist.deleteMany();
+    await prisma.usageEvent.deleteMany();
     await prisma.userTrack.deleteMany();
     await prisma.track.deleteMany();
     await prisma.album.deleteMany();
@@ -45,7 +47,7 @@ describe("Search Utilities", () => {
       },
     });
 
-    const track = await prisma.track.create({
+    await prisma.track.create({
       data: {
         title: "Test Track",
         artistId: artist.id,
@@ -54,23 +56,126 @@ describe("Search Utilities", () => {
       },
     });
 
-    // Ensure FTS5 is populated (triggers should handle this automatically, but ensure for test reliability)
-    await prisma.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-			 SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-			 FROM "Track" t
-			 JOIN "Artist" a ON t."artistId" = a.id
-			 LEFT JOIN "Album" alb ON t."albumId" = alb.id
-			 WHERE t.id = ?`,
-      track.id,
-    );
-
     const result = await searchTracks("Test", 10);
 
     expect(result.results.length).toBeGreaterThan(0);
     expect(result.results[0]?.type).toBe("track");
     if (result.results[0]?.type === "track") {
       expect(result.results[0].title).toContain("Test");
+    }
+  });
+
+  it("should enrich track search results with playback and action fields", async () => {
+    const timestamp = Date.now();
+    const localService = await prisma.service.upsert({
+      where: { name: "local" },
+      update: {},
+      create: {
+        name: "local",
+        displayName: "Local Upload",
+        baseUrl: "",
+        isActive: true,
+      },
+    });
+
+    const user = await prisma.user.create({
+      data: {
+        email: `enriched-${timestamp}@test.com`,
+        username: `enriched-${timestamp}`,
+      },
+    });
+
+    const artist = await prisma.artist.create({
+      data: {
+        name: "Enriched Artist",
+        normalizedName: "enriched artist",
+      },
+    });
+
+    const track = await prisma.track.create({
+      data: {
+        title: "Enriched Track",
+        artistId: artist.id,
+        serviceId: localService.id,
+        externalId: `enriched-track-${timestamp}`,
+        serviceUrl: "https://youtube.com/watch?v=enriched",
+        duration: 240,
+      },
+    });
+
+    await prisma.trackAudioFile.create({
+      data: {
+        trackId: track.id,
+        objectKey: `audio/enriched-${timestamp}.mp3`,
+        format: "mp3",
+      },
+    });
+
+    const userTrack = await prisma.userTrack.create({
+      data: { userId: user.id, trackId: track.id },
+    });
+
+    const result = await searchTracks("Enriched", 10, undefined, true, user.id);
+
+    expect(result.results.length).toBeGreaterThan(0);
+    const trackResult = result.results.find((r) => r.type === "track" && r.id === track.id);
+    expect(trackResult?.type).toBe("track");
+    if (trackResult?.type === "track") {
+      expect(trackResult.serviceUrl).toBe("https://youtube.com/watch?v=enriched");
+      expect(trackResult.service).toEqual({
+        displayName: "Local Upload",
+        logoUrl: null,
+      });
+      expect(trackResult.audioFiles).toEqual([
+        expect.objectContaining({
+          objectKey: `audio/enriched-${timestamp}.mp3`,
+          format: "mp3",
+        }),
+      ]);
+      expect(trackResult.addedAt).toBe(userTrack.createdAt.toISOString());
+    }
+  });
+
+  it("indexes new tracks into tracks_fts via insert trigger", async () => {
+    const localService = await prisma.service.upsert({
+      where: { name: "local" },
+      update: {},
+      create: {
+        name: "local",
+        displayName: "Local Upload",
+        baseUrl: "",
+        isActive: true,
+      },
+    });
+
+    const artist = await prisma.artist.create({
+      data: {
+        name: "Trigger Artist",
+        normalizedName: "trigger artist",
+      },
+    });
+
+    const track = await prisma.track.create({
+      data: {
+        title: "UniqueTriggerIndexedTrack",
+        artistId: artist.id,
+        serviceId: localService.id,
+        externalId: `fts-trigger-track-${Date.now()}`,
+      },
+    });
+
+    const ftsRows = await prisma.$queryRawUnsafe<Array<{ track_id: string; title: string }>>(
+      `SELECT track_id, title FROM tracks_fts WHERE track_id = ?`,
+      track.id,
+    );
+    expect(ftsRows).toHaveLength(1);
+    expect(ftsRows[0]?.title).toBe("UniqueTriggerIndexedTrack");
+
+    const result = await searchTracks("UniqueTriggerIndexedTrack", 10);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]?.type).toBe("track");
+    if (result.results[0]?.type === "track") {
+      expect(result.results[0].id).toBe(track.id);
     }
   });
 
@@ -155,23 +260,13 @@ describe("Search Utilities", () => {
       },
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    const result = await searchAll("Test", 10, undefined, "all");
 
-    const result = await searchAll("Test", 10);
-
-    // At least one result should be found
-    if (result.results.length > 0) {
-      // If we have results, verify types
-      const hasTrack = result.results.some((r) => r.type === "track");
-      const hasAlbum = result.results.some((r) => r.type === "album");
-      const hasArtist = result.results.some((r) => r.type === "artist");
-      // At least one type should be present
-      expect(hasTrack || hasAlbum || hasArtist).toBe(true);
-    } else {
-      // If no results, it might be because FTS5 needs more time or data isn't indexed yet
-      // This is acceptable for now - the search functionality works, indexing might need time
-      expect(result.results).toHaveLength(0);
-    }
+    expect(result.results.length).toBeGreaterThan(0);
+    const hasTrack = result.results.some((r) => r.type === "track");
+    const hasAlbum = result.results.some((r) => r.type === "album");
+    const hasArtist = result.results.some((r) => r.type === "artist");
+    expect(hasTrack || hasAlbum || hasArtist).toBe(true);
   });
 
   it("should return empty results for empty query", async () => {
@@ -201,9 +296,8 @@ describe("Search Utilities", () => {
     });
 
     // Create multiple tracks
-    const trackIds: string[] = [];
     for (let i = 0; i < 5; i++) {
-      const track = await prisma.track.create({
+      await prisma.track.create({
         data: {
           title: `Test Track ${i}`,
           artistId: artist.id,
@@ -211,19 +305,7 @@ describe("Search Utilities", () => {
           externalId: `test-track-${i}-${Date.now()}`,
         },
       });
-      trackIds.push(track.id);
     }
-
-    // Ensure FTS5 is populated (triggers should handle this, but ensure for tests)
-    await prisma.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-			 SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-			 FROM "Track" t
-			 JOIN "Artist" a ON t."artistId" = a.id
-			 LEFT JOIN "Album" alb ON t."albumId" = alb.id
-			 WHERE t.id IN (${trackIds.map(() => "?").join(",")})`,
-      ...trackIds,
-    );
 
     const result = await searchTracks("Test", 2);
     expect(result.results.length).toBeLessThanOrEqual(2);
@@ -251,7 +333,7 @@ describe("Search Utilities", () => {
       },
     });
 
-    const metalTrack = await prisma.track.create({
+    await prisma.track.create({
       data: {
         title: "Metal",
         artistId: artist.id,
@@ -260,7 +342,7 @@ describe("Search Utilities", () => {
       },
     });
 
-    const metallicTrack = await prisma.track.create({
+    await prisma.track.create({
       data: {
         title: "Metallic",
         artistId: artist.id,
@@ -268,18 +350,6 @@ describe("Search Utilities", () => {
         externalId: `test-track-metallic-${Date.now()}`,
       },
     });
-
-    // Ensure FTS5 is populated (triggers should handle this, but ensure for tests)
-    await prisma.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-			 SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-			 FROM "Track" t
-			 JOIN "Artist" a ON t."artistId" = a.id
-			 LEFT JOIN "Album" alb ON t."albumId" = alb.id
-			 WHERE t.id IN (?, ?)`,
-      metalTrack.id,
-      metallicTrack.id,
-    );
 
     const result = await searchTracks("Metal", 10);
     expect(result.results.length).toBeGreaterThan(0);
@@ -478,29 +548,72 @@ describe("Search Utilities", () => {
         data: { userId: userB.id, trackId: trackB.id },
       });
 
-      // Ensure FTS5 is populated
-      await prisma.$executeRawUnsafe(
-        `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-         SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-         FROM "Track" t
-         JOIN "Artist" a ON t."artistId" = a.id
-         LEFT JOIN "Album" alb ON t."albumId" = alb.id
-         WHERE t.id IN (?, ?)`,
-        trackA.id,
-        trackB.id,
-      );
-
-      // User A should see only track A
-      const resultA = await searchTracks("User", 10, undefined, true, userA.id);
+      // User A should see only track A with scope='library'
+      const resultA = await searchTracks("User", 10, undefined, true, userA.id, "library");
       const trackIdsA = resultA.results.filter((r) => r.type === "track").map((r) => r.id);
       expect(trackIdsA).toContain(trackA.id);
       expect(trackIdsA).not.toContain(trackB.id);
 
-      // User B should see only track B
-      const resultB = await searchTracks("User", 10, undefined, true, userB.id);
+      // User B should see only track B with scope='library'
+      const resultB = await searchTracks("User", 10, undefined, true, userB.id, "library");
       const trackIdsB = resultB.results.filter((r) => r.type === "track").map((r) => r.id);
       expect(trackIdsB).toContain(trackB.id);
       expect(trackIdsB).not.toContain(trackA.id);
+    });
+
+    it("scope='all' should return all tracks even with userId", async () => {
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const user = await prisma.user.create({
+        data: {
+          email: `all-scope-${timestamp}@test.com`,
+          username: `all-scope-${timestamp}`,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "All Scope Artist",
+          normalizedName: "all scope artist",
+        },
+      });
+
+      const trackInLibrary = await prisma.track.create({
+        data: {
+          title: "In Library Track",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `in-library-track-${timestamp}`,
+        },
+      });
+
+      const trackNotInLibrary = await prisma.track.create({
+        data: {
+          title: "Not In Library Track",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `not-in-library-track-${timestamp}`,
+        },
+      });
+
+      await prisma.userTrack.create({
+        data: { userId: user.id, trackId: trackInLibrary.id },
+      });
+
+      // With scope='all', should return both tracks
+      const result = await searchTracks("Track", 10, undefined, true, user.id, "all");
+      const trackIds = result.results.filter((r) => r.type === "track").map((r) => r.id);
+      expect(trackIds).toContain(trackInLibrary.id);
+      expect(trackIds).toContain(trackNotInLibrary.id);
     });
 
     it("should return all tracks when userId is not provided (backward compat)", async () => {
@@ -542,17 +655,6 @@ describe("Search Utilities", () => {
       await prisma.userTrack.create({
         data: { userId: user.id, trackId: track.id },
       });
-
-      // Ensure FTS5 is populated
-      await prisma.$executeRawUnsafe(
-        `INSERT OR IGNORE INTO tracks_fts(track_id, title, artist_name, album_name)
-         SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
-         FROM "Track" t
-         JOIN "Artist" a ON t."artistId" = a.id
-         LEFT JOIN "Album" alb ON t."albumId" = alb.id
-         WHERE t.id = ?`,
-        track.id,
-      );
 
       // Without userId, should return the track (no scoping)
       const result = await searchTracks("Public", 10);
@@ -623,14 +725,14 @@ describe("Search Utilities", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // User A should see album A but not album B
-      const resultA = await searchAlbums("Library Album", 10, undefined, true, userA.id);
+      // User A should see album A but not album B with scope='library'
+      const resultA = await searchAlbums("Library Album", 10, undefined, true, userA.id, "library");
       const albumIdsA = resultA.results.filter((r) => r.type === "album").map((r) => r.id);
       expect(albumIdsA).toContain(albumA.id);
       expect(albumIdsA).not.toContain(albumB.id);
 
-      // User B should see album B but not album A
-      const resultB = await searchAlbums("Library Album", 10, undefined, true, userB.id);
+      // User B should see album B but not album A with scope='library'
+      const resultB = await searchAlbums("Library Album", 10, undefined, true, userB.id, "library");
       const albumIdsB = resultB.results.filter((r) => r.type === "album").map((r) => r.id);
       expect(albumIdsB).toContain(albumB.id);
       expect(albumIdsB).not.toContain(albumA.id);
@@ -690,14 +792,28 @@ describe("Search Utilities", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // User A should see artist A but not artist B
-      const resultA = await searchArtists("Library Artist", 10, undefined, true, userA.id);
+      // User A should see artist A but not artist B with scope='library'
+      const resultA = await searchArtists(
+        "Library Artist",
+        10,
+        undefined,
+        true,
+        userA.id,
+        "library",
+      );
       const artistIdsA = resultA.results.filter((r) => r.type === "artist").map((r) => r.id);
       expect(artistIdsA).toContain(artistA.id);
       expect(artistIdsA).not.toContain(artistB.id);
 
-      // User B should see artist B but not artist A
-      const resultB = await searchArtists("Library Artist", 10, undefined, true, userB.id);
+      // User B should see artist B but not artist A with scope='library'
+      const resultB = await searchArtists(
+        "Library Artist",
+        10,
+        undefined,
+        true,
+        userB.id,
+        "library",
+      );
       const artistIdsB = resultB.results.filter((r) => r.type === "artist").map((r) => r.id);
       expect(artistIdsB).toContain(artistB.id);
       expect(artistIdsB).not.toContain(artistA.id);
@@ -716,7 +832,7 @@ describe("Search Utilities", () => {
       });
 
       // Create a playlist for this user
-      const playlist = await prisma.userPlaylist.create({
+      await prisma.userPlaylist.create({
         data: {
           title: "My Favorite Songs",
           ownerId: user.id,
@@ -833,6 +949,28 @@ describe("Search Utilities", () => {
       expect(result.results).toHaveLength(0);
     });
 
+    it("guests cannot enumerate another user's playlists via searchAll", async () => {
+      const owner = await prisma.user.create({
+        data: {
+          username: `guest-enum-${Date.now()}`,
+          email: `guest-enum-${Date.now()}@example.com`,
+          name: "Guest Enum Owner",
+        },
+      });
+
+      await prisma.userPlaylist.create({
+        data: { title: "Private Playlist", ownerId: owner.id },
+      });
+
+      // type=playlists with no userId → empty (searchAll gates on userId)
+      const playlistsOnly = await searchAll("Private", 10, undefined, "playlists");
+      expect(playlistsOnly.results).toHaveLength(0);
+
+      // type=all with no userId → playlist results are never included
+      const allTypes = await searchAll("Private", 10, undefined, "all");
+      expect(allTypes.results.filter((r) => r.type === "playlist")).toHaveLength(0);
+    });
+
     it("should return empty results for empty query", async () => {
       const user = await prisma.user.create({
         data: {
@@ -849,5 +987,191 @@ describe("Search Utilities", () => {
       const result = await searchPlaylists("", user.id, 10);
       expect(result.results).toHaveLength(0);
     });
+  });
+
+  describe("resilient special-character queries", () => {
+    it("does not throw for punctuation-only or FTS operator queries", async () => {
+      const queries = ["-", "*", "***", "???", "AND", "OR", "NOT", "NEAR(", "col:name", "^start"];
+      for (const q of queries) {
+        await expect(searchAll(q, 10)).resolves.toMatchObject({
+          results: expect.any(Array),
+          pagination: expect.objectContaining({ hasNext: expect.any(Boolean) }),
+        });
+      }
+    });
+
+    it("finds hyphenated artist names", async () => {
+      const artist = await prisma.artist.create({
+        data: {
+          name: "AC-DC",
+          normalizedName: "ac-dc",
+        },
+      });
+
+      const result = await searchArtists("AC-DC", 10);
+      expect(result.results.some((r) => r.type === "artist" && r.id === artist.id)).toBe(true);
+    });
+
+    it("finds tracks when mid-typing a hyphenated prefix", async () => {
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Hyphen Artist",
+          normalizedName: "hyphen artist",
+        },
+      });
+
+      await prisma.track.create({
+        data: {
+          title: "Rock-n-Roll",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `hyphen-track-${Date.now()}`,
+        },
+      });
+
+      const result = await searchTracks("Rock-", 10);
+      expect(result.results.some((r) => r.type === "track" && r.title === "Rock-n-Roll")).toBe(
+        true,
+      );
+    });
+  });
+
+  describe("Personal Play Boost (ADR-028)", () => {
+    async function seedBoostFixture() {
+      const timestamp = Date.now();
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const user = await prisma.user.create({
+        data: {
+          email: `boost-${timestamp}@test.com`,
+          username: `boost-${timestamp}`,
+        },
+      });
+      const otherUser = await prisma.user.create({
+        data: {
+          email: `boost-other-${timestamp}@test.com`,
+          username: `boost-other-${timestamp}`,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Boost Artist",
+          normalizedName: "boost artist",
+        },
+      });
+
+      // Same contains-tier titles for query "Boost"; Alpha sorts before Zebra by title.
+      const familiar = await prisma.track.create({
+        data: {
+          title: "Zebra Boost Familiar Track",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `boost-familiar-${timestamp}`,
+        },
+      });
+      const unfamiliar = await prisma.track.create({
+        data: {
+          title: "Alpha Boost Unfamiliar Track",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `boost-unfamiliar-${timestamp}`,
+        },
+      });
+      // Exact title match for query "Song" — zero plays must still beat contains+plays.
+      const exactUnused = await prisma.track.create({
+        data: {
+          title: "Song",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `boost-exact-${timestamp}`,
+        },
+      });
+      const containsHeavy = await prisma.track.create({
+        data: {
+          title: "Midnight Song Reprise",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `boost-contains-heavy-${timestamp}`,
+        },
+      });
+
+      await prisma.userTrack.createMany({
+        data: [familiar, unfamiliar, exactUnused, containsHeavy].map((track) => ({
+          userId: user.id,
+          trackId: track.id,
+        })),
+      });
+
+      const play = (userId: string, trackId: string) => ({
+        type: USAGE_EVENT_TYPES.play_completed,
+        userId,
+        trackId,
+      });
+      // One insert for the personal boost, the other user's plays, and the
+      // contains-match plays. Sequential creates blew the 5s test timeout in CI.
+      await prisma.usageEvent.createMany({
+        data: [
+          ...Array.from({ length: 12 }, () => play(user.id, familiar.id)),
+          ...Array.from({ length: 50 }, () => play(otherUser.id, unfamiliar.id)),
+          ...Array.from({ length: 80 }, () => play(user.id, containsHeavy.id)),
+        ],
+      });
+
+      return { user, familiar, unfamiliar, exactUnused, containsHeavy };
+    }
+
+    it("soft-boosts personal lifetime plays among matching tracks when authed", async () => {
+      const { user, familiar, unfamiliar } = await seedBoostFixture();
+
+      const result = await searchTracks("Boost", 10, undefined, true, user.id);
+      const trackIds = result.results.filter((r) => r.type === "track").map((r) => r.id);
+
+      expect(trackIds).toContain(familiar.id);
+      expect(trackIds).toContain(unfamiliar.id);
+      expect(trackIds.indexOf(familiar.id)).toBeLessThan(trackIds.indexOf(unfamiliar.id));
+    }, 10000);
+
+    it("does not apply personal play boost when logged out (relevance only)", async () => {
+      const { familiar, unfamiliar } = await seedBoostFixture();
+
+      const result = await searchTracks("Boost", 10);
+      const trackIds = result.results.filter((r) => r.type === "track").map((r) => r.id);
+
+      expect(trackIds).toContain(familiar.id);
+      expect(trackIds).toContain(unfamiliar.id);
+      // Without boost, title ASC tie-break puts Alpha before Zebra.
+      expect(trackIds.indexOf(unfamiliar.id)).toBeLessThan(trackIds.indexOf(familiar.id));
+    }, 10000);
+
+    it("does not hard-override relevance: exact match beats contains despite plays", async () => {
+      const { user, exactUnused, containsHeavy } = await seedBoostFixture();
+
+      const result = await searchTracks("Song", 10, undefined, true, user.id);
+      const trackIds = result.results.filter((r) => r.type === "track").map((r) => r.id);
+
+      expect(trackIds[0]).toBe(exactUnused.id);
+      expect(trackIds.indexOf(exactUnused.id)).toBeLessThan(trackIds.indexOf(containsHeavy.id));
+    }, 10000);
   });
 });

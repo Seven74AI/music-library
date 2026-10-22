@@ -3,7 +3,140 @@
  */
 import { test, expect } from "vitest";
 import { type TrackWithUserStatus } from "#app/types/frontend/shared";
-import { mapTrackToListItem } from "./playlist.$id";
+import { getTracksMissingFromLibrary, mapTrackToListItem } from "./playlist.$id";
+
+test("getTracksMissingFromLibrary excludes deleted videos and tracks already in library", () => {
+  const tracks: TrackWithUserStatus[] = [
+    {
+      id: "alive-missing",
+      title: "Still Available",
+      artist: { id: "a1", name: "Artist" },
+      duration: 120,
+      coverImage: null,
+      thumbnailUrl: null,
+      serviceUrl: null,
+      service: undefined,
+      audioFiles: [],
+      position: 1,
+      isInUserLibrary: false,
+      isDeleted: false,
+      externalId: "vid1",
+      serviceId: "svc",
+      releaseDate: null,
+      createdAt: new Date("2025-01-01"),
+      updatedAt: new Date("2025-01-01"),
+    },
+    {
+      id: "deleted-missing",
+      title: "Deleted video",
+      artist: { id: "a2", name: "Unknown Artist" },
+      duration: null,
+      coverImage: null,
+      thumbnailUrl: null,
+      serviceUrl: null,
+      service: undefined,
+      audioFiles: [],
+      position: 2,
+      isInUserLibrary: false,
+      isDeleted: true,
+      externalId: "item-1",
+      serviceId: "svc",
+      releaseDate: null,
+      createdAt: new Date("2025-01-01"),
+      updatedAt: new Date("2025-01-01"),
+    },
+    {
+      id: "alive-in-library",
+      title: "Already Owned",
+      artist: { id: "a3", name: "Artist" },
+      duration: 180,
+      coverImage: null,
+      thumbnailUrl: null,
+      serviceUrl: null,
+      service: undefined,
+      audioFiles: [],
+      position: 3,
+      isInUserLibrary: true,
+      isDeleted: false,
+      externalId: "vid3",
+      serviceId: "svc",
+      releaseDate: null,
+      createdAt: new Date("2025-01-01"),
+      updatedAt: new Date("2025-01-01"),
+    },
+  ];
+
+  const missing = getTracksMissingFromLibrary(tracks);
+  expect(missing.map((t) => t.id)).toEqual(["alive-missing"]);
+});
+
+test("getTracksMissingFromLibrary preserves playlist order", () => {
+  const tracks: TrackWithUserStatus[] = [
+    {
+      id: "first",
+      title: "First",
+      artist: { id: "a1", name: "Artist" },
+      duration: 120,
+      coverImage: null,
+      thumbnailUrl: null,
+      serviceUrl: null,
+      service: undefined,
+      audioFiles: [],
+      position: 1,
+      isInUserLibrary: false,
+      isDeleted: false,
+      externalId: "vid1",
+      serviceId: "svc",
+      releaseDate: null,
+      createdAt: new Date("2025-01-01"),
+      updatedAt: new Date("2025-01-01"),
+    },
+    {
+      id: "second",
+      title: "Second",
+      artist: { id: "a2", name: "Artist" },
+      duration: 120,
+      coverImage: null,
+      thumbnailUrl: null,
+      serviceUrl: null,
+      service: undefined,
+      audioFiles: [],
+      position: 2,
+      isInUserLibrary: false,
+      isDeleted: false,
+      externalId: "vid2",
+      serviceId: "svc",
+      releaseDate: null,
+      createdAt: new Date("2025-01-01"),
+      updatedAt: new Date("2025-01-01"),
+    },
+    {
+      id: "third",
+      title: "Third",
+      artist: { id: "a3", name: "Artist" },
+      duration: 120,
+      coverImage: null,
+      thumbnailUrl: null,
+      serviceUrl: null,
+      service: undefined,
+      audioFiles: [],
+      position: 3,
+      isInUserLibrary: false,
+      isDeleted: false,
+      externalId: "vid3",
+      serviceId: "svc",
+      releaseDate: null,
+      createdAt: new Date("2025-01-01"),
+      updatedAt: new Date("2025-01-01"),
+    },
+  ];
+
+  expect(getTracksMissingFromLibrary(tracks).map((t) => t.id)).toEqual([
+    "first",
+    "second",
+    "third",
+  ]);
+});
 
 test("mapTrackToListItem includes audioFiles when present", () => {
   const track: TrackWithUserStatus = {

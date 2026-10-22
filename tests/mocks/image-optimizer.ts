@@ -9,7 +9,10 @@ export const handlers = [
     // Wildcard matches both relative (/resources/images) and absolute
     // (http://localhost:3000/resources/images?src=...) URLs
     return new HttpResponse(Buffer.from(PIXEL, "base64"), {
-      headers: { "Content-Type": "image/png" },
+      headers: {
+        "Content-Type": "image/png",
+        "Cache-Control": "public, max-age=31536000, immutable",
+      },
     });
   }),
 ];

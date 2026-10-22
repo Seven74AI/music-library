@@ -22,7 +22,7 @@ ignorefile = "/other/Dockerfile.dockerignore"
 
 [[vm]]
 size = "shared-cpu-4x"
-memory = "1gb"
+memory = "2gb"
 
 [[services]]
 internal_port = 8_080

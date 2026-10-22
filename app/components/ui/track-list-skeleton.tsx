@@ -1,10 +1,12 @@
 import { Skeleton } from "./skeleton";
 
+const SKELETON_KEYS = ["s0", "s1", "s2", "s3", "s4"] as const;
+
 export function TrackListSkeleton() {
   return (
     <div className="space-y-4" role="status" aria-label="Loading tracks">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="flex items-center space-x-4 p-4 border rounded-lg">
+      {SKELETON_KEYS.map((key) => (
+        <div key={key} className="flex items-center space-x-4 p-4 border rounded-lg">
           <Skeleton className="h-10 w-10 rounded" />
           <div className="space-y-2 flex-1">
             <Skeleton className="h-4 w-[250px]" />

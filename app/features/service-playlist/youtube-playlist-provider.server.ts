@@ -23,6 +23,10 @@ export class YouTubePlaylistProvider implements PlaylistSyncProvider {
     return this.youtubeService.getPlaylistItems(externalId, token);
   }
 
+  resolveVideoExistence = async (videoIds: string[], accessToken: string): Promise<Set<string>> => {
+    return this.youtubeService.checkVideosExist(videoIds, accessToken);
+  };
+
   supportsService(serviceName: string): boolean {
     return serviceName === YOUTUBE_SERVICE.NAME;
   }

@@ -1,10 +1,11 @@
 import { data } from "react-router";
 import { requireUserId } from "#app/utils/auth.server.ts";
+import { userIsCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { type Route } from "./+types/track-details.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireUserId(request);
+  const userId = await requireUserId(request);
   const url = new URL(request.url);
   const trackId = url.searchParams.get("trackId");
 
@@ -23,8 +24,16 @@ export async function loader({ request }: Route.LoaderArgs) {
           name: true,
         },
       },
+      albumRecord: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
       duration: true,
       createdAt: true,
+      releaseDate: true,
+      originalDate: true,
       coverImage: {
         select: {
           objectKey: true,
@@ -36,6 +45,24 @@ export async function loader({ request }: Route.LoaderArgs) {
         },
       },
       serviceUrl: true,
+      // Additional metadata fields
+      genre: true, // Keep for backward compatibility during migration
+      genres: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      year: true,
+      trackNumber: true,
+      albumArtist: true,
+      bpm: true,
+      label: true,
+      isrc: true,
+      originalYear: true,
+      totalTracks: true,
+      totalDiscs: true,
+      lyrics: true,
     },
   });
 
@@ -43,5 +70,18 @@ export async function loader({ request }: Route.LoaderArgs) {
     throw new Response("Track not found", { status: 404 });
   }
 
-  return data({ track });
+  const isCurator = await userIsCuratorOrAdmin(userId);
+
+  // Get notes count for curators
+  let notesCount = 0;
+  if (isCurator) {
+    notesCount = await prisma.curatorNote.count({
+      where: {
+        entityType: "track",
+        entityId: trackId,
+      },
+    });
+  }
+
+  return data({ track, isCurator, notesCount, currentUserId: userId });
 }

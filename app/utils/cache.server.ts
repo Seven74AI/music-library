@@ -16,14 +16,27 @@ import { remember } from "@epic-web/remember";
 import { LRUCache } from "lru-cache";
 import { z } from "zod";
 import { updatePrimaryCacheValue } from "#app/routes/admin+/cache_.sqlite.server.ts";
+import { escapeLikeLiterals } from "./fts5-query.server.ts";
 import { getInstanceInfo, getInstanceInfoSync } from "./litefs.server.ts";
 import { cachifiedTimingReporter, type Timings } from "./timing.server.ts";
 
-const CACHE_DATABASE_PATH = process.env.CACHE_DATABASE_PATH;
+const CACHE_DATABASE_PATH = (() => {
+  const basePath = process.env.CACHE_DATABASE_PATH;
+  if (!basePath) {
+    throw new Error("CACHE_DATABASE_PATH environment variable is required");
+  }
 
-if (!CACHE_DATABASE_PATH) {
-  throw new Error("CACHE_DATABASE_PATH environment variable is required");
-}
+  // In test mode with multiple vitest workers, use a unique cache database per worker
+  // to avoid SQLite file locking issues
+  if (process.env.VITEST_WORKER_ID) {
+    const workerId = process.env.VITEST_WORKER_ID;
+    const ext = path.extname(basePath);
+    const base = basePath.slice(0, -ext.length);
+    return `${base}-worker-${workerId}${ext}`;
+  }
+
+  return basePath;
+})();
 
 const cacheDb = remember("cacheDb", createDatabase);
 
@@ -123,7 +136,9 @@ const setStatement = cacheDb.prepare(
 );
 const deleteStatement = cacheDb.prepare("DELETE FROM cache WHERE key = ?");
 const getAllKeysStatement = cacheDb.prepare("SELECT key FROM cache LIMIT ?");
-const searchKeysStatement = cacheDb.prepare("SELECT key FROM cache WHERE key LIKE ? LIMIT ?");
+const searchKeysStatement = cacheDb.prepare(
+  "SELECT key FROM cache WHERE key LIKE ? ESCAPE '\\' LIMIT ?",
+);
 
 export const cache: CachifiedCache = {
   name: "SQLite cache",
@@ -186,16 +201,16 @@ export const cache: CachifiedCache = {
 export async function getAllCacheKeys(limit: number) {
   return {
     sqlite: getAllKeysStatement.all(limit).map((row) => (row as { key: string }).key),
-    lru: [...lru.keys()],
+    lru: [...lru.keys()].slice(0, limit),
   };
 }
 
 export async function searchCacheKeys(search: string, limit: number) {
   return {
     sqlite: searchKeysStatement
-      .all(`%${search}%`, limit)
+      .all(`%${escapeLikeLiterals(search)}%`, limit)
       .map((row) => (row as { key: string }).key),
-    lru: [...lru.keys()].filter((key) => key.includes(search)),
+    lru: [...lru.keys()].filter((key) => key.includes(search)).slice(0, limit),
   };
 }
 

@@ -2,6 +2,7 @@ import { generateRegistrationOptions, verifyRegistrationResponse } from "@simple
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { getDomainUrl, getErrorMessage } from "#app/utils/misc.tsx";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/registration.ts";
 import {
   PasskeyCookieSchema,
@@ -49,6 +50,10 @@ export async function loader({ request }: Route.LoaderArgs) {
       },
     },
   );
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
 }
 
 export async function action({ request }: Route.ActionArgs) {

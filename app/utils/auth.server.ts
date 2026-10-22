@@ -1,15 +1,24 @@
 import crypto from "node:crypto";
-import bcrypt from "bcryptjs";
+import { compare, hash } from "bcryptjs";
 import { redirect } from "react-router";
 import { Authenticator } from "remix-auth";
 import { safeRedirect } from "remix-utils/safe-redirect";
 import { type Connection, type Password, type User } from "#prisma/client.js";
+import {
+  recordSecurityEvent,
+  SECURITY_EVENT_TYPES,
+} from "#app/features/security/track-event.server.ts";
+import {
+  recordUsageEvent,
+  USAGE_EVENT_TYPES,
+} from "#app/features/usage-analytics/record-usage.server.ts";
 import { providers } from "./connections.server.ts";
 import { prisma } from "./db.server.ts";
 import { combineHeaders, downloadFile } from "./misc.tsx";
 import { type ProviderUser } from "./providers/provider.ts";
 import { authSessionStorage } from "./session.server.ts";
 import { uploadProfileImage } from "./storage.server.ts";
+import { createToastHeaders } from "./toast.server.ts";
 
 export const SESSION_EXPIRATION_TIME = 1000 * 60 * 60 * 24 * 30;
 export const getSessionExpirationDate = () => new Date(Date.now() + SESSION_EXPIRATION_TIME);
@@ -30,9 +39,25 @@ export async function getUserId(request: Request) {
   const sessionId = authSession.get(sessionKey);
   if (!sessionId) return null;
   const session = await prisma.session.findUnique({
-    select: { userId: true },
+    select: { userId: true, user: { select: { disabledAt: true } } },
     where: { id: sessionId, expirationDate: { gt: new Date() } },
   });
+
+  // A disabled account gets an explanation; an expired session is routine and
+  // is bounced silently.
+  if (session?.user.disabledAt) {
+    throw redirect("/", {
+      headers: combineHeaders(
+        { "set-cookie": await authSessionStorage.destroySession(authSession) },
+        await createToastHeaders({
+          type: "error",
+          title: "Account disabled",
+          description: "This account has been disabled. Contact an administrator.",
+        }),
+      ),
+    });
+  }
+
   if (!session?.userId) {
     throw redirect("/", {
       headers: {
@@ -66,15 +91,32 @@ export async function requireAnonymous(request: Request) {
   }
 }
 
+export type LoginResult =
+  | {
+      status: "success";
+      session: { id: string; expirationDate: Date; userId: string };
+    }
+  | { status: "invalid" }
+  | { status: "disabled" };
+
 export async function login({
   username,
   password,
 }: {
   username: User["username"];
   password: string;
-}) {
+}): Promise<LoginResult> {
   const user = await verifyUserPassword({ username }, password);
-  if (!user) return null;
+  if (!user) return { status: "invalid" };
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { disabledAt: true },
+  });
+  if (dbUser?.disabledAt) {
+    return { status: "disabled" };
+  }
+
   const session = await prisma.session.create({
     select: { id: true, expirationDate: true, userId: true },
     data: {
@@ -82,7 +124,10 @@ export async function login({
       userId: user.id,
     },
   });
-  return session;
+
+  void recordUsageEvent({ type: USAGE_EVENT_TYPES.login, userId: user.id }).catch(() => {});
+
+  return { status: "success", session };
 }
 
 export async function resetUserPassword({
@@ -104,16 +149,20 @@ export async function resetUserPassword({
     throw new Error("User not found");
   }
 
-  // Update the password directly
-  return prisma.password.upsert({
-    where: { userId: user.id },
-    create: {
-      hash: hashedPassword,
-      userId: user.id,
-    },
-    update: {
-      hash: hashedPassword,
-    },
+  // Rotate the password AND invalidate every existing session in a single
+  // transaction, so a stolen session cookie does not survive a password reset.
+  return prisma.$transaction(async ($tx) => {
+    await $tx.session.deleteMany({ where: { userId: user.id } });
+    return $tx.password.upsert({
+      where: { userId: user.id },
+      create: {
+        hash: hashedPassword,
+        userId: user.id,
+      },
+      update: {
+        hash: hashedPassword,
+      },
+    });
   });
 }
 
@@ -122,11 +171,13 @@ export async function signup({
   username,
   password,
   name,
+  request,
 }: {
   email: User["email"];
   username: User["username"];
   name: User["name"];
   password: string;
+  request?: Request;
 }) {
   const hashedPassword = await getPasswordHash(password);
 
@@ -147,7 +198,17 @@ export async function signup({
         },
       },
     },
-    select: { id: true, expirationDate: true },
+    select: { id: true, expirationDate: true, userId: true },
+  });
+
+  void recordUsageEvent({ type: USAGE_EVENT_TYPES.signup, userId: session.userId }).catch(() => {});
+
+  await recordSecurityEvent({
+    request,
+    eventType: SECURITY_EVENT_TYPES.accountCreated,
+    userId: session.userId,
+    targetUserId: session.userId,
+    metadata: { username: username.toLowerCase(), phase: "completed" },
   });
 
   return session;
@@ -160,6 +221,7 @@ export async function signupWithConnection({
   providerId,
   providerName,
   imageUrl,
+  request,
 }: {
   email: User["email"];
   username: User["username"];
@@ -167,6 +229,7 @@ export async function signupWithConnection({
   providerId: Connection["providerId"];
   providerName: Connection["providerName"];
   imageUrl?: string;
+  request?: Request;
 }) {
   const user = await prisma.user.create({
     data: {
@@ -193,13 +256,30 @@ export async function signupWithConnection({
     });
   }
 
+  void recordUsageEvent({ type: USAGE_EVENT_TYPES.signup, userId: user.id }).catch(() => {});
+
+  await recordSecurityEvent({
+    request,
+    eventType: SECURITY_EVENT_TYPES.accountCreated,
+    userId: user.id,
+    targetUserId: user.id,
+    metadata: { username: username.toLowerCase(), phase: "completed" },
+  });
+  await recordSecurityEvent({
+    request,
+    eventType: SECURITY_EVENT_TYPES.serviceConnected,
+    userId: user.id,
+    perpetual: false,
+    metadata: { provider: providerName },
+  });
+
   // Create and return the session
   const session = await prisma.session.create({
     data: {
       expirationDate: getSessionExpirationDate(),
       userId: user.id,
     },
-    select: { id: true, expirationDate: true },
+    select: { id: true, expirationDate: true, userId: true },
   });
 
   return session;
@@ -234,8 +314,16 @@ export async function logout(
 }
 
 export async function getPasswordHash(password: string) {
-  const hash = await bcrypt.hash(password, 10);
-  return hash;
+  const passwordHash = await hash(password, 10);
+  return passwordHash;
+}
+
+// A bcrypt hash we compare against on the "user not found" path so the timing
+// of a failed login does not reveal whether the username exists.
+let dummyPasswordHash: string | null = null;
+async function getDummyPasswordHash() {
+  dummyPasswordHash ??= await hash("music-library-timing-equalization", 10);
+  return dummyPasswordHash;
 }
 
 export async function verifyUserPassword(
@@ -248,10 +336,13 @@ export async function verifyUserPassword(
   });
 
   if (!userWithPassword || !userWithPassword.password) {
+    // Match the cost of a real comparison so the not-found path does not leak
+    // username existence through response timing.
+    await compare(password, await getDummyPasswordHash());
     return null;
   }
 
-  const isValid = await bcrypt.compare(password, userWithPassword.password.hash);
+  const isValid = await compare(password, userWithPassword.password.hash);
 
   if (!isValid) {
     return null;
@@ -261,8 +352,8 @@ export async function verifyUserPassword(
 }
 
 export function getPasswordHashParts(password: string) {
-  const hash = crypto.createHash("sha1").update(password, "utf8").digest("hex").toUpperCase();
-  return [hash.slice(0, 5), hash.slice(5)] as const;
+  const sha1Digest = crypto.createHash("sha1").update(password, "utf8").digest("hex").toUpperCase();
+  return [sha1Digest.slice(0, 5), sha1Digest.slice(5)] as const;
 }
 
 export async function checkIsCommonPassword(password: string) {
@@ -277,7 +368,7 @@ export async function checkIsCommonPassword(password: string) {
 
     const data = await response.text();
     return data.split(/\r?\n/).some((line) => {
-      const [hashSuffix, ignoredPrevalenceCount] = line.split(":");
+      const [hashSuffix, _ignoredPrevalenceCount] = line.split(":");
       return hashSuffix === suffix;
     });
   } catch (error) {

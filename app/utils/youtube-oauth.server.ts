@@ -1,5 +1,8 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { google } from "googleapis";
+import { createCookie } from "react-router";
 import { z } from "zod";
+import { getSessionSecret } from "./env.server.ts";
 import { shouldMockYouTube } from "./youtube-mock-utils";
 
 // YouTube OAuth scopes
@@ -87,7 +90,7 @@ export class YouTubeOAuthService {
       return tokens;
     } catch (error) {
       console.error("Error exchanging code for tokens:", error);
-      throw new Error("Failed to exchange authorization code for tokens");
+      throw new Error("Failed to exchange authorization code for tokens", { cause: error });
     }
   }
 
@@ -115,7 +118,7 @@ export class YouTubeOAuthService {
       return credentials;
     } catch (error) {
       console.error("Error refreshing access token:", error);
-      throw new Error("Failed to refresh access token");
+      throw new Error("Failed to refresh access token", { cause: error });
     }
   }
 
@@ -186,4 +189,52 @@ export async function validateYouTubeTokens(tokens: {
     console.error("YouTube token validation failed:", error);
     return false;
   }
+}
+
+export const YOUTUBE_OAUTH_STATE_COOKIE_NAME = "en_youtube_oauth_state";
+
+/**
+ * Signed, httpOnly cookie that carries the one-time OAuth `state` value between
+ * the auth page and the callback. The state is an unguessable random value, so
+ * this cookie is the server-side secret that makes the OAuth handshake
+ * CSRF-proof. It must stay `lax` — Google redirects back with a cross-site
+ * top-level GET, which `strict` would drop.
+ */
+export const youtubeOAuthStateCookie = createCookie(YOUTUBE_OAUTH_STATE_COOKIE_NAME, {
+  path: "/",
+  sameSite: "lax",
+  httpOnly: true,
+  maxAge: 60 * 10, // 10 minutes — OAuth handshakes are short-lived
+  secure: process.env.NODE_ENV === "production",
+  secrets: getSessionSecret(),
+});
+
+/** Generates a cryptographically random one-time OAuth state value. */
+export function generateOAuthState(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/** Serializes the OAuth state cookie for the outgoing redirect to Google. */
+export async function commitOAuthState(state: string): Promise<string> {
+  return youtubeOAuthStateCookie.serialize(state);
+}
+
+/** Clears the OAuth state cookie (one-time use). */
+export async function clearOAuthState(): Promise<string> {
+  return youtubeOAuthStateCookie.serialize("", { maxAge: 0 });
+}
+
+/**
+ * Verifies the `state` query param against the value stored in the OAuth state
+ * cookie, using a constant-time comparison. Returns false when either side is
+ * missing or the values differ, which aborts the handshake (CSRF protection).
+ */
+export async function verifyOAuthState(request: Request, state: string | null): Promise<boolean> {
+  if (!state) return false;
+  const expected = await youtubeOAuthStateCookie.parse(request.headers.get("Cookie"));
+  if (typeof expected !== "string" || expected.length === 0) return false;
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(state);
+  if (expectedBuffer.length !== providedBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, providedBuffer);
 }

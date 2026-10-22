@@ -97,12 +97,15 @@ export const meta: Route.MetaFunction = ({ loaderData, params }) => {
   ];
 };
 
+function UserNotFound404({
+  params,
+}: {
+  error: { data?: unknown };
+  params: Record<string, string | undefined>;
+}) {
+  return <p>No user with the username "{params.username}" exists</p>;
+}
+
 export function ErrorBoundary() {
-  return (
-    <GeneralErrorBoundary
-      statusHandlers={{
-        404: ({ params }) => <p>No user with the username "{params.username}" exists</p>,
-      }}
-    />
-  );
+  return <GeneralErrorBoundary statusHandlers={{ 404: UserNotFound404 }} />;
 }

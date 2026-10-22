@@ -297,7 +297,9 @@ export async function downloadFile(url: string, retries: number = 0): Promise<Fi
   } catch (error) {
     if (retries >= MAX_RETRIES) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to download file after ${MAX_RETRIES} retries: ${errorMessage}`);
+      throw new Error(`Failed to download file after ${MAX_RETRIES} retries: ${errorMessage}`, {
+        cause: error,
+      });
     }
     return downloadFile(url, retries + 1);
   }

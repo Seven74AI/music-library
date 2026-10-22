@@ -2,7 +2,10 @@ import { describe, expect, test, vi, beforeEach } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { userPlaylistTitleTaken } from "#app/utils/user-playlist.server.ts";
+import {
+  bumpUserPlaylistUpdatedAt,
+  userPlaylistTitleTaken,
+} from "#app/utils/user-playlist.server.ts";
 import { action } from "./service-playlist-to-user-playlist.tsx";
 
 vi.mock("#app/utils/auth.server.ts", () => ({
@@ -32,6 +35,7 @@ vi.mock("#app/utils/db.server.ts", () => ({
 
 vi.mock("#app/utils/user-playlist.server.ts", () => ({
   userPlaylistTitleTaken: vi.fn(),
+  bumpUserPlaylistUpdatedAt: vi.fn(),
   normalizeUserPlaylistTitle: (t: string) => t.trim().toLowerCase(),
 }));
 
@@ -280,6 +284,11 @@ describe("service-playlist-to-user-playlist action", () => {
           skippedCount: 1,
         },
       });
+
+      expect(bumpUserPlaylistUpdatedAt).toHaveBeenCalledWith({
+        playlistId: "up-1",
+        userId: "user-1",
+      });
     });
 
     test("returns success when all tracks already in target", async () => {
@@ -305,6 +314,45 @@ describe("service-playlist-to-user-playlist action", () => {
       expect(response).toMatchObject({
         data: { status: "success", addedCount: 0, skippedCount: 3 },
       });
+    });
+
+    test("chunks the existing-track check for playlists over the SQLite bind limit", async () => {
+      const manyTrackIds = Array.from({ length: 1200 }, (_, i) => `track-${i}`);
+      vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue(
+        manyTrackIds.map((id) => ({ trackId: id })) as any,
+      );
+      vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
+        id: "up-1",
+        title: "My Playlist",
+      } as any);
+
+      // No existing tracks: every source track is new
+      vi.mocked(prisma.userPlaylistTrack.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
+        _max: { position: -1 },
+      } as any);
+      vi.mocked(prisma.userPlaylistTrack.createMany).mockResolvedValue({} as any);
+
+      const fd = new FormData();
+      fd.append("playlistId", "sp-1");
+      fd.append("action", "add");
+      fd.append("targetPlaylistId", "up-1");
+
+      const response = await action({
+        request: makeRequest(fd),
+      } as never);
+
+      expect(response).toMatchObject({
+        data: { status: "success", addedCount: 1200, skippedCount: 0 },
+      });
+
+      // ceil(1200 / 500) = 3 findMany calls, each chunk <= 500
+      const findManyMock = vi.mocked(prisma.userPlaylistTrack.findMany);
+      expect(findManyMock).toHaveBeenCalledTimes(3);
+      const chunkSizes = findManyMock.mock.calls.map(
+        (call) => (call[0] as any).where.trackId.in.length,
+      );
+      expect(chunkSizes).toEqual([500, 500, 200]);
     });
   });
 });

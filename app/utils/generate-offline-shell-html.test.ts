@@ -66,6 +66,7 @@ describe("generateOfflineShellHtml", () => {
     });
 
     expect(html).toContain('data-offline-shell="true"');
+    expect(html).toContain("en_theme");
     expect(html).toContain("localStorage.getItem('music-library:offline-root-shell')");
     expect(html).toContain("window.__reactRouterContext");
     expect(html).toContain("window.__reactRouterRouteModules = {}");
@@ -81,6 +82,9 @@ describe("generateOfflineShellHtml", () => {
 
     expect(html).toContain('id="offline-shell-splash"');
     expect(html).toContain('role="status"');
+    expect(html).toContain(">7D</span>");
+    expect(html).toContain(">Music</span>");
+    expect(html).not.toContain(">epic</span>");
     expect(html).toContain("Loading…");
     expect(html).toContain("You're offline. Opening saved music");
     expect(html).toContain("navigator.onLine");

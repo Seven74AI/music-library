@@ -1,9 +1,13 @@
 import { formatDistanceToNow } from "date-fns";
 import { Await, Link } from "react-router";
-import { useAudioPlayer } from "#app/components/audio-player-provider.tsx";
 import { ArchivingBanner } from "#app/components/home/archiving-banner.tsx";
+import { HeavyRotationStrip } from "#app/components/home/heavy-rotation-strip.tsx";
 import { HomeRecentPlaylistRow } from "#app/components/home/home-recent-playlist-row.tsx";
 import { HomeRecentTrackRow } from "#app/components/home/home-recent-track-row.tsx";
+import { SnapshotShelf } from "#app/components/home/snapshot-shelf.tsx";
+import { RecentlyPlayedStrip } from "#app/components/home/recently-played-strip.tsx";
+import { WeeklyWrap } from "#app/components/home/weekly-wrap.tsx";
+import { GotACodeJoin } from "#app/components/party-room/got-a-code-join.tsx";
 import { InstallAppHomePrompt } from "#app/components/pwa/install-app-home-prompt.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import {
@@ -27,12 +31,14 @@ export function ListeningHome({
   archivingCount,
   stats,
   recentTracks,
+  recentlyPlayed,
+  heavyRotationMonth,
+  heavyRotationEver,
   recentPlaylists,
+  onRepeatSnapshots,
+  weeklyWrap,
   youtubeData,
 }: ListeningHomeProps) {
-  const { playLibrary, isLoadingNext } = useAudioPlayer();
-  const canPlayLibrary = playableTracks > 0;
-
   return (
     <main className="py-8">
       <InstallAppHomePrompt />
@@ -44,23 +50,33 @@ export function ListeningHome({
         />
       ) : null}
 
-      <div className="mb-10 text-center">
-        <h1 className="text-3xl font-bold">Home</h1>
-        <p className="text-muted-foreground mt-2">
-          {canPlayLibrary
-            ? "Pick up where you left off or play your whole library."
-            : "Tracks are still archiving — check back soon."}
-        </p>
-        <Button
-          size="lg"
-          className="mt-6"
-          disabled={!canPlayLibrary || isLoadingNext}
-          onClick={() => void playLibrary()}
-        >
-          <Icon name="play" className="mr-2 h-5 w-5" />
-          {isLoadingNext ? "Loading…" : "Play library"}
-        </Button>
-      </div>
+      <WeeklyWrap wrap={weeklyWrap} />
+
+      <GotACodeJoin className="mb-10" />
+
+      <section className="mb-10">
+        <Card className="overflow-hidden border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-2xl">
+              <Icon name="globe" className="h-6 w-6 text-primary" />
+              Explore Music
+            </CardTitle>
+            <CardDescription>Discover popular tracks from the global library</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Browse trending songs, explore what others are listening to, and find new favorites in
+              our community catalog.
+            </p>
+            <Button asChild size="lg" className="w-full sm:w-auto">
+              <Link to="/discover">
+                <Icon name="globe" className="mr-2 h-4 w-4" />
+                Browse Discover →
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </section>
 
       <section className="mb-10">
         <div className="mb-4 flex items-center justify-between">
@@ -71,6 +87,23 @@ export function ListeningHome({
         </div>
         <HomeRecentTrackRow recentTracks={recentTracks} />
       </section>
+
+      {/* Above recent playlists; independent of sibling hub strips (ADR-025 / ADR-026 / ADR-024). */}
+      <RecentlyPlayedStrip tracks={recentlyPlayed} />
+
+      <HeavyRotationStrip
+        title="Heavy Rotation · this month"
+        tracks={heavyRotationMonth}
+        librarySort="mostPlayedMonth"
+      />
+
+      <HeavyRotationStrip
+        title="Heavy Rotation · ever"
+        tracks={heavyRotationEver}
+        librarySort="mostPlayedEver"
+      />
+
+      <SnapshotShelf snapshots={onRepeatSnapshots} hideWhenEmpty />
 
       <section className="mb-10">
         <div className="mb-4 flex items-center justify-between">

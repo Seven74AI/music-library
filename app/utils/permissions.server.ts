@@ -53,3 +53,25 @@ export async function requireUserWithRole(request: Request, name: string) {
   }
   return user.id;
 }
+
+export async function requireCuratorRole(request: Request) {
+  const userId = await requireUserId(request);
+  const user = await prisma.user.findFirst({
+    select: { id: true },
+    where: {
+      id: userId,
+      roles: { some: { name: { in: ["admin", "curator"] } } },
+    },
+  });
+  if (!user) {
+    throw data(
+      {
+        error: "Unauthorized",
+        requiredRole: "curator or admin",
+        message: "Unauthorized: curator or admin role required",
+      },
+      { status: 403 },
+    );
+  }
+  return user.id;
+}

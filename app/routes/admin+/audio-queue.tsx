@@ -1,6 +1,6 @@
 // TEST FILE — see audio-queue.test.tsx for unit tests
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
-import { data, Form, useSearchParams } from "react-router";
+import { data, Form, Link, useSearchParams } from "react-router";
 import { GeneralErrorBoundary } from "#app/components/error-boundary";
 import { Spacer } from "#app/components/spacer.tsx";
 import { Badge } from "#app/components/ui/badge.tsx";
@@ -42,22 +42,6 @@ const PAGE_SIZE = 20;
 
 const STATUS_FILTERS = ["all", "pending", "processing", "completed", "failed"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
-
-interface JobWithTrack {
-  id: string;
-  status: string;
-  priority: boolean;
-  retryCount: number;
-  errorHistory: string;
-  lastAttemptAt: Date | null;
-  createdAt: Date;
-  track: {
-    id: string;
-    title: string;
-    artist: { id: string; name: string };
-    service: { id: string; name: string; displayName: string };
-  };
-}
 
 interface LoaderData {
   workerState: {
@@ -211,7 +195,7 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const userId = await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, "admin");
 
   const formData = await request.formData();
   const intent = formData.get("intent");
@@ -243,7 +227,20 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     case "long-break": {
-      const durationMs = Number(formData.get("durationMs") ?? "21600000"); // 6h default
+      const rawDurationMs = formData.get("durationMs") ?? "21600000"; // 6h default
+      const durationMs = Number(rawDurationMs);
+      const MAX_LONG_BREAK_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+      // Reject NaN ("Invalid Date"), non-positive (immediate resume), and
+      // absurdly large values (far-future pause) that would corrupt WorkerState.
+      if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > MAX_LONG_BREAK_MS) {
+        return data(
+          {
+            success: false,
+            error: "Invalid durationMs: must be a positive number of milliseconds up to 7 days",
+          },
+          { status: 400 },
+        );
+      }
       const nextLongBreakAt = new Date(Date.now() + durationMs);
       await prisma.workerState.upsert({
         where: { id: "singleton" },
@@ -259,6 +256,27 @@ export async function action({ request }: Route.ActionArgs) {
         },
       });
       return data({ success: true, action: "long-break" });
+    }
+
+    case "retry-all-failed": {
+      // One POST requeues every failed job. /admin mutations are limited to
+      // 60 per minute for every caller, including a logged-in admin.
+      const result = await prisma.archiveJob.updateMany({
+        where: { status: "failed" },
+        data: {
+          status: "pending",
+          priority: true,
+          retryCount: 0,
+          errorHistory: "[]",
+        },
+      });
+
+      scheduleQueueTick();
+      return data({
+        success: true,
+        action: "retry-all-failed",
+        count: result.count,
+      });
     }
 
     case "retry-recoverable-failures": {
@@ -343,15 +361,34 @@ export async function action({ request }: Route.ActionArgs) {
       if (typeof trackId !== "string") {
         return data({ success: false, error: "Missing trackId" }, { status: 400 });
       }
-      // Enqueue a track that doesn't have an ArchiveJob yet
-      await prisma.archiveJob.create({
-        data: {
-          trackId,
-          status: "pending",
-          priority: true,
-        },
+
+      // FK violation on a nonexistent trackId would otherwise throw an unhandled
+      // 500. Verify the track exists first and return a clean 404.
+      const track = await prisma.track.findUnique({
+        where: { id: trackId },
+        select: { id: true },
       });
-      scheduleQueueTick();
+      if (!track) {
+        return data({ success: false, error: "Track not found" }, { status: 404 });
+      }
+
+      // Enqueue a track that doesn't have an ArchiveJob yet. Idempotent per
+      // decision #18: a duplicate trackId (P2002) is silently skipped.
+      try {
+        await prisma.archiveJob.create({
+          data: {
+            trackId,
+            status: "pending",
+            priority: true,
+          },
+        });
+        scheduleQueueTick();
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          return data({ success: true, action: "enqueue", trackId, alreadyExists: true });
+        }
+        throw error;
+      }
       return data({ success: true, action: "enqueue", trackId });
     }
 
@@ -478,20 +515,36 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
             <CardDescription>Failed</CardDescription>
             <CardTitle className="text-2xl text-destructive">{queueStats.failed}</CardTitle>
           </CardHeader>
-          {queueStats.recoverableFailed > 0 && (
-            <CardContent className="pt-0">
+          {queueStats.failed > 0 && (
+            <CardContent className="flex flex-col gap-2 pt-0">
               <Form method="post">
                 <Button
                   type="submit"
                   name="intent"
-                  value="retry-recoverable-failures"
+                  value="retry-all-failed"
                   variant="outline"
                   size="sm"
+                  className="h-auto whitespace-normal"
                 >
                   <Icon name="arrow-path" className="mr-1" />
-                  Retry cookie & format failures ({queueStats.recoverableFailed})
+                  Retry all ({queueStats.failed})
                 </Button>
               </Form>
+              {queueStats.recoverableFailed > 0 && (
+                <Form method="post">
+                  <Button
+                    type="submit"
+                    name="intent"
+                    value="retry-recoverable-failures"
+                    variant="outline"
+                    size="sm"
+                    className="h-auto whitespace-normal"
+                  >
+                    <Icon name="arrow-path" className="mr-1" />
+                    Retry cookie & format failures ({queueStats.recoverableFailed})
+                  </Button>
+                </Form>
+              )}
             </CardContent>
           )}
         </Card>
@@ -552,16 +605,22 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
             ) : (
               jobs.map((job) => (
                 <TableRow key={job.id}>
-                  <TableCell className="font-medium max-w-[200px] truncate">
-                    {job.trackTitle}
+                  <TableCell className="max-w-[200px] truncate">
+                    <Link to={`/library/${job.trackId}`} className="font-medium hover:underline">
+                      {job.trackTitle}
+                    </Link>
                   </TableCell>
                   <TableCell>{job.artistName}</TableCell>
                   <TableCell>{job.serviceDisplayName}</TableCell>
                   <TableCell>
                     <StatusBadge status={job.status} />
                     {job.priority && (
-                      <Badge variant="outline" className="ml-1 text-[10px]">
-                        PRI
+                      <Badge
+                        variant="outline"
+                        className="ml-1 text-[10px]"
+                        title="This job runs ahead of the regular queue"
+                      >
+                        Priority
                       </Badge>
                     )}
                   </TableCell>
@@ -650,18 +709,28 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
   );
 }
 
+function AudioQueue403({
+  error,
+}: {
+  error: { data?: { message?: string } };
+  params: Record<string, string | undefined>;
+}) {
+  return <p>You must be an admin to access the audio queue: {error?.data?.message}</p>;
+}
+
 export function ErrorBoundary() {
-  return (
-    <GeneralErrorBoundary
-      statusHandlers={{
-        403: ({ error }) => (
-          <p>You must be an admin to access the audio queue: {error?.data.message}</p>
-        ),
-      }}
-    />
-  );
+  return <GeneralErrorBoundary statusHandlers={{ 403: AudioQueue403 }} />;
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
 }

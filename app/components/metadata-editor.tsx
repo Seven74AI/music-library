@@ -227,7 +227,10 @@ export function MetadataEditor({
           {/* Files List */}
           <div className="space-y-4 max-h-[600px] overflow-y-auto">
             {files.map((file, index) => (
-              <Card key={index} className={selectedIndices.has(index) ? "border-primary" : ""}>
+              <Card
+                key={file.fileName}
+                className={selectedIndices.has(index) ? "border-primary" : ""}
+              >
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-4">
                     <Checkbox

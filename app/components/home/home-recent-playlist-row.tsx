@@ -20,15 +20,17 @@ export function HomeRecentPlaylistRow({ recentPlaylists }: HomeRecentPlaylistRow
   }
 
   return (
-    <div className="-mx-1 flex gap-4 overflow-x-auto px-1 pb-2 snap-x snap-mandatory">
+    <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2 snap-x snap-mandatory">
       {recentPlaylists.map((playlist) => (
-        <div key={playlist.id} className="w-56 shrink-0 snap-start sm:w-64">
+        <div key={playlist.id} className="w-36 shrink-0 snap-start sm:w-40">
           <PlaylistCard
             id={playlist.id}
+            variant="grid"
             to={`/playlists/${playlist.id}`}
             title={playlist.title}
             description={playlist.description}
             tracks={playlist.tracks.map((playlistTrack) => playlistTrack.track)}
+            trackCount={playlist.trackCount}
             createdAt={playlist.createdAt.toISOString()}
             updatedAt={playlist.updatedAt.toISOString()}
           />

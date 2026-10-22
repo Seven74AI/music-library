@@ -8,6 +8,10 @@ import { z } from "zod";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { ErrorList, Field } from "#app/components/forms.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
+import {
+  recordSecurityEvent,
+  SECURITY_EVENT_TYPES,
+} from "#app/features/security/track-event.server.ts";
 import { requireAnonymous } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { sendEmail } from "#app/utils/email.server.ts";
@@ -37,9 +41,9 @@ export async function action({ request }: Route.ActionArgs) {
   await checkHoneypot(formData);
 
   const submission = await parseWithZod(formData, {
-    schema: SignupSchema.superRefine(async (data, ctx) => {
+    schema: SignupSchema.superRefine(async (formValues, ctx) => {
       const existingUser = await prisma.user.findUnique({
-        where: { email: data.email },
+        where: { email: formValues.email },
         select: { id: true },
       });
       if (existingUser) {
@@ -74,6 +78,12 @@ export async function action({ request }: Route.ActionArgs) {
   });
 
   if (response.status === "success") {
+    await recordSecurityEvent({
+      request,
+      eventType: SECURITY_EVENT_TYPES.accountCreated,
+      perpetual: false,
+      metadata: { phase: "verification_sent" },
+    });
     return redirect(redirectTo.toString());
   } else {
     return data(

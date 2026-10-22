@@ -4,6 +4,8 @@ import { data, type ActionFunctionArgs } from "react-router";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Route } from "./+types/extract-metadata.ts";
 
 // Maximum file size: 100MB for single file, 500MB for ZIP
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -29,6 +31,10 @@ const ALLOWED_ZIP_MIME_TYPES = [
   "application/x-zip-compressed",
   "application/x-zip",
 ];
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
 
 export async function action({ request }: ActionFunctionArgs) {
   await requireUserWithRole(request, "admin");
@@ -123,42 +129,37 @@ export async function action({ request }: ActionFunctionArgs) {
     );
   }
 
-  // Validate audio files
+  // Extract metadata from each file. Invalid files stay in the result
+  // list so one empty or unsupported file does not reject the others.
+  const results = [];
   for (const file of filesToProcess) {
     if (file.size === 0) {
-      return data(
-        {
-          success: false,
-          error: `File ${file.name} is empty`,
-        },
-        { status: 400 },
-      );
+      results.push({
+        fileName: file.name,
+        metadata: null,
+        error: `File ${file.name} is empty`,
+      });
+      continue;
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      return data(
-        {
-          success: false,
-          error: `File ${file.name} exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024}MB`,
-        },
-        { status: 400 },
-      );
+      results.push({
+        fileName: file.name,
+        metadata: null,
+        error: `File ${file.name} exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024}MB`,
+      });
+      continue;
     }
 
     if (!ALLOWED_AUDIO_MIME_TYPES.includes(file.type)) {
-      return data(
-        {
-          success: false,
-          error: `File ${file.name} has invalid MIME type: ${file.type}. Allowed types: ${ALLOWED_AUDIO_MIME_TYPES.join(", ")}`,
-        },
-        { status: 400 },
-      );
+      results.push({
+        fileName: file.name,
+        metadata: null,
+        error: `File ${file.name} has invalid MIME type: ${file.type}. Allowed types: ${ALLOWED_AUDIO_MIME_TYPES.join(", ")}`,
+      });
+      continue;
     }
-  }
 
-  // Extract metadata from each file
-  const results = [];
-  for (const file of filesToProcess) {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);

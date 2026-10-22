@@ -37,6 +37,32 @@ test("defaults to 2x size-based proxy dimensions", () => {
   expect(image.getAttribute("src")).toContain("h=80");
 });
 
+test("defaults to lazy loading for list thumbnails", () => {
+  render(
+    <TrackThumbnail
+      coverImage={{ objectKey: "images/tracks/track-1/cover.jpg" }}
+      alt="Midnight City"
+      size="sm"
+    />,
+  );
+
+  expect(screen.getByRole("img", { name: "Midnight City" })).toHaveAttribute("loading", "lazy");
+});
+
+test("supports eager loading for player-critical covers", () => {
+  render(
+    <TrackThumbnail
+      coverImage={{ objectKey: "images/tracks/track-1/cover.jpg" }}
+      alt="Midnight City"
+      size="lg"
+      pixelSize={320}
+      loading="eager"
+    />,
+  );
+
+  expect(screen.getByRole("img", { name: "Midnight City" })).toHaveAttribute("loading", "eager");
+});
+
 // ── Fallback chain scenarios ──
 
 test("renders placeholder when coverImage is null and no thumbnailUrl", () => {

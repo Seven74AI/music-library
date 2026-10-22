@@ -8,6 +8,7 @@ vi.mock("#app/utils/youtube.server", () => ({
     getPlaylistItems: vi.fn(),
     getPlaylist: vi.fn(),
     getUserPlaylists: vi.fn(),
+    checkVideosExist: vi.fn().mockResolvedValue(new Set()),
   })),
 }));
 

@@ -7,6 +7,7 @@ import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/profile.passkeys.ts";
 
 export const handle = {
@@ -25,6 +26,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     },
   });
   return { passkeys };
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
 }
 
 export async function action({ request }: Route.ActionArgs) {

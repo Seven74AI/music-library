@@ -4,12 +4,17 @@ export function isProtectedOfflineTrack(track: OfflineTrackRecord): boolean {
   return track.isPinned;
 }
 
+/** Queue Cache only — not a Pinned Download. Eligible for LRU eviction and purge. */
+export function isQueueOnlyOfflineTrack(track: OfflineTrackRecord): boolean {
+  return track.isQueueCached && !track.isPinned;
+}
+
 export function selectQueueCacheEvictionCandidates(
   tracks: OfflineTrackRecord[],
   bytesToFree: number,
 ): OfflineTrackRecord[] {
   const evictable = tracks
-    .filter((track) => track.isQueueCached && !track.isPinned)
+    .filter(isQueueOnlyOfflineTrack)
     .sort((a, b) => a.lastAccessedAt - b.lastAccessedAt);
 
   const selected: OfflineTrackRecord[] = [];
@@ -25,5 +30,5 @@ export function selectQueueCacheEvictionCandidates(
 }
 
 export function shouldRemoveRecordAfterEviction(track: OfflineTrackRecord): boolean {
-  return !track.isPinned && track.isQueueCached;
+  return isQueueOnlyOfflineTrack(track);
 }

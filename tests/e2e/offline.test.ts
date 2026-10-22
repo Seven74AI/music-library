@@ -39,7 +39,10 @@ test.describe("Offline mode", () => {
     await emulateOfflineLoaderRequests(page);
 
     await navigateOfflineClient(page, async () => {
-      await Promise.all([page.waitForURL("/"), page.getByRole("link", { name: /epic/i }).click()]);
+      await Promise.all([
+        page.waitForURL("/"),
+        page.getByRole("link", { name: /7d music/i }).click(),
+      ]);
     });
 
     await expect(page.getByRole("status")).toContainText(
@@ -129,7 +132,7 @@ test.describe("Offline mode", () => {
     test.setTimeout(60_000);
     const user = await login();
 
-    // Create a track with audio so the download button appears
+    // Create a track with audio so offline playlist download can pin it
     const track = await insertNewTrack(
       { title: "Offline Playback Track", artist: "Offline Artist" },
       user.id,
@@ -140,6 +143,17 @@ test.describe("Offline mode", () => {
         objectKey: `audio/${track.id}.mp3`,
         format: "mp3",
         mimeType: "audio/mpeg",
+      },
+    });
+
+    const playlist = await testPrisma.userPlaylist.create({
+      data: {
+        title: "Offline Playback Playlist",
+        description: null,
+        ownerId: user.id,
+        tracks: {
+          create: [{ trackId: track.id, position: 0 }],
+        },
       },
     });
 
@@ -170,28 +184,24 @@ test.describe("Offline mode", () => {
       });
     });
 
-    // Navigate to library (server is slow to cold-start, allow extra time)
+    // Pin for offline via playlist download (library menu is audio-file download)
+    await page.goto(`/playlists/${playlist.id}`, { timeout: 30000 });
+    await page.waitForLoadState("domcontentloaded", { timeout: 15000 });
+    await page.getByRole("button", { name: "Download playlist" }).click();
+    await expect(page.getByTestId("toast").getByText("Playlist downloaded")).toBeVisible({
+      timeout: 15000,
+    });
+    await page.waitForTimeout(1500);
+
+    // Navigate to library to play while offline
     await page.goto("/library", { timeout: 30000 });
     await page.waitForLoadState("domcontentloaded", { timeout: 15000 });
 
-    // Verify the track is visible in the library grid
     const trackRow = page.getByRole("gridcell", {
       name: /Offline Playback Track by Offline Artist/i,
     });
     await trackRow.scrollIntoViewIfNeeded();
     await expect(trackRow).toBeVisible({ timeout: 10000 });
-
-    // Click the download button — it's the last button in the Actions column
-    // of this track row, with aria-label "Download for offline"
-    await trackRow.locator("..").getByRole("button", { name: "Download for offline" }).click();
-
-    // Wait for the download toast confirmation
-    await expect(page.getByText("Downloaded for offline")).toBeVisible({
-      timeout: 15000,
-    });
-
-    // Wait for toast to auto-dismiss
-    await page.waitForTimeout(1500);
 
     // Go offline using Playwright context
     await page.context().setOffline(true);

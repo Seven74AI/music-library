@@ -114,4 +114,34 @@ describe("createOfflineStorage", () => {
     expect(await storage.hasTrack("queue-track")).toBe(false);
     expect(await storage.hasTrack("track-1")).toBe(true);
   });
+
+  test("purgeQueueCache removes queue-only tracks and keeps pinned", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack({ ...track, id: "queue-only", title: "Queue" }, { pin: false });
+    await storage.downloadTrack(track, { pin: true });
+    await storage.downloadTrack(
+      { ...track, id: "pinned-and-queued", title: "Both" },
+      { pin: true },
+    );
+    // Mark pinned track as also queue-cached (both flags)
+    const both = await storage.getRecord("pinned-and-queued");
+    expect(both).not.toBeNull();
+    await metadataStore.put({ ...both!, isQueueCached: true });
+
+    const result = await storage.purgeQueueCache();
+
+    expect(result.removedCount).toBe(1);
+    expect(await storage.hasTrack("queue-only")).toBe(false);
+    expect(await storage.hasTrack("track-1")).toBe(true);
+    expect(await storage.hasTrack("pinned-and-queued")).toBe(true);
+  });
 });

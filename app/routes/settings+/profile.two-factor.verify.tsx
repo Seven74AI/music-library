@@ -12,6 +12,7 @@ import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { getDomainUrl, useIsPending } from "#app/utils/misc.tsx";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { getTOTPAuthUri } from "#app/utils/totp.server.ts";
 import { type Route } from "./+types/profile.two-factor.verify.ts";
 import { type BreadcrumbHandle } from "./profile.tsx";
@@ -63,16 +64,20 @@ export async function loader({ request }: Route.LoaderArgs) {
   return { otpUri, qrCode };
 }
 
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
+
 export async function action({ request }: Route.ActionArgs) {
   const userId = await requireUserId(request);
   const formData = await request.formData();
 
   const submission = await parseWithZod(formData, {
     schema: () =>
-      ActionSchema.superRefine(async (data, ctx) => {
-        if (data.intent === "cancel") return;
+      ActionSchema.superRefine(async (formValues, ctx) => {
+        if (formValues.intent === "cancel") return;
         const codeIsValid = await isCodeValid({
-          code: data.code,
+          code: formValues.code,
           type: twoFAVerifyVerificationType,
           target: userId,
         });

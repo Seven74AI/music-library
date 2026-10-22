@@ -193,12 +193,15 @@ function CacheKeyRow({
   );
 }
 
+function Cache403({
+  error,
+}: {
+  error: { data?: { message?: string } };
+  params: Record<string, string | undefined>;
+}) {
+  return <p>You are not allowed to do that: {error?.data?.message}</p>;
+}
+
 export function ErrorBoundary() {
-  return (
-    <OfflineAwareErrorBoundary
-      statusHandlers={{
-        403: ({ error }) => <p>You are not allowed to do that: {error?.data.message}</p>,
-      }}
-    />
-  );
+  return <OfflineAwareErrorBoundary statusHandlers={{ 403: Cache403 }} />;
 }

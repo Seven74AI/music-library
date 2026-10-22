@@ -1,11 +1,8 @@
 import path from "node:path";
 import { type FullConfig } from "@playwright/test";
-import { execaCommand } from "execa";
+import { execa } from "execa";
 import fsExtra from "fs-extra";
-
-// Set DATABASE_URL for the test process BEFORE any other imports
-// This ensures all prisma calls in tests use the test database
-export const BASE_DATABASE_PATH = path.join(process.cwd(), `./tests/prisma/base.db`);
+import { BASE_DATABASE_PATH } from "./base-database-path.ts";
 
 // DATABASE_URL is set via cross-env in npm scripts
 // This ensures it's available for both the test process and globalSetup
@@ -26,12 +23,13 @@ export async function setup() {
   if (databaseExists) {
     try {
       // Check if migrations are up to date
-      const statusResult = await execaCommand("npx prisma migrate status", {
+      const statusResult = await execa("npx prisma migrate status", {
         env: {
           ...process.env,
           DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
         },
         reject: false, // Don't throw on error
+        shell: true,
       });
 
       // If migrations are in sync, skip migration step
@@ -63,23 +61,25 @@ export async function setup() {
     // Use migrate deploy instead of reset for more reliable test database setup
     // migrate deploy creates the database if it doesn't exist and applies all migrations
     console.log("📦 Applying database migrations...");
-    await execaCommand("npx prisma migrate deploy", {
+    await execa("npx prisma migrate deploy", {
       stdio: "inherit",
       env: {
         ...process.env,
         DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
       },
+      shell: true,
     });
   }
 
   // Generate Prisma Client after migrations to ensure it matches the database schema
   console.log("🔧 Generating Prisma Client...");
-  await execaCommand("npx prisma generate", {
+  await execa("npx prisma generate", {
     stdio: "inherit",
     env: {
       ...process.env,
       DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
     },
+    shell: true,
   });
 
   // Verify that the User table exists before running seed
@@ -100,19 +100,22 @@ export async function setup() {
     console.log("✅ Database schema verified - UserNotification table exists");
   } catch (error) {
     console.error("❌ Database schema verification failed:", error);
-    throw new Error("Database schema verification failed - User table does not exist");
+    throw new Error("Database schema verification failed - User table does not exist", {
+      cause: error,
+    });
   } finally {
     await prisma.$disconnect();
   }
 
   // Run seed script with correct DATABASE_URL
   console.log("🌱 Seeding database...");
-  await execaCommand("npx prisma db seed", {
+  await execa("npx prisma db seed", {
     stdio: "inherit",
     env: {
       ...process.env,
       DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
     },
+    shell: true,
   });
 }
 

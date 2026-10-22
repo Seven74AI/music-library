@@ -13,6 +13,7 @@ model User {
   email            String            @unique
   username         String            @unique
   name             String?
+  disabledAt       DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   connections      Connection[]
@@ -24,7 +25,74 @@ model User {
   playlists        UserPlaylist[]
   userTracks       UserTrack[]
   notifications    UserNotification[]
-  roles            Role[]            @relation("RoleToUser")
+  usageEvents         UsageEvent[]
+  dailyActiveUsers    DailyActiveUser[]
+  onRepeatSnapshots   OnRepeatSnapshot[]
+  roles               Role[]            @relation("RoleToUser")
+  playerState         PlayerState?
+  securityEvents      SecurityEvent[]
+  securityEventsAsTarget SecurityEvent[] @relation("SecurityEventTarget")
+  trackEdits          TrackEdit[]       @relation("TrackEditUser")
+  artistEdits         ArtistEdit[]      @relation("ArtistEditUser")
+  albumEdits          AlbumEdit[]       @relation("AlbumEditUser")
+  roomsCreated        Room[]            @relation("RoomOriginalHost")
+  roomParticipants    RoomParticipant[]
+  editLocks           EditLock[]        @relation("EditLockUser")
+  reportedQueueItems  ReviewQueueItem[] @relation("ReviewQueueReporter")
+  claimedQueueItems   ReviewQueueItem[] @relation("ReviewQueueClaimed")
+  resolvedQueueItems  ReviewQueueItem[] @relation("ReviewQueueResolved")
+  curatorNotes        CuratorNote[]     @relation("CuratorNotes")
+  curatorBadges       CuratorBadge[]    @relation("CuratorBadges")
+}
+
+model PlayerState {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  playContext    String?
+  currentTrackId String?
+  upNextIds      String   @default("[]")
+  shuffleSeed    Int?
+  loopMode       String   @default("off")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model UsageEvent {
+  id        String   @id @default(cuid())
+  type      String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  trackId   String?
+  playId    String?
+  meta      String?
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt])
+  @@index([userId, createdAt])
+  @@index([userId, type, createdAt])
+  @@index([type, trackId])
+  @@index([userId, type, trackId])
+}
+
+model DailyUsageStat {
+  id     String   @id @default(cuid())
+  day    DateTime
+  metric String
+  value  Int      @default(0)
+
+  @@unique([day, metric])
+  @@index([metric, day])
+}
+
+model DailyActiveUser {
+  id     String   @id @default(cuid())
+  day    DateTime
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([day, userId])
+  @@index([day])
 }
 
 model UserNotification {
@@ -155,7 +223,7 @@ model Passkey {
 model Artist {
   id             String   @id @default(cuid())
   name           String
-  normalizedName String   @unique
+  normalizedName String
   bio            String?
   imageUrl       String?
   website        String?
@@ -165,9 +233,18 @@ model Artist {
   updatedAt      DateTime @updatedAt
   tracks         Track[]
   albums         Album[]
+  edits          ArtistEdit[]
+  
+  // Merge tracking
+  mergedIntoId   String?
+  mergedAt       DateTime?
+  mergedBy       String?
+  mergedArtist   Artist?  @relation("ArtistMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom     Artist[] @relation("ArtistMerge")
 
   @@index([normalizedName])
   @@index([name])
+  @@index([mergedIntoId])
 }
 
 model CoverImage {
@@ -178,6 +255,7 @@ model CoverImage {
   height      Int?
   format      String? // jpeg, png, etc.
   fileSize    Int? // Size in bytes
+  isPrimary   Boolean  @default(true) // For multi-image support
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   tracks      Track[]
@@ -197,10 +275,18 @@ model Album {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   tracks       Track[]
+  edits        AlbumEdit[]
+  
+  // Merge tracking
+  mergedIntoId String?
+  mergedAt     DateTime?
+  mergedBy     String?
+  mergedAlbum  Album?   @relation("AlbumMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom   Album[]  @relation("AlbumMerge")
 
-  @@unique([artistId, name]) // Unique album identifier
   @@index([artistId, name])
   @@index([artistId])
+  @@index([mergedIntoId])
 }
 
 model Track {
@@ -235,11 +321,16 @@ model Track {
   updatedAt             DateTime               @updatedAt
   servicePlaylistTracks ServicePlaylistTrack[]
   service               Service                @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  playlists             UserPlaylistTrack[]
-  userTracks            UserTrack[]
-  audioFiles            TrackAudioFile[]
-  archiveJob            ArchiveJob?
-  
+  playlists               UserPlaylistTrack[]
+  userTracks              UserTrack[]
+  audioFiles              TrackAudioFile[]
+  archiveJob              ArchiveJob?
+  onRepeatSnapshotTracks  OnRepeatSnapshotTrack[]
+  edits                   TrackEdit[]
+  roomQueueItems          RoomQueueItem[]
+  roomPlayEvents          RoomPlayEvent[]
+  genres                  Genre[]       @relation("TrackGenres")
+
   @@unique([serviceId, externalId])
   @@index([serviceId, externalId])
   @@index([updatedAt])
@@ -261,6 +352,36 @@ model UserPlaylist {
 
   @@index([ownerId])
   @@index([ownerId, updatedAt])
+}
+
+/// Frozen monthly top tracks by play_completed (ADR-024). Not a UserPlaylist.
+model OnRepeatSnapshot {
+  id          String                   @id @default(cuid())
+  userId      String
+  user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Calendar month covered, UTC, as `YYYY-MM` (e.g. "2026-09").
+  yearMonth   String
+  generatedAt DateTime                 @default(now())
+  createdAt   DateTime                 @default(now())
+  tracks      OnRepeatSnapshotTrack[]
+
+  @@unique([userId, yearMonth])
+  @@index([userId, yearMonth])
+}
+
+model OnRepeatSnapshotTrack {
+  id          String           @id @default(cuid())
+  snapshotId  String
+  snapshot    OnRepeatSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  trackId     String
+  track       Track            @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  /// 0-based rank within the snapshot (0 = most listened).
+  position    Int
+  listenCount Int
+  createdAt   DateTime         @default(now())
+
+  @@unique([snapshotId, trackId])
+  @@index([snapshotId, position])
 }
 
 model UserPlaylistTrack {
@@ -308,6 +429,7 @@ model UserTrack {
   @@index([trackId])
   @@index([userId, isActive])
   @@index([userId, createdAt])
+  @@index([trackId, isActive])
 }
 
 model ServicePlaylist {
@@ -331,7 +453,7 @@ model ServicePlaylist {
   service      Service                @relation(fields: [serviceId], references: [id])
   tracks       ServicePlaylistTrack[]
 
-  @@unique([serviceId, externalId])
+  @@unique([serviceId, externalId, ownerId])
   @@index([ownerId])
   @@index([ownerId, updatedAt])
   @@index([serviceId, externalId])
@@ -366,11 +488,13 @@ model TrackAudioFile {
   service   Service? @relation(fields: [serviceId], references: [id])
 
   // File storage
-  objectKey String // S3 storage key
-  fileName  String?
-  fileSize  Int?
-  mimeType  String? // audio/mpeg, audio/flac, etc.
-  format    String? // "mp3", "flac", "wav", etc.
+  objectKey        String  // S3 storage key
+  contentHash      String? // SHA-256 hash for deduplication
+  audioFingerprint String? // Chromaprint fingerprint for perceptual similarity
+  fileName         String?
+  fileSize         Int?
+  mimeType         String? // audio/mpeg, audio/flac, etc.
+  format           String? // "mp3", "flac", "wav", etc.
 
   // Audio metadata
   bitrate    Int? // kbps
@@ -384,6 +508,8 @@ model TrackAudioFile {
   updatedAt DateTime @updatedAt
 
   @@unique([trackId, serviceId, format]) // One file per track/service/format combination
+  @@index([contentHash]) // For duplicate detection
+  @@index([audioFingerprint]) // For perceptual similarity detection
   @@index([trackId])
   @@index([serviceId])
   @@index([format])
@@ -418,10 +544,364 @@ model WorkerState {
   updatedAt          DateTime  @updatedAt
 }
 
+/// Singleton status for automated SQLite backups (ADR-029).
+model BackupState {
+  id             String    @id @default("singleton")
+  lastStatus     String? // success | failure | running
+  lastAttemptAt  DateTime?
+  lastSuccessAt  DateTime?
+  lastError      String?
+  lastObjectKey  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
 model YoutubeCookie {
   id        String   @id @default(cuid())
   updatedAt DateTime @default(now())
   updatedBy String   // userId who uploaded the cookie
   valid     Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+model SecurityEvent {
+  id            String   @id @default(cuid())
+  eventType     String   // login_success, login_failed, account_disabled, etc.
+  ipHash        String?  // SHA-256 hash of IP (first 16 chars), nullable for system events
+  userId        String?  // nullable for failed login attempts
+  targetUserId  String?  // for admin actions on other users
+  metadata      String?  // JSON string for flexible event data
+  perpetual     Boolean  @default(false) // if true, never delete (critical audit events)
+  createdAt     DateTime @default(now())
+  
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  targetUser    User?    @relation("SecurityEventTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  
+  @@index([eventType])
+  @@index([ipHash])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([perpetual])
+}
+
+// Edit history tables - full snapshot approach for easier querying
+
+model TrackEdit {
+  id          String   @id @default(cuid())
+  trackId     String
+  track       Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  editedBy    String
+  user        User     @relation("TrackEditUser", fields: [editedBy], references: [id], onDelete: Cascade)
+  editedAt    DateTime @default(now())
+  comment     String?  // Why this edit was made
+  
+  // Full snapshot of all editable fields
+  title       String
+  artistId    String
+  albumId     String?
+  genre       String?
+  // Ordered genre ids as a JSON array. The first id is the primary genre.
+  // Null on edits saved before multi-genre snapshots.
+  genreIds    String?
+  year        Int?
+  trackNumber Int?
+  albumArtist String?
+  bpm         Int?
+  label       String?
+  isrc        String?
+  releaseDate DateTime?
+  originalDate DateTime?
+  originalYear Int?
+  totalTracks Int?
+  totalDiscs  Int?
+  lyrics      String?
+  
+  @@index([trackId, editedAt])
+  @@index([editedBy])
+}
+
+model ArtistEdit {
+  id        String   @id @default(cuid())
+  artistId  String
+  artist    Artist   @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  editedBy  String
+  user      User     @relation("ArtistEditUser", fields: [editedBy], references: [id], onDelete: Cascade)
+  editedAt  DateTime @default(now())
+  comment   String?
+  
+  // Full snapshot
+  name      String
+  bio       String?
+  imageUrl  String?
+  website   String?
+  genre     String?
+  country   String?
+  
+  @@index([artistId, editedAt])
+  @@index([editedBy])
+}
+
+model AlbumEdit {
+  id           String   @id @default(cuid())
+  albumId      String
+  album        Album    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  editedBy     String
+  user         User     @relation("AlbumEditUser", fields: [editedBy], references: [id], onDelete: Cascade)
+  editedAt     DateTime @default(now())
+  comment      String?
+  
+  // Full snapshot
+  name         String
+  artistId     String
+  year         Int?
+  coverImageId String?
+  
+  @@index([albumId, editedAt])
+  @@index([editedBy])
+}
+
+/// Party Room — server-hosted shared live queue (ADR-030).
+model Room {
+  id                       String   @id @default(cuid())
+  /// 6-char join code; unique among open rooms (enforced in app).
+  code                     String
+  /// open | ended
+  status                   String   @default("open")
+  /// listener | dj — never host
+  defaultJoinRole          String   @default("listener")
+  /// Flat Room Queue pointer; history is rows with position < currentIndex.
+  currentIndex             Int      @default(0)
+  /// Monotonic version bumped on every mutation (SSE resync).
+  roomVersion              Int      @default(0)
+  isPlaying                Boolean  @default(false)
+  originalHostUserId       String
+  originalHostUser         User     @relation("RoomOriginalHost", fields: [originalHostUserId], references: [id], onDelete: Cascade)
+  /// Current Host participant seat (speaker device in v1).
+  currentHostParticipantId String?  @unique
+  currentHostParticipant   RoomParticipant? @relation("RoomCurrentHost", fields: [currentHostParticipantId], references: [id], onDelete: SetNull)
+  /// Seat allowed to reclaim the speaker. Starts as the creating host.
+  /// When that seat Leaves and is not the current host, the pass moves to the current host seat.
+  reclaimParticipantId     String?  @unique
+  reclaimParticipant       RoomParticipant? @relation("RoomReclaimHost", fields: [reclaimParticipantId], references: [id], onDelete: SetNull)
+  /// Set when every seated participant is Away, or the last seat Leaves. Empty-room TTL.
+  emptySince               DateTime?
+  endedAt                  DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  participants RoomParticipant[] @relation("RoomParticipants")
+  queueItems   RoomQueueItem[]
+  playEvents   RoomPlayEvent[]
+
+  @@index([code, status])
+  @@index([status])
+  @@index([originalHostUserId, status])
+}
+
+/// Seat in a Party Room — linked user or guest (not "membership").
+model RoomParticipant {
+  id             String    @id @default(cuid())
+  roomId         String
+  room           Room      @relation("RoomParticipants", fields: [roomId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// SHA-256 hex of the opaque guest token (null for linked users).
+  guestTokenHash String?
+  displayName    String
+  /// host | dj | listener
+  role           String
+  lastSeenAt     DateTime  @default(now())
+  leftAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  addedQueueItems RoomQueueItem[]
+  hostedRoom      Room? @relation("RoomCurrentHost")
+  reclaimRoom     Room? @relation("RoomReclaimHost")
+
+  @@index([roomId, leftAt])
+  @@index([userId, leftAt])
+  @@index([guestTokenHash])
+  @@unique([roomId, userId])
+  @@unique([roomId, guestTokenHash])
+}
+
+model RoomQueueItem {
+  id                   String   @id @default(cuid())
+  roomId               String
+  room                 Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  trackId              String
+  track                Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  /// Dense 0-based position in the flat Room Queue.
+  position             Int
+  addedByParticipantId String
+  addedBy              RoomParticipant @relation(fields: [addedByParticipantId], references: [id], onDelete: Cascade)
+  createdAt            DateTime @default(now())
+
+  @@index([roomId, position])
+  @@index([addedByParticipantId])
+  @@index([trackId])
+}
+
+/// Room-scoped play start/complete — does not write personal UsageEvents.
+model RoomPlayEvent {
+  id                   String   @id @default(cuid())
+  roomId               String
+  room                 Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  trackId              String
+  track                Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  /// room_play_started | room_play_completed
+  type                 String
+  addedByParticipantId String?
+  playId               String?
+  createdAt            DateTime @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([trackId])
+  @@index([type, createdAt])
+}
+
+// Curator System Tables (ADR-031 through ADR-037)
+
+/// Edit locks for concurrent editing protection (ADR-032)
+model EditLock {
+  id         String   @id @default(cuid())
+  entityType String   // 'track', 'artist', 'album'
+  entityId   String
+  lockedBy   String
+  user       User     @relation("EditLockUser", fields: [lockedBy], references: [id], onDelete: Cascade)
+  acquiredAt DateTime @default(now())
+  expiresAt  DateTime
+  
+  @@unique([entityType, entityId])
+  @@index([lockedBy])
+  @@index([expiresAt])
+}
+
+/// Review queue for user reports and system-detected issues (ADR-035)
+model ReviewQueueItem {
+  id                String    @id @default(cuid())
+  entityType        String    // 'track', 'artist', 'album'
+  entityId          String
+  source            String    // 'user_report', 'system', 'curator'
+  issueType         String    // 'wrong_metadata', 'missing_info', 'low_quality', 'duplicate', 'other'
+  description       String?
+  reporterId        String?
+  reporter          User?     @relation("ReviewQueueReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  status            String    @default("open") // 'open', 'claimed', 'resolved'
+  priority          Int       @default(1) // 1 (low) to 3 (high)
+  reportCount       Int       @default(1) // number of duplicate user reports collapsed into this item (ADR-035)
+  claimedBy         String?
+  claimedByUser     User?     @relation("ReviewQueueClaimed", fields: [claimedBy], references: [id], onDelete: SetNull)
+  claimedAt         DateTime?
+  resolvedBy        String?
+  resolvedByUser    User?     @relation("ReviewQueueResolved", fields: [resolvedBy], references: [id], onDelete: SetNull)
+  resolvedAt        DateTime?
+  resolution        String?   // 'fixed', 'not_an_issue', 'duplicate', 'cannot_fix'
+  resolutionComment String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@index([entityType, entityId])
+  @@index([status, priority])
+  @@index([claimedBy])
+  @@index([reporterId])
+  @@index([createdAt])
+}
+
+/// Duplicate detection cache (ADR-034)
+model DuplicateDetection {
+  id             String   @id @default(cuid())
+  entityType     String   // 'artist', 'album'
+  entityId1      String
+  entityId2      String
+  matchType      String   // 'exact', 'fuzzy'
+  similarity     Float    // Levenshtein distance
+  normalizedName String
+  detectedAt     DateTime @default(now())
+  status         String   @default("pending") // 'pending', 'merged', 'dismissed'
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  @@index([entityType, entityId1])
+  @@index([entityType, entityId2])
+  @@index([normalizedName])
+  @@index([status])
+  @@index([matchType])
+}
+
+/// Normalized name cache for duplicate detection (ADR-034)
+model NormalizedName {
+  id             String   @id @default(cuid())
+  entityType     String   // 'artist', 'album'
+  entityId       String
+  originalName   String
+  normalizedName String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  @@unique([entityType, entityId])
+  @@index([normalizedName])
+}
+
+/// Genre taxonomy for multi-genre tagging (ADR-037)
+model Genre {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  normalizedName String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  tracks         Track[]  @relation("TrackGenres")
+  
+  @@index([normalizedName])
+}
+
+/// Threaded curator notes with @mentions
+model CuratorNote {
+  id         String        @id @default(cuid())
+  entityType String        // 'track', 'artist', 'album'
+  entityId   String
+  curatorId  String
+  curator    User          @relation("CuratorNotes", fields: [curatorId], references: [id], onDelete: Cascade)
+  parentId   String?
+  parent     CuratorNote?  @relation("NoteThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    CuratorNote[] @relation("NoteThread")
+  content    String
+  mentions   String        @default("[]") // JSON array of user IDs
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  
+  @@index([entityType, entityId])
+  @@index([curatorId])
+  @@index([parentId])
+  @@index([createdAt])
+}
+
+/// Admin "keep both" flag for a duplicate group.
+/// Hidden from the default duplicate list and shown again with the intentional filter.
+/// Does not delete tracks.
+model DuplicateIntentionalGroup {
+  id        String   @id @default(cuid())
+  /// Exact groups use the content hash. Similar groups use `similar:` plus sorted audio file ids.
+  groupKey  String   @unique
+  /// "exact" or "similar"
+  groupType String
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([groupType])
+}
+
+/// Curator achievement badges
+model CuratorBadge {
+  id         String   @id @default(cuid())
+  curatorId  String
+  curator    User     @relation("CuratorBadges", fields: [curatorId], references: [id], onDelete: Cascade)
+  badgeType  String   // 'first_edit', 'getting_started', 'regular_contributor', etc.
+  earnedAt   DateTime @default(now())
+  createdAt  DateTime @default(now())
+  
+  @@unique([curatorId, badgeType])
+  @@index([curatorId])
+  @@index([earnedAt])
 }

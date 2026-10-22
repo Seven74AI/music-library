@@ -20,6 +20,8 @@ import { LOCAL_SERVICE } from "#app/constants/services";
 import { type ExtractedAudioMetadata } from "#app/utils/audio-metadata.server";
 import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Route } from "./+types/upload.ts";
 
 export const handle: BreadcrumbHandle = {
   breadcrumb: <Icon name="download">Upload</Icon>,
@@ -66,6 +68,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return data({ service });
 }
 
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   await requireUserWithRole(request, "admin");
   // This action is kept for backward compatibility but won't be used in the new workflow
@@ -86,6 +92,7 @@ export default function LocalUploadPage() {
   const [uploadPhase, setUploadPhase] = useState<
     "uploading-to-server" | "server-processing" | null
   >(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
@@ -262,6 +269,7 @@ export default function LocalUploadPage() {
     setStep("uploading");
     setUploadPhase("uploading-to-server");
     setBrowserUploadProgress(0);
+    setUploadError(null);
 
     try {
       const formData = new FormData();
@@ -307,18 +315,18 @@ export default function LocalUploadPage() {
         xhr.addEventListener("load", () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
-              const result = JSON.parse(xhr.responseText) as {
+              const parsedResult = JSON.parse(xhr.responseText) as {
                 success: boolean;
                 uploadId?: string;
                 error?: string;
               };
 
-              if (!result.success) {
-                reject(new Error(result.error || "Failed to start upload"));
+              if (!parsedResult.success) {
+                reject(new Error(parsedResult.error || "Failed to start upload"));
                 return;
               }
 
-              resolve(result);
+              resolve(parsedResult);
             } catch (error) {
               reject(error);
             }
@@ -351,18 +359,31 @@ export default function LocalUploadPage() {
       console.error("Error starting upload:", error);
       setUploadPhase(null);
       setBrowserUploadProgress(0);
-      // Show error - you may want to add error state handling here
+      setUploadId(null);
+      setUploadError(error instanceof Error ? error.message : "Upload failed");
+      setStep(filesWithMetadata.length > 0 ? "edit" : "select");
     }
   };
 
-  // Handle retry failed uploads
-  const handleRetryFailed = () => {
-    // Reset to upload step - the retry will need to be implemented with stored file data
-    // For now, just reset to allow manual retry
-    setStep("select");
-    setSelectedFiles([]);
-    setFilesWithMetadata([]);
+  // Return to the edit step with only the files that failed, so they can be sent again.
+  const handleRetryFailed = (failedFiles: Array<{ fileName: string }>) => {
+    const failedNames = new Set(failedFiles.map((file) => file.fileName));
+    const retryFiles = selectedFiles.filter((file) => failedNames.has(file.name));
+    const retryMetadata = filesWithMetadata.filter((file) => failedNames.has(file.fileName));
+
     setUploadId(null);
+    setUploadPhase(null);
+    setBrowserUploadProgress(0);
+    setUploadError(null);
+
+    if (retryFiles.length > 0 && retryMetadata.length > 0) {
+      setSelectedFiles(retryFiles);
+      setFilesWithMetadata(retryMetadata);
+      setStep("edit");
+      return;
+    }
+
+    setStep(filesWithMetadata.length > 0 ? "edit" : "select");
   };
 
   // Handle upload more
@@ -395,13 +416,13 @@ export default function LocalUploadPage() {
         </p>
       </div>
 
-      {actionData?.error && (
+      {(actionData?.error || uploadError) && (
         <div className="mb-6 rounded-md bg-destructive/15 p-4">
           <div className="flex items-center gap-2">
             <Icon name="question-mark-circled" className="h-4 w-4 text-destructive" />
             <p className="text-sm text-destructive font-medium">Error</p>
           </div>
-          <p className="text-sm text-destructive mt-1">{actionData.error}</p>
+          <p className="text-sm text-destructive mt-1">{uploadError || actionData?.error}</p>
         </div>
       )}
 
@@ -452,8 +473,11 @@ export default function LocalUploadPage() {
               <div className="mt-6 space-y-2">
                 <p className="text-sm font-medium">Selected files ({selectedFiles.length}):</p>
                 <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {selectedFiles.map((file, index) => (
-                    <div key={index} className="text-sm text-muted-foreground">
+                  {selectedFiles.map((file) => (
+                    <div
+                      key={`${file.name}-${file.size}-${file.lastModified}`}
+                      className="text-sm text-muted-foreground"
+                    >
                       • {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
                     </div>
                   ))}
@@ -563,30 +587,33 @@ export default function LocalUploadPage() {
   );
 }
 
-export function ErrorBoundary() {
+function UploadAccessDenied403({
+  error,
+}: {
+  error: unknown;
+  params: Record<string, string | undefined>;
+}) {
   return (
-    <GeneralErrorBoundary
-      statusHandlers={{
-        403: ({ error }) => (
-          <div className="flex flex-col items-center justify-center gap-4 p-8">
-            <Icon name="lock-closed" className="h-12 w-12 text-destructive" />
-            <h1 className="text-2xl font-bold">Access Denied</h1>
-            <p className="text-muted-foreground">
-              {isRouteErrorResponse(error) && error.data?.message
-                ? error.data.message
-                : "You do not have permission to access this page. Admin access is required."}
-            </p>
-            <Button asChild>
-              <Link to="/music/services">
-                <Icon name="arrow-left" className="mr-2" />
-                Back to Services
-              </Link>
-            </Button>
-          </div>
-        ),
-      }}
-    />
+    <div className="flex flex-col items-center justify-center gap-4 p-8">
+      <Icon name="lock-closed" className="h-12 w-12 text-destructive" />
+      <h1 className="text-2xl font-bold">Access Denied</h1>
+      <p className="text-muted-foreground">
+        {isRouteErrorResponse(error) && error.data?.message
+          ? error.data.message
+          : "You do not have permission to access this page. Admin access is required."}
+      </p>
+      <Button asChild>
+        <Link to="/music/services">
+          <Icon name="arrow-left" className="mr-2" />
+          Back to Services
+        </Link>
+      </Button>
+    </div>
   );
+}
+
+export function ErrorBoundary() {
+  return <GeneralErrorBoundary statusHandlers={{ 403: UploadAccessDenied403 }} />;
 }
 
 // Confirmation Step Component
@@ -607,8 +634,8 @@ function ConfirmationStep({
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {files.map((file, index) => (
-            <div key={index} className="border rounded-lg p-4">
+          {files.map((file) => (
+            <div key={file.fileName} className="border rounded-lg p-4">
               <p className="font-medium">{file.editedMetadata.title || file.fileName}</p>
               <p className="text-sm text-muted-foreground">
                 {file.editedMetadata.artist || "Unknown Artist"}
@@ -668,7 +695,7 @@ function UploadProgressStep({
 
     eventSource.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data) as {
+        const progressData = JSON.parse(event.data) as {
           type?: string;
           files?: Array<{
             fileId: string;
@@ -692,14 +719,17 @@ function UploadProgressStep({
             error: string;
           }>;
         };
-        if (data.type === "progress" || (data.files && data.overallProgress !== undefined)) {
+        if (
+          progressData.type === "progress" ||
+          (progressData.files && progressData.overallProgress !== undefined)
+        ) {
           const newProgress = {
-            files: data.files || [],
-            overallProgress: data.overallProgress || 0,
-            status: data.status || "in-progress",
-            uploadSpeed: data.uploadSpeed,
-            successfulTracks: data.successfulTracks || [],
-            failedFiles: data.failedFiles || [],
+            files: progressData.files || [],
+            overallProgress: progressData.overallProgress || 0,
+            status: progressData.status || "in-progress",
+            uploadSpeed: progressData.uploadSpeed,
+            successfulTracks: progressData.successfulTracks || [],
+            failedFiles: progressData.failedFiles || [],
           };
           setProgress(newProgress);
 
@@ -832,7 +862,7 @@ function CompletionStep({
   onViewLibrary,
 }: {
   uploadId: string;
-  onRetryFailed: () => void;
+  onRetryFailed: (failedFiles: Array<{ fileId: string; fileName: string; error: string }>) => void;
   onUploadMore: () => void;
   onViewLibrary: () => void;
 }) {
@@ -842,6 +872,20 @@ function CompletionStep({
       fileName: string;
       title: string;
       artist: string;
+      storageSavedBytes?: number;
+      exactDuplicate?: {
+        trackId: string;
+        title: string;
+        artist: string;
+        confidence: number;
+      };
+      fuzzyMatches?: Array<{
+        trackId: string;
+        title: string;
+        artist: string;
+        matchScore: number;
+        matchType: "fingerprint" | "metadata";
+      }>;
     }>;
     failedFiles: Array<{
       fileId: string;
@@ -861,13 +905,27 @@ function CompletionStep({
 
         eventSource.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data) as {
+            const completionEventData = JSON.parse(event.data) as {
               type?: string;
               successfulTracks?: Array<{
                 trackId: string;
                 fileName: string;
                 title: string;
                 artist: string;
+                storageSavedBytes?: number;
+                exactDuplicate?: {
+                  trackId: string;
+                  title: string;
+                  artist: string;
+                  confidence: number;
+                };
+                fuzzyMatches?: Array<{
+                  trackId: string;
+                  title: string;
+                  artist: string;
+                  matchScore: number;
+                  matchType: "fingerprint" | "metadata";
+                }>;
               }>;
               failedFiles?: Array<{
                 fileId: string;
@@ -877,11 +935,14 @@ function CompletionStep({
               status?: string;
             };
 
-            if (data.type === "progress") {
-              if (data.status === "completed" || data.status === "failed") {
+            if (completionEventData.type === "progress") {
+              if (
+                completionEventData.status === "completed" ||
+                completionEventData.status === "failed"
+              ) {
                 setCompletionData({
-                  successfulTracks: data.successfulTracks || [],
-                  failedFiles: data.failedFiles || [],
+                  successfulTracks: completionEventData.successfulTracks || [],
+                  failedFiles: completionEventData.failedFiles || [],
                 });
                 if (eventSource) {
                   eventSource.close();

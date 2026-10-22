@@ -34,6 +34,50 @@ if (process.env.AUDIO_ARCHIVE_ENABLED === "true") {
   });
 }
 
+// Start SQLite backup scheduler when BACKUP_BUCKET_NAME is set (ADR-029).
+if (process.env.BACKUP_BUCKET_NAME) {
+  void import("./features/db-backup/scheduler.server.ts").then(({ startBackupScheduler }) => {
+    startBackupScheduler();
+  });
+}
+
+// Party Room empty-room TTL sweeper (ADR-030) — primary only, always on.
+if (process.env.NODE_ENV !== "test") {
+  void import("./features/party-room/empty-room-sweeper.server.ts").then(
+    ({ startEmptyRoomSweeper }) => {
+      startEmptyRoomSweeper();
+    },
+  );
+}
+
+// Review-queue quality check (system detection). Daily at 02:00 UTC on the
+// LiteFS primary — same in-process interval as the other background jobs.
+if (process.env.NODE_ENV !== "test") {
+  void import("./utils/quality-check.server.ts").then(({ scheduleQualityCheck }) => {
+    scheduleQualityCheck();
+  });
+}
+
+// Security-event retention: drop non-perpetual rows older than 90 days.
+if (process.env.NODE_ENV !== "test") {
+  void import("./features/security/retention-sweeper.server.ts").then(
+    ({ startSecurityEventSweeper }) => {
+      startSecurityEventSweeper();
+    },
+  );
+}
+
+// Upload-progress TTL sweeper: reclaim abandoned in-memory upload sessions so
+// their audio buffers cannot accumulate without bound. No-op when the Redis
+// backend is configured (EXPIRE handles TTL there). See ADR-038.
+if (process.env.NODE_ENV !== "test") {
+  void import("./features/upload-progress/progress-store.server.ts").then(
+    ({ startUploadProgressSweeper }) => {
+      startUploadProgressSweeper();
+    },
+  );
+}
+
 const MODE = process.env.NODE_ENV ?? "development";
 
 type DocRequestArgs = Parameters<HandleDocumentRequestFunction>;
@@ -61,7 +105,7 @@ export default async function handleRequest(...args: DocRequestArgs) {
 
   const callbackName = isbot(request.headers.get("user-agent")) ? "onAllReady" : "onShellReady";
 
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     let didError = false;
     // NOTE: this timing will only include things that are rendered in the shell
     // and will not include suspended components and deferred loaders

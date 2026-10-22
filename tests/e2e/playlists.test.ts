@@ -266,7 +266,7 @@ test.describe("Playlists", () => {
     await prisma.userPlaylist.delete({ where: { id: playlist.id } });
   });
 
-  test("does not show library toggle buttons on user playlist tracks", async ({
+  test("shows add to library only for unsaved user playlist tracks", async ({
     page,
     login,
     insertNewTrack,
@@ -281,7 +281,7 @@ test.describe("Playlists", () => {
     const playlist = await prisma.userPlaylist.create({
       data: {
         title: "No Library Buttons",
-        description: "Library buttons belong on service playlist page",
+        description: "Add to library only when the track is not saved",
         ownerId: user.id,
       },
     });
@@ -295,9 +295,14 @@ test.describe("Playlists", () => {
     await page.goto(`/playlists/${playlist.id}`);
     await page.waitForLoadState("domcontentloaded");
 
-    // Library add/remove buttons should NOT be on user playlist pages
-    // They belong on the YouTube service playlist page (playlist.$id.tsx)
-    await expect(page.getByLabel("Add to library")).not.toBeAttached({ timeout: 5000 });
+    const unsaved = page
+      .locator('[aria-label^="Track "]')
+      .filter({ hasText: "User Playlist Track 1" });
+    const saved = page
+      .locator('[aria-label^="Track "]')
+      .filter({ hasText: "User Playlist Track 2" });
+    await expect(unsaved.getByRole("button", { name: "Add to library" })).toBeVisible();
+    await expect(saved.getByRole("button", { name: "Add to library" })).toHaveCount(0);
     await expect(page.getByLabel("Remove from library")).not.toBeAttached({ timeout: 5000 });
 
     // Cleanup

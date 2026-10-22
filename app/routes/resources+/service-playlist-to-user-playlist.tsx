@@ -4,7 +4,10 @@ import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { createToastHeaders } from "#app/utils/toast.server.ts";
-import { userPlaylistTitleTaken } from "#app/utils/user-playlist.server.ts";
+import {
+  bumpUserPlaylistUpdatedAt,
+  userPlaylistTitleTaken,
+} from "#app/utils/user-playlist.server.ts";
 import { type Route } from "./+types/service-playlist-to-user-playlist";
 
 /**
@@ -197,13 +200,18 @@ export async function action({ request }: Route.ActionArgs) {
       }
 
       // Check which tracks already exist in the target playlist
-      const existingTracks = await prisma.userPlaylistTrack.findMany({
-        where: {
-          playlistId: targetPlaylistId,
-          trackId: { in: trackIds },
-        },
-        select: { trackId: true },
-      });
+      // (chunked to stay under SQLite's 999 bind-parameter limit)
+      const existingTracks: { trackId: string }[] = [];
+      for (const trackIdChunk of chunkArray(trackIds)) {
+        const batch = await prisma.userPlaylistTrack.findMany({
+          where: {
+            playlistId: targetPlaylistId,
+            trackId: { in: trackIdChunk },
+          },
+          select: { trackId: true },
+        });
+        existingTracks.push(...batch);
+      }
 
       const existingSet = new Set(existingTracks.map((et) => et.trackId));
       const newTrackIds = trackIds.filter((id) => !existingSet.has(id));
@@ -245,6 +253,11 @@ export async function action({ request }: Route.ActionArgs) {
           })),
         });
       }
+
+      await bumpUserPlaylistUpdatedAt({
+        playlistId: targetPlaylistId,
+        userId,
+      });
 
       return data(
         {

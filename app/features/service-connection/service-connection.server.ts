@@ -1,6 +1,10 @@
 import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { type YouTubeTokenData } from "#app/types/youtube";
 import { prisma } from "#app/utils/db.server";
+import {
+  decryptConnectionTokens,
+  encryptConnectionTokens,
+} from "#app/utils/token-cipher.server.ts";
 import { shouldMockYouTube } from "#app/utils/youtube-mock-utils";
 import { createYouTubeOAuthService } from "#app/utils/youtube-oauth.server";
 
@@ -59,6 +63,15 @@ export async function disconnectServiceConnection(
   }
 }
 
+/**
+ * Single-flight map for OAuth token refreshes, keyed by connection id.
+ * Coalesces concurrent refresh attempts for the same connection into one
+ * refresh call + one DB write, preventing duplicate refresh calls, a
+ * last-write-wins race on `connection.tokens`, and refresh-token invalidation
+ * with rotating-token providers.
+ */
+const inFlightRefreshes = new Map<string, Promise<ServiceAccessToken | null>>();
+
 async function resolveYouTubeAccessToken(userId: string): Promise<ServiceAccessToken | null> {
   const connection = await prisma.connection.findFirst({
     where: {
@@ -71,11 +84,19 @@ async function resolveYouTubeAccessToken(userId: string): Promise<ServiceAccessT
     return null;
   }
 
+  let tokenJson: string;
+  try {
+    tokenJson = decryptConnectionTokens(connection.tokens);
+  } catch {
+    console.error("Failed to decrypt YouTube OAuth tokens");
+    return null;
+  }
+
   let tokenData: YouTubeTokenData;
   try {
-    tokenData = JSON.parse(connection.tokens) as YouTubeTokenData;
-  } catch (error) {
-    console.error("Invalid YouTube OAuth token format:", error);
+    tokenData = JSON.parse(tokenJson) as YouTubeTokenData;
+  } catch {
+    console.error("Invalid YouTube OAuth token format");
     return null;
   }
 
@@ -98,10 +119,35 @@ async function resolveYouTubeAccessToken(userId: string): Promise<ServiceAccessT
     return null;
   }
 
+  // Reuse an in-flight refresh for this connection instead of starting a second
+  // one. The second caller waits on the same promise and receives the same
+  // refreshed token, so the provider is only hit once and `connection.tokens`
+  // is only written once.
+  const inFlight = inFlightRefreshes.get(connection.id);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const refreshPromise = refreshYouTubeAccessToken(
+    connection.id,
+    tokenData.refresh_token,
+    tokenData,
+  ).finally(() => {
+    inFlightRefreshes.delete(connection.id);
+  });
+  inFlightRefreshes.set(connection.id, refreshPromise);
+  return refreshPromise;
+}
+
+async function refreshYouTubeAccessToken(
+  connectionId: string,
+  refreshToken: string,
+  tokenData: YouTubeTokenData,
+): Promise<ServiceAccessToken | null> {
   try {
     console.log("YouTube OAuth token has expired, attempting refresh...");
     const oauthService = createYouTubeOAuthService();
-    const refreshedTokens = await oauthService.refreshAccessToken(tokenData.refresh_token);
+    const refreshedTokens = await oauthService.refreshAccessToken(refreshToken);
 
     const updatedTokenData: YouTubeTokenData = {
       ...tokenData,
@@ -110,8 +156,8 @@ async function resolveYouTubeAccessToken(userId: string): Promise<ServiceAccessT
     };
 
     await prisma.connection.update({
-      where: { id: connection.id },
-      data: { tokens: JSON.stringify(updatedTokenData) },
+      where: { id: connectionId },
+      data: { tokens: encryptConnectionTokens(JSON.stringify(updatedTokenData)) },
     });
 
     console.log("YouTube OAuth token refreshed successfully");

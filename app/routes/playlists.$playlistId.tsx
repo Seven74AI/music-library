@@ -32,13 +32,15 @@
 
     ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
 */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { data, redirect, Link, useFetcher, useParams, useSubmit } from "react-router";
 import { useAudioPlayer } from "#app/components/audio-player-provider.tsx";
 import { type BreadcrumbHandle } from "#app/components/breadcrumbs.tsx";
 import { OfflinePlaylistDownloadButton } from "#app/components/offline/offline-playlist-download-button.tsx";
 import { OfflinePlaylistView } from "#app/components/offline/offline-playlist-view.tsx";
+
 import { PlaylistHero } from "#app/components/playlist-hero";
+import { SortDirectionToggle } from "#app/components/sort-direction-toggle.tsx";
 import { SortableTrackList } from "#app/components/sortable-track-list";
 import {
   AlertDialog,
@@ -51,6 +53,13 @@ import {
   AlertDialogTitle,
 } from "#app/components/ui/alert-dialog";
 import { Icon } from "#app/components/ui/icon.tsx";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#app/components/ui/select.tsx";
 import { toast } from "#app/components/ui/use-toast.ts";
 import { type PlaylistDetailOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { cachePlaylistMetadata } from "#app/features/offline-storage/offline-playlist-metadata.client.ts";
@@ -60,9 +69,19 @@ import { getPlaylistTitle } from "#app/utils/breadcrumb-utils.ts";
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { filterPlayableTracks } from "#app/utils/playable-track.ts";
+import {
+  defaultPlaylistTrackSortDirection,
+  parsePlaylistTrackSort,
+  sortPlaylistTracks,
+  type PlaylistTrackSortOption,
+} from "#app/utils/playlist-track-sort.ts";
+import { type SortDirection } from "#app/utils/sort-direction.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { createToastHeaders } from "#app/utils/toast.server.ts";
-import { userPlaylistTitleTaken } from "#app/utils/user-playlist.server.ts";
+import {
+  bumpUserPlaylistUpdatedAt,
+  userPlaylistTitleTaken,
+} from "#app/utils/user-playlist.server.ts";
 import { type Route } from "./+types/playlists.$playlistId.ts";
 
 export const handle: BreadcrumbHandle = {
@@ -86,6 +105,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         select: {
           id: true,
           position: true,
+          createdAt: true,
           track: {
             select: {
               id: true,
@@ -102,8 +122,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
                   objectKey: true,
                 },
               },
+              albumRecord: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
               serviceUrl: true,
               createdAt: true,
+              releaseDate: true,
+              originalDate: true,
               service: {
                 select: {
                   displayName: true,
@@ -292,6 +320,11 @@ export async function action({ request, params }: Route.ActionArgs) {
         ),
       );
 
+      await bumpUserPlaylistUpdatedAt({
+        playlistId: params.playlistId,
+        userId,
+      });
+
       return data(
         { success: true, message: "Tracks reordered successfully" },
         {
@@ -364,6 +397,11 @@ export async function action({ request, params }: Route.ActionArgs) {
       where: {
         id: trackId,
       },
+    });
+
+    await bumpUserPlaylistUpdatedAt({
+      playlistId: params.playlistId,
+      userId,
     });
 
     return data(
@@ -450,6 +488,11 @@ export async function action({ request, params }: Route.ActionArgs) {
         });
       }
 
+      await bumpUserPlaylistUpdatedAt({
+        playlistId: params.playlistId,
+        userId,
+      });
+
       return data(
         { success: true, message: `${trackIdArray.length} tracks removed successfully` },
         {
@@ -533,6 +576,15 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
   // Optimistic state for tracks
   const [optimisticTracks, setOptimisticTracks] = useState(playlist.tracks);
   const [optimisticPlaylist, setOptimisticPlaylist] = useState(playlist);
+  const [trackSort, setTrackSort] = useState<PlaylistTrackSortOption>("custom");
+  const [trackSortDirection, setTrackSortDirection] = useState<SortDirection>(
+    defaultPlaylistTrackSortDirection("custom"),
+  );
+
+  const displayedTracks = useMemo(
+    () => sortPlaylistTracks(optimisticTracks, trackSort, trackSortDirection),
+    [optimisticTracks, trackSort, trackSortDirection],
+  );
 
   // Update optimistic state when loader data changes
   useEffect(() => {
@@ -591,18 +643,18 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
 
   const applyBulkQueueAction = (
     tracks: FullTrack[],
-    action: "playNext" | "addToUpNext" | "addToQueue",
+    queueAction: "playNext" | "addToUpNext" | "addToQueue",
   ) => {
     if (tracks.length === 0) return;
 
-    if (action === "playNext") {
+    if (queueAction === "playNext") {
       for (const track of [...tracks].reverse()) {
         playNextTrack(track);
       }
       return;
     }
 
-    if (action === "addToUpNext") {
+    if (queueAction === "addToUpNext") {
       for (const track of tracks) {
         addToUpNext(track);
       }
@@ -617,9 +669,9 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
   const showBulkQueueToast = (
     playableCount: number,
     skippedCount: number,
-    action: "playNext" | "addToUpNext" | "addToQueue",
+    queueAction: "playNext" | "addToUpNext" | "addToQueue",
   ) => {
-    const actionLabel = bulkQueueActionLabels[action].toLowerCase();
+    const actionLabel = bulkQueueActionLabels[queueAction].toLowerCase();
     toast({
       title: "Success",
       description:
@@ -645,7 +697,7 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
   const confirmBulkQueueAction = () => {
     if (!bulkQueueDialogAction) return;
 
-    const tracks = optimisticTracks.map((pt) => pt.track as FullTrack);
+    const tracks = displayedTracks.map((pt) => pt.track as FullTrack);
     const playable = filterPlayableTracks(tracks);
     applyBulkQueueAction(playable, bulkQueueDialogAction);
 
@@ -728,7 +780,7 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
   };
 
   const handleBulkPlayNextSelection = (playlistTrackIds: string[]) => {
-    const selectedTracks = optimisticTracks.filter((pt) => playlistTrackIds.includes(pt.id));
+    const selectedTracks = displayedTracks.filter((pt) => playlistTrackIds.includes(pt.id));
     const tracks = selectedTracks.map((pt) => pt.track as FullTrack);
     const playable = filterPlayableTracks(tracks);
 
@@ -742,7 +794,7 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
   };
 
   const handleBulkAddToUpNextSelection = (playlistTrackIds: string[]) => {
-    const selectedTracks = optimisticTracks.filter((pt) => playlistTrackIds.includes(pt.id));
+    const selectedTracks = displayedTracks.filter((pt) => playlistTrackIds.includes(pt.id));
     const tracks = selectedTracks.map((pt) => pt.track as FullTrack);
     const playable = filterPlayableTracks(tracks);
 
@@ -756,7 +808,7 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
   };
 
   const handleBulkAddToQueueSelection = (playlistTrackIds: string[]) => {
-    const selectedTracks = optimisticTracks.filter((pt) => playlistTrackIds.includes(pt.id));
+    const selectedTracks = displayedTracks.filter((pt) => playlistTrackIds.includes(pt.id));
     const tracks = selectedTracks.map((pt) => pt.track as FullTrack);
     const playable = filterPlayableTracks(tracks);
 
@@ -809,17 +861,45 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
 
       {/* Tracks Section */}
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-2xl font-bold">Tracks</h2>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Icon name="file-text" className="h-4 w-4" />
-            <span>
-              {optimisticTracks.length} track{optimisticTracks.length !== 1 ? "s" : ""}
-            </span>
-            {(reorderFetcher.state === "submitting" ||
-              removeTrackFetcher.state === "submitting") && (
-              <Icon name="update" className="h-3 w-3 animate-spin text-primary" />
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Icon name="file-text" className="h-4 w-4" />
+              <span>
+                {optimisticTracks.length} track{optimisticTracks.length !== 1 ? "s" : ""}
+              </span>
+              {(reorderFetcher.state === "submitting" ||
+                removeTrackFetcher.state === "submitting") && (
+                <Icon name="update" className="h-3 w-3 animate-spin text-primary" />
+              )}
+            </div>
+            <Select
+              value={trackSort}
+              onValueChange={(value) => {
+                const nextSort = parsePlaylistTrackSort(value);
+                setTrackSort(nextSort);
+                setTrackSortDirection(defaultPlaylistTrackSortDirection(nextSort));
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-44" aria-label="Sort tracks">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="custom">Custom order</SelectItem>
+                <SelectItem value="title">Title</SelectItem>
+                <SelectItem value="artist">Artist</SelectItem>
+                <SelectItem value="duration">Duration</SelectItem>
+                <SelectItem value="dateAdded">Date added</SelectItem>
+              </SelectContent>
+            </Select>
+            {trackSort !== "custom" ? (
+              <SortDirectionToggle
+                value={trackSortDirection}
+                onValueChange={setTrackSortDirection}
+                aria-label="Track sort direction"
+              />
+            ) : null}
           </div>
         </div>
 
@@ -838,13 +918,16 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
           </div>
         ) : (
           <SortableTrackList
-            tracks={optimisticTracks.map((pt) => ({
-              ...pt,
-              track: {
-                ...pt.track,
-                createdAt: pt.track.createdAt.toISOString(),
-              },
-            }))}
+            key={`${trackSort}-${trackSortDirection}`}
+            tracks={displayedTracks.map((pt) =>
+              Object.assign({}, pt, {
+                track: Object.assign({}, pt.track, {
+                  createdAt: pt.track.createdAt.toISOString(),
+                  releaseDate: pt.track.releaseDate?.toISOString() ?? null,
+                  originalDate: pt.track.originalDate?.toISOString() ?? null,
+                }),
+              }),
+            )}
             playlists={playlists}
             onReorder={handleReorder}
             onRemoveTrack={handleRemoveTrack}
@@ -855,6 +938,9 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
             isReordering={reorderFetcher.state === "submitting"}
             isRemoving={removeTrackFetcher.state === "submitting"}
             playlistId={params.playlistId!}
+            trackSort={trackSort}
+            sortDirection={trackSortDirection}
+            allowReorder={trackSort === "custom"}
           />
         )}
       </div>

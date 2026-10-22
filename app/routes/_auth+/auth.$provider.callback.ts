@@ -1,4 +1,14 @@
 import { redirect } from "react-router";
+import {
+  recordLoginFailure,
+  recordLoginSuccess,
+  recordSecurityEvent,
+  SECURITY_EVENT_TYPES,
+} from "#app/features/security/track-event.server.ts";
+import {
+  recordUsageEvent,
+  USAGE_EVENT_TYPES,
+} from "#app/features/usage-analytics/record-usage.server.ts";
 import { authenticator, getSessionExpirationDate, getUserId } from "#app/utils/auth.server.ts";
 import { ProviderNameSchema, providerLabels } from "#app/utils/connections.tsx";
 import { prisma } from "#app/utils/db.server.ts";
@@ -41,6 +51,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   );
 
   if (!authResult.success) {
+    await recordLoginFailure({
+      request,
+      reason: `provider_auth_failed:${providerName}`,
+    });
     console.error(authResult.error);
     throw await redirectWithToast(
       "/login",
@@ -100,6 +114,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         userId,
       },
     });
+    await recordSecurityEvent({
+      request,
+      eventType: SECURITY_EVENT_TYPES.serviceConnected,
+      userId,
+      perpetual: false,
+      metadata: { provider: providerName },
+    });
     return redirectWithToast(
       "/settings/profile/connections",
       {
@@ -129,6 +150,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         providerId: String(profile.id),
         userId: user.id,
       },
+    });
+    await recordSecurityEvent({
+      request,
+      eventType: SECURITY_EVENT_TYPES.serviceConnected,
+      userId: user.id,
+      perpetual: false,
+      metadata: { provider: providerName },
     });
     return makeSession(
       { request, userId: user.id },
@@ -171,12 +199,40 @@ async function makeSession(
   responseInit?: ResponseInit,
 ) {
   redirectTo ??= "/";
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { disabledAt: true },
+  });
+  if (user?.disabledAt) {
+    await recordLoginFailure({
+      request,
+      userId,
+      reason: "disabled",
+    });
+    return redirectWithToast(
+      "/login",
+      {
+        title: "Account disabled",
+        description: "This account has been disabled.",
+        type: "error",
+      },
+      { headers: destroyRedirectTo },
+    );
+  }
+
   const session = await prisma.session.create({
     select: { id: true, expirationDate: true, userId: true },
     data: {
       expirationDate: getSessionExpirationDate(),
       userId,
     },
+  });
+  void recordUsageEvent({ type: USAGE_EVENT_TYPES.login, userId }).catch(() => {});
+  await recordLoginSuccess({
+    request,
+    userId,
+    sessionId: session.id,
+    method: "provider",
   });
   return handleNewSession(
     { request, session, redirectTo, remember: true },

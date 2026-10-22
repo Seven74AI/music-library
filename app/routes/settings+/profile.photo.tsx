@@ -13,6 +13,7 @@ import { StatusButton } from "#app/components/ui/status-button.tsx";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { getUserImgSrc, useDoubleCheck, useIsPending } from "#app/utils/misc.tsx";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { uploadProfileImage } from "#app/utils/storage.server.ts";
 import { type Route } from "./+types/profile.photo.ts";
 import { type BreadcrumbHandle } from "./profile.tsx";
@@ -53,18 +54,22 @@ export async function loader({ request }: Route.LoaderArgs) {
   return { user };
 }
 
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
+
 export async function action({ request }: Route.ActionArgs) {
   const userId = await requireUserId(request);
 
   const formData = await parseFormData(request, { maxFileSize: MAX_SIZE });
   const submission = await parseWithZod(formData, {
-    schema: PhotoFormSchema.transform(async (data) => {
-      if (data.intent === "delete") return { intent: "delete" };
-      if (data.photoFile.size <= 0) return z.NEVER;
+    schema: PhotoFormSchema.transform(async (formValues) => {
+      if (formValues.intent === "delete") return { intent: "delete" };
+      if (formValues.photoFile.size <= 0) return z.NEVER;
       return {
-        intent: data.intent,
+        intent: formValues.intent,
         image: {
-          objectKey: await uploadProfileImage(userId, data.photoFile),
+          objectKey: await uploadProfileImage(userId, formValues.photoFile),
         },
       };
     }),

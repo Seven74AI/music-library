@@ -3,31 +3,41 @@
  */
 
 import { Link } from "react-router";
-import { type SearchResult } from "#app/types/search.ts";
+import { InfiniteScrollSentinel } from "#app/components/infinite-scroll-sentinel.tsx";
+import { TrackListItem } from "#app/components/track-list-item.tsx";
+import { type SearchResult, type TrackSearchResult } from "#app/types/search.ts";
+import { mapSearchTrackToListItem } from "#app/utils/map-search-track.ts";
 import { Icon } from "./ui/icon.tsx";
 
+interface SearchPlaylist {
+  id: string;
+  title: string;
+  description: string | null;
+  _count: { tracks: number };
+}
+
 interface SearchResultsProps {
-  results: SearchResult[];
+  results?: SearchResult[];
   query: string;
   onLoadMore?: () => void;
   hasNext?: boolean;
   isLoading?: boolean;
+  playlists?: SearchPlaylist[];
+  scope?: "library" | "all";
 }
+
+const EMPTY_RESULTS: SearchResult[] = [];
+const EMPTY_PLAYLISTS: SearchPlaylist[] = [];
 
 /** Per-entity configuration — single source of truth for links, icons, subtitles */
 const ENTITY_CONFIG: Record<
-  SearchResult["type"],
+  Exclude<SearchResult["type"], "track">,
   {
     link: (id: string) => string;
     icon: Parameters<typeof Icon>[0]["name"];
     subtitle: (r: SearchResult) => string;
   }
 > = {
-  track: {
-    link: (id) => `/library/${id}`,
-    icon: "play",
-    subtitle: (r) => (r.type === "track" ? `Track — ${r.artistName}` : "Track"),
-  },
   album: {
     link: (id) => `/albums/${id}`,
     icon: "camera",
@@ -46,7 +56,7 @@ const ENTITY_CONFIG: Record<
   },
 };
 
-function ResultImage({ result }: { result: SearchResult }) {
+function ResultImage({ result }: { result: Exclude<SearchResult, TrackSearchResult> }) {
   const config = ENTITY_CONFIG[result.type];
   const imageUrl = result.type === "playlist" ? result.thumbnailUrl : null;
 
@@ -61,12 +71,31 @@ function ResultImage({ result }: { result: SearchResult }) {
   );
 }
 
+function EntityResultRow({ result }: { result: Exclude<SearchResult, TrackSearchResult> }) {
+  const config = ENTITY_CONFIG[result.type];
+
+  return (
+    <Link
+      to={config.link(result.id)}
+      className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
+    >
+      <ResultImage result={result} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{result.name}</p>
+        <p className="truncate text-xs text-muted-foreground">{config.subtitle(result)}</p>
+      </div>
+    </Link>
+  );
+}
+
 export function SearchResults({
-  results,
+  results = EMPTY_RESULTS,
   query,
   onLoadMore,
   hasNext = false,
   isLoading = false,
+  playlists = EMPTY_PLAYLISTS,
+  scope = "all",
 }: SearchResultsProps) {
   if (results.length === 0 && !isLoading && query.trim()) {
     return (
@@ -84,37 +113,50 @@ export function SearchResults({
     return null;
   }
 
+  let trackIndex = 0;
+
   return (
     <div>
       {results.map((result) => {
-        const config = ENTITY_CONFIG[result.type];
-        return (
-          <Link
-            key={`${result.type}-${result.id}`}
-            to={config.link(result.id)}
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
-          >
-            <ResultImage result={result} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
-                {result.type === "track" ? result.title : result.name}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">{config.subtitle(result)}</p>
-            </div>
-          </Link>
-        );
+        if (result.type === "track") {
+          const currentTrackIndex = trackIndex;
+          trackIndex += 1;
+
+          const isInLibrary = Boolean(result.addedAt);
+
+          return (
+            <TrackListItem
+              key={`track-${result.id}`}
+              track={mapSearchTrackToListItem(result)}
+              userTrack={{ createdAt: result.addedAt ?? new Date(0).toISOString() }}
+              index={currentTrackIndex}
+              playlists={playlists}
+              variant="compact"
+              showQuickAddToPlaylist
+              showAddToLibrary={scope === "all"}
+              showAudioFileDownload={isInLibrary}
+              usePlaybackIndex={false}
+              playlistContext={{ type: "track", trackId: result.id }}
+              showDuration
+            />
+          );
+        }
+
+        return <EntityResultRow key={`${result.type}-${result.id}`} result={result} />;
       })}
 
-      {hasNext && onLoadMore && (
-        <div className="flex justify-center pt-4">
-          <button
-            onClick={onLoadMore}
-            disabled={isLoading}
-            className="rounded-md bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {isLoading ? "Loading..." : "Load More"}
-          </button>
-        </div>
+      {hasNext && onLoadMore && results.length > 0 && (
+        <InfiniteScrollSentinel
+          enabled={!isLoading}
+          onIntersect={onLoadMore}
+          className="flex justify-center pt-4"
+        >
+          {isLoading ? (
+            <Icon name="update" className="h-6 w-6 animate-spin text-muted-foreground" />
+          ) : (
+            <span className="text-sm text-muted-foreground">Scroll to load more</span>
+          )}
+        </InfiniteScrollSentinel>
       )}
     </div>
   );

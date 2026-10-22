@@ -35,7 +35,12 @@ export type LibraryOfflineLoaderData = {
   userTracks: [];
   pagination: { limit: number; hasNext: false; nextCursor: null };
   hasAudioOnly: false;
+  sort: "dateAdded";
+  direction: "desc";
   playlists: [];
+  isCurator: false;
+  genreId: null;
+  genre: null;
 };
 
 export type PlaylistsIndexOfflineLoaderData = {
@@ -160,7 +165,12 @@ export const OFFLINE_ROUTE_POLICIES: Record<string, StubEntry> = {
       userTracks: [],
       pagination: { limit: LIBRARY_TRACKS_PAGE_SIZE, hasNext: false, nextCursor: null },
       hasAudioOnly: false,
+      sort: "dateAdded" as const,
+      direction: "desc" as const,
       playlists: [],
+      isCurator: false,
+      genreId: null,
+      genre: null,
     } satisfies LibraryOfflineLoaderData;
   }),
 
@@ -172,10 +182,11 @@ export const OFFLINE_ROUTE_POLICIES: Record<string, StubEntry> = {
     const storage = getOfflineStorage();
     const cachedPlaylists = listCachedPlaylists();
     const offlinePlaylists = await Promise.all(
-      cachedPlaylists.map(async (playlist) => ({
-        ...playlist,
-        trackCount: (await storage.listForPlaylist(playlist.id)).length,
-      })),
+      cachedPlaylists.map(async (playlist) =>
+        Object.assign({}, playlist, {
+          trackCount: (await storage.listForPlaylist(playlist.id)).length,
+        }),
+      ),
     );
     return {
       offline: true as const,

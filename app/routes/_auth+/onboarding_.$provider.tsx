@@ -76,9 +76,9 @@ export async function action({ request, params }: Route.ActionArgs) {
   const verifySession = await verifySessionStorage.getSession(request.headers.get("cookie"));
 
   const submission = await parseWithZod(formData, {
-    schema: SignupFormSchema.superRefine(async (data, ctx) => {
+    schema: SignupFormSchema.superRefine(async (formValues, ctx) => {
       const existingUser = await prisma.user.findUnique({
-        where: { username: data.username },
+        where: { username: formValues.username },
         select: { id: true },
       });
       if (existingUser) {
@@ -89,14 +89,15 @@ export async function action({ request, params }: Route.ActionArgs) {
         });
         return;
       }
-    }).transform(async (data) => {
+    }).transform(async (formValues) => {
       const session = await signupWithConnection({
-        ...data,
+        ...formValues,
         email,
         providerId: String(providerId),
         providerName,
+        request,
       });
-      return { ...data, session };
+      return { ...formValues, session };
     }),
     async: true,
   });

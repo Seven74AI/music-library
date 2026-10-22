@@ -2,7 +2,6 @@ import { describe, expect, test, vi, beforeEach } from "vitest";
 import {
   addTrackToUserLibrary,
   addTracksToUserLibrary,
-  removeTrackFromUserLibrary,
 } from "#app/features/user-library/user-library.server";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { action } from "./track-library.tsx";

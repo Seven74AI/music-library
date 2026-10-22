@@ -35,7 +35,7 @@ const mockCreateFetcher = {
 };
 
 const mockPlaylistsFetcher = {
-  state: "idle" as const,
+  state: "idle" as "idle" | "submitting" | "loading",
   data: undefined as
     | {
         playlists: Array<{
@@ -89,13 +89,19 @@ function renderMenu(
     description: string | null;
     _count: { tracks: number };
   }>,
+  options?: { constrainHeight?: boolean },
 ) {
   const router = createMemoryRouter(
     [
       {
         path: "/",
         element: (
-          <AddToPlaylistMenu trackId="track-1" trackTitle="Test Song" playlists={playlists} />
+          <AddToPlaylistMenu
+            trackId="track-1"
+            trackTitle="Test Song"
+            playlists={playlists}
+            constrainHeight={options?.constrainHeight}
+          />
         ),
       },
     ],
@@ -122,6 +128,59 @@ test("expands inline create form and submits playlist name", async () => {
   await user.click(screen.getByRole("button", { name: "Create playlist" }));
 
   expect(mockCreateFetcher.submit).toHaveBeenCalled();
+});
+
+test("dropdown layout keeps a fixed playlist list ahead of New playlist", () => {
+  const { container } = renderMenu([
+    {
+      id: "playlist-1",
+      title: "Favorites",
+      description: null,
+      _count: { tracks: 3 },
+    },
+  ]);
+
+  const list = screen.getByTestId("add-to-playlist-list");
+  const menu = screen.getByRole("dialog", { name: "Add to playlist" });
+  expect(list.className).toContain("h-64");
+  expect(list.className).not.toContain("overflow-y-auto");
+  expect(menu.className).not.toContain("flex-col");
+  expect(container.querySelector("[data-radix-scroll-area-viewport]")).not.toBeNull();
+  expect(
+    list.compareDocumentPosition(screen.getByRole("button", { name: "New playlist" })) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
+test("constrained sheet layout shrinks the list and keeps New playlist after it", async () => {
+  const user = userEvent.setup();
+  renderMenu(
+    [
+      {
+        id: "playlist-1",
+        title: "Favorites",
+        description: null,
+        _count: { tracks: 3 },
+      },
+    ],
+    { constrainHeight: true },
+  );
+
+  const list = screen.getByTestId("add-to-playlist-list");
+  const menu = screen.getByRole("dialog", { name: "Add to playlist" });
+  const newPlaylist = screen.getByRole("button", { name: "New playlist" });
+  expect(menu.className).toContain("flex");
+  expect(menu.className).toContain("flex-col");
+  expect(menu.className).toContain("min-h-0");
+  expect(list.className).toContain("h-64");
+  expect(list.className).toContain("min-h-0");
+  expect(list.className).toContain("shrink");
+  expect(list.className).toContain("overflow-y-auto");
+  expect(menu.contains(newPlaylist)).toBe(true);
+  expect(list.compareDocumentPosition(newPlaylist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+  await user.click(newPlaylist);
+  expect(screen.getByPlaceholderText("Playlist name")).toBeDefined();
 });
 
 test("shows new playlist button alongside existing playlists", () => {
@@ -210,4 +269,75 @@ test("renders fetched playlists from self-fetch", () => {
 
   expect(screen.getByText("Fetched Playlist")).toBeDefined();
   expect(screen.getByText("7 tracks")).toBeDefined();
+});
+
+test("shows skeleton rows while the self-fetch is loading", () => {
+  mockPlaylistsFetcher.state = "loading";
+  mockPlaylistsFetcher.data = undefined;
+
+  renderMenu(undefined);
+
+  expect(screen.getByRole("status", { name: "Loading playlists" })).toBeDefined();
+  expect(screen.queryByText("No playlists yet")).toBeNull();
+});
+
+test("shows empty state only after the self-fetch settles with no results", () => {
+  mockPlaylistsFetcher.state = "idle";
+  mockPlaylistsFetcher.data = { playlists: [] };
+
+  renderMenu(undefined);
+
+  expect(screen.getByText("No playlists yet")).toBeDefined();
+  expect(screen.queryByRole("status", { name: "Loading playlists" })).toBeNull();
+});
+
+test("duplicate dialog offers remove from playlist alongside add duplicate", () => {
+  mockFetcher.data = {
+    status: "duplicate",
+    playlistId: "playlist-1",
+  };
+
+  renderMenu([
+    {
+      id: "playlist-1",
+      title: "Favorites",
+      description: null,
+      _count: { tracks: 3 },
+    },
+  ]);
+
+  expect(screen.getByRole("heading", { name: "Track already in playlist" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Remove from Playlist" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Add Duplicate" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeDefined();
+});
+
+test("remove from playlist submits to remove-track-from-playlist", async () => {
+  const user = userEvent.setup();
+  mockFetcher.data = {
+    status: "duplicate",
+    playlistId: "playlist-1",
+  };
+
+  renderMenu([
+    {
+      id: "playlist-1",
+      title: "Favorites",
+      description: null,
+      _count: { tracks: 3 },
+    },
+  ]);
+
+  await user.click(screen.getByRole("button", { name: "Remove from Playlist" }));
+
+  expect(mockSubmit).toHaveBeenCalledWith(
+    {
+      trackId: "track-1",
+      playlistId: "playlist-1",
+    },
+    {
+      method: "POST",
+      action: "/resources/remove-track-from-playlist",
+    },
+  );
 });

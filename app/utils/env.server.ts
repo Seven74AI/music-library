@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { z } from "zod";
+import { DEV_TOKEN_ENCRYPTION_KEY } from "./token-cipher.server.ts";
 
 // Helper function to create conditional validation
 const createConditionalSchema = (): z.ZodObject<any> => {
@@ -12,6 +13,22 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     DATABASE_URL: z.string(),
     // SESSION_SECRET is required in production, optional in dev/test (getSessionSecret() provides a random fallback)
     SESSION_SECRET: isProduction ? z.string() : z.string().optional(),
+    // Salt for hashing client IPs on security events. Required in production.
+    // Dev/test fall back to DEV_IP_HASH_SALT when unset. See .env.example.
+    IP_HASH_SALT: isProduction ? z.string().min(8) : z.string().optional(),
+    // AES-256-GCM secret for Connection.tokens (YouTube OAuth access and refresh tokens).
+    // Required in production so OAuth tokens are never stored at rest in plaintext
+    // (fail-closed, matching SESSION_SECRET/IP_HASH_SALT). A value must be at least 32
+    // characters, and production rejects the dev placeholder. Dev/test fall back to
+    // DEV_TOKEN_ENCRYPTION_KEY when unset. See .env.example.
+    TOKEN_ENCRYPTION_KEY: isProduction
+      ? z
+          .string()
+          .min(32)
+          .refine((value) => value !== DEV_TOKEN_ENCRYPTION_KEY, {
+            message: "must not be the development fallback",
+          })
+      : z.string().min(32).optional(),
     INTERNAL_COMMAND_TOKEN: z.string(),
     HONEYPOT_SECRET: z.string(),
     CACHE_DATABASE_PATH: z.string(),
@@ -26,6 +43,15 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     AWS_REGION: isMocksEnabled ? z.string().optional() : z.string(),
     AWS_ENDPOINT_URL_S3: isMocksEnabled ? z.url().optional() : z.url(),
     BUCKET_NAME: isMocksEnabled ? z.string().optional() : z.string(),
+    // Separate Tigris bucket for SQLite backups (optional — scheduler no-ops when unset)
+    BACKUP_BUCKET_NAME: z.string().optional(),
+    BACKUP_HOUR_UTC: z.coerce.number().min(0).max(23).optional().default(3),
+
+    // Shared upload-progress store (multi-instance). Optional: when both are
+    // set, upload progress lives in Upstash Redis; otherwise an in-memory Map
+    // is used (single-instance / tests). See ADR-038.
+    UPSTASH_REDIS_REST_URL: z.string().optional(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
     // YouTube Data API Configuration (uses existing Google OAuth credentials)
     YOUTUBE_API_KEY: z.string().optional(),
@@ -64,9 +90,15 @@ const createConditionalSchema = (): z.ZodObject<any> => {
 
 const schema = createConditionalSchema();
 
+export function validateEnv(env: NodeJS.ProcessEnv) {
+  return createConditionalSchema().safeParse(env);
+}
+
+type ProcessEnvSchema = z.infer<typeof schema>;
+
 declare global {
   namespace NodeJS {
-    interface ProcessEnv extends z.infer<typeof schema> {}
+    interface ProcessEnv extends ProcessEnvSchema {}
   }
 }
 
@@ -103,13 +135,21 @@ export function getSessionSecret(): string[] {
   return [devFallback];
 }
 
+export function formatInvalidEnvMessage(fieldErrors: Record<string, string[] | undefined>): string {
+  const names = Object.keys(fieldErrors).sort();
+  return names.length > 0
+    ? `Invalid environment variables: ${names.join(", ")}`
+    : "Invalid environment variables";
+}
+
 export function init() {
   const parsed = schema.safeParse(process.env);
 
   if (parsed.success === false) {
-    console.error("❌ Invalid environment variables:", parsed.error.flatten().fieldErrors);
+    const message = formatInvalidEnvMessage(parsed.error.flatten().fieldErrors);
+    console.error("❌", message, parsed.error.flatten().fieldErrors);
 
-    throw new Error("Invalid environment variables");
+    throw new Error(message);
   }
 }
 

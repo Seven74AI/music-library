@@ -42,7 +42,12 @@ describe("queue-spine API loader", () => {
   test("returns library spine", async () => {
     vi.mocked(parseQueueSpineParams).mockReturnValue({
       ok: true,
-      value: { context: "library", hasAudioOnly: true },
+      value: {
+        context: "library",
+        hasAudioOnly: true,
+        sort: "dateAdded",
+        direction: "desc",
+      },
     });
     vi.mocked(fetchQueueSpine).mockResolvedValue({
       tracks: [
@@ -63,6 +68,8 @@ describe("queue-spine API loader", () => {
     expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", {
       context: "library",
       hasAudioOnly: true,
+      sort: "dateAdded",
+      direction: "desc",
     });
     const body = (await response.json()) as {
       tracks: Array<Record<string, unknown>>;
@@ -84,7 +91,12 @@ describe("queue-spine API loader", () => {
   test("returns empty library spine", async () => {
     vi.mocked(parseQueueSpineParams).mockReturnValue({
       ok: true,
-      value: { context: "library", hasAudioOnly: true },
+      value: {
+        context: "library",
+        hasAudioOnly: true,
+        sort: "dateAdded",
+        direction: "desc",
+      },
     });
     vi.mocked(fetchQueueSpine).mockResolvedValue({
       tracks: [],
@@ -113,7 +125,12 @@ describe("queue-spine API loader", () => {
   test("returns playlist spine", async () => {
     vi.mocked(parseQueueSpineParams).mockReturnValue({
       ok: true,
-      value: { context: "playlist", playlistId: "pl-1" },
+      value: {
+        context: "playlist",
+        playlistId: "pl-1",
+        sort: "custom",
+        direction: "asc",
+      },
     });
     vi.mocked(fetchQueueSpine).mockResolvedValue({
       tracks: [
@@ -134,10 +151,93 @@ describe("queue-spine API loader", () => {
     expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", {
       context: "playlist",
       playlistId: "pl-1",
+      sort: "custom",
+      direction: "asc",
     });
     const body = (await response.json()) as {
       tracks: Array<Record<string, unknown>>;
     };
     expect(body.tracks[0]).not.toHaveProperty("audioFiles");
+  });
+
+  test("returns artist spine", async () => {
+    vi.mocked(parseQueueSpineParams).mockReturnValue({
+      ok: true,
+      value: { context: "artist", artistId: "artist-1" },
+    });
+    vi.mocked(fetchQueueSpine).mockResolvedValue({
+      tracks: [
+        {
+          id: "track-3",
+          title: "Artist Song",
+          artist: { id: "artist-1", name: "Artist One" },
+        },
+      ],
+      total: 1,
+    });
+
+    const response = await loader({
+      ...makeRequest("http://localhost/api/queue-spine?context=artist&artistId=artist-1"),
+    } as never);
+
+    expect(response.status).toBe(200);
+    expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", {
+      context: "artist",
+      artistId: "artist-1",
+    });
+  });
+
+  test("returns album spine", async () => {
+    vi.mocked(parseQueueSpineParams).mockReturnValue({
+      ok: true,
+      value: { context: "album", albumId: "album-1" },
+    });
+    vi.mocked(fetchQueueSpine).mockResolvedValue({
+      tracks: [
+        {
+          id: "track-4",
+          title: "Album Song",
+          artist: { id: "artist-2", name: "Artist Two" },
+        },
+      ],
+      total: 1,
+    });
+
+    const response = await loader({
+      ...makeRequest("http://localhost/api/queue-spine?context=album&albumId=album-1"),
+    } as never);
+
+    expect(response.status).toBe(200);
+    expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", {
+      context: "album",
+      albumId: "album-1",
+    });
+  });
+
+  test("returns one-track spine", async () => {
+    vi.mocked(parseQueueSpineParams).mockReturnValue({
+      ok: true,
+      value: { context: "track", trackId: "track-1" },
+    });
+    vi.mocked(fetchQueueSpine).mockResolvedValue({
+      tracks: [
+        {
+          id: "track-1",
+          title: "Only Track",
+          artist: { id: "artist-3", name: "Artist Three" },
+        },
+      ],
+      total: 1,
+    });
+
+    const response = await loader({
+      ...makeRequest("http://localhost/api/queue-spine?context=track&trackId=track-1"),
+    } as never);
+
+    expect(response.status).toBe(200);
+    expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", {
+      context: "track",
+      trackId: "track-1",
+    });
   });
 });

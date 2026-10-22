@@ -6,12 +6,23 @@ import { type YouTubePlaylist, type YouTubePlaylistItem } from "#app/types/youtu
  * Track processing (deleted-video detection, transforms) lives inside the
  * service-playlist module, not on this interface.
  */
+export type ResolveVideoExistence = (
+  videoIds: string[],
+  accessToken: string,
+) => Promise<Set<string>>;
+
 export interface PlaylistSyncProvider {
   fetchPlaylists(token: string, userId: string): Promise<YouTubePlaylist[]>;
 
   fetchPlaylist(externalId: string, token: string): Promise<YouTubePlaylist>;
 
   fetchPlaylistItems(externalId: string, token: string): Promise<YouTubePlaylistItem[]>;
+
+  /**
+   * Optional YouTube-only seam: probe whether absent video IDs still exist.
+   * When omitted, absences are treated as playlist removals (no match candidates).
+   */
+  resolveVideoExistence?: ResolveVideoExistence;
 
   supportsService(serviceName: string): boolean;
 

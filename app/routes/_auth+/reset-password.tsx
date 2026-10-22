@@ -6,6 +6,10 @@ import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { ErrorList, Field } from "#app/components/forms.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
 import {
+  recordSecurityEvent,
+  SECURITY_EVENT_TYPES,
+} from "#app/features/security/track-event.server.ts";
+import {
   checkIsCommonPassword,
   requireAnonymous,
   resetUserPassword,
@@ -63,7 +67,14 @@ export async function action({ request }: Route.ActionArgs) {
   }
   const { password } = submission.value;
 
-  await resetUserPassword({ username: resetPasswordUsername, password });
+  const updatedPassword = await resetUserPassword({ username: resetPasswordUsername, password });
+  await recordSecurityEvent({
+    request,
+    eventType: SECURITY_EVENT_TYPES.passwordReset,
+    userId: updatedPassword.userId,
+    targetUserId: updatedPassword.userId,
+    metadata: { username: resetPasswordUsername },
+  });
   const verifySession = await verifySessionStorage.getSession();
   return redirect("/login", {
     headers: {

@@ -1,12 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildYtDlpArgs,
   buildYtDlpSpawnArgs,
+  executeYtDlp,
   extractFilePath,
   categorizeStderr,
   categorizeYtDlpError,
   parseYtDlpProgress,
 } from "./yt-dlp.server.ts";
+
+const spawnMock = vi.hoisted(() => vi.fn());
+
+vi.mock("node:child_process", () => ({
+  spawn: spawnMock,
+}));
 
 describe("buildYtDlpSpawnArgs", () => {
   const url = "https://youtube.com/watch?v=abc123";
@@ -48,6 +59,91 @@ describe("buildYtDlpSpawnArgs", () => {
     const formatIndex = args.indexOf("-f");
     expect(args[formatIndex + 1]).toBe("bestaudio/best");
   });
+
+  it("passes the URL as one argv element", () => {
+    const watchUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    const args = buildYtDlpSpawnArgs(watchUrl, { outputDir: "/tmp/downloads" });
+    expect(args.at(-1)).toBe(watchUrl);
+    expect(args.filter((arg) => arg === watchUrl)).toHaveLength(1);
+  });
+});
+
+describe("executeYtDlp URL guard", () => {
+  let originalMocks: string | undefined;
+
+  beforeEach(() => {
+    originalMocks = process.env.MOCKS;
+    process.env.MOCKS = "false";
+    spawnMock.mockReset();
+    spawnMock.mockImplementation(() => {
+      throw new Error("refusing to spawn yt-dlp in tests");
+    });
+  });
+
+  afterEach(() => {
+    if (originalMocks === undefined) delete process.env.MOCKS;
+    else process.env.MOCKS = originalMocks;
+  });
+
+  it("does not spawn yt-dlp for a non-YouTube URL", async () => {
+    const result = await executeYtDlp("https://example.com/watch?v=dQw4w9WgXcQ");
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(result.exitCode).not.toBe(0);
+    expect(result.filePath).toBeUndefined();
+  });
+
+  it("does not spawn yt-dlp for a dash-leading string", async () => {
+    const result = await executeYtDlp("-https://youtube.com/watch?v=dQw4w9WgXcQ");
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(result.exitCode).not.toBe(0);
+    expect(result.filePath).toBeUndefined();
+  });
+
+  it("does not spawn yt-dlp for a YouTube URL with userinfo", async () => {
+    const result = await executeYtDlp("https://user:pass@www.youtube.com/watch?v=dQw4w9WgXcQ");
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(result.exitCode).not.toBe(0);
+    expect(result.filePath).toBeUndefined();
+  });
+
+  it("spawns an allowed watch URL as one argv element without a shell", async () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "yt-dlp-allowed-"));
+    const filePath = path.join(tempDir, "dQw4w9WgXcQ.mp3");
+    const stdout = new EventEmitter();
+    const stderr = new EventEmitter();
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+    };
+    child.stdout = stdout;
+    child.stderr = stderr;
+    spawnMock.mockImplementation(() => child);
+
+    try {
+      const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      const pending = executeYtDlp(url, { outputDir: tempDir });
+      stdout.emit("data", Buffer.from(`[ExtractAudio] Destination: ${filePath}\n`));
+      child.emit("close", 0);
+      const result = await pending;
+
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      const [command, args, options] = spawnMock.mock.calls[0] as [
+        string,
+        string[],
+        { shell?: boolean },
+      ];
+      expect(command).toBe("yt-dlp");
+      expect(options?.shell).toBeFalsy();
+      expect(args.at(-1)).toBe(url);
+      expect(args.filter((arg) => arg === url)).toHaveLength(1);
+      expect(result.filePath).toBe(path.resolve(filePath));
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("extractFilePath", () => {
@@ -63,6 +159,32 @@ describe("extractFilePath", () => {
   it("resolves relative ExtractAudio paths against the output directory", () => {
     const stdout = "[ExtractAudio] Destination: h_L3P4ddEsk.mp3";
     expect(extractFilePath(stdout, "/tmp/archive")).toBe("/tmp/archive/h_L3P4ddEsk.mp3");
+  });
+
+  it("accepts an output path inside the temp directory", () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "yt-dlp-inside-"));
+    try {
+      const inside = path.join(tempDir, "dQw4w9WgXcQ.mp3");
+      const stdout = `[ExtractAudio] Destination: ${inside}`;
+      expect(extractFilePath(stdout, tempDir)).toBe(path.resolve(inside));
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an output path outside the temp directory", () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "yt-dlp-outside-"));
+    try {
+      const outside = path.resolve(tempDir, "..", "outside-archive.mp3");
+      const sibling = `${tempDir}-evil/file.mp3`;
+      expect(extractFilePath(`[ExtractAudio] Destination: ${outside}`, tempDir)).toBeUndefined();
+      expect(
+        extractFilePath("[ExtractAudio] Destination: ../outside-archive.mp3", tempDir),
+      ).toBeUndefined();
+      expect(extractFilePath(`[ExtractAudio] Destination: ${sibling}`, tempDir)).toBeUndefined();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 

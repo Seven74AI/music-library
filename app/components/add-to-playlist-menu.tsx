@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useFetcher, useRevalidator } from "react-router";
+import { useDuplicatePlaylistDialog } from "./duplicate-playlist-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,10 +11,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { Button } from "./ui/button";
+import { Button, buttonVariants } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
+import { Skeleton } from "./ui/skeleton";
+
+const PLAYLIST_SKELETON_KEYS = ["playlist-skel-0", "playlist-skel-1", "playlist-skel-2"] as const;
 
 /**
  * Playlist data structure for the add-to-playlist menu
@@ -44,6 +48,11 @@ interface AddToPlaylistMenuProps {
   playlists?: Playlist[];
   /** Optional callback when track is successfully added (used to close sheets on mobile) */
   onSuccess?: () => void;
+  /**
+   * Shrink the playlist list within a height-capped parent so "New playlist"
+   * stays inside the sheet. Desktop dropdowns omit this and keep a fixed list.
+   */
+  constrainHeight?: boolean;
 }
 
 /**
@@ -56,6 +65,7 @@ export function AddToPlaylistMenu({
   trackTitle,
   playlists,
   onSuccess,
+  constrainHeight = false,
 }: AddToPlaylistMenuProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [duplicatePlaylist, setDuplicatePlaylist] = useState<Playlist | null>(null);
@@ -63,9 +73,16 @@ export function AddToPlaylistMenu({
   const [newPlaylistTitle, setNewPlaylistTitle] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [localPlaylists, setLocalPlaylists] = useState(playlists ?? []);
-  const fetcher = useFetcher<{ status: string; message?: string; playlistId?: string }>();
+  const fetcher = useFetcher<{
+    status: string;
+    message?: string;
+    playlistId?: string;
+    removedCount?: number;
+  }>();
   const createFetcher = useFetcher<CreatePlaylistResponse>();
   const { revalidate } = useRevalidator();
+  // Prefer host outside dropdown/sheet so AlertDialog survives menu unmount on desktop.
+  const duplicateDialog = useDuplicatePlaylistDialog();
 
   // Self-fetch playlists from resource route when not provided as prop
   const playlistsFetcher = useFetcher<{ playlists: Playlist[] }>();
@@ -92,6 +109,10 @@ export function AddToPlaylistMenu({
     return localPlaylists.filter((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [localPlaylists, searchQuery]);
 
+  // Skeleton rows while the self-fetch is in flight and no data has arrived yet.
+  const isLoadingPlaylists =
+    shouldFetchPlaylists && playlistsFetcher.state !== "idle" && !playlistsFetcher.data;
+
   const handleAddToPlaylist = useCallback(
     (playlist: Playlist, force = false) => {
       void fetcher.submit(
@@ -103,6 +124,22 @@ export function AddToPlaylistMenu({
         {
           method: "POST",
           action: "/resources/add-track-to-playlist",
+        },
+      );
+    },
+    [fetcher, trackId],
+  );
+
+  const handleRemoveFromPlaylist = useCallback(
+    (playlist: Playlist) => {
+      void fetcher.submit(
+        {
+          trackId,
+          playlistId: playlist.id,
+        },
+        {
+          method: "POST",
+          action: "/resources/remove-track-from-playlist",
         },
       );
     },
@@ -141,6 +178,23 @@ export function AddToPlaylistMenu({
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data) {
       if (fetcher.data.status === "success") {
+        const removedCount = fetcher.data.removedCount;
+        const playlistId = fetcher.data.playlistId;
+        if (typeof removedCount === "number" && playlistId) {
+          setLocalPlaylists((current) =>
+            current.map((playlist) =>
+              playlist.id === playlistId
+                ? {
+                    ...playlist,
+                    _count: {
+                      tracks: Math.max(0, playlist._count.tracks - removedCount),
+                    },
+                  }
+                : playlist,
+            ),
+          );
+          void revalidate();
+        }
         setDuplicatePlaylist(null);
         if (onSuccess) {
           onSuccess();
@@ -148,11 +202,29 @@ export function AddToPlaylistMenu({
       } else if (fetcher.data.status === "duplicate") {
         const playlist = localPlaylists.find((p) => p.id === fetcher.data?.playlistId);
         if (playlist) {
-          setDuplicatePlaylist(playlist);
+          if (duplicateDialog) {
+            duplicateDialog.requestConfirm({
+              trackId,
+              trackTitle,
+              playlist,
+              onSuccess,
+            });
+          } else {
+            setDuplicatePlaylist(playlist);
+          }
         }
       }
     }
-  }, [fetcher.state, fetcher.data, localPlaylists, onSuccess]);
+  }, [
+    duplicateDialog,
+    fetcher.state,
+    fetcher.data,
+    localPlaylists,
+    onSuccess,
+    revalidate,
+    trackId,
+    trackTitle,
+  ]);
 
   useEffect(() => {
     if (createFetcher.state === "idle" && createFetcher.data) {
@@ -181,9 +253,51 @@ export function AddToPlaylistMenu({
 
   const isBusy = fetcher.state !== "idle" || createFetcher.state !== "idle";
 
+  const playlistListBody = isLoadingPlaylists ? (
+    <div role="status" aria-label="Loading playlists" className="space-y-1">
+      {PLAYLIST_SKELETON_KEYS.map((key) => (
+        <div key={key} className="px-2 py-2" aria-hidden="true">
+          <Skeleton className="h-4 w-2/3 mb-1.5" />
+          <Skeleton className="h-3 w-1/4" />
+        </div>
+      ))}
+    </div>
+  ) : filteredPlaylists.length === 0 ? (
+    <div
+      className="py-8 text-center text-sm text-muted-foreground"
+      role="status"
+      aria-live="polite"
+    >
+      {searchQuery ? "No playlists found" : "No playlists yet"}
+    </div>
+  ) : (
+    <div role="list" aria-label="Available playlists" className="space-y-1">
+      {filteredPlaylists.map((playlist) => (
+        <button
+          key={playlist.id}
+          onClick={() => handleAddToPlaylist(playlist)}
+          disabled={isBusy}
+          role="listitem"
+          aria-label={`Add "${trackTitle}" to ${playlist.title}`}
+          aria-describedby={`playlist-info-${playlist.id}`}
+          className="w-full text-left px-2 py-2 rounded hover:bg-accent transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        >
+          <div className="font-medium text-sm">{playlist.title}</div>
+          <div id={`playlist-info-${playlist.id}`} className="text-xs text-muted-foreground">
+            {playlist._count.tracks} {playlist._count.tracks === 1 ? "track" : "tracks"}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <>
-      <div className="w-full p-2" role="dialog" aria-label="Add to playlist">
+      <div
+        className={constrainHeight ? "flex min-h-0 w-full shrink flex-col p-2" : "w-full p-2"}
+        role="dialog"
+        aria-label="Add to playlist"
+      >
         <label htmlFor="playlist-search" className="sr-only">
           Search playlists
         </label>
@@ -192,7 +306,7 @@ export function AddToPlaylistMenu({
           placeholder="Search playlists..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="mb-2"
+          className="mb-2 shrink-0"
           aria-describedby="playlist-count"
         />
 
@@ -201,41 +315,17 @@ export function AddToPlaylistMenu({
           available
         </div>
 
-        <ScrollArea className="h-64">
-          {filteredPlaylists.length === 0 ? (
-            <div
-              className="py-8 text-center text-sm text-muted-foreground"
-              role="status"
-              aria-live="polite"
-            >
-              {searchQuery ? "No playlists found" : "No playlists yet"}
-            </div>
-          ) : (
-            <div role="list" aria-label="Available playlists" className="space-y-1">
-              {filteredPlaylists.map((playlist) => (
-                <button
-                  key={playlist.id}
-                  onClick={() => handleAddToPlaylist(playlist)}
-                  disabled={isBusy}
-                  role="listitem"
-                  aria-label={`Add "${trackTitle}" to ${playlist.title}`}
-                  aria-describedby={`playlist-info-${playlist.id}`}
-                  className="w-full text-left px-2 py-2 rounded hover:bg-accent transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                >
-                  <div className="font-medium text-sm">{playlist.title}</div>
-                  <div
-                    id={`playlist-info-${playlist.id}`}
-                    className="text-xs text-muted-foreground"
-                  >
-                    {playlist._count.tracks} {playlist._count.tracks === 1 ? "track" : "tracks"}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </ScrollArea>
+        {constrainHeight ? (
+          <div className="h-64 min-h-0 shrink overflow-y-auto" data-testid="add-to-playlist-list">
+            {playlistListBody}
+          </div>
+        ) : (
+          <ScrollArea className="h-64" data-testid="add-to-playlist-list">
+            {playlistListBody}
+          </ScrollArea>
+        )}
 
-        <div className="mt-2 border-t pt-2">
+        <div className="mt-2 shrink-0 border-t pt-2">
           {isCreating ? (
             <div
               className="space-y-2"
@@ -312,9 +402,7 @@ export function AddToPlaylistMenu({
 
         {isBusy && (
           <div className="sr-only" role="status" aria-live="assertive">
-            {createFetcher.state !== "idle"
-              ? "Creating playlist..."
-              : "Adding track to playlist..."}
+            {createFetcher.state !== "idle" ? "Creating playlist..." : "Updating playlist..."}
           </div>
         )}
       </div>
@@ -324,12 +412,22 @@ export function AddToPlaylistMenu({
           <AlertDialogHeader>
             <AlertDialogTitle>Track already in playlist</AlertDialogTitle>
             <AlertDialogDescription>
-              The track "{trackTitle}" is already in the playlist "{duplicatePlaylist?.title}". Do
-              you want to add it again as a duplicate?
+              The track "{trackTitle}" is already in the playlist "{duplicatePlaylist?.title}". You
+              can add it again as a duplicate, or remove it from the playlist.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={buttonVariants({ variant: "destructive" })}
+              onClick={() => {
+                if (duplicatePlaylist) {
+                  void handleRemoveFromPlaylist(duplicatePlaylist);
+                }
+              }}
+            >
+              Remove from Playlist
+            </AlertDialogAction>
             <AlertDialogAction
               onClick={() => {
                 if (duplicatePlaylist) {

@@ -136,11 +136,11 @@ export async function isCodeValid({
 
 export async function validateRequest(request: Request, body: URLSearchParams | FormData) {
   const submission = await parseWithZod(body, {
-    schema: VerifySchema.superRefine(async (data, ctx) => {
+    schema: VerifySchema.superRefine(async (formValues, ctx) => {
       const codeIsValid = await isCodeValid({
-        code: data[codeQueryParam],
-        type: data[typeQueryParam],
-        target: data[targetQueryParam],
+        code: formValues[codeQueryParam],
+        type: formValues[typeQueryParam],
+        target: formValues[targetQueryParam],
       });
       if (!codeIsValid) {
         ctx.addIssue({

@@ -7,11 +7,21 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ComponentProps, StrictMode, type ReactNode } from "react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
+import { toast } from "#app/components/ui/use-toast.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { AudioPlayerProvider, useAudioPlayer } from "./audio-player-provider";
 import { TrackListItem } from "./track-list-item";
+
+vi.mock("#app/utils/user.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/utils/user.ts")>();
+  return {
+    ...actual,
+    useOptionalUser: () => undefined,
+  };
+});
 
 vi.mock("#app/components/track-details-dialog", () => ({
   TrackDetailsDialog: vi.fn(() => null),
@@ -25,10 +35,22 @@ vi.mock("#app/components/ui/use-toast.ts", () => ({
   toast: vi.fn(),
 }));
 
+vi.mock("#app/utils/user.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/utils/user.ts")>();
+  return {
+    ...actual,
+    useOptionalUser: () => ({ id: "user-1", roles: [] }),
+  };
+});
+
 vi.mock("#app/features/offline-storage/resolve-playback-url.client.ts", () => ({
   resolveTrackPlaybackSource: vi.fn().mockResolvedValue("https://cdn.example/track.mp3"),
+  resolvePlaybackAudioUrl: vi.fn().mockResolvedValue(null),
+  prefetchPlaybackAudioUrl: vi.fn(),
   revokePlaybackAudioUrl: vi.fn(),
   clearBlobUrlCache: vi.fn(),
+  peekCachedPlaybackUrl: vi.fn().mockReturnValue(null),
+  invalidateRemotePlaybackUrl: vi.fn(),
 }));
 
 vi.mock("#app/features/offline-storage/offline-storage.client.ts", () => ({
@@ -158,7 +180,7 @@ function IdleQueueControls() {
 
 function libraryTrackListItem(
   track: FullTrack,
-  index: number,
+  _index: number,
 ): ComponentProps<typeof TrackListItem>["track"] {
   return {
     id: track.id,
@@ -211,23 +233,35 @@ function buildPlayableTracks(count: number, titlePrefix: string): FullTrack[] {
 }
 
 function QueueStateProbe() {
-  const { upNext, spine } = useAudioPlayer();
+  const { upNext, spine, currentTrack, hasNext } = useAudioPlayer();
   return (
     <div
       data-testid="queue-state-probe"
       data-up-next-ids={upNext.map((track) => track.id).join(",")}
       data-spine-ids={spine.map((track) => track.id).join(",")}
+      data-current-track-id={currentTrack?.id ?? ""}
+      data-has-next={String(hasNext)}
     />
   );
 }
 
-function renderQueueApp(children: ReactNode) {
-  return render(
+function renderQueueApp(children: ReactNode, { strict = false }: { strict?: boolean } = {}) {
+  const tree = (
     <AudioPlayerProvider>
       <QueueStateProbe />
       {children}
-    </AudioPlayerProvider>,
+    </AudioPlayerProvider>
   );
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/",
+        element: strict ? <StrictMode>{tree}</StrictMode> : tree,
+      },
+    ],
+    { initialEntries: ["/"] },
+  );
+  return render(<RouterProvider router={router} />);
 }
 
 function queueProbe() {
@@ -351,11 +385,10 @@ function mockLargeLibrarySpine(fetchMock: ReturnType<typeof vi.fn>, spineCount: 
       const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
       const tracks = ids.map((id) => {
         const index = Number.parseInt(id.replace("track-", ""), 10);
-        return {
-          ...trackA,
+        return Object.assign({}, trackA, {
           id,
           title: `Library Track ${index + 1}`,
-        };
+        });
       });
       return Promise.resolve({
         ok: true,
@@ -382,12 +415,12 @@ beforeAll(() => {
     }),
   });
 
-  vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(
-    function (this: HTMLMediaElement) {
-      Object.defineProperty(this, "paused", { configurable: true, value: false });
-      return Promise.resolve();
-    },
-  );
+  vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (
+    this: HTMLMediaElement,
+  ) {
+    Object.defineProperty(this, "paused", { configurable: true, value: false });
+    return Promise.resolve();
+  });
 });
 
 beforeEach(() => {
@@ -499,12 +532,11 @@ describe("queue sheet integration", () => {
         const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
         const tracks = ids.map((id) => {
           const index = Number.parseInt(id.replace("track-", ""), 10);
-          return {
-            ...trackA,
+          return Object.assign({}, trackA, {
             id,
             title: `Library Track ${index + 1}`,
             coverImage: { objectKey: `covers/${id}.jpg` },
-          };
+          });
         });
         return Promise.resolve({
           ok: true,
@@ -589,14 +621,7 @@ describe("queue sheet integration", () => {
     const user = userEvent.setup();
     mockSpineAndHydration(vi.mocked(fetch));
 
-    render(
-      <StrictMode>
-        <AudioPlayerProvider>
-          <QueueStateProbe />
-          <WarmPlaybackControls />
-        </AudioPlayerProvider>
-      </StrictMode>,
-    );
+    renderQueueApp(<WarmPlaybackControls />, { strict: true });
     await startWarmLibraryPlayback(user);
     await user.click(screen.getByRole("button", { name: "Add Bravo to up next" }));
     await user.click(screen.getByRole("button", { name: "Play next Delta" }));
@@ -672,6 +697,110 @@ describe("queue sheet integration", () => {
         within(screen.getByTestId("player-desktop-bar")).getByText("Inject-Delta-99"),
       ).toBeTruthy();
     });
+  });
+
+  test("failed next-track hydration keeps hasNext and surfaces an error toast", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    let playbackCalls = 0;
+    const twoTrackSpine = spineTracks.slice(0, 2);
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/queue-spine")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks: twoTrackSpine, total: twoTrackSpine.length }),
+        } as Response);
+      }
+      if (url.includes("/api/tracks/playback")) {
+        playbackCalls += 1;
+        // Initial hydrate: return only the current track so lookahead stubs stay unplayable.
+        if (playbackCalls === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ tracks: [trackA] }),
+          } as Response);
+        }
+        // Advance hydrate: network failure (flaky mobile connection).
+        return Promise.resolve({
+          ok: false,
+          status: 503,
+          statusText: "Service Unavailable",
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    await waitFor(() => {
+      expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-a");
+      expect(queueProbe().getAttribute("data-has-next")).toBe("true");
+    });
+
+    await clickNextTrack(user);
+
+    await waitFor(() => {
+      expect(vi.mocked(toast)).toHaveBeenCalled();
+    });
+
+    // Pointer must not commit on failure — otherwise hasNext dies and Next cannot recover.
+    expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-a");
+    expect(queueProbe().getAttribute("data-has-next")).toBe("true");
+    expect(
+      within(screen.getByTestId("player-desktop-bar")).getByLabelText("Next track"),
+    ).not.toBeDisabled();
+  });
+
+  test("omitted next-track hydration keeps hasNext and surfaces an error toast", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    let playbackCalls = 0;
+    const twoTrackSpine = spineTracks.slice(0, 2);
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/queue-spine")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks: twoTrackSpine, total: twoTrackSpine.length }),
+        } as Response);
+      }
+      if (url.includes("/api/tracks/playback")) {
+        playbackCalls += 1;
+        if (playbackCalls === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ tracks: [trackA] }),
+          } as Response);
+        }
+        // Access revoked / stale spine: 200 but next track omitted.
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks: [] }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    await waitFor(() => {
+      expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-a");
+      expect(queueProbe().getAttribute("data-has-next")).toBe("true");
+    });
+
+    await clickNextTrack(user);
+
+    await waitFor(() => {
+      expect(vi.mocked(toast)).toHaveBeenCalled();
+    });
+
+    expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-a");
+    expect(queueProbe().getAttribute("data-has-next")).toBe("true");
   });
 
   test("add to queue appends after the spine and shows in the queue sheet", async () => {
@@ -777,6 +906,112 @@ describe("queue sheet integration", () => {
     expect(spineTitlesInSheet(sheet)).toEqual(["Spine-Charlie-Upcoming"]);
   });
 
+  test("clicking a spine row jumps playback and drops the skipped tracks", async () => {
+    const user = userEvent.setup();
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    const sheet = await openQueueSheet(user);
+    expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Alpha-Now");
+    expect(spineTitlesInSheet(sheet)).toEqual(["Spine-Bravo-Upcoming", "Spine-Charlie-Upcoming"]);
+
+    // Jump straight to Charlie, skipping Bravo — Bravo is discarded.
+    await user.click(within(sheet).getByRole("button", { name: "Play Spine-Charlie-Upcoming" }));
+
+    await waitFor(() => {
+      expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Charlie-Upcoming");
+    });
+    // Charlie was the last upcoming spine track — nothing remains.
+    expect(within(sheet).getByText("No more tracks in this queue.")).toBeTruthy();
+  });
+
+  test("clicking an up next row plays it and drops it and everything before it", async () => {
+    const user = userEvent.setup();
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    // Build Up Next = [Echo (play-next), Delta].
+    await user.click(screen.getByRole("button", { name: "Add Delta to up next" }));
+    await user.click(screen.getByRole("button", { name: "Play next Echo" }));
+    await expectUpNextIds(["track-e", "track-d"]);
+
+    const sheet = await openQueueSheet(user);
+    expect(upNextTitlesInSheet(sheet)).toEqual(["Inject-Echo-88", "Inject-Delta-99"]);
+
+    // Jump to the second Up Next row (Delta) — Echo and Delta are both dropped.
+    await user.click(within(sheet).getByRole("button", { name: "Play Inject-Delta-99" }));
+
+    await waitFor(() => {
+      expect(nowPlayingTitleInSheet(sheet)).toBe("Inject-Delta-99");
+    });
+    await expectUpNextIds([]);
+  });
+
+  test("clicking the now playing row toggles pause/resume without rebuilding the queue", async () => {
+    const user = userEvent.setup();
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    // jsdom leaves the media element's play/pause unimplemented (and
+    // `restoreMocks: true` clears `beforeAll` spies before each test), so mock
+    // them per-test and fire the matching events a real browser would.
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      Object.defineProperty(this, "paused", { configurable: true, value: false });
+      this.dispatchEvent(new Event("play"));
+      return Promise.resolve();
+    });
+    vi.spyOn(window.HTMLMediaElement.prototype, "pause").mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      Object.defineProperty(this, "paused", { configurable: true, value: true });
+      this.dispatchEvent(new Event("pause"));
+    });
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    // Autoplay settles into a "playing" state before we toggle.
+    const desktopBar = screen.getByTestId("player-desktop-bar");
+    await waitFor(() => {
+      expect(within(desktopBar).getByLabelText("Pause")).toBeTruthy();
+    });
+
+    const sheet = await openQueueSheet(user);
+    expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Alpha-Now");
+
+    const nowPlayingSection = within(sheet).getByText("Now playing").closest("section");
+    if (!nowPlayingSection) throw new Error("Expected Now playing section");
+
+    // Playing → click pauses.
+    await user.click(
+      within(nowPlayingSection).getByRole("button", { name: "Pause Spine-Alpha-Now" }),
+    );
+    await waitFor(() => {
+      expect(
+        within(nowPlayingSection).getByRole("button", { name: "Play Spine-Alpha-Now" }),
+      ).toBeTruthy();
+    });
+
+    // No rebuild/reorder — now playing and spine are unchanged.
+    expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Alpha-Now");
+    expect(spineTitlesInSheet(sheet)).toEqual(["Spine-Bravo-Upcoming", "Spine-Charlie-Upcoming"]);
+
+    // Paused → click resumes.
+    await user.click(
+      within(nowPlayingSection).getByRole("button", { name: "Play Spine-Alpha-Now" }),
+    );
+    await waitFor(() => {
+      expect(
+        within(nowPlayingSection).getByRole("button", { name: "Pause Spine-Alpha-Now" }),
+      ).toBeTruthy();
+    });
+  });
+
   test("shows up next tracks when more than the virtual list threshold", async () => {
     const user = userEvent.setup();
     mockSpineAndHydration(vi.mocked(fetch));
@@ -812,6 +1047,356 @@ describe("queue sheet integration", () => {
     expect(within(sheet).getByText("Up Next")).toBeTruthy();
     expect(upNextTitlesInSheet(sheet).length).toBeGreaterThan(20);
     expect(upNextTitlesInSheet(sheet).slice(0, 3)).toEqual(["UpNext 1", "UpNext 2", "UpNext 3"]);
+  });
+
+  test("uses a single scroll region wrapping Up Next and spine", async () => {
+    const user = userEvent.setup();
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    function Controls() {
+      const { playTrack, addToUpNext } = useAudioPlayer();
+      return (
+        <>
+          <button type="button" onClick={() => playTrack(trackA, { type: "library" }, 0)}>
+            Start library playback
+          </button>
+          <button type="button" onClick={() => addToUpNext(trackD)}>
+            Add Delta to up next
+          </button>
+        </>
+      );
+    }
+
+    renderQueueApp(<Controls />);
+    await startWarmLibraryPlayback(user);
+    await user.click(screen.getByRole("button", { name: "Add Delta to up next" }));
+
+    const sheet = await openQueueSheet(user);
+    const scroll = within(sheet).getByTestId("queue-sheet-scroll");
+    const upNextSection = within(sheet).getByText("Up Next").closest("section");
+    const spineSection = within(sheet).getByText("From Library").closest("section");
+    const nowPlayingSection = within(sheet).getByText("Now playing").closest("section");
+
+    expect(upNextSection).toBeTruthy();
+    expect(spineSection).toBeTruthy();
+    expect(nowPlayingSection).toBeTruthy();
+    expect(scroll.contains(upNextSection!)).toBe(true);
+    expect(scroll.contains(spineSection!)).toBe(true);
+    expect(scroll.contains(nowPlayingSection!)).toBe(false);
+    expect(upNextSection!.querySelector("[class*='overflow-y-auto']")).toBeNull();
+    expect(spineSection!.querySelector("[class*='overflow-y-auto']")).toBeNull();
+    expect(sheet.querySelectorAll("[data-testid='queue-sheet-scroll']")).toHaveLength(1);
+  });
+
+  test("keeps a single scroll region when Up Next and spine are both virtualized", async () => {
+    const user = userEvent.setup();
+    const largeSpine = mockLargeLibrarySpine(vi.mocked(fetch), 25);
+    const bulkTracks = buildPlayableTracks(25, "UpNext");
+
+    function Controls() {
+      const { playTrack, playNextTrack } = useAudioPlayer();
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              playTrack(
+                {
+                  ...trackA,
+                  id: largeSpine[0]!.id,
+                  title: largeSpine[0]!.title,
+                },
+                { type: "library" },
+                0,
+              )
+            }
+          >
+            Start large library playback
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              for (const track of [...bulkTracks].reverse()) {
+                playNextTrack(track);
+              }
+            }}
+          >
+            Stack bulk up next
+          </button>
+        </>
+      );
+    }
+
+    renderQueueApp(<Controls />);
+    await user.click(screen.getByRole("button", { name: "Start large library playback" }));
+    await waitFor(() => {
+      expect(
+        within(screen.getByTestId("player-desktop-bar")).getByText("Library Track 1"),
+      ).toBeTruthy();
+    });
+    await user.click(screen.getByRole("button", { name: "Stack bulk up next" }));
+
+    const sheet = await openQueueSheet(user);
+    const scroll = within(sheet).getByTestId("queue-sheet-scroll");
+    const upNextSection = within(sheet).getByText("Up Next").closest("section");
+    const spineSection = within(sheet).getByText("From Library").closest("section");
+
+    expect(scroll.contains(upNextSection!)).toBe(true);
+    expect(scroll.contains(spineSection!)).toBe(true);
+    expect(upNextSection!.querySelector("[class*='overflow-y-auto']")).toBeNull();
+    expect(spineSection!.querySelector("[class*='overflow-y-auto']")).toBeNull();
+    expect(upNextTitlesInSheet(sheet).length).toBeGreaterThan(20);
+    expect(spineTitlesInSheet(sheet).length).toBeGreaterThan(0);
+  });
+
+  test("places first virtualized spine row flush under From Library when Up Next precedes it", async () => {
+    const user = userEvent.setup();
+    const largeSpine = mockLargeLibrarySpine(vi.mocked(fetch), 25);
+    const bulkTracks = buildPlayableTracks(25, "UpNext");
+    const viewportHeight = 480;
+    const rowHeight = 60;
+    const headingHeight = 32;
+    const upNextBlockHeight = headingHeight + bulkTracks.length * rowHeight;
+    const spineListOffset = upNextBlockHeight + headingHeight;
+    const scrollTopOnScreen = 120;
+
+    function Controls() {
+      const { playTrack, playNextTrack } = useAudioPlayer();
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              playTrack(
+                {
+                  ...trackA,
+                  id: largeSpine[0]!.id,
+                  title: largeSpine[0]!.title,
+                },
+                { type: "library" },
+                0,
+              )
+            }
+          >
+            Start large library playback
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              for (const track of [...bulkTracks].reverse()) {
+                playNextTrack(track);
+              }
+            }}
+          >
+            Stack bulk up next
+          </button>
+        </>
+      );
+    }
+
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    const prototypeDescriptors = {
+      offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight"),
+      offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth"),
+      offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop"),
+      offsetParent: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetParent"),
+      clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight"),
+      scrollHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight"),
+    };
+
+    function parseTranslateY(element: HTMLElement): number {
+      const match = /translateY\((-?\d+(?:\.\d+)?)px\)/.exec(element.style.transform);
+      return match ? Number.parseFloat(match[1]!) : 0;
+    }
+
+    function isQueueScroll(element: HTMLElement) {
+      return element.getAttribute("data-testid") === "queue-sheet-scroll";
+    }
+
+    function isSpineListRoot(element: HTMLElement) {
+      return (
+        element.parentElement?.tagName === "SECTION" &&
+        element.parentElement.querySelector("h3")?.textContent === "From Library" &&
+        element.style.position === "relative"
+      );
+    }
+
+    function isSpineVirtualRow(element: HTMLElement) {
+      return element.style.position === "absolute" && Boolean(element.style.transform);
+    }
+
+    function contentOffsetTop(element: HTMLElement): number | null {
+      if (isQueueScroll(element)) return 0;
+      if (element.tagName === "H3" && element.textContent === "From Library") {
+        return upNextBlockHeight;
+      }
+      if (isSpineListRoot(element)) return spineListOffset;
+      if (isSpineVirtualRow(element)) return spineListOffset + parseTranslateY(element);
+
+      const virtualRow = element.parentElement;
+      if (virtualRow && isSpineVirtualRow(virtualRow)) {
+        return spineListOffset + parseTranslateY(virtualRow);
+      }
+      return null;
+    }
+
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (isQueueScroll(this)) return viewportHeight;
+        return rowHeight;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get() {
+        return 390;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (isQueueScroll(this)) return viewportHeight;
+        return prototypeDescriptors.clientHeight?.get?.call(this) ?? 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (isQueueScroll(this)) {
+          return upNextBlockHeight + headingHeight + largeSpine.length * rowHeight;
+        }
+        return prototypeDescriptors.scrollHeight?.get?.call(this) ?? 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get(this: HTMLElement) {
+        // Prefer offset relative to the queue scrollport (offsetParent mock below).
+        if (isSpineListRoot(this)) return spineListOffset;
+        if (this.tagName === "H3" && this.textContent === "From Library") {
+          return upNextBlockHeight;
+        }
+        return prototypeDescriptors.offsetTop?.get?.call(this) ?? 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetParent", {
+      configurable: true,
+      get(this: HTMLElement) {
+        const scroll = this.closest("[data-testid='queue-sheet-scroll']");
+        if (scroll instanceof HTMLElement && this !== scroll) return scroll;
+        return prototypeDescriptors.offsetParent?.get?.call(this) ?? null;
+      },
+    });
+
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const scroll = document.querySelector(
+        "[data-testid='queue-sheet-scroll']",
+      ) as HTMLElement | null;
+
+      // Force the legacy rect formula to a stale/zero margin at mount (and keep it
+      // from discovering the real list offset later). Geometry assertions for the
+      // heading + rows still use content offsets below.
+      if (isQueueScroll(this) || isSpineListRoot(this)) {
+        return {
+          x: 0,
+          y: scrollTopOnScreen,
+          top: scrollTopOnScreen,
+          left: 0,
+          bottom: scrollTopOnScreen + (isQueueScroll(this) ? viewportHeight : 0),
+          right: 390,
+          width: 390,
+          height: isQueueScroll(this) ? viewportHeight : Number.parseFloat(this.style.height) || 0,
+          toJSON() {
+            return this;
+          },
+        };
+      }
+
+      if (!(scroll instanceof HTMLElement)) {
+        return originalGetBoundingClientRect.call(this);
+      }
+
+      const rowHost =
+        !isSpineVirtualRow(this) && this.parentElement && isSpineVirtualRow(this.parentElement)
+          ? this.parentElement
+          : this;
+
+      const contentY = contentOffsetTop(rowHost);
+      if (contentY === null) {
+        return originalGetBoundingClientRect.call(this);
+      }
+
+      const top = scrollTopOnScreen + (contentY - scroll.scrollTop);
+      const height = this.tagName === "H3" ? headingHeight : rowHeight;
+      return {
+        x: 0,
+        y: top,
+        top,
+        left: 0,
+        bottom: top + height,
+        right: 390,
+        width: 390,
+        height,
+        toJSON() {
+          return this;
+        },
+      };
+    };
+
+    try {
+      renderQueueApp(<Controls />);
+      await user.click(screen.getByRole("button", { name: "Start large library playback" }));
+      await waitFor(() => {
+        expect(
+          within(screen.getByTestId("player-desktop-bar")).getByText("Library Track 1"),
+        ).toBeTruthy();
+      });
+      await user.click(screen.getByRole("button", { name: "Stack bulk up next" }));
+
+      const sheet = await openQueueSheet(user);
+      const scroll = within(sheet).getByTestId("queue-sheet-scroll");
+      const spineHeading = within(sheet).getByText("From Library");
+      const spineSection = spineHeading.closest("section");
+      expect(spineSection).toBeTruthy();
+      expect(within(sheet).getByText("Up Next")).toBeTruthy();
+
+      await waitFor(() => {
+        const virtualRows = Array.from(spineSection!.querySelectorAll("div")).filter(
+          (node) => node instanceof HTMLElement && isSpineVirtualRow(node),
+        );
+        expect(virtualRows.length).toBeGreaterThan(0);
+      });
+
+      // Bring "From Library" near the top of the shared scrollport. The white band
+      // appears when the virtualizer sees this scroll offset with a too-small margin.
+      scroll.scrollTop = upNextBlockHeight;
+      expect(scroll.scrollTop).toBe(upNextBlockHeight);
+      scroll.dispatchEvent(new Event("scroll"));
+
+      await waitFor(() => {
+        const virtualRows = Array.from(spineSection!.querySelectorAll("div")).filter(
+          (node): node is HTMLDivElement =>
+            node instanceof HTMLDivElement && isSpineVirtualRow(node),
+        );
+        expect(virtualRows.length).toBeGreaterThan(0);
+
+        const topmostRow = virtualRows.reduce((best, row) =>
+          parseTranslateY(row) < parseTranslateY(best) ? row : best,
+        );
+
+        const headingRect = spineHeading.getBoundingClientRect();
+        const rowRect = topmostRow.getBoundingClientRect();
+        expect(Math.abs(rowRect.top - headingRect.bottom)).toBeLessThan(2);
+      });
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+      for (const [name, descriptor] of Object.entries(prototypeDescriptors)) {
+        if (descriptor) {
+          Object.defineProperty(HTMLElement.prototype, name, descriptor);
+        }
+      }
+    }
   });
 
   test("shuffle toggle keeps upcoming spine tracks visible in the queue sheet", async () => {

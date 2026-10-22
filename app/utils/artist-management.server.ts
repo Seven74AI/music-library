@@ -43,6 +43,51 @@ export function extractArtistMetadata(metadata: ExtractedAudioMetadata): {
   };
 }
 
+type ArtistLookup = {
+  id: string;
+  name: string;
+  mergedIntoId: string | null;
+};
+
+type ArtistDb = {
+  artist: {
+    findUnique: (args: {
+      where: { id: string };
+      select: { id: true; name: true; mergedIntoId: true };
+    }) => Promise<ArtistLookup | null>;
+  };
+};
+
+/**
+ * Follow mergedIntoId until we reach the living artist.
+ * Upload/import must not keep attaching tracks to a merged-away source.
+ */
+async function resolveCanonicalArtist(
+  db: ArtistDb,
+  artist: ArtistLookup,
+): Promise<{ id: string; name: string }> {
+  const seen = new Set<string>();
+  let current = artist;
+
+  while (current.mergedIntoId) {
+    if (seen.has(current.id)) {
+      break;
+    }
+    seen.add(current.id);
+
+    const next = await db.artist.findUnique({
+      where: { id: current.mergedIntoId },
+      select: { id: true, name: true, mergedIntoId: true },
+    });
+    if (!next) {
+      break;
+    }
+    current = next;
+  }
+
+  return { id: current.id, name: current.name };
+}
+
 /**
  * Find all artists with matching normalized name
  */
@@ -51,6 +96,7 @@ export async function findArtistsByName(name: string): Promise<
     id: string;
     name: string;
     normalizedName: string;
+    mergedIntoId: string | null;
   }>
 > {
   const normalizedName = normalizeArtistName(name);
@@ -64,6 +110,7 @@ export async function findArtistsByName(name: string): Promise<
       id: true,
       name: true,
       normalizedName: true,
+      mergedIntoId: true,
     },
     orderBy: { createdAt: "asc" }, // First match = oldest
   });
@@ -72,7 +119,8 @@ export async function findArtistsByName(name: string): Promise<
 /**
  * Get or create an Artist record
  * Uses normalized name for matching
- * If multiple artists with same normalized name exist, uses the first match
+ * If multiple artists with same normalized name exist, uses the first match.
+ * If that artist was merged, follows mergedIntoId to the living artist.
  */
 export async function getOrCreateArtist(
   name: string,
@@ -94,11 +142,8 @@ export async function getOrCreateArtist(
   const existingArtists = await findArtistsByName(name);
 
   if (existingArtists.length > 0 && existingArtists[0]) {
-    // Use first match (oldest)
-    return {
-      id: existingArtists[0].id,
-      name: existingArtists[0].name,
-    };
+    // Use first match (oldest), following any merge chain to the living artist
+    return resolveCanonicalArtist(prisma, existingArtists[0]);
   }
 
   // Create new artist
@@ -150,16 +195,14 @@ export async function getOrCreateArtistTx(
       id: true,
       name: true,
       normalizedName: true,
+      mergedIntoId: true,
     },
     orderBy: { createdAt: "asc" },
   });
 
   if (existingArtists.length > 0 && existingArtists[0]) {
-    // Use first match (oldest)
-    return {
-      id: existingArtists[0].id,
-      name: existingArtists[0].name,
-    };
+    // Use first match (oldest), following any merge chain to the living artist
+    return resolveCanonicalArtist(tx, existingArtists[0]);
   }
 
   // Create new artist

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   isProtectedOfflineTrack,
+  isQueueOnlyOfflineTrack,
   selectQueueCacheEvictionCandidates,
   shouldRemoveRecordAfterEviction,
 } from "./pin-policy.ts";
@@ -35,6 +36,26 @@ describe("isProtectedOfflineTrack", () => {
   test("queue-only tracks are not protected", () => {
     expect(
       isProtectedOfflineTrack(record({ trackId: "a", isPinned: false, isQueueCached: true })),
+    ).toBe(false);
+  });
+});
+
+describe("isQueueOnlyOfflineTrack", () => {
+  test("true for queue-cached and not pinned", () => {
+    expect(
+      isQueueOnlyOfflineTrack(record({ trackId: "a", isPinned: false, isQueueCached: true })),
+    ).toBe(true);
+  });
+
+  test("false when pinned even if also queue-cached", () => {
+    expect(
+      isQueueOnlyOfflineTrack(record({ trackId: "a", isPinned: true, isQueueCached: true })),
+    ).toBe(false);
+  });
+
+  test("false when neither queue-cached nor pinned", () => {
+    expect(
+      isQueueOnlyOfflineTrack(record({ trackId: "a", isPinned: false, isQueueCached: false })),
     ).toBe(false);
   });
 });

@@ -4,14 +4,42 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { data, useFetcher, useLocation, useNavigate, useSearchParams } from "react-router";
+import {
+  data,
+  useFetcher,
+  useLoaderData,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
+import { InRoomChip } from "#app/components/party-room/in-room-chip.tsx";
 import { SearchResults } from "#app/components/search-results.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
-import { type SearchResponse, type SearchResult } from "#app/types/search.ts";
+import { isCurrentHost, splitRoomQueue } from "#app/features/party-room/index.ts";
+import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
+import { type RoomSnapshot } from "#app/features/party-room/types.ts";
+import { type SearchResponse, type SearchResult, isSearchResponse } from "#app/types/search.ts";
+import { getUserId } from "#app/utils/auth.server.ts";
+import { prisma } from "#app/utils/db.server.ts";
+import { cn } from "#app/utils/misc.tsx";
+import { type Route } from "./+types/search.ts";
+
+/**
+ * Listener now-playing bar sits at z-50, above the bottom nav and below dialogs (z-53).
+ * Inset this overlay (z-52) by the bar offset plus the bar height instead of raising the bar.
+ */
+const ROOM_BAR_CLEARANCE =
+  "calc(var(--bottom-bar-height, 64px) + var(--player-error-height, 0px) + env(safe-area-inset-bottom) + 4rem)";
+
+function listenerRoomBarVisible(room: RoomSnapshot | null): boolean {
+  if (!room || room.status !== "open" || isCurrentHost(room)) return false;
+  return splitRoomQueue(room).nowPlaying != null;
+}
 
 const RECENT_SEARCHES_KEY = "music-library:recent-searches";
+const SEARCH_SCOPE_KEY = "music-library:search-scope";
 const MAX_RECENT = 8;
 
 function getRecentSearches(): string[] {
@@ -23,6 +51,22 @@ function getRecentSearches(): string[] {
   } catch {
     return [];
   }
+}
+
+function getSearchScope(): "library" | "all" {
+  if (typeof window === "undefined") return "all";
+  try {
+    const raw = localStorage.getItem(SEARCH_SCOPE_KEY);
+    if (raw === "library" || raw === "all") return raw;
+    return "all";
+  } catch {
+    return "all";
+  }
+}
+
+function setSearchScope(scope: "library" | "all") {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SEARCH_SCOPE_KEY, scope);
 }
 
 function addRecentSearch(query: string) {
@@ -48,12 +92,32 @@ const TYPE_FILTERS = [
   { value: "playlists", label: "Playlists" },
 ] as const;
 
-export function loader() {
-  return data({});
+export async function loader({ request }: Route.LoaderArgs) {
+  const userId = await getUserId(request);
+  if (!userId) {
+    return data({ playlists: [] });
+  }
+
+  const playlists = await prisma.userPlaylist.findMany({
+    where: { ownerId: userId },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      _count: {
+        select: { tracks: true },
+      },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  return data({ playlists });
 }
 
 export default function SearchPage() {
+  const { playlists } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
+  const party = useOptionalPartyRoom();
   const fetcher = useFetcher<SearchResponse>({ key: "search" });
   const navigate = useNavigate();
   const location = useLocation();
@@ -65,28 +129,41 @@ export default function SearchPage() {
 
   const [query, setQuery] = useState(initialQuery);
   const [activeType, setActiveType] = useState(initialType);
+  const [activeScope, setActiveScope] = useState<"library" | "all">(() => getSearchScope());
   const [recentSearches, setRecentSearches] = useState<string[]>(() => getRecentSearches());
 
-  const data = fetcher.data as SearchResponse | undefined;
+  const searchData = fetcher.data as SearchResponse | undefined;
   const isLoadMore = useRef(false);
   const [accumulated, setAccumulated] = useState<SearchResult[]>([]);
 
   // Merge fetcher results: replace on new search, append on load more
   useEffect(() => {
-    if (!data) return;
+    if (!searchData) return;
+    if (!isSearchResponse(searchData)) {
+      if (!isLoadMore.current) {
+        setAccumulated([]);
+      }
+      isLoadMore.current = false;
+      return;
+    }
     if (isLoadMore.current) {
-      setAccumulated((prev) => [...prev, ...data.results]);
+      setAccumulated((prev) => [...prev, ...searchData.results]);
       isLoadMore.current = false;
     } else {
-      setAccumulated(data.results);
+      setAccumulated(searchData.results);
     }
-  }, [data]);
+  }, [searchData]);
 
   const results = accumulated;
-  const hasNext = data?.pagination?.hasNext ?? false;
+  const hasNext = isSearchResponse(searchData) ? searchData.pagination.hasNext : false;
   const isLoading = fetcher.state === "loading";
   const hasError =
-    fetcher.state === "idle" && fetcher.data === undefined && query.trim().length > 0;
+    fetcher.state === "idle" &&
+    query.trim().length > 0 &&
+    searchData != null &&
+    typeof searchData === "object" &&
+    "error" in searchData &&
+    Boolean((searchData as { error?: unknown }).error);
 
   // Auto-focus the input on every navigation to the search page
   useEffect(() => {
@@ -97,7 +174,7 @@ export default function SearchPage() {
 
   // Debounced search
   const doSearch = useCallback(
-    (q: string, type: string) => {
+    (q: string, type: string, scope: "library" | "all", options?: { immediate?: boolean }) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
 
       // Reset accumulated results for new search
@@ -109,24 +186,56 @@ export default function SearchPage() {
         return;
       }
 
-      debounceRef.current = setTimeout(() => {
-        const params = new URLSearchParams({ q: q.trim(), type });
+      const run = () => {
+        const params = new URLSearchParams({ q: q.trim(), type, scope });
         fetcher.load(`/api/search?${params}`);
-      }, 400);
+      };
+
+      if (options?.immediate) {
+        run();
+        return;
+      }
+
+      debounceRef.current = setTimeout(run, 400);
     },
     [fetcher],
   );
 
+  const queryFromUrl = searchParams.get("q") ?? "";
+  const typeFromUrl = searchParams.get("type") ?? "all";
+  const activeScopeRef = useRef(activeScope);
+  activeScopeRef.current = activeScope;
+  const doSearchRef = useRef(doSearch);
+  doSearchRef.current = doSearch;
+
+  // Opening /search?q=... runs that search without another keystroke.
+  useEffect(() => {
+    if (!queryFromUrl.trim()) return;
+    setQuery(queryFromUrl);
+    setActiveType(typeFromUrl);
+    doSearchRef.current(queryFromUrl, typeFromUrl, activeScopeRef.current, { immediate: true });
+  }, [queryFromUrl, typeFromUrl]);
+
+  const roomOpen = party?.room?.status === "open";
+  const roomBarVisible = listenerRoomBarVisible(party?.room ?? null);
+
   // Handle input changes
   const handleInputChange = (value: string) => {
     setQuery(value);
-    doSearch(value, activeType);
+    doSearch(value, activeType, activeScope);
   };
 
   // Handle type filter change
   const handleTypeChange = (type: string) => {
     setActiveType(type);
-    doSearch(query, type);
+    doSearch(query, type, activeScope);
+  };
+
+  // Handle scope change
+  const handleScopeChange = (scope: "library" | "all") => {
+    setActiveScope(scope);
+    setSearchScope(scope);
+    doSearch(query, activeType, scope);
   };
 
   // Handle cancel / back
@@ -156,19 +265,20 @@ export default function SearchPage() {
     setRecentSearches(getRecentSearches());
     setAccumulated([]);
     isLoadMore.current = false;
-    const params = new URLSearchParams({ q, type: activeType });
+    const params = new URLSearchParams({ q, type: activeType, scope: activeScope });
     navigate(`/search?${params}`, { replace: true });
     fetcher.load(`/api/search?${params}`);
   };
 
   // Handle load more
   const handleLoadMore = () => {
-    const cursor = data?.pagination?.nextCursor;
+    const cursor = isSearchResponse(searchData) ? searchData.pagination.nextCursor : null;
     if (!cursor) return;
     isLoadMore.current = true;
     const params = new URLSearchParams({
       q: query.trim(),
       type: activeType,
+      scope: activeScope,
       cursor,
     });
     fetcher.load(`/api/search?${params}`);
@@ -179,9 +289,21 @@ export default function SearchPage() {
 
   return (
     <OfflineRouteBlocker>
-      <div className="fixed inset-0 z-[80] flex h-[100dvh] flex-col bg-background">
+      <div
+        data-testid="search-overlay"
+        className={cn(
+          "fixed z-52 flex flex-col bg-background",
+          roomBarVisible ? "inset-x-0 top-0" : "inset-0 h-dvh",
+        )}
+        style={roomBarVisible ? { bottom: ROOM_BAR_CLEARANCE } : undefined}
+      >
         {/* Header with search bar */}
         <div className="shrink-0 border-b">
+          {roomOpen ? (
+            <div className="container flex items-center pt-3">
+              <InRoomChip />
+            </div>
+          ) : null}
           <div className="container flex items-center gap-3 py-3">
             {/* Back arrow */}
             <button
@@ -225,12 +347,39 @@ export default function SearchPage() {
             </form>
           </div>
 
+          {/* Scope toggle - above type filters */}
+          <div className="container flex gap-2 border-b pb-2 pt-1">
+            <button
+              onClick={() => handleScopeChange("all")}
+              aria-label="Search all tracks"
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                activeScope === "all"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80"
+              }`}
+            >
+              All Tracks
+            </button>
+            <button
+              onClick={() => handleScopeChange("library")}
+              aria-label="Search my library"
+              className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                activeScope === "library"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80"
+              }`}
+            >
+              My Library
+            </button>
+          </div>
+
           {/* Type filter pills */}
           <div className="container flex gap-2 overflow-x-auto pb-2 pt-1">
             {TYPE_FILTERS.map((f) => (
               <button
                 key={f.value}
                 onClick={() => handleTypeChange(f.value)}
+                aria-label={`Filter by ${f.label.toLowerCase()}`}
                 className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
                   activeType === f.value
                     ? "bg-primary text-primary-foreground"
@@ -297,6 +446,8 @@ export default function SearchPage() {
                 onLoadMore={handleLoadMore}
                 hasNext={hasNext}
                 isLoading={isLoading}
+                playlists={playlists}
+                scope={activeScope}
               />
             )}
 

@@ -55,6 +55,13 @@ export function ConvertPlaylistDialog({ playlistId, playlistTitle }: ConvertPlay
   const convertFetcher = useFetcher<ConvertResponse>();
   const playlistsFetcher = useFetcher<{ playlists: Playlist[] }>();
 
+  const resetState = useCallback(() => {
+    setMode("menu");
+    setNewTitle(playlistTitle);
+    setCreateError(null);
+    setSearchQuery("");
+  }, [playlistTitle]);
+
   // Fetch playlists for "Add to Existing" mode
   useEffect(() => {
     if (mode === "add" && playlistsFetcher.state === "idle" && !playlistsFetcher.data) {
@@ -62,11 +69,12 @@ export function ConvertPlaylistDialog({ playlistId, playlistTitle }: ConvertPlay
     }
   }, [mode, playlistsFetcher]);
 
-  const playlists = playlistsFetcher.data?.playlists ?? [];
+  const playlists = playlistsFetcher.data?.playlists;
 
   const filteredPlaylists = useMemo(() => {
-    if (!searchQuery) return playlists;
-    return playlists.filter((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    const list = playlists ?? [];
+    if (!searchQuery) return list;
+    return list.filter((p) => p.title.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [playlists, searchQuery]);
 
   // Handle convert fetcher responses
@@ -82,19 +90,12 @@ export function ConvertPlaylistDialog({ playlistId, playlistTitle }: ConvertPlay
         );
       }
     }
-  }, [convertFetcher.state, convertFetcher.data]);
-
-  const resetState = useCallback(() => {
-    setMode("menu");
-    setNewTitle(playlistTitle);
-    setCreateError(null);
-    setSearchQuery("");
-  }, [playlistTitle]);
+  }, [convertFetcher.state, convertFetcher.data, resetState]);
 
   const handleOpenChange = useCallback(
-    (open: boolean) => {
-      setOpen(open);
-      if (!open) resetState();
+    (isOpen: boolean) => {
+      setOpen(isOpen);
+      if (!isOpen) resetState();
     },
     [resetState],
   );

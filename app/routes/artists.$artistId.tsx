@@ -1,17 +1,33 @@
-import { data, Link } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { data, useFetcher } from "react-router";
+import { AlbumCard } from "#app/components/album-card.tsx";
+import { ArtistEditDialog } from "#app/components/artist-edit-dialog.tsx";
+import { CuratorNotes } from "#app/components/curator-notes.tsx";
+import { ArtistSplitDialog } from "#app/components/artist-split-dialog.tsx";
+import { FlagForReviewDialog } from "#app/components/flag-for-review-dialog.tsx";
 import { Breadcrumbs, type BreadcrumbHandle } from "#app/components/breadcrumbs.tsx";
+import { InfiniteScrollSentinel } from "#app/components/infinite-scroll-sentinel.tsx";
+import { MusicEntityHeader } from "#app/components/music-entity-header.tsx";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
+import { TrackListItem } from "#app/components/track-list-item.tsx";
+import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
+import { getArtistTracksPage } from "#app/features/artist/artist-tracks.server.ts";
+import { getUserId } from "#app/utils/auth.server.ts";
 import { getArtistTitle } from "#app/utils/breadcrumb-utils.ts";
+import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { formatDuration } from "#app/utils/format-duration.ts";
+import { loadUserPlaylists } from "#app/utils/track-list-loader.server.ts";
+import { useOptionalUser, userHasPermission, userIsCuratorOrAdmin } from "#app/utils/user.ts";
 import { type Route } from "./+types/artists.$artistId.ts";
 
 export const handle: BreadcrumbHandle = {
   breadcrumb: ({ loaderData }) => getArtistTitle(loaderData),
 };
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const userId = await getUserId(request);
+
   const artist = await prisma.artist.findUnique({
     where: { id: params.artistId },
     select: {
@@ -20,6 +36,8 @@ export async function loader({ params }: Route.LoaderArgs) {
       genre: true,
       bio: true,
       imageUrl: true,
+      country: true,
+      website: true,
       createdAt: true,
       albums: {
         select: {
@@ -31,22 +49,7 @@ export async function loader({ params }: Route.LoaderArgs) {
         },
         orderBy: { year: "asc" },
       },
-      tracks: {
-        select: {
-          id: true,
-          title: true,
-          duration: true,
-          albumRecord: {
-            select: { id: true, name: true },
-          },
-          coverImage: { select: { objectKey: true } },
-          audioFiles: {
-            select: { id: true, format: true, objectKey: true },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      },
+      _count: { select: { tracks: true } },
     },
   });
 
@@ -54,113 +57,236 @@ export async function loader({ params }: Route.LoaderArgs) {
     throw new Response("Artist not found", { status: 404 });
   }
 
-  return data({ artist });
+  const { _count, ...artistData } = artist;
+
+  const [{ tracks, pagination }, playlists] = await Promise.all([
+    getArtistTracksPage(userId, params.artistId),
+    loadUserPlaylists(userId),
+  ]);
+
+  return data({
+    artist: { ...artistData, trackCount: _count.tracks },
+    initialTracks: tracks,
+    pagination,
+    playlists,
+  });
 }
 
+function formatArtistSummary(albumCount: number, trackCount: number) {
+  const parts = [
+    `${albumCount} album${albumCount !== 1 ? "s" : ""}`,
+    `${trackCount} track${trackCount !== 1 ? "s" : ""}`,
+  ];
+  return parts.join(" · ");
+}
+
+type ArtistTrack = Route.ComponentProps["loaderData"]["initialTracks"][number];
+
+type ArtistTracksResponse = {
+  tracks: ArtistTrack[];
+  pagination: { limit: number; hasNext: boolean; nextCursor: string | null };
+};
+
 export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
-  const { artist } = loaderData;
+  const { artist, initialTracks, pagination: initialPagination, playlists } = loaderData;
+  const user = useOptionalUser();
+  const canEdit = userHasPermission(user, "update:artist:any");
+  const canFlagForReview = userIsCuratorOrAdmin(user);
+
+  const fetcher = useFetcher<ArtistTracksResponse>();
+  const [tracks, setTracks] = useState(initialTracks);
+  const [pagination, setPagination] = useState(initialPagination);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [flagDialogOpen, setFlagDialogOpen] = useState(false);
+  const [splitDialogOpen, setSplitDialogOpen] = useState(false);
+  const requestedArtistRef = useRef<string | null>(null);
+
+  // Reset the accumulated list whenever navigation re-runs the loader with a
+  // fresh page 1 (e.g. navigating to a different artist).
+  useEffect(() => {
+    setTracks(initialTracks);
+    setPagination(initialPagination);
+  }, [initialTracks, initialPagination]);
+
+  // Append the next page once the fetcher finishes, skipping any response that
+  // was in flight for a different artist when the route changed.
+  useEffect(() => {
+    const next = fetcher.data;
+    if (!next || requestedArtistRef.current !== artist.id) return;
+    setTracks((prev) => {
+      const seen = new Set(prev.map((track) => track.id));
+      return [...prev, ...next.tracks.filter((track) => !seen.has(track.id))];
+    });
+    setPagination(next.pagination);
+  }, [fetcher.data, artist.id]);
+
+  const isLoading = fetcher.state !== "idle";
+
+  const handleLoadMore = () => {
+    if (isLoading || !pagination.hasNext || !pagination.nextCursor) return;
+    requestedArtistRef.current = artist.id;
+    const params = new URLSearchParams({
+      artistId: artist.id,
+      cursor: pagination.nextCursor,
+      limit: String(pagination.limit),
+    });
+    fetcher.load(`/api/artist-tracks?${params.toString()}`);
+  };
 
   return (
     <OfflineRouteBlocker>
       <div className="py-8">
         <Breadcrumbs />
 
-        {/* Artist header */}
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
-          {artist.imageUrl ? (
-            <img
-              src={artist.imageUrl}
-              alt={artist.name}
-              className="h-48 w-48 rounded-full object-cover shadow-lg"
-            />
-          ) : (
-            <div className="flex h-48 w-48 items-center justify-center rounded-full bg-muted shadow-lg">
-              <Icon name="file-text" className="h-16 w-16 text-muted-foreground" />
+        <MusicEntityHeader
+          label="Artist"
+          title={artist.name}
+          imageUrl={coverImageUrl(artist.imageUrl, entityHeaderCoverPixelSize) || null}
+          imageShape="circle"
+          fallbackIcon="avatar"
+          metadata={
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              {artist.genre ? <span>{artist.genre}</span> : null}
+              {artist.genre ? <span aria-hidden="true">·</span> : null}
+              <span>{formatArtistSummary(artist.albums.length, artist.trackCount)}</span>
+              {(canEdit || canFlagForReview) && (
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {canEdit && (
+                    <Button variant="outline" size="sm" onClick={() => setSplitDialogOpen(true)}>
+                      <Icon name="arrows-right-left" className="mr-2 h-4 w-4" />
+                      Split Artist
+                    </Button>
+                  )}
+                  {canEdit && (
+                    <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
+                      <Icon name="pencil-1" className="mr-2 h-4 w-4" />
+                      Edit Artist
+                    </Button>
+                  )}
+                  {canFlagForReview && (
+                    <Button variant="outline" size="sm" onClick={() => setFlagDialogOpen(true)}>
+                      <Icon name="file-text" className="mr-2 h-4 w-4" />
+                      Flag for review
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
-          )}
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium text-muted-foreground">Artist</p>
-            <h1 className="text-4xl font-bold">{artist.name}</h1>
-            {artist.genre && <p className="text-sm text-muted-foreground">{artist.genre}</p>}
-            {artist.bio && (
-              <p className="mt-2 max-w-prose text-sm text-muted-foreground">{artist.bio}</p>
-            )}
-          </div>
-        </div>
+          }
+          description={artist.bio}
+        />
 
-        {/* Albums section */}
-        {artist.albums.length > 0 && (
+        {artist.albums.length > 0 ? (
           <section className="mb-8">
             <h2 className="mb-4 text-xl font-semibold">Albums ({artist.albums.length})</h2>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
               {artist.albums.map((album) => (
-                <Link
+                <AlbumCard
                   key={album.id}
-                  to={`/albums/${album.id}`}
-                  className="group rounded-lg p-3 transition-colors hover:bg-muted/50"
-                >
-                  {album.coverImage ? (
-                    <img
-                      src={`/resources/images/${album.coverImage.objectKey}`}
-                      alt={album.name}
-                      className="mb-2 aspect-square w-full rounded-md object-cover shadow-sm"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="mb-2 flex aspect-square w-full items-center justify-center rounded-md bg-muted shadow-sm">
-                      <Icon name="file-text" className="h-10 w-10 text-muted-foreground" />
-                    </div>
-                  )}
-                  <p className="truncate text-sm font-medium group-hover:underline">{album.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {album.year ?? "—"} · {album._count.tracks} track
-                    {album._count.tracks !== 1 ? "s" : ""}
-                  </p>
-                </Link>
+                  id={album.id}
+                  name={album.name}
+                  year={album.year}
+                  trackCount={album._count.tracks}
+                  coverObjectKey={album.coverImage?.objectKey}
+                />
               ))}
             </div>
           </section>
-        )}
+        ) : null}
 
-        {/* Tracks section */}
-        {artist.tracks.length > 0 && (
+        {tracks.length > 0 ? (
           <section>
-            <h2 className="mb-4 text-xl font-semibold">Tracks ({artist.tracks.length})</h2>
-            <div className="space-y-1">
-              {artist.tracks.map((track) => (
-                <Link
+            <h2 className="mb-4 text-xl font-semibold">Tracks ({artist.trackCount})</h2>
+            <div role="grid" aria-label={`Tracks by ${artist.name}`}>
+              {tracks.map((track, index) => (
+                <TrackListItem
                   key={track.id}
-                  to={`/library/${track.id}`}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted/50"
-                >
-                  <span className="w-8 text-center text-sm text-muted-foreground">
-                    <Icon name="file-text" className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{track.title}</p>
-                    {track.albumRecord ? (
-                      <p className="truncate text-xs text-muted-foreground">
-                        {track.albumRecord.name}
-                      </p>
-                    ) : null}
-                  </div>
-                  {track.duration && (
-                    <span className="text-xs text-muted-foreground">
-                      {formatDuration(track.duration)}
-                    </span>
-                  )}
-                </Link>
+                  track={{
+                    id: track.id,
+                    title: track.title,
+                    artist: { id: artist.id, name: artist.name },
+                    album: track.albumRecord,
+                    duration: track.duration,
+                    coverImage: track.coverImage,
+                    serviceUrl: track.serviceUrl,
+                    service: track.service,
+                    audioFiles: track.audioFiles,
+                    isInUserLibrary: track.isInUserLibrary,
+                  }}
+                  userTrack={{ createdAt: track.userTrackCreatedAt }}
+                  index={index}
+                  playlists={playlists}
+                  showQuickAddToPlaylist
+                  showAddToLibrary
+                  showAudioFileDownload={track.isInUserLibrary}
+                  playlistContext={{ type: "artist", artistId: artist.id }}
+                  usePlaybackIndex={false}
+                  showDuration
+                />
               ))}
             </div>
-          </section>
-        )}
 
-        {/* Empty state */}
-        {artist.albums.length === 0 && artist.tracks.length === 0 && (
+            {(pagination.hasNext || isLoading) && (
+              <InfiniteScrollSentinel
+                enabled={pagination.hasNext && !isLoading}
+                onIntersect={handleLoadMore}
+                className="flex items-center justify-center py-8"
+              >
+                {isLoading ? (
+                  <Icon name="update" className="h-6 w-6 animate-spin text-muted-foreground" />
+                ) : (
+                  <span className="text-sm text-muted-foreground">Scroll to load more</span>
+                )}
+              </InfiniteScrollSentinel>
+            )}
+          </section>
+        ) : null}
+
+        {artist.albums.length === 0 && artist.trackCount === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <Icon name="file-text" className="mb-4 h-12 w-12 text-muted-foreground" />
+            <Icon name="avatar" className="mb-4 h-12 w-12 text-muted-foreground" />
             <p className="text-muted-foreground">No albums or tracks yet.</p>
           </div>
+        ) : null}
+
+        {canFlagForReview && user ? (
+          <section className="mt-10">
+            <h2 className="mb-4 text-xl font-semibold">Curator notes</h2>
+            <CuratorNotes entityType="artist" entityId={artist.id} currentUserId={user.id} />
+          </section>
+        ) : null}
+
+        {canEdit ? (
+          <>
+            <ArtistEditDialog
+              artist={artist}
+              open={editDialogOpen}
+              onOpenChange={setEditDialogOpen}
+              onSaved={() => window.location.reload()}
+              currentUserId={user?.id}
+            />
+            <ArtistSplitDialog
+              artistId={artist.id}
+              artistName={artist.name}
+              tracks={tracks.map((track) => ({
+                id: track.id,
+                title: track.title,
+                album: track.albumRecord?.name,
+              }))}
+              open={splitDialogOpen}
+              onOpenChange={setSplitDialogOpen}
+              onSplit={() => window.location.reload()}
+            />
+          </>
+        ) : null}
+        {canFlagForReview && (
+          <FlagForReviewDialog
+            entityType="artist"
+            entityId={artist.id}
+            entityName={artist.name}
+            open={flagDialogOpen}
+            onOpenChange={setFlagDialogOpen}
+          />
         )}
       </div>
     </OfflineRouteBlocker>

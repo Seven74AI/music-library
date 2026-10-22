@@ -1,5 +1,6 @@
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
 import { type Route } from "./+types/library.$trackId.remove.ts";
 
@@ -67,4 +68,8 @@ export async function action({ request, params }: Route.ActionArgs) {
       type: "error",
     });
   }
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
 }

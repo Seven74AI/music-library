@@ -44,7 +44,7 @@ export async function triggerBrowserDownload(
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error(`Download timed out after ${timeoutMs}ms`);
+      throw new Error(`Download timed out after ${timeoutMs}ms`, { cause: error });
     }
     throw error;
   }

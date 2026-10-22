@@ -1,0 +1,306 @@
+import { beforeEach, describe, expect, test } from "vitest";
+import { prisma } from "#app/utils/db.server.ts";
+import { createUser } from "#tests/db-utils.ts";
+import {
+  deleteUserAsAdmin,
+  demoteFromAdmin,
+  demoteFromCurator,
+  disableUser,
+  enableUser,
+  promoteToAdmin,
+  promoteToCurator,
+} from "./admin-users.server.ts";
+
+describe("admin user moderation", () => {
+  beforeEach(async () => {
+    await prisma.session.deleteMany();
+    await prisma.user.deleteMany();
+    await prisma.role.upsert({
+      where: { name: "admin" },
+      update: {},
+      create: { name: "admin", description: "Admin" },
+    });
+    await prisma.role.upsert({
+      where: { name: "user" },
+      update: {},
+      create: { name: "user", description: "User" },
+    });
+  });
+
+  test("disableUser sets disabledAt and clears sessions", async () => {
+    const user = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: { name: "user" } },
+        sessions: {
+          create: { expirationDate: new Date(Date.now() + 86_400_000) },
+        },
+      },
+    });
+
+    await disableUser(user.id);
+
+    const updated = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(updated.disabledAt).not.toBeNull();
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  test("enableUser clears disabledAt", async () => {
+    const user = await prisma.user.create({
+      data: {
+        ...createUser(),
+        disabledAt: new Date(),
+        roles: { connect: { name: "user" } },
+      },
+    });
+
+    await enableUser(user.id);
+
+    const updated = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(updated.disabledAt).toBeNull();
+  });
+
+  test("promoteToCurator connects the curator role and its permissions", async () => {
+    const user = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: { name: "user" } },
+      },
+    });
+
+    await expect(promoteToCurator(user.id)).resolves.toEqual({ ok: true });
+    await expect(promoteToCurator(user.id)).resolves.toEqual({ ok: true });
+
+    const updated = await prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      include: { roles: true },
+    });
+    expect(updated.roles.map((role) => role.name).sort()).toEqual(["curator", "user"]);
+
+    const curatorRole = await prisma.role.findUniqueOrThrow({
+      where: { name: "curator" },
+      include: { permissions: true },
+    });
+    expect(curatorRole.permissions).toHaveLength(7);
+
+    await expect(demoteFromCurator(user.id)).resolves.toEqual({ ok: true });
+    const demoted = await prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      include: { roles: true },
+    });
+    expect(demoted.roles.map((role) => role.name)).toEqual(["user"]);
+  });
+
+  test("promoteToCurator reports a missing user instead of throwing", async () => {
+    await expect(promoteToCurator("no-such-user")).resolves.toEqual({
+      ok: false,
+      reason: "not-found",
+      error: "User not found",
+    });
+  });
+
+  test("curator role changes refuse the acting admin", async () => {
+    const admin = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: [{ name: "admin" }, { name: "user" }] },
+      },
+    });
+
+    await expect(promoteToCurator(admin.id, admin.id)).resolves.toEqual({
+      ok: false,
+      reason: "forbidden",
+      error: "You cannot promote yourself to curator",
+    });
+
+    await prisma.role.upsert({
+      where: { name: "curator" },
+      update: {},
+      create: { name: "curator", description: "Curator" },
+    });
+    await prisma.user.update({
+      where: { id: admin.id },
+      data: { roles: { connect: { name: "curator" } } },
+    });
+
+    await expect(demoteFromCurator(admin.id, admin.id)).resolves.toEqual({
+      ok: false,
+      reason: "forbidden",
+      error: "You cannot demote yourself from curator",
+    });
+
+    const roles = await prisma.user.findUniqueOrThrow({
+      where: { id: admin.id },
+      include: { roles: true },
+    });
+    expect(roles.roles.map((role) => role.name)).toContain("curator");
+  });
+
+  test("promoteToAdmin connects admin role", async () => {
+    const user = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: { name: "user" } },
+      },
+    });
+
+    await promoteToAdmin(user.id);
+
+    const updated = await prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      include: { roles: true },
+    });
+    expect(updated.roles.map((r) => r.name).sort()).toEqual(["admin", "user"]);
+  });
+
+  test("demoteFromAdmin blocks self-demotion and last admin", async () => {
+    const admin = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: [{ name: "admin" }, { name: "user" }] },
+      },
+    });
+
+    const selfResult = await demoteFromAdmin({
+      targetUserId: admin.id,
+      actorUserId: admin.id,
+    });
+    expect(selfResult).toEqual({
+      ok: false,
+      reason: "forbidden",
+      error: "You cannot demote yourself",
+    });
+
+    const lastResult = await demoteFromAdmin({
+      targetUserId: admin.id,
+      actorUserId: "someone-else",
+    });
+    expect(lastResult).toEqual({
+      ok: false,
+      reason: "forbidden",
+      error: "Cannot demote the last admin",
+    });
+  });
+
+  test("demoteFromAdmin reports a non-admin target rather than blaming the last admin", async () => {
+    const admin = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: [{ name: "admin" }, { name: "user" }] },
+      },
+    });
+    const regular = await prisma.user.create({
+      data: { ...createUser(), roles: { connect: { name: "user" } } },
+    });
+
+    const result = await demoteFromAdmin({
+      targetUserId: regular.id,
+      actorUserId: admin.id,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "forbidden",
+      error: "This user is not an admin",
+    });
+  });
+
+  test.each([
+    ["disableUser", (id: string) => disableUser(id)],
+    ["enableUser", (id: string) => enableUser(id)],
+    ["promoteToAdmin", (id: string) => promoteToAdmin(id)],
+  ])("%s reports a missing user instead of throwing", async (_label, run) => {
+    await expect(run("no-such-user")).resolves.toEqual({
+      ok: false,
+      reason: "not-found",
+      error: "User not found",
+    });
+  });
+
+  test("demoteFromAdmin and deleteUserAsAdmin report a missing target", async () => {
+    const admin = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: [{ name: "admin" }, { name: "user" }] },
+      },
+    });
+
+    const missing = { ok: false, reason: "not-found", error: "User not found" };
+    await expect(demoteFromAdmin({ targetUserId: "nope", actorUserId: admin.id })).resolves.toEqual(
+      missing,
+    );
+    await expect(
+      deleteUserAsAdmin({ targetUserId: "nope", actorUserId: admin.id }),
+    ).resolves.toEqual(missing);
+  });
+
+  test("demoteFromAdmin succeeds when another admin exists", async () => {
+    const adminA = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: [{ name: "admin" }, { name: "user" }] },
+      },
+    });
+    const adminB = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: [{ name: "admin" }, { name: "user" }] },
+      },
+    });
+
+    const result = await demoteFromAdmin({
+      targetUserId: adminB.id,
+      actorUserId: adminA.id,
+    });
+    expect(result).toEqual({ ok: true });
+
+    const updated = await prisma.user.findUniqueOrThrow({
+      where: { id: adminB.id },
+      include: { roles: true },
+    });
+    expect(updated.roles.map((r) => r.name)).toEqual(["user"]);
+  });
+
+  test("deleteUserAsAdmin blocks self-delete and last admin", async () => {
+    const admin = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: [{ name: "admin" }, { name: "user" }] },
+      },
+    });
+
+    expect(await deleteUserAsAdmin({ targetUserId: admin.id, actorUserId: admin.id })).toEqual({
+      ok: false,
+      reason: "forbidden",
+      error: "You cannot delete your own account from admin",
+    });
+
+    expect(await deleteUserAsAdmin({ targetUserId: admin.id, actorUserId: "other" })).toEqual({
+      ok: false,
+      reason: "forbidden",
+      error: "Cannot delete the last admin",
+    });
+  });
+
+  test("deleteUserAsAdmin deletes a regular user", async () => {
+    const admin = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: [{ name: "admin" }, { name: "user" }] },
+      },
+    });
+    const user = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: { name: "user" } },
+      },
+    });
+
+    const result = await deleteUserAsAdmin({
+      targetUserId: user.id,
+      actorUserId: admin.id,
+    });
+    expect(result).toEqual({ ok: true });
+    expect(await prisma.user.findUnique({ where: { id: user.id } })).toBeNull();
+  });
+});

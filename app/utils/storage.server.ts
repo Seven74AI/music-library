@@ -256,7 +256,9 @@ export async function signRequest(params: {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`Failed to generate signed URL for ${method} ${key}:`, error);
-    throw new Error(`Failed to generate signed URL for ${method} ${key}: ${errorMessage}`);
+    throw new Error(`Failed to generate signed URL for ${method} ${key}: ${errorMessage}`, {
+      cause: error,
+    });
   }
 }
 
@@ -455,6 +457,54 @@ export async function getFileUrl(
 }
 
 /**
+ * Download file content from storage as Buffer
+ * @param key - Object key to download
+ * @returns Promise resolving to file buffer, or null if file not found
+ */
+export async function downloadFile(key: string): Promise<Buffer | null> {
+  // If storage not configured or in mocks mode, return null
+  if (!isStorageConfigured() || process.env.MOCKS === "true") {
+    return null;
+  }
+
+  const s3Client = getS3Client();
+  const config = getStorageConfig();
+
+  const command = new GetObjectCommand({
+    Bucket: config.bucket,
+    Key: key,
+  });
+
+  try {
+    const response = await s3Client.send(command);
+
+    if (!response.Body) {
+      console.warn(`No body in S3 response for key: ${key}`);
+      return null;
+    }
+
+    // Convert stream to buffer
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.Body as any) {
+      chunks.push(chunk);
+    }
+
+    return Buffer.concat(chunks);
+  } catch (error: any) {
+    if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+      console.warn(`File not found in S3: ${key}`);
+      return null;
+    }
+
+    console.error(`Failed to download file from storage:`, error);
+    throw new Error(
+      `Failed to download object: ${key} - ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+/**
  * Delete file from storage - Direct S3 client (more reliable)
  * @param key - Object key to delete
  * @param timings - Optional timing object for performance tracking
@@ -479,7 +529,7 @@ export async function deleteFile(key: string, _timings?: Timings): Promise<void>
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`Failed to delete file from storage:`, error);
-    throw new Error(`Failed to delete object: ${key} - ${errorMessage}`);
+    throw new Error(`Failed to delete object: ${key} - ${errorMessage}`, { cause: error });
   }
 }
 

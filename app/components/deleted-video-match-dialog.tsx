@@ -13,6 +13,18 @@ import { Icon } from "#app/components/ui/icon";
 import { Label } from "#app/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "#app/components/ui/radio-group";
 
+function hasDuplicateTrackSelections(
+  selections: Record<number, { action: "match" | "new" | "skip"; trackId?: string }>,
+): boolean {
+  const seen = new Set<string>();
+  for (const selection of Object.values(selections)) {
+    if (selection.action !== "match" || !selection.trackId) continue;
+    if (seen.has(selection.trackId)) return true;
+    seen.add(selection.trackId);
+  }
+  return false;
+}
+
 interface PendingMatch {
   deletedVideo: {
     position: number;
@@ -58,6 +70,20 @@ export function DeletedVideoMatchDialog({
   const allSelected = pendingMatches.every((_, index) => {
     return selections[index] !== undefined;
   });
+
+  const trackIdsSelectedElsewhere = (matchIndex: number): Set<string> => {
+    const claimed = new Set<string>();
+    for (const [indexStr, selection] of Object.entries(selections)) {
+      const index = Number(indexStr);
+      if (index === matchIndex) continue;
+      if (selection.action === "match" && selection.trackId) {
+        claimed.add(selection.trackId);
+      }
+    }
+    return claimed;
+  };
+
+  const hasDuplicateSelections = hasDuplicateTrackSelections(selections);
 
   const handleSelectionChange = (
     matchIndex: number,
@@ -111,6 +137,7 @@ export function DeletedVideoMatchDialog({
           {currentMatches.map((match, localIndex) => {
             const matchIndex = startIndex + localIndex;
             const selection = selections[matchIndex];
+            const claimedElsewhere = trackIdsSelectedElsewhere(matchIndex);
 
             return (
               <div key={matchIndex} className="border rounded-lg p-4 space-y-3">
@@ -143,28 +170,37 @@ export function DeletedVideoMatchDialog({
                         }
                       }}
                     >
-                      {match.candidateTracks.map((candidate) => (
-                        <div key={candidate.id} className="flex items-center space-x-2">
-                          <RadioGroupItem
-                            value={`match-${candidate.id}`}
-                            id={`match-${matchIndex}-${candidate.id}`}
-                          />
-                          <Label
-                            htmlFor={`match-${matchIndex}-${candidate.id}`}
-                            className="flex-1 cursor-pointer"
-                          >
-                            <span className="font-medium">{candidate.title}</span>
-                            {candidate.artist && (
-                              <span className="text-sm text-muted-foreground ml-2">
-                                by {candidate.artist}
+                      {match.candidateTracks.map((candidate) => {
+                        const claimedByOther = claimedElsewhere.has(candidate.id);
+                        return (
+                          <div key={candidate.id} className="flex items-center space-x-2">
+                            <RadioGroupItem
+                              value={`match-${candidate.id}`}
+                              id={`match-${matchIndex}-${candidate.id}`}
+                              disabled={claimedByOther}
+                            />
+                            <Label
+                              htmlFor={`match-${matchIndex}-${candidate.id}`}
+                              className={`flex-1 ${claimedByOther ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                            >
+                              <span className="font-medium">{candidate.title}</span>
+                              {candidate.artist && (
+                                <span className="text-sm text-muted-foreground ml-2">
+                                  by {candidate.artist}
+                                </span>
+                              )}
+                              <span className="text-xs text-muted-foreground ml-2">
+                                (Position {candidate.position})
                               </span>
-                            )}
-                            <span className="text-xs text-muted-foreground ml-2">
-                              (Position {candidate.position})
-                            </span>
-                          </Label>
-                        </div>
-                      ))}
+                              {claimedByOther && (
+                                <span className="text-xs text-muted-foreground ml-2">
+                                  — already selected
+                                </span>
+                              )}
+                            </Label>
+                          </div>
+                        );
+                      })}
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="new" id={`new-${matchIndex}`} />
                         <Label htmlFor={`new-${matchIndex}`} className="cursor-pointer">
@@ -242,6 +278,11 @@ export function DeletedVideoMatchDialog({
           <span className="text-sm text-muted-foreground">
             {Object.keys(selections).length} of {pendingMatches.length} matches confirmed
           </span>
+          {hasDuplicateSelections && (
+            <span className="text-sm text-destructive">
+              Each orphaned track can only be matched once
+            </span>
+          )}
         </div>
 
         <DialogFooter>
@@ -275,7 +316,7 @@ export function DeletedVideoMatchDialog({
                 }),
               )}
             />
-            <Button type="submit" disabled={!allSelected}>
+            <Button type="submit" disabled={!allSelected || hasDuplicateSelections}>
               Confirm All Matches
             </Button>
           </Form>

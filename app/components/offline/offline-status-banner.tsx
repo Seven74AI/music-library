@@ -10,7 +10,7 @@ export function OfflineStatusBanner() {
   return (
     <div
       role="status"
-      className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-950 dark:text-amber-100"
+      className="border-b border-amber-500/30 bg-amber-500/10 px-2 py-2 text-sm text-amber-950 sm:px-4 dark:text-amber-100"
     >
       <div className="container flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">

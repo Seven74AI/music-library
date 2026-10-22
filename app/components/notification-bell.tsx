@@ -38,13 +38,14 @@ export function NotificationBell({ notifications, unreadCount }: NotificationBel
   const fetcher = useFetcher<{ ok: boolean }>();
   const isSubmitting = fetcher.state !== "idle";
   const refreshFetcher = useFetcher<NotificationLoaderData>();
+  const refreshNotifications = refreshFetcher.load;
   const lastIntentRef = useRef<"mark-read" | "mark-all-read" | null>(null);
 
   useEffect(() => {
     if (fetcher.state !== "idle" || !fetcher.data) return;
 
     if (fetcher.data.ok) {
-      void refreshFetcher.load("/resources/notifications");
+      void refreshNotifications("/resources/notifications");
       return;
     }
 
@@ -54,7 +55,7 @@ export function NotificationBell({ notifications, unreadCount }: NotificationBel
         ? "Failed to mark all notifications as read"
         : "Failed to mark notification as read";
     toast({ title: label, variant: "destructive" });
-  }, [fetcher.data, fetcher.state]);
+  }, [fetcher.data, fetcher.state, refreshNotifications]);
 
   const displayNotifications = refreshFetcher.data?.notifications ?? notifications;
   const displayUnreadCount = refreshFetcher.data?.unreadCount ?? unreadCount;

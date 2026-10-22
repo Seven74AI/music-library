@@ -1,7 +1,8 @@
 import { useRef } from "react";
 import { Link, Form } from "react-router";
 import { getUserImgSrc } from "#app/utils/misc.tsx";
-import { useUser, userHasRole } from "#app/utils/user.ts";
+import { useUser } from "#app/utils/user.ts";
+import { accountMenuItems } from "./app-navigation.ts";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Button } from "./ui/button";
 import {
@@ -10,13 +11,15 @@ import {
   DropdownMenuPortal,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from "./ui/dropdown-menu";
 import { Icon } from "./ui/icon";
 
 export function UserDropdown() {
   const user = useUser();
   const formRef = useRef<HTMLFormElement>(null);
-  const isAdmin = userHasRole(user, "admin");
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -35,7 +38,13 @@ export function UserDropdown() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuPortal>
-        <DropdownMenuContent sideOffset={8} align="end">
+        <DropdownMenuContent
+          sideOffset={8}
+          align="end"
+          collisionPadding={8}
+          className="max-h-[calc(100dvh-12.5rem)] max-w-[calc(100%-1rem)] overflow-y-auto"
+        >
+          <DropdownMenuLabel>Account</DropdownMenuLabel>
           <DropdownMenuItem asChild>
             <Link prefetch="intent" to={`/users/${user.username}`}>
               <Icon className="text-body-md" name="avatar">
@@ -43,61 +52,16 @@ export function UserDropdown() {
               </Icon>
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link prefetch="intent" to="/library">
-              <Icon className="text-body-md" name="file-text">
-                My Library
-              </Icon>
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link prefetch="intent" to="/downloads">
-              <Icon className="text-body-md" name="download">
-                Downloads
-              </Icon>
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link prefetch="intent" to="/playlists">
-              <Icon className="text-body-md" name="file-text">
-                My Playlists
-              </Icon>
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link prefetch="intent" to="/music/services">
-              <Icon className="text-body-md" name="link-2">
-                Connected Services
-              </Icon>
-            </Link>
-          </DropdownMenuItem>
-          {isAdmin && (
-            <DropdownMenuItem asChild>
-              <Link prefetch="intent" to="/admin/audio-queue">
-                <Icon className="text-body-md" name="file-text">
-                  Audio Queue Admin
+          {accountMenuItems.map((item) => (
+            <DropdownMenuItem key={item.to} asChild>
+              <Link prefetch="intent" to={item.to}>
+                <Icon className="text-body-md" name={item.icon}>
+                  {item.label}
                 </Icon>
               </Link>
             </DropdownMenuItem>
-          )}
-          {isAdmin && (
-            <DropdownMenuItem asChild>
-              <Link prefetch="intent" to="/admin/youtube-cookies">
-                <Icon className="text-body-md" name="file-text">
-                  YouTube Cookies
-                </Icon>
-              </Link>
-            </DropdownMenuItem>
-          )}
-          {isAdmin && (
-            <DropdownMenuItem asChild>
-              <Link prefetch="intent" to="/admin/fts-index">
-                <Icon className="text-body-md" name="magnifying-glass">
-                  FTS5 Index
-                </Icon>
-              </Link>
-            </DropdownMenuItem>
-          )}
+          ))}
+          <DropdownMenuSeparator />
           <Form action="/logout" method="POST" ref={formRef}>
             <DropdownMenuItem asChild>
               <button type="submit" className="w-full">

@@ -63,4 +63,43 @@ describe("OfflineMetadataStore", () => {
     expect(await store.listPinned()).toHaveLength(1);
     expect(await store.listDownloaded()).toHaveLength(2);
   });
+
+  test("efficiently lists many downloaded tracks", async () => {
+    const trackCount = 1000;
+    const startTime = performance.now();
+
+    for (let i = 0; i < trackCount; i++) {
+      await store.put(
+        toOfflineTrackRecord(
+          { ...sampleTrack, id: `track-${i}`, title: `Song ${i}` },
+          {
+            opfsPath: `audio/track-${i}.mp3`,
+            fileSizeBytes: 1000,
+            isPinned: i % 2 === 0,
+            isQueueCached: i % 2 !== 0,
+          },
+        ),
+      );
+    }
+
+    const insertTime = performance.now() - startTime;
+
+    const listStart = performance.now();
+    const allTracks = await store.list();
+    const listTime = performance.now() - listStart;
+
+    const pinnedStart = performance.now();
+    const pinnedTracks = await store.listPinned();
+    const pinnedTime = performance.now() - pinnedStart;
+
+    expect(allTracks).toHaveLength(trackCount);
+    expect(pinnedTracks).toHaveLength(trackCount / 2);
+
+    console.log(`Insert ${trackCount} tracks: ${insertTime.toFixed(2)}ms`);
+    console.log(`List all ${trackCount} tracks: ${listTime.toFixed(2)}ms`);
+    console.log(`List ${pinnedTracks.length} pinned tracks: ${pinnedTime.toFixed(2)}ms`);
+
+    expect(listTime).toBeLessThan(500);
+    expect(pinnedTime).toBeLessThan(500);
+  });
 });

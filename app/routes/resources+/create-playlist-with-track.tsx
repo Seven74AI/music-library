@@ -36,7 +36,6 @@ export async function action({ request }: Route.ActionArgs) {
       return data(
         { status: "invalid_title", message: "Playlist name is required" },
         {
-          status: 400,
           headers: await createToastHeaders({
             title: "Error",
             description: "Playlist name is required",
@@ -54,7 +53,6 @@ export async function action({ request }: Route.ActionArgs) {
           existingTitle: result.existingTitle,
         },
         {
-          status: 409,
           headers: await createToastHeaders({
             title: "Duplicate playlist",
             description: `You already have a playlist named "${result.existingTitle}"`,

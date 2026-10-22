@@ -299,3 +299,19 @@ jobs:
             --image "registry.fly.io/${{ steps.app_name.outputs.value }}:${{ github.sha }}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Confirm production is serving
+        if: github.ref == 'refs/heads/main'
+        run: |
+          url="https://${{ steps.app_name.outputs.value }}.fly.dev/resources/healthcheck"
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code=$(curl -sS -o /tmp/healthcheck.txt -w "%{http_code}" --max-time 20 "$url" || true)
+            echo "attempt ${attempt} ${url} status=${code}"
+            if [ "$code" = "200" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "production healthcheck failed"
+          cat /tmp/healthcheck.txt || true
+          exit 1

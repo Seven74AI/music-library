@@ -1,4 +1,5 @@
 import * as setCookieParser from "set-cookie-parser";
+import * as jestDomMatchers from "@testing-library/jest-dom/matchers";
 import { expect } from "vitest";
 import { sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
@@ -6,7 +7,9 @@ import { authSessionStorage } from "#app/utils/session.server.ts";
 import { type ToastInput, toastSessionStorage, toastKey } from "#app/utils/toast.server.ts";
 import { convertSetCookieToCookie } from "#tests/utils.ts";
 
-import "@testing-library/jest-dom/vitest";
+// Register jest-dom matchers manually
+// @testing-library/jest-dom v7's vitest types aren't compatible with vitest 5 yet
+expect.extend(jestDomMatchers as any);
 
 expect.extend({
   toHaveRedirect(response: unknown, redirectTo?: string) {
@@ -136,13 +139,4 @@ expect.extend({
   },
 });
 
-interface CustomMatchers<R = unknown> {
-  toHaveRedirect(redirectTo: string | null): R;
-  toHaveSessionForUser(userId: string): Promise<R>;
-  toSendToast(toast: ToastInput): Promise<R>;
-}
-
-declare module "vitest" {
-  interface Assertion<T = any> extends CustomMatchers<T> {}
-  interface AsymmetricMatchersContaining extends CustomMatchers {}
-}
+// Type declarations are in vitest-matchers.d.ts to avoid conflicts with jest-dom's types

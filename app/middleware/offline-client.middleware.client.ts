@@ -8,6 +8,12 @@ import {
   shouldSkipOfflineMiddlewareRoute,
 } from "#app/features/offline-app/offline-route-policies.client.ts";
 
+declare global {
+  interface Window {
+    __reactRouterHdrActive?: boolean;
+  }
+}
+
 /**
  * Returns true when a data strategy result should be substituted with offline
  * data.  Substitutes when the result is missing, errored, or a network failure.
@@ -77,6 +83,12 @@ export const offlineClientMiddleware: MiddlewareFunction<
   if (typeof document === "undefined") {
     return next();
   }
+
+  // Guards against React Router 8.2.0 single-fetch empty-routes shortcut.
+  // Without this, hydration on routes with HydrateFallback + embedded stream
+  // data resolves singleFetchDfd with { routes: {} } instead of fetching.
+  // Mirrors what the Vite HMR refresh-utils.mjs does in dev.
+  window.__reactRouterHdrActive = true;
 
   const offline = isOfflineEnvironment();
 

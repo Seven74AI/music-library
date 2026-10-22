@@ -34,6 +34,26 @@ const OFFLINE_REACT_ROUTER_CONTEXT = {
   isSpaMode: true,
 };
 
+export const OFFLINE_SHELL_THEME_SCRIPT = `(function(){
+  try {
+    var theme = null;
+    var match = document.cookie.match(/(?:^|; )en_theme=(light|dark)/);
+    if (match) theme = match[1];
+    if (!theme) {
+      var shell = localStorage.getItem('music-library:offline-root-shell');
+      if (shell) {
+        var parsed = JSON.parse(shell);
+        theme = parsed && parsed.requestInfo && parsed.requestInfo.userPrefs
+          ? parsed.requestInfo.userPrefs.theme
+          : null;
+      }
+    }
+    if (theme === 'light' || theme === 'dark') {
+      document.documentElement.className = theme + ' h-full overflow-x-hidden';
+    }
+  } catch (e) {}
+})();`;
+
 export const OFFLINE_SHELL_ENV_BOOTSTRAP = `try {
   var shell = localStorage.getItem('music-library:offline-root-shell');
   window.ENV = shell ? (JSON.parse(shell).ENV || {}) : {};
@@ -43,8 +63,8 @@ export const OFFLINE_SHELL_ENV_BOOTSTRAP = `try {
 
 export const OFFLINE_SHELL_SPLASH_HTML = `<div id="offline-shell-splash" role="status" aria-live="polite" style="display:flex;min-height:100vh;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem;text-align:center;font-family:system-ui,-apple-system,sans-serif;color:inherit;background:inherit">
   <div style="margin-bottom:1.5rem;line-height:1.1">
-    <span style="display:block;font-size:2.25rem;font-weight:300">epic</span>
-    <span style="display:block;font-size:2.25rem;font-weight:700">music</span>
+    <span style="display:block;font-size:2.25rem;font-weight:300">7D</span>
+    <span style="display:block;font-size:2.25rem;font-weight:700">Music</span>
   </div>
   <p id="offline-shell-status" style="margin:0;font-size:1rem;color:#737373">Loading…</p>
 </div>`;
@@ -76,6 +96,7 @@ export async function generateOfflineShellHtml(assets: OfflineShellAssets): Prom
     "<head>",
     '  <meta charset="utf-8" />',
     '  <meta name="viewport" content="width=device-width,initial-scale=1" />',
+    `  <script>${OFFLINE_SHELL_THEME_SCRIPT}</script>`,
     "  <title>Music Library</title>",
   ];
 

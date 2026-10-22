@@ -1,5 +1,5 @@
 import path from "node:path";
-import { test as base, type Response } from "@playwright/test";
+import { test as base, type Page, type Response } from "@playwright/test";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { href, type Register } from "react-router";
 import * as setCookieParser from "set-cookie-parser";
@@ -134,6 +134,8 @@ async function cleanupUserData(userIds: string[]): Promise<void> {
       testPrisma.passkey.deleteMany({ where: whereUserId }),
       testPrisma.userImage.deleteMany({ where: whereUserId }),
       testPrisma.password.deleteMany({ where: whereUserId }),
+      testPrisma.dailyActiveUser.deleteMany({ where: whereUserId }),
+      testPrisma.usageEvent.deleteMany({ where: whereUserId }),
     ]);
 
     // Finally delete the users (ServicePlaylist will be auto-deleted via CASCADE)
@@ -262,14 +264,19 @@ export const test = base.extend<{
 
       // Get or create artist
       const artistName = options?.artist || "Test Artist";
-      const artist = await testPrisma.artist.upsert({
-        where: { normalizedName: artistName.toLowerCase().trim() },
-        update: {},
-        create: {
-          name: artistName,
-          normalizedName: artistName.toLowerCase().trim(),
-        },
+      const normalizedName = artistName.toLowerCase().trim();
+      let artist = await testPrisma.artist.findFirst({
+        where: { normalizedName },
       });
+
+      if (!artist) {
+        artist = await testPrisma.artist.create({
+          data: {
+            name: artistName,
+            normalizedName,
+          },
+        });
+      }
 
       const track = await testPrisma.track.create({
         data: {
@@ -352,6 +359,39 @@ export const test = base.extend<{
   },
 });
 export const { expect } = test;
+
+/**
+ * Dismiss a visible toast by clicking its body/text (not action buttons).
+ */
+export async function dismissVisibleToasts(page: Page) {
+  const toast = page.getByTestId("toast").first();
+  if (!(await toast.isVisible().catch(() => false))) {
+    return;
+  }
+
+  const toastBody = toast.locator("div.grid.gap-1").first();
+  if (await toastBody.isVisible().catch(() => false)) {
+    await toastBody.click();
+  } else {
+    await toast.click({ position: { x: 30, y: 20 } });
+  }
+
+  await expect(toast).not.toBeVisible({ timeout: 5000 });
+}
+
+/**
+ * Dismiss install banner and any visible toast notifications blocking UI clicks.
+ */
+export async function dismissOverlays(page: Page) {
+  const installBanner = page.getByTestId("install-app-banner");
+  const notNow = installBanner.getByRole("button", { name: "Not now" });
+  if (await notNow.isVisible().catch(() => false)) {
+    await notNow.click();
+    await expect(installBanner).not.toBeVisible({ timeout: 10000 });
+  }
+
+  await dismissVisibleToasts(page);
+}
 
 /**
  * This allows you to wait for something (like an email to be available).

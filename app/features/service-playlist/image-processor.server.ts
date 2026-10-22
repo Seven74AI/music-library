@@ -1,4 +1,4 @@
-import { pickCoverThumbnailUrl } from "#app/types/transformations";
+import { smartAlbumInheritance } from "#app/features/admin/cover-fetch.server";
 import { downloadExternalImage, findOrCreateCoverImage } from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server";
 
@@ -81,6 +81,15 @@ async function processPlaylistTrackImages(
             where: { id: playlistTrack.trackId },
             data: { coverImageId: coverImage.id },
           });
+
+          try {
+            await smartAlbumInheritance(playlistTrack.trackId);
+          } catch (error) {
+            console.warn(
+              `Smart album inheritance failed for track ${playlistTrack.trackId}:`,
+              error,
+            );
+          }
         } catch (error) {
           console.error(`Error processing image for track ${playlistTrack.trackId}:`, error);
         }

@@ -107,6 +107,7 @@ export function withServiceErrorHandler<T extends (...args: any[]) => Promise<an
     } catch (error) {
       throw new Error(
         `${service} ${operation} failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        { cause: error },
       );
     }
   }) as T;

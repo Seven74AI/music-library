@@ -11,11 +11,12 @@ import { CheckboxField, ErrorList, Field } from "#app/components/forms.tsx";
 import { Spacer } from "#app/components/spacer.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
+import { recordPasswordLoginResult } from "#app/features/security/track-event.server.ts";
 import { login, requireAnonymous } from "#app/utils/auth.server.ts";
 import { checkHoneypot } from "#app/utils/honeypot.server.ts";
 import { getErrorMessage, useIsPending } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { PasswordSchema, UsernameSchema } from "#app/utils/user-validation.ts";
+import { ExistingPasswordSchema, UsernameSchema } from "#app/utils/user-validation.ts";
 import { type Route } from "./+types/login.ts";
 import { handleNewSession } from "./login.server.ts";
 
@@ -25,7 +26,7 @@ export const handle: SEOHandle = {
 
 const LoginFormSchema = z.object({
   username: UsernameSchema,
-  password: PasswordSchema,
+  password: ExistingPasswordSchema,
   redirectTo: z.string().optional(),
   remember: z.boolean().optional(),
 });
@@ -45,11 +46,25 @@ export async function action({ request }: Route.ActionArgs) {
   await checkHoneypot(formData);
   const submission = await parseWithZod(formData, {
     schema: (intent) =>
-      LoginFormSchema.transform(async (data, ctx) => {
-        if (intent !== null) return { ...data, session: null };
+      LoginFormSchema.transform(async (formValues, ctx) => {
+        if (intent !== null) return { ...formValues, session: null };
 
-        const session = await login(data);
-        if (!session) {
+        const loginResult = await login(formValues);
+        await recordPasswordLoginResult({
+          request,
+          username: formValues.username,
+          status: loginResult.status,
+          userId: loginResult.status === "success" ? loginResult.session.userId : null,
+          sessionId: loginResult.status === "success" ? loginResult.session.id : null,
+        });
+        if (loginResult.status === "disabled") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "This account has been disabled",
+          });
+          return z.NEVER;
+        }
+        if (loginResult.status !== "success") {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Invalid username or password",
@@ -57,7 +72,7 @@ export async function action({ request }: Route.ActionArgs) {
           return z.NEVER;
         }
 
-        return { ...data, session };
+        return { ...formValues, session: loginResult.session };
       }),
     async: true,
   });

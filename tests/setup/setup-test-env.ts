@@ -10,7 +10,17 @@ import { server } from "#tests/mocks/index.ts";
 import "./custom-matchers.ts";
 
 beforeEach(() => {
-  // Re-stub ResizeObserver each test (some test suites call vi.unstubAllGlobals())
+  // Re-stub browser globals each test (some test suites call vi.unstubAllGlobals())
+  if (typeof globalThis.EventSource !== "function") {
+    class MockEventSource {
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public url: string) {}
+      close() {}
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+  }
+
   function MockResizeObserver(_callback: () => void) {
     // no-op
   }
