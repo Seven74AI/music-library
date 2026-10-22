@@ -35,6 +35,7 @@ async function createTrackWithOptionalAudio(opts: {
     await prisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: `audio/${suffix}.flac`,
         format: "flac",
         mimeType: "audio/flac",
@@ -104,6 +105,7 @@ describe("searchRoomCatalog has-audio filter", () => {
     await prisma.trackAudioFile.create({
       data: {
         trackId: withTrack.id,
+        serviceId: withTrack.serviceId,
         objectKey: `audio/${marker}-with.flac`,
         format: "flac",
       },

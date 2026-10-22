@@ -86,7 +86,7 @@ export async function persistTrackAudio(
     buffer,
     metadata,
     uploadedBy,
-    serviceId = null,
+    serviceId,
     fileName,
     extension: extensionOverride,
     storageMetadata,
@@ -98,12 +98,29 @@ export async function persistTrackAudio(
   const format = metadata.format || "mp3";
   const extension = getAudioExtension(metadata, fileName, extensionOverride);
 
+  // Resolve the serviceId from the track when the caller does not supply one
+  // (e.g. the archive worker). Track.serviceId is NOT NULL, so every audio file
+  // must carry a concrete Service reference — a null here would weaken the
+  // (trackId, serviceId, format) unique index (SQLite treats NULLs as distinct).
+  const resolvedServiceId =
+    serviceId ??
+    (
+      await db.track.findUnique({
+        where: { id: trackId },
+        select: { serviceId: true },
+      })
+    )?.serviceId;
+
+  if (!resolvedServiceId) {
+    throw new Error(`Cannot persist audio for track ${trackId}: no serviceId on track or params`);
+  }
+
   // Step 1: Check for existing file by trackId (for archive retry idempotency)
   const existing = await db.trackAudioFile.findFirst({
     where: {
       trackId,
       format,
-      serviceId,
+      serviceId: resolvedServiceId,
     },
     select: {
       id: true,
@@ -242,7 +259,7 @@ export async function persistTrackAudio(
   const audioFile = await db.trackAudioFile.create({
     data: {
       trackId,
-      serviceId,
+      serviceId: resolvedServiceId,
       objectKey,
       contentHash,
       audioFingerprint,

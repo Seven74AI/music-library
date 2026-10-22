@@ -106,6 +106,7 @@ describe("Search Utilities", () => {
     await prisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: `audio/enriched-${timestamp}.mp3`,
         format: "mp3",
       },
