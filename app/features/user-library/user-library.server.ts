@@ -2,7 +2,8 @@ import {
   recordUsageEvent,
   USAGE_EVENT_TYPES,
 } from "#app/features/usage-analytics/record-usage.server.ts";
-import { chunkArray } from "#app/utils/chunk-array";
+import { Prisma } from "#prisma/client.js";
+import { chunkArray, SQLITE_IN_CHUNK_SIZE } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server";
 
 export async function addTrackToUserLibrary(
@@ -88,13 +89,12 @@ export async function addTracksToUserLibrary(
 
     const existingByTrackId = new Map(existing.map((userTrack) => [userTrack.trackId, userTrack]));
     // trackId -> soft-deleted UserTrack id, so reactivation can get a fresh
-    // createdAt stamped by playlist position (updateMany can't set per-row stamps).
+    // createdAt stamped by playlist position.
     const reactivateByTrackId = new Map(
       existing
         .filter((userTrack) => !userTrack.isActive)
         .map((userTrack) => [userTrack.trackId, userTrack.id]),
     );
-    const toCreate = uniqueTrackIds.filter((trackId) => !existingByTrackId.has(trackId));
 
     // Library lists/plays by UserTrack.createdAt desc. Stagger stamps so the
     // first id in `trackIds` (YouTube playlist order) sorts first, not reverse.
@@ -102,22 +102,41 @@ export async function addTracksToUserLibrary(
     // track keeps its original old createdAt and sorts out of playlist order.
     const bulkAddedAtMs = Date.now();
 
-    await prisma.$transaction(async (tx) => {
-      let position = 0;
-      const createRows: Array<{ userId: string; trackId: string; createdAt: Date }> = [];
-      for (const trackId of uniqueTrackIds) {
-        const createdAt = new Date(bulkAddedAtMs - position);
-        position += 1;
+    const createRows: Array<{ userId: string; trackId: string; createdAt: Date }> = [];
+    const reactivateRows: Array<{ id: string; createdAt: Date }> = [];
+    let position = 0;
+    for (const trackId of uniqueTrackIds) {
+      const createdAt = new Date(bulkAddedAtMs - position);
+      position += 1;
 
-        const reactivateId = reactivateByTrackId.get(trackId);
-        if (reactivateId !== undefined) {
-          await tx.userTrack.update({
-            where: { id: reactivateId },
-            data: { isActive: true, deletedAt: null, createdAt },
-          });
-        } else if (!existingByTrackId.has(trackId)) {
-          createRows.push({ userId, trackId, createdAt });
-        }
+      const reactivateId = reactivateByTrackId.get(trackId);
+      if (reactivateId !== undefined) {
+        reactivateRows.push({ id: reactivateId, createdAt });
+      } else if (!existingByTrackId.has(trackId)) {
+        createRows.push({ userId, trackId, createdAt });
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Batch soft-deleted reactivation into one chunked raw UPDATE per chunk
+      // instead of N sequential UPDATEs (SQLite/LiteFS single-writer; add-all
+      // counts every soft-deleted track as "missing"). Per-row distinct
+      // `createdAt` is preserved via a VALUES join. SQLite rejects a bare
+      // `UPDATE ... FROM (VALUES ...)`, so the VALUES list is wrapped in a CTE.
+      // Two binds per row -> chunk at half SQLITE_IN_CHUNK_SIZE to stay under
+      // SQLite's bind limit.
+      const reactivateChunkSize = Math.floor(SQLITE_IN_CHUNK_SIZE / 2);
+      for (const chunk of chunkArray(reactivateRows, reactivateChunkSize)) {
+        const values = Prisma.join(
+          chunk.map(({ id, createdAt }) => Prisma.sql`(${id}, ${createdAt})`),
+        );
+        await tx.$executeRaw`
+          WITH v("id", "createdAt") AS (VALUES ${values})
+          UPDATE "UserTrack"
+          SET "isActive" = 1, "deletedAt" = NULL, "createdAt" = v."createdAt"
+          FROM v
+          WHERE "UserTrack"."id" = v."id"
+        `;
       }
 
       for (const chunk of chunkArray(createRows)) {
@@ -125,7 +144,7 @@ export async function addTracksToUserLibrary(
       }
     });
 
-    const addedCount = reactivateByTrackId.size + toCreate.length;
+    const addedCount = reactivateByTrackId.size + createRows.length;
     if (addedCount > 0) {
       void recordUsageEvent({
         type: USAGE_EVENT_TYPES.library_add,
