@@ -33,6 +33,11 @@ npm run lint          # ESLint
 4. Push to fork, create PR
 5. CI must pass (`lint`, `typecheck`, `vitest`, `playwright`)
 
+### Cursor cloud agents
+
+- Implementation tasks are delegated to a Cursor cloud agent, which opens a PR as the Cursor GitHub App.
+- Review tasks are delegated to a Cursor cloud agent, which submits an approval.
+
 ### Environment
 
 - `MOCKS=true` enables mocked external services
