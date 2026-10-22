@@ -47,6 +47,12 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     BACKUP_BUCKET_NAME: z.string().optional(),
     BACKUP_HOUR_UTC: z.coerce.number().min(0).max(23).optional().default(3),
 
+    // Shared upload-progress store (multi-instance). Optional: when both are
+    // set, upload progress lives in Upstash Redis; otherwise an in-memory Map
+    // is used (single-instance / tests). See ADR-038.
+    UPSTASH_REDIS_REST_URL: z.string().optional(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+
     // YouTube Data API Configuration (uses existing Google OAuth credentials)
     YOUTUBE_API_KEY: z.string().optional(),
     SITE_URL: z.string().optional(),
