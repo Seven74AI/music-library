@@ -24,6 +24,7 @@ import {
   type FingerprintFailuresLoaderData,
   type FingerprintFailureRow,
 } from "#app/routes/api+/admin+/fingerprint-failures.tsx";
+import { fetchInternal } from "#app/utils/internal-fetch.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/fingerprint-failures.ts";
 
@@ -44,12 +45,9 @@ export async function loader({
 }: Route.LoaderArgs): Promise<FingerprintFailuresLoaderData> {
   await requireUserWithRole(request, "admin");
 
-  const apiUrl = new URL(url);
-  apiUrl.pathname = "/api/admin/fingerprint-failures";
-
-  const response = await fetch(apiUrl.toString(), {
-    headers: request.headers,
-  });
+  // Fetch data from the internal API endpoint on a trusted origin, forwarding
+  // only the session cookie (never the full incoming headers).
+  const response = await fetchInternal(request, "/api/admin/fingerprint-failures", url.search);
 
   if (!response.ok) {
     throw data({ error: "Failed to load fingerprint failures" }, { status: response.status });
