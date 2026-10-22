@@ -2,6 +2,7 @@ import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
+import { getLockStatus, releaseLock } from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/albums.$id.edit.ts";
 
@@ -77,6 +78,18 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Artist not found" }, { status: 404 });
   }
 
+  // Reject the edit if another curator holds the lock (ADR-032).
+  const lock = await getLockStatus("album", albumId);
+  if (lock && lock.lockedBy !== userId) {
+    throw data(
+      {
+        error: "Locked",
+        message: `${lock.lockedByName} is currently editing this album`,
+      },
+      { status: 409 },
+    );
+  }
+
   // Snapshot the current album first so restore can recover the pre-edit values.
   const { album, edit } = await prisma.$transaction(async (tx) => {
     const albumEdit = await tx.albumEdit.create({
@@ -103,6 +116,9 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     return { album: updatedAlbum, edit: albumEdit };
   });
+
+  // Release the lock on successful save (ADR-032).
+  await releaseLock("album", albumId, userId);
 
   return data({ album, edit });
 }
