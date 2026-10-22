@@ -41,8 +41,11 @@ repository — unlike the human PR Workflow above, where a contributor pushes to
 their own fork and opens a PR from it.
 
 - Implementation agents open a PR with their changes.
-- Review agents leave a GitHub review with one of three outcomes: `APPROVE`,
-  `REQUEST_CHANGES`, or `REJECT`.
+- Review agents leave a GitHub review carrying an agent verdict of `APPROVE`,
+  `REQUEST_CHANGES`, or `REJECT`. The native GitHub review event is limited to
+  Approve / Request changes / Comment — there is no native `REJECT` state, so a
+  `REJECT` verdict is conveyed via the review body (Comment or Request changes)
+  rather than a distinct event.
 
 For local Cursor Cloud setup (Node 24, `.cursor/environment.json`, dev login),
 see the "Cursor Cloud specific instructions" section of `CLAUDE.md`.
