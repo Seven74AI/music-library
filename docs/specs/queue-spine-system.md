@@ -267,7 +267,7 @@ Only modifies `upNext` and optionally `upNextPlayNextCount`. Does NOT touch `spi
 
 #### `toggleShuffle` (on)
 
-Calls `reshuffleFromCurrent(spineOrder, spinePosition)`. The prefix (indices 0 to `spinePosition - 1`, already played) is preserved; the suffix (from `spinePosition` onward) is Fisher-Yates shuffled. `spinePosition` is **not changed** — it still points to the same position in the partially-reshuffled `spineOrder`. The current track's position is preserved; only upcoming tracks are reordered.
+Calls `reshuffleFromCurrent(spineOrder, spinePosition)`. The prefix (indices 0 to `spinePosition`, i.e. already played plus the current track) is preserved; the suffix (from `spinePosition + 1` onward, the upcoming tracks) is Fisher-Yates shuffled. `spinePosition` is **not changed** — it still points to the same track at the same position in the partially-reshuffled `spineOrder`. The current track's position is preserved; only upcoming tracks are reordered.
 
 #### `toggleShuffle` (off)
 
