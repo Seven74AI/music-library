@@ -13,12 +13,6 @@ export async function clientAction(args: Route.ClientActionArgs) {
 
 /** Per-user report submissions allowed per minute (ASVS high-value endpoint cap). */
 export const REPORT_RATE_LIMIT_PER_MINUTE = 10;
-const reportRateLimit = makeRateLimiter("track-report", REPORT_RATE_LIMIT_PER_MINUTE);
-
-/** Test helper — clears the report rate-limit windows. */
-export function resetReportRateLimiterForTests(): void {
-  reportRateLimit.reset();
-}
 
 const reportSchema = z.object({
   trackId: z.string().min(1),
@@ -29,7 +23,7 @@ const reportSchema = z.object({
 export async function action({ request }: Route.ActionArgs) {
   const userId = await requireUserId(request);
 
-  const budget = reportRateLimit.consume(userId);
+  const budget = makeRateLimiter("track-report", REPORT_RATE_LIMIT_PER_MINUTE).consume(userId);
   if (!budget.allowed) {
     return data(
       {

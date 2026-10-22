@@ -1,12 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import {
-  action,
-  clientAction,
-  REPORT_RATE_LIMIT_PER_MINUTE,
-  resetReportRateLimiterForTests,
-} from "./report.ts";
+import { makeRateLimiter } from "#app/utils/rate-limit.server.ts";
+import { action, clientAction, REPORT_RATE_LIMIT_PER_MINUTE } from "./report.ts";
 
 vi.mock("#app/utils/auth.server.ts", () => ({
   requireUserId: vi.fn(),
@@ -58,7 +54,7 @@ describe("clientAction for POST /api/curator/queue/report", () => {
 
 describe("action for POST /api/curator/queue/report", () => {
   beforeEach(() => {
-    resetReportRateLimiterForTests();
+    makeRateLimiter("track-report", REPORT_RATE_LIMIT_PER_MINUTE).reset();
     vi.mocked(requireUserId).mockResolvedValue("user-1");
     vi.mocked(prisma.track.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.reviewQueueItem.findFirst).mockResolvedValue(null);
