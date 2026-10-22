@@ -397,3 +397,77 @@ test("Retry all requeues every failed job in one request", async () => {
     await cleanupQueuedTracks();
   }
 }, 20_000);
+
+async function runAdminAction(cookieHeader: string, formData: FormData) {
+  const request = new Request("http://localhost/admin/audio-queue", {
+    method: "POST",
+    headers: { cookie: cookieHeader },
+    body: formData,
+  });
+  const result = (await action({
+    request,
+    params: {},
+    context: {} as never,
+  } as never)) as { data: unknown; init?: { status?: number } };
+  return { data: result.data, status: result.init?.status ?? 200 };
+}
+
+test("long-break rejects a non-numeric durationMs", async () => {
+  const cookieHeader = await createAdminSession();
+
+  const formData = new FormData();
+  formData.set("intent", "long-break");
+  formData.set("durationMs", "not-a-number");
+
+  const result = await runAdminAction(cookieHeader, formData);
+
+  expect(result.status).toBe(400);
+  expect(result.data).toMatchObject({ success: false });
+});
+
+test("long-break rejects a negative durationMs", async () => {
+  const cookieHeader = await createAdminSession();
+
+  const formData = new FormData();
+  formData.set("intent", "long-break");
+  formData.set("durationMs", "-1000");
+
+  const result = await runAdminAction(cookieHeader, formData);
+
+  expect(result.status).toBe(400);
+  expect(result.data).toMatchObject({ success: false });
+});
+
+test("enqueue returns 404 for a nonexistent track", async () => {
+  const cookieHeader = await createAdminSession();
+
+  const formData = new FormData();
+  formData.set("intent", "enqueue");
+  formData.set("trackId", "nonexistent-track-id");
+
+  const result = await runAdminAction(cookieHeader, formData);
+
+  expect(result.status).toBe(404);
+  expect(result.data).toMatchObject({ success: false, error: "Track not found" });
+});
+
+test("enqueue is idempotent when an ArchiveJob already exists", async () => {
+  const job = await createQueuedTrack("pending");
+  try {
+    const cookieHeader = await createAdminSession();
+
+    const formData = new FormData();
+    formData.set("intent", "enqueue");
+    formData.set("trackId", job.trackId);
+
+    const result = await runAdminAction(cookieHeader, formData);
+
+    expect(result.status).toBe(200);
+    expect(result.data).toMatchObject({ success: true, alreadyExists: true });
+
+    const count = await prisma.archiveJob.count({ where: { trackId: job.trackId } });
+    expect(count).toBe(1);
+  } finally {
+    await cleanupQueuedTracks();
+  }
+});
