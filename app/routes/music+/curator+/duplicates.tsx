@@ -65,6 +65,14 @@ async function fetchDuplicateGroups(pathname: string, cookie: string | null) {
   return readDuplicatePayload(response);
 }
 
+function albumArtistLabel(group: any): string {
+  if (group.artistName) return group.artistName;
+  const names = Array.from(
+    new Set((group.albums ?? []).map((a: any) => a.artistName).filter(Boolean)),
+  );
+  return names.join(" / ") || "Unknown Artist";
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   await requireCuratorRole(request);
 
@@ -380,13 +388,13 @@ export default function DuplicatesPage() {
                   {albumGroups
                     .filter((g: any) => g.matchType === "fuzzy")
                     .map((group: any) => (
-                      <Card key={`fuzzy-${group.artistId}-${group.normalizedName}`}>
+                      <Card key={`fuzzy-${group.artistId ?? "cross"}-${group.normalizedName}`}>
                         <CardHeader>
                           <div className="flex items-start justify-between">
                             <div>
                               <div className="flex items-center gap-2 mb-1">
                                 <CardTitle className="text-base">
-                                  {group.albums[0].name} by {group.artistName}
+                                  {group.albums[0].name} by {albumArtistLabel(group)}
                                 </CardTitle>
                                 <span className="text-xs bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300 px-2 py-0.5 rounded">
                                   Fuzzy
@@ -399,7 +407,9 @@ export default function DuplicatesPage() {
                             </div>
                             <Button
                               size="sm"
-                              onClick={() => handleMergeAlbums(group.albums, group.artistName)}
+                              onClick={() =>
+                                handleMergeAlbums(group.albums, albumArtistLabel(group))
+                              }
                             >
                               Merge These →
                             </Button>
@@ -416,6 +426,12 @@ export default function DuplicatesPage() {
                                   <div className="font-medium">
                                     {album.name}
                                     {album.year && ` (${album.year})`}
+                                    {!group.artistName && album.artistName && (
+                                      <span className="text-muted-foreground">
+                                        {" "}
+                                        — {album.artistName}
+                                      </span>
+                                    )}
                                   </div>
                                   {index === 0 && (
                                     <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">
