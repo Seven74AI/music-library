@@ -3,6 +3,7 @@ import {
   addTrackToUserLibrary,
   addTracksToUserLibrary,
   removeTrackFromUserLibrary,
+  removeTracksFromUserLibrary,
 } from "#app/features/user-library/user-library.server";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -103,6 +104,33 @@ export async function action({ request }: Route.ActionArgs) {
           headers: await createToastHeaders({
             title: "Added to Library",
             description: "Track has been added to your library.",
+            type: "success",
+          }),
+        },
+      );
+    }
+
+    if (bulkTrackIds.length > 0) {
+      const result = await removeTracksFromUserLibrary(bulkTrackIds, userId);
+      if (!result.success) {
+        return data(
+          { status: "error", message: result.message },
+          {
+            status: 500,
+            headers: await createToastHeaders({
+              title: "Error",
+              description: result.message,
+              type: "error",
+            }),
+          },
+        );
+      }
+      return data(
+        { status: "success", message: result.message, removedCount: result.removedCount },
+        {
+          headers: await createToastHeaders({
+            title: "Removed from Library",
+            description: result.message,
             type: "success",
           }),
         },

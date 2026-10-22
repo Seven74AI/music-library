@@ -85,6 +85,7 @@ export function ArtistMergeDialog({
   // Close dialog and notify parent on successful merge
   if (mergeFetcher.state === "idle" && mergeFetcher.data && open) {
     setTimeout(() => {
+      mergeFetcher.reset();
       onOpenChange(false);
       onMerged?.();
       setConfirmed(false);

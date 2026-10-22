@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { downloadExternalImage } from "#app/utils/cover-management.server.ts";
+import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { action, clientAction } from "./from-url.tsx";
 
@@ -9,6 +10,11 @@ vi.mock("#app/utils/permissions.server.ts", () => ({
 
 vi.mock("#app/utils/cover-management.server.ts", () => ({
   downloadExternalImage: vi.fn(),
+}));
+
+vi.mock("#app/utils/cover-entity.server.ts", () => ({
+  isValidCoverEntityId: vi.fn(),
+  verifyCoverEntity: vi.fn(),
 }));
 
 function jsonRequest(body: unknown) {
@@ -39,6 +45,8 @@ async function returnedValidation(request: Request) {
 describe("POST /api/images/from-url validation", () => {
   beforeEach(() => {
     vi.mocked(requireCuratorRole).mockResolvedValue("curator-1");
+    vi.mocked(isValidCoverEntityId).mockReturnValue(true);
+    vi.mocked(verifyCoverEntity).mockResolvedValue("artist-1");
   });
 
   test("returns a rejected image URL as action data instead of throwing", async () => {
@@ -58,6 +66,43 @@ describe("POST /api/images/from-url validation", () => {
       },
       init: { status: 400 },
     });
+  });
+
+  test("returns 404 when the target entity does not exist", async () => {
+    vi.mocked(verifyCoverEntity).mockResolvedValue(null);
+    vi.mocked(downloadExternalImage).mockResolvedValue(null);
+
+    const result = await returnedValidation(
+      jsonRequest({
+        url: "https://example.com/cover.jpg",
+        entityType: "artist",
+        entityId: "missing-artist",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      data: { error: "artist not found" },
+      init: { status: 404 },
+    });
+    expect(downloadExternalImage).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 when entityId carries path segments", async () => {
+    vi.mocked(isValidCoverEntityId).mockReturnValue(false);
+
+    const result = await returnedValidation(
+      jsonRequest({
+        url: "https://example.com/cover.jpg",
+        entityType: "artist",
+        entityId: "../../etc/passwd",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      data: { error: "Invalid entityId" },
+      init: { status: 400 },
+    });
+    expect(verifyCoverEntity).not.toHaveBeenCalled();
   });
 });
 
