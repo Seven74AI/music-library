@@ -6,6 +6,21 @@ import {
   SECURITY_EVENT_TYPES,
 } from "./track-event.server.ts";
 
+/**
+ * Defense-in-depth authorization guard for session revocation. A caller may
+ * revoke a session when they own it (self-logout) or hold the `admin` role.
+ * The admin+ route already enforces `requireUserWithRole("admin")`, so this is
+ * a second gate against a future caller wiring these helpers without that check.
+ */
+async function actorCanRevokeSession(actorUserId: string, ownerUserId: string): Promise<boolean> {
+  if (actorUserId === ownerUserId) return true;
+  const admin = await prisma.user.findFirst({
+    select: { id: true },
+    where: { id: actorUserId, roles: { some: { name: "admin" } } },
+  });
+  return admin !== null;
+}
+
 export async function listActiveSessions(now = new Date()) {
   const sessions = await prisma.session.findMany({
     where: { expirationDate: { gt: now } },
@@ -70,6 +85,10 @@ export async function forceLogoutSession({
   });
   if (!session) return { ok: false, error: "Session not found" };
 
+  if (!(await actorCanRevokeSession(actorUserId, session.userId))) {
+    return { ok: false, error: "Not authorized" };
+  }
+
   await prisma.session.delete({ where: { id: sessionId } });
   await recordSecurityEvent({
     request,
@@ -96,6 +115,10 @@ export async function forceLogoutUserSessions({
     select: { id: true, username: true },
   });
   if (!user) return { ok: false, error: "User not found" };
+
+  if (!(await actorCanRevokeSession(actorUserId, user.id))) {
+    return { ok: false, error: "Not authorized" };
+  }
 
   const result = await prisma.session.deleteMany({ where: { userId } });
   await recordSecurityEvent({

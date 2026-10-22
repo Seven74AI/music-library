@@ -124,25 +124,30 @@ describe("persistTrackAudio", () => {
     expect(result.objectKey).toBe("audio/tracks/youtube/track-1.mp3");
   });
 
-  it("uses the transaction client when tx is provided", async () => {
+  it("creates the TrackAudioFile via the transaction client when one is provided", async () => {
     const txTrackAudioFile = {
-      findFirst: vi.fn().mockResolvedValue(null),
-      findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockResolvedValue({ id: "tx-audio-file" }),
     };
     const tx = { trackAudioFile: txTrackAudioFile };
 
-    const { persistTrackAudio } = await import("./persist-track-audio.server.ts");
-    await persistTrackAudio({
-      trackId: "track-local",
-      serviceName: "local",
-      buffer: sampleBuffer,
-      metadata: sampleMetadata,
-      uploadedBy: "user-1",
-      serviceId: "service-local",
-      fileName: "song.mp3",
-      tx: tx as never,
-    });
+    const { createTrackAudioFile } = await import("./persist-track-audio.server.ts");
+    await createTrackAudioFile(
+      {
+        trackId: "track-local",
+        serviceId: "service-local",
+        fileName: "song.mp3",
+        metadata: sampleMetadata,
+        uploadedBy: "user-1",
+        buffer: sampleBuffer,
+      },
+      {
+        objectKey: "audio/tracks/local/track-local.mp3",
+        contentHash: "abc123hash",
+        audioFingerprint: null,
+        isDuplicate: false,
+      },
+      tx as never,
+    );
 
     expect(txTrackAudioFile.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -156,6 +161,27 @@ describe("persistTrackAudio", () => {
     );
     expect(mockPrisma.trackAudioFile.create).not.toHaveBeenCalled();
     expect(mockBackfillTrackMetadata).not.toHaveBeenCalled();
+  });
+
+  it("prepareTrackAudioUpload uploads without creating a TrackAudioFile row", async () => {
+    const { prepareTrackAudioUpload } = await import("./persist-track-audio.server.ts");
+    const prepared = await prepareTrackAudioUpload({
+      trackId: "track-1",
+      serviceName: "youtube",
+      buffer: sampleBuffer,
+      metadata: sampleMetadata,
+    });
+
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: sampleBuffer,
+        key: "audio/tracks/youtube/track-1.mp3",
+        contentType: "audio/mpeg",
+      }),
+    );
+    expect(prepared.objectKey).toBe("audio/tracks/youtube/track-1.mp3");
+    expect(prepared.contentHash).toBe("abc123hash");
+    expect(mockPrisma.trackAudioFile.create).not.toHaveBeenCalled();
   });
 
   it("is idempotent when a TrackAudioFile already exists", async () => {
