@@ -5,6 +5,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { uploadFile } from "#app/utils/storage.server.ts";
+import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/upload.ts";
 
@@ -57,6 +58,15 @@ export async function action({ request }: Route.ActionArgs) {
     return data({ error: "entityId is required" }, { status: 400 });
   }
 
+  // The object key must derive from a verified record, never the raw client id.
+  if (!isValidCoverEntityId(entityId)) {
+    return data({ error: "Invalid entityId" }, { status: 400 });
+  }
+  const verifiedEntityId = await verifyCoverEntity(entityType as "artist" | "album", entityId);
+  if (!verifiedEntityId) {
+    return data({ error: `${entityType} not found` }, { status: 404 });
+  }
+
   // Convert file to buffer
   const arrayBuffer = await imageFile.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
@@ -104,7 +114,7 @@ export async function action({ request }: Route.ActionArgs) {
     const fileId = createId();
     const extension = imageFile.type.split("/")[1] || "jpg";
     const timestamp = Date.now();
-    const objectKey = `images/${entityType}s/${entityId}/${timestamp}-${fileId}.${extension}`;
+    const objectKey = `images/${entityType}s/${verifiedEntityId}/${timestamp}-${fileId}.${extension}`;
 
     await uploadFile({
       file: buffer,

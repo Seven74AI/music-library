@@ -67,40 +67,52 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const entity = formData.get("entity") as string | null;
 
+  // Each rebuild is a single BEGIN/DELETE/INSERT/COMMIT unit. On any failure we
+  // must ROLLBACK so a failed INSERT never leaves an open write transaction
+  // (which would hold the SQLite write lock and corrupt the next write).
+  async function rebuildFtsIndex(deleteSql: string, insertSql: string): Promise<void> {
+    await prisma.$executeRawUnsafe(`BEGIN`);
+    try {
+      await prisma.$executeRawUnsafe(deleteSql);
+      await prisma.$executeRawUnsafe(insertSql);
+      await prisma.$executeRawUnsafe(`COMMIT`);
+    } catch (err) {
+      await prisma.$executeRawUnsafe(`ROLLBACK`);
+      throw err;
+    }
+  }
+
   const rebuildFts = {
-    tracks: async () => {
-      await prisma.$executeRawUnsafe(`BEGIN`);
-      await prisma.$executeRawUnsafe(`DELETE FROM tracks_fts`);
-      await prisma.$executeRawUnsafe(`
+    tracks: () =>
+      rebuildFtsIndex(
+        `DELETE FROM tracks_fts`,
+        `
         INSERT INTO tracks_fts(track_id, title, artist_name, album_name)
         SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
         FROM Track t
         JOIN Artist a ON t.artistId = a.id
         LEFT JOIN Album alb ON t.albumId = alb.id
-      `);
-      await prisma.$executeRawUnsafe(`COMMIT`);
-    },
-    albums: async () => {
-      await prisma.$executeRawUnsafe(`BEGIN`);
-      await prisma.$executeRawUnsafe(`DELETE FROM albums_fts`);
-      await prisma.$executeRawUnsafe(`
+      `,
+      ),
+    albums: () =>
+      rebuildFtsIndex(
+        `DELETE FROM albums_fts`,
+        `
         INSERT INTO albums_fts(album_id, name, artist_name)
         SELECT alb.id, alb.name, a.name
         FROM Album alb
         JOIN Artist a ON alb.artistId = a.id
-      `);
-      await prisma.$executeRawUnsafe(`COMMIT`);
-    },
-    artists: async () => {
-      await prisma.$executeRawUnsafe(`BEGIN`);
-      await prisma.$executeRawUnsafe(`DELETE FROM artists_fts`);
-      await prisma.$executeRawUnsafe(`
+      `,
+      ),
+    artists: () =>
+      rebuildFtsIndex(
+        `DELETE FROM artists_fts`,
+        `
         INSERT INTO artists_fts(artist_id, name, genre)
         SELECT id, name, COALESCE(genre, '')
         FROM Artist
-      `);
-      await prisma.$executeRawUnsafe(`COMMIT`);
-    },
+      `,
+      ),
   };
 
   if (entity === "all") {
