@@ -150,14 +150,16 @@ const rateLimitDefault = {
   standardHeaders: true,
   legacyHeaders: false,
   validate: { trustProxy: false },
-  // Fly.io overwrites `fly-client-ip` with the real peer address, so that
-  // header is trustworthy. `req.ip` honors `trust proxy` (X-Forwarded-For),
-  // which Fly.io also overwrites. Do NOT read `Cf-Connecting-Ip` here: it is
-  // Cloudflare-only and, because this app is not behind Cloudflare, a client
-  // could spoof it to rotate the rate-limit key and bypass throttling.
+  // Fly.io sets `fly-client-ip` to the real peer address on every proxied
+  // request; that header is the ONLY client-address source we trust here.
+  // `req.ip` honors `trust proxy` (true) and resolves to the leftmost
+  // `X-Forwarded-For` hop, which is client-supplied and spoofable. Do NOT read
+  // `Cf-Connecting-Ip` (Cloudflare-only, never sanitized here) or
+  // `X-Forwarded-For`. When `fly-client-ip` is absent (e.g. local dev), every
+  // request shares a single key instead of a spoofable header, so rate
+  // limiting cannot be bypassed by rotating client-supplied headers.
   keyGenerator: async (req: express.Request) => {
-    const ip = req.get("fly-client-ip") ?? `${req.ip}`;
-
+    const ip = req.get("fly-client-ip") ?? "";
     return ipKeyGenerator(ip);
   },
 };

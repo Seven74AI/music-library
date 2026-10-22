@@ -60,11 +60,11 @@ describe("getClientIp", () => {
     expect(getClientIp(request)).toBeNull();
   });
 
-  test("falls back to the first x-forwarded-for hop", () => {
+  test("returns null for a client-supplied x-forwarded-for (untrusted)", () => {
     const request = new Request("http://localhost/login", {
       headers: { "x-forwarded-for": "198.51.100.23, 10.0.0.1" },
     });
-    expect(getClientIp(request)).toBe("198.51.100.23");
+    expect(getClientIp(request)).toBeNull();
   });
 
   test("returns null when no trusted header is present", () => {
