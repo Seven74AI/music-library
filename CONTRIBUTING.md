@@ -35,8 +35,17 @@ npm run lint          # ESLint
 
 ### Cursor cloud agents
 
-- Implementation tasks are delegated to a Cursor cloud agent, which opens a PR as the Cursor GitHub App.
-- Review tasks are delegated to a Cursor cloud agent, which submits an approval.
+Implementation and review tasks are delegated to Cursor cloud agents. These
+agents authenticate as the Cursor GitHub App and push branches directly to this
+repository — unlike the human PR Workflow above, where a contributor pushes to
+their own fork and opens a PR from it.
+
+- Implementation agents open a PR with their changes.
+- Review agents leave a GitHub review with one of three outcomes: `APPROVE`,
+  `REQUEST_CHANGES`, or `REJECT`.
+
+For local Cursor Cloud setup (Node 24, `.cursor/environment.json`, dev login),
+see the "Cursor Cloud specific instructions" section of `CLAUDE.md`.
 
 ### Environment
 
