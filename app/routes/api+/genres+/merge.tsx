@@ -97,34 +97,26 @@ export async function action({ request }: Route.ActionArgs) {
 
     // For each source genre
     for (const sourceGenre of sourceGenres) {
-      // Get all tracks linked to this source genre
-      const trackLinks = await tx.$queryRaw<Array<{ B: string }>>`
-        SELECT B FROM _TrackGenres WHERE A = ${sourceGenre.id}
+      // Relink every track linked to this source genre to the target genre in
+      // one set-based INSERT..SELECT..WHERE NOT EXISTS (avoids N+1 SELECT/INSERT
+      // per track). `$executeRaw` returns the number of inserted rows.
+      const inserted = await tx.$executeRaw`
+        INSERT INTO _TrackGenres (A, B)
+        SELECT ${targetId}, src.B
+        FROM _TrackGenres AS src
+        WHERE src.A = ${sourceGenre.id}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM _TrackGenres AS tgt
+            WHERE tgt.A = ${targetId} AND tgt.B = src.B
+          )
       `;
+      tracksRelinked += inserted;
 
-      // For each track, check if it's already linked to target
-      for (const link of trackLinks) {
-        const trackId = link.B;
-
-        // Check if already linked to target
-        const existingLink = await tx.$queryRaw<Array<{ count: bigint }>>`
-          SELECT COUNT(*) as count FROM _TrackGenres
-          WHERE A = ${targetId} AND B = ${trackId}
-        `;
-
-        // If not linked, create link
-        if (Number(existingLink[0]?.count) === 0) {
-          await tx.$executeRaw`
-            INSERT INTO _TrackGenres (A, B) VALUES (${targetId}, ${trackId})
-          `;
-          tracksRelinked++;
-        }
-
-        // Remove link to source genre
-        await tx.$executeRaw`
-          DELETE FROM _TrackGenres WHERE A = ${sourceGenre.id} AND B = ${trackId}
-        `;
-      }
+      // Remove all links to the source genre in one DELETE.
+      await tx.$executeRaw`
+        DELETE FROM _TrackGenres WHERE A = ${sourceGenre.id}
+      `;
 
       // Delete source genre (should have no more links now)
       await tx.genre.delete({
