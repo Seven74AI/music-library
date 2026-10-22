@@ -22,7 +22,7 @@ export async function addTrackToUserLibrary(
       }
       await prisma.userTrack.update({
         where: { id: existing.id },
-        data: { isActive: true, deletedAt: null },
+        data: { isActive: true, deletedAt: null, createdAt: new Date() },
       });
       void recordUsageEvent({
         type: USAGE_EVENT_TYPES.library_add,
@@ -87,35 +87,45 @@ export async function addTracksToUserLibrary(
     }
 
     const existingByTrackId = new Map(existing.map((userTrack) => [userTrack.trackId, userTrack]));
-    const toReactivate = existing
-      .filter((userTrack) => !userTrack.isActive)
-      .map((userTrack) => userTrack.id);
+    // trackId -> soft-deleted UserTrack id, so reactivation can get a fresh
+    // createdAt stamped by playlist position (updateMany can't set per-row stamps).
+    const reactivateByTrackId = new Map(
+      existing
+        .filter((userTrack) => !userTrack.isActive)
+        .map((userTrack) => [userTrack.trackId, userTrack.id]),
+    );
     const toCreate = uniqueTrackIds.filter((trackId) => !existingByTrackId.has(trackId));
 
     // Library lists/plays by UserTrack.createdAt desc. Stagger stamps so the
     // first id in `trackIds` (YouTube playlist order) sorts first, not reverse.
+    // Reactivated (soft-deleted) tracks must be re-stamped too, or a re-added
+    // track keeps its original old createdAt and sorts out of playlist order.
     const bulkAddedAtMs = Date.now();
 
     await prisma.$transaction(async (tx) => {
-      for (const idChunk of chunkArray(toReactivate)) {
-        await tx.userTrack.updateMany({
-          where: { id: { in: idChunk } },
-          data: { isActive: true, deletedAt: null },
-        });
+      let position = 0;
+      const createRows: Array<{ userId: string; trackId: string; createdAt: Date }> = [];
+      for (const trackId of uniqueTrackIds) {
+        const createdAt = new Date(bulkAddedAtMs - position);
+        position += 1;
+
+        const reactivateId = reactivateByTrackId.get(trackId);
+        if (reactivateId !== undefined) {
+          await tx.userTrack.update({
+            where: { id: reactivateId },
+            data: { isActive: true, deletedAt: null, createdAt },
+          });
+        } else if (!existingByTrackId.has(trackId)) {
+          createRows.push({ userId, trackId, createdAt });
+        }
       }
-      let createIndex = 0;
-      for (const trackIdChunk of chunkArray(toCreate)) {
-        await tx.userTrack.createMany({
-          data: trackIdChunk.map((trackId) => ({
-            userId,
-            trackId,
-            createdAt: new Date(bulkAddedAtMs - createIndex++),
-          })),
-        });
+
+      for (const chunk of chunkArray(createRows)) {
+        await tx.userTrack.createMany({ data: chunk });
       }
     });
 
-    const addedCount = toReactivate.length + toCreate.length;
+    const addedCount = reactivateByTrackId.size + toCreate.length;
     if (addedCount > 0) {
       void recordUsageEvent({
         type: USAGE_EVENT_TYPES.library_add,

@@ -95,7 +95,7 @@ describe("user-library", () => {
       expect(result.message).toBe("Track re-added to library");
       expect(prisma.userTrack.update).toHaveBeenCalledWith({
         where: { id: "ut1" },
-        data: { isActive: true, deletedAt: null },
+        data: { isActive: true, deletedAt: null, createdAt: expect.any(Date) },
       });
     });
 
@@ -147,11 +147,11 @@ describe("user-library", () => {
         { id: "ut1", userId, trackId: "track1", isActive: true, deletedAt: null },
         { id: "ut2", userId, trackId: "track2", isActive: false, deletedAt: new Date() },
       ] as never);
-      const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+      const update = vi.fn().mockResolvedValue({ count: 1 });
       const createMany = vi.fn().mockResolvedValue({ count: 1 });
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
         (fn as (tx: unknown) => Promise<unknown>)({
-          userTrack: { updateMany, createMany },
+          userTrack: { update, createMany },
         }),
       );
 
@@ -159,9 +159,10 @@ describe("user-library", () => {
 
       expect(result.success).toBe(true);
       expect(result.addedCount).toBe(2);
-      expect(updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ["ut2"] } },
-        data: { isActive: true, deletedAt: null },
+      // Reactivation re-stamps createdAt so the track sorts by playlist position
+      expect(update).toHaveBeenCalledWith({
+        where: { id: "ut2" },
+        data: { isActive: true, deletedAt: null, createdAt: expect.any(Date) },
       });
       expect(createMany).toHaveBeenCalledWith({
         data: [
