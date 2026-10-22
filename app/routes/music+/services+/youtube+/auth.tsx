@@ -7,7 +7,11 @@ import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { hasServiceConnection } from "#app/features/service-connection/service-connection.server";
 import { requireUserId } from "#app/utils/auth.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { createYouTubeOAuthService } from "#app/utils/youtube-oauth.server";
+import {
+  commitOAuthState,
+  createYouTubeOAuthService,
+  generateOAuthState,
+} from "#app/utils/youtube-oauth.server";
 import { type Route } from "./+types/auth.ts";
 
 /**
@@ -38,14 +42,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
  * @returns Promise resolving to redirect to YouTube OAuth
  */
 export async function action({ request }: ActionFunctionArgs) {
-  const userId = await requireUserId(request);
+  await requireUserId(request);
 
   try {
     const youtubeOAuthService = createYouTubeOAuthService();
-    const authUrl = youtubeOAuthService.getAuthUrl(userId);
+    const state = generateOAuthState();
+    const authUrl = youtubeOAuthService.getAuthUrl(state);
 
-    // Redirect to YouTube OAuth
-    return redirect(authUrl);
+    // Redirect to YouTube OAuth, stashing the one-time state in a signed
+    // cookie so the callback can verify it (CSRF protection).
+    return redirect(authUrl, {
+      headers: { "set-cookie": await commitOAuthState(state) },
+    });
   } catch (error) {
     console.error("Error generating YouTube OAuth URL:", error);
     return redirect("/music/services/youtube/auth?error=oauth_error");

@@ -7,7 +7,11 @@ import {
 import { requireUserId } from "#app/utils/auth.server";
 import { prisma } from "#app/utils/db.server";
 import { encryptConnectionTokens } from "#app/utils/token-cipher.server.ts";
-import { createYouTubeOAuthService } from "#app/utils/youtube-oauth.server";
+import {
+  clearOAuthState,
+  createYouTubeOAuthService,
+  verifyOAuthState,
+} from "#app/utils/youtube-oauth.server";
 import { createYouTubeService } from "#app/utils/youtube.server";
 
 export async function loader({ request, url }: LoaderFunctionArgs) {
@@ -15,15 +19,29 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
 
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error");
+  const state = url.searchParams.get("state");
 
   if (error) {
     // Handle OAuth error
-    return redirect("/music/services/youtube/auth?error=oauth_failed");
+    return redirect("/music/services/youtube/auth?error=oauth_failed", {
+      headers: { "set-cookie": await clearOAuthState() },
+    });
   }
 
   if (!code) {
     // No code parameter, redirect to auth
-    return redirect("/music/services/youtube/auth");
+    return redirect("/music/services/youtube/auth", {
+      headers: { "set-cookie": await clearOAuthState() },
+    });
+  }
+
+  // Verify the state round-trip before exchanging the code. A mismatch means
+  // the callback was not initiated by our auth page (login/account-linking
+  // CSRF), so abort the handshake.
+  if (!(await verifyOAuthState(request, state))) {
+    return redirect("/music/services/youtube/auth?error=oauth_failed", {
+      headers: { "set-cookie": await clearOAuthState() },
+    });
   }
 
   try {
@@ -50,7 +68,9 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
     });
 
     if (existing && existing.userId !== userId) {
-      return redirect("/music/services/youtube/auth?error=already_connected");
+      return redirect("/music/services/youtube/auth?error=already_connected", {
+        headers: { "set-cookie": await clearOAuthState() },
+      });
     }
 
     // Store tokens for the user
@@ -84,10 +104,14 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
       },
     });
 
-    // Success - redirect to YouTube service page
-    return redirect("/music/services/youtube?connected=true");
+    // Success - redirect to YouTube service page, clearing the one-time state
+    return redirect("/music/services/youtube?connected=true", {
+      headers: { "set-cookie": await clearOAuthState() },
+    });
   } catch (callbackError) {
     console.error("YouTube OAuth callback error:", callbackError);
-    return redirect("/music/services/youtube/auth?error=callback_failed");
+    return redirect("/music/services/youtube/auth?error=callback_failed", {
+      headers: { "set-cookie": await clearOAuthState() },
+    });
   }
 }
