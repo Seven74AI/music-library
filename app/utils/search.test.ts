@@ -949,6 +949,28 @@ describe("Search Utilities", () => {
       expect(result.results).toHaveLength(0);
     });
 
+    it("guests cannot enumerate another user's playlists via searchAll", async () => {
+      const owner = await prisma.user.create({
+        data: {
+          username: `guest-enum-${Date.now()}`,
+          email: `guest-enum-${Date.now()}@example.com`,
+          name: "Guest Enum Owner",
+        },
+      });
+
+      await prisma.userPlaylist.create({
+        data: { title: "Private Playlist", ownerId: owner.id },
+      });
+
+      // type=playlists with no userId → empty (searchAll gates on userId)
+      const playlistsOnly = await searchAll("Private", 10, undefined, "playlists");
+      expect(playlistsOnly.results).toHaveLength(0);
+
+      // type=all with no userId → playlist results are never included
+      const allTypes = await searchAll("Private", 10, undefined, "all");
+      expect(allTypes.results.filter((r) => r.type === "playlist")).toHaveLength(0);
+    });
+
     it("should return empty results for empty query", async () => {
       const user = await prisma.user.create({
         data: {

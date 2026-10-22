@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { QUEUE_STATUS_MINE } from "./review-queue.ts";
-import { listReviewQueue } from "./review-queue.server.ts";
+import { createOrUpdateQueueItem, listReviewQueue } from "./review-queue.server.ts";
 
 const createdUserIds: string[] = [];
 const createdTrackIds: string[] = [];
@@ -218,4 +218,46 @@ test("a listener's report list includes only reports they filed", async () => {
   expect(result.items.map((item) => item.id)).toEqual([mine.id]);
   expect(result.items[0]?.entityDetails.name).toContain("Flamenco Sketches");
   expect(result.items[0]?.entityDetails.name).not.toBe(track.id);
+});
+
+test("createOrUpdateQueueItem dedupes open user reports and increments reportCount", async () => {
+  const { track } = await createTrack("Dedup Report");
+  const reporter = await createCurator("DedupUser");
+
+  const first = await createOrUpdateQueueItem({
+    entityType: "track",
+    entityId: track.id,
+    source: "user_report",
+    issueType: "wrong_metadata",
+    description: "First report",
+    reporterId: reporter.id,
+    priority: 1,
+  });
+  expect(first.created).toBe(true);
+
+  const second = await createOrUpdateQueueItem({
+    entityType: "track",
+    entityId: track.id,
+    source: "user_report",
+    issueType: "wrong_metadata",
+    description: "Duplicate report",
+    reporterId: reporter.id,
+    priority: 1,
+  });
+  expect(second.created).toBe(false);
+  expect(second.id).toBe(first.id);
+
+  const item = await prisma.reviewQueueItem.findUniqueOrThrow({ where: { id: first.id } });
+  expect(item.reportCount).toBe(2);
+
+  const count = await prisma.reviewQueueItem.count({
+    where: {
+      entityType: "track",
+      entityId: track.id,
+      source: "user_report",
+      issueType: "wrong_metadata",
+      status: "open",
+    },
+  });
+  expect(count).toBe(1);
 });
