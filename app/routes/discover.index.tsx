@@ -36,10 +36,13 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
 
   const cursor = url.searchParams.get("cursor");
-  const limit = Math.min(
-    100,
-    Math.max(1, parseInt(url.searchParams.get("limit") || String(DISCOVER_TRACKS_PAGE_SIZE))),
+  const parsedLimit = Number.parseInt(
+    url.searchParams.get("limit") || String(DISCOVER_TRACKS_PAGE_SIZE),
+    10,
   );
+  const limit = Number.isFinite(parsedLimit)
+    ? Math.min(100, Math.max(1, parsedLimit))
+    : DISCOVER_TRACKS_PAGE_SIZE;
   const sort = parseDiscoverSort(url.searchParams.get("sort"));
   const direction = parseSortDirection(
     url.searchParams.get("dir"),
