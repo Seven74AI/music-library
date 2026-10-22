@@ -87,13 +87,26 @@ async function defaultReadStorageEstimate() {
 export function createOfflineStorage(
   deps: Partial<OfflineStorageDependencies> = {},
 ): OfflineStorage {
-  const audioStore = deps.audioStore ?? createDefaultAudioStore();
   const metadataStore = deps.metadataStore ?? getOfflineMetadataStore();
   const fetchAudioBytes = deps.fetchAudioBytes ?? defaultFetchAudioBytes;
   const requestPersistentStorage = deps.requestPersistentStorage ?? defaultRequestPersistentStorage;
   const readStorageEstimate = deps.readStorageEstimate ?? defaultReadStorageEstimate;
 
+  // Resolved lazily so the async OPFS support probe (which must reach into the
+  // Web Worker's scope) doesn't force createOfflineStorage to be async. Tests
+  // inject a concrete store via deps.audioStore and bypass the probe entirely.
+  let audioStorePromise: Promise<OfflineAudioStore> | undefined;
+  function resolveAudioStore(): Promise<OfflineAudioStore> {
+    if (!audioStorePromise) {
+      audioStorePromise = deps.audioStore
+        ? Promise.resolve(deps.audioStore)
+        : createDefaultAudioStore();
+    }
+    return audioStorePromise;
+  }
+
   async function ensureCapacity(requiredBytes: number) {
+    const audioStore = await resolveAudioStore();
     const { usage, quota } = await readStorageEstimate();
     if (!quota) return;
 
@@ -132,6 +145,7 @@ export function createOfflineStorage(
     options: { pin: boolean; queue: boolean; playlistId?: string },
   ) {
     const fileSizeBytes = buffer.byteLength;
+    const audioStore = await resolveAudioStore();
     await requestPersistentStorage();
     await ensureCapacity(fileSizeBytes);
 
@@ -166,6 +180,7 @@ export function createOfflineStorage(
   }
 
   async function removeTrack(trackId: string) {
+    const audioStore = await resolveAudioStore();
     const record = await metadataStore.get(trackId);
     await audioStore.delete(trackId);
     await metadataStore.delete(trackId);
@@ -217,6 +232,7 @@ export function createOfflineStorage(
       return { removedCount: victims.length };
     },
     async resolvePlaybackBlob(trackId) {
+      const audioStore = await resolveAudioStore();
       const record = await metadataStore.get(trackId);
       if (!record) return null;
       const buffer = await audioStore.read(trackId);
@@ -230,6 +246,7 @@ export function createOfflineStorage(
       });
     },
     async hasTrack(trackId) {
+      const audioStore = await resolveAudioStore();
       const record = await metadataStore.get(trackId);
       if (!record) return false;
       const exists = await audioStore.has(trackId);
@@ -265,8 +282,8 @@ export function createOfflineStorage(
   };
 }
 
-function createDefaultAudioStore(): OfflineAudioStore {
-  if (isOpfsAudioStoreSupported()) {
+async function createDefaultAudioStore(): Promise<OfflineAudioStore> {
+  if (await isOpfsAudioStoreSupported()) {
     return createOpfsOfflineAudioStore();
   }
   if (

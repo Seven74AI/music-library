@@ -1,15 +1,17 @@
 /// <reference lib="webworker" />
 
 import { offlineAudioOpfsPath } from "./offline-audio-path.ts";
+import { isOpfsSupportedInWorkerScope } from "./opfs-worker-support.ts";
 
 type WorkerRequest =
+  | { id: number; type: "probe" }
   | { id: number; type: "write"; trackId: string; buffer: ArrayBuffer }
   | { id: number; type: "read"; trackId: string }
   | { id: number; type: "delete"; trackId: string }
   | { id: number; type: "has"; trackId: string };
 
 type WorkerResponse =
-  | { id: number; ok: true; buffer?: ArrayBuffer; exists?: boolean }
+  | { id: number; ok: true; buffer?: ArrayBuffer; exists?: boolean; supported?: boolean }
   | { id: number; ok: false; error: string };
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -68,6 +70,13 @@ self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   void (async () => {
     try {
       switch (message.type) {
+        case "probe":
+          self.postMessage({
+            id: message.id,
+            ok: true,
+            supported: isOpfsSupportedInWorkerScope(),
+          } satisfies WorkerResponse);
+          break;
         case "write":
           await writeTrack(message.trackId, message.buffer);
           self.postMessage({ id: message.id, ok: true } satisfies WorkerResponse);
