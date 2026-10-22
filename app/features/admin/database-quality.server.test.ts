@@ -3,6 +3,7 @@
  * seconds (formatDuration treats 185 as about 3:05).
  */
 import { afterEach, expect, test } from "vitest";
+import { compressChromaprint } from "#tests/chromaprint-test-utils";
 import { prisma } from "#app/utils/db.server.ts";
 import { loadDuplicateDashboard } from "./duplicate-dashboard.server.ts";
 import { percentOfTracksAffected } from "./database-quality.ts";
@@ -254,8 +255,18 @@ test("duplicate group count includes similar audio and matches the duplicates pa
   const fixtures = [
     { title: "Exact A", contentHash: `exact-${suffix}`, audioFingerprint: `exact-a-${suffix}` },
     { title: "Exact B", contentHash: `exact-${suffix}`, audioFingerprint: `exact-b-${suffix}` },
-    { title: "Similar A", contentHash: `similar-a-${suffix}`, audioFingerprint: "0123456789" },
-    { title: "Similar B", contentHash: `similar-b-${suffix}`, audioFingerprint: "012345678X" },
+    {
+      title: "Similar A",
+      contentHash: `similar-a-${suffix}`,
+      audioFingerprint: compressChromaprint(Array.from({ length: 20 }, (_, i) => 0x11110000 + i)),
+    },
+    {
+      title: "Similar B",
+      contentHash: `similar-b-${suffix}`,
+      audioFingerprint: compressChromaprint(
+        Array.from({ length: 20 }, (_, i) => 0x11110000 + i + (i === 5 ? 1 : 0)),
+      ),
+    },
   ];
 
   const tracks = await Promise.all(
