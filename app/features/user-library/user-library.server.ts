@@ -198,3 +198,45 @@ export async function removeTrackFromUserLibrary(
     };
   }
 }
+
+export async function removeTracksFromUserLibrary(
+  trackIds: string[],
+  userId: string,
+): Promise<{ success: boolean; message: string; removedCount: number; error?: string }> {
+  const uniqueTrackIds = [
+    ...new Set(
+      trackIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+    ),
+  ];
+
+  if (uniqueTrackIds.length === 0) {
+    return { success: true, message: "No tracks to remove", removedCount: 0 };
+  }
+
+  try {
+    // Soft-delete every active membership in one pass, chunked to stay under
+    // SQLite's bind limit.
+    let removedCount = 0;
+    for (const idChunk of chunkArray(uniqueTrackIds)) {
+      const result = await prisma.userTrack.updateMany({
+        where: { userId, trackId: { in: idChunk }, isActive: true },
+        data: { isActive: false, deletedAt: new Date() },
+      });
+      removedCount += result.count;
+    }
+
+    return {
+      success: true,
+      message: `${removedCount} track${removedCount !== 1 ? "s" : ""} removed from library`,
+      removedCount,
+    };
+  } catch (error) {
+    console.error("Error removing tracks from user library:", error);
+    return {
+      success: false,
+      message: "Failed to remove tracks from library",
+      removedCount: 0,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}

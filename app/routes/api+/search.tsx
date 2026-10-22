@@ -6,7 +6,11 @@
  * - Input validation using Zod schemas (DoS limits)
  * - Literal FTS5 query building (user input never treated as FTS syntax)
  * - Rate limiting handled by Express middleware (1000 req/min for GET)
- * - Playlist search requires authentication (user-scoped)
+ * - Playlist search requires authentication (user-scoped). Enforcement lives in
+ *   search.server.ts: searchAll() only calls searchPlaylists() when a userId is
+ *   present, and searchPlaylists() filters by ownerId = userId. Guests therefore
+ *   receive empty playlist results and cannot enumerate other users' playlists.
+ *   The loader below only forwards the (optional) userId downstream.
  *
  * Resilience: every JSON body includes `results` + `pagination` so clients
  * never crash on missing fields.
