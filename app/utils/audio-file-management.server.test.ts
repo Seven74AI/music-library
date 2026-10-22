@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { compressChromaprint } from "#tests/chromaprint-test-utils";
 
 // Mock fs/promises
 const mockWriteFile = vi.fn();
@@ -153,10 +154,42 @@ describe("generateAudioFingerprint", () => {
   });
 });
 
+describe("decodeChromaprintFingerprint", () => {
+  it("decodes the upstream chromaprint test vector", async () => {
+    const { decodeChromaprintFingerprint } = await import("./audio-file-management.server");
+    // From chromaprint tests/test_fingerprint_decompressor.cpp (Long case).
+    const fp =
+      "AQAAEwkjrUmSJQpUHflR9mjSJMdZpcO_Imdw9dCO9Clu4_wQPvhCB01w6xAtXNcAp5RASgDBhDSCGGIAcwA";
+    expect(decodeChromaprintFingerprint(fp)).toEqual([
+      3707512163, 3703317537, 3720098848, 3717993776, 3751570752, 1330439488, 1326360000,
+      1326355649, 1191625921, 1192674515, 1194804466, 1195336818, 1165981042, 1165956451,
+      1157441379, 1157441299, 1291679571, 1291673457, 1170079601,
+    ]);
+  });
+
+  it("round-trips through the compressor", async () => {
+    const { decodeChromaprintFingerprint } = await import("./audio-file-management.server");
+    const raw = [0, 1, 7, 1 << 6, 0xdeadbeef, 0xffffffff, 1 << 31];
+    expect(decodeChromaprintFingerprint(compressChromaprint(raw))).toEqual(raw.map((v) => v >>> 0));
+  });
+
+  it("returns null for non-base64url input", async () => {
+    const { decodeChromaprintFingerprint } = await import("./audio-file-management.server");
+    expect(decodeChromaprintFingerprint("AQADtNE123test===")).toBeNull();
+    expect(decodeChromaprintFingerprint("not a fingerprint!")).toBeNull();
+  });
+
+  it("returns null for empty and too-short input", async () => {
+    const { decodeChromaprintFingerprint } = await import("./audio-file-management.server");
+    expect(decodeChromaprintFingerprint("")).toBeNull();
+    expect(decodeChromaprintFingerprint("AQ")).toBeNull();
+  });
+});
+
 describe("calculateFingerprintSimilarity", () => {
   it("returns 1 for identical fingerprints", async () => {
     const { calculateFingerprintSimilarity } = await import("./audio-file-management.server");
-    const fp = "AQADtNE123test";
+    const fp = compressChromaprint([1, 2, 3, 4, 5, 6, 7, 8]);
 
     expect(calculateFingerprintSimilarity(fp, fp)).toBe(1);
   });
@@ -165,58 +198,51 @@ describe("calculateFingerprintSimilarity", () => {
     const { calculateFingerprintSimilarity } = await import("./audio-file-management.server");
 
     expect(calculateFingerprintSimilarity("", "")).toBe(0);
-    expect(calculateFingerprintSimilarity("test", "")).toBe(0);
-    expect(calculateFingerprintSimilarity("", "test")).toBe(0);
+    expect(calculateFingerprintSimilarity("AQAD", "")).toBe(0);
+    expect(calculateFingerprintSimilarity("", "AQAD")).toBe(0);
   });
 
-  it("calculates similarity based on character matches", async () => {
+  it("returns 0 when a fingerprint is not valid Chromaprint", async () => {
     const { calculateFingerprintSimilarity } = await import("./audio-file-management.server");
+    const valid = compressChromaprint([1, 2, 3, 4]);
 
-    // 50% similarity (5 out of 10 characters match)
-    const fp1 = "AQADtNE123";
-    const fp2 = "AQADxxxxxZ";
-
-    const similarity = calculateFingerprintSimilarity(fp1, fp2);
-    expect(similarity).toBeGreaterThan(0);
-    expect(similarity).toBeLessThan(1);
+    expect(calculateFingerprintSimilarity(valid, "not a fingerprint!")).toBe(0);
+    expect(calculateFingerprintSimilarity("not a fingerprint!", valid)).toBe(0);
   });
 
-  it("handles fingerprints of different lengths", async () => {
+  it("measures a single bit flip as 1 / totalBits distance", async () => {
     const { calculateFingerprintSimilarity } = await import("./audio-file-management.server");
+    const raw = [0x00000001, 0x12345678, 0x9abcdef0, 0xffffffff];
+    const fp1 = compressChromaprint(raw);
+    const flipped = [...raw];
+    flipped[2] = (flipped[2]! ^ 0x00008000) >>> 0; // flip one bit in the third subfingerprint
+    const fp2 = compressChromaprint(flipped);
 
-    const fp1 = "AQAD123";
-    const fp2 = "AQAD123456789";
-
-    const similarity = calculateFingerprintSimilarity(fp1, fp2);
-    expect(similarity).toBeGreaterThan(0);
-    expect(similarity).toBeLessThan(1);
+    // 4 subfingerprints * 32 bits = 128 total bits; exactly one differs.
+    expect(calculateFingerprintSimilarity(fp1, fp2)).toBeCloseTo(1 - 1 / 128, 10);
   });
 
-  it("normalizes by longer fingerprint length", async () => {
+  it("normalizes by the longer fingerprint length", async () => {
     const { calculateFingerprintSimilarity } = await import("./audio-file-management.server");
+    const fpShort = compressChromaprint([0x11111111, 0x22222222]);
+    const fpLong = compressChromaprint([0x11111111, 0x22222222, 0x33333333, 0x44444444]);
 
-    const fp1 = "AQAD"; // 4 chars
-    const fp2 = "AQAD123456"; // 10 chars
-
-    // All 4 chars of fp1 match, but normalized by 10
-    const similarity = calculateFingerprintSimilarity(fp1, fp2);
-    expect(similarity).toBe(4 / 10);
+    // 2 aligned subfingerprints match (64 bits), 2 extra differ (64 bits).
+    expect(calculateFingerprintSimilarity(fpShort, fpLong)).toBeCloseTo(1 - 64 / 128, 10);
   });
 
-  it("returns 0 for completely different fingerprints", async () => {
+  it("returns 0 for maximally different fingerprints of equal length", async () => {
     const { calculateFingerprintSimilarity } = await import("./audio-file-management.server");
+    const fp1 = compressChromaprint([0x00000000, 0x00000000]);
+    const fp2 = compressChromaprint([0xffffffff, 0xffffffff]);
 
-    const fp1 = "AAAA";
-    const fp2 = "BBBB";
-
-    expect(calculateFingerprintSimilarity(fp1, fp2)).toBe(0);
+    expect(calculateFingerprintSimilarity(fp1, fp2)).toBeCloseTo(0, 10);
   });
 
   it("is order-independent", async () => {
     const { calculateFingerprintSimilarity } = await import("./audio-file-management.server");
-
-    const fp1 = "AQAD123";
-    const fp2 = "AQAD456";
+    const fp1 = compressChromaprint([0x11111111, 0x22222222, 0x33333333]);
+    const fp2 = compressChromaprint([0x11111111, 0x22222222, 0x44444444]);
 
     const sim1 = calculateFingerprintSimilarity(fp1, fp2);
     const sim2 = calculateFingerprintSimilarity(fp2, fp1);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { type Route } from "./+types/search.ts";
 
@@ -10,6 +11,7 @@ const SearchQuerySchema = z.string().min(1).max(100);
  * Merged albums are omitted so curators assign the surviving record.
  */
 export async function loader({ request }: Route.LoaderArgs) {
+  await requireUserId(request);
   const url = new URL(request.url);
   const query = (url.searchParams.get("q") ?? "").trim();
 

@@ -67,6 +67,17 @@ if (process.env.NODE_ENV !== "test") {
   );
 }
 
+// Upload-progress TTL sweeper: reclaim abandoned in-memory upload sessions so
+// their audio buffers cannot accumulate without bound. No-op when the Redis
+// backend is configured (EXPIRE handles TTL there). See ADR-038.
+if (process.env.NODE_ENV !== "test") {
+  void import("./features/upload-progress/progress-store.server.ts").then(
+    ({ startUploadProgressSweeper }) => {
+      startUploadProgressSweeper();
+    },
+  );
+}
+
 const MODE = process.env.NODE_ENV ?? "development";
 
 type DocRequestArgs = Parameters<HandleDocumentRequestFunction>;

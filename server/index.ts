@@ -84,7 +84,11 @@ app.use((_req, res, next) => {
     general: { referrerPolicy: false },
     content: {
       crossOriginEmbedderPolicy: false,
-      // Document CSP is set in app/entry.server.tsx via createCSP().
+      // CSP is set once in app/entry.server.tsx via createCSP() (decision #32).
+      // The policy depends on a per-request nonce that is only known at document
+      // render time, so a second Helmet CSP here would have to duplicate the
+      // nonce and every host allowlist — a drift hazard with no added
+      // defense-in-depth. Helmet CSP stays disabled deliberately.
       contentSecurityPolicy: false,
     },
   });

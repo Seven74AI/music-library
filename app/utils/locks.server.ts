@@ -1,4 +1,8 @@
 import { prisma } from "./db.server.ts";
+import {
+  recordSecurityEvent,
+  SECURITY_EVENT_TYPES,
+} from "#app/features/security/track-event.server.ts";
 
 export type EntityType = "track" | "artist" | "album";
 
@@ -94,6 +98,7 @@ export async function forceUnlock(
   entityType: EntityType,
   entityId: string,
   reason: string,
+  actorUserId: string,
 ): Promise<boolean> {
   const lock = await prisma.editLock.findUnique({
     where: { entityType_entityId: { entityType, entityId } },
@@ -107,7 +112,17 @@ export async function forceUnlock(
     where: { id: lock.id },
   });
 
-  // TODO: Log the force unlock with reason in audit trail
+  // Log the force unlock with reason in the audit trail (ADR-032).
+  await recordSecurityEvent({
+    eventType: SECURITY_EVENT_TYPES.forceUnlock,
+    userId: actorUserId,
+    targetUserId: lock.lockedBy,
+    metadata: {
+      entityType,
+      entityId,
+      reason,
+    },
+  });
 
   return true;
 }
