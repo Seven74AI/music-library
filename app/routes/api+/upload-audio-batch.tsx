@@ -3,7 +3,10 @@ import { parseFormData } from "@mjackson/form-data-parser";
 import { createId } from "@paralleldrive/cuid2";
 import { data, type ActionFunctionArgs } from "react-router";
 import { LOCAL_SERVICE } from "#app/constants/services";
-import { persistTrackAudio } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
+import {
+  prepareTrackAudioUpload,
+  createTrackAudioFile,
+} from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
 import { getOrCreateArtistTx, extractArtistMetadata } from "#app/utils/artist-management.server";
 import {
   extractAudioMetadata,
@@ -365,163 +368,173 @@ async function processFilesAsync(
 
         updateFileProgress(uploadId, fileId, 5, "uploading", undefined, file.buffer.length);
 
-        // Create track and persist audio in transaction
-        const result = await prisma.$transaction(
-          async (tx) => {
-            // Get or create artist
-            const artistMetadata = extractArtistMetadata(file.metadata);
-            const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata);
+        // Upload the audio to Tigris OUTSIDE the database transaction. SQLite
+        // serializes writers, so holding the write lock across a network upload
+        // made concurrent batches exceed `maxWait` and let a >30s upload trip
+        // `timeout`, rolling back the DB writes after the object was already
+        // uploaded (leaving an orphaned Tigris object). The transaction below
+        // now contains only fast DB writes.
+        const uploadStartProgress = 10;
+        const uploadEndProgress = 50;
+        const uploadProgressRange = uploadEndProgress - uploadStartProgress;
 
-            // Get or create album (using artistId)
-            const albumArtist =
-              file.userMetadata?.albumArtist || file.metadata.albumArtist || artist;
-            const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata);
-            const albumRecord = await getOrCreateAlbumTx(
-              tx,
-              albumArtistRecord.id,
-              album || null,
-              file.userMetadata?.year || file.metadata.year || null,
-            );
-
-            // Upload cover image if present (with deduplication)
-            // Note: File upload happens outside transaction, but DB operations are in transaction
-            let coverImageId: string | null = null;
-            if (file.metadata.coverImage) {
-              try {
-                const coverImage = await findOrCreateCoverImageTx(tx, {
-                  imageBuffer: file.metadata.coverImage.data,
-                  albumId: albumRecord?.id || null,
-                  trackId,
-                  format: file.metadata.coverImage.format,
-                });
-                coverImageId = coverImage.id;
-              } catch (error) {
-                console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error);
-                // Continue without cover image
-              }
-            }
-
-            // Create track with all metadata fields
-            updateFileProgress(uploadId, fileId, 60, "uploading");
-            const track = await tx.track.create({
-              data: {
-                id: trackId,
-                title,
-                artistId: artistRecord.id,
-                albumId: albumRecord?.id || null,
-                coverImageId,
-                duration: file.metadata.duration || null,
-                serviceId: serviceId,
-                externalId: fileIdForStorage,
-                serviceUrl: null,
-                releaseDate: file.userMetadata?.releaseDate
-                  ? new Date(file.userMetadata.releaseDate)
-                  : file.metadata.releaseDate
-                    ? new Date(file.metadata.releaseDate)
-                    : null,
-                // Basic metadata
-                genre: file.userMetadata?.genre || file.metadata.genre?.[0] || null,
-                year: file.userMetadata?.year || file.metadata.year || null,
-                trackNumber: file.userMetadata?.trackNumber || file.metadata.track?.no || null,
-                albumArtist: file.userMetadata?.albumArtist || file.metadata.albumArtist || null,
-                // Additional metadata
-                bpm: file.userMetadata?.bpm || file.metadata.bpm || null,
-                label: file.userMetadata?.label || file.metadata.label || null,
-                isrc: file.userMetadata?.isrc || file.metadata.isrc || null,
-                originalDate: file.userMetadata?.originalDate
-                  ? new Date(file.userMetadata.originalDate)
-                  : file.metadata.originalDate
-                    ? new Date(file.metadata.originalDate)
-                    : null,
-                originalYear: file.userMetadata?.originalYear || file.metadata.originalYear || null,
-                totalTracks: file.userMetadata?.totalTracks || file.metadata.totalTracks || null,
-                totalDiscs: file.userMetadata?.totalDiscs || file.metadata.totalDiscs || null,
-                lyrics: file.userMetadata?.lyrics || file.metadata.lyrics || null,
-              },
-            });
-
-            updateFileProgress(uploadId, fileId, 75, "uploading");
-
-            const uploadStartProgress = 10;
-            const uploadEndProgress = 50;
-            const uploadProgressRange = uploadEndProgress - uploadStartProgress;
-
-            const persistResult = await persistTrackAudio({
-              trackId: track.id,
-              serviceName: LOCAL_SERVICE.NAME,
-              buffer: file.buffer,
-              metadata: file.metadata,
-              uploadedBy: userId,
-              serviceId,
-              fileName: file.fileName,
-              storageMetadata: {
-                title,
-                artist,
-                album: album || "",
-                uploadedBy: userId,
-              },
-              onProgress: (progress) => {
-                if (progress.loaded !== undefined && progress.total && progress.total > 0) {
-                  const uploadPercentage = (progress.loaded / progress.total) * uploadProgressRange;
-                  const currentProgress = Math.round(uploadStartProgress + uploadPercentage);
-                  updateFileProgress(
-                    uploadId,
-                    fileId,
-                    currentProgress,
-                    "uploading",
-                    undefined,
-                    file.buffer.length,
-                  );
-                }
-              },
-              tx,
-            });
-
-            // Log duplicate detection
-            if (persistResult.isDuplicate && persistResult.duplicateTrack) {
-              console.warn(
-                `⚠️  Duplicate: "${file.fileName}" has same audio as "${persistResult.duplicateTrack.title}" by ${persistResult.duplicateTrack.artist.name}`,
+        const preparedAudio = await prepareTrackAudioUpload({
+          trackId,
+          serviceName: LOCAL_SERVICE.NAME,
+          buffer: file.buffer,
+          metadata: file.metadata,
+          uploadedBy: userId,
+          serviceId,
+          fileName: file.fileName,
+          storageMetadata: {
+            title,
+            artist,
+            album: album || "",
+            uploadedBy: userId,
+          },
+          onProgress: (progress) => {
+            if (progress.loaded !== undefined && progress.total && progress.total > 0) {
+              const uploadPercentage = (progress.loaded / progress.total) * uploadProgressRange;
+              const currentProgress = Math.round(uploadStartProgress + uploadPercentage);
+              updateFileProgress(
+                uploadId,
+                fileId,
+                currentProgress,
+                "uploading",
+                undefined,
+                file.buffer.length,
               );
             }
+          },
+        });
 
-            updateFileProgress(uploadId, fileId, 50, "uploading", undefined, file.buffer.length);
+        // Log duplicate detection
+        if (preparedAudio.isDuplicate && preparedAudio.duplicateTrack) {
+          console.warn(
+            `⚠️  Duplicate: "${file.fileName}" has same audio as "${preparedAudio.duplicateTrack.title}" by ${preparedAudio.duplicateTrack.artist.name}`,
+          );
+        }
 
-            updateFileProgress(uploadId, fileId, 85, "uploading");
+        // Create track and TrackAudioFile rows in a short transaction
+        const result = await prisma.$transaction(async (tx) => {
+          // Get or create artist
+          const artistMetadata = extractArtistMetadata(file.metadata);
+          const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata);
 
-            // Add track to user's library
-            await tx.userTrack.create({
-              data: {
-                userId,
-                trackId: track.id,
-              },
-            });
+          // Get or create album (using artistId)
+          const albumArtist = file.userMetadata?.albumArtist || file.metadata.albumArtist || artist;
+          const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata);
+          const albumRecord = await getOrCreateAlbumTx(
+            tx,
+            albumArtistRecord.id,
+            album || null,
+            file.userMetadata?.year || file.metadata.year || null,
+          );
 
-            updateFileProgress(uploadId, fileId, 95, "uploading");
+          // Upload cover image if present (with deduplication)
+          // Note: File upload happens outside transaction, but DB operations are in transaction
+          let coverImageId: string | null = null;
+          if (file.metadata.coverImage) {
+            try {
+              const coverImage = await findOrCreateCoverImageTx(tx, {
+                imageBuffer: file.metadata.coverImage.data,
+                albumId: albumRecord?.id || null,
+                trackId,
+                format: file.metadata.coverImage.format,
+              });
+              coverImageId = coverImage.id;
+            } catch (error) {
+              console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error);
+              // Continue without cover image
+            }
+          }
 
-            // Store successful track information
-            addSuccessfulTrack(uploadId, {
+          // Create track with all metadata fields
+          updateFileProgress(uploadId, fileId, 60, "uploading");
+          const track = await tx.track.create({
+            data: {
+              id: trackId,
+              title,
+              artistId: artistRecord.id,
+              albumId: albumRecord?.id || null,
+              coverImageId,
+              duration: file.metadata.duration || null,
+              serviceId: serviceId,
+              externalId: fileIdForStorage,
+              serviceUrl: null,
+              releaseDate: file.userMetadata?.releaseDate
+                ? new Date(file.userMetadata.releaseDate)
+                : file.metadata.releaseDate
+                  ? new Date(file.metadata.releaseDate)
+                  : null,
+              // Basic metadata
+              genre: file.userMetadata?.genre || file.metadata.genre?.[0] || null,
+              year: file.userMetadata?.year || file.metadata.year || null,
+              trackNumber: file.userMetadata?.trackNumber || file.metadata.track?.no || null,
+              albumArtist: file.userMetadata?.albumArtist || file.metadata.albumArtist || null,
+              // Additional metadata
+              bpm: file.userMetadata?.bpm || file.metadata.bpm || null,
+              label: file.userMetadata?.label || file.metadata.label || null,
+              isrc: file.userMetadata?.isrc || file.metadata.isrc || null,
+              originalDate: file.userMetadata?.originalDate
+                ? new Date(file.userMetadata.originalDate)
+                : file.metadata.originalDate
+                  ? new Date(file.metadata.originalDate)
+                  : null,
+              originalYear: file.userMetadata?.originalYear || file.metadata.originalYear || null,
+              totalTracks: file.userMetadata?.totalTracks || file.metadata.totalTracks || null,
+              totalDiscs: file.userMetadata?.totalDiscs || file.metadata.totalDiscs || null,
+              lyrics: file.userMetadata?.lyrics || file.metadata.lyrics || null,
+            },
+          });
+
+          updateFileProgress(uploadId, fileId, 75, "uploading");
+
+          // Create the TrackAudioFile row (the upload already happened above)
+          await createTrackAudioFile(
+            {
               trackId: track.id,
+              serviceId,
               fileName: file.fileName,
-              title: track.title,
-              artist: artistRecord.name,
-              storageSavedBytes: persistResult.isDuplicate ? file.buffer.length : undefined,
-              exactDuplicate: persistResult.isDuplicate
-                ? {
-                    trackId: persistResult.duplicateTrack!.id,
-                    title: persistResult.duplicateTrack!.title,
-                    artist: persistResult.duplicateTrack!.artist.name,
-                    confidence: 100, // Content hash match is 100% confidence
-                  }
-                : undefined,
-            });
+              metadata: file.metadata,
+              uploadedBy: userId,
+              buffer: file.buffer,
+            },
+            preparedAudio,
+            tx,
+          );
 
-            return { success: true, trackId: track.id };
-          },
-          {
-            timeout: 30000, // 30 seconds - increased to accommodate image processing and file uploads
-            maxWait: 10000, // 10 seconds - maximum time to wait for transaction to start
-          },
-        );
+          updateFileProgress(uploadId, fileId, 85, "uploading");
+
+          // Add track to user's library
+          await tx.userTrack.create({
+            data: {
+              userId,
+              trackId: track.id,
+            },
+          });
+
+          updateFileProgress(uploadId, fileId, 95, "uploading");
+
+          // Store successful track information
+          addSuccessfulTrack(uploadId, {
+            trackId: track.id,
+            fileName: file.fileName,
+            title: track.title,
+            artist: artistRecord.name,
+            storageSavedBytes: preparedAudio.isDuplicate ? file.buffer.length : undefined,
+            exactDuplicate: preparedAudio.isDuplicate
+              ? {
+                  trackId: preparedAudio.duplicateTrack!.id,
+                  title: preparedAudio.duplicateTrack!.title,
+                  artist: preparedAudio.duplicateTrack!.artist.name,
+                  confidence: 100, // Content hash match is 100% confidence
+                }
+              : undefined,
+          });
+
+          return { success: true, trackId: track.id };
+        });
 
         // Update to 100% after transaction completes successfully
         updateFileProgress(uploadId, fileId, 100, "completed", undefined, file.buffer.length);
