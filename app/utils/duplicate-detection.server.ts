@@ -4,6 +4,7 @@
  */
 
 import levenshtein from "js-levenshtein";
+import { chunkArray } from "./chunk-array";
 import { normalizeArtistName, normalizeAlbumName, isExactMatch } from "./normalize.server.ts";
 import { prisma } from "./db.server.ts";
 
@@ -427,6 +428,25 @@ export async function findFuzzyAlbumDuplicates(): Promise<AlbumDuplicateGroup[]>
 }
 
 /**
+ * Replace the normalized-name cache for one entity type in a single transaction:
+ * clear the existing rows, then bulk-insert the recomputed rows.
+ */
+async function replaceNormalizedNames(
+  entityType: "artist" | "album",
+  rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }>,
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.normalizedName.deleteMany({ where: { entityType } }),
+    ...chunkArray(rows).map((chunk) => prisma.normalizedName.createMany({ data: chunk })),
+  ]);
+}
+
+/**
  * Cache artist normalized names in the database
  */
 export async function cacheArtistNormalizedNames(): Promise<void> {
@@ -437,30 +457,26 @@ export async function cacheArtistNormalizedNames(): Promise<void> {
     },
   });
 
+  const rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }> = [];
+
   for (const artist of artists) {
     const normalizedName = normalizeArtistName(artist.name);
     if (!normalizedName) continue;
 
-    await prisma.normalizedName.upsert({
-      where: {
-        entityType_entityId: {
-          entityType: "artist",
-          entityId: artist.id,
-        },
-      },
-      update: {
-        originalName: artist.name,
-        normalizedName,
-        updatedAt: new Date(),
-      },
-      create: {
-        entityType: "artist",
-        entityId: artist.id,
-        originalName: artist.name,
-        normalizedName,
-      },
+    rows.push({
+      entityType: "artist",
+      entityId: artist.id,
+      originalName: artist.name,
+      normalizedName,
     });
   }
+
+  await replaceNormalizedNames("artist", rows);
 }
 
 /**
@@ -474,30 +490,26 @@ export async function cacheAlbumNormalizedNames(): Promise<void> {
     },
   });
 
+  const rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }> = [];
+
   for (const album of albums) {
     const normalizedName = normalizeAlbumName(album.name);
     if (!normalizedName) continue;
 
-    await prisma.normalizedName.upsert({
-      where: {
-        entityType_entityId: {
-          entityType: "album",
-          entityId: album.id,
-        },
-      },
-      update: {
-        originalName: album.name,
-        normalizedName,
-        updatedAt: new Date(),
-      },
-      create: {
-        entityType: "album",
-        entityId: album.id,
-        originalName: album.name,
-        normalizedName,
-      },
+    rows.push({
+      entityType: "album",
+      entityId: album.id,
+      originalName: album.name,
+      normalizedName,
     });
   }
+
+  await replaceNormalizedNames("album", rows);
 }
 
 /**
@@ -508,12 +520,17 @@ export async function saveDuplicateDetectionResults(
   exactGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
   fuzzyGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
 ): Promise<void> {
-  // Delete existing detection records for this entity type
-  await prisma.duplicateDetection.deleteMany({
-    where: { entityType },
-  });
+  const rows: Array<{
+    entityType: string;
+    entityId1: string;
+    entityId2: string;
+    matchType: string;
+    similarity: number;
+    normalizedName: string;
+    status: string;
+  }> = [];
 
-  // Save exact matches
+  // Build exact-match pairs
   for (const group of exactGroups) {
     const entities = "artists" in group ? group.artists : group.albums;
 
@@ -525,22 +542,20 @@ export async function saveDuplicateDetectionResults(
         const entity2 = entities[j];
         if (!entity2) continue;
 
-        await prisma.duplicateDetection.create({
-          data: {
-            entityType,
-            entityId1: entity1.id,
-            entityId2: entity2.id,
-            matchType: "exact",
-            similarity: 0,
-            normalizedName: group.normalizedName,
-            status: "pending",
-          },
+        rows.push({
+          entityType,
+          entityId1: entity1.id,
+          entityId2: entity2.id,
+          matchType: "exact",
+          similarity: 0,
+          normalizedName: group.normalizedName,
+          status: "pending",
         });
       }
     }
   }
 
-  // Save fuzzy matches
+  // Build fuzzy-match pairs
   for (const group of fuzzyGroups) {
     const entities = "artists" in group ? group.artists : group.albums;
 
@@ -563,18 +578,22 @@ export async function saveDuplicateDetectionResults(
 
         const similarity = calculateSimilarity(normalized1, normalized2);
 
-        await prisma.duplicateDetection.create({
-          data: {
-            entityType,
-            entityId1: entity1.id,
-            entityId2: entity2.id,
-            matchType: "fuzzy",
-            similarity,
-            normalizedName: group.normalizedName,
-            status: "pending",
-          },
+        rows.push({
+          entityType,
+          entityId1: entity1.id,
+          entityId2: entity2.id,
+          matchType: "fuzzy",
+          similarity,
+          normalizedName: group.normalizedName,
+          status: "pending",
         });
       }
     }
   }
+
+  // Clear previous results and bulk-insert all pairs in chunked createMany calls.
+  await prisma.$transaction([
+    prisma.duplicateDetection.deleteMany({ where: { entityType } }),
+    ...chunkArray(rows).map((chunk) => prisma.duplicateDetection.createMany({ data: chunk })),
+  ]);
 }
