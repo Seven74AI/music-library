@@ -13,7 +13,6 @@ vi.mock("#app/utils/db.server", () => ({
       create: vi.fn(),
       createMany: vi.fn(),
       update: vi.fn(),
-      updateMany: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -95,7 +94,7 @@ describe("user-library", () => {
       expect(result.message).toBe("Track re-added to library");
       expect(prisma.userTrack.update).toHaveBeenCalledWith({
         where: { id: "ut1" },
-        data: { isActive: true, deletedAt: null },
+        data: { isActive: true, deletedAt: null, createdAt: expect.any(Date) },
       });
     });
 
@@ -119,9 +118,9 @@ describe("user-library", () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
         (fn as (tx: unknown) => Promise<unknown>)({
           userTrack: {
-            updateMany: vi.fn().mockResolvedValue({ count: 0 }),
             createMany,
           },
+          $executeRaw: vi.fn().mockResolvedValue(0),
         }),
       );
 
@@ -142,32 +141,35 @@ describe("user-library", () => {
       expect(created[1]!.createdAt.getTime()).toBeGreaterThan(created[2]!.createdAt.getTime());
     });
 
-    test("reactivates inactive tracks and creates only missing ones", async () => {
+    test("reactivates inactive tracks in one batched raw UPDATE and creates only missing ones", async () => {
       vi.mocked(prisma.userTrack.findMany).mockResolvedValue([
         { id: "ut1", userId, trackId: "track1", isActive: true, deletedAt: null },
         { id: "ut2", userId, trackId: "track2", isActive: false, deletedAt: new Date() },
+        { id: "ut3", userId, trackId: "track3", isActive: false, deletedAt: new Date() },
       ] as never);
-      const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+      const executeRaw = vi.fn().mockResolvedValue(2);
       const createMany = vi.fn().mockResolvedValue({ count: 1 });
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
         (fn as (tx: unknown) => Promise<unknown>)({
-          userTrack: { updateMany, createMany },
+          userTrack: { createMany },
+          $executeRaw: executeRaw,
         }),
       );
 
-      const result = await addTracksToUserLibrary(["track1", "track2", "track3"], userId);
+      const result = await addTracksToUserLibrary(["track1", "track2", "track3", "track4"], userId);
 
       expect(result.success).toBe(true);
-      expect(result.addedCount).toBe(2);
-      expect(updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ["ut2"] } },
-        data: { isActive: true, deletedAt: null },
-      });
+      expect(result.addedCount).toBe(3);
+      // Two soft-deleted rows are re-stamped in a SINGLE batched raw UPDATE
+      // (no N+1 per-row writes), reusing the playlist-position stagger.
+      expect(executeRaw).toHaveBeenCalledTimes(1);
+      const [template] = executeRaw.mock.calls[0]! as [TemplateStringsArray];
+      expect(template.join(" ")).toContain('UPDATE "UserTrack"');
       expect(createMany).toHaveBeenCalledWith({
         data: [
           {
             userId,
-            trackId: "track3",
+            trackId: "track4",
             createdAt: expect.any(Date),
           },
         ],
@@ -179,7 +181,8 @@ describe("user-library", () => {
       const createMany = vi.fn().mockResolvedValue({ count: 1 });
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
         (fn as (tx: unknown) => Promise<unknown>)({
-          userTrack: { updateMany: vi.fn(), createMany },
+          userTrack: { createMany },
+          $executeRaw: vi.fn().mockResolvedValue(0),
         }),
       );
 
@@ -196,7 +199,8 @@ describe("user-library", () => {
       const createMany = vi.fn().mockResolvedValue({ count: 500 });
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
         (fn as (tx: unknown) => Promise<unknown>)({
-          userTrack: { updateMany: vi.fn(), createMany },
+          userTrack: { createMany },
+          $executeRaw: vi.fn().mockResolvedValue(0),
         }),
       );
 
