@@ -1,3 +1,4 @@
+import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { type Route } from "./+types/$id.ts";
 
@@ -6,7 +7,8 @@ import { type Route } from "./+types/$id.ts";
  * Resolve an album id to the name shown in album autocomplete.
  * Merged albums are returned so a stored id can still be displayed.
  */
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+  await requireUserId(request);
   const id = params.id;
   if (!id) {
     return Response.json({ album: null }, { status: 400 });
