@@ -227,7 +227,20 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     case "long-break": {
-      const durationMs = Number(formData.get("durationMs") ?? "21600000"); // 6h default
+      const rawDurationMs = formData.get("durationMs") ?? "21600000"; // 6h default
+      const durationMs = Number(rawDurationMs);
+      const MAX_LONG_BREAK_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+      // Reject NaN ("Invalid Date"), non-positive (immediate resume), and
+      // absurdly large values (far-future pause) that would corrupt WorkerState.
+      if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > MAX_LONG_BREAK_MS) {
+        return data(
+          {
+            success: false,
+            error: "Invalid durationMs: must be a positive number of milliseconds up to 7 days",
+          },
+          { status: 400 },
+        );
+      }
       const nextLongBreakAt = new Date(Date.now() + durationMs);
       await prisma.workerState.upsert({
         where: { id: "singleton" },
@@ -348,15 +361,34 @@ export async function action({ request }: Route.ActionArgs) {
       if (typeof trackId !== "string") {
         return data({ success: false, error: "Missing trackId" }, { status: 400 });
       }
-      // Enqueue a track that doesn't have an ArchiveJob yet
-      await prisma.archiveJob.create({
-        data: {
-          trackId,
-          status: "pending",
-          priority: true,
-        },
+
+      // FK violation on a nonexistent trackId would otherwise throw an unhandled
+      // 500. Verify the track exists first and return a clean 404.
+      const track = await prisma.track.findUnique({
+        where: { id: trackId },
+        select: { id: true },
       });
-      scheduleQueueTick();
+      if (!track) {
+        return data({ success: false, error: "Track not found" }, { status: 404 });
+      }
+
+      // Enqueue a track that doesn't have an ArchiveJob yet. Idempotent per
+      // decision #18: a duplicate trackId (P2002) is silently skipped.
+      try {
+        await prisma.archiveJob.create({
+          data: {
+            trackId,
+            status: "pending",
+            priority: true,
+          },
+        });
+        scheduleQueueTick();
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          return data({ success: true, action: "enqueue", trackId, alreadyExists: true });
+        }
+        throw error;
+      }
       return data({ success: true, action: "enqueue", trackId });
     }
 
@@ -692,4 +724,13 @@ export function ErrorBoundary() {
 
 export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
 }
