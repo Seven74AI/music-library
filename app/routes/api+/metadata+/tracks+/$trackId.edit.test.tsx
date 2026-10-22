@@ -28,6 +28,7 @@ vi.mock("#app/utils/db.server.ts", () => ({
     editLock: {
       findUnique: vi.fn(),
       deleteMany: vi.fn(),
+      delete: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -478,6 +479,53 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     }
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  test("releases the lock after a successful save", async () => {
+    const existingTrack = {
+      id: "track-1",
+      title: "Old Title",
+      artistId: "artist-1",
+      albumId: null,
+      genre: "Rock",
+      year: 2020,
+      trackNumber: 1,
+      albumArtist: null,
+      bpm: null,
+      label: null,
+      isrc: null,
+      releaseDate: null,
+      originalDate: null,
+      originalYear: null,
+      totalTracks: null,
+      totalDiscs: null,
+      lyrics: null,
+    };
+
+    vi.mocked(prisma.track.findUnique).mockResolvedValue(existingTrack as never);
+    vi.mocked(prisma.artist.findUnique).mockResolvedValue({ id: "artist-1" } as never);
+    vi.mocked(prisma.editLock.findUnique).mockResolvedValue({
+      id: "lock-1",
+      entityType: "track",
+      entityId: "track-1",
+      lockedBy: "user-1",
+      acquiredAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+      user: { id: "user-1", name: "Curator User", username: "curator" },
+    } as never);
+    vi.mocked(prisma.$transaction).mockResolvedValue({
+      track: { ...existingTrack, title: "New Title" },
+      edit: { id: "edit-1" },
+    } as never);
+
+    const body = {
+      title: "New Title",
+      artistId: "artist-1",
+    };
+
+    await action(makeRequest(body, { trackId: "track-1" }) as never);
+
+    expect(prisma.editLock.delete).toHaveBeenCalledWith({ where: { id: "lock-1" } });
   });
 
   test("handles invalid JSON body", async () => {
