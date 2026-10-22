@@ -81,30 +81,34 @@ export function serializeSuccessfulTrack(track: SuccessfulTrackInfo) {
   };
 }
 
-// In-memory store for upload progress (in production, use Redis)
-const uploadProgressStore = new Map<
-  string,
-  {
-    files: Array<{
-      fileId: string;
-      fileName: string;
-      progress: number;
-      status: "pending" | "processing" | "uploading" | "completed" | "failed";
-      error?: string;
-      fileSize?: number; // File size in bytes for speed calculation
-    }>;
-    overallProgress: number;
-    status: "active" | "completed" | "failed";
-    startTime?: number; // Timestamp when upload started
-    successfulTracks?: SuccessfulTrackInfo[];
-    failedFiles?: Array<{
-      fileId: string;
-      fileName: string;
-      error: string;
-      fileData?: StoredFileData;
-    }>;
-  }
->();
+export interface UploadProgressEntry {
+  files: Array<{
+    fileId: string;
+    fileName: string;
+    progress: number;
+    status: "pending" | "processing" | "uploading" | "completed" | "failed";
+    error?: string;
+    fileSize?: number; // File size in bytes for speed calculation
+  }>;
+  overallProgress: number;
+  status: "active" | "completed" | "failed";
+  startTime?: number; // Timestamp when upload started
+  /** Timestamp of the last mutation. The TTL sweeper reclaims sessions with no activity past this. */
+  lastUpdated: number;
+  successfulTracks?: SuccessfulTrackInfo[];
+  failedFiles?: Array<{
+    fileId: string;
+    fileName: string;
+    error: string;
+    fileData?: StoredFileData;
+  }>;
+}
+
+// In-memory store for upload progress. Bounded by the TTL sweeper
+// (startUploadProgressSweeper) so abandoned sessions that hold full audio
+// buffers cannot accumulate without limit. For multi-instance deployments
+// replace with a shared store (Redis) — see ADR-010 "Progress Store".
+const uploadProgressStore = new Map<string, UploadProgressEntry>();
 
 // Store active SSE connections for real-time updates
 const activeConnections = new Map<string, Set<ReadableStreamDefaultController>>();
@@ -121,28 +125,9 @@ export function getUploadProgress(uploadId: string) {
  */
 export function setUploadProgress(
   uploadId: string,
-  progress: {
-    files: Array<{
-      fileId: string;
-      fileName: string;
-      progress: number;
-      status: "pending" | "processing" | "uploading" | "completed" | "failed";
-      error?: string;
-      fileSize?: number;
-    }>;
-    overallProgress: number;
-    status: "active" | "completed" | "failed";
-    startTime?: number;
-    successfulTracks?: SuccessfulTrackInfo[];
-    failedFiles?: Array<{
-      fileId: string;
-      fileName: string;
-      error: string;
-      fileData?: StoredFileData;
-    }>;
-  },
+  progress: Omit<UploadProgressEntry, "lastUpdated">,
 ) {
-  uploadProgressStore.set(uploadId, progress);
+  uploadProgressStore.set(uploadId, { ...progress, lastUpdated: Date.now() });
 }
 
 /**
@@ -278,6 +263,7 @@ export function updateFileProgress(
     current.status = hasFailures ? "failed" : "completed";
   }
 
+  current.lastUpdated = Date.now();
   uploadProgressStore.set(uploadId, current);
 
   // Push update immediately to all active connections
@@ -295,6 +281,7 @@ export function addSuccessfulTrack(uploadId: string, trackInfo: SuccessfulTrackI
     current.successfulTracks = [];
   }
   current.successfulTracks.push(trackInfo);
+  current.lastUpdated = Date.now();
   uploadProgressStore.set(uploadId, current);
 }
 
@@ -322,17 +309,77 @@ export function addFailedFile(
     error,
     fileData,
   });
+  current.lastUpdated = Date.now();
   uploadProgressStore.set(uploadId, current);
 }
 
+/** Entries with no activity past this are reclaimed by the sweeper. */
+export const UPLOAD_PROGRESS_TTL_MS = 60 * 60 * 1000; // 1 hour
+/** How often the in-process sweeper runs. */
+export const UPLOAD_PROGRESS_CLEANUP_INTERVAL_MS = 60 * 1000; // 1 minute
+/** Hard cap on tracked sessions; least-recently-updated are evicted first. */
+export const MAX_UPLOAD_PROGRESS_ENTRIES = 100;
+
+let cleanupIntervalHandle: ReturnType<typeof setInterval> | null = null;
+
 /**
- * Clean up old progress entries (older than 1 hour)
- * Note: In production, use Redis with TTL for automatic cleanup
+ * Reclaim abandoned upload-progress sessions so their in-memory audio buffers
+ * cannot accumulate without bound. Runs on an interval via
+ * {@link startUploadProgressSweeper}; also safe to call directly.
+ * Returns the number of sessions remaining after the sweep.
  */
-export function cleanupOldProgress() {
-  // In-memory cleanup would require tracking timestamps
-  // For now, progress entries are cleaned up when upload completes or fails
-  // In production, use Redis with TTL for automatic expiration
+export function cleanupOldProgress(options?: { now?: number; ttlMs?: number }): number {
+  const now = options?.now ?? Date.now();
+  const ttlMs = options?.ttlMs ?? UPLOAD_PROGRESS_TTL_MS;
+
+  // TTL sweep: drop sessions with no activity within the TTL window.
+  for (const [uploadId, entry] of uploadProgressStore) {
+    if (now - entry.lastUpdated > ttlMs) {
+      uploadProgressStore.delete(uploadId);
+      activeConnections.delete(uploadId);
+    }
+  }
+
+  // Hard cap: evict the least-recently-updated sessions first.
+  const excess = uploadProgressStore.size - MAX_UPLOAD_PROGRESS_ENTRIES;
+  if (excess > 0) {
+    const oldest = [...uploadProgressStore.entries()]
+      .sort((a, b) => a[1].lastUpdated - b[1].lastUpdated)
+      .slice(0, excess);
+    for (const [uploadId] of oldest) {
+      uploadProgressStore.delete(uploadId);
+      activeConnections.delete(uploadId);
+    }
+  }
+
+  return uploadProgressStore.size;
+}
+
+/**
+ * Start the in-process TTL sweeper for upload progress. Idempotent: a second
+ * call does not register another interval. Each instance only sweeps its own
+ * in-memory Map.
+ */
+export function startUploadProgressSweeper(): void {
+  if (cleanupIntervalHandle !== null) return;
+
+  cleanupIntervalHandle = setInterval(() => {
+    cleanupOldProgress();
+  }, UPLOAD_PROGRESS_CLEANUP_INTERVAL_MS);
+}
+
+/** Stop the sweeper (used by tests and shutdown paths). */
+export function stopUploadProgressSweeper(): void {
+  if (cleanupIntervalHandle !== null) {
+    clearInterval(cleanupIntervalHandle);
+    cleanupIntervalHandle = null;
+  }
+}
+
+/** Reset the in-memory store between tests. */
+export function resetUploadProgressStoreForTests(): void {
+  uploadProgressStore.clear();
+  activeConnections.clear();
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {

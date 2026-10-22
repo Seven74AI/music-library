@@ -67,6 +67,18 @@ if (process.env.NODE_ENV !== "test") {
   );
 }
 
+// Upload-progress memory-leak sweeper: reclaim abandoned in-memory upload
+// sessions (which hold full audio buffers) after UPLOAD_PROGRESS_TTL_MS.
+// In-process only; each instance sweeps its own Map (multi-instance shared
+// store tracked separately — ADR-010).
+if (process.env.NODE_ENV !== "test") {
+  void import("./routes/api+/upload-progress.$uploadId.tsx").then(
+    ({ startUploadProgressSweeper }) => {
+      startUploadProgressSweeper();
+    },
+  );
+}
+
 const MODE = process.env.NODE_ENV ?? "development";
 
 type DocRequestArgs = Parameters<HandleDocumentRequestFunction>;
