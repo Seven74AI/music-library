@@ -36,15 +36,80 @@ function divergentFingerprint(index: number): string {
   return chars.join("");
 }
 
+// --- Chromaprint compressor port (test-only) for generating valid vectors ---
+
+function packBits(values: number[], width: number): Buffer {
+  const bytes: number[] = new Array(Math.ceil((values.length * width) / 8)).fill(0);
+  let bitIndex = 0;
+  for (const value of values) {
+    for (let w = 0; w < width; w++) {
+      if ((value >>> w) & 1) {
+        const byteIndex = bitIndex >> 3;
+        bytes[byteIndex] = bytes[byteIndex]! | (1 << (bitIndex & 7));
+      }
+      bitIndex++;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+function pushSubfingerprintGaps(x: number, normal: number[], exceptional: number[]): void {
+  let bit = 1;
+  let lastBit = 0;
+  while (x !== 0) {
+    if ((x & 1) !== 0) {
+      const gap = bit - lastBit;
+      if (gap >= 7) {
+        normal.push(7);
+        exceptional.push(gap - 7);
+      } else {
+        normal.push(gap);
+      }
+      lastBit = bit;
+    }
+    x >>>= 1;
+    bit++;
+  }
+  normal.push(0);
+}
+
+function compressChromaprint(raw: number[]): string {
+  const normal: number[] = [];
+  const exceptional: number[] = [];
+  if (raw.length > 0) {
+    pushSubfingerprintGaps(raw[0]! >>> 0, normal, exceptional);
+    for (let i = 1; i < raw.length; i++) {
+      pushSubfingerprintGaps((raw[i]! ^ raw[i - 1]!) >>> 0, normal, exceptional);
+    }
+  }
+  const header = Buffer.from([
+    1,
+    (raw.length >> 16) & 0xff,
+    (raw.length >> 8) & 0xff,
+    raw.length & 0xff,
+  ]);
+  return Buffer.concat([header, packBits(normal, 3), packBits(exceptional, 5)]).toString(
+    "base64url",
+  );
+}
+
 describe("groupSimilarAudioFiles", () => {
   test("uses the same 0.9 threshold as track audio ingest", () => {
     expect(SIMILARITY_THRESHOLD).toBe(0.9);
   });
 
   test("groups fingerprints at the 0.9 threshold and rejects anything below it", () => {
-    const base = "0123456789";
-    const atThreshold = "012345678X"; // 9/10 = 0.9
-    const belowThreshold = "01234567XX"; // 8/10 = 0.8
+    // 20 subfingerprints = 640 bits.
+    const baseRaw = Array.from({ length: 20 }, (_, i) => 0x11110000 + i);
+    const base = compressChromaprint(baseRaw);
+
+    // One bit flipped in one subfingerprint => similarity 1 - 1/640 ≈ 0.9984.
+    const nearRaw = [...baseRaw];
+    nearRaw[5] = (nearRaw[5]! ^ 1) >>> 0;
+    const near = compressChromaprint(nearRaw);
+
+    // Every subfingerprint differs by 16 bits => similarity 1 - 320/640 = 0.5.
+    const far = compressChromaprint(Array.from({ length: 20 }, (_, i) => 0xeeee0000 + i));
 
     const grouped = groupSimilarAudioFiles([
       candidate({
@@ -56,7 +121,7 @@ describe("groupSimilarAudioFiles", () => {
       candidate({
         audioFileId: "b",
         contentHash: "hash-b",
-        audioFingerprint: atThreshold,
+        audioFingerprint: near,
         createdAt: new Date("2024-02-01"),
       }),
     ]);
@@ -65,7 +130,7 @@ describe("groupSimilarAudioFiles", () => {
     expect(grouped[0]?.confidence).toBeGreaterThanOrEqual(0.9);
     expect(grouped[0]?.tracks.map((track) => track.audioFileId)).toEqual(["a", "b"]);
     expect(grouped[0]?.id).toBe("similar:a:b");
-    expect(grouped[0]?.tracks[1]?.confidence).toBeCloseTo(0.9);
+    expect(grouped[0]?.tracks[1]?.confidence).toBeCloseTo(1 - 1 / 640);
 
     const rejected = groupSimilarAudioFiles([
       candidate({
@@ -76,7 +141,7 @@ describe("groupSimilarAudioFiles", () => {
       candidate({
         audioFileId: "c",
         contentHash: "hash-c",
-        audioFingerprint: belowThreshold,
+        audioFingerprint: far,
       }),
     ]);
     expect(rejected).toEqual([]);
