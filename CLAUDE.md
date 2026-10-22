@@ -14,13 +14,13 @@ Default canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`, `read
 
 ### Domain docs
 
-Single-context repo: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Glossary is `docs/CONTEXT.md`. ADRs are `docs/decisions/` plus `docs/adr/`. See `docs/agents/domain.md`.
 
 ## Cursor Cloud specific instructions
 
 Cloud Agents are configured by `.cursor/environment.json`, which runs the dev
-server (`npm run dev`, MSW mocks) on `http://localhost:3000` and seeds the
-database automatically.
+server (`npm run dev:youtube-mocks`, MSW plus YouTube mocks) on
+`http://localhost:3000` and seeds the database automatically.
 
 - **Node 24 required.** `package.json` `engines` pins Node `24` and react-router
   needs > 22.22.0, but the base image ships Node 22. Load Node 24 via nvm before
@@ -32,6 +32,8 @@ database automatically.
   ```
 
 - **Dev login:** `kody` / `kodylovesyou`.
-- **If the dev server isn't running**, start it with `npm run dev` (after loading
-  Node 24 as above); it serves on port 3000.
+- **If the dev server isn't running**, start it with `npm run dev:youtube-mocks`
+  (after loading Node 24 as above); it serves on port 3000.
+- **E2E:** `npm run test:e2e:run` is headless. `npm run test:e2e` is the
+  interactive Playwright UI.
 - **Reset/reseed the database:** `npx prisma migrate reset --force`.
