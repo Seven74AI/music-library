@@ -128,3 +128,35 @@ test(
     expect(noticeEmail.subject).toContain("changed");
   },
 );
+
+test(
+  "changing email to an address claimed mid-verification fails gracefully",
+  { tag: "@slow" },
+  async ({ page, navigate, login, insertNewUser }) => {
+    const user = await login();
+    const newEmailAddress = faker.internet.email().toLowerCase();
+    expect(user.email).not.toEqual(newEmailAddress);
+    await navigate("/settings/profile");
+    await page.getByRole("link", { name: /change email/i }).click();
+    await page.getByRole("textbox", { name: /new email/i }).fill(newEmailAddress);
+    await page.getByRole("button", { name: /send confirmation/i }).click();
+    await expect(page.getByText(/check your email/i)).toBeVisible();
+    const email = await waitFor(() => readEmail(newEmailAddress), {
+      errorMessage: "Confirmation email was not sent",
+    });
+    invariant(email, "Email was not sent");
+    const codeMatch = email.text.match(CODE_REGEX);
+    const code = codeMatch?.groups?.code;
+    invariant(code, "Onboarding code not found");
+
+    // Another account claims the address after the confirmation request but
+    // before the OTP is submitted. The commit-time re-check must reject it
+    // with a graceful error instead of an unhandled unique-constraint 500.
+    await insertNewUser({ email: newEmailAddress });
+
+    await page.getByRole("textbox", { name: /code/i }).fill(code);
+    await page.getByRole("button", { name: /submit/i }).click();
+
+    await expect(page.getByText("This email is already in use.")).toBeVisible();
+  },
+);

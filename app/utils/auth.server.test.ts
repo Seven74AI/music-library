@@ -7,7 +7,10 @@ import {
   checkIsCommonPassword,
   getPasswordHash,
   getPasswordHashParts,
+  getSessionExpirationDate,
   login,
+  resetUserPassword,
+  verifyUserPassword,
 } from "./auth.server.ts";
 import { prisma } from "./db.server.ts";
 
@@ -136,4 +139,78 @@ test("login accepts a pre-existing password shorter than 12 characters without r
 test("getPasswordHash keeps bcrypt cost 10", async () => {
   const hashed = await getPasswordHash("abcdefghijkl");
   expect(hashed).toMatch(/^\$2[ab]\$10\$/);
+});
+
+describe("verifyUserPassword", () => {
+  test("returns the user id when the password is correct", async () => {
+    const password = "correct-horse-battery-staple";
+    const { hash } = createPassword(password);
+    const user = await prisma.user.create({
+      data: { ...createUser(), password: { create: { hash } } },
+    });
+
+    try {
+      expect(await verifyUserPassword({ username: user.username }, password)).toEqual({
+        id: user.id,
+      });
+    } finally {
+      await prisma.user.delete({ where: { id: user.id } });
+    }
+  });
+
+  test("returns null when the password is incorrect", async () => {
+    const password = "correct-horse-battery-staple";
+    const { hash } = createPassword(password);
+    const user = await prisma.user.create({
+      data: { ...createUser(), password: { create: { hash } } },
+    });
+
+    try {
+      expect(await verifyUserPassword({ username: user.username }, "wrong-password")).toBeNull();
+    } finally {
+      await prisma.user.delete({ where: { id: user.id } });
+    }
+  });
+
+  test("returns null for a non-existent user", async () => {
+    expect(await verifyUserPassword({ username: "no-such-user" }, "whatever")).toBeNull();
+  });
+});
+
+describe("resetUserPassword", () => {
+  test("invalidates all existing sessions and updates the password", async () => {
+    const oldPassword = "old-password-123";
+    const newPassword = "new-password-456";
+    const { hash } = createPassword(oldPassword);
+    const user = await prisma.user.create({
+      data: { ...createUser(), password: { create: { hash } } },
+    });
+
+    await prisma.session.create({
+      data: { userId: user.id, expirationDate: getSessionExpirationDate() },
+    });
+    await prisma.session.create({
+      data: { userId: user.id, expirationDate: getSessionExpirationDate() },
+    });
+
+    try {
+      await resetUserPassword({ username: user.username, password: newPassword });
+
+      const sessions = await prisma.session.findMany({ where: { userId: user.id } });
+      expect(sessions).toHaveLength(0);
+
+      expect(await verifyUserPassword({ username: user.username }, oldPassword)).toBeNull();
+      expect(await verifyUserPassword({ username: user.username }, newPassword)).toEqual({
+        id: user.id,
+      });
+    } finally {
+      await prisma.user.delete({ where: { id: user.id } });
+    }
+  });
+
+  test("throws when the user does not exist", async () => {
+    await expect(
+      resetUserPassword({ username: "no-such-user", password: "whatever-123" }),
+    ).rejects.toThrow("User not found");
+  });
 });
