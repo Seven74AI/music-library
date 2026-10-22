@@ -1,7 +1,7 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
-import { getLockStatus } from "#app/utils/locks.server.ts";
+import { getLockStatus, releaseLock } from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import {
@@ -245,6 +245,9 @@ export async function action({ request, params }: Route.ActionArgs) {
       edit: editEntry,
     };
   });
+
+  // Release the lock on successful save (ADR-032).
+  await releaseLock("track", trackId, userId);
 
   return data(result);
 }

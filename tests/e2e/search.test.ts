@@ -61,17 +61,16 @@ test.describe("Global Search", () => {
   test("search API endpoint returns results", async ({ page, loginAsAdmin }) => {
     await loginAsAdmin();
 
-    // Test API endpoint directly
+    // Test API endpoint directly. A fresh DB with an empty FTS5 index must
+    // return 200 with empty results — not 500 — so assert the success code
+    // unconditionally and validate the stable results/pagination shape.
     const response = await page.request.get("/api/search?q=test");
-    // May return 200 with empty results or 500 if FTS5 tables are empty
-    expect([200, 500]).toContain(response.status());
+    expect(response.status()).toBe(200);
 
-    if (response.status() === 200) {
-      const data = await response.json();
-      expect(data).toHaveProperty("results");
-      expect(data).toHaveProperty("pagination");
-      expect(Array.isArray(data.results)).toBe(true);
-    }
+    const data = await response.json();
+    expect(data).toHaveProperty("results");
+    expect(data).toHaveProperty("pagination");
+    expect(Array.isArray(data.results)).toBe(true);
   });
 
   test("search API validates query parameter", async ({ page, loginAsAdmin }) => {
