@@ -27,18 +27,24 @@ describe("getEnv", () => {
 });
 
 describe("validateEnv", () => {
-  test("production starts when TOKEN_ENCRYPTION_KEY is unset and rejects the dev placeholder", () => {
+  test("production requires TOKEN_ENCRYPTION_KEY and rejects the dev placeholder and short keys", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     const env = { ...process.env };
     delete env.TOKEN_ENCRYPTION_KEY;
 
     try {
-      expect(validateEnv(env).success).toBe(true);
+      expect(validateEnv(env).success).toBe(false);
       expect(validateEnv({ ...env, TOKEN_ENCRYPTION_KEY: DEV_TOKEN_ENCRYPTION_KEY }).success).toBe(
         false,
       );
       expect(validateEnv({ ...env, TOKEN_ENCRYPTION_KEY: "short" }).success).toBe(false);
+      expect(
+        validateEnv({
+          ...env,
+          TOKEN_ENCRYPTION_KEY: "unit-test-production-token-encryption-key",
+        }).success,
+      ).toBe(true);
     } finally {
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;

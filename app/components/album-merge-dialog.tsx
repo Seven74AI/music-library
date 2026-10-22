@@ -85,6 +85,7 @@ export function AlbumMergeDialog({
 
   if (mergeFetcher.state === "idle" && mergeFetcher.data && open) {
     setTimeout(() => {
+      mergeFetcher.reset();
       onOpenChange(false);
       onMerged?.();
       setConfirmed(false);

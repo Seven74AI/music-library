@@ -791,6 +791,7 @@ model ReviewQueueItem {
   reporter          User?     @relation("ReviewQueueReporter", fields: [reporterId], references: [id], onDelete: SetNull)
   status            String    @default("open") // 'open', 'claimed', 'resolved'
   priority          Int       @default(1) // 1 (low) to 3 (high)
+  reportCount       Int       @default(1) // number of duplicate user reports collapsed into this item (ADR-035)
   claimedBy         String?
   claimedByUser     User?     @relation("ReviewQueueClaimed", fields: [claimedBy], references: [id], onDelete: SetNull)
   claimedAt         DateTime?

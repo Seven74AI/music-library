@@ -11,6 +11,7 @@ export const SECURITY_EVENT_TYPES = {
   serviceConnected: "service_connected",
   serviceDisconnected: "service_disconnected",
   sessionRevoked: "session_revoked",
+  forceUnlock: "force_unlock",
 } as const;
 
 export type SecurityEventType = (typeof SECURITY_EVENT_TYPES)[keyof typeof SECURITY_EVENT_TYPES];
@@ -28,6 +29,7 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
   service_connected: "Service connected",
   service_disconnected: "Service disconnected",
   session_revoked: "Session revoked",
+  force_unlock: "Force unlock",
 };
 
 export function securityEventLabel(eventType: string): string {
