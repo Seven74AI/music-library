@@ -25,6 +25,7 @@ import {
   AlertDialogTitle,
 } from "#app/components/ui/alert-dialog.tsx";
 import { markDuplicateGroupIntentional } from "#app/features/admin/duplicate-dashboard.server.ts";
+import { fetchInternal } from "#app/utils/internal-fetch.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
@@ -74,13 +75,9 @@ interface LoaderData {
 export async function loader({ request, url }: Route.LoaderArgs): Promise<LoaderData> {
   await requireUserWithRole(request, "admin");
 
-  // Fetch data from the API endpoint
-  const apiUrl = new URL(url);
-  apiUrl.pathname = "/api/admin/duplicates";
-
-  const response = await fetch(apiUrl.toString(), {
-    headers: request.headers,
-  });
+  // Fetch data from the internal API endpoint on a trusted origin, forwarding
+  // only the session cookie (never the full incoming headers).
+  const response = await fetchInternal(request, "/api/admin/duplicates", url.search);
 
   if (!response.ok) {
     throw data({ error: "Failed to load duplicates" }, { status: response.status });
