@@ -9,6 +9,22 @@ import { buildAudioObjectKey, uploadFile } from "#app/utils/storage.server";
 import { type Prisma } from "#prisma/client.js";
 import { backfillTrackMetadata } from "./backfill-track-metadata.server.ts";
 
+/**
+ * Number of leading fingerprint characters used as the coarse blocking key for
+ * perceptual similarity. Chromaprint fingerprints are base64; 16 characters
+ * encode 96 bits, yielding small candidate blocks for any realistic library
+ * while still matching re-encodes of the same track (whose fingerprints agree
+ * on the leading segment, since the fingerprint is a time-ordered bitstream).
+ */
+export const FINGERPRINT_BLOCK_PREFIX_LENGTH = 16;
+
+/**
+ * Hard cap on the number of candidates compared against a single upload.
+ * The coarse-key block already bounds the set; this is defense-in-depth against
+ * a pathological block (e.g. the same track re-encoded dozens of times).
+ */
+export const SIMILARITY_CANDIDATE_CAP = 500;
+
 type UploadProgress = {
   loaded?: number;
   total?: number;
@@ -75,6 +91,7 @@ type CreateTrackAudioFileParams = {
   trackId: string;
   serviceId?: string | null;
   fileName?: string;
+  extension?: string;
   metadata: ExtractedAudioMetadata;
   uploadedBy?: string;
   buffer: Buffer;
@@ -173,13 +190,25 @@ export async function prepareTrackAudioUpload(
   const SIMILARITY_THRESHOLD = 0.9; // 90% similarity
 
   if (audioFingerprint && !existingByHash) {
-    // Only check for similar fingerprints if no exact duplicate found
+    // Only check for similar fingerprints if no exact duplicate found.
+    //
+    // Coarse-key blocking: comparing the new fingerprint against every stored
+    // fingerprint is O(N) rows loaded into memory + O(N) CPU per upload, and
+    // grows without bound as the library grows. Chromaprint fingerprints are
+    // time-ordered bitstreams, so perceptually similar audio (re-encodes,
+    // format conversions) shares a long common prefix. Block candidates by the
+    // fingerprint prefix so the candidate set stays small and the comparison
+    // loop below is bounded.
+    const fingerprintBlock = audioFingerprint.slice(0, FINGERPRINT_BLOCK_PREFIX_LENGTH);
+
     const allFingerprints = await prisma.trackAudioFile.findMany({
       where: {
         audioFingerprint: {
-          not: null,
+          startsWith: fingerprintBlock,
         },
       },
+      take: SIMILARITY_CANDIDATE_CAP,
+      orderBy: { uploadedAt: "desc" },
       select: {
         id: true,
         trackId: true,
@@ -224,7 +253,14 @@ export async function prepareTrackAudioUpload(
   let shouldUpload = true;
 
   if (existingByHash) {
-    // Same audio content already exists - reuse the S3 object
+    // Same audio content already exists - reuse the S3 object.
+    //
+    // The reused objectKey is shared across multiple TrackAudioFile rows (one
+    // per track referencing the same audio). Deleting one track must not orphan
+    // the other's audio: every S3 deletion goes through
+    // `deleteUnreferencedObjectKeys` (app/utils/audio-cleanup.server.ts), which
+    // re-counts TrackAudioFile rows by objectKey and only deletes the object
+    // once zero rows reference it.
     objectKey = existingByHash.objectKey;
     shouldUpload = false;
     console.warn(
@@ -279,9 +315,18 @@ export async function createTrackAudioFile(
   prepared: PreparedTrackAudio,
   db: TrackAudioFileDb = prisma,
 ): Promise<{ id: string; trackId: string; objectKey: string }> {
-  const { trackId, serviceId = null, fileName, metadata, uploadedBy, buffer } = params;
+  const { trackId, serviceId = null, fileName, extension, metadata, uploadedBy, buffer } =
+    params;
 
   const format = metadata.format || "mp3";
+
+  // Derive a fallback fileName from this track's own identity rather than the
+  // objectKey leaf: on an exact-hash duplicate the objectKey is reused from a
+  // different track, so `objectKey.split("/").pop()` would surface the other
+  // track's filename. `${trackId}.${ext}` matches the leaf that
+  // `buildAudioObjectKey` produces for the non-duplicate path.
+  const ext = getAudioExtension(metadata, fileName, extension);
+  const fallbackFileName = `${trackId}.${ext}`;
 
   return db.trackAudioFile.create({
     data: {
@@ -290,7 +335,7 @@ export async function createTrackAudioFile(
       objectKey: prepared.objectKey,
       contentHash: prepared.contentHash,
       audioFingerprint: prepared.audioFingerprint,
-      fileName: fileName ?? prepared.objectKey.split("/").pop(),
+      fileName: fileName ?? fallbackFileName,
       format,
       mimeType: metadata.mimeType || "audio/mpeg",
       fileSize: buffer.length,
