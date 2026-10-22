@@ -127,49 +127,37 @@ export async function confirmOrphanedMatches(
 
           processedCount++;
         } else if (match.action === "match" && match.selectedTrackId) {
-          const track = await tx.track.findUnique({
-            where: { id: match.selectedTrackId },
-          });
-
-          if (!track) {
-            throw new Error(`Track not found: ${match.selectedTrackId}`);
-          }
-
+          // ADR-006 Edge Case 8: cross-playlist matching is not allowed. The
+          // selected track must already be a member of THIS playlist (an
+          // orphaned track is a ServicePlaylistTrack row for this playlist
+          // that was not seen in the latest sync). Reject any client-supplied
+          // track that is only in the global catalog.
           const existingPlaylistTrack = await tx.servicePlaylistTrack.findUnique({
             where: {
               playlistId_trackId: {
                 playlistId,
-                trackId: track.id,
+                trackId: match.selectedTrackId,
               },
             },
           });
 
-          if (existingPlaylistTrack) {
-            await tx.servicePlaylistTrack.update({
-              where: {
-                playlistId_trackId: {
-                  playlistId,
-                  trackId: track.id,
-                },
-              },
-              data: {
-                position: match.position,
-                isDeleted: true,
-                deletedAt: existingPlaylistTrack.deletedAt || new Date(),
-              },
-            });
-          } else {
-            await tx.servicePlaylistTrack.create({
-              data: {
-                id: createId(),
-                playlistId,
-                trackId: track.id,
-                position: match.position,
-                isDeleted: true,
-                deletedAt: new Date(),
-              },
-            });
+          if (!existingPlaylistTrack) {
+            throw new Error(`Track is not a member of this playlist: ${match.selectedTrackId}`);
           }
+
+          await tx.servicePlaylistTrack.update({
+            where: {
+              playlistId_trackId: {
+                playlistId,
+                trackId: match.selectedTrackId,
+              },
+            },
+            data: {
+              position: match.position,
+              isDeleted: true,
+              deletedAt: existingPlaylistTrack.deletedAt || new Date(),
+            },
+          });
 
           processedCount++;
         }

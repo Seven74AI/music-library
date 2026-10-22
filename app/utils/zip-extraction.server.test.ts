@@ -1,4 +1,5 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
+import { deflateRawSync } from "zlib";
 import { consoleWarn } from "#tests/setup/setup-test-env";
 import { extractAudioFilesFromZip } from "./zip-extraction.server";
 
@@ -310,5 +311,45 @@ describe("extractAudioFilesFromZip", () => {
     expect(ignored[1]?.getData).not.toHaveBeenCalled();
     expect(ignored[2]?.getData).not.toHaveBeenCalled();
     expect(ignored[4]?.getData).not.toHaveBeenCalled();
+  });
+
+  test("rejects a decompression bomb whose real size exceeds the declared size", async () => {
+    // A crafted archive lies about the uncompressed size in the header (2KB) but
+    // the deflate payload actually inflates to 150MB. The hard byte cap must
+    // reject it before getData()/adm-zip performs an unbounded decompression.
+    const inflatedBytes = 150 * MB;
+    const compressed = deflateRawSync(Buffer.alloc(inflatedBytes, 0));
+    const bombEntry = {
+      entryName: "bomb.mp3",
+      isDirectory: false,
+      header: { size: 2048, method: 8 },
+      getCompressedData: vi.fn().mockReturnValue(compressed),
+      getData: vi.fn(),
+    };
+    mockGetEntries.mockReturnValue([bombEntry]);
+
+    await expect(extractAudioFilesFromZip(Buffer.from("fake zip data"))).rejects.toThrow(
+      /bomb\.mp3 exceeds maximum size of 100MB/,
+    );
+    expect(bombEntry.getData).not.toHaveBeenCalled();
+  });
+
+  test("extracts a deflate entry through the hard-capped path", async () => {
+    const audio = Buffer.alloc(4 * MB, 7);
+    const compressed = deflateRawSync(audio);
+    const entry = {
+      entryName: "real.mp3",
+      isDirectory: false,
+      header: { size: audio.length, method: 8 },
+      getCompressedData: vi.fn().mockReturnValue(compressed),
+      getData: vi.fn(),
+    };
+    mockGetEntries.mockReturnValue([entry]);
+
+    const result = await extractAudioFilesFromZip(Buffer.from("fake zip data"));
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.buffer.equals(audio)).toBe(true);
+    expect(entry.getData).not.toHaveBeenCalled();
   });
 });

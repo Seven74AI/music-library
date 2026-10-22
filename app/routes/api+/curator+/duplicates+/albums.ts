@@ -1,30 +1,24 @@
 /**
  * GET /api/curator/duplicates/albums
- * Fetch album duplicate groups
+ * Fetch album duplicate groups from the ADR-034 cache (DuplicateDetection table).
  */
 
 import { data } from "react-router";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
-import {
-  findExactAlbumDuplicates,
-  findFuzzyAlbumDuplicates,
-} from "#app/utils/duplicate-detection.server.ts";
+import { getAlbumDuplicateGroups } from "#app/utils/duplicate-detection.server.ts";
 import type { Route } from "./+types/albums.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireCuratorOrAdmin(request);
 
   try {
-    const [exactGroups, fuzzyGroups] = await Promise.all([
-      findExactAlbumDuplicates(),
-      findFuzzyAlbumDuplicates(),
-    ]);
+    const { exact, fuzzy } = await getAlbumDuplicateGroups();
 
     return data({
-      exact: exactGroups,
-      fuzzy: fuzzyGroups,
-      totalExactGroups: exactGroups.length,
-      totalFuzzyGroups: fuzzyGroups.length,
+      exact,
+      fuzzy,
+      totalExactGroups: exact.length,
+      totalFuzzyGroups: fuzzy.length,
     });
   } catch (error) {
     console.error("Error fetching album duplicates:", error);

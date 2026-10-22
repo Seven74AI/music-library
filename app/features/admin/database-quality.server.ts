@@ -157,27 +157,45 @@ export interface StorageStats {
 }
 
 export async function getStorageStats(): Promise<StorageStats> {
-  const allFiles = await prisma.trackAudioFile.findMany({
-    select: {
-      fileSize: true,
-      trackId: true,
-      contentHash: true,
-    },
-  });
+  // Aggregate totals and format/dedup stats in the database instead of loading
+  // every TrackAudioFile row into memory (the table grows unbounded with the
+  // library).
+  const [agg, distinctTracks, hashAgg, hashGroups, formatGroups] = await Promise.all([
+    prisma.trackAudioFile.aggregate({
+      _sum: { fileSize: true },
+      _count: true,
+    }),
+    prisma.$queryRaw<Array<{ count: number }>>`
+      SELECT COUNT(DISTINCT trackId) AS count FROM TrackAudioFile
+    `,
+    prisma.$queryRaw<Array<{ uniqueHashes: number; filesWithHash: number }>>`
+      SELECT
+        COUNT(DISTINCT contentHash) AS uniqueHashes,
+        COUNT(*) AS filesWithHash
+      FROM TrackAudioFile
+      WHERE contentHash IS NOT NULL
+    `,
+    prisma.$queryRaw<Array<{ cnt: number; size: number }>>`
+      SELECT COUNT(*) AS cnt, MIN(fileSize) AS size
+      FROM TrackAudioFile
+      WHERE contentHash IS NOT NULL
+      GROUP BY contentHash
+      HAVING COUNT(*) > 1
+    `,
+    prisma.trackAudioFile.groupBy({
+      by: ["format"],
+      // eslint-disable-next-line no-underscore-dangle
+      _sum: { fileSize: true },
+      _count: true,
+      // eslint-disable-next-line no-underscore-dangle
+      _avg: { fileSize: true },
+    }),
+  ]);
 
-  const totalBytes = allFiles.reduce((sum, f) => sum + (f.fileSize || 0), 0);
-  const totalFiles = allFiles.length;
+  const totalBytes = agg._sum.fileSize ?? 0;
+  const totalFiles = agg._count;
   const avgFileSize = totalFiles > 0 ? totalBytes / totalFiles : 0;
-  const uniqueTracks = new Set(allFiles.map((f) => f.trackId)).size;
-
-  const formatGroups = await prisma.trackAudioFile.groupBy({
-    by: ["format"],
-    // eslint-disable-next-line no-underscore-dangle
-    _sum: { fileSize: true },
-    _count: true,
-    // eslint-disable-next-line no-underscore-dangle
-    _avg: { fileSize: true },
-  });
+  const uniqueTracks = Number(distinctTracks[0]?.count ?? 0);
 
   const formatStats = formatGroups
     .filter((g) => g.format !== null)
@@ -193,25 +211,16 @@ export async function getStorageStats(): Promise<StorageStats> {
     }))
     .sort((a, b) => b.totalBytes - a.totalBytes);
 
-  const filesWithHash = allFiles.filter((f) => f.contentHash !== null);
-  const uniqueHashes = new Set(filesWithHash.map((f) => f.contentHash)).size;
-  const duplicatesAvoided = filesWithHash.length - uniqueHashes;
-
-  const hashGroups = new Map<string, number[]>();
-  for (const file of filesWithHash) {
-    if (file.contentHash) {
-      if (!hashGroups.has(file.contentHash)) {
-        hashGroups.set(file.contentHash, []);
-      }
-      hashGroups.get(file.contentHash)!.push(file.fileSize || 0);
-    }
-  }
+  const uniqueHashes = Number(hashAgg[0]?.uniqueHashes ?? 0);
+  const filesWithHash = Number(hashAgg[0]?.filesWithHash ?? 0);
+  const duplicatesAvoided = filesWithHash - uniqueHashes;
 
   let storageSaved = 0;
-  for (const sizes of hashGroups.values()) {
-    if (sizes.length > 1) {
-      const size = sizes[0] || 0;
-      storageSaved += (sizes.length - 1) * size;
+  for (const group of hashGroups) {
+    const count = Number(group.cnt ?? 0);
+    const size = Number(group.size ?? 0);
+    if (count > 1) {
+      storageSaved += (count - 1) * size;
     }
   }
 
