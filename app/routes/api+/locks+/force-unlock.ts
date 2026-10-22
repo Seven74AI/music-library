@@ -12,7 +12,7 @@ const ForceUnlockSchema = z.object({
 });
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireCuratorOrAdmin(request);
+  const actorUserId = await requireCuratorOrAdmin(request);
 
   const body = await request.json();
   const result = ForceUnlockSchema.safeParse(body);
@@ -23,7 +23,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const { entityType, entityId, reason } = result.data;
 
-  const success = await forceUnlock(entityType as EntityType, entityId, reason);
+  const success = await forceUnlock(entityType as EntityType, entityId, reason, actorUserId);
 
   if (!success) {
     throw data(

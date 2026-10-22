@@ -80,8 +80,7 @@ test("invalid bearer does not update the cache", async () => {
 
   const result = await runAction(request);
 
-  expect(result).toBeInstanceOf(Response);
-  expect((result as Response).status).toBe(302);
+  expect(result).toMatchObject({ data: { error: "Unauthorized" }, init: { status: 401 } });
   await expect(cache.get(key)).resolves.toBeNull();
 });
 
@@ -91,8 +90,7 @@ test("a missing bearer does not update the cache", async () => {
 
   const result = await runAction(request);
 
-  expect(result).toBeInstanceOf(Response);
-  expect((result as Response).status).toBe(302);
+  expect(result).toMatchObject({ data: { error: "Unauthorized" }, init: { status: 401 } });
   await expect(cache.get(key)).resolves.toBeNull();
 });
 
@@ -102,6 +100,6 @@ test("a different-length bearer does not throw or update the cache", async () =>
 
   const result = await runAction(request);
 
-  expect(result).toBeInstanceOf(Response);
+  expect(result).toMatchObject({ data: { error: "Unauthorized" }, init: { status: 401 } });
   await expect(cache.get(key)).resolves.toBeNull();
 });
