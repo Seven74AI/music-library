@@ -405,14 +405,20 @@ export default function DuplicatesPage() {
                                 entries
                               </CardDescription>
                             </div>
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                handleMergeAlbums(group.albums, albumArtistLabel(group))
-                              }
-                            >
-                              Merge These →
-                            </Button>
+                            {group.artistId === null ? (
+                              <span className="text-xs text-muted-foreground">
+                                Merge the artists first
+                              </span>
+                            ) : (
+                              <Button
+                                size="sm"
+                                onClick={() =>
+                                  handleMergeAlbums(group.albums, albumArtistLabel(group))
+                                }
+                              >
+                                Merge These →
+                              </Button>
+                            )}
                           </div>
                         </CardHeader>
                         <CardContent>
