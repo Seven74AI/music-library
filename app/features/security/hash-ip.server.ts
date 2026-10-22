@@ -26,13 +26,14 @@ export function hashIP(ip: string, salt: string): string {
 }
 
 /**
- * Client address from the platform headers this app already trusts for rate
- * limiting (`Cf-Connecting-Ip`, then `fly-client-ip`, then the first
- * `X-Forwarded-For` hop). Returns null when none are present.
+ * Client address. This app runs behind Fly.io's proxy, which overwrites
+ * `fly-client-ip` with the real peer address and also overwrites
+ * `x-forwarded-for`, so both are trustworthy here. `cf-connecting-ip` is
+ * Cloudflare-only and is deliberately NOT trusted: Fly.io does not sanitize
+ * it, so a client could spoof it to defeat IP-based detection. Returns null
+ * when no trusted header is present.
  */
 export function getClientIp(request: Request): string | null {
-  const cf = request.headers.get("cf-connecting-ip")?.trim();
-  if (cf) return cf;
   const fly = request.headers.get("fly-client-ip")?.trim();
   if (fly) return fly;
   const forwarded = request.headers.get("x-forwarded-for");
