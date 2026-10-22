@@ -1,4 +1,5 @@
 import { data } from "react-router";
+import { chunkArray } from "#app/utils/chunk-array";
 import { addTracksToUserLibrary } from "#app/features/user-library/user-library.server";
 import { getActiveSyncedPlaylistTrackIds } from "#app/features/service-playlist/playlist-utils.server";
 import { prisma } from "#app/utils/db.server.ts";
@@ -47,14 +48,19 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     // Check which are already in library
-    const existingLibrary = await prisma.userTrack.findMany({
-      where: {
-        userId,
-        trackId: { in: allTrackIds },
-        isActive: true,
-      },
-      select: { trackId: true },
-    });
+    // (chunked to stay under SQLite's 999 bind-parameter limit)
+    const existingLibrary: { trackId: string }[] = [];
+    for (const trackIdChunk of chunkArray(allTrackIds)) {
+      const batch = await prisma.userTrack.findMany({
+        where: {
+          userId,
+          trackId: { in: trackIdChunk },
+          isActive: true,
+        },
+        select: { trackId: true },
+      });
+      existingLibrary.push(...batch);
+    }
 
     const existingTrackIds = new Set(existingLibrary.map((ut) => ut.trackId));
     const missingTrackIds = allTrackIds.filter((id) => !existingTrackIds.has(id));

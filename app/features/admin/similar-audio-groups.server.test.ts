@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { compressChromaprint } from "#tests/chromaprint-test-utils";
 import {
   DUPLICATE_GROUP_PAGE_SIZE,
   SIMILAR_CANDIDATE_CAP,
@@ -42,9 +43,17 @@ describe("groupSimilarAudioFiles", () => {
   });
 
   test("groups fingerprints at the 0.9 threshold and rejects anything below it", () => {
-    const base = "0123456789";
-    const atThreshold = "012345678X"; // 9/10 = 0.9
-    const belowThreshold = "01234567XX"; // 8/10 = 0.8
+    // 20 subfingerprints = 640 bits.
+    const baseRaw = Array.from({ length: 20 }, (_, i) => 0x11110000 + i);
+    const base = compressChromaprint(baseRaw);
+
+    // One bit flipped in one subfingerprint => similarity 1 - 1/640 ≈ 0.9984.
+    const nearRaw = [...baseRaw];
+    nearRaw[5] = (nearRaw[5]! ^ 1) >>> 0;
+    const near = compressChromaprint(nearRaw);
+
+    // Every subfingerprint differs by 16 bits => similarity 1 - 320/640 = 0.5.
+    const far = compressChromaprint(Array.from({ length: 20 }, (_, i) => 0xeeee0000 + i));
 
     const grouped = groupSimilarAudioFiles([
       candidate({
@@ -56,7 +65,7 @@ describe("groupSimilarAudioFiles", () => {
       candidate({
         audioFileId: "b",
         contentHash: "hash-b",
-        audioFingerprint: atThreshold,
+        audioFingerprint: near,
         createdAt: new Date("2024-02-01"),
       }),
     ]);
@@ -65,7 +74,7 @@ describe("groupSimilarAudioFiles", () => {
     expect(grouped[0]?.confidence).toBeGreaterThanOrEqual(0.9);
     expect(grouped[0]?.tracks.map((track) => track.audioFileId)).toEqual(["a", "b"]);
     expect(grouped[0]?.id).toBe("similar:a:b");
-    expect(grouped[0]?.tracks[1]?.confidence).toBeCloseTo(0.9);
+    expect(grouped[0]?.tracks[1]?.confidence).toBeCloseTo(1 - 1 / 640);
 
     const rejected = groupSimilarAudioFiles([
       candidate({
@@ -76,7 +85,7 @@ describe("groupSimilarAudioFiles", () => {
       candidate({
         audioFileId: "c",
         contentHash: "hash-c",
-        audioFingerprint: belowThreshold,
+        audioFingerprint: far,
       }),
     ]);
     expect(rejected).toEqual([]);

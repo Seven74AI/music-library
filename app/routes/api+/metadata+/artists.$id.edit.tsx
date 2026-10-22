@@ -5,6 +5,7 @@ import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
+import { getLockStatus, releaseLock } from "#app/utils/locks.server.ts";
 import { type Route } from "./+types/artists.$id.edit.ts";
 
 const EditArtistSchema = z.object({
@@ -72,6 +73,18 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Artist not found" }, { status: 404 });
   }
 
+  // Reject the edit if another curator holds the lock (ADR-032).
+  const lock = await getLockStatus("artist", artistId);
+  if (lock && lock.lockedBy !== userId) {
+    throw data(
+      {
+        error: "Locked",
+        message: `${lock.lockedByName} is currently editing this artist`,
+      },
+      { status: 409 },
+    );
+  }
+
   // Snapshot the current artist first so restore can recover the pre-edit values.
   const { artist, edit } = await prisma.$transaction(async (tx) => {
     const artistEdit = await tx.artistEdit.create({
@@ -104,6 +117,9 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     return { artist: updatedArtist, edit: artistEdit };
   });
+
+  // Release the lock on successful save (ADR-032).
+  await releaseLock("artist", artistId, userId);
 
   return data({ artist, edit });
 }
