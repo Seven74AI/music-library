@@ -813,8 +813,8 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
     {
       matchType: MatchType;
       normalizedName: string;
-      artistId: string;
-      artistName: string;
+      artistId: string | null;
+      artistName: string | null;
       ids: Set<string>;
     }
   >();
@@ -823,10 +823,14 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
     const first = albumById.get(pair.entityId1);
     const second = albumById.get(pair.entityId2);
     if (!first || !second) continue;
-    if (first.artistId !== second.artistId) continue;
 
     const matchType = pair.matchType as MatchType;
-    const key = `${matchType}\u0000${first.artistId}\u0000${pair.normalizedName}`;
+    // Cross-artist fuzzy pairs span artists; group them under a single sentinel
+    // key (detection groups them by normalized name, with artistId null).
+    const crossArtist = first.artistId !== second.artistId;
+    const key = crossArtist
+      ? `${matchType}\u0000cross\u0000${pair.normalizedName}`
+      : `${matchType}\u0000${first.artistId}\u0000${pair.normalizedName}`;
     const existing = groups.get(key);
     if (existing) {
       existing.ids.add(pair.entityId1);
@@ -835,8 +839,8 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
       groups.set(key, {
         matchType,
         normalizedName: pair.normalizedName,
-        artistId: first.artistId,
-        artistName: first.artist.name,
+        artistId: crossArtist ? null : first.artistId,
+        artistName: crossArtist ? null : first.artist.name,
         ids: new Set([pair.entityId1, pair.entityId2]),
       });
     }
@@ -854,6 +858,8 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
           id: album.id,
           name: album.name,
           year: album.year,
+          artistId: album.artistId,
+          artistName: album.artist.name,
           trackCount: album._count.tracks,
         };
       })

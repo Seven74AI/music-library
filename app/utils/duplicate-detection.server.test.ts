@@ -7,6 +7,7 @@ import {
   findExactAlbumDuplicates,
   findExactArtistDuplicates,
   findFuzzyAlbumDuplicates,
+  readAlbumDuplicateGroupsFromCache,
   saveDuplicateDetectionResults,
 } from "./duplicate-detection.server.ts";
 
@@ -173,6 +174,42 @@ test("findFuzzyAlbumDuplicates still detects same-artist fuzzy duplicates", asyn
   expect(group?.matchType).toBe("fuzzy");
   expect(group?.artistId).toBe(artist.id);
   expect(group?.artistName).toBe(`Queen ${token}`);
+});
+
+test("readAlbumDuplicateGroupsFromCache reconstructs cross-artist fuzzy groups", async () => {
+  const token = randomBytes(4).toString("hex");
+
+  const artist1 = await prisma.artist.create({
+    data: { name: `The Pink ${token}`, normalizedName: `pink ${token}` },
+  });
+  const artist2 = await prisma.artist.create({
+    data: { name: `Pynk ${token}`, normalizedName: `pynk ${token}` },
+  });
+  artistIds.push(artist1.id, artist2.id);
+
+  const album1 = await prisma.album.create({
+    data: { name: `Dark Side ${token}`, artistId: artist1.id, year: 1973 },
+  });
+  const album2 = await prisma.album.create({
+    data: { name: `Dark Sied ${token}`, artistId: artist2.id, year: 1974 },
+  });
+
+  // Detect, persist pairs to the cache, then read groups back from it.
+  const fuzzy = await findFuzzyAlbumDuplicates();
+  await saveDuplicateDetectionResults("album", [], fuzzy);
+
+  const { fuzzy: cachedFuzzy } = await readAlbumDuplicateGroupsFromCache();
+
+  const group = cachedFuzzy.find(
+    (g) => g.albums.some((a) => a.id === album1.id) && g.albums.some((a) => a.id === album2.id),
+  );
+
+  expect(group).toBeDefined();
+  expect(group?.matchType).toBe("fuzzy");
+  expect(group?.artistId).toBeNull();
+  expect(group?.artistName).toBeNull();
+  expect(group?.albums.find((a) => a.id === album1.id)?.artistName).toBe(`The Pink ${token}`);
+  expect(group?.albums.find((a) => a.id === album2.id)?.artistName).toBe(`Pynk ${token}`);
 });
 
 test("cacheArtistNormalizedNames and cacheAlbumNormalizedNames bulk-write the cache", async () => {
