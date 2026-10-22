@@ -355,12 +355,21 @@ export async function resolveDeletedVideosAfterSync(
   await prisma.$transaction(async (tx) => {
     for (const deletedVideo of deletedVideosWithoutMatch) {
       const artistRecord = await getOrCreateArtistTx(tx, "Unknown Artist");
-      const trackId = createId();
       const externalId = deletedVideo.externalId;
 
-      await tx.track.create({
-        data: {
-          id: trackId,
+      // Upsert, not create: an itemId-less unavailable item re-synthesizes the same
+      // `pending-{playlistId}-{position}` externalId on every sync, so a bare create
+      // throws the serviceId_externalId unique-constraint violation on the second sync.
+      const track = await tx.track.upsert({
+        where: {
+          serviceId_externalId: { serviceId, externalId },
+        },
+        update: {
+          title: "Deleted video",
+          artistId: artistRecord.id,
+        },
+        create: {
+          id: createId(),
           title: "Deleted video",
           artistId: artistRecord.id,
           duration: null,
@@ -371,20 +380,27 @@ export async function resolveDeletedVideosAfterSync(
         },
       });
 
-      await tx.servicePlaylistTrack.create({
-        data: {
+      await tx.servicePlaylistTrack.upsert({
+        where: {
+          playlistId_trackId: { playlistId, trackId: track.id },
+        },
+        update: {
+          position: deletedVideo.position,
+          isDeleted: true,
+        },
+        create: {
           id: createId(),
           playlistId,
-          trackId,
+          trackId: track.id,
           position: deletedVideo.position,
           isDeleted: true,
           deletedAt: new Date(),
         },
       });
 
-      nextProcessedIds.trackIds.add(trackId);
+      nextProcessedIds.trackIds.add(track.id);
       deletedTracks.push({
-        id: trackId,
+        id: track.id,
         title: "Deleted video",
         externalId,
       });
