@@ -1,5 +1,6 @@
 import { parseString } from "set-cookie-parser";
 import { afterEach, describe, expect, test } from "vitest";
+import { compressChromaprint } from "#tests/chromaprint-test-utils";
 import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
@@ -152,6 +153,15 @@ describe("admin duplicate dashboard", () => {
 
   test("similar, exact, all, and intentional filters return the right groups", async () => {
     const { cookie } = await createCookie("admin");
+
+    // Valid compressed Chromaprints. Similar A/B differ by one bit (~0.998),
+    // Different A/B differ by 16 bits per subfingerprint (~0.5).
+    const similarBase = Array.from({ length: 20 }, (_, i) => 0x11110000 + i);
+    const similarNear = [...similarBase];
+    similarNear[5] = (similarNear[5]! ^ 1) >>> 0;
+    const differentA = Array.from({ length: 20 }, (_, i) => 0x22220000 + i);
+    const differentB = Array.from({ length: 20 }, (_, i) => 0xeeee0000 + i);
+
     await createTrackWithAudio({
       title: "Exact A",
       contentHash: EXACT_HASH,
@@ -165,22 +175,22 @@ describe("admin duplicate dashboard", () => {
     await createTrackWithAudio({
       title: "Similar A",
       contentHash: "similar-hash-a",
-      audioFingerprint: "0123456789",
+      audioFingerprint: compressChromaprint(similarBase),
     });
     await createTrackWithAudio({
       title: "Similar B",
       contentHash: "similar-hash-b",
-      audioFingerprint: "012345678X",
+      audioFingerprint: compressChromaprint(similarNear),
     });
     await createTrackWithAudio({
       title: "Different A",
       contentHash: "different-hash-a",
-      audioFingerprint: "aaaaaaaaaa",
+      audioFingerprint: compressChromaprint(differentA),
     });
     await createTrackWithAudio({
       title: "Different B",
       contentHash: "different-hash-b",
-      audioFingerprint: "aaaaaaXXXX",
+      audioFingerprint: compressChromaprint(differentB),
     });
 
     const exact = unwrap<Dashboard>(await loadDashboard(cookie, "exact"));
