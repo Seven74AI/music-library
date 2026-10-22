@@ -9,7 +9,7 @@ import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { action } from "./upload-audio-batch.tsx";
-import { getUploadProgress } from "./upload-progress.$uploadId.tsx";
+import { getUploadProgress } from "#app/features/upload-progress/progress-store.server.ts";
 
 const tinyMp3 = readFileSync(new URL("../../../tests/fixtures/tiny-tone.mp3", import.meta.url));
 
@@ -46,7 +46,7 @@ async function createAdminCookie() {
 async function waitForUpload(uploadId: string) {
   const started = Date.now();
   while (Date.now() - started < 20_000) {
-    const progress = getUploadProgress(uploadId);
+    const progress = await getUploadProgress(uploadId);
     if (progress && progress.status !== "active") return progress;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -158,7 +158,7 @@ test("an over-cap audio ZIP returns 400 and does not upload a partial set", asyn
       success: false,
       error: expect.stringMatching(/more than 100 audio files/),
     });
-    expect(getUploadProgress(uploadId)).toBeUndefined();
+    expect(await getUploadProgress(uploadId)).toBeUndefined();
   } finally {
     await prisma.session.deleteMany({ where: { userId } });
     await prisma.user.delete({ where: { id: userId } });
