@@ -82,17 +82,15 @@ export async function listDiscoverTracks({
   direction = defaultDiscoverSortDirection(sort),
   cursor,
   limit = DISCOVER_TRACKS_PAGE_SIZE,
-  now = new Date(),
 }: {
   userId: string;
   sort: DiscoverSortOption;
   direction?: SortDirection;
   cursor?: string | null;
   limit?: number;
-  now?: Date;
 }): Promise<ListDiscoverTracksResult> {
   if (sort === "mostPlayed") {
-    return listDiscoverTracksByPlayCount({ userId, direction, cursor, limit, now });
+    return listDiscoverTracksByPlayCount({ userId, direction, cursor, limit });
   }
 
   if (sort === "mostLiked") {
@@ -304,7 +302,6 @@ async function listDiscoverTracksByPlayCount({
   direction: SortDirection;
   cursor: string | null | undefined;
   limit: number;
-  now: Date;
 }): Promise<ListDiscoverTracksResult> {
   const { ids, hasNext, nextCursor } = await aggregateOrderedTrackIds({
     countSql: PLAY_COUNT_SQL,

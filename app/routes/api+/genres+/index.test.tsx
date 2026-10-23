@@ -256,3 +256,29 @@ describe("clientAction for POST /api/genres", () => {
     expect(result).toEqual(payload);
   });
 });
+
+describe("Genre normalizedName uniqueness", () => {
+  const createdIds: string[] = [];
+
+  afterEach(async () => {
+    if (createdIds.length === 0) return;
+    await prisma.genre.deleteMany({ where: { id: { in: createdIds } } });
+    createdIds.length = 0;
+  });
+
+  test("rejects a case-only duplicate at the DB level (P2002)", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const created = await prisma.genre.create({
+      data: { name: `Rock ${stamp}`, normalizedName: `rock ${stamp}` },
+    });
+    createdIds.push(created.id);
+
+    // 'rock' vs 'Rock' differ only by case: the raw `name` unique allows both,
+    // but the normalizedName unique must reject the second insert.
+    await expect(
+      prisma.genre.create({
+        data: { name: `rock ${stamp}`, normalizedName: `rock ${stamp}` },
+      }),
+    ).rejects.toThrow();
+  });
+});

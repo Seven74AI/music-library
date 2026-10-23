@@ -1,8 +1,8 @@
 export type OfflineAudioStore = {
-  write: (trackId: string, data: ArrayBuffer) => Promise<void>;
-  read: (trackId: string) => Promise<ArrayBuffer | null>;
-  delete: (trackId: string) => Promise<void>;
-  has: (trackId: string) => Promise<boolean>;
+  write: (trackId: string, data: ArrayBuffer, format?: string | null) => Promise<void>;
+  read: (trackId: string, format?: string | null) => Promise<ArrayBuffer | null>;
+  delete: (trackId: string, format?: string | null) => Promise<void>;
+  has: (trackId: string, format?: string | null) => Promise<boolean>;
 };
 
 export function createMemoryOfflineAudioStore(): OfflineAudioStore {

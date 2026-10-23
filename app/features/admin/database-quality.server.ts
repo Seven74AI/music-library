@@ -286,7 +286,13 @@ export async function getDuplicateTracksCount(): Promise<number> {
 }
 
 export async function getOrphanedFilesCount(): Promise<number> {
-  return 0;
+  const orphanedFiles = await prisma.$queryRaw<Array<{ count: number }>>`
+    SELECT COUNT(*) as count
+    FROM TrackAudioFile taf
+    LEFT JOIN Track t ON taf.trackId = t.id
+    WHERE t.id IS NULL
+  `;
+  return Number(orphanedFiles[0]?.count ?? 0);
 }
 
 /** Score and color for the admin overview. Same weights as the quality page. */

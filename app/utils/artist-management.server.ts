@@ -3,27 +3,11 @@ import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "#app/utils/db.server";
 import { type Prisma } from "#prisma/client.js";
 import { type ExtractedAudioMetadata } from "./audio-metadata.server";
+import { normalizeArtistName } from "./normalize.server.ts";
 
-/**
- * Normalize artist name for consistent matching
- * - Convert to lowercase
- * - Trim whitespace
- * - Normalize special characters (basic normalization)
- */
-export function normalizeArtistName(name: string): string {
-  if (!name || typeof name !== "string") {
-    return "";
-  }
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      // Normalize common special characters
-      .replace(/\s+/g, " ") // Multiple spaces to single space
-      .replace(/['"]/g, "") // Remove quotes
-      .replace(/[^\w\s-]/g, "")
-  ); // Remove special chars except word chars, spaces, hyphens
-}
+// Re-export the ADR-034 canonical normalization so every artist write path
+// (create/edit/restore/split/import) derives the same normalizedName.
+export { normalizeArtistName };
 
 /**
  * Extract artist metadata from audio file metadata

@@ -49,6 +49,7 @@
     "generate-on-repeat-snapshots": "tsx scripts/generate-on-repeat-snapshots.ts",
     "db:manage": "tsx scripts/manage-db.ts",
     "make-admin": "tsx scripts/make-admin.ts",
+    "migrate-genres": "tsx scripts/migrate-genres.ts",
     "prepare": "husky"
   },
   "dependencies": {

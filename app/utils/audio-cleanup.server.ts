@@ -4,23 +4,27 @@ import { deleteFile } from "#app/utils/storage.server.ts";
 /**
  * Delete S3 objects that are no longer referenced by any TrackAudioFile rows.
  *
- * This helper defends against a race with persistTrackAudio: if an upload
- * reuses the same content-hash objectKey after we mark a track for deletion
- * but before we clean up storage, the new track's audio must not be deleted.
- *
- * Call this *after* cascade-deleting tracks or TrackAudioFile rows so the
- * final refcount reflects the post-delete state.
+ * The reference check runs as a single batched query over all keys (one round
+ * trip instead of one `count` + one `delete` per key). Call this *after*
+ * cascade-deleting tracks or TrackAudioFile rows so the refcount reflects the
+ * post-delete state.
  *
  * @param objectKeys - S3 object keys to consider for deletion
  */
 export async function deleteUnreferencedObjectKeys(objectKeys: string[]): Promise<void> {
-  for (const objectKey of [...new Set(objectKeys)]) {
-    const stillReferenced = await prisma.trackAudioFile.count({
-      where: { objectKey },
-    });
-    if (stillReferenced > 0) {
-      continue;
-    }
+  const uniqueKeys = [...new Set(objectKeys)];
+  if (uniqueKeys.length === 0) return;
+
+  // One query resolves which keys are still referenced.
+  const referenced = await prisma.trackAudioFile.findMany({
+    where: { objectKey: { in: uniqueKeys } },
+    select: { objectKey: true },
+    distinct: ["objectKey"],
+  });
+  const referencedKeys = new Set(referenced.map((row) => row.objectKey));
+
+  for (const objectKey of uniqueKeys) {
+    if (referencedKeys.has(objectKey)) continue;
     try {
       await deleteFile(objectKey);
     } catch (error) {

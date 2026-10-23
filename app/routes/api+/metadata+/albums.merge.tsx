@@ -14,7 +14,6 @@ import type { Route } from "./+types/albums.merge.ts";
 const MergeAlbumsSchema = z.object({
   sourceId: z.string().min(1, "Source album ID is required"),
   targetId: z.string().min(1, "Target album ID is required"),
-  keepAsAlias: z.boolean().default(true),
   comment: z.string().min(1, "Comment is required to explain the merge"),
 });
 

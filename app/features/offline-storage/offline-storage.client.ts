@@ -123,7 +123,7 @@ export function createOfflineStorage(
     const victims = selectQueueCacheEvictionCandidates(records, bytesToFree);
 
     for (const victim of victims) {
-      await audioStore.delete(victim.trackId);
+      await audioStore.delete(victim.trackId, victim.audioFormat);
       await metadataStore.delete(victim.trackId);
     }
   }
@@ -150,7 +150,7 @@ export function createOfflineStorage(
     await ensureCapacity(fileSizeBytes);
 
     const existing = await metadataStore.get(track.id);
-    await audioStore.write(track.id, buffer);
+    await audioStore.write(track.id, buffer, getOfflineAudioFormat(track));
 
     if (existing) {
       await metadataStore.put(
@@ -169,7 +169,7 @@ export function createOfflineStorage(
 
     await metadataStore.put(
       toOfflineTrackRecord(track, {
-        opfsPath: offlineAudioOpfsPath(track.id),
+        opfsPath: offlineAudioOpfsPath(track.id, getOfflineAudioFormat(track)),
         fileSizeBytes,
         isPinned: options.pin,
         isQueueCached: options.queue,
@@ -182,7 +182,7 @@ export function createOfflineStorage(
   async function removeTrack(trackId: string) {
     const audioStore = await resolveAudioStore();
     const record = await metadataStore.get(trackId);
-    await audioStore.delete(trackId);
+    await audioStore.delete(trackId, record?.audioFormat);
     await metadataStore.delete(trackId);
     if (record?.coverObjectKey) {
       const { deleteCachedCover } = await import("./cover-cache.client.ts");
@@ -235,7 +235,7 @@ export function createOfflineStorage(
       const audioStore = await resolveAudioStore();
       const record = await metadataStore.get(trackId);
       if (!record) return null;
-      const buffer = await audioStore.read(trackId);
+      const buffer = await audioStore.read(trackId, record.audioFormat);
       if (!buffer) {
         await metadataStore.delete(trackId);
         return null;
@@ -249,7 +249,7 @@ export function createOfflineStorage(
       const audioStore = await resolveAudioStore();
       const record = await metadataStore.get(trackId);
       if (!record) return false;
-      const exists = await audioStore.has(trackId);
+      const exists = await audioStore.has(trackId, record.audioFormat);
       if (!exists) {
         await metadataStore.delete(trackId);
         return false;
