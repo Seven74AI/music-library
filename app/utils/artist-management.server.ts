@@ -1,4 +1,3 @@
-// @context7: Prisma, crypto, Buffer
 import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "#app/utils/db.server";
 import { type Prisma } from "#prisma/client.js";

@@ -1,4 +1,3 @@
-// @context7: React Router, Prisma, AWS S3
 import { readFileSync, existsSync, statSync, openSync, readSync, closeSync } from "fs";
 import { join, resolve, sep } from "path";
 import { type LoaderFunctionArgs } from "react-router";

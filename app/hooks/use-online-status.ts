@@ -1,13 +1,10 @@
 import { useEffect, useState } from "react";
 
-function readInitialOnlineStatus() {
-  if (typeof navigator === "undefined") return true;
-  if (typeof navigator.onLine !== "boolean") return true;
-  return navigator.onLine;
-}
-
 export function useOnlineStatus() {
-  const [isOnline, setIsOnline] = useState(readInitialOnlineStatus);
+  // Always initialise to `true` so the server render and the first client render
+  // agree (avoids a hydration mismatch when a user cold-loads while offline).
+  // The effect below syncs to the real value immediately after mount.
+  const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
     setIsOnline(navigator.onLine);

@@ -1,4 +1,4 @@
--- @param {String} $1:like
+-- @param {String} like
 SELECT 
   "User".id,
   "User".username,

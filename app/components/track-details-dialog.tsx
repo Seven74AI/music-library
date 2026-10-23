@@ -185,10 +185,8 @@ export function TrackDetailsDialog({
   }, [restoreFetcher.state, restoreFetcher.data, trackId, detailsFetcher]);
 
   // BroadcastChannel integration
-  useEffect(() => {
-    if (!open) return;
-
-    const cleanup = useCuratorSync((message) => {
+  useCuratorSync(
+    (message) => {
       if (
         message.type === "LOCK_RELEASED" &&
         message.entityType === "track" &&
@@ -204,10 +202,9 @@ export function TrackDetailsDialog({
         // Track was updated by another curator, reload track details
         detailsFetcher.load(`/resources/track-details?trackId=${encodeURIComponent(trackId)}`);
       }
-    });
-
-    return cleanup;
-  }, [open, trackId, refreshLock, detailsFetcher]);
+    },
+    open,
+  );
 
   useEffect(() => {
     if (typeof saveSessionState !== "function") return;
@@ -407,7 +404,7 @@ export function TrackDetailsDialog({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => window.open(track.serviceUrl!, "_blank")}
+                        onClick={() => window.open(track.serviceUrl!, "_blank", "noopener,noreferrer")}
                         className="flex-1"
                       >
                         <Icon name="link-2" className="mr-2 h-4 w-4" />

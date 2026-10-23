@@ -1,4 +1,3 @@
-// @context7: @mjackson/form-data-parser, @paralleldrive/cuid2, Prisma, Zod, React Router
 import { parseFormData } from "@mjackson/form-data-parser";
 import { createId } from "@paralleldrive/cuid2";
 import { data, type ActionFunctionArgs } from "react-router";
@@ -111,7 +110,8 @@ export async function action({ request }: ActionFunctionArgs) {
     // serializes writers, so holding the write lock across a network upload can
     // trip the transaction timeout and roll back the DB writes after the object
     // was already uploaded (leaving an orphaned Tigris object). The transaction
-    // below now contains only fast DB writes.
+    // below contains fast DB writes plus the cover-image upload (a small
+    // thumbnail, so the brief external Tigris I/O is acceptable).
     const preparedAudio = await prepareTrackAudioUpload({
       trackId,
       serviceName: LOCAL_SERVICE.NAME,
@@ -151,8 +151,9 @@ export async function action({ request }: ActionFunctionArgs) {
         extractedMetadata.year || null,
       );
 
-      // Upload cover image if present (with deduplication)
-      // Note: File upload happens outside transaction, but DB operations are in transaction
+      // Upload cover image if present (with deduplication). Unlike the audio
+      // upload above, this runs INSIDE the transaction; covers are small, so the
+      // brief external Tigris I/O is acceptable.
       let coverImageId: string | null = null;
       if (extractedMetadata.coverImage) {
         try {

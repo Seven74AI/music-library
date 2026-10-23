@@ -1,4 +1,3 @@
-// @context7: @mjackson/form-data-parser, @paralleldrive/cuid2, Prisma, React Router
 import { parseFormData } from "@mjackson/form-data-parser";
 import { createId } from "@paralleldrive/cuid2";
 import { data, type ActionFunctionArgs } from "react-router";
@@ -372,7 +371,8 @@ async function processFilesAsync(
         // made concurrent batches exceed `maxWait` and let a >30s upload trip
         // `timeout`, rolling back the DB writes after the object was already
         // uploaded (leaving an orphaned Tigris object). The transaction below
-        // now contains only fast DB writes.
+        // contains fast DB writes plus the cover-image upload (a small
+        // thumbnail, so the brief external Tigris I/O is acceptable).
         const uploadStartProgress = 10;
         const uploadEndProgress = 50;
         const uploadProgressRange = uploadEndProgress - uploadStartProgress;
@@ -430,8 +430,9 @@ async function processFilesAsync(
             file.userMetadata?.year || file.metadata.year || null,
           );
 
-          // Upload cover image if present (with deduplication)
-          // Note: File upload happens outside transaction, but DB operations are in transaction
+          // Upload cover image if present (with deduplication). Unlike the audio
+          // upload above, this runs INSIDE the transaction; covers are small, so
+          // the brief external Tigris I/O is acceptable.
           let coverImageId: string | null = null;
           if (file.metadata.coverImage) {
             try {
