@@ -35,11 +35,15 @@ CREATE TABLE "new_Track" (
     CONSTRAINT "Track_coverImageId_fkey" FOREIGN KEY ("coverImageId") REFERENCES "CoverImage" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Track_serviceId_fkey" FOREIGN KEY ("serviceId") REFERENCES "Service" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
--- Copy existing data, filtering out any rows with NULL serviceId or externalId
+-- Copy existing data. Do NOT filter out NULL serviceId/externalId rows — that
+-- silently deleted every local-upload track lacking a service or external id.
+-- Instead, backfill: NULL serviceId -> the seeded 'local' Service row, and
+-- NULL externalId -> a synthetic 'local-<id>' value (the schema requires a
+-- non-null externalId, so local uploads fabricate one; see the admin upload
+-- route which already uses a generated file id).
 INSERT INTO "new_Track" ("albumArtist", "albumId", "artistId", "bpm", "coverImageId", "createdAt", "duration", "externalId", "genre", "id", "isrc", "label", "lyrics", "originalDate", "originalYear", "releaseDate", "serviceId", "serviceUrl", "title", "totalDiscs", "totalTracks", "trackNumber", "updatedAt", "year") 
-SELECT "albumArtist", "albumId", "artistId", "bpm", "coverImageId", "createdAt", "duration", "externalId", "genre", "id", "isrc", "label", "lyrics", "originalDate", "originalYear", "releaseDate", "serviceId", "serviceUrl", "title", "totalDiscs", "totalTracks", "trackNumber", "updatedAt", "year" 
-FROM "Track" 
-WHERE "serviceId" IS NOT NULL AND "externalId" IS NOT NULL;
+SELECT "albumArtist", "albumId", "artistId", "bpm", "coverImageId", "createdAt", "duration", COALESCE("externalId", 'local-' || "id"), "genre", "id", "isrc", "label", "lyrics", "originalDate", "originalYear", "releaseDate", COALESCE("serviceId", (SELECT "id" FROM "Service" WHERE "name" = 'local' LIMIT 1)), "serviceUrl", "title", "totalDiscs", "totalTracks", "trackNumber", "updatedAt", "year" 
+FROM "Track";
 DROP TABLE "Track";
 ALTER TABLE "new_Track" RENAME TO "Track";
 PRAGMA foreign_keys=ON;

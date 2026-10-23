@@ -98,7 +98,7 @@ The spine is the ordered list of playable tracks for the active play context:
 
 **Key Behavior**: The spine resets when switching contexts (library ↔ playlist). Up Next is cleared on a fresh play from a new context.
 
-**API**: `GET /api/queue-spine?context=library&hasAudio=1` or `GET /api/queue-spine?context=playlist&playlistId=…`. Returns `{ tracks: QueueTrack[], total: number }` where each `QueueTrack` has `id`, `title`, and `artist` only.
+**API**: `GET /api/queue-spine?context=library&hasAudio=1` or `GET /api/queue-spine?context=playlist&playlistId=…`. Returns `{ tracks: QueueTrack[], total: number }` where each `QueueTrack` has `id`, `title`, and an `artist` object (`{ id, name }`) only.
 
 #### 2. **Up Next (Manual Zone)**
 
@@ -397,7 +397,7 @@ When the user has no network (`navigator.onLine === false`) or loader fetches fa
 1. **Online** — `playTrack` / `playLibrary` / `playUserPlaylist` fetch playable tracks from the server, then set `src` from `/resources/audio/:trackId` (presigned stream).
 2. **Offline** — Same entry points call `fetchOfflineTracks` / `listPinned()` and build blob URLs from OPFS bytes. Correct MIME types come from stored `audioFormat` metadata.
 
-`createOfflineClientLoader` / `loadWithOfflineFallback` (`app/features/offline-app/offline-loader.client.ts`) handles route data the same way: check offline first, then catch network errors.
+The unified `offlineClientMiddleware` (`app/middleware/offline-client.middleware.client.ts`) handles route data the same way: check offline first, then substitute stub data from `OFFLINE_ROUTE_POLICIES` when fetches fail.
 
 ### Queue auto-cache
 
@@ -417,7 +417,7 @@ Pinned downloads persist until removed; they appear in `/downloads` and offline 
 
 When offline playback fails (missing file, corrupt blob), the audio player shows an error bar with a short message instead of failing silently.
 
-See [ADR-013](./decisions/013-pwa.md) and `docs/CONTEXT.md` (decisions #42–#57) for storage policy and route scope.
+See [ADR-013](./decisions/013-pwa.md) and `docs/CONTEXT.md` (decisions #43–#58) for storage policy and route scope.
 
 ---
 
