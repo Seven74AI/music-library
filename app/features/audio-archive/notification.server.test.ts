@@ -42,6 +42,16 @@ describe("sendTelegramMessage", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("returns true without calling fetch when MOCKS=true", async () => {
+    process.env.MOCKS = "true";
+    process.env.TELEGRAM_BOT_TOKEN = "bot123:abc";
+    process.env.TELEGRAM_ADMIN_CHAT_ID = "987654";
+
+    const result = await sendTelegramMessage("mock mode");
+    expect(result).toBe(true);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("sends a POST request to the Telegram API", async () => {
     process.env.TELEGRAM_BOT_TOKEN = "bot123:abc";
     process.env.TELEGRAM_ADMIN_CHAT_ID = "987654";
