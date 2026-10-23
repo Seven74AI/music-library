@@ -35,6 +35,16 @@ import { getPlaylistTitle } from "#app/utils/breadcrumb-utils.ts";
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { filterPlayableTracks } from "#app/utils/playable-track.ts";
+
+/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
 import {
   defaultPlaylistTrackSortDirection,
   parsePlaylistTrackSort,
@@ -237,16 +247,35 @@ export async function action({ request, params }: Route.ActionArgs) {
       );
     }
 
-    await prisma.userPlaylist.update({
-      where: {
-        id: params.playlistId,
-        ownerId: userId,
-      },
-      data: {
-        title: title.trim(),
-        description: description.trim() || null,
-      },
-    });
+    const newTitle = title.trim();
+    try {
+      await prisma.userPlaylist.update({
+        where: {
+          id: params.playlistId,
+          ownerId: userId,
+        },
+        data: {
+          title: newTitle,
+          description: description.trim() || null,
+        },
+      });
+    } catch (error) {
+      // Atomic guard via the DB unique index on (ownerId, lower(trim(title))).
+      if (isUniqueConstraintViolation(error)) {
+        return data(
+          { error: `You already have a playlist named "${newTitle}"` },
+          {
+            status: 409,
+            headers: await createToastHeaders({
+              title: "Duplicate playlist",
+              description: `You already have a playlist named "${newTitle}"`,
+              type: "error",
+            }),
+          },
+        );
+      }
+      throw error;
+    }
 
     return data(
       { success: true, message: "Playlist updated successfully" },

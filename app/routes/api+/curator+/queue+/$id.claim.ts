@@ -14,17 +14,22 @@ export async function action({ request, params }: Route.ActionArgs) {
   await releaseStaleClaims();
   const item = await prisma.reviewQueueItem.findUnique({ where: { id } });
   if (!item) return data({ success: false, error: "Queue item not found" }, { status: 404 });
-  if (item.status !== "open") {
+
+  // Atomic conditional claim: only transition an item that is still 'open'.
+  // A check-then-update would let two curators both read 'open' and both claim,
+  // with the last writer silently stealing the claim.
+  const result = await prisma.reviewQueueItem.updateMany({
+    where: { id, status: "open" },
+    data: { status: "claimed", claimedBy: userId, claimedAt: new Date() },
+  });
+
+  if (result.count === 0) {
     return data(
       { success: false, error: "Queue item is not available for claiming" },
       { status: 400 },
     );
   }
 
-  await prisma.reviewQueueItem.update({
-    where: { id },
-    data: { status: "claimed", claimedBy: userId, claimedAt: new Date() },
-  });
   return data({ success: true });
 }
 

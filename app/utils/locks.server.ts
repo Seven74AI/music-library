@@ -8,6 +8,18 @@ export type EntityType = "track" | "artist" | "album";
 
 const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
+const lockInclude = { user: { select: { id: true, name: true, username: true } } } as const;
+
+/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 export interface LockInfo {
   id: string;
   entityType: EntityType;
@@ -52,19 +64,43 @@ export async function acquireLock(
     return null;
   }
 
-  // Create new lock
+  // Create new lock. The EditLock entityType_entityId unique constraint (ADR-032)
+  // is the atomic guard: two curators acquiring concurrently both pass the
+  // findUnique above, but only one create succeeds — the loser hits P2002.
   const expiresAt = new Date(Date.now() + LOCK_TIMEOUT_MS);
-  const lock = await prisma.editLock.create({
-    data: {
-      entityType,
-      entityId,
-      lockedBy: userId,
-      expiresAt,
-    },
-    include: { user: { select: { id: true, name: true, username: true } } },
-  });
+  try {
+    const lock = await prisma.editLock.create({
+      data: {
+        entityType,
+        entityId,
+        lockedBy: userId,
+        expiresAt,
+      },
+      include: lockInclude,
+    });
 
-  return toLockInfo(lock);
+    return toLockInfo(lock);
+  } catch (error) {
+    if (!isUniqueConstraintViolation(error)) throw error;
+
+    // Lost the race to another curator. Re-read the winning lock so a same-user
+    // double-acquire still extends it instead of reporting "already locked".
+    const winner = await prisma.editLock.findUnique({
+      where: { entityType_entityId: { entityType, entityId } },
+      include: lockInclude,
+    });
+
+    if (winner?.lockedBy === userId) {
+      const extended = await prisma.editLock.update({
+        where: { id: winner.id },
+        data: { expiresAt: new Date(Date.now() + LOCK_TIMEOUT_MS) },
+        include: lockInclude,
+      });
+      return toLockInfo(extended);
+    }
+
+    return null;
+  }
 }
 
 export type ReleaseLockResult = "released" | "not_found" | "not_owner";

@@ -6,9 +6,18 @@ import {
   prepareTrackAudioUpload,
   createTrackAudioFile,
 } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
-import { getOrCreateArtistTx, extractArtistMetadata } from "#app/utils/artist-management.server";
+import {
+  getOrCreateArtistTx,
+  getOrCreateArtist,
+  extractArtistMetadata,
+} from "#app/utils/artist-management.server";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
-import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from "#app/utils/cover-management.server";
+import {
+  prepareCoverImageUpload,
+  createCoverImageInTx,
+  getOrCreateAlbumTx,
+  getOrCreateAlbum,
+} from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -110,8 +119,7 @@ export async function action({ request }: ActionFunctionArgs) {
     // serializes writers, so holding the write lock across a network upload can
     // trip the transaction timeout and roll back the DB writes after the object
     // was already uploaded (leaving an orphaned Tigris object). The transaction
-    // below contains fast DB writes plus the cover-image upload (a small
-    // thumbnail, so the brief external Tigris I/O is acceptable).
+    // below now contains only fast DB writes.
     const preparedAudio = await prepareTrackAudioUpload({
       trackId,
       serviceName: LOCAL_SERVICE.NAME,
@@ -135,14 +143,48 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
+    const artistMetadata = extractArtistMetadata(extractedMetadata);
+    const albumArtist = extractedMetadata.albumArtist || artist;
+
+    // Resolve the album OUTSIDE the transaction so the cover-image dedup check can
+    // read its current cover. getOrCreateArtist/getOrCreateAlbum use the global
+    // client; the transaction below re-resolves them idempotently.
+    let resolvedAlbumId: string | null = null;
+    if (album) {
+      const albumArtistRecord = await getOrCreateArtist(albumArtist, artistMetadata);
+      const resolvedAlbum = await getOrCreateAlbum(
+        albumArtistRecord.id,
+        album,
+        extractedMetadata.year || null,
+      );
+      resolvedAlbumId = resolvedAlbum?.id ?? null;
+    }
+
+    // Prepare the cover image OUTSIDE the transaction (sharp + Tigris upload).
+    // SQLite serializes writers, so holding the write lock across sharp + a network
+    // upload can trip the transaction timeout and roll back DB writes after the
+    // object was already uploaded (leaving an orphaned Tigris object).
+    let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+    if (extractedMetadata.coverImage) {
+      try {
+        preparedCover = await prepareCoverImageUpload({
+          imageBuffer: extractedMetadata.coverImage.data,
+          albumId: resolvedAlbumId,
+          trackId,
+          format: extractedMetadata.coverImage.format,
+        });
+      } catch (error) {
+        console.warn(`⚠️  Failed to upload cover image for ${audioFile.name}:`, error);
+        // Continue without cover image
+      }
+    }
+
     // Create track and TrackAudioFile rows in a short transaction
     const result = await prisma.$transaction(async (tx) => {
       // Get or create artist
-      const artistMetadata = extractArtistMetadata(extractedMetadata);
       const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata);
 
       // Get or create album (using artistId)
-      const albumArtist = extractedMetadata.albumArtist || artist;
       const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata);
       const albumRecord = await getOrCreateAlbumTx(
         tx,
@@ -151,21 +193,14 @@ export async function action({ request }: ActionFunctionArgs) {
         extractedMetadata.year || null,
       );
 
-      // Upload cover image if present (with deduplication). Unlike the audio
-      // upload above, this runs INSIDE the transaction; covers are small, so the
-      // brief external Tigris I/O is acceptable.
+      // Associate the cover image (DB-only) — the upload already happened above.
       let coverImageId: string | null = null;
-      if (extractedMetadata.coverImage) {
+      if (preparedCover) {
         try {
-          const coverImage = await findOrCreateCoverImageTx(tx, {
-            imageBuffer: extractedMetadata.coverImage.data,
-            albumId: albumRecord?.id || null,
-            trackId,
-            format: extractedMetadata.coverImage.format,
-          });
+          const coverImage = await createCoverImageInTx(tx, preparedCover, albumRecord?.id ?? null);
           coverImageId = coverImage.id;
         } catch (error) {
-          console.warn(`⚠️  Failed to upload cover image for ${audioFile.name}:`, error);
+          console.warn(`⚠️  Failed to create cover image for ${audioFile.name}:`, error);
           // Continue without cover image
         }
       }
