@@ -9,6 +9,22 @@ import { buildAudioObjectKey, uploadFile } from "#app/utils/storage.server";
 import { type Prisma } from "#prisma/client.js";
 import { backfillTrackMetadata } from "./backfill-track-metadata.server.ts";
 
+/**
+ * Number of leading fingerprint characters used as the coarse blocking key for
+ * perceptual similarity. Chromaprint fingerprints are base64; 16 characters
+ * encode 96 bits, yielding small candidate blocks for any realistic library
+ * while still matching re-encodes of the same track (whose fingerprints agree
+ * on the leading segment, since the fingerprint is a time-ordered bitstream).
+ */
+export const FINGERPRINT_BLOCK_PREFIX_LENGTH = 16;
+
+/**
+ * Hard cap on the number of candidates compared against a single upload.
+ * The coarse-key block already bounds the set; this is defense-in-depth against
+ * a pathological block (e.g. the same track re-encoded dozens of times).
+ */
+export const SIMILARITY_CANDIDATE_CAP = 500;
+
 type UploadProgress = {
   loaded?: number;
   total?: number;
@@ -25,7 +41,6 @@ export type PersistTrackAudioParams = {
   extension?: string;
   storageMetadata?: Record<string, string>;
   onProgress?: (progress: UploadProgress) => void;
-  tx?: Prisma.TransactionClient;
 };
 
 export type PersistTrackAudioResult = {
@@ -47,6 +62,43 @@ export type PersistTrackAudioResult = {
   fingerprintSimilarity?: number;
 };
 
+/**
+ * Everything needed to create the TrackAudioFile row, produced by
+ * {@link prepareTrackAudioUpload} after the (possibly reused) Tigris object
+ * has been resolved and — when new — uploaded.
+ */
+export type PreparedTrackAudio = {
+  objectKey: string;
+  contentHash: string;
+  audioFingerprint: string | null;
+  isDuplicate: boolean;
+  duplicateTrack?: {
+    id: string;
+    title: string;
+    artist: { name: string };
+  };
+  isSimilar?: boolean;
+  similarTrack?: {
+    id: string;
+    title: string;
+    artist: { name: string };
+  };
+  fingerprintSimilarity?: number;
+};
+
+/** Minimal subset of params needed to create the TrackAudioFile row. */
+type CreateTrackAudioFileParams = {
+  trackId: string;
+  serviceId?: string | null;
+  fileName?: string;
+  extension?: string;
+  metadata: ExtractedAudioMetadata;
+  uploadedBy?: string;
+  buffer: Buffer;
+};
+
+type TrackAudioFileDb = Prisma.TransactionClient | typeof prisma;
+
 function getAudioExtension(
   metadata: ExtractedAudioMetadata,
   fileName?: string,
@@ -67,64 +119,40 @@ function runBackfillBestEffort(trackId: string, metadata: ExtractedAudioMetadata
 }
 
 /**
- * Persist track audio: upload to Tigris, create TrackAudioFile, then best-effort metadata backfill.
+ * Resolve the Tigris object for a track's audio and upload it when it is new.
  *
- * Deduplication strategy:
- * - Calculate SHA-256 hash of audio content
- * - If audio with same hash exists, reuse the S3 object (skip upload)
- * - Always create a new TrackAudioFile record for the new track
- * - Return duplicate info so caller can warn user
- *
- * Idempotent when a matching TrackAudioFile already exists (archive retry).
+ * This performs the content-hash / fingerprint dedup checks and, when the audio
+ * is new, uploads it to Tigris. It uses the global `prisma` client and runs
+ * entirely OUTSIDE any database transaction, so a slow (or failing) upload never
+ * holds a SQLite write lock and can never be rolled back after the object is
+ * already in storage. Callers that need the TrackAudioFile row to be created
+ * atomically with other writes should call {@link createTrackAudioFile} with the
+ * returned {@link PreparedTrackAudio} inside their transaction.
  */
-export async function persistTrackAudio(
+export async function prepareTrackAudioUpload(
   params: PersistTrackAudioParams,
-): Promise<PersistTrackAudioResult> {
+): Promise<PreparedTrackAudio> {
   const {
     trackId,
     serviceName,
     buffer,
     metadata,
-    uploadedBy,
-    serviceId = null,
     fileName,
     extension: extensionOverride,
     storageMetadata,
     onProgress,
-    tx,
   } = params;
 
-  const db = tx ?? prisma;
-  const format = metadata.format || "mp3";
   const extension = getAudioExtension(metadata, fileName, extensionOverride);
 
-  // Step 1: Check for existing file by trackId (for archive retry idempotency)
-  const existing = await db.trackAudioFile.findFirst({
-    where: {
-      trackId,
-      format,
-      serviceId,
-    },
-    select: {
-      id: true,
-      trackId: true,
-      objectKey: true,
-    },
-  });
-
-  if (existing) {
-    if (!tx) runBackfillBestEffort(trackId, metadata);
-    return { audioFile: existing, objectKey: existing.objectKey, created: false };
-  }
-
-  // Step 2: Calculate content hash for deduplication
+  // Step 1: Calculate content hash for deduplication
   const contentHash = await calculateAudioHash(buffer);
 
-  // Step 3: Generate audio fingerprint for perceptual similarity
-  const audioFingerprint = await generateAudioFingerprint(buffer);
-
-  // Step 4: Check if audio with same hash already exists (exact duplicate)
-  const existingByHash = await db.trackAudioFile.findFirst({
+  // Step 2: Check if audio with same hash already exists (exact duplicate).
+  // Do this BEFORE fingerprint generation — fingerprinting is the CPU-expensive
+  // audio analysis, and for an exact duplicate it would be computed and then
+  // discarded. Only non-duplicates need a perceptual-similarity fingerprint.
+  const existingByHash = await prisma.trackAudioFile.findFirst({
     where: {
       contentHash,
     },
@@ -146,7 +174,11 @@ export async function persistTrackAudio(
     },
   });
 
-  // Step 5: Check for similar audio by fingerprint (if fingerprint was generated)
+  // Step 3: Generate audio fingerprint for perceptual similarity (skipped for
+  // exact duplicates, which never reach the similarity check below).
+  const audioFingerprint = existingByHash ? null : await generateAudioFingerprint(buffer);
+
+  // Step 4: Check for similar audio by fingerprint (if fingerprint was generated)
   let similarByFingerprint: {
     id: string;
     trackId: string;
@@ -162,13 +194,25 @@ export async function persistTrackAudio(
   const SIMILARITY_THRESHOLD = 0.9; // 90% similarity
 
   if (audioFingerprint && !existingByHash) {
-    // Only check for similar fingerprints if no exact duplicate found
-    const allFingerprints = await db.trackAudioFile.findMany({
+    // Only check for similar fingerprints if no exact duplicate found.
+    //
+    // Coarse-key blocking: comparing the new fingerprint against every stored
+    // fingerprint is O(N) rows loaded into memory + O(N) CPU per upload, and
+    // grows without bound as the library grows. Chromaprint fingerprints are
+    // time-ordered bitstreams, so perceptually similar audio (re-encodes,
+    // format conversions) shares a long common prefix. Block candidates by the
+    // fingerprint prefix so the candidate set stays small and the comparison
+    // loop below is bounded.
+    const fingerprintBlock = audioFingerprint.slice(0, FINGERPRINT_BLOCK_PREFIX_LENGTH);
+
+    const allFingerprints = await prisma.trackAudioFile.findMany({
       where: {
         audioFingerprint: {
-          not: null,
+          startsWith: fingerprintBlock,
         },
       },
+      take: SIMILARITY_CANDIDATE_CAP,
+      orderBy: { uploadedAt: "desc" },
       select: {
         id: true,
         trackId: true,
@@ -213,7 +257,14 @@ export async function persistTrackAudio(
   let shouldUpload = true;
 
   if (existingByHash) {
-    // Same audio content already exists - reuse the S3 object
+    // Same audio content already exists - reuse the S3 object.
+    //
+    // The reused objectKey is shared across multiple TrackAudioFile rows (one
+    // per track referencing the same audio). Deleting one track must not orphan
+    // the other's audio: every S3 deletion goes through
+    // `deleteUnreferencedObjectKeys` (app/utils/audio-cleanup.server.ts), which
+    // re-counts TrackAudioFile rows by objectKey and only deletes the object
+    // once zero rows reference it.
     objectKey = existingByHash.objectKey;
     shouldUpload = false;
     console.warn(
@@ -224,7 +275,7 @@ export async function persistTrackAudio(
     objectKey = buildAudioObjectKey(serviceName, trackId, extension);
   }
 
-  // Step 6: Upload to S3 if this is new audio
+  // Step 5: Upload to S3 if this is new audio (outside any DB transaction)
   if (shouldUpload) {
     await uploadFile({
       file: buffer,
@@ -238,15 +289,72 @@ export async function persistTrackAudio(
     onProgress({ loaded: buffer.length, total: buffer.length });
   }
 
-  // Step 7: Create new TrackAudioFile record (even for duplicates, to link this track)
-  const audioFile = await db.trackAudioFile.create({
+  // Only include similarity info if we actually checked for it
+  const checkedForSimilarity = audioFingerprint && !existingByHash;
+  const isSimilar = checkedForSimilarity
+    ? fingerprintSimilarity >= SIMILARITY_THRESHOLD && similarByFingerprint !== null
+    : undefined;
+
+  return {
+    objectKey,
+    contentHash,
+    audioFingerprint,
+    isDuplicate: existingByHash !== null,
+    duplicateTrack: existingByHash?.track,
+    isSimilar,
+    similarTrack: isSimilar ? similarByFingerprint?.track : undefined,
+    fingerprintSimilarity: isSimilar ? fingerprintSimilarity : undefined,
+  };
+}
+
+/**
+ * Create the TrackAudioFile row for an already-resolved/uploaded object.
+ *
+ * This performs only a single fast DB write, so it is safe to call inside a
+ * `prisma.$transaction` (pass the transaction client as `db`). The slow upload
+ * work must already have happened in {@link prepareTrackAudioUpload}.
+ */
+export async function createTrackAudioFile(
+  params: CreateTrackAudioFileParams,
+  prepared: PreparedTrackAudio,
+  db: TrackAudioFileDb = prisma,
+): Promise<{ id: string; trackId: string; objectKey: string }> {
+  const { trackId, serviceId = null, fileName, extension, metadata, uploadedBy, buffer } = params;
+
+  // Resolve serviceId from the track when the caller does not supply one.
+  // TrackAudioFile.serviceId is NOT NULL after migration, so a null here would
+  // fail the insert (and weaken the (trackId, serviceId, format) uniqueness).
+  const resolvedServiceId =
+    serviceId ??
+    (
+      await db.track.findUnique({
+        where: { id: trackId },
+        select: { serviceId: true },
+      })
+    )?.serviceId;
+
+  if (!resolvedServiceId) {
+    throw new Error(`Cannot persist audio for track ${trackId}: no serviceId on track or params`);
+  }
+
+  const format = metadata.format || "mp3";
+
+  // Derive a fallback fileName from this track's own identity rather than the
+  // objectKey leaf: on an exact-hash duplicate the objectKey is reused from a
+  // different track, so `objectKey.split("/").pop()` would surface the other
+  // track's filename. `${trackId}.${ext}` matches the leaf that
+  // `buildAudioObjectKey` produces for the non-duplicate path.
+  const ext = getAudioExtension(metadata, fileName, extension);
+  const fallbackFileName = `${trackId}.${ext}`;
+
+  return db.trackAudioFile.create({
     data: {
       trackId,
-      serviceId,
-      objectKey,
-      contentHash,
-      audioFingerprint,
-      fileName: fileName ?? objectKey.split("/").pop(),
+      serviceId: resolvedServiceId,
+      objectKey: prepared.objectKey,
+      contentHash: prepared.contentHash,
+      audioFingerprint: prepared.audioFingerprint,
+      fileName: fileName ?? fallbackFileName,
       format,
       mimeType: metadata.mimeType || "audio/mpeg",
       fileSize: buffer.length,
@@ -260,23 +368,78 @@ export async function persistTrackAudio(
       objectKey: true,
     },
   });
+}
 
-  if (!tx) runBackfillBestEffort(trackId, metadata);
+/**
+ * Persist track audio: upload to Tigris, create TrackAudioFile, then best-effort metadata backfill.
+ *
+ * Deduplication strategy:
+ * - Calculate SHA-256 hash of audio content
+ * - If audio with same hash exists, reuse the S3 object (skip upload)
+ * - Always create a new TrackAudioFile record for the new track
+ * - Return duplicate info so caller can warn user
+ *
+ * Idempotent when a matching TrackAudioFile already exists (archive retry).
+ *
+ * This convenience wrapper runs WITHOUT a database transaction. Callers that
+ * need to create the TrackAudioFile row atomically with other writes must use
+ * {@link prepareTrackAudioUpload} + {@link createTrackAudioFile} instead.
+ */
+export async function persistTrackAudio(
+  params: PersistTrackAudioParams,
+): Promise<PersistTrackAudioResult> {
+  const { trackId, serviceId = null, metadata } = params;
 
-  // Only include similarity info if we actually checked for it
-  const checkedForSimilarity = audioFingerprint && !existingByHash;
-  const isSimilar = checkedForSimilarity
-    ? fingerprintSimilarity >= SIMILARITY_THRESHOLD && similarByFingerprint !== null
-    : undefined;
+  const format = metadata.format || "mp3";
+
+  // Resolve serviceId from the track when the caller does not supply one.
+  // TrackAudioFile.serviceId is NOT NULL after migration, so a null here would
+  // weaken the (trackId, serviceId, format) uniqueness and fail inserts.
+  const resolvedServiceId =
+    serviceId ??
+    (
+      await prisma.track.findUnique({
+        where: { id: trackId },
+        select: { serviceId: true },
+      })
+    )?.serviceId;
+
+  if (!resolvedServiceId) {
+    throw new Error(`Cannot persist audio for track ${trackId}: no serviceId on track or params`);
+  }
+
+  // Step 1: Check for existing file by trackId (for archive retry idempotency)
+  const existing = await prisma.trackAudioFile.findFirst({
+    where: {
+      trackId,
+      format,
+      serviceId: resolvedServiceId,
+    },
+    select: {
+      id: true,
+      trackId: true,
+      objectKey: true,
+    },
+  });
+
+  if (existing) {
+    runBackfillBestEffort(trackId, metadata);
+    return { audioFile: existing, objectKey: existing.objectKey, created: false };
+  }
+
+  const prepared = await prepareTrackAudioUpload(params);
+  const audioFile = await createTrackAudioFile(params, prepared);
+
+  runBackfillBestEffort(trackId, metadata);
 
   return {
     audioFile,
-    objectKey,
+    objectKey: prepared.objectKey,
     created: true,
-    isDuplicate: existingByHash !== null,
-    duplicateTrack: existingByHash?.track,
-    isSimilar,
-    similarTrack: isSimilar ? similarByFingerprint?.track : undefined,
-    fingerprintSimilarity: isSimilar ? fingerprintSimilarity : undefined,
+    isDuplicate: prepared.isDuplicate,
+    duplicateTrack: prepared.duplicateTrack,
+    isSimilar: prepared.isSimilar,
+    similarTrack: prepared.similarTrack,
+    fingerprintSimilarity: prepared.fingerprintSimilarity,
   };
 }

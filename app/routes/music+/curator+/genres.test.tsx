@@ -4,8 +4,13 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub } from "react-router";
-import { expect, test } from "vitest";
-import GenresPage from "./genres.tsx";
+import { parseString } from "set-cookie-parser";
+import { afterEach, expect, test, vi } from "vitest";
+import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
+import { prisma } from "#app/utils/db.server.ts";
+import { authSessionStorage } from "#app/utils/session.server.ts";
+import { createUser } from "#tests/db-utils.ts";
+import { default as GenresPage, loader } from "./genres.tsx";
 
 const genres = [
   {
@@ -136,4 +141,145 @@ test("a unique rename closes the dialog and stays on the page", async () => {
     expect(screen.queryByRole("dialog", { name: "Edit Genre" })).not.toBeInTheDocument();
   });
   expect(screen.getByRole("heading", { name: "Genre Management" })).toBeInTheDocument();
+});
+
+// --- loader tests ---
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+async function createSession(role?: "admin" | "curator") {
+  const user = await prisma.user.create({
+    select: { id: true },
+    data: {
+      ...createUser(),
+      ...(role
+        ? {
+            roles: {
+              connectOrCreate: {
+                where: { name: role },
+                create: { name: role },
+              },
+            },
+          }
+        : {}),
+    },
+  });
+  const session = await prisma.session.create({
+    select: { id: true },
+    data: {
+      expirationDate: getSessionExpirationDate(),
+      userId: user.id,
+    },
+  });
+
+  const authSession = await authSessionStorage.getSession();
+  authSession.set(sessionKey, session.id);
+  const setCookieHeader = await authSessionStorage.commitSession(authSession);
+  const parsedCookie = parseString(setCookieHeader)!;
+  return new URLSearchParams({
+    [parsedCookie.name]: parsedCookie.value,
+  }).toString();
+}
+
+function trustedOrigin() {
+  const configured = process.env.SITE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  return `http://127.0.0.1:${process.env.PORT || "3000"}`;
+}
+
+const genresPayload = {
+  genres: [
+    {
+      id: "genre-jazz",
+      name: "Jazz",
+      trackCount: 2,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "genre-rock",
+      name: "Rock",
+      trackCount: 1,
+      createdAt: "2026-01-02T00:00:00.000Z",
+    },
+  ],
+};
+
+test("genre lookups use a trusted origin and only the session cookie", async () => {
+  const cookieHeader = await createSession("curator");
+  const fetchMock = vi.fn(
+    async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json(genresPayload),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  const request = new Request("http://evil.example/music/curator/genres", {
+    headers: {
+      cookie: `${cookieHeader}; theme=dark`,
+      authorization: "Bearer leaked-token",
+      "x-forwarded-host": "evil.example",
+    },
+  });
+
+  const result = await loader({ request } as never);
+
+  expect(result).toEqual({ genres: genresPayload.genres });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(String(fetchMock.mock.calls[0]![0])).toBe(`${trustedOrigin()}/api/genres`);
+
+  const headers = new Headers((fetchMock.mock.calls[0]![1] as RequestInit | undefined)?.headers);
+  expect(headers.get("cookie")).toBe(cookieHeader);
+  expect(headers.get("authorization")).toBeNull();
+  expect(headers.get("x-forwarded-host")).toBeNull();
+});
+
+test("a failed genre lookup throws instead of crashing at render", async () => {
+  const cookieHeader = await createSession("curator");
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("boom", { status: 500 })));
+
+  const request = new Request("http://localhost/music/curator/genres", {
+    headers: { cookie: cookieHeader },
+  });
+
+  const error = await loader({ request } as never).catch((e) => e);
+  expect(error).toMatchObject({
+    type: "DataWithResponseInit",
+    init: { status: 500 },
+    data: { error: "Failed to load genres" },
+  });
+});
+
+test("a genre payload without a genres array is an error", async () => {
+  const cookieHeader = await createSession("curator");
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ notGenres: true })));
+
+  const request = new Request("http://localhost/music/curator/genres", {
+    headers: { cookie: cookieHeader },
+  });
+
+  const error = await loader({ request } as never).catch((e) => e);
+  expect(error).toMatchObject({
+    type: "DataWithResponseInit",
+    init: { status: 500 },
+    data: { error: "Failed to load genres" },
+  });
+});
+
+test("a non-JSON genre response is an error", async () => {
+  const cookieHeader = await createSession("curator");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("not json", { status: 200 })),
+  );
+
+  const request = new Request("http://localhost/music/curator/genres", {
+    headers: { cookie: cookieHeader },
+  });
+
+  const error = await loader({ request } as never).catch((e) => e);
+  expect(error).toMatchObject({
+    type: "DataWithResponseInit",
+    init: { status: 500 },
+    data: { error: "Failed to load genres" },
+  });
 });

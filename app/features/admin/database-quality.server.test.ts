@@ -3,11 +3,15 @@
  * seconds (formatDuration treats 185 as about 3:05).
  */
 import { afterEach, expect, test } from "vitest";
+import { compressChromaprint } from "#tests/chromaprint-test-utils";
 import { prisma } from "#app/utils/db.server.ts";
+import { cache } from "#app/utils/cache.server.ts";
 import { loadDuplicateDashboard } from "./duplicate-dashboard.server.ts";
 import { percentOfTracksAffected } from "./database-quality.ts";
 import {
+  DATABASE_QUALITY_CACHE_KEY,
   countTracksWithMetadataIssues,
+  getDatabaseQualitySnapshot,
   getDuplicateTracksCount,
   getMetadataIssues,
   getStorageStats,
@@ -254,8 +258,18 @@ test("duplicate group count includes similar audio and matches the duplicates pa
   const fixtures = [
     { title: "Exact A", contentHash: `exact-${suffix}`, audioFingerprint: `exact-a-${suffix}` },
     { title: "Exact B", contentHash: `exact-${suffix}`, audioFingerprint: `exact-b-${suffix}` },
-    { title: "Similar A", contentHash: `similar-a-${suffix}`, audioFingerprint: "0123456789" },
-    { title: "Similar B", contentHash: `similar-b-${suffix}`, audioFingerprint: "012345678X" },
+    {
+      title: "Similar A",
+      contentHash: `similar-a-${suffix}`,
+      audioFingerprint: compressChromaprint(Array.from({ length: 20 }, (_, i) => 0x11110000 + i)),
+    },
+    {
+      title: "Similar B",
+      contentHash: `similar-b-${suffix}`,
+      audioFingerprint: compressChromaprint(
+        Array.from({ length: 20 }, (_, i) => 0x11110000 + i + (i === 5 ? 1 : 0)),
+      ),
+    },
   ];
 
   const tracks = await Promise.all(
@@ -294,4 +308,119 @@ test("duplicate group count includes similar audio and matches the duplicates pa
   expect(exact.stats.duplicateGroups).toBe(beforeExact.stats.duplicateGroups + 1);
   expect(count).toBe(all.stats.duplicateGroups);
   expect(count).toBeGreaterThan(exact.stats.duplicateGroups);
+});
+
+test("exact duplicate groups are ordered by count desc with oldest-first tracks", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = await prisma.artist.create({
+    data: { name: `Batch Artist ${suffix}`, normalizedName: `batch-artist-${suffix}` },
+  });
+  createdArtistIds.push(artist.id);
+  const service = await prisma.service.create({
+    data: {
+      name: `batch-service-${suffix}`,
+      displayName: `Batch Service ${suffix}`,
+      baseUrl: "https://example.com",
+    },
+  });
+  createdServiceIds.push(service.id);
+
+  // Three exact groups with 2, 4 and 3 tracks respectively.
+  const fixtures = [
+    { hash: `batch-2-${suffix}`, titles: ["two-a", "two-b"] },
+    { hash: `batch-4-${suffix}`, titles: ["four-a", "four-b", "four-c", "four-d"] },
+    { hash: `batch-3-${suffix}`, titles: ["three-a", "three-b", "three-c"] },
+  ];
+
+  for (const [groupIndex, fixture] of fixtures.entries()) {
+    for (const [trackIndex, title] of fixture.titles.entries()) {
+      const track = await prisma.track.create({
+        data: {
+          title: `${title} ${suffix}`,
+          artistId: artist.id,
+          serviceId: service.id,
+          externalId: `batch-${suffix}-${groupIndex}-${trackIndex}`,
+          duration: 180,
+          audioFiles: {
+            create: {
+              objectKey: `audio/batch/${suffix}/${groupIndex}/${trackIndex}.mp3`,
+              contentHash: fixture.hash,
+              format: "mp3",
+              fileSize: 4096,
+              serviceId: service.id,
+              createdAt: new Date(Date.UTC(2024, 0, 1, 0, trackIndex)),
+            },
+          },
+        },
+      });
+      createdTrackIds.push(track.id);
+    }
+  }
+
+  const dashboard = await loadDuplicateDashboard("exact");
+  const groupHashes = dashboard.groups
+    .filter((group) => group.type === "exact" && group.contentHash?.startsWith("batch-"))
+    .map((group) => group.contentHash as string);
+
+  // Largest group first, then the smaller ones, in duplicate-count order.
+  expect(groupHashes.indexOf(`batch-4-${suffix}`)).toBeGreaterThanOrEqual(0);
+  expect(groupHashes.indexOf(`batch-3-${suffix}`)).toBeGreaterThanOrEqual(0);
+  expect(groupHashes.indexOf(`batch-2-${suffix}`)).toBeGreaterThanOrEqual(0);
+  expect(groupHashes.indexOf(`batch-4-${suffix}`)).toBeLessThan(
+    groupHashes.indexOf(`batch-3-${suffix}`),
+  );
+  expect(groupHashes.indexOf(`batch-3-${suffix}`)).toBeLessThan(
+    groupHashes.indexOf(`batch-2-${suffix}`),
+  );
+
+  // Tracks within a group stay oldest-first.
+  const fourGroup = dashboard.groups.find((group) => group.contentHash === `batch-4-${suffix}`);
+  expect(fourGroup?.tracks.map((track) => track.title)).toEqual([
+    `four-a ${suffix}`,
+    `four-b ${suffix}`,
+    `four-c ${suffix}`,
+    `four-d ${suffix}`,
+  ]);
+});
+
+test("getDatabaseQualitySnapshot caches aggregates and keeps lastUpdated stable", async () => {
+  // Reset the cache so this test is deterministic regardless of prior runs.
+  await cache.delete(DATABASE_QUALITY_CACHE_KEY);
+
+  const first = await getDatabaseQualitySnapshot();
+
+  // Mutate the database: a fresh compute would see this new track, a cached
+  // read must not.
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = await prisma.artist.create({
+    data: { name: `Cache Artist ${suffix}`, normalizedName: `cache-artist-${suffix}` },
+  });
+  createdArtistIds.push(artist.id);
+  const service = await prisma.service.create({
+    data: {
+      name: `cache-service-${suffix}`,
+      displayName: `Cache Service ${suffix}`,
+      baseUrl: "https://example.com",
+    },
+  });
+  createdServiceIds.push(service.id);
+  const track = await prisma.track.create({
+    data: {
+      title: `Cache Track ${suffix}`,
+      artistId: artist.id,
+      serviceId: service.id,
+      externalId: `cache-track-${suffix}`,
+      duration: 180,
+    },
+  });
+  createdTrackIds.push(track.id);
+
+  const second = await getDatabaseQualitySnapshot();
+
+  // Cached: the new track is not counted and the "last updated" timestamp has
+  // not advanced (it only refreshes when the data actually refreshes).
+  expect(second.totalTracks).toBe(first.totalTracks);
+  expect(second.lastUpdated).toBe(first.lastUpdated);
+
+  await cache.delete(DATABASE_QUALITY_CACHE_KEY);
 });

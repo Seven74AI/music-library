@@ -31,9 +31,10 @@ export function parseGenreString(genreString: string | null): string[] {
     return [];
   }
 
-  // Split by common delimiters and clean up
+  // Split by common delimiters and clean up. Ampersand is deliberately NOT a
+  // delimiter: it appears inside genre names ("R&B", "Drum & Bass").
   const genres = genreString
-    .split(/[,;/&]/) // Split by comma, semicolon, slash, or ampersand
+    .split(/[,;/]/) // Split by comma, semicolon, or slash
     .map((g) => g.trim())
     .filter((g) => g.length > 0)
     .map((g) => {
@@ -48,32 +49,6 @@ export function parseGenreString(genreString: string | null): string[] {
   const uniqueGenres = Array.from(new Map(genres.map((g) => [normalizeGenreName(g), g])).values());
 
   return uniqueGenres;
-}
-
-/**
- * Find or create a Genre record by name
- */
-export async function findOrCreateGenre(name: string): Promise<string> {
-  const normalizedName = normalizeGenreName(name);
-
-  // Try to find existing genre (case-insensitive)
-  let genre = await prisma.genre.findFirst({
-    where: { normalizedName },
-    select: { id: true },
-  });
-
-  if (!genre) {
-    // Create new genre
-    genre = await prisma.genre.create({
-      data: {
-        name,
-        normalizedName,
-      },
-      select: { id: true },
-    });
-  }
-
-  return genre.id;
 }
 
 /**
@@ -170,65 +145,4 @@ export async function migrateTrackGenres(
   }
 
   return { tracksProcessed, genresCreated, linksCreated };
-}
-
-/**
- * Migrate artist genres from string to multi-genre system (if needed in the future)
- */
-export async function migrateArtistGenres(): Promise<{
-  artistsProcessed: number;
-  genresCreated: number;
-}> {
-  // This would be similar to migrateTrackGenres but for artists
-  // Not implemented yet as artists still use a single genre string in the current schema
-  throw new Error("Artist genre migration not yet implemented");
-}
-
-/**
- * Clean up: remove old genre string column after migration
- * WARNING: This is destructive and should only be run after confirming the migration is successful
- */
-export async function removeOldGenreColumn(): Promise<void> {
-  // This would require a new migration file to actually drop the column
-  // For now, we just clear the values
-  await prisma.track.updateMany({
-    where: {
-      OR: [{ genre: { not: null } }, { genre: { not: "" } }],
-    },
-    data: { genre: null },
-  });
-}
-
-/**
- * Rollback migration: copy genres from join table back to genre string
- * This is useful for testing or if we need to revert the migration
- */
-export async function rollbackGenreMigration(): Promise<{ tracksProcessed: number }> {
-  let tracksProcessed = 0;
-
-  // Get all tracks with genre links
-  const tracks = await prisma.track.findMany({
-    where: {
-      genres: {
-        some: {},
-      },
-    },
-    select: {
-      id: true,
-      genres: {
-        select: { name: true },
-      },
-    },
-  });
-
-  for (const track of tracks) {
-    const genreString = track.genres.map((g) => g.name).join(", ");
-    await prisma.track.update({
-      where: { id: track.id },
-      data: { genre: genreString },
-    });
-    tracksProcessed++;
-  }
-
-  return { tracksProcessed };
 }

@@ -87,13 +87,26 @@ async function defaultReadStorageEstimate() {
 export function createOfflineStorage(
   deps: Partial<OfflineStorageDependencies> = {},
 ): OfflineStorage {
-  const audioStore = deps.audioStore ?? createDefaultAudioStore();
   const metadataStore = deps.metadataStore ?? getOfflineMetadataStore();
   const fetchAudioBytes = deps.fetchAudioBytes ?? defaultFetchAudioBytes;
   const requestPersistentStorage = deps.requestPersistentStorage ?? defaultRequestPersistentStorage;
   const readStorageEstimate = deps.readStorageEstimate ?? defaultReadStorageEstimate;
 
+  // Resolved lazily so the async OPFS support probe (which must reach into the
+  // Web Worker's scope) doesn't force createOfflineStorage to be async. Tests
+  // inject a concrete store via deps.audioStore and bypass the probe entirely.
+  let audioStorePromise: Promise<OfflineAudioStore> | undefined;
+  function resolveAudioStore(): Promise<OfflineAudioStore> {
+    if (!audioStorePromise) {
+      audioStorePromise = deps.audioStore
+        ? Promise.resolve(deps.audioStore)
+        : createDefaultAudioStore();
+    }
+    return audioStorePromise;
+  }
+
   async function ensureCapacity(requiredBytes: number) {
+    const audioStore = await resolveAudioStore();
     const { usage, quota } = await readStorageEstimate();
     if (!quota) return;
 
@@ -110,7 +123,7 @@ export function createOfflineStorage(
     const victims = selectQueueCacheEvictionCandidates(records, bytesToFree);
 
     for (const victim of victims) {
-      await audioStore.delete(victim.trackId);
+      await audioStore.delete(victim.trackId, victim.audioFormat);
       await metadataStore.delete(victim.trackId);
     }
   }
@@ -132,11 +145,12 @@ export function createOfflineStorage(
     options: { pin: boolean; queue: boolean; playlistId?: string },
   ) {
     const fileSizeBytes = buffer.byteLength;
+    const audioStore = await resolveAudioStore();
     await requestPersistentStorage();
     await ensureCapacity(fileSizeBytes);
 
     const existing = await metadataStore.get(track.id);
-    await audioStore.write(track.id, buffer);
+    await audioStore.write(track.id, buffer, getOfflineAudioFormat(track));
 
     if (existing) {
       await metadataStore.put(
@@ -155,7 +169,7 @@ export function createOfflineStorage(
 
     await metadataStore.put(
       toOfflineTrackRecord(track, {
-        opfsPath: offlineAudioOpfsPath(track.id),
+        opfsPath: offlineAudioOpfsPath(track.id, getOfflineAudioFormat(track)),
         fileSizeBytes,
         isPinned: options.pin,
         isQueueCached: options.queue,
@@ -166,8 +180,9 @@ export function createOfflineStorage(
   }
 
   async function removeTrack(trackId: string) {
+    const audioStore = await resolveAudioStore();
     const record = await metadataStore.get(trackId);
-    await audioStore.delete(trackId);
+    await audioStore.delete(trackId, record?.audioFormat);
     await metadataStore.delete(trackId);
     if (record?.coverObjectKey) {
       const { deleteCachedCover } = await import("./cover-cache.client.ts");
@@ -217,9 +232,10 @@ export function createOfflineStorage(
       return { removedCount: victims.length };
     },
     async resolvePlaybackBlob(trackId) {
+      const audioStore = await resolveAudioStore();
       const record = await metadataStore.get(trackId);
       if (!record) return null;
-      const buffer = await audioStore.read(trackId);
+      const buffer = await audioStore.read(trackId, record.audioFormat);
       if (!buffer) {
         await metadataStore.delete(trackId);
         return null;
@@ -230,9 +246,10 @@ export function createOfflineStorage(
       });
     },
     async hasTrack(trackId) {
+      const audioStore = await resolveAudioStore();
       const record = await metadataStore.get(trackId);
       if (!record) return false;
-      const exists = await audioStore.has(trackId);
+      const exists = await audioStore.has(trackId, record.audioFormat);
       if (!exists) {
         await metadataStore.delete(trackId);
         return false;
@@ -265,8 +282,8 @@ export function createOfflineStorage(
   };
 }
 
-function createDefaultAudioStore(): OfflineAudioStore {
-  if (isOpfsAudioStoreSupported()) {
+async function createDefaultAudioStore(): Promise<OfflineAudioStore> {
+  if (await isOpfsAudioStoreSupported()) {
     return createOpfsOfflineAudioStore();
   }
   if (

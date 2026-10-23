@@ -36,10 +36,13 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
 
   const cursor = url.searchParams.get("cursor");
-  const limit = Math.min(
-    100,
-    Math.max(1, parseInt(url.searchParams.get("limit") || String(DISCOVER_TRACKS_PAGE_SIZE))),
+  const parsedLimit = Number.parseInt(
+    url.searchParams.get("limit") || String(DISCOVER_TRACKS_PAGE_SIZE),
+    10,
   );
+  const limit = Number.isFinite(parsedLimit)
+    ? Math.min(100, Math.max(1, parsedLimit))
+    : DISCOVER_TRACKS_PAGE_SIZE;
   const sort = parseDiscoverSort(url.searchParams.get("sort"));
   const direction = parseSortDirection(
     url.searchParams.get("dir"),
@@ -202,6 +205,9 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
         params.set("dir", direction);
       }
       const res = await fetch(`/api/discover-tracks?${params}`);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch discover tracks: ${res.status}`);
+      }
       const json = (await res.json()) as {
         tracks: DiscoverTrack[];
         pagination: { hasNext: boolean; nextCursor: string | null };
@@ -319,8 +325,15 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
           </p>
         </div>
       ) : (
-        <div ref={listRef} data-testid="discover-track-list" className="relative min-w-0">
+        <div
+          ref={listRef}
+          data-testid="discover-track-list"
+          className="relative min-w-0"
+          role="list"
+          aria-label="Discover tracks"
+        >
           <div
+            role="presentation"
             style={{
               height: `${virtualizer.getTotalSize()}px`,
               width: "100%",
@@ -343,6 +356,7 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
                     key="header"
                     data-index={virtualItem.index}
                     ref={virtualizer.measureElement}
+                    aria-hidden="true"
                     style={{ ...rowStyle, position: "sticky", top: 0, zIndex: 10 }}
                     className="bg-background border-b h-16"
                   >
@@ -366,6 +380,7 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
                     key="loading"
                     data-index={virtualItem.index}
                     ref={virtualizer.measureElement}
+                    role="presentation"
                     style={rowStyle}
                   >
                     <div className="flex w-full justify-center py-4">
@@ -389,6 +404,7 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
                   key={item.id}
                   data-index={virtualItem.index}
                   ref={virtualizer.measureElement}
+                  role="presentation"
                   style={rowStyle}
                 >
                   <DiscoverTrackListItem

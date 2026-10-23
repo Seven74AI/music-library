@@ -6,6 +6,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -175,6 +176,7 @@ function SortableTrackItem({
             ...track.track,
             album: track.track.album ?? track.track.albumRecord ?? null,
           }}
+          listRole="presentation"
           userTrack={{ createdAt: track.track.createdAt }}
           index={index}
           playlistContext={{
@@ -286,7 +288,7 @@ export function SortableTrackList({
     }
   }
 
-  function handleDragStart(event: any) {
+  function handleDragStart(event: DragStartEvent) {
     const activeId = event.active.id;
     const activeTrack = items.find((item) => item.id === activeId);
     if (activeTrack) {

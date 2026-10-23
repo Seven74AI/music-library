@@ -1,5 +1,4 @@
 import { data, type ActionFunctionArgs } from "react-router";
-import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { releaseLock, type EntityType } from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -12,8 +11,7 @@ const ReleaseLockSchema = z.object({
 });
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireCuratorOrAdmin(request);
-  const userId = await requireUserId(request);
+  const userId = await requireCuratorOrAdmin(request);
 
   const body = await request.json();
   const result = ReleaseLockSchema.safeParse(body);
@@ -24,16 +22,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const { entityType, entityId } = result.data;
 
-  const success = await releaseLock(entityType as EntityType, entityId, userId);
+  const outcome = await releaseLock(entityType as EntityType, entityId, userId);
 
-  if (!success) {
-    throw data(
-      {
-        error: "Lock not found",
-        message: "No lock found for this entity, or you do not own the lock",
-      },
-      { status: 404 },
-    );
+  if (outcome === "not_found") {
+    throw data({ error: "Lock not found" }, { status: 404 });
+  }
+  if (outcome === "not_owner") {
+    throw data({ error: "Forbidden", message: "You do not own this lock" }, { status: 403 });
   }
 
   return { success: true };

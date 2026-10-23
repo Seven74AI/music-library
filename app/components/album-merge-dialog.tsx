@@ -41,7 +41,6 @@ export function AlbumMergeDialog({
   const [sourceAlbum, setSourceAlbum] = useState(initialSource);
   const [targetAlbum, setTargetAlbum] = useState(initialTarget);
   const [comment, setComment] = useState("");
-  const [keepAsAlias, setKeepAsAlias] = useState(true);
   const [confirmed, setConfirmed] = useState(false);
   const [appliedPair, setAppliedPair] = useState(
     `${initialSource?.id ?? ""}:${initialTarget?.id ?? ""}`,
@@ -72,7 +71,6 @@ export function AlbumMergeDialog({
       {
         sourceId: sourceAlbum!.id,
         targetId: targetAlbum!.id,
-        keepAsAlias,
         comment,
       },
       {
@@ -85,6 +83,7 @@ export function AlbumMergeDialog({
 
   if (mergeFetcher.state === "idle" && mergeFetcher.data && open) {
     setTimeout(() => {
+      mergeFetcher.reset();
       onOpenChange(false);
       onMerged?.();
       setConfirmed(false);
@@ -181,19 +180,6 @@ export function AlbumMergeDialog({
               </div>
             </div>
           )}
-
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="keep-alias"
-              checked={keepAsAlias}
-              onChange={(e) => setKeepAsAlias(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            <Label htmlFor="keep-alias" className="cursor-pointer">
-              Keep "{sourceAlbum?.name || "source"}" as an alias (recommended)
-            </Label>
-          </div>
 
           <div className="space-y-2">
             <Label htmlFor="merge-comment">

@@ -1,4 +1,3 @@
-// @context7: React, React Router
 import { useState } from "react";
 import { Link, useFetcher } from "react-router";
 import {
@@ -430,13 +429,18 @@ function BulkActionBanner({
   const handleDeleteAll = async () => {
     const trackIds = tracks.map((t) => t.trackId);
 
-    // Delete all tracks
+    // One request with repeated trackIds (decision #24). A single useFetcher
+    // instance tracks only one in-flight submission — firing N synchronous
+    // submits would supersede earlier ones and drop all but the last delete.
+    const formData = new FormData();
+    formData.append("action", "remove");
     for (const trackId of trackIds) {
-      fetcher.submit(null, {
-        method: "POST",
-        action: `/library/${trackId}/remove`,
-      });
+      formData.append("trackIds", trackId);
     }
+    fetcher.submit(formData, {
+      method: "POST",
+      action: "/resources/track-library",
+    });
 
     // Optimistic update
     onDeleteAll(trackIds);

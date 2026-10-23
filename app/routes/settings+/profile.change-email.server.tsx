@@ -11,6 +11,10 @@ import { redirectWithToast } from "#app/utils/toast.server.ts";
 import { verifySessionStorage } from "#app/utils/verification.server.ts";
 import { newEmailAddressSessionKey } from "./profile.change-email";
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && (error as { code?: string }).code === "P2002";
+}
+
 export async function handleVerification({ request, submission }: VerifyFunctionArgs) {
   await requireRecentVerification(request);
   invariant(submission.status === "success", "Submission should be successful by now");
@@ -33,15 +37,42 @@ export async function handleVerification({ request, submission }: VerifyFunction
     select: { email: true },
     where: { id: submission.value.target },
   });
-  const user = await prisma.user.update({
-    where: { id: submission.value.target },
-    select: { id: true, email: true, username: true },
-    data: { email: newEmail },
+
+  // Re-check email uniqueness at commit time: the address may have been claimed
+  // by another account between the initial request and this verification. The
+  // `email` column is `@unique`, so a taken address would otherwise surface as
+  // an unhandled P2002 and a 500.
+  const emailTaken = await prisma.user.findFirst({
+    select: { id: true },
+    where: { email: newEmail, NOT: { id: submission.value.target } },
   });
+  if (emailTaken) {
+    return data(
+      { result: submission.reply({ formErrors: ["This email is already in use."] }) },
+      { status: 400 },
+    );
+  }
+
+  let user: { id: string; email: string; username: string };
+  try {
+    user = await prisma.user.update({
+      where: { id: submission.value.target },
+      select: { id: true, email: true, username: true },
+      data: { email: newEmail },
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return data(
+        { result: submission.reply({ formErrors: ["This email is already in use."] }) },
+        { status: 400 },
+      );
+    }
+    throw error;
+  }
 
   void sendEmail({
     to: preUpdateUser.email,
-    subject: "Epic Stack email changed",
+    subject: "Music Library email changed",
     react: <EmailChangeNoticeEmail userId={user.id} />,
   });
 

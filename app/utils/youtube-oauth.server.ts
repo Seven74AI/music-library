@@ -1,5 +1,8 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { google } from "googleapis";
+import { createCookie } from "react-router";
 import { z } from "zod";
+import { getSessionSecret } from "./env.server.ts";
 import { shouldMockYouTube } from "./youtube-mock-utils";
 
 // YouTube OAuth scopes
@@ -22,7 +25,7 @@ export type YouTubeOAuthConfig = z.infer<typeof YouTubeOAuthConfigSchema>;
  * Manages OAuth flow, token exchange, and user authorization
  */
 export class YouTubeOAuthService {
-  private oauth2Client: any;
+  private oauth2Client: InstanceType<typeof google.auth.OAuth2>;
   private config: YouTubeOAuthConfig;
 
   /**
@@ -84,7 +87,14 @@ export class YouTubeOAuthService {
 
     try {
       const { tokens } = await this.oauth2Client.getToken(code);
-      return tokens;
+      if (!tokens.access_token) {
+        throw new Error("Google token response omitted access_token");
+      }
+      return {
+        access_token: tokens.access_token,
+        ...(tokens.refresh_token ? { refresh_token: tokens.refresh_token } : {}),
+        ...(tokens.expiry_date ? { expiry_date: tokens.expiry_date } : {}),
+      };
     } catch (error) {
       console.error("Error exchanging code for tokens:", error);
       throw new Error("Failed to exchange authorization code for tokens", { cause: error });
@@ -112,7 +122,13 @@ export class YouTubeOAuthService {
       });
 
       const { credentials } = await this.oauth2Client.refreshAccessToken();
-      return credentials;
+      if (!credentials.access_token) {
+        throw new Error("Google token refresh omitted access_token");
+      }
+      return {
+        access_token: credentials.access_token,
+        ...(credentials.expiry_date ? { expiry_date: credentials.expiry_date } : {}),
+      };
     } catch (error) {
       console.error("Error refreshing access token:", error);
       throw new Error("Failed to refresh access token", { cause: error });
@@ -186,4 +202,52 @@ export async function validateYouTubeTokens(tokens: {
     console.error("YouTube token validation failed:", error);
     return false;
   }
+}
+
+export const YOUTUBE_OAUTH_STATE_COOKIE_NAME = "en_youtube_oauth_state";
+
+/**
+ * Signed, httpOnly cookie that carries the one-time OAuth `state` value between
+ * the auth page and the callback. The state is an unguessable random value, so
+ * this cookie is the server-side secret that makes the OAuth handshake
+ * CSRF-proof. It must stay `lax` — Google redirects back with a cross-site
+ * top-level GET, which `strict` would drop.
+ */
+export const youtubeOAuthStateCookie = createCookie(YOUTUBE_OAUTH_STATE_COOKIE_NAME, {
+  path: "/",
+  sameSite: "lax",
+  httpOnly: true,
+  maxAge: 60 * 10, // 10 minutes — OAuth handshakes are short-lived
+  secure: process.env.NODE_ENV === "production",
+  secrets: getSessionSecret(),
+});
+
+/** Generates a cryptographically random one-time OAuth state value. */
+export function generateOAuthState(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/** Serializes the OAuth state cookie for the outgoing redirect to Google. */
+export async function commitOAuthState(state: string): Promise<string> {
+  return youtubeOAuthStateCookie.serialize(state);
+}
+
+/** Clears the OAuth state cookie (one-time use). */
+export async function clearOAuthState(): Promise<string> {
+  return youtubeOAuthStateCookie.serialize("", { maxAge: 0 });
+}
+
+/**
+ * Verifies the `state` query param against the value stored in the OAuth state
+ * cookie, using a constant-time comparison. Returns false when either side is
+ * missing or the values differ, which aborts the handshake (CSRF protection).
+ */
+export async function verifyOAuthState(request: Request, state: string | null): Promise<boolean> {
+  if (!state) return false;
+  const expected = await youtubeOAuthStateCookie.parse(request.headers.get("Cookie"));
+  if (typeof expected !== "string" || expected.length === 0) return false;
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(state);
+  if (expectedBuffer.length !== providedBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, providedBuffer);
 }

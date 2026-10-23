@@ -82,6 +82,7 @@ test("returns download URL JSON for a track accessible only via user-created pla
   await prisma.trackAudioFile.create({
     data: {
       trackId: track.id,
+      serviceId: track.serviceId,
       objectKey: `audio/tracks/local/${track.id}.mp3`,
       fileName: "test.mp3",
       mimeType: "audio/mpeg",
@@ -160,6 +161,7 @@ test("403 Forbidden — UserTrack is inactive (isActive: false)", async () => {
   await prisma.trackAudioFile.create({
     data: {
       trackId: track.id,
+      serviceId: track.serviceId,
       objectKey: `audio/tracks/local/${track.id}.mp3`,
       fileName: "test.mp3",
       mimeType: "audio/mpeg",
@@ -220,6 +222,7 @@ test("403 Forbidden — UserTrack is soft-deleted (deletedAt set)", async () => 
   await prisma.trackAudioFile.create({
     data: {
       trackId: track.id,
+      serviceId: track.serviceId,
       objectKey: `audio/tracks/local/${track.id}.mp3`,
       fileName: "test.mp3",
       mimeType: "audio/mpeg",

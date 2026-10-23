@@ -14,7 +14,6 @@ import type { Route } from "./+types/artists.merge.ts";
 const MergeArtistsSchema = z.object({
   sourceId: z.string().min(1, "Source artist ID is required"),
   targetId: z.string().min(1, "Target artist ID is required"),
-  keepAsAlias: z.boolean().default(true),
   comment: z.string().min(1, "Comment is required to explain the merge"),
 });
 

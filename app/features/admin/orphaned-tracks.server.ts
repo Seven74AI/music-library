@@ -122,118 +122,227 @@ export async function getOrphanedTrackStats(
 
 export async function getTracksWithoutAudio(
   serviceFilter: string | null = null,
-): Promise<TrackWithoutAudio[]> {
+  { skip = 0, take = MAX_ROWS }: { skip?: number; take?: number } = {},
+): Promise<{ items: TrackWithoutAudio[]; total: number }> {
   const where = {
     audioFiles: { none: {} },
     ...(serviceFilter && serviceFilter !== "all" ? { service: { name: serviceFilter } } : {}),
   };
 
-  const tracks = await prisma.track.findMany({
-    where,
-    take: MAX_ROWS,
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      title: true,
-      createdAt: true,
-      artist: { select: { name: true } },
-      service: { select: { name: true, displayName: true } },
-    },
-  });
+  const [tracks, total] = await Promise.all([
+    prisma.track.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        artist: { select: { name: true } },
+        service: { select: { name: true, displayName: true } },
+      },
+    }),
+    prisma.track.count({ where }),
+  ]);
 
-  return tracks.map((track) => ({
-    id: track.id,
-    title: track.title,
-    artistName: track.artist.name,
-    serviceName: track.service.name,
-    serviceDisplayName: track.service.displayName,
-    createdAt: track.createdAt,
-  }));
+  return {
+    items: tracks.map((track) => ({
+      id: track.id,
+      title: track.title,
+      artistName: track.artist.name,
+      serviceName: track.service.name,
+      serviceDisplayName: track.service.displayName,
+      createdAt: track.createdAt,
+    })),
+    total,
+  };
 }
 
 export async function getTracksWithFailedJobs(
   errorCategoryFilter: string | null = null,
-): Promise<TrackWithFailedJob[]> {
-  const jobs = await prisma.archiveJob.findMany({
-    where: { status: "failed" },
-    take: MAX_ROWS,
-    orderBy: { lastAttemptAt: "desc" },
-    select: {
-      status: true,
-      errorHistory: true,
-      retryCount: true,
-      lastAttemptAt: true,
-      track: {
+  { skip = 0, take = MAX_ROWS }: { skip?: number; take?: number } = {},
+): Promise<{ items: TrackWithFailedJob[]; total: number }> {
+  const filterActive = Boolean(errorCategoryFilter && errorCategoryFilter !== "all");
+
+  if (!filterActive) {
+    const [jobs, total] = await Promise.all([
+      prisma.archiveJob.findMany({
+        where: { status: "failed" },
+        skip,
+        take,
+        orderBy: { lastAttemptAt: "desc" },
         select: {
-          id: true,
-          title: true,
-          artist: { select: { name: true } },
+          status: true,
+          errorHistory: true,
+          retryCount: true,
+          lastAttemptAt: true,
+          track: {
+            select: {
+              id: true,
+              title: true,
+              artist: { select: { name: true } },
+            },
+          },
         },
-      },
-    },
-  });
+      }),
+      prisma.archiveJob.count({ where: { status: "failed" } }),
+    ]);
 
-  const result = jobs.map((job) => ({
-    id: job.track.id,
-    title: job.track.title,
-    artistName: job.track.artist.name,
-    jobStatus: job.status,
-    errorHistory: job.errorHistory,
-    retryCount: job.retryCount,
-    lastAttemptAt: job.lastAttemptAt,
-    errorCategory: categorizeError(job.errorHistory),
-  }));
-
-  if (errorCategoryFilter && errorCategoryFilter !== "all") {
-    return result.filter((track) => track.errorCategory === errorCategoryFilter);
+    return {
+      items: jobs.map((job) => ({
+        id: job.track.id,
+        title: job.track.title,
+        artistName: job.track.artist.name,
+        jobStatus: job.status,
+        errorHistory: job.errorHistory,
+        retryCount: job.retryCount,
+        lastAttemptAt: job.lastAttemptAt,
+        errorCategory: categorizeError(job.errorHistory),
+      })),
+      total,
+    };
   }
 
-  return result;
-}
-
-export async function getOrphanedAudioFiles(): Promise<OrphanedAudioFile[]> {
-  const orphaned = await prisma.$queryRaw<
+  // The error-category filter reads the latest error's category out of the JSON
+  // errorHistory column. Filter in SQL (json_extract) so pagination stays correct
+  // without loading every failed job into memory.
+  const rows = await prisma.$queryRaw<
     Array<{
       id: string;
-      objectKey: string;
-      fileSize: number | null;
-      format: string | null;
-      uploadedAt: Date;
+      title: string;
+      artistName: string;
+      jobStatus: string;
+      errorHistory: string;
+      retryCount: number;
+      lastAttemptAt: Date | string | number | null;
     }>
   >`
-    SELECT taf.id, taf.objectKey, taf.fileSize, taf.format, taf.uploadedAt
-    FROM TrackAudioFile taf
-    LEFT JOIN Track t ON taf.trackId = t.id
-    WHERE t.id IS NULL
-    ORDER BY taf.uploadedAt DESC
-    LIMIT ${MAX_ROWS}
+    SELECT
+      t.id AS id,
+      t.title AS title,
+      a.name AS artistName,
+      aj.status AS jobStatus,
+      aj.errorHistory AS errorHistory,
+      aj.retryCount AS retryCount,
+      aj.lastAttemptAt AS lastAttemptAt
+    FROM ArchiveJob aj
+    INNER JOIN Track t ON aj.trackId = t.id
+    INNER JOIN Artist a ON t.artistId = a.id
+    WHERE aj.status = 'failed'
+      AND json_extract(aj.errorHistory, '$[#-1].category') = ${errorCategoryFilter}
+    ORDER BY aj.lastAttemptAt DESC
+    LIMIT ${take} OFFSET ${skip}
   `;
 
-  return orphaned;
+  const countRows = await prisma.$queryRaw<Array<{ count: number }>>`
+    SELECT COUNT(*) AS count
+    FROM ArchiveJob aj
+    WHERE aj.status = 'failed'
+      AND json_extract(aj.errorHistory, '$[#-1].category') = ${errorCategoryFilter}
+  `;
+
+  return {
+    items: rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      artistName: row.artistName,
+      jobStatus: row.jobStatus,
+      errorHistory: row.errorHistory,
+      retryCount: row.retryCount,
+      lastAttemptAt: row.lastAttemptAt ? new Date(row.lastAttemptAt as Date) : null,
+      errorCategory: errorCategoryFilter as string,
+    })),
+    total: Number(countRows[0]?.count ?? 0),
+  };
 }
 
-export async function getUnusedTracks(ageDays: number | null = 30): Promise<UnusedTrack[]> {
-  const tracks = await prisma.track.findMany({
-    where: unusedTrackWhere(ageDays),
-    take: MAX_ROWS,
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      title: true,
-      createdAt: true,
-      artist: { select: { name: true } },
-      service: { select: { name: true, displayName: true } },
-    },
-  });
+export async function getOrphanedAudioFiles({
+  skip = 0,
+  take = MAX_ROWS,
+}: { skip?: number; take?: number } = {}): Promise<{ items: OrphanedAudioFile[]; total: number }> {
+  const [orphaned, totalRows] = await Promise.all([
+    prisma.$queryRaw<
+      Array<{
+        id: string;
+        objectKey: string;
+        fileSize: number | null;
+        format: string | null;
+        uploadedAt: Date;
+      }>
+    >`
+      SELECT taf.id, taf.objectKey, taf.fileSize, taf.format, taf.uploadedAt
+      FROM TrackAudioFile taf
+      LEFT JOIN Track t ON taf.trackId = t.id
+      WHERE t.id IS NULL
+      ORDER BY taf.uploadedAt DESC
+      LIMIT ${take} OFFSET ${skip}
+    `,
+    prisma.$queryRaw<Array<{ count: number }>>`
+      SELECT COUNT(*) AS count
+      FROM TrackAudioFile taf
+      LEFT JOIN Track t ON taf.trackId = t.id
+      WHERE t.id IS NULL
+    `,
+  ]);
 
-  return tracks.map((track) => ({
-    id: track.id,
-    title: track.title,
-    artistName: track.artist.name,
-    serviceName: track.service.name,
-    serviceDisplayName: track.service.displayName,
-    createdAt: track.createdAt,
-  }));
+  return { items: orphaned, total: Number(totalRows[0]?.count ?? 0) };
+}
+
+export async function getUnusedTracks(
+  ageDays: number | null = 30,
+  { skip = 0, take = MAX_ROWS }: { skip?: number; take?: number } = {},
+): Promise<{ items: UnusedTrack[]; total: number }> {
+  const where = unusedTrackWhere(ageDays);
+
+  const [tracks, total] = await Promise.all([
+    prisma.track.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        artist: { select: { name: true } },
+        service: { select: { name: true, displayName: true } },
+      },
+    }),
+    prisma.track.count({ where }),
+  ]);
+
+  return {
+    items: tracks.map((track) => ({
+      id: track.id,
+      title: track.title,
+      artistName: track.artist.name,
+      serviceName: track.service.name,
+      serviceDisplayName: track.service.displayName,
+      createdAt: track.createdAt,
+    })),
+    total,
+  };
+}
+
+export async function filterTracksWithoutAudio(trackIds: string[]): Promise<string[]> {
+  if (trackIds.length === 0) return [];
+  const rows = await prisma.trackAudioFile.findMany({
+    where: { trackId: { in: trackIds } },
+    select: { trackId: true },
+  });
+  const withAudio = new Set(rows.map((row) => row.trackId));
+  return trackIds.filter((id) => !withAudio.has(id));
+}
+
+export async function filterUnusedTracks(trackIds: string[]): Promise<string[]> {
+  if (trackIds.length === 0) return [];
+  const rows = await prisma.track.findMany({
+    where: { id: { in: trackIds }, ...unusedTrackWhere(null) },
+    select: { id: true },
+  });
+  const unused = new Set(rows.map((row) => row.id));
+  return trackIds.filter((id) => unused.has(id));
 }
 
 export async function queueTrackForDownload(trackId: string): Promise<void> {
@@ -242,7 +351,6 @@ export async function queueTrackForDownload(trackId: string): Promise<void> {
     create: { trackId, status: "pending", priority: true },
     update: { status: "pending", priority: true, retryCount: 0, errorHistory: "[]" },
   });
-  scheduleQueueTick();
 }
 
 export async function queueTracksForDownload(trackIds: string[]): Promise<number> {
@@ -251,6 +359,8 @@ export async function queueTracksForDownload(trackIds: string[]): Promise<number
     await queueTrackForDownload(trackId);
     queued++;
   }
+  // Schedule the worker tick once after the batch instead of per-track.
+  if (queued > 0) scheduleQueueTick();
   return queued;
 }
 

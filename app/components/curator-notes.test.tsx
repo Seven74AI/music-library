@@ -175,7 +175,6 @@ test("keeps edit and reply open after a saved note when the list re-renders", as
 
 test("deletes a reply and leaves the parent note", async () => {
   const user = userEvent.setup();
-  vi.stubGlobal("confirm", () => true);
   notes[0]!.replies = [
     {
       id: "reply-1",
@@ -200,6 +199,9 @@ test("deletes a reply and leaves the parent note", async () => {
     .filter((button) => button.innerHTML.includes("trash"));
   await user.click(trashButtons[1]!);
 
+  // Confirm through the in-app dialog (replaced window.confirm).
+  await user.click(await screen.findByRole("button", { name: "Delete" }));
+
   expect(mocks.createSubmit).toHaveBeenCalledWith(
     {},
     {
@@ -209,7 +211,6 @@ test("deletes a reply and leaves the parent note", async () => {
   );
   expect(screen.getByText("First impression")).toBeInTheDocument();
   notes[0]!.replies = [];
-  vi.unstubAllGlobals();
 });
 
 test("resets an open reply when a new submission succeeds", async () => {

@@ -1,37 +1,10 @@
-import { parseString } from "set-cookie-parser";
 import { beforeEach, describe, expect, test } from "vitest";
-import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { authSessionStorage } from "#app/utils/session.server.ts";
-import { createUser } from "#tests/db-utils.ts";
+import { createSessionCookie, unwrap } from "#tests/api-admin-test-utils.ts";
 import { loader } from "./fingerprint-failures.tsx";
 
 async function createAdminCookie() {
-  const user = await prisma.user.create({
-    select: { id: true },
-    data: {
-      ...createUser(),
-      roles: {
-        connectOrCreate: {
-          where: { name: "admin" },
-          create: { name: "admin" },
-        },
-      },
-    },
-  });
-  const session = await prisma.session.create({
-    select: { id: true },
-    data: {
-      expirationDate: getSessionExpirationDate(),
-      userId: user.id,
-    },
-  });
-
-  const authSession = await authSessionStorage.getSession();
-  authSession.set(sessionKey, session.id);
-  const setCookieHeader = await authSessionStorage.commitSession(authSession);
-  const parsedCookie = parseString(setCookieHeader)!;
-  return `${parsedCookie.name}=${parsedCookie.value}`;
+  return (await createSessionCookie("admin")).cookie;
 }
 
 async function ensureServices() {
@@ -93,18 +66,11 @@ async function createTrackWithAudio(opts: {
       mimeType: opts.audio.mimeType ?? "audio/mpeg",
       fileName: opts.audio.fileName ?? `${opts.title}.mp3`,
       fileSize: opts.audio.fileSize ?? 1_000_000,
-      serviceId: opts.audio.serviceId === undefined ? opts.serviceId : opts.audio.serviceId,
+      serviceId: opts.audio.serviceId ?? opts.serviceId,
     },
   });
 
   return { track, audioFile };
-}
-
-function unwrapLoaderData<T>(result: unknown): T {
-  if (result && typeof result === "object" && "data" in result) {
-    return (result as { data: T }).data;
-  }
-  return result as T;
 }
 
 function loadApi(cookie: string, search = "") {
@@ -131,7 +97,7 @@ describe("fingerprint-failures admin API", () => {
 
   test("returns stats and empty failures when library is empty", async () => {
     const cookie = await createAdminCookie();
-    const result = unwrapLoaderData<Awaited<ReturnType<typeof loadApi>>["data"]>(
+    const result = unwrap<Awaited<ReturnType<typeof loadApi>>["data"]>(
       await loadApi(cookie),
     );
 
@@ -186,7 +152,7 @@ describe("fingerprint-failures admin API", () => {
       },
     });
 
-    const result = unwrapLoaderData<{
+    const result = unwrap<{
       stats: {
         total: number;
         withContentHash: number;
@@ -236,7 +202,7 @@ describe("fingerprint-failures admin API", () => {
       },
     });
 
-    const result = unwrapLoaderData<{
+    const result = unwrap<{
       failures: Array<{
         id: string;
         trackId: string;
@@ -309,7 +275,7 @@ describe("fingerprint-failures admin API", () => {
       },
     });
 
-    const byFormat = unwrapLoaderData<{
+    const byFormat = unwrap<{
       failures: Array<{ title: string }>;
       totalFailures: number;
       filters: { format: string; service: string; size: string };
@@ -319,7 +285,7 @@ describe("fingerprint-failures admin API", () => {
     expect(byFormat.failures.map((f) => f.title)).toEqual(["YT MP3 Fail"]);
     expect(byFormat.filters.format).toBe("mp3");
 
-    const byLocal = unwrapLoaderData<{
+    const byLocal = unwrap<{
       failures: Array<{ title: string }>;
       totalFailures: number;
     }>(await loadApi(cookie, "?service=local"));
@@ -327,7 +293,7 @@ describe("fingerprint-failures admin API", () => {
     expect(byLocal.totalFailures).toBe(1);
     expect(byLocal.failures.map((f) => f.title)).toEqual(["Local FLAC Fail"]);
 
-    const byYoutube = unwrapLoaderData<{
+    const byYoutube = unwrap<{
       failures: Array<{ title: string }>;
       totalFailures: number;
     }>(await loadApi(cookie, "?service=youtube"));
@@ -363,7 +329,7 @@ describe("fingerprint-failures admin API", () => {
       },
     });
 
-    const byLocal = unwrapLoaderData<{
+    const byLocal = unwrap<{
       failures: Array<{ title: string; serviceId: string | null; serviceName: string | null }>;
       totalFailures: number;
     }>(await loadApi(cookie, "?service=local"));
@@ -407,19 +373,19 @@ describe("fingerprint-failures admin API", () => {
       },
     });
 
-    const small = unwrapLoaderData<{ failures: Array<{ title: string }>; totalFailures: number }>(
+    const small = unwrap<{ failures: Array<{ title: string }>; totalFailures: number }>(
       await loadApi(cookie, "?size=small"),
     );
     expect(small.totalFailures).toBe(1);
     expect(small.failures[0]?.title).toBe("Small Fail");
 
-    const medium = unwrapLoaderData<{ failures: Array<{ title: string }>; totalFailures: number }>(
+    const medium = unwrap<{ failures: Array<{ title: string }>; totalFailures: number }>(
       await loadApi(cookie, "?size=medium"),
     );
     expect(medium.totalFailures).toBe(1);
     expect(medium.failures[0]?.title).toBe("Medium Fail");
 
-    const large = unwrapLoaderData<{ failures: Array<{ title: string }>; totalFailures: number }>(
+    const large = unwrap<{ failures: Array<{ title: string }>; totalFailures: number }>(
       await loadApi(cookie, "?size=large"),
     );
     expect(large.totalFailures).toBe(1);
@@ -488,7 +454,7 @@ describe("fingerprint-failures admin API", () => {
     });
 
     const titles = async (size: string) => {
-      const result = unwrapLoaderData<{ failures: Array<{ title: string }> }>(
+      const result = unwrap<{ failures: Array<{ title: string }> }>(
         await loadApi(cookie, `?size=${size}`),
       );
       return result.failures.map((row) => row.title).sort();
@@ -516,7 +482,7 @@ describe("fingerprint-failures admin API", () => {
       });
     }
 
-    const page1 = unwrapLoaderData<{
+    const page1 = unwrap<{
       failures: Array<{ title: string }>;
       page: number;
       totalPages: number;
@@ -530,7 +496,7 @@ describe("fingerprint-failures admin API", () => {
     expect(page1.totalPages).toBe(2);
     expect(page1.failures).toHaveLength(2);
 
-    const page2 = unwrapLoaderData<{
+    const page2 = unwrap<{
       failures: Array<{ title: string }>;
       page: number;
       totalPages: number;
@@ -541,22 +507,7 @@ describe("fingerprint-failures admin API", () => {
   });
 
   test("rejects non-admin users", async () => {
-    const user = await prisma.user.create({
-      select: { id: true },
-      data: createUser(),
-    });
-    const session = await prisma.session.create({
-      select: { id: true },
-      data: {
-        expirationDate: getSessionExpirationDate(),
-        userId: user.id,
-      },
-    });
-    const authSession = await authSessionStorage.getSession();
-    authSession.set(sessionKey, session.id);
-    const setCookieHeader = await authSessionStorage.commitSession(authSession);
-    const parsedCookie = parseString(setCookieHeader)!;
-    const cookie = `${parsedCookie.name}=${parsedCookie.value}`;
+    const { cookie } = await createSessionCookie();
 
     await expect(loadApi(cookie)).rejects.toThrow();
   });

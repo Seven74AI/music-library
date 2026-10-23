@@ -1,61 +1,15 @@
-// @context7: React Router, Prisma, AWS S3
-import { readFileSync, existsSync, statSync, openSync, readSync, closeSync } from "fs";
+import { existsSync } from "fs";
 import { join, resolve, sep } from "path";
 import { type LoaderFunctionArgs } from "react-router";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import { requireUserId } from "#app/utils/auth.server";
+import { serveLocalAudioFile } from "#app/utils/audio-serving.server.ts";
 import { prisma } from "#app/utils/db.server";
 import { getFileUrl, getStorageObjectStream } from "#app/utils/storage.server";
-
-function serveLocalAudioFile(
-  localFilePath: string,
-  audioFile: { mimeType: string | null },
-  request: Request,
-) {
-  const mimeType = audioFile.mimeType || "audio/flac";
-  const fileStats = statSync(localFilePath);
-  const fileSize = fileStats.size;
-
-  const rangeHeader = request.headers.get("Range");
-
-  if (rangeHeader) {
-    const rangeMatch = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-    if (rangeMatch && rangeMatch[1]) {
-      const start = parseInt(rangeMatch[1], 10);
-      const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1;
-      const chunkSize = end - start + 1;
-
-      if (start >= 0 && start < fileSize && end < fileSize && start <= end) {
-        const fileBuffer = Buffer.allocUnsafe(chunkSize);
-        const fd = openSync(localFilePath, "r");
-        readSync(fd, fileBuffer, 0, chunkSize, start);
-        closeSync(fd);
-
-        return new Response(fileBuffer, {
-          status: 206,
-          headers: {
-            "Content-Type": mimeType,
-            "Content-Length": chunkSize.toString(),
-            "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=3600",
-          },
-        });
-      }
-    }
-  }
-
-  const fileBuffer = readFileSync(localFilePath);
-
-  return new Response(fileBuffer, {
-    headers: {
-      "Content-Type": mimeType,
-      "Content-Length": fileSize.toString(),
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=3600",
-    },
-  });
-}
+import {
+  assertTrackAccessOrThrow,
+  trackOwnershipAccessInclude,
+} from "#app/utils/track-ownership.server";
 
 export async function loader({ request, params, url }: LoaderFunctionArgs) {
   const userId = await requireUserId(request);
@@ -77,24 +31,7 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
           mimeType: true,
         },
       },
-      userTracks: {
-        where: { userId, isActive: true, deletedAt: null },
-        select: { id: true },
-      },
-      servicePlaylistTracks: {
-        where: {
-          isDeleted: false,
-          deletedAt: null,
-          playlist: { ownerId: userId, isActive: true },
-        },
-        take: 1,
-      },
-      playlists: {
-        where: {
-          playlist: { ownerId: userId },
-        },
-        take: 1,
-      },
+      ...trackOwnershipAccessInclude(userId),
     },
   });
 
@@ -102,14 +39,9 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
     throw new Response("Track not found", { status: 404 });
   }
 
-  // Check if user has access to this track (must be in their library, a user-owned active service playlist, or a user playlist)
-  if (
-    track.userTracks.length === 0 &&
-    track.servicePlaylistTracks.length === 0 &&
-    track.playlists.length === 0
-  ) {
-    throw new Response("Access denied", { status: 403 });
-  }
+  // Deny-by-default: the caller must own the track (library, a user-owned
+  // active service playlist, or a user playlist).
+  assertTrackAccessOrThrow(track);
 
   // Get best available audio file
   const audioFile = selectBestAudioFile(track.audioFiles);
@@ -133,7 +65,7 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
 
   if (wantsStream) {
     if (existsSync(localFilePath)) {
-      return serveLocalAudioFile(localFilePath, audioFile, request);
+      return serveLocalAudioFile(localFilePath, audioFile, request, "public, max-age=3600");
     }
 
     const { body, contentType, contentLength } = await getStorageObjectStream(audioFile.objectKey);

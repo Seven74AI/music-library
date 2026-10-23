@@ -30,7 +30,7 @@ Navigation on **Next**: drain Up Next front → advance spine pointer → **loop
 
 | Tier            | Shape                              | When loaded                                                            |
 | --------------- | ---------------------------------- | ---------------------------------------------------------------------- |
-| Spine           | `QueueTrack[]` (id, title, artist) | One request on play (`GET /api/queue-spine`)                           |
+| Spine           | `QueueTrack[]` (id, title, artist `{ id, name }`) | One request on play (`GET /api/queue-spine`)                           |
 | Hydration cache | `Map<id, FullTrack>`               | On demand: current + four-track lookahead (`GET /api/tracks/playback`) |
 
 The provider (`audio-player-provider.tsx`) orchestrates spine fetch, hydration, and navigation. Client modules live under `app/features/queue/`.
@@ -86,7 +86,7 @@ If spine fetch fails or returns empty, the provider falls back to device-local p
 | Hydration API          | `app/routes/api+/tracks+/playback.tsx`                                        |
 | Client queue modules   | `app/features/queue/`                                                         |
 | Provider orchestration | `app/components/audio-player-provider.tsx`                                    |
-| Queue sheet UI         | `app/components/audio-player.tsx`, `app/components/queue-sheet-ui.ts`         |
+| Queue sheet UI         | `app/components/player-queue-sheet.tsx`, `app/components/player-chrome.tsx`, `app/components/queue-sheet-ui.ts` |
 
 ## References
 

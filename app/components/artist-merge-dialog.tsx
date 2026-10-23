@@ -39,7 +39,6 @@ export function ArtistMergeDialog({
   const [sourceArtist, setSourceArtist] = useState(initialSource);
   const [targetArtist, setTargetArtist] = useState(initialTarget);
   const [comment, setComment] = useState("");
-  const [keepAsAlias, setKeepAsAlias] = useState(true);
   const [confirmed, setConfirmed] = useState(false);
   const [appliedPair, setAppliedPair] = useState(
     `${initialSource?.id ?? ""}:${initialTarget?.id ?? ""}`,
@@ -71,7 +70,6 @@ export function ArtistMergeDialog({
       {
         sourceId: sourceArtist!.id,
         targetId: targetArtist!.id,
-        keepAsAlias,
         comment,
       },
       {
@@ -85,6 +83,7 @@ export function ArtistMergeDialog({
   // Close dialog and notify parent on successful merge
   if (mergeFetcher.state === "idle" && mergeFetcher.data && open) {
     setTimeout(() => {
+      mergeFetcher.reset();
       onOpenChange(false);
       onMerged?.();
       setConfirmed(false);
@@ -182,19 +181,6 @@ export function ArtistMergeDialog({
               </div>
             </div>
           )}
-
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="keep-alias"
-              checked={keepAsAlias}
-              onChange={(e) => setKeepAsAlias(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            <Label htmlFor="keep-alias" className="cursor-pointer">
-              Keep "{sourceArtist?.name || "source"}" as an alias (recommended)
-            </Label>
-          </div>
 
           <div className="space-y-2">
             <Label htmlFor="merge-comment">

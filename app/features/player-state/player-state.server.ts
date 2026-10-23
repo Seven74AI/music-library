@@ -12,6 +12,10 @@ const librarySortSchema = z.enum(LIBRARY_SORT_OPTIONS);
 const discoverSortSchema = z.enum(DISCOVER_SORT_OPTIONS);
 const sortDirectionSchema = z.enum(["asc", "desc"]);
 
+// Internal DB ids are ~25-char cuids; cap the length and the Up Next array so a
+// client can't persist an arbitrarily large queue into the stored JSON column.
+const idSchema = z.string().min(1).max(200);
+
 const playContextSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("library"),
@@ -20,14 +24,14 @@ const playContextSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("playlist"),
-    playlistId: z.string().min(1),
+    playlistId: idSchema,
     sort: playlistSortSchema.optional(),
     direction: sortDirectionSchema.optional(),
   }),
-  z.object({ type: z.literal("artist"), artistId: z.string().min(1) }),
-  z.object({ type: z.literal("album"), albumId: z.string().min(1) }),
-  z.object({ type: z.literal("track"), trackId: z.string().min(1) }),
-  z.object({ type: z.literal("onRepeatSnapshot"), snapshotId: z.string().min(1) }),
+  z.object({ type: z.literal("artist"), artistId: idSchema }),
+  z.object({ type: z.literal("album"), albumId: idSchema }),
+  z.object({ type: z.literal("track"), trackId: idSchema }),
+  z.object({ type: z.literal("onRepeatSnapshot"), snapshotId: idSchema }),
   z.object({
     type: z.literal("discover"),
     sort: discoverSortSchema.optional(),
@@ -37,8 +41,8 @@ const playContextSchema = z.discriminatedUnion("type", [
 
 const playerStateSchema = z.object({
   playContext: playContextSchema.nullable(),
-  currentTrackId: z.string().min(1).nullable(),
-  upNextIds: z.array(z.string().min(1)),
+  currentTrackId: idSchema.nullable(),
+  upNextIds: z.array(idSchema).max(1000),
   shuffleSeed: z.number().int().nullable(),
   loopMode: z.enum(["off", "all", "one"]),
 });

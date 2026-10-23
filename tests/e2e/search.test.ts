@@ -61,17 +61,16 @@ test.describe("Global Search", () => {
   test("search API endpoint returns results", async ({ page, loginAsAdmin }) => {
     await loginAsAdmin();
 
-    // Test API endpoint directly
+    // Test API endpoint directly. A fresh DB with an empty FTS5 index must
+    // return 200 with empty results — not 500 — so assert the success code
+    // unconditionally and validate the stable results/pagination shape.
     const response = await page.request.get("/api/search?q=test");
-    // May return 200 with empty results or 500 if FTS5 tables are empty
-    expect([200, 500]).toContain(response.status());
+    expect(response.status()).toBe(200);
 
-    if (response.status() === 200) {
-      const data = await response.json();
-      expect(data).toHaveProperty("results");
-      expect(data).toHaveProperty("pagination");
-      expect(Array.isArray(data.results)).toBe(true);
-    }
+    const data = await response.json();
+    expect(data).toHaveProperty("results");
+    expect(data).toHaveProperty("pagination");
+    expect(Array.isArray(data.results)).toBe(true);
   });
 
   test("search API validates query parameter", async ({ page, loginAsAdmin }) => {
@@ -106,6 +105,7 @@ test.describe("Global Search", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/search-play.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -118,7 +118,7 @@ test.describe("Global Search", () => {
     const searchInput = page.getByPlaceholder(/what do you want to listen to/i);
     await searchInput.fill("Search Play Track");
 
-    const trackRow = page.getByRole("gridcell", { name: /Search Play Track by Test Artist/i });
+    const trackRow = page.getByRole("listitem", { name: /Search Play Track by Test Artist/i });
     await expect(trackRow).toBeVisible();
 
     await Promise.all([

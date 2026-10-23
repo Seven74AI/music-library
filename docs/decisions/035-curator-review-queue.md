@@ -3,6 +3,14 @@
 **Status:** Accepted  
 **Date:** 2026-10-02
 
+> **Erratum (implementation divergence).** The schema in this document predates
+> the implemented code and is superseded by it. The code is the source of truth
+> (`prisma/schema.prisma`, `app/features/curator/review-queue.ts`). Implemented values:
+> - `source`: `"user_report" | "system" | "curator"` (not `system_detected` / `curator_flagged` / `import_error`)
+> - `issueType`: `"wrong_metadata" | "missing_info" | "low_quality" | "duplicate" | "other"` (not `missing_audio` / `wrong_cover` / `missing_metadata` / `low_res_cover` / `import_error`)
+> - reporter field is `reporterId`; claim field is `claimedByUser` (not `reportedBy` / `claimedBy`)
+> - `priority`: default `1`, curator flags use `2` (not `user=1/system=0`)
+
 ## Context
 
 Data quality issues arise from multiple sources:

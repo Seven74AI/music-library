@@ -20,14 +20,6 @@ export async function getServiceByName(serviceName: string) {
 }
 
 /**
- * Computes total active track count and how many are missing from the user's
- * library across all synced playlists for a service.
- *
- * Used by both the synced-playlists page loader (for the "Add All Missing"
- * button badge) and the add-all-service-tracks-to-library route action.
- */
-
-/**
  * Returns all unique, active (non-deleted) track IDs across all synced
  * playlists for a service. Also returns the synced playlist IDs for reuse.
  */
@@ -58,6 +50,13 @@ export async function getActiveSyncedPlaylistTrackIds(
   return { playlistIds, trackIds };
 }
 
+/**
+ * Computes total active track count and how many are missing from the user's
+ * library across all synced playlists for a service.
+ *
+ * Used by both the synced-playlists page loader (for the "Add All Missing"
+ * button badge) and the add-all-service-tracks-to-library route action.
+ */
 export async function getSyncedPlaylistsTrackStats(
   userId: string,
   serviceName: string = "youtube",

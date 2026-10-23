@@ -23,8 +23,8 @@ import { createToastHeaders, redirectWithToast } from "#app/utils/toast.server.t
 import { verifySessionStorage } from "#app/utils/verification.server.ts";
 import { type Route } from "./+types/auth.$provider.callback.ts";
 import { handleNewSession } from "./login.server.ts";
-import { onboardingEmailSessionKey } from "./onboarding.tsx";
-import { prefilledProfileKey, providerIdKey } from "./onboarding_.$provider.tsx";
+import { onboardingEmailSessionKey } from "./onboarding-shared.ts";
+import { prefilledProfileKey, providerIdKey, providerNameKey } from "./onboarding_.$provider.tsx";
 
 const destroyRedirectTo = { "set-cookie": destroyRedirectToHeader };
 
@@ -134,7 +134,22 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   // Connection exists already? Make a new session
   if (existingConnection) {
-    return makeSession({ request, userId: existingConnection.userId });
+    return makeSession({ request, userId: existingConnection.userId, redirectTo });
+  }
+
+  // Some providers/scopes return a profile without an email. Without an email
+  // we can neither match an existing account nor onboard, so route to a handled
+  // error instead of throwing a TypeError on `.toLowerCase()`.
+  if (!profile.email) {
+    throw await redirectWithToast(
+      "/login",
+      {
+        title: "Auth Failed",
+        description: `Your ${label} account did not provide an email address.`,
+        type: "error",
+      },
+      { headers: destroyRedirectTo },
+    );
   }
 
   // if the email matches a user in the db, then link the account and
@@ -159,7 +174,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       metadata: { provider: providerName },
     });
     return makeSession(
-      { request, userId: user.id },
+      { request, userId: user.id, redirectTo },
       {
         headers: await createToastHeaders({
           title: "Connected",
@@ -180,6 +195,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       typeof profile.username === "string" ? normalizeUsername(profile.username) : undefined,
   });
   verifySession.set(providerIdKey, profile.id);
+  verifySession.set(providerNameKey, providerName);
   const onboardingRedirect = [
     `/onboarding/${providerName}`,
     redirectTo ? new URLSearchParams({ redirectTo }) : null,

@@ -173,7 +173,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
         const tx = {
           track: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockResolvedValue({
               id: "track1",
               title: "Video 1",
@@ -189,7 +189,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
             }),
           },
           servicePlaylistTrack: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockResolvedValue({
               id: "pt1",
               playlistId,
@@ -276,7 +276,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
         const tx = {
           track: {
-            findUnique: vi.fn().mockResolvedValue(existingTrack),
+            findMany: vi.fn().mockResolvedValue([existingTrack]),
             upsert: vi.fn().mockResolvedValue({
               id: "track1",
               title: "Original Video Title", // Should be preserved
@@ -292,7 +292,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
             }),
           },
           servicePlaylistTrack: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockResolvedValue({
               id: "pt1",
               playlistId,
@@ -383,7 +383,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
         const tx = {
           track: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockImplementation(async (args: any) => ({
               id: `track-${args.where.serviceId_externalId.externalId}`,
               title: args.create.title,
@@ -399,7 +399,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
             }),
           },
           servicePlaylistTrack: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockImplementation(async (args: any) => {
               upsertedPositions.push(args.create.position);
               return {
@@ -532,7 +532,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
         const tx = {
           track: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockImplementation(async (args: any) => {
               const trackId = `track-${args.where.serviceId_externalId.externalId}`;
               processedTrackIds.add(trackId);
@@ -553,7 +553,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
             }),
           },
           servicePlaylistTrack: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockImplementation(async (args: any) => {
               processedTrackIds.add(args.create.trackId);
               return {
@@ -564,7 +564,6 @@ describe("ServicePlaylistService - Batch Processing", () => {
                 isDeleted: false,
               };
             }),
-            findMany: vi.fn().mockResolvedValue([existingOrphanedTrack, stillSyncedTrack]),
             create: vi.fn(),
           },
         };
@@ -663,13 +662,13 @@ describe("ServicePlaylistService - Batch Processing", () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
         const tx = {
           track: {
-            findUnique: vi.fn().mockResolvedValue(null),
-            upsert: vi.fn(),
-            create: vi.fn().mockImplementation(async (args: any) => ({
-              id: args.data.id,
-              title: args.data.title,
-              externalId: args.data.externalId,
+            findMany: vi.fn().mockResolvedValue([]),
+            upsert: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.create.id,
+              title: args.create.title,
+              externalId: args.create.externalId,
             })),
+            create: vi.fn(),
           },
           artist: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -680,9 +679,8 @@ describe("ServicePlaylistService - Batch Processing", () => {
             }),
           },
           servicePlaylistTrack: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn(),
-            findMany: vi.fn().mockResolvedValue([stillOnYoutubeTrack]),
             create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };
@@ -765,13 +763,13 @@ describe("ServicePlaylistService - Batch Processing", () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
         const tx = {
           track: {
-            findUnique: vi.fn().mockResolvedValue(null),
-            upsert: vi.fn(),
-            create: vi.fn().mockImplementation(async (args: any) => ({
-              id: args.data.id,
-              title: args.data.title,
-              externalId: args.data.externalId,
+            findMany: vi.fn().mockResolvedValue([]),
+            upsert: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.create.id,
+              title: args.create.title,
+              externalId: args.create.externalId,
             })),
+            create: vi.fn(),
           },
           artist: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -782,9 +780,8 @@ describe("ServicePlaylistService - Batch Processing", () => {
             }),
           },
           servicePlaylistTrack: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn(),
-            findMany: vi.fn().mockResolvedValue([uncertainTrack]),
             create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };
@@ -881,7 +878,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
         const tx = {
           track: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockResolvedValue({
               id: "track-new",
               title: "New Video",
@@ -897,7 +894,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
             }),
           },
           servicePlaylistTrack: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockResolvedValue({
               id: "pt-new",
               playlistId,
@@ -995,7 +992,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
         const tx = {
           track: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockResolvedValue({
               id: "track-new",
               title: "New Video",
@@ -1016,7 +1013,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
             }),
           },
           servicePlaylistTrack: {
-            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
             upsert: vi.fn().mockResolvedValue({
               id: "pt-new",
               playlistId,
@@ -1024,7 +1021,6 @@ describe("ServicePlaylistService - Batch Processing", () => {
               position: 1,
               isDeleted: false,
             }),
-            findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };

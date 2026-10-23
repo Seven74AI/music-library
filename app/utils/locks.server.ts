@@ -1,8 +1,25 @@
 import { prisma } from "./db.server.ts";
+import { type Prisma } from "#prisma/client.js";
+import {
+  recordSecurityEvent,
+  SECURITY_EVENT_TYPES,
+} from "#app/features/security/track-event.server.ts";
 
 export type EntityType = "track" | "artist" | "album";
 
 const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+const lockInclude = { user: { select: { id: true, name: true, username: true } } } as const;
+
+/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
 
 export interface LockInfo {
   id: string;
@@ -48,43 +65,73 @@ export async function acquireLock(
     return null;
   }
 
-  // Create new lock
+  // Create new lock. The EditLock entityType_entityId unique constraint (ADR-032)
+  // is the atomic guard: two curators acquiring concurrently both pass the
+  // findUnique above, but only one create succeeds — the loser hits P2002.
   const expiresAt = new Date(Date.now() + LOCK_TIMEOUT_MS);
-  const lock = await prisma.editLock.create({
-    data: {
-      entityType,
-      entityId,
-      lockedBy: userId,
-      expiresAt,
-    },
-    include: { user: { select: { id: true, name: true, username: true } } },
-  });
+  try {
+    const lock = await prisma.editLock.create({
+      data: {
+        entityType,
+        entityId,
+        lockedBy: userId,
+        expiresAt,
+      },
+      include: lockInclude,
+    });
 
-  return toLockInfo(lock);
+    return toLockInfo(lock);
+  } catch (error) {
+    if (!isUniqueConstraintViolation(error)) throw error;
+
+    // Lost the race to another curator. Re-read the winning lock so a same-user
+    // double-acquire still extends it instead of reporting "already locked".
+    const winner = await prisma.editLock.findUnique({
+      where: { entityType_entityId: { entityType, entityId } },
+      include: lockInclude,
+    });
+
+    if (winner?.lockedBy === userId) {
+      const extended = await prisma.editLock.update({
+        where: { id: winner.id },
+        data: { expiresAt: new Date(Date.now() + LOCK_TIMEOUT_MS) },
+        include: lockInclude,
+      });
+      return toLockInfo(extended);
+    }
+
+    return null;
+  }
 }
 
+export type ReleaseLockResult = "released" | "not_found" | "not_owner";
+
 /**
- * Release a lock on an entity
+ * Release a lock on an entity.
+ * Distinguishes "no lock exists" (`not_found`) from "locked by someone else"
+ * (`not_owner`) so callers can return the correct HTTP status.
  */
 export async function releaseLock(
   entityType: EntityType,
   entityId: string,
   userId: string,
-): Promise<boolean> {
+): Promise<ReleaseLockResult> {
   const lock = await prisma.editLock.findUnique({
     where: { entityType_entityId: { entityType, entityId } },
   });
 
-  // Only release if locked by this user
-  if (!lock || lock.lockedBy !== userId) {
-    return false;
+  if (!lock) {
+    return "not_found";
+  }
+  if (lock.lockedBy !== userId) {
+    return "not_owner";
   }
 
   await prisma.editLock.delete({
     where: { id: lock.id },
   });
 
-  return true;
+  return "released";
 }
 
 /**
@@ -94,6 +141,7 @@ export async function forceUnlock(
   entityType: EntityType,
   entityId: string,
   reason: string,
+  actorUserId: string,
 ): Promise<boolean> {
   const lock = await prisma.editLock.findUnique({
     where: { entityType_entityId: { entityType, entityId } },
@@ -107,7 +155,17 @@ export async function forceUnlock(
     where: { id: lock.id },
   });
 
-  // TODO: Log the force unlock with reason in audit trail
+  // Log the force unlock with reason in the audit trail (ADR-032).
+  await recordSecurityEvent({
+    eventType: SECURITY_EVENT_TYPES.forceUnlock,
+    userId: actorUserId,
+    targetUserId: lock.lockedBy,
+    metadata: {
+      entityType,
+      entityId,
+      reason,
+    },
+  });
 
   return true;
 }
@@ -152,9 +210,11 @@ export async function cleanupExpiredLocks(): Promise<number> {
 /**
  * Convert database lock to LockInfo
  */
-function toLockInfo(
-  lock: any & { user: { id: string; name: string | null; username: string } },
-): LockInfo {
+type EditLockWithUser = Prisma.EditLockGetPayload<{
+  include: { user: { select: { id: true; name: true; username: true } } };
+}>;
+
+function toLockInfo(lock: EditLockWithUser): LockInfo {
   return {
     id: lock.id,
     entityType: lock.entityType as EntityType,

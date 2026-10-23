@@ -5,7 +5,8 @@ import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { uploadFile } from "#app/utils/storage.server.ts";
-import { downloadExternalImage } from "#app/utils/cover-management.server.ts";
+import { downloadExternalImage, getImageDimensions } from "#app/utils/cover-management.server.ts";
+import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/from-url.ts";
 
@@ -17,22 +18,6 @@ const FromUrlSchema = z.object({
 
 // Image validation
 const MIN_IMAGE_SIZE = 500; // 500x500 minimum
-
-async function getImageDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
-  // Import sharp dynamically to avoid issues if not installed
-  try {
-    const sharp = await import("sharp");
-    const metadata = await sharp.default(buffer).metadata();
-    return {
-      width: metadata.width || 0,
-      height: metadata.height || 0,
-    };
-  } catch (error) {
-    // If sharp is not available, return 0x0 (validation will fail if dimensions matter)
-    console.error("Sharp not available for image processing:", error);
-    return { width: 0, height: 0 };
-  }
-}
 
 export async function action({ request }: Route.ActionArgs) {
   if (request.method !== "POST") {
@@ -58,6 +43,16 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const { url, entityType, entityId } = result.data;
+
+  // The object key must derive from a verified record, never the raw client id.
+  // Reject path segments / `..` and nonexistent artist/album ids before upload.
+  if (!isValidCoverEntityId(entityId)) {
+    return data({ error: "Invalid entityId" }, { status: 400 });
+  }
+  const verifiedEntityId = await verifyCoverEntity(entityType, entityId);
+  if (!verifiedEntityId) {
+    return data({ error: `${entityType} not found` }, { status: 404 });
+  }
 
   // Download image from URL
   const buffer = await downloadExternalImage(url);
@@ -96,13 +91,12 @@ export async function action({ request }: Route.ActionArgs) {
   });
 
   if (!coverImage) {
-    // Determine file extension from content type or default to jpg
-    const extension = "jpg"; // Default, since we downloaded from URL
+    const extension = "jpg";
 
     // Upload to storage
     const fileId = createId();
     const timestamp = Date.now();
-    const objectKey = `images/${entityType}s/${entityId}/${timestamp}-${fileId}.${extension}`;
+    const objectKey = `images/${entityType}s/${verifiedEntityId}/${timestamp}-${fileId}.${extension}`;
 
     await uploadFile({
       file: buffer,
@@ -119,7 +113,6 @@ export async function action({ request }: Route.ActionArgs) {
         height,
         format: extension,
         fileSize: buffer.length,
-        isPrimary: false, // Will be set separately via set-primary endpoint
       },
     });
   }
@@ -131,7 +124,6 @@ export async function action({ request }: Route.ActionArgs) {
       objectKey: coverImage.objectKey,
       width: coverImage.width,
       height: coverImage.height,
-      isPrimary: coverImage.isPrimary,
     },
   });
 }

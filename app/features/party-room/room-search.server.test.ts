@@ -35,6 +35,7 @@ async function createTrackWithOptionalAudio(opts: {
     await prisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: `audio/${suffix}.flac`,
         format: "flac",
         mimeType: "audio/flac",
@@ -104,6 +105,7 @@ describe("searchRoomCatalog has-audio filter", () => {
     await prisma.trackAudioFile.create({
       data: {
         trackId: withTrack.id,
+        serviceId: withTrack.serviceId,
         objectKey: `audio/${marker}-with.flac`,
         format: "flac",
       },
@@ -129,5 +131,41 @@ describe("searchRoomCatalog has-audio filter", () => {
 
     expect(names.some((n) => n.includes("With"))).toBe(true);
     expect(names.some((n) => n.includes("Without"))).toBe(false);
+  });
+
+  test("malformed cursor (invalid base64) is treated as no cursor, does not throw", async () => {
+    const result = await searchRoomCatalog({
+      query: `NoSuchMarker${Date.now()}`,
+      type: "tracks",
+      limit: 20,
+      cursor: "!!!not-valid-base64!!!",
+    });
+    expect(result.results).toEqual([]);
+    expect(result.pagination.hasNext).toBe(false);
+    expect(result.pagination.nextCursor).toBeNull();
+  });
+
+  test("cursor with valid base64 but non-object JSON does not throw", async () => {
+    const cursor = Buffer.from("123").toString("base64");
+    const result = await searchRoomCatalog({
+      query: `NoSuchMarker${Date.now()}`,
+      type: "tracks",
+      limit: 20,
+      cursor,
+    });
+    expect(result.results).toEqual([]);
+    expect(result.pagination.hasNext).toBe(false);
+  });
+
+  test("cursor with valid JSON object but malformed tuple shape does not throw", async () => {
+    const cursor = Buffer.from(JSON.stringify({ t: "not-a-tuple" })).toString("base64");
+    const result = await searchRoomCatalog({
+      query: `NoSuchMarker${Date.now()}`,
+      type: "tracks",
+      limit: 20,
+      cursor,
+    });
+    expect(result.results).toEqual([]);
+    expect(result.pagination.hasNext).toBe(false);
   });
 });

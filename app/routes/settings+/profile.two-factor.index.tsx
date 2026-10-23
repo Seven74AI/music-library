@@ -5,6 +5,7 @@ import { StatusButton } from "#app/components/ui/status-button.tsx";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { encryptVerificationSecret } from "#app/utils/token-cipher.server.ts";
 import { generateTOTP } from "#app/utils/totp.server.ts";
 import { type Route } from "./+types/profile.two-factor.index.ts";
 import { twoFAVerificationType } from "./profile.two-factor.tsx";
@@ -28,6 +29,8 @@ export async function action({ request }: Route.ActionArgs) {
   const { otp: _otp, ...config } = await generateTOTP();
   const verificationData = {
     ...config,
+    // Store the TOTP secret encrypted at rest (AES-256-GCM, `enc1:` prefix).
+    secret: encryptVerificationSecret(config.secret),
     type: twoFAVerifyVerificationType,
     target: userId,
   };

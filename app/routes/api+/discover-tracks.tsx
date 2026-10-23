@@ -37,6 +37,7 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
       pagination,
     });
   } catch (error) {
+    if (error instanceof Response) throw error;
     console.error("Error fetching discover tracks:", error);
     return Response.json({ error: "Failed to fetch tracks" }, { status: 500 });
   }

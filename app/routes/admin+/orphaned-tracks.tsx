@@ -24,7 +24,14 @@ import {
   queueTracksForDownload,
   deleteTracks,
   cleanupOrphanedAudioFiles,
+  filterTracksWithoutAudio,
+  filterUnusedTracks,
+  type TrackWithoutAudio,
+  type TrackWithFailedJob,
+  type OrphanedAudioFile,
+  type UnusedTrack,
 } from "#app/features/admin/orphaned-tracks.server.ts";
+import { parsePageParam } from "#app/utils/parse-page-param.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/orphaned-tracks.ts";
@@ -35,6 +42,8 @@ export const handle: SEOHandle = {
 
 const TABS = ["missing-audio", "failed-downloads", "storage-orphans", "unused-tracks"] as const;
 type TabType = (typeof TABS)[number];
+
+type TabDataItem = TrackWithoutAudio | TrackWithFailedJob | OrphanedAudioFile | UnusedTrack;
 
 const PAGE_SIZE = 50;
 
@@ -81,7 +90,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const tabParam = url.searchParams.get("tab") ?? "missing-audio";
   const tab: TabType = TABS.includes(tabParam as TabType) ? (tabParam as TabType) : "missing-audio";
 
-  const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
+  const page = parsePageParam(url.searchParams.get("page"));
   const serviceFilter = url.searchParams.get("service") ?? "all";
   const errorCategoryFilter = url.searchParams.get("errorCategory") ?? "all";
   const ageFilter = url.searchParams.get("age") ?? "30d";
@@ -91,40 +100,45 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const stats = await getOrphanedTrackStats(ageDays);
 
-  let tabData: unknown[] = [];
+  const skip = (page - 1) * PAGE_SIZE;
+  let tabData: TabDataItem[] = [];
   let totalItems = 0;
 
   switch (tab) {
     case "missing-audio": {
-      const tracks = await getTracksWithoutAudio(serviceFilter !== "all" ? serviceFilter : null);
-      tabData = tracks;
-      totalItems = tracks.length;
+      const result = await getTracksWithoutAudio(serviceFilter !== "all" ? serviceFilter : null, {
+        skip,
+        take: PAGE_SIZE,
+      });
+      tabData = result.items;
+      totalItems = result.total;
       break;
     }
     case "failed-downloads": {
-      const tracks = await getTracksWithFailedJobs(
+      const result = await getTracksWithFailedJobs(
         errorCategoryFilter !== "all" ? errorCategoryFilter : null,
+        { skip, take: PAGE_SIZE },
       );
-      tabData = tracks;
-      totalItems = tracks.length;
+      tabData = result.items;
+      totalItems = result.total;
       break;
     }
     case "storage-orphans": {
-      const files = await getOrphanedAudioFiles();
-      tabData = files;
-      totalItems = files.length;
+      const result = await getOrphanedAudioFiles({ skip, take: PAGE_SIZE });
+      tabData = result.items;
+      totalItems = result.total;
       break;
     }
     case "unused-tracks": {
-      const tracks = await getUnusedTracks(ageDays);
-      tabData = tracks;
-      totalItems = tracks.length;
+      const result = await getUnusedTracks(ageDays, { skip, take: PAGE_SIZE });
+      tabData = result.items;
+      totalItems = result.total;
       break;
     }
   }
 
   const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
-  const paginatedData = tabData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const paginatedData = tabData;
 
   return {
     stats,
@@ -144,6 +158,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   const formData = await request.formData();
   const intent = formData.get("intent");
+  const tab = formData.get("tab");
 
   switch (intent) {
     case "queue-for-download": {
@@ -153,7 +168,13 @@ export async function action({ request }: Route.ActionArgs) {
       if (trackIds.length === 0) {
         return data({ success: false, error: "No tracks selected" }, { status: 400 });
       }
-      const queued = await queueTracksForDownload(trackIds);
+      // Defense-in-depth: only queue tracks that actually lack audio, so a
+      // crafted POST cannot enqueue arbitrary tracks for (re)download.
+      const validIds = await filterTracksWithoutAudio(trackIds);
+      if (validIds.length === 0) {
+        return data({ success: false, error: "No matching tracks selected" }, { status: 400 });
+      }
+      const queued = await queueTracksForDownload(validIds);
       return data({ success: true, action: "queue-for-download", count: queued });
     }
 
@@ -164,7 +185,23 @@ export async function action({ request }: Route.ActionArgs) {
       if (trackIds.length === 0) {
         return data({ success: false, error: "No tracks selected" }, { status: 400 });
       }
-      const result = await deleteTracks(trackIds);
+      // Defense-in-depth: only delete tracks matching the tab's semantic
+      // criteria, so a crafted POST cannot delete non-orphaned/non-unused tracks.
+      // `tab` is required: an omitted/unknown tab is rejected rather than
+      // silently falling back to a different tab's filter.
+      const validIds =
+        tab === "unused-tracks"
+          ? await filterUnusedTracks(trackIds)
+          : tab === "missing-audio"
+            ? await filterTracksWithoutAudio(trackIds)
+            : null;
+      if (validIds === null) {
+        return data({ success: false, error: "Invalid tab for delete-tracks" }, { status: 400 });
+      }
+      if (validIds.length === 0) {
+        return data({ success: false, error: "No matching tracks selected" }, { status: 400 });
+      }
+      const result = await deleteTracks(validIds);
       return data({ success: true, action: "delete-tracks", deleted: result.deleted });
     }
 
@@ -233,7 +270,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
   React.useEffect(() => {
     setSelectedIds((current) => {
       if (current.length === 0) return current;
-      const loadedIds = new Set(tabData.map((item: any) => item.id));
+      const loadedIds = new Set(tabData.map((item) => item.id));
       const next = current.filter((id) => loadedIds.has(id));
       return next.length === current.length ? current : next;
     });
@@ -241,9 +278,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
 
   // The effect above updates state after paint. Filter here so the toolbar and
   // hidden inputs drop removed rows in the same render as the reloaded list.
-  const visibleSelectedIds = selectedIds.filter((id) =>
-    tabData.some((item: any) => item.id === id),
-  );
+  const visibleSelectedIds = selectedIds.filter((id) => tabData.some((item) => item.id === id));
 
   const toggleSelection = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
@@ -253,7 +288,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
     if (visibleSelectedIds.length === tabData.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(tabData.map((item: any) => item.id));
+      setSelectedIds(tabData.map((item) => item.id));
     }
   };
 
@@ -389,6 +424,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
             {tab === "missing-audio" && visibleSelectedIds.length > 0 && (
               <Form method="post">
                 <input type="hidden" name="intent" value="queue-for-download" />
+                <input type="hidden" name="tab" value={tab} />
                 {visibleSelectedIds.map((id) => (
                   <input key={id} type="hidden" name="trackId" value={id} />
                 ))}
@@ -403,6 +439,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
               visibleSelectedIds.length > 0 && (
                 <Form method="post">
                   <input type="hidden" name="intent" value="delete-tracks" />
+                  <input type="hidden" name="tab" value={tab} />
                   {visibleSelectedIds.map((id) => (
                     <input key={id} type="hidden" name="trackId" value={id} />
                   ))}
@@ -416,6 +453,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
             {tab === "storage-orphans" && visibleSelectedIds.length > 0 && (
               <Form method="post">
                 <input type="hidden" name="intent" value="cleanup-orphaned-files" />
+                <input type="hidden" name="tab" value={tab} />
                 {visibleSelectedIds.map((id) => (
                   <input key={id} type="hidden" name="fileId" value={id} />
                 ))}
@@ -453,7 +491,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
                   </TableCell>
                 </TableRow>
               ) : (
-                tabData.map((track: any) => (
+                (tabData as TrackWithoutAudio[]).map((track) => (
                   <TableRow key={track.id}>
                     <TableCell>
                       <input
@@ -494,7 +532,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
                   </TableCell>
                 </TableRow>
               ) : (
-                tabData.map((track: any) => (
+                (tabData as TrackWithFailedJob[]).map((track) => (
                   <TableRow key={track.id}>
                     <TableCell className="font-medium">{track.title}</TableCell>
                     <TableCell>{track.artistName}</TableCell>
@@ -537,7 +575,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
                   </TableCell>
                 </TableRow>
               ) : (
-                tabData.map((file: any) => (
+                (tabData as OrphanedAudioFile[]).map((file) => (
                   <TableRow key={file.id}>
                     <TableCell>
                       <input
@@ -584,7 +622,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
                   </TableCell>
                 </TableRow>
               ) : (
-                tabData.map((track: any) => (
+                (tabData as UnusedTrack[]).map((track) => (
                   <TableRow key={track.id}>
                     <TableCell>
                       <input

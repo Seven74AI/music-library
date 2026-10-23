@@ -9,7 +9,7 @@ import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { action } from "./upload-audio-batch.tsx";
-import { getUploadProgress } from "./upload-progress.$uploadId.tsx";
+import { getUploadProgress } from "#app/features/upload-progress/progress-store.server.ts";
 
 const tinyMp3 = readFileSync(new URL("../../../tests/fixtures/tiny-tone.mp3", import.meta.url));
 
@@ -46,7 +46,7 @@ async function createAdminCookie() {
 async function waitForUpload(uploadId: string) {
   const started = Date.now();
   while (Date.now() - started < 20_000) {
-    const progress = getUploadProgress(uploadId);
+    const progress = await getUploadProgress(uploadId);
     if (progress && progress.status !== "active") return progress;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -158,9 +158,122 @@ test("an over-cap audio ZIP returns 400 and does not upload a partial set", asyn
       success: false,
       error: expect.stringMatching(/more than 100 audio files/),
     });
-    expect(getUploadProgress(uploadId)).toBeUndefined();
+    expect(await getUploadProgress(uploadId)).toBeUndefined();
   } finally {
     await prisma.session.deleteMany({ where: { userId } });
     await prisma.user.delete({ where: { id: userId } });
   }
 });
+
+function allowUploadConsoleErrors() {
+  consoleError.mockImplementation((...args: unknown[]) => {
+    const message = args.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(" ");
+    if (message.includes("Failed to generate audio fingerprint")) return;
+    if (message.includes("Error extracting metadata from")) return;
+    throw new Error(
+      `Console error was called: ${message}. Call consoleError.mockImplementation(() => {}) if this is expected.`,
+    );
+  });
+}
+
+async function seedLocalService() {
+  await prisma.service.upsert({
+    where: { name: LOCAL_SERVICE.NAME },
+    update: {},
+    create: {
+      name: LOCAL_SERVICE.NAME,
+      displayName: LOCAL_SERVICE.DISPLAY_NAME,
+      baseUrl: LOCAL_SERVICE.BASE_URL,
+    },
+  });
+}
+
+async function cleanupUploadArtist(artist: string, userId: string) {
+  const tracks = await prisma.track.findMany({
+    where: { artist: { name: artist } },
+    select: { id: true, artistId: true },
+  });
+  if (tracks.length > 0) {
+    await prisma.track.deleteMany({ where: { id: { in: tracks.map((track) => track.id) } } });
+    const artistIds = [...new Set(tracks.map((track) => track.artistId))];
+    await prisma.artist.deleteMany({ where: { id: { in: artistIds } } });
+  }
+  await prisma.session.deleteMany({ where: { userId } });
+  await prisma.user.delete({ where: { id: userId } });
+}
+
+async function postBatch(cookie: string, uploadId: string, fileEntries: Array<[string, string]>) {
+  const formData = new FormData();
+  formData.append("uploadId", uploadId);
+  fileEntries.forEach(([fileName, metadata], index) => {
+    formData.append("files", new File([tinyMp3], fileName, { type: "audio/mpeg" }));
+    formData.append(`metadata[${index}]`, metadata);
+  });
+  return action({
+    request: new Request("http://localhost/api/upload-audio-batch", {
+      method: "POST",
+      headers: { cookie },
+      body: formData,
+    }),
+    params: {},
+    context: {},
+  } as never);
+}
+
+test("invalid user metadata JSON fails only that file, not the batch", async () => {
+  allowUploadConsoleErrors();
+  await seedLocalService();
+  const { userId, cookie } = await createAdminCookie();
+  const title = `QA bad-json ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = `QA Artist ${title}`;
+  const uploadId = `upload-bad-json-${Date.now()}`;
+
+  try {
+    const response = await postBatch(cookie, uploadId, [
+      ["good.mp3", JSON.stringify({ title, artist })],
+      ["bad.mp3", "{not valid json"],
+    ]);
+
+    expect(response.init?.status).toBe(202);
+
+    const progress = await waitForUpload(uploadId);
+    expect(progress.failedFiles?.map((file) => file.fileName)).toContain("bad.mp3");
+    expect(progress.failedFiles?.find((file) => file.fileName === "bad.mp3")?.error).toMatch(
+      /Invalid user metadata JSON/,
+    );
+    expect(progress.successfulTracks).toEqual([
+      expect.objectContaining({ fileName: "good.mp3", title, artist }),
+    ]);
+  } finally {
+    await cleanupUploadArtist(artist, userId);
+  }
+}, 20_000);
+
+test("invalid user metadata shape fails only that file, not the batch", async () => {
+  allowUploadConsoleErrors();
+  await seedLocalService();
+  const { userId, cookie } = await createAdminCookie();
+  const title = `QA bad-shape ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = `QA Artist ${title}`;
+  const uploadId = `upload-bad-shape-${Date.now()}`;
+
+  try {
+    const response = await postBatch(cookie, uploadId, [
+      ["good.mp3", JSON.stringify({ title, artist })],
+      ["bad.mp3", JSON.stringify({ title: 123, artist })],
+    ]);
+
+    expect(response.init?.status).toBe(202);
+
+    const progress = await waitForUpload(uploadId);
+    expect(progress.failedFiles?.map((file) => file.fileName)).toContain("bad.mp3");
+    expect(progress.failedFiles?.find((file) => file.fileName === "bad.mp3")?.error).toMatch(
+      /Invalid user metadata/,
+    );
+    expect(progress.successfulTracks).toEqual([
+      expect.objectContaining({ fileName: "good.mp3", title, artist }),
+    ]);
+  } finally {
+    await cleanupUploadArtist(artist, userId);
+  }
+}, 20_000);

@@ -14,7 +14,6 @@ import type { Route } from "./+types/albums.merge.ts";
 const MergeAlbumsSchema = z.object({
   sourceId: z.string().min(1, "Source album ID is required"),
   targetId: z.string().min(1, "Target album ID is required"),
-  keepAsAlias: z.boolean().default(true),
   comment: z.string().min(1, "Comment is required to explain the merge"),
 });
 
@@ -71,6 +70,15 @@ export async function action({ request }: Route.ActionArgs) {
   // Validate: source album must not be merged already
   if (sourceAlbum.mergedIntoId) {
     throw new Response("Source album is already merged", { status: 400 });
+  }
+
+  // Validate: both albums must belong to the same artist. Merging albums from
+  // different artists would move tracks into another artist's album while each
+  // track keeps its own artistId, silently corrupting artist attribution.
+  if (sourceAlbum.artistId !== targetAlbum.artistId) {
+    throw new Response("Cannot merge albums from different artists — merge the artists first", {
+      status: 400,
+    });
   }
 
   try {

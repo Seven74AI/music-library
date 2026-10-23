@@ -87,15 +87,7 @@ interface TrackListItemProps {
   userTrack: UserTrack;
   index: number;
   playlistContext?: {
-    type:
-      | "library"
-      | "playlist"
-      | "artist"
-      | "album"
-      | "track"
-      | "music"
-      | "discover"
-      | "onRepeatSnapshot";
+    type: "library" | "playlist" | "artist" | "album" | "track" | "discover" | "onRepeatSnapshot";
     playlistId?: string;
     artistId?: string;
     albumId?: string;
@@ -147,6 +139,14 @@ interface TrackListItemProps {
    * Library passes this for curators and admins.
    */
   isCurator?: boolean;
+  /**
+   * ARIA role for the row root. Defaults to "listitem" (list consumers).
+   * Pass "presentation" when an ancestor already provides list-item
+   * semantics — e.g. a real `<li>` wrapper or a sortable item that carries
+   * `role="listitem"` itself, so the inner row is not announced as a
+   * nested list item.
+   */
+  listRole?: "listitem" | "presentation";
 }
 
 /**
@@ -208,6 +208,7 @@ export const TrackListItem = memo(function TrackListItem({
   onToggleSelection,
   curatorNotesCount = 0,
   isCurator = false,
+  listRole = "listitem",
 }: TrackListItemProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isActionsSheetOpen, setIsActionsSheetOpen] = useState(false);
@@ -437,8 +438,12 @@ export const TrackListItem = memo(function TrackListItem({
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={hasAudioFiles ? handlePlayTrack : undefined}
-        role="gridcell"
-        aria-label={`Track ${index + 1}: ${track.title} by ${track.artist.name}${isDeleted ? " (Deleted from YouTube)" : ""}`}
+        role={listRole}
+        {...(listRole === "presentation"
+          ? {}
+          : {
+              "aria-label": `Track ${index + 1}: ${track.title} by ${track.artist.name}${isDeleted ? " (Deleted from YouTube)" : ""}`,
+            })}
         style={hasAudioFiles ? { cursor: "pointer" } : undefined}
       >
         {/* Checkbox for bulk selection */}

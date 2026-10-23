@@ -328,8 +328,9 @@ export async function skipToIndex({
   if (!Number.isInteger(index) || index < 0 || index >= count) {
     throw new PartyRoomError("invalid_queue_op", "Index out of range", 400);
   }
-  // Pointer may only move forward into upcoming (or stay); history stays above.
-  // Jumping to any index including past history is allowed for Host (jump-to).
+  // Host "jump-to" may move the pointer to any index 0..count-1, including
+  // backward into history — history rows then reappear as "upcoming" and become
+  // editable/removable again.
   await prisma.room.update({
     where: { id: roomId },
     data: {
@@ -373,6 +374,28 @@ export async function recordRoomPlayEvent({
   const participant = await requireParticipant(roomId, actor);
   if (!canTransport(participant.role as RoomRole)) {
     throw new PartyRoomError("forbidden", "Only the Host/speaker may record room play events", 403);
+  }
+
+  // A room_play event must describe a track that is actually on this room's
+  // queue. Otherwise a Host could mint play events for arbitrary tracks.
+  const queued = await prisma.roomQueueItem.findFirst({
+    where: { roomId, trackId },
+    select: { id: true },
+  });
+  if (!queued) {
+    throw new PartyRoomError("forbidden", "Track is not on this room's queue", 403);
+  }
+
+  // Dedupe by playId: a play session emits start + complete, but a retried or
+  // duplicated client call must not create duplicate events for the same playId.
+  if (playId) {
+    const existing = await prisma.roomPlayEvent.findFirst({
+      where: { roomId, playId, type },
+      select: { id: true, type: true, trackId: true, playId: true, createdAt: true },
+    });
+    if (existing) {
+      return existing;
+    }
   }
 
   const event = await prisma.roomPlayEvent.create({

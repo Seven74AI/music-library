@@ -63,7 +63,6 @@ function renderDialog(current: Album) {
             objectKey: "images/albums/album-1/from-url.jpg",
             width: 600,
             height: 600,
-            isPrimary: false,
           },
         }),
       },
@@ -76,7 +75,6 @@ function renderDialog(current: Album) {
             objectKey: "images/albums/album-1/new.png",
             width: 800,
             height: 800,
-            isPrimary: false,
           },
         }),
       },
@@ -162,7 +160,7 @@ test("saves a different artist chosen from the artist field", async () => {
   const artistInput = screen.getByLabelText(/^Artist/);
   await user.clear(artistInput);
   await user.type(artistInput, "Audit");
-  await user.click(await screen.findByRole("button", { name: /Audit Split Artist/ }));
+  await user.click(await screen.findByRole("option", { name: /Audit Split Artist/ }));
   await user.click(screen.getByRole("button", { name: "Save Changes" }));
 
   await waitFor(() => {

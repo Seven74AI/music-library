@@ -16,7 +16,11 @@ import {
   SelectValue,
 } from "#app/components/ui/select.tsx";
 import { toast } from "#app/components/ui/use-toast.ts";
-import { ROOM_ROLE, type RoomDefaultJoinRole } from "#app/features/party-room/constants.ts";
+import {
+  ROOM_ROLE,
+  roomRoleLabel,
+  type RoomDefaultJoinRole,
+} from "#app/features/party-room/constants.ts";
 import { usePartyRoom } from "#app/features/party-room/party-room-provider.tsx";
 import { isParticipantAway } from "#app/features/party-room/presence.ts";
 
@@ -27,13 +31,6 @@ function copyText(text: string, successTitle: string) {
     () => toast({ title: successTitle }),
     () => toast({ title: "Could not copy", variant: "destructive" }),
   );
-}
-
-function roleLabel(role: string): string {
-  if (role === "dj") return "DJ";
-  if (role === "host") return "Host";
-  if (role === "listener") return "Listener";
-  return role;
 }
 
 function RoomJoinQr({
@@ -187,7 +184,7 @@ export function RoomsHub() {
                     {away ? <span className="text-muted-foreground"> · Away</span> : null}
                   </span>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-muted-foreground">{roleLabel(p.role)}</span>
+                    <span className="text-muted-foreground">{roomRoleLabel(p.role)}</span>
                     {canManageParticipant ? (
                       <>
                         {p.role !== "dj" ? (

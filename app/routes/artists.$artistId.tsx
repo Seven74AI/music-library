@@ -197,7 +197,7 @@ export default function ArtistRoute({ loaderData }: Route.ComponentProps) {
         {tracks.length > 0 ? (
           <section>
             <h2 className="mb-4 text-xl font-semibold">Tracks ({artist.trackCount})</h2>
-            <div role="grid" aria-label={`Tracks by ${artist.name}`}>
+            <div role="list" aria-label={`Tracks by ${artist.name}`}>
               {tracks.map((track, index) => (
                 <TrackListItem
                   key={track.id}

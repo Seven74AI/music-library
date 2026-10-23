@@ -1,12 +1,9 @@
-// @context7: React Router, File Upload, Server-Sent Events
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   data,
   Link,
-  useActionData,
   useNavigate,
   isRouteErrorResponse,
-  type ActionFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 import { type BreadcrumbHandle } from "#app/components/breadcrumbs";
@@ -20,8 +17,6 @@ import { LOCAL_SERVICE } from "#app/constants/services";
 import { type ExtractedAudioMetadata } from "#app/utils/audio-metadata.server";
 import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
-import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { type Route } from "./+types/upload.ts";
 
 export const handle: BreadcrumbHandle = {
   breadcrumb: <Icon name="download">Upload</Icon>,
@@ -68,19 +63,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return data({ service });
 }
 
-export async function clientAction(args: Route.ClientActionArgs) {
-  return proxyClientActionToServer(args);
-}
-
-export async function action({ request }: ActionFunctionArgs) {
-  await requireUserWithRole(request, "admin");
-  // This action is kept for backward compatibility but won't be used in the new workflow
-  // The new workflow uses the batch upload API directly
-  return data({ error: "Please use the new upload workflow" }, { status: 400 });
-}
-
 export default function LocalUploadPage() {
-  const actionData = useActionData<typeof action>();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<UploadStep>("select");
@@ -254,16 +237,6 @@ export default function LocalUploadPage() {
     );
   };
 
-  // Handle bulk metadata edit
-  const applyBulkMetadata = (updates: Partial<FileWithMetadata["editedMetadata"]>) => {
-    setFilesWithMetadata((prev) =>
-      prev.map((file) => ({
-        ...file,
-        editedMetadata: { ...file.editedMetadata, ...updates },
-      })),
-    );
-  };
-
   // Start upload
   const startUpload = async () => {
     setStep("uploading");
@@ -416,13 +389,13 @@ export default function LocalUploadPage() {
         </p>
       </div>
 
-      {(actionData?.error || uploadError) && (
+      {uploadError && (
         <div className="mb-6 rounded-md bg-destructive/15 p-4">
           <div className="flex items-center gap-2">
             <Icon name="question-mark-circled" className="h-4 w-4 text-destructive" />
             <p className="text-sm text-destructive font-medium">Error</p>
           </div>
-          <p className="text-sm text-destructive mt-1">{uploadError || actionData?.error}</p>
+          <p className="text-sm text-destructive mt-1">{uploadError}</p>
         </div>
       )}
 
@@ -521,7 +494,6 @@ export default function LocalUploadPage() {
             error: f.error,
           }))}
           onUpdate={updateFileMetadata}
-          onBulkUpdate={applyBulkMetadata}
           onConfirm={() => setStep("confirm")}
           onCancel={() => {
             setSelectedFiles([]);

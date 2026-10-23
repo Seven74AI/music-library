@@ -9,11 +9,13 @@ const CreateGenreSchema = z.object({
   name: z.string().min(1, "Genre name is required").max(100),
 });
 
-export async function clientLoader(args: Route.ClientLoaderArgs) {
-  // Genres are public and fetched via loader, no client-side override needed
-  const response = await fetch("/api/genres");
-  const data = await response.json();
-  return data;
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
 }
 
 async function readActionData(response: Response): Promise<unknown> {
@@ -117,23 +119,32 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  // Create new genre
-  const genre = await prisma.genre.create({
-    data: {
-      name: result.data.name,
-      normalizedName,
-    },
-    select: {
-      id: true,
-      name: true,
-      createdAt: true,
-      _count: {
-        select: {
-          tracks: true,
+  // Create new genre. The normalizedName unique constraint backstops the guard
+  // above against concurrent creates; translate a P2002 race into the same 409.
+  let genre;
+  try {
+    genre = await prisma.genre.create({
+      data: {
+        name: result.data.name,
+        normalizedName,
+      },
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        _count: {
+          select: {
+            tracks: true,
+          },
         },
       },
-    },
-  });
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw data({ error: "Genre already exists" }, { status: 409 });
+    }
+    throw error;
+  }
 
   return Response.json({
     genre: {

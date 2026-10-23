@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "#app/components/ui/card.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
-import { StatusBadge } from "#app/components/ui/status-badge.tsx";
+import { StatusBadge, type StatusBadgeStatus } from "#app/components/ui/status-badge.tsx";
 import {
   Table,
   TableBody,
@@ -30,6 +30,7 @@ import {
   getCurrentlyProcessingJobs,
 } from "#app/features/audio-archive/worker.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { parsePageParam } from "#app/utils/parse-page-param.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/audio-queue.ts";
@@ -89,7 +90,7 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
   const filter: StatusFilter = STATUS_FILTERS.includes(filterParam as StatusFilter)
     ? (filterParam as StatusFilter)
     : "all";
-  const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
+  const page = parsePageParam(url.searchParams.get("page"));
 
   // Get worker state (ADR-002: Prisma directly, not via import)
   const workerState = await prisma.workerState.upsert({
@@ -108,10 +109,15 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
   const total = pending + processing + completed + failed;
   const successRate = computeArchiveQueueSuccessRate(completed, failed);
 
+  // Bound the recoverable-failure count to a fixed cap so a very large failed
+  // queue cannot load unbounded errorHistory JSON into memory on every page
+  // load. The most recent failures are the ones an admin would retry anyway.
   const failedJobsForRetry = failed
     ? await prisma.archiveJob.findMany({
         where: { status: "failed" },
         select: { errorHistory: true },
+        orderBy: { lastAttemptAt: "desc" },
+        take: 5000,
       })
     : [];
   const recoverableFailed = failedJobsForRetry.filter((job) =>
@@ -227,7 +233,20 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     case "long-break": {
-      const durationMs = Number(formData.get("durationMs") ?? "21600000"); // 6h default
+      const rawDurationMs = formData.get("durationMs") ?? "21600000"; // 6h default
+      const durationMs = Number(rawDurationMs);
+      const MAX_LONG_BREAK_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+      // Reject NaN ("Invalid Date"), non-positive (immediate resume), and
+      // absurdly large values (far-future pause) that would corrupt WorkerState.
+      if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > MAX_LONG_BREAK_MS) {
+        return data(
+          {
+            success: false,
+            error: "Invalid durationMs: must be a positive number of milliseconds up to 7 days",
+          },
+          { status: 400 },
+        );
+      }
       const nextLongBreakAt = new Date(Date.now() + durationMs);
       await prisma.workerState.upsert({
         where: { id: "singleton" },
@@ -348,15 +367,34 @@ export async function action({ request }: Route.ActionArgs) {
       if (typeof trackId !== "string") {
         return data({ success: false, error: "Missing trackId" }, { status: 400 });
       }
-      // Enqueue a track that doesn't have an ArchiveJob yet
-      await prisma.archiveJob.create({
-        data: {
-          trackId,
-          status: "pending",
-          priority: true,
-        },
+
+      // FK violation on a nonexistent trackId would otherwise throw an unhandled
+      // 500. Verify the track exists first and return a clean 404.
+      const track = await prisma.track.findUnique({
+        where: { id: trackId },
+        select: { id: true },
       });
-      scheduleQueueTick();
+      if (!track) {
+        return data({ success: false, error: "Track not found" }, { status: 404 });
+      }
+
+      // Enqueue a track that doesn't have an ArchiveJob yet. Idempotent per
+      // decision #18: a duplicate trackId (P2002) is silently skipped.
+      try {
+        await prisma.archiveJob.create({
+          data: {
+            trackId,
+            status: "pending",
+            priority: true,
+          },
+        });
+        scheduleQueueTick();
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          return data({ success: true, action: "enqueue", trackId, alreadyExists: true });
+        }
+        throw error;
+      }
       return data({ success: true, action: "enqueue", trackId });
     }
 
@@ -407,7 +445,7 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
         <div className="flex flex-wrap items-center gap-4 mb-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Status:</span>
-            <StatusBadge status={workerState.status} />
+            <StatusBadge status={workerState.status as StatusBadgeStatus} />
           </div>
 
           <Form method="post" className="flex gap-2">
@@ -581,7 +619,7 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
                   <TableCell>{job.artistName}</TableCell>
                   <TableCell>{job.serviceDisplayName}</TableCell>
                   <TableCell>
-                    <StatusBadge status={job.status} />
+                    <StatusBadge status={job.status as StatusBadgeStatus} />
                     {job.priority && (
                       <Badge
                         variant="outline"
@@ -692,4 +730,13 @@ export function ErrorBoundary() {
 
 export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
 }
