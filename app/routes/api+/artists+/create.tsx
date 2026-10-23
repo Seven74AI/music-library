@@ -2,16 +2,13 @@ import { data } from "react-router";
 import { z } from "zod";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/create.ts";
 
 const CreateArtistSchema = z.object({
   name: z.string().min(1, "Artist name is required").max(255),
 });
-
-function normalizeArtistName(name: string): string {
-  return name.toLowerCase().trim();
-}
 
 export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
