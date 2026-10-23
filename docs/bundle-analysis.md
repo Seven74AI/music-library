@@ -1,6 +1,6 @@
 # Bundle Analysis — Music Library
 
-**Date:** 2026-05-31 | **Build:** React Router v7 + Vite 6 | **PRD:** https://github.com/Seven74AI/music-library/issues/32
+**Date:** 2026-05-31 | **Build:** React Router v7 + Vite 6 | **PRD:** https://github.com/mnlamart/music-library/issues/32
 
 ## Summary
 

@@ -66,7 +66,7 @@ async function createTrackWithAudio(opts: {
       mimeType: opts.audio.mimeType ?? "audio/mpeg",
       fileName: opts.audio.fileName ?? `${opts.title}.mp3`,
       fileSize: opts.audio.fileSize ?? 1_000_000,
-      serviceId: opts.audio.serviceId === undefined ? opts.serviceId : opts.audio.serviceId,
+      serviceId: opts.audio.serviceId ?? opts.serviceId,
     },
   });
 
@@ -97,9 +97,7 @@ describe("fingerprint-failures admin API", () => {
 
   test("returns stats and empty failures when library is empty", async () => {
     const cookie = await createAdminCookie();
-    const result = unwrap<Awaited<ReturnType<typeof loadApi>>["data"]>(
-      await loadApi(cookie),
-    );
+    const result = unwrap<Awaited<ReturnType<typeof loadApi>>["data"]>(await loadApi(cookie));
 
     expect(result.stats).toEqual({
       total: 0,

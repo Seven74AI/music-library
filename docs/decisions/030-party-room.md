@@ -136,7 +136,7 @@ The product need is an **in-person party**: many people want to queue tracks on 
 - Personal player and ADR-017 **PlayerState** remain the solo path; room mode is an overlay on the speaker device.
 - Guest shell is a distinct route tree from the full app chrome.
 - Upload SSE’s process-local connection map is acceptable on a single Fly machine; multi-node fan-out or version-polling fallback may be needed if the app scales out.
-- Glossary: **Party Room** section in `docs/CONTEXT.md`; settled decision #66.
+- Glossary: **Party Room** section in `docs/CONTEXT.md`; settled decision #67.
 - The 2026-10-13 amendment is partially implemented: **Become host** now opens only after the current Host is Away and the sound has been stopped for ~30s (`SPEAKER_SILENCE_GRACE_MS`), matching the amendment. The remainder is not yet implemented — the active code lives in `sessionStorage` (no account or guest-cookie lookup), `emptySince` is set only when the last seat clicks Leave, Host Leave does not end the room, and **Reclaim host** stays on the creator’s user id.
 
 ## References

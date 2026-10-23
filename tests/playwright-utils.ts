@@ -166,7 +166,7 @@ export const test = base.extend<{
   insertNewTrack(
     options?: { title?: string; artist?: string },
     userId?: string,
-  ): Promise<{ id: string; title: string; artist: string }>;
+  ): Promise<{ id: string; title: string; artist: string; serviceId: string }>;
   insertNewPlaylist(
     options?: {
       title?: string;
@@ -313,6 +313,7 @@ export const test = base.extend<{
         id: track.id,
         title: track.title,
         artist: artist.name,
+        serviceId: track.serviceId,
       };
     });
     // Optimized cleanup - batch deletion

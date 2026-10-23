@@ -38,7 +38,7 @@ Global FTS (ADR-009) ranks by text relevance only. Listeners repeatedly search f
 
 ## Consequences
 
-- Glossary: **Personal Play Boost** (`docs/CONTEXT.md` decision #65).
+- Glossary: **Personal Play Boost** (`docs/CONTEXT.md` decision #66).
 - Search path must load (or cache) the authed user's lifetime play counts and apply them only when a user session exists; logged-out search stays relevance-only.
 - Formula details (weights, caps) belong in the implementation PR / tests — this ADR locks product intent only.
 
