@@ -140,6 +140,7 @@ test.describe("Offline mode", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: `audio/${track.id}.mp3`,
         format: "mp3",
         mimeType: "audio/mpeg",

@@ -93,7 +93,7 @@ async function createTrackWithAudio(opts: {
       mimeType: opts.audio.mimeType ?? "audio/mpeg",
       fileName: opts.audio.fileName ?? `${opts.title}.mp3`,
       fileSize: opts.audio.fileSize ?? 1_000_000,
-      serviceId: opts.audio.serviceId === undefined ? opts.serviceId : opts.audio.serviceId,
+      serviceId: opts.audio.serviceId ?? opts.serviceId,
     },
   });
 

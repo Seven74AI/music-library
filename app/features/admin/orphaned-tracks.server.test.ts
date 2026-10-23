@@ -433,10 +433,11 @@ describe("orphaned-tracks delete storage safety", () => {
     await prisma.$executeRaw`PRAGMA foreign_keys = OFF`;
     const orphanId = `orphan-audio-${Date.now()}`;
     await prisma.$executeRaw`
-      INSERT INTO TrackAudioFile (id, trackId, objectKey, contentHash, format, mimeType, fileName, createdAt, updatedAt, uploadedAt)
+      INSERT INTO TrackAudioFile (id, trackId, serviceId, objectKey, contentHash, format, mimeType, fileName, createdAt, updatedAt, uploadedAt)
       VALUES (
         ${orphanId},
         ${"missing-track-id"},
+        ${live.track.serviceId},
         ${objectKey},
         ${contentHash},
         ${"mp3"},
