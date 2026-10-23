@@ -74,16 +74,14 @@ export function ImageUploader({
     );
   };
 
-  const uploadStillForThisEntity = () =>
-    uploadTargetRef.current?.entityType === entityType &&
-    uploadTargetRef.current?.entityId === entityId;
-
   // Handle a successful file upload once the action resolves.
   useEffect(() => {
     const data = uploadFetcher.data;
     if (!data || handledUploadDataRef.current === data) return;
     handledUploadDataRef.current = data;
-    if (!data.success || !onImageUploaded || !uploadStillForThisEntity()) return;
+    const target = uploadTargetRef.current;
+    const stillForThisEntity = target?.entityType === entityType && target?.entityId === entityId;
+    if (!data.success || !onImageUploaded || !stillForThisEntity) return;
     onImageUploaded(data.image.objectKey, data.image.id);
   }, [uploadFetcher.data, entityType, entityId, onImageUploaded]);
 
@@ -92,7 +90,9 @@ export function ImageUploader({
     const data = urlFetcher.data;
     if (!data || handledUrlDataRef.current === data) return;
     handledUrlDataRef.current = data;
-    if (!data.success || !onImageUploaded || !uploadStillForThisEntity()) return;
+    const target = uploadTargetRef.current;
+    const stillForThisEntity = target?.entityType === entityType && target?.entityId === entityId;
+    if (!data.success || !onImageUploaded || !stillForThisEntity) return;
     onImageUploaded(data.image.objectKey, data.image.id);
     setImageUrl("");
   }, [urlFetcher.data, entityType, entityId, onImageUploaded]);
