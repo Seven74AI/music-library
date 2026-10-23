@@ -69,7 +69,7 @@ test.describe("Artist Page", () => {
         { timeout: 15000 },
       ),
       page
-        .getByRole("gridcell", { name: new RegExp(`Artist Page Sibling Track by ${artistName}`) })
+        .getByRole("listitem", { name: new RegExp(`Artist Page Sibling Track by ${artistName}`) })
         .click(),
     ]);
 

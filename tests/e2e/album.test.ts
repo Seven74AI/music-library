@@ -83,7 +83,7 @@ test.describe("Album Page", () => {
         (response) => response.url().includes("/api/queue-spine") && response.status() === 200,
         { timeout: 15000 },
       ),
-      page.getByRole("gridcell", { name: /Album Page Track One by Album Page Artist/i }).click(),
+      page.getByRole("listitem", { name: /Album Page Track One by Album Page Artist/i }).click(),
     ]);
 
     const playerBar = await waitForPlayerBar(page);

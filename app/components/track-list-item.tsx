@@ -437,7 +437,7 @@ export const TrackListItem = memo(function TrackListItem({
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={hasAudioFiles ? handlePlayTrack : undefined}
-        role="gridcell"
+        role="listitem"
         aria-label={`Track ${index + 1}: ${track.title} by ${track.artist.name}${isDeleted ? " (Deleted from YouTube)" : ""}`}
         style={hasAudioFiles ? { cursor: "pointer" } : undefined}
       >

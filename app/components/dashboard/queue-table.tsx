@@ -328,6 +328,7 @@ export function QueueTable() {
                     {item.status === "open" ? (
                       <Button
                         size="sm"
+                        aria-label={`Claim ${item.entityDetails.name}`}
                         onClick={() => {
                           pendingMove.current = { kind: "claim", item };
                           submitAction(`/api/curator/queue/${item.id}/claim`);
@@ -341,6 +342,7 @@ export function QueueTable() {
                         <Button
                           size="sm"
                           variant="outline"
+                          aria-label={`Unclaim ${item.entityDetails.name}`}
                           onClick={() => {
                             pendingMove.current = { kind: "unclaim", item };
                             submitAction(`/api/curator/queue/${item.id}/unclaim`);
@@ -350,6 +352,7 @@ export function QueueTable() {
                         </Button>
                         <Button
                           size="sm"
+                          aria-label={`Resolve ${item.entityDetails.name}`}
                           onClick={() => {
                             setSelectedItem(item);
                             setResolution("");

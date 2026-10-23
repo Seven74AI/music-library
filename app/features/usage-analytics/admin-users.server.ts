@@ -45,10 +45,6 @@ async function recordModeration(
   });
 }
 
-function countAdmins() {
-  return prisma.user.count({ where: { roles: { some: { name: "admin" } } } });
-}
-
 export async function disableUser(
   userId: string,
   actorUserId?: string | null,
@@ -137,18 +133,27 @@ export async function demoteFromAdmin({
     return forbidden("This user is not an admin");
   }
 
-  if ((await countAdmins()) <= 1) {
+  // Count + disconnect in one transaction so two concurrent demotions can't
+  // both pass the last-admin check (TOCTOU).
+  const demoted = await prisma.$transaction(async (tx) => {
+    const adminCount = await tx.user.count({ where: { roles: { some: { name: "admin" } } } });
+    if (adminCount <= 1) return false;
+
+    await tx.user.update({
+      where: { id: targetUserId },
+      data: {
+        roles: {
+          disconnect: { name: "admin" },
+        },
+      },
+    });
+    return true;
+  });
+
+  if (!demoted) {
     return forbidden("Cannot demote the last admin");
   }
 
-  await prisma.user.update({
-    where: { id: targetUserId },
-    data: {
-      roles: {
-        disconnect: { name: "admin" },
-      },
-    },
-  });
   await recordModeration(SECURITY_EVENT_TYPES.roleChanged, target, actorUserId, {
     role: "admin",
     action: "demote",
@@ -312,14 +317,25 @@ export async function deleteUserAsAdmin({
   if (!target) return notFound;
 
   const isAdmin = target.roles.some((role) => role.name === "admin");
-  if (isAdmin && (await countAdmins()) <= 1) {
+
+  // Count + delete in one transaction so two concurrent deletions can't both
+  // pass the last-admin check (TOCTOU).
+  const deleted = await prisma.$transaction(async (tx) => {
+    if (isAdmin) {
+      const adminCount = await tx.user.count({ where: { roles: { some: { name: "admin" } } } });
+      if (adminCount <= 1) return false;
+    }
+    await tx.user.delete({ where: { id: targetUserId } });
+    return true;
+  });
+
+  if (!deleted) {
     return forbidden("Cannot delete the last admin");
   }
 
   await recordModeration(SECURITY_EVENT_TYPES.accountDeleted, target, actorUserId, {
     action: "delete",
   });
-  await prisma.user.delete({ where: { id: targetUserId } });
   return { ok: true };
 }
 

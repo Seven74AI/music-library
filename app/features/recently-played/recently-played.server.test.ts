@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { createUser } from "#tests/db-utils.ts";
+import { createUser, createTrack } from "#tests/db-utils.ts";
 import { RECENTLY_PLAYED_LIMIT, getRecentlyPlayedTracks } from "./recently-played.server.ts";
 
 async function createTestUser() {
@@ -9,32 +9,6 @@ async function createTestUser() {
     data: {
       ...createUser(),
       roles: { connect: { name: "user" } },
-    },
-  });
-}
-
-async function ensureLocalService() {
-  return prisma.service.upsert({
-    where: { name: "local" },
-    update: {},
-    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
-  });
-}
-
-async function createTrack(title: string) {
-  const service = await ensureLocalService();
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  return prisma.track.create({
-    data: {
-      title: `${title} ${suffix}`,
-      externalId: `ext-${suffix}`,
-      service: { connect: { id: service.id } },
-      artist: {
-        create: {
-          name: `Artist ${suffix}`,
-          normalizedName: `artist ${suffix}`,
-        },
-      },
     },
   });
 }
