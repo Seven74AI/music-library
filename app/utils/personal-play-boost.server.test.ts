@@ -41,16 +41,17 @@ describe("computePersonalPlayBoost", () => {
   });
 
   it("builds a CASE SQL expression from precomputed boosts", () => {
-    const sql = personalPlayBoostCaseSql(
+    const { sql, params } = personalPlayBoostCaseSql(
       new Map([
         ["track_a", 5],
         ["track_b", 0],
       ]),
     );
     const boostA = computePersonalPlayBoost(5);
-    expect(sql).toContain(`WHEN 'track_a' THEN ${boostA}`);
+    expect(sql).toContain(`WHEN ? THEN ${boostA}`);
     expect(sql).not.toContain("track_b");
-    expect(personalPlayBoostCaseSql(new Map())).toBe("0");
+    expect(params).toEqual(["track_a"]);
+    expect(personalPlayBoostCaseSql(new Map())).toEqual({ sql: "0", params: [] });
   });
 });
 
