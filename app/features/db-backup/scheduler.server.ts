@@ -7,6 +7,11 @@ import { getInstanceInfo } from "#app/utils/litefs.server.ts";
 import { formatUtcDate } from "./backup-keys.ts";
 import { runBackup } from "./backup.server.ts";
 import { isBackupBucketConfigured } from "./backup-storage.server.ts";
+import {
+  loadPersistedSchedulerState,
+  persistSchedulerState,
+  type PersistedSchedulerState,
+} from "./scheduler-state.server.ts";
 
 const DEFAULT_HOUR_UTC = 3;
 export const BACKUP_SCHEDULER_MAX_ATTEMPTS = 3;
@@ -30,6 +35,30 @@ const state: SchedulerState = {
 };
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
+
+function snapshotPersistedState(): PersistedSchedulerState {
+  return {
+    lastSuccessDay: state.lastSuccessDay,
+    attemptsToday: state.attemptsToday,
+    attemptDay: state.attemptDay,
+    nextRetryAt: state.nextRetryAt,
+  };
+}
+
+function applyPersistedState(persisted: PersistedSchedulerState): void {
+  state.lastSuccessDay = persisted.lastSuccessDay;
+  state.attemptsToday = persisted.attemptsToday;
+  state.attemptDay = persisted.attemptDay;
+  state.nextRetryAt = persisted.nextRetryAt;
+}
+
+async function hydrateSchedulerStateFromDb(): Promise<void> {
+  applyPersistedState(await loadPersistedSchedulerState());
+}
+
+async function saveSchedulerStateToDb(): Promise<void> {
+  await persistSchedulerState(snapshotPersistedState());
+}
 
 export function getBackupHourUtc(): number {
   const raw = process.env.BACKUP_HOUR_UTC;
@@ -61,9 +90,15 @@ export async function processBackupSchedulerTick(options?: {
   now?: Date;
   run?: typeof runBackup;
   skipPrimaryCheck?: boolean;
+  /** When true, use in-memory state only (unit tests). Production persists to BackupState. */
+  skipPersistence?: boolean;
 }): Promise<void> {
   if (!isBackupBucketConfigured()) return;
   if (state.inFlight) return;
+
+  if (!options?.skipPersistence) {
+    await hydrateSchedulerStateFromDb();
+  }
 
   const now = options?.now ?? new Date();
   const day = formatUtcDate(now);
@@ -79,6 +114,9 @@ export async function processBackupSchedulerTick(options?: {
     state.attemptDay = day;
     state.attemptsToday = 0;
     state.nextRetryAt = null;
+    if (!options?.skipPersistence) {
+      await saveSchedulerStateToDb();
+    }
   }
 
   // Already succeeded today
@@ -110,12 +148,18 @@ export async function processBackupSchedulerTick(options?: {
     if (result.ok) {
       state.lastSuccessDay = day;
       state.nextRetryAt = null;
+      if (!options?.skipPersistence) {
+        await saveSchedulerStateToDb();
+      }
       return;
     }
 
     if (result.skipped) {
       // Not configured / not primary — don't burn retries
       state.attemptsToday = Math.max(0, state.attemptsToday - 1);
+      if (!options?.skipPersistence) {
+        await saveSchedulerStateToDb();
+      }
       return;
     }
 
@@ -123,6 +167,9 @@ export async function processBackupSchedulerTick(options?: {
       state.nextRetryAt = now.getTime() + BACKUP_SCHEDULER_RETRY_DELAY_MS;
     } else {
       state.nextRetryAt = null;
+    }
+    if (!options?.skipPersistence) {
+      await saveSchedulerStateToDb();
     }
   } finally {
     state.inFlight = false;
