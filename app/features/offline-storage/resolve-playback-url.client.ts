@@ -18,13 +18,6 @@ type CachedRemoteUrl = {
 const remoteUrlCache = new Map<string, CachedRemoteUrl>();
 const pendingRemoteFetches = new Set<string>();
 
-export class OfflineDataCorruptedError extends Error {
-  constructor(message = "Offline data is corrupted or unavailable") {
-    super(message);
-    this.name = "OfflineDataCorruptedError";
-  }
-}
-
 function getCachedRemoteUrl(trackId: string): string | null {
   const entry = remoteUrlCache.get(trackId);
   if (!entry) return null;

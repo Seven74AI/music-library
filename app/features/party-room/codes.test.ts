@@ -58,6 +58,7 @@ test("isValidRoomCode rejects wrong length and bad chars", () => {
 
 test("parseRoomCodeInput accepts raw codes and join URLs", () => {
   expect(parseRoomCodeInput("AB3K9Q")).toBe("AB3K9Q");
+  expect(parseRoomCodeInput("ab3k9q")).toBe("AB3K9Q");
   expect(parseRoomCodeInput("  AB3K9Q  ")).toBe("AB3K9Q");
   expect(parseRoomCodeInput("https://music.example/rooms/AB3K9Q")).toBe("AB3K9Q");
   expect(parseRoomCodeInput("https://music.example/rooms/AB3K9Q?src=qr")).toBe("AB3K9Q");

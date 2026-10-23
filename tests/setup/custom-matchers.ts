@@ -18,15 +18,28 @@ expect.extend({
     }
     const location = response.headers.get("location");
     const redirectToSupplied = redirectTo !== undefined;
-    if (redirectToSupplied !== Boolean(location)) {
+
+    // The no-argument form asserts the response did NOT redirect.
+    if (!redirectToSupplied) {
       return {
-        pass: Boolean(location),
+        pass: location === null,
         message: () =>
-          `Expected response to ${this.isNot ? "not " : ""}redirect${
-            redirectToSupplied ? ` to ${this.utils.printExpected(redirectTo)}` : ""
-          } but got ${location ? "no redirect" : this.utils.printReceived(location)}`,
+          `Expected response to ${this.isNot ? "" : "not "}redirect but got ${
+            location ? this.utils.printReceived(location) : "no redirect"
+          }`,
       };
     }
+
+    if (!location) {
+      return {
+        pass: false,
+        message: () =>
+          `Expected response to ${this.isNot ? "not " : ""}redirect to ${this.utils.printExpected(
+            redirectTo,
+          )} but got no redirect`,
+      };
+    }
+
     const isRedirectStatusCode = response.status >= 300 && response.status < 400;
     if (!isRedirectStatusCode) {
       return {
