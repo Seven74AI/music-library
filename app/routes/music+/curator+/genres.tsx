@@ -1,4 +1,4 @@
-import { Link, useLoaderData, useFetcher } from "react-router";
+import { data, Link, useLoaderData, useFetcher } from "react-router";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "#app/components/ui/button";
@@ -31,6 +31,7 @@ import {
 } from "#app/components/ui/select";
 import { Checkbox } from "#app/components/ui/checkbox";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { fetchInternal } from "#app/utils/internal-fetch.server.ts";
 import { type Route } from "./+types/genres";
 
 type Genre = {
@@ -40,26 +41,58 @@ type Genre = {
   createdAt: string;
 };
 
-function actionError(data: unknown): string | null {
-  if (!data || typeof data !== "object" || !("error" in data)) return null;
-  const error = (data as { error: unknown }).error;
+function actionError(value: unknown): string | null {
+  if (!value || typeof value !== "object" || !("error" in value)) return null;
+  const error = (value as { error: unknown }).error;
   return typeof error === "string" && error.length > 0 ? error : null;
 }
 
-function isGenreSaved(data: unknown): boolean {
-  if (actionError(data)) return false;
-  if (!data || typeof data !== "object" || !("genre" in data)) return false;
-  return (data as { genre: unknown }).genre != null;
+function isGenreSaved(value: unknown): boolean {
+  if (actionError(value)) return false;
+  if (!value || typeof value !== "object" || !("genre" in value)) return false;
+  return (value as { genre: unknown }).genre != null;
+}
+
+function isGenre(value: unknown): value is Genre {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" &&
+    typeof record.name === "string" &&
+    typeof record.trackCount === "number" &&
+    typeof record.createdAt === "string"
+  );
+}
+
+function isGenresPayload(value: unknown): value is { genres: Genre[] } {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.genres) && record.genres.every(isGenre);
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireCuratorOrAdmin(request);
 
-  // Fetch genres from API
-  const response = await fetch(new URL("/api/genres", request.url));
-  const result = (await response.json()) as { genres: Genre[] };
+  // Fetch genres from the internal API on a trusted origin, forwarding only
+  // the session cookie (never the full incoming headers).
+  const response = await fetchInternal(request, "/api/genres");
 
-  return { genres: result.genres };
+  if (!response.ok) {
+    throw data({ error: "Failed to load genres" }, { status: response.status });
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw data({ error: "Failed to load genres" }, { status: 500 });
+  }
+
+  if (!isGenresPayload(body)) {
+    throw data({ error: "Failed to load genres" }, { status: 500 });
+  }
+
+  return { genres: body.genres };
 }
 
 export default function GenresPage() {
