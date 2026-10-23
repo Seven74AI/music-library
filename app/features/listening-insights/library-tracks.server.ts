@@ -1,4 +1,6 @@
+import { Prisma } from "#prisma/client.js";
 import { type QueueTrack } from "#app/types/frontend/shared.ts";
+import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
 import { buildLibraryUserTracksWhere } from "#app/utils/library-user-tracks.server.ts";
@@ -7,9 +9,11 @@ import {
   defaultLibrarySortDirection,
   librarySortToWindow,
   sortByPlayCompletedCount,
+  type HeavyRotationWindow,
   type LibrarySortOption,
 } from "./heavy-rotation.ts";
 import { getPlayCompletedCountsByTrack } from "./play-completed-counts.server.ts";
+import { getUtcMonthEndExclusive, getUtcMonthStart } from "./utc-month.ts";
 
 const QUEUE_TRACK_SELECT = {
   id: true,
@@ -173,6 +177,135 @@ export async function listLibraryQueueSpineTracks({
   return sortByPlayCompletedCount(sortable, counts, direction).map((row) => row.track);
 }
 
+/** Most-played cursor: frozen play count + stable userTrack id. */
+type MostPlayedCursor = { count: number; id: string };
+
+function encodeMostPlayedCursor(cursor: MostPlayedCursor): string {
+  return Buffer.from(JSON.stringify({ v: 1, ...cursor })).toString("base64url");
+}
+
+function decodeMostPlayedCursor(raw: string): MostPlayedCursor | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as {
+      v?: unknown;
+      count?: unknown;
+      id?: unknown;
+    };
+    if (
+      parsed?.v !== 1 ||
+      typeof parsed.count !== "number" ||
+      !Number.isFinite(parsed.count) ||
+      typeof parsed.id !== "string"
+    ) {
+      return null;
+    }
+    return { count: parsed.count, id: parsed.id };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Keyset-paginated library page ordered by (play_completed count, userTrack
+ * createdAt, userTrack id). The count is recomputed on read (ADR-026) but is
+ * FROZEN into the cursor at page time, so a play landing between page requests
+ * cannot shift the boundary and re-serve/skip rows — only the immutable
+ * (createdAt, id) secondary keys are re-read. Ordering happens inside SQLite
+ * (which can spill a large sort to disk), so the Node process only ever
+ * materializes the page: O(page size) in memory, not O(library size).
+ */
+async function listMostPlayedLibraryPage({
+  userId,
+  window,
+  direction,
+  hasAudioOnly,
+  genreId,
+  cursor,
+  limit,
+  now,
+}: {
+  userId: string;
+  window: HeavyRotationWindow;
+  direction: SortDirection;
+  hasAudioOnly: boolean;
+  genreId: string | null;
+  cursor: string | null | undefined;
+  limit: number;
+  now: Date;
+}): Promise<{ ids: string[]; hasNext: boolean; nextCursor: string | null }> {
+  const desc = direction !== "asc";
+  const cntDir = desc ? "DESC" : "ASC";
+  const cntOp = desc ? "<" : ">";
+
+  const countSql = Prisma.sql`
+    SELECT "trackId", COUNT(*) AS cnt
+    FROM "UsageEvent"
+    WHERE "userId" = ${userId}
+      AND type = ${USAGE_EVENT_TYPES.play_completed}
+      AND "trackId" IS NOT NULL
+      ${
+        window === "month"
+          ? Prisma.sql`AND "createdAt" >= ${getUtcMonthStart(now)} AND "createdAt" < ${getUtcMonthEndExclusive(now)}`
+          : Prisma.empty
+      }
+    GROUP BY "trackId"
+  `;
+
+  const baseWhere = Prisma.sql`
+    ut."userId" = ${userId}
+    AND ut."isActive" = 1
+    AND ut."deletedAt" IS NULL
+    ${
+      hasAudioOnly
+        ? Prisma.sql`AND EXISTS (SELECT 1 FROM "TrackAudioFile" taf WHERE taf."trackId" = ut."trackId")`
+        : Prisma.empty
+    }
+    ${
+      genreId
+        ? Prisma.sql`AND EXISTS (SELECT 1 FROM "_TrackGenres" tg WHERE tg."A" = ${genreId} AND tg."B" = ut."trackId")`
+        : Prisma.empty
+    }
+  `;
+
+  const cursorKey = cursor ? decodeMostPlayedCursor(cursor) : null;
+  const cursorWhere = cursorKey
+    ? Prisma.sql`AND (
+        COALESCE(c.cnt, 0) ${Prisma.raw(cntOp)} ${cursorKey.count}
+        OR (
+          COALESCE(c.cnt, 0) = ${cursorKey.count}
+          AND ut."createdAt" < (SELECT u2."createdAt" FROM "UserTrack" u2 WHERE u2."id" = ${cursorKey.id})
+        )
+        OR (
+          COALESCE(c.cnt, 0) = ${cursorKey.count}
+          AND ut."createdAt" = (SELECT u2."createdAt" FROM "UserTrack" u2 WHERE u2."id" = ${cursorKey.id})
+          AND ut."id" > ${cursorKey.id}
+        )
+      )`
+    : Prisma.empty;
+
+  const rows = await prisma.$queryRaw<
+    Array<{ id: string; cnt: number | bigint; createdAt: Date }>
+  >`
+    SELECT ut."id", COALESCE(c.cnt, 0) AS cnt, ut."createdAt" AS "createdAt"
+    FROM "UserTrack" ut
+    LEFT JOIN (${countSql}) c ON c."trackId" = ut."trackId"
+    WHERE ${baseWhere} ${cursorWhere}
+    ORDER BY
+      COALESCE(c.cnt, 0) ${Prisma.raw(cntDir)},
+      ut."createdAt" DESC,
+      ut."id" ASC
+    LIMIT ${limit + 1}
+  `;
+
+  const hasNext = rows.length > limit;
+  const page = hasNext ? rows.slice(0, limit) : rows;
+  const last = page[page.length - 1];
+  const nextCursor =
+    hasNext && last ? encodeMostPlayedCursor({ count: Number(last.cnt), id: last.id }) : null;
+
+  return { ids: page.map((row) => row.id), hasNext, nextCursor };
+}
+
 /**
  * Personal library page with optional Heavy Rotation sorts (ADR-026).
  * Most-played sorts reorder the **full** library (no 50 cap); pagination only.
@@ -227,33 +360,24 @@ export async function listLibraryUserTracks({
     };
   }
 
-  const counts = await getPlayCompletedCountsByTrack({ userId, window, now });
-
-  const sortable = await prisma.userTrack.findMany({
-    where,
-    select: { id: true, trackId: true, createdAt: true },
+  const { ids: pageIds, hasNext, nextCursor } = await listMostPlayedLibraryPage({
+    userId,
+    window,
+    direction,
+    hasAudioOnly,
+    genreId: genreId?.trim() || null,
+    cursor,
+    limit,
+    now,
   });
 
-  const ordered = sortByPlayCompletedCount(sortable, counts, direction);
-
-  let start = 0;
-  if (cursor) {
-    const idx = ordered.findIndex((row) => row.id === cursor);
-    start = idx >= 0 ? idx + 1 : 0;
-  }
-
-  const page = ordered.slice(start, start + limit);
-  const hasNext = start + limit < ordered.length;
-  const nextCursor = hasNext ? (page[page.length - 1]?.id ?? null) : null;
-
-  if (page.length === 0) {
+  if (pageIds.length === 0) {
     return {
       userTracks: [],
       pagination: { limit, hasNext: false, nextCursor: null },
     };
   }
 
-  const pageIds = page.map((row) => row.id);
   const hydrated = await prisma.userTrack.findMany({
     where: { id: { in: pageIds } },
     select: {
