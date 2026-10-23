@@ -71,8 +71,10 @@ export function createShuffledOrder(
 }
 
 /**
- * Reshuffle spine play order from the current position onward.
- * Indices before `currentPosition` are preserved (already played / current).
+ * Reshuffle spine play order from the position after the current one onward.
+ * Indices up to and including `currentPosition` are preserved (already played /
+ * current); only upcoming tracks are reordered, so the now-playing track stays
+ * at `currentPosition` when the caller leaves `spinePosition` unchanged.
  */
 export function reshuffleFromCurrent(
   order: number[],
@@ -84,8 +86,8 @@ export function reshuffleFromCurrent(
   }
 
   const random = resolveRandom(seedOrRandom);
-  const prefix = order.slice(0, currentPosition);
-  const suffix = order.slice(currentPosition);
+  const prefix = order.slice(0, currentPosition + 1);
+  const suffix = order.slice(currentPosition + 1);
   const reshuffledSuffix = fisherYatesShuffle(suffix.length, random).map((index) => suffix[index]!);
 
   return [...prefix, ...reshuffledSuffix];
