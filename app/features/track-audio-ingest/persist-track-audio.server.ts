@@ -318,6 +318,22 @@ export async function createTrackAudioFile(
   const { trackId, serviceId = null, fileName, extension, metadata, uploadedBy, buffer } =
     params;
 
+  // Resolve serviceId from the track when the caller does not supply one.
+  // TrackAudioFile.serviceId is NOT NULL after migration, so a null here would
+  // fail the insert (and weaken the (trackId, serviceId, format) uniqueness).
+  const resolvedServiceId =
+    serviceId ??
+    (
+      await db.track.findUnique({
+        where: { id: trackId },
+        select: { serviceId: true },
+      })
+    )?.serviceId;
+
+  if (!resolvedServiceId) {
+    throw new Error(`Cannot persist audio for track ${trackId}: no serviceId on track or params`);
+  }
+
   const format = metadata.format || "mp3";
 
   // Derive a fallback fileName from this track's own identity rather than the
@@ -331,7 +347,7 @@ export async function createTrackAudioFile(
   return db.trackAudioFile.create({
     data: {
       trackId,
-      serviceId,
+      serviceId: resolvedServiceId,
       objectKey: prepared.objectKey,
       contentHash: prepared.contentHash,
       audioFingerprint: prepared.audioFingerprint,
@@ -373,12 +389,28 @@ export async function persistTrackAudio(
 
   const format = metadata.format || "mp3";
 
+  // Resolve serviceId from the track when the caller does not supply one.
+  // TrackAudioFile.serviceId is NOT NULL after migration, so a null here would
+  // weaken the (trackId, serviceId, format) uniqueness and fail inserts.
+  const resolvedServiceId =
+    serviceId ??
+    (
+      await prisma.track.findUnique({
+        where: { id: trackId },
+        select: { serviceId: true },
+      })
+    )?.serviceId;
+
+  if (!resolvedServiceId) {
+    throw new Error(`Cannot persist audio for track ${trackId}: no serviceId on track or params`);
+  }
+
   // Step 1: Check for existing file by trackId (for archive retry idempotency)
   const existing = await prisma.trackAudioFile.findFirst({
     where: {
       trackId,
       format,
-      serviceId,
+      serviceId: resolvedServiceId,
     },
     select: {
       id: true,
