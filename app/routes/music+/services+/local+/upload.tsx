@@ -1,4 +1,3 @@
-// @context7: React Router, File Upload, Server-Sent Events
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   data,

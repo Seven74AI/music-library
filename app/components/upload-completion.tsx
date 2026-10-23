@@ -1,4 +1,3 @@
-// @context7: React, React Router
 import { useState } from "react";
 import { Link, useFetcher } from "react-router";
 import {

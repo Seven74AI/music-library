@@ -122,7 +122,7 @@ const DropdownMenuCheckboxItem = ({
       <DropdownMenuPrimitive.ItemIndicator>
         <span className="size-4">
           <svg viewBox="0 0 8 8">
-            <path d="M1,4 L3,6 L7,2" stroke="black" strokeWidth="1" fill="none" />
+            <path d="M1,4 L3,6 L7,2" stroke="currentColor" strokeWidth="1" fill="none" />
           </svg>
         </span>
       </DropdownMenuPrimitive.ItemIndicator>

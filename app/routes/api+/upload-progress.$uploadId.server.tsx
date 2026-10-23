@@ -1,4 +1,3 @@
-// @context7: React Router, Server-Sent Events, Streaming
 import { data, type LoaderFunctionArgs } from "react-router";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import {

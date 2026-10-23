@@ -104,28 +104,34 @@ export async function acquireLock(
   }
 }
 
+export type ReleaseLockResult = "released" | "not_found" | "not_owner";
+
 /**
- * Release a lock on an entity
+ * Release a lock on an entity.
+ * Distinguishes "no lock exists" (`not_found`) from "locked by someone else"
+ * (`not_owner`) so callers can return the correct HTTP status.
  */
 export async function releaseLock(
   entityType: EntityType,
   entityId: string,
   userId: string,
-): Promise<boolean> {
+): Promise<ReleaseLockResult> {
   const lock = await prisma.editLock.findUnique({
     where: { entityType_entityId: { entityType, entityId } },
   });
 
-  // Only release if locked by this user
-  if (!lock || lock.lockedBy !== userId) {
-    return false;
+  if (!lock) {
+    return "not_found";
+  }
+  if (lock.lockedBy !== userId) {
+    return "not_owner";
   }
 
   await prisma.editLock.delete({
     where: { id: lock.id },
   });
 
-  return true;
+  return "released";
 }
 
 /**

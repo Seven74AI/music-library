@@ -1,4 +1,3 @@
-// @context7: Upstash Redis, Server-Sent Events, Streaming
 import { Redis } from "@upstash/redis";
 
 /**

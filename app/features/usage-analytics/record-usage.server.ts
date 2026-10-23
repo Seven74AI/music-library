@@ -63,11 +63,6 @@ function dailyMetricUpsert(day: Date, metric: UsageMetric, by: number) {
   });
 }
 
-async function incrementDailyMetric(day: Date, metric: UsageMetric, by = 1) {
-  if (by <= 0) return;
-  await dailyMetricUpsert(day, metric, by);
-}
-
 async function maybeIncrementDau(day: Date, userId: string, type: UsageEventType) {
   if (!DAU_EVENT_TYPES.has(type)) return;
 
@@ -103,17 +98,22 @@ export async function recordUsageEvent({
 }): Promise<void> {
   const day = getUtcDayStart();
 
-  await prisma.usageEvent.create({
-    data: {
-      type,
-      userId: userId ?? null,
-      trackId: trackId ?? null,
-      playId: playId ?? null,
-      meta: meta ? JSON.stringify(meta) : null,
-    },
-  });
-
-  await incrementDailyMetric(day, EVENT_TO_METRIC[type], amount);
+  // The event and its metric increment must land atomically (ADR-016: the feed
+  // reconciles with the chart). The DAU dedupe+counter pair stays separate
+  // because it is already its own atomic transaction.
+  const writes = [
+    prisma.usageEvent.create({
+      data: {
+        type,
+        userId: userId ?? null,
+        trackId: trackId ?? null,
+        playId: playId ?? null,
+        meta: meta ? JSON.stringify(meta) : null,
+      },
+    }),
+    ...(amount > 0 ? [dailyMetricUpsert(day, EVENT_TO_METRIC[type], amount)] : []),
+  ];
+  await prisma.$transaction(writes);
 
   if (userId) {
     await maybeIncrementDau(day, userId, type);

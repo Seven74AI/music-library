@@ -2,6 +2,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { QUEUE_STATUS_MINE, type ReviewQueueListItem } from "./review-queue.ts";
 
 const PAGE_SIZE = 20;
+const CLAIM_TIMEOUT_MS = 2 * 60 * 60 * 1000; // ADR-035: auto-unclaim after 2h inactivity
 
 function isUniqueConstraintError(error: unknown): boolean {
   return (
@@ -92,6 +93,19 @@ export async function createOrUpdateQueueItem(data: {
   }
 }
 
+/**
+ * Reset stale `claimed` queue items back to `open` (ADR-035 automatic unclaim).
+ * Returns the number of items released.
+ */
+export async function releaseStaleClaims(now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - CLAIM_TIMEOUT_MS);
+  const result = await prisma.reviewQueueItem.updateMany({
+    where: { status: "claimed", claimedAt: { lt: cutoff } },
+    data: { status: "open", claimedBy: null, claimedAt: null },
+  });
+  return result.count;
+}
+
 export async function listReviewQueue({
   status = "open",
   entityType,
@@ -108,6 +122,8 @@ export async function listReviewQueue({
   reporterId?: string;
 }) {
   const safePage = Math.max(1, page);
+  // Reap stale claims before listing so abandoned claims don't block the queue.
+  await releaseStaleClaims();
   const mine = status === QUEUE_STATUS_MINE;
   if (mine && !claimedBy) {
     return {
@@ -133,7 +149,7 @@ export async function listReviewQueue({
         claimedByUser: { select: { id: true, username: true, name: true } },
         resolvedByUser: { select: { id: true, username: true, name: true } },
       },
-      orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
       skip: (safePage - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
