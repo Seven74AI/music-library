@@ -447,7 +447,11 @@ export const TrackListItem = memo(function TrackListItem({
         onMouseLeave={() => setIsHovered(false)}
         onClick={hasAudioFiles ? handlePlayTrack : undefined}
         role={listRole}
-        aria-label={`Track ${index + 1}: ${track.title} by ${track.artist.name}${isDeleted ? " (Deleted from YouTube)" : ""}`}
+        {...(listRole === "presentation"
+          ? {}
+          : {
+              "aria-label": `Track ${index + 1}: ${track.title} by ${track.artist.name}${isDeleted ? " (Deleted from YouTube)" : ""}`,
+            })}
         style={hasAudioFiles ? { cursor: "pointer" } : undefined}
       >
         {/* Checkbox for bulk selection */}
