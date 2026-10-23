@@ -108,6 +108,10 @@ export async function recordSecurityEvent(input: {
       },
     });
   } catch (error) {
+    // Deliberate best-effort: recording must never break the request path that
+    // triggered the event (login, signup, etc.). Gaps here silently degrade the
+    // audit trail and brute-force/burst detection, so this is a known tradeoff
+    // rather than an oversight.
     console.error("Failed to record security event", error);
   }
 }

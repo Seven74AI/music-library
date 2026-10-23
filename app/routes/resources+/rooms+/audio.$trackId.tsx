@@ -70,6 +70,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         },
       });
     } catch {
+      // Deliberate exception to decision #22 ("no redirect — direct presigned
+      // URL"): streaming is the primary path; when getStorageObjectStream is
+      // unavailable (e.g. storage not configured) we fall back to a presigned
+      // URL so playback still works rather than returning an error.
       const { url: signedUrl } = await getFileUrl(audioFile.objectKey, 3600);
       return Response.redirect(signedUrl, 302);
     }
