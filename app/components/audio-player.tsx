@@ -88,6 +88,12 @@ function isDurationKnown(duration: number): boolean {
   return duration > 0 && isFinite(duration) && !isNaN(duration);
 }
 
+// `<input type="range">` rejects a non-finite `max` (Infinity renders an
+// invalid/inert control and confuses assistive tech). When the duration is
+// unknown the seek bar still needs a valid ceiling, so use a large finite
+// sentinel instead.
+const UNKNOWN_DURATION_MAX = 1e6; // seconds (~11.5 days), far past any real track
+
 /**
  * Generates a UUID v4 used to correlate a play's `play_started` and
  * `play_completed` usage events. Falls back to a Math.random-based UUID for
@@ -175,7 +181,7 @@ function PlayerSeekBar({
       <input
         type="range"
         min="0"
-        max={isDurationKnown(duration) ? duration : Infinity}
+        max={isDurationKnown(duration) ? duration : UNKNOWN_DURATION_MAX}
         step="0.1"
         value={isNaN(currentTime) ? 0 : currentTime}
         onChange={onSeek}

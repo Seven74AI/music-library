@@ -742,9 +742,12 @@ export default function YouTubeSyncedPlaylistDetailPage() {
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-1">
+                <div role="list" className="space-y-1">
                   {/* Table Header */}
-                  <div className="flex items-center gap-4 px-4 py-2 text-sm font-medium text-muted-foreground border-b">
+                  <div
+                    aria-hidden="true"
+                    className="flex items-center gap-4 px-4 py-2 text-sm font-medium text-muted-foreground border-b"
+                  >
                     <div className="w-8 flex items-center justify-center">#</div>
                     <div className="flex-1 min-w-0">Title</div>
                     <div className="w-8 flex items-center justify-center"></div>

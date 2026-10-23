@@ -411,7 +411,7 @@ test.describe("Music Library", () => {
         (response) => response.url().includes("/api/queue-spine") && response.status() === 200,
         { timeout: 15000 },
       ),
-      page.getByRole("gridcell", { name: /Queue Beta by Test Artist/i }).click(),
+      page.getByRole("listitem", { name: /Queue Beta by Test Artist/i }).click(),
     ]);
 
     const playerBar = page.getByTestId("player-desktop-bar");

@@ -643,7 +643,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
                   See all
                 </Link>
               </div>
-              <div role="grid" aria-label={`More from ${related.name}`}>
+              <div role="list" aria-label={`More from ${related.name}`}>
                 {related.tracks.map((relatedTrack, index) => (
                   <TrackListItem
                     key={relatedTrack.id}

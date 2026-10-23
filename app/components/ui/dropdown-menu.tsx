@@ -2,6 +2,7 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import * as React from "react";
 
 import { cn } from "#app/utils/misc.tsx";
+import { Icon } from "./icon.tsx";
 
 function DropdownMenu(props: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
@@ -66,7 +67,7 @@ const DropdownMenuSubTrigger = ({
     {...props}
   >
     {children}
-    <span className="ml-auto size-4">▶️</span>
+    <Icon name="chevron-right" className="ml-auto size-4" aria-hidden="true" />
   </DropdownMenuPrimitive.SubTrigger>
 );
 
@@ -146,7 +147,9 @@ const DropdownMenuRadioItem = ({
   >
     <span className="absolute left-2 flex size-3.5 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
-        <span className="size-2">⚪</span>
+        <svg viewBox="0 0 8 8" className="size-2" aria-hidden="true">
+          <circle cx="4" cy="4" r="3" fill="currentColor" />
+        </svg>
       </DropdownMenuPrimitive.ItemIndicator>
     </span>
     {children}
