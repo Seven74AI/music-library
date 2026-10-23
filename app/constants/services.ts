@@ -11,6 +11,8 @@ export const YOUTUBE_SERVICE = {
   PROVIDER_ID: "youtube" as const,
   DISPLAY_NAME: "YouTube",
   BASE_URL: "https://youtube.com",
+  /** Stable seed id for the `Service` row — single source of truth for name + id. */
+  ID: "clnf2zvli0000pcou3zzzzome" as const,
 } as const;
 
 /**

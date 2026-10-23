@@ -1,4 +1,3 @@
-// @context7: path, path traversal security
 import { resolve, normalize } from "node:path";
 
 /**

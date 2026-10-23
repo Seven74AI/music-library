@@ -73,6 +73,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       // Find album
       const album = await tx.album.findUnique({
         where: { id: entityId },
+        select: { coverImageId: true },
       });
 
       if (!album) {

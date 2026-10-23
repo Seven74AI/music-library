@@ -118,7 +118,7 @@ test.describe("Global Search", () => {
     const searchInput = page.getByPlaceholder(/what do you want to listen to/i);
     await searchInput.fill("Search Play Track");
 
-    const trackRow = page.getByRole("gridcell", { name: /Search Play Track by Test Artist/i });
+    const trackRow = page.getByRole("listitem", { name: /Search Play Track by Test Artist/i });
     await expect(trackRow).toBeVisible();
 
     await Promise.all([

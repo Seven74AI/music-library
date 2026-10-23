@@ -1,5 +1,15 @@
 import { useFetcher } from "react-router";
 import { useEffect, useRef, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "#app/components/ui/alert-dialog";
 import { Button } from "#app/components/ui/button";
 import { Icon } from "#app/components/ui/icon";
 import { MentionAutocomplete } from "./mention-autocomplete";
@@ -37,6 +47,7 @@ export function CuratorNotes({ entityType, entityId, currentUserId }: CuratorNot
   const [replyContent, setReplyContent] = useState("");
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; isReply: boolean } | null>(null);
   const newNoteRef = useRef<HTMLTextAreaElement | null>(null);
   const replyRef = useRef<HTMLTextAreaElement | null>(null);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
@@ -159,17 +170,23 @@ export function CuratorNotes({ entityType, entityId, currentUserId }: CuratorNot
   };
 
   const handleDelete = (noteId: string) => {
-    if (!confirm("Are you sure you want to delete this note? This will also delete all replies.")) {
-      return;
-    }
+    setDeleteTarget({ id: noteId, isReply: false });
+  };
 
+  const handleDeleteReply = (replyId: string) => {
+    setDeleteTarget({ id: replyId, isReply: true });
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
     createFetcher.submit(
       {},
       {
         method: "DELETE",
-        action: `/api/curator/notes/${noteId}`,
+        action: `/api/curator/notes/${deleteTarget.id}`,
       },
     );
+    setDeleteTarget(null);
   };
 
   const startEditing = (note: Note) => {
@@ -402,7 +419,7 @@ export function CuratorNotes({ entityType, entityId, currentUserId }: CuratorNot
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDelete(reply.id)}
+                            onClick={() => handleDeleteReply(reply.id)}
                             disabled={createFetcher.state !== "idle"}
                           >
                             <Icon name="trash" className="h-4 w-4" />
@@ -418,6 +435,28 @@ export function CuratorNotes({ entityType, entityId, currentUserId }: CuratorNot
           ))}
         </div>
       )}
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete note</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.isReply
+                ? "Are you sure you want to delete this reply?"
+                : "Are you sure you want to delete this note? This will also delete all replies."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

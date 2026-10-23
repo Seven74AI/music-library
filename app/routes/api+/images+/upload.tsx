@@ -5,6 +5,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { uploadFile } from "#app/utils/storage.server.ts";
+import { getImageDimensions } from "#app/utils/cover-management.server.ts";
 import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/upload.ts";
@@ -32,22 +33,6 @@ const EXTENSION_BY_TYPE: Record<string, string> = {
 
 function normalizeImageType(rawType: string): string {
   return MIME_ALIASES[rawType] ?? rawType;
-}
-
-async function getImageDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
-  // Import sharp dynamically to avoid issues if not installed
-  try {
-    const sharp = await import("sharp");
-    const metadata = await sharp.default(buffer).metadata();
-    return {
-      width: metadata.width || 0,
-      height: metadata.height || 0,
-    };
-  } catch (error) {
-    // If sharp is not available, return 0x0 (validation will fail if dimensions matter)
-    console.error("Sharp not available for image processing:", error);
-    return { width: 0, height: 0 };
-  }
 }
 
 export async function action({ request }: Route.ActionArgs) {

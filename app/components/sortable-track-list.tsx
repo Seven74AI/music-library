@@ -176,6 +176,7 @@ function SortableTrackItem({
             ...track.track,
             album: track.track.album ?? track.track.albumRecord ?? null,
           }}
+          listRole="presentation"
           userTrack={{ createdAt: track.track.createdAt }}
           index={index}
           playlistContext={{

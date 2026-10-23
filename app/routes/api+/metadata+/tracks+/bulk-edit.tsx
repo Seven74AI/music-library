@@ -38,15 +38,32 @@ const ChangesSchema = z
     message: "At least one field must be provided in changes",
   });
 
+// ADR-031: soft limit of 100 tracks per bulk edit, with an explicit override to
+// raise it to the hard cap. Live progress, partial-failure handling and
+// cancellation-with-rollback are not yet implemented (tracked separately).
+const BULK_EDIT_SOFT_LIMIT = 100;
+const BULK_EDIT_HARD_LIMIT = 500;
+
 // Validation schema for bulk edit request
-const BulkEditSchema = z.object({
-  trackIds: z
-    .array(z.string())
-    .min(1, "At least one track ID is required")
-    .max(500, "Maximum 500 tracks per request"),
-  changes: ChangesSchema,
-  comment: z.string().min(1, "Comment is required for bulk operations"),
-});
+const BulkEditSchema = z
+  .object({
+    trackIds: z
+      .array(z.string())
+      .min(1, "At least one track ID is required")
+      .max(BULK_EDIT_HARD_LIMIT, `Maximum ${BULK_EDIT_HARD_LIMIT} tracks per request`),
+    changes: ChangesSchema,
+    comment: z.string().min(1, "Comment is required for bulk operations"),
+    overrideLimit: z.boolean().optional().default(false),
+  })
+  .superRefine((value, ctx) => {
+    if (value.trackIds.length > BULK_EDIT_SOFT_LIMIT && !value.overrideLimit) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["trackIds"],
+        message: `Bulk edit is limited to ${BULK_EDIT_SOFT_LIMIT} tracks by default. Pass \`overrideLimit: true\` to process up to ${BULK_EDIT_HARD_LIMIT}.`,
+      });
+    }
+  });
 
 export async function action({ request }: Route.ActionArgs) {
   if (request.method !== "POST") {

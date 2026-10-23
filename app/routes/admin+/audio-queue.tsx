@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "#app/components/ui/card.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
-import { StatusBadge } from "#app/components/ui/status-badge.tsx";
+import { StatusBadge, type StatusBadgeStatus } from "#app/components/ui/status-badge.tsx";
 import {
   Table,
   TableBody,
@@ -109,10 +109,15 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
   const total = pending + processing + completed + failed;
   const successRate = computeArchiveQueueSuccessRate(completed, failed);
 
+  // Bound the recoverable-failure count to a fixed cap so a very large failed
+  // queue cannot load unbounded errorHistory JSON into memory on every page
+  // load. The most recent failures are the ones an admin would retry anyway.
   const failedJobsForRetry = failed
     ? await prisma.archiveJob.findMany({
         where: { status: "failed" },
         select: { errorHistory: true },
+        orderBy: { lastAttemptAt: "desc" },
+        take: 5000,
       })
     : [];
   const recoverableFailed = failedJobsForRetry.filter((job) =>
@@ -440,7 +445,7 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
         <div className="flex flex-wrap items-center gap-4 mb-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Status:</span>
-            <StatusBadge status={workerState.status} />
+            <StatusBadge status={workerState.status as StatusBadgeStatus} />
           </div>
 
           <Form method="post" className="flex gap-2">
@@ -614,7 +619,7 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
                   <TableCell>{job.artistName}</TableCell>
                   <TableCell>{job.serviceDisplayName}</TableCell>
                   <TableCell>
-                    <StatusBadge status={job.status} />
+                    <StatusBadge status={job.status as StatusBadgeStatus} />
                     {job.priority && (
                       <Badge
                         variant="outline"

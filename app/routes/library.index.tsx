@@ -570,8 +570,15 @@ export default function LibraryIndexRoute({
           )}
         </div>
       ) : (
-        <div ref={listRef} data-testid="library-track-list" className="relative min-w-0">
+        <div
+          ref={listRef}
+          data-testid="library-track-list"
+          className="relative min-w-0"
+          role="list"
+          aria-label="Music library tracks"
+        >
           <div
+            role="presentation"
             data-testid="library-virtual-spacer"
             style={{
               height: `${virtualizer.getTotalSize()}px`,
@@ -596,6 +603,7 @@ export default function LibraryIndexRoute({
                     data-index={virtualItem.index}
                     data-testid="library-virtual-row"
                     ref={virtualizer.measureElement}
+                    aria-hidden="true"
                     style={{ ...rowStyle, position: "sticky", top: 0, zIndex: 10 }}
                     className="bg-background border-b h-16"
                   >
@@ -622,6 +630,7 @@ export default function LibraryIndexRoute({
                     data-index={virtualItem.index}
                     data-testid="library-virtual-row"
                     ref={virtualizer.measureElement}
+                    role="presentation"
                     style={rowStyle}
                   >
                     <div className="flex w-full justify-center py-4">
@@ -646,6 +655,7 @@ export default function LibraryIndexRoute({
                   data-index={virtualItem.index}
                   data-testid="library-virtual-row"
                   ref={virtualizer.measureElement}
+                  role="presentation"
                   style={rowStyle}
                 >
                   <LibraryTrackListItem

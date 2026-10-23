@@ -1,5 +1,4 @@
 #!/usr/bin/env tsx
-// @context7: Prisma, Node.js fs, crypto, fpcalc
 /**
  * Backfill contentHash and audioFingerprint for existing TrackAudioFile records
  *

@@ -119,6 +119,7 @@ export default function OnRepeatSnapshotDetailPage({ loaderData }: Route.Compone
             <li key={row.id} className="relative">
               <TrackListItem
                 track={row.track}
+                listRole="presentation"
                 userTrack={{ createdAt: row.track.userTrackCreatedAt }}
                 index={index}
                 playlistContext={{

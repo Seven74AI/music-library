@@ -1,37 +1,3 @@
-// @context7: Prisma, React, React Router, Tailwind CSS, TypeScript
-/*
-    Before answering my question, MANDATORY use Context7 to fetch documentation for:
-
-    - Prisma
-    - React
-    - React Router
-    - Tailwind CSS
-    - TypeScript
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    Context7 Instructions:
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
-*/
 import { useState, useEffect, useMemo } from "react";
 import { data, redirect, Link, useFetcher, useParams, useSubmit } from "react-router";
 import { useAudioPlayer } from "#app/components/audio-player-provider.tsx";
@@ -247,12 +213,26 @@ export async function action({ request, params }: Route.ActionArgs) {
   const intent = formData.get("intent");
 
   if (intent === "delete") {
-    await prisma.userPlaylist.delete({
-      where: {
-        id: params.playlistId,
-        ownerId: userId,
-      },
-    });
+    try {
+      await prisma.userPlaylist.delete({
+        where: {
+          id: params.playlistId,
+          ownerId: userId,
+        },
+      });
+    } catch (error) {
+      // Playlist already gone (concurrent delete) or not owned — treat as
+      // success rather than 500ing on Prisma's P2025.
+      if (
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2025"
+      ) {
+        return redirect("/playlists");
+      }
+      throw error;
+    }
     return redirect("/playlists");
   }
 

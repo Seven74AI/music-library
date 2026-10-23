@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useId } from "react";
 import { useFetcher } from "react-router";
 import { Input } from "#app/components/ui/input";
 import { Label } from "#app/components/ui/label";
@@ -45,6 +45,9 @@ export function ArtistAutocomplete({
   const [isEditing, setIsEditing] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const inputId = `${useId()}-artist-input`;
+  const listboxId = `${inputId}-listbox`;
   const searchFetcher = useFetcher<{ artists: Artist[] }>();
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -166,8 +169,29 @@ export function ArtistAutocomplete({
     editingRef.current = true;
     setIsEditing(true);
     setInputValue(next);
+    setActiveIndex(-1);
     if (!next.trim() && artistId) {
       onChange(null, "");
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setIsOpen(true);
+      setActiveIndex((c) => (artists.length === 0 ? -1 : (c + 1) % artists.length));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setIsOpen(true);
+      setActiveIndex((c) =>
+        artists.length === 0 ? -1 : (c - 1 + artists.length) % artists.length,
+      );
+    } else if (e.key === "Escape") {
+      setIsOpen(false);
+      setActiveIndex(-1);
+    } else if (e.key === "Enter" && activeIndex >= 0 && artists[activeIndex]) {
+      e.preventDefault();
+      handleSelect(artists[activeIndex]);
     }
   };
 
@@ -199,17 +223,26 @@ export function ArtistAutocomplete({
 
   return (
     <div className={cn("relative", className)}>
-      <Label htmlFor="artist-input">
+      <Label htmlFor={inputId}>
         {label}
         {required && <span className="text-destructive ml-1">*</span>}
       </Label>
       <div className="relative">
         <Input
           ref={inputRef}
-          id="artist-input"
+          id={inputId}
           type="text"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined
+          }
           value={inputValue}
           onChange={(e) => handleInputChange(e.target.value)}
+          onKeyDown={handleKeyDown}
           onFocus={() => {
             if (inputValue.trim()) {
               handleSearch(inputValue);
@@ -230,12 +263,18 @@ export function ArtistAutocomplete({
       {isOpen && !disabled && (artists.length > 0 || showCreateOption) && (
         <div
           ref={dropdownRef}
+          id={listboxId}
+          role="listbox"
           className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-popover p-1 shadow-md"
         >
-          {artists.map((artist) => (
+          {artists.map((artist, index) => (
             <button
               key={artist.id}
               type="button"
+              role="option"
+              id={`${listboxId}-option-${index}`}
+              aria-selected={artist.id === artistId}
+              onMouseEnter={() => setActiveIndex(index)}
               onClick={() => handleSelect(artist)}
               className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-sm hover:bg-accent focus:bg-accent focus:outline-hidden"
             >
