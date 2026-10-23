@@ -2,6 +2,7 @@ import { useForm, getFormProps } from "@conform-to/react";
 import { parseWithZod } from "@conform-to/zod/v4";
 import { invariantResponse } from "@epic-web/invariant";
 import { data, redirect, useFetcher, useFetchers } from "react-router";
+import { safeRedirect } from "remix-utils/safe-redirect";
 import { z } from "zod";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { useHints, useOptionalHints } from "#app/utils/client-hints.tsx";
@@ -29,7 +30,7 @@ export async function action({ request }: Route.ActionArgs) {
     headers: { "set-cookie": setTheme(theme) },
   };
   if (redirectTo) {
-    return redirect(redirectTo, responseInit);
+    return redirect(safeRedirect(redirectTo), responseInit);
   } else {
     return data({ result: submission.reply() }, responseInit);
   }
