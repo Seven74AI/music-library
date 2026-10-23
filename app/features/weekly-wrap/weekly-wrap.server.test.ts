@@ -55,8 +55,6 @@ describe("countDayStreak", () => {
 
 describe("summarizeWeeklyWrap", () => {
   const now = new Date("2026-09-23T15:00:00.000Z");
-  const weekStart = new Date("2026-09-21T00:00:00.000Z");
-  const weekEnd = new Date("2026-09-28T00:00:00.000Z");
 
   test("returns null when there are zero finishes in the week", () => {
     expect(
@@ -64,8 +62,6 @@ describe("summarizeWeeklyWrap", () => {
         weekEvents: [],
         activeDayKeys: new Set(["2026-09-20"]),
         now,
-        weekStart,
-        weekEnd,
       }),
     ).toBeNull();
   });
@@ -79,8 +75,6 @@ describe("summarizeWeeklyWrap", () => {
       ],
       activeDayKeys: new Set(["2026-09-23"]),
       now,
-      weekStart,
-      weekEnd,
     });
 
     expect(summary).toEqual({
@@ -98,8 +92,6 @@ describe("summarizeWeeklyWrap", () => {
       ],
       activeDayKeys: new Set(["2026-09-22", "2026-09-23"]),
       now,
-      weekStart,
-      weekEnd,
     });
 
     expect(summary).toEqual({
@@ -117,8 +109,6 @@ describe("summarizeWeeklyWrap", () => {
       ],
       activeDayKeys: new Set(["2026-09-23"]),
       now,
-      weekStart,
-      weekEnd,
     });
 
     expect(summary).toMatchObject({ finishes: 2, uniqueTracks: 1, dayStreak: null });

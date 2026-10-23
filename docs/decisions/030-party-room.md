@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amended 2026-10-13 (presence, return, host exit, reclaim). The 2026-09-29 decisions are implemented. The amendment is not.
+Accepted. Amended 2026-10-13 (presence, return, host exit, reclaim). The 2026-09-29 decisions are implemented. The amendment is partially implemented (Become-host grace shipped; the rest pending).
 
 **Tracking:** [#284](https://github.com/mnlamart/music-library/issues/284)
 

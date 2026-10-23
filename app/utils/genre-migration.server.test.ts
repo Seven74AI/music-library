@@ -43,8 +43,11 @@ describe("Genre Migration Utility", () => {
       expect(parseGenreString("Rock/Jazz/Blues")).toEqual(["Rock", "Jazz", "Blues"]);
     });
 
-    it("should parse ampersand-separated genres", () => {
-      expect(parseGenreString("Rock & Jazz & Blues")).toEqual(["Rock", "Jazz", "Blues"]);
+    it("should preserve ampersand within genre names instead of splitting on it", () => {
+      expect(parseGenreString("Drum & Bass")).toEqual(["Drum & Bass"]);
+      expect(parseGenreString("Rock & Roll")).toEqual(["Rock & Roll"]);
+      // Ampersand is not a delimiter, so "R&B" stays a single genre.
+      expect(parseGenreString("R&B")).toHaveLength(1);
     });
 
     it("should parse mixed delimiters", () => {

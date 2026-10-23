@@ -176,7 +176,7 @@ Implementation tickets: [On-Repeat Snapshots #198](https://github.com/mnlamart/m
 
 - **MOCKS** — Environment variable (`MOCKS=true`) enabling server-side mocking of all external services (YouTube API, yt-dlp, Tigris uploads, Telegram). Used in development and CI.
 
-- **UsageEvent** — Append-only product analytics row (`signup`, `login`, `library_add`, `play_started`, `play_completed`). Written via `recordUsageEvent`; powers the admin user activity feed, `/history`, **On-Repeat Snapshot** / **Heavy Rotation** / **Weekly Wrap** / **Recently Played Strip** ranking, and **Personal Play Boost** (`play_completed` where noted). **Party Room** speaker plays use **Room Play Event**s instead — they must not inflate these personal signals.
+- **UsageEvent** — Append-only product analytics row (`signup`, `login`, `library_add`, `play_started`, `play_completed`). Written via `recordUsageEvent`; powers the admin user activity feed, `/history`, **On-Repeat Snapshot** / **Heavy Rotation** / **Weekly Wrap** / **Recently Played Strip** ranking, and **Personal Play Boost** (`play_completed` where noted). **Party Room** speaker plays use **Room Play Event**s instead — they must not inflate these personal signals. `play_completed` is emitted by the audio player once a track reaches **50%** playback progress (not only on natural end), so a track skipped past halfway still counts as a "finish" for these insights.
 
 - **DailyUsageStat** — Per-UTC-day counter for admin time-series charts (`signups`, `logins`, `library_adds`, `plays_*`, `dau`). Incremented when usage events are recorded.
 
