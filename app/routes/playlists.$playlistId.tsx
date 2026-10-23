@@ -866,12 +866,10 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
       {/* Hero Section */}
       <div className="space-y-4">
         <PlaylistHero
-          id={optimisticPlaylist.id}
           title={optimisticPlaylist.title}
           description={optimisticPlaylist.description}
           tracks={optimisticTracks.map((pt) => pt.track)}
           createdAt={optimisticPlaylist.createdAt.toISOString()}
-          updatedAt={optimisticPlaylist.updatedAt.toISOString()}
           onTitleUpdate={handleTitleUpdate}
           onDescriptionUpdate={handleDescriptionUpdate}
           onBulkPlayNext={handleBulkPlayNext}

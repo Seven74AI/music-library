@@ -200,7 +200,11 @@ export async function findFuzzyArtistDuplicates(): Promise<ArtistDuplicateGroup[
 
         // Check if fuzzy match
         if (isFuzzyMatch(a1.normalized, a2.normalized)) {
-          // Use the shorter normalized name as the group key
+          // Use the shorter normalized name as the group key.
+          // NOTE: keying on the shorter name is a heuristic — a transitive chain
+          // A~B~C can produce two groups with B in both (acceptable for a
+          // detection heuristic, but the merge UX may show the same entity in
+          // multiple groups).
           const groupKey =
             a1.normalized.length <= a2.normalized.length ? a1.normalized : a2.normalized;
 

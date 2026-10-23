@@ -23,12 +23,8 @@ export const handle: SEOHandle = {
 
 const PAGE_SIZE = 25;
 
-/** Falls back to page 1 for missing, non-numeric, fractional or out-of-range input. */
-export function parsePageParam(raw: string | null): number {
-  const parsed = Number(raw);
-  if (!Number.isSafeInteger(parsed) || parsed < 1) return 1;
-  return parsed;
-}
+import { parsePageParam } from "#app/utils/parse-page-param.ts";
+export { parsePageParam };
 
 export async function loader({ request, url }: Route.LoaderArgs) {
   await requireUserWithRole(request, "admin");
