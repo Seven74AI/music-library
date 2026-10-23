@@ -45,10 +45,6 @@ async function recordModeration(
   });
 }
 
-function countAdmins() {
-  return prisma.user.count({ where: { roles: { some: { name: "admin" } } } });
-}
-
 export async function disableUser(
   userId: string,
   actorUserId?: string | null,
@@ -137,18 +133,29 @@ export async function demoteFromAdmin({
     return forbidden("This user is not an admin");
   }
 
-  if ((await countAdmins()) <= 1) {
-    return forbidden("Cannot demote the last admin");
-  }
+  // The last-admin guard and the demotion must be atomic: two concurrent
+  // demotions that both read a count > 1 could otherwise both proceed and
+  // leave zero admins (lockout).
+  const result = await prisma.$transaction(async (tx) => {
+    const adminCount = await tx.user.count({ where: { roles: { some: { name: "admin" } } } });
+    if (adminCount <= 1) {
+      return forbidden("Cannot demote the last admin");
+    }
 
-  await prisma.user.update({
-    where: { id: targetUserId },
-    data: {
-      roles: {
-        disconnect: { name: "admin" },
+    await tx.user.update({
+      where: { id: targetUserId },
+      data: {
+        roles: {
+          disconnect: { name: "admin" },
+        },
       },
-    },
+    });
+
+    return { ok: true } as const;
   });
+
+  if (!result.ok) return result;
+
   await recordModeration(SECURITY_EVENT_TYPES.roleChanged, target, actorUserId, {
     role: "admin",
     action: "demote",
@@ -312,14 +319,34 @@ export async function deleteUserAsAdmin({
   if (!target) return notFound;
 
   const isAdmin = target.roles.some((role) => role.name === "admin");
-  if (isAdmin && (await countAdmins()) <= 1) {
-    return forbidden("Cannot delete the last admin");
-  }
 
-  await recordModeration(SECURITY_EVENT_TYPES.accountDeleted, target, actorUserId, {
-    action: "delete",
+  // Atomic last-admin guard + delete. The audit row is written inside the
+  // transaction (before the delete) so its targetUserId FK stays valid and we
+  // never emit a spurious "deleted" event when the delete is refused.
+  const result = await prisma.$transaction(async (tx) => {
+    if (isAdmin) {
+      const adminCount = await tx.user.count({ where: { roles: { some: { name: "admin" } } } });
+      if (adminCount <= 1) {
+        return forbidden("Cannot delete the last admin");
+      }
+    }
+
+    await tx.securityEvent.create({
+      data: {
+        eventType: SECURITY_EVENT_TYPES.accountDeleted,
+        ipHash: null,
+        userId: actorUserId ?? null,
+        targetUserId: target.id,
+        metadata: JSON.stringify({ username: target.username, action: "delete" }),
+        perpetual: true,
+      },
+    });
+
+    await tx.user.delete({ where: { id: targetUserId } });
+    return { ok: true } as const;
   });
-  await prisma.user.delete({ where: { id: targetUserId } });
+
+  if (!result.ok) return result;
   return { ok: true };
 }
 
