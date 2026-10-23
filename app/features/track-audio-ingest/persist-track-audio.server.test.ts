@@ -29,6 +29,9 @@ const mockPrisma = {
     findMany: vi.fn(),
     create: vi.fn(),
   },
+  track: {
+    findUnique: vi.fn(),
+  },
 };
 
 vi.mock("#app/utils/db.server.ts", () => ({
@@ -60,6 +63,7 @@ describe("persistTrackAudio", () => {
     mockUploadFile.mockResolvedValue("audio/tracks/youtube/track-1.mp3");
     mockPrisma.trackAudioFile.findFirst.mockResolvedValue(null);
     mockPrisma.trackAudioFile.findMany.mockResolvedValue([]);
+    mockPrisma.track.findUnique.mockResolvedValue({ serviceId: "service-1" });
     mockPrisma.trackAudioFile.create.mockResolvedValue({
       id: "audio-file-1",
       trackId: "track-1",
