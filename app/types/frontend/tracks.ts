@@ -26,8 +26,8 @@ import {
 // TRACK TYPES
 // ============================================================================
 
-// TrackWithUserStatus is defined in playlists.ts to avoid circular imports
-// This file is kept for future track-specific types
+// TrackWithUserStatus is defined in shared.ts (re-exported here for callers that
+// import from the tracks module). This file holds track-specific type guards.
 
 // ============================================================================
 // TYPE GUARDS
@@ -35,7 +35,7 @@ import {
 
 /**
  * Type guard to check if object is TrackWithUserStatus
- * Note: TrackWithUserStatus is defined in playlists.ts
+ * Note: TrackWithUserStatus is defined in shared.ts
  */
 export function isTrackWithUserStatus(obj: unknown): obj is TrackWithUserStatus {
   if (!isObject(obj)) return false;

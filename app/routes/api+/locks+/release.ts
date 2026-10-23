@@ -22,16 +22,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const { entityType, entityId } = result.data;
 
-  const success = await releaseLock(entityType as EntityType, entityId, userId);
+  const outcome = await releaseLock(entityType as EntityType, entityId, userId);
 
-  if (!success) {
-    throw data(
-      {
-        error: "Lock not found",
-        message: "No lock found for this entity, or you do not own the lock",
-      },
-      { status: 404 },
-    );
+  if (outcome === "not_found") {
+    throw data({ error: "Lock not found" }, { status: 404 });
+  }
+  if (outcome === "not_owner") {
+    throw data({ error: "Forbidden", message: "You do not own this lock" }, { status: 403 });
   }
 
   return { success: true };

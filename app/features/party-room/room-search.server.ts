@@ -468,11 +468,12 @@ export async function searchRoomCatalog(options: {
     [...tracks.results, ...albums.results, ...artists.results],
     limit + 1,
   );
-  const hasNext = merged.length > limit;
-
+  // Mixed search has no cursor: the merged page cannot be advanced, so there is
+  // never a second page. hasNext is false rather than advertising a page the
+  // client cannot fetch.
   return {
     results: merged.slice(0, limit),
-    pagination: { limit, hasNext, nextCursor: null },
+    pagination: { limit, hasNext: false, nextCursor: null },
   };
 }
 
