@@ -1,4 +1,3 @@
-// @context7: music-metadata, File, Buffer, TypeScript
 import { parseBuffer, type IAudioMetadata } from "music-metadata";
 
 export interface ExtractedAudioMetadata {

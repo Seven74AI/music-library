@@ -102,6 +102,8 @@ export function createOfflineMetadataStore(): OfflineMetadataStore {
       return records.map(toSummary);
     },
     async listPinned() {
+      // Note: the isPinned index exists but boolean keys cannot be queried
+      // reliably across IndexedDB implementations, so filter in memory.
       const records = await withStore("readonly", (store) => requestToPromise(store.getAll()));
       return records.filter((record) => record.isPinned).map(toSummary);
     },
