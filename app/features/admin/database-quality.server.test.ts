@@ -5,10 +5,13 @@
 import { afterEach, expect, test } from "vitest";
 import { compressChromaprint } from "#tests/chromaprint-test-utils";
 import { prisma } from "#app/utils/db.server.ts";
+import { cache } from "#app/utils/cache.server.ts";
 import { loadDuplicateDashboard } from "./duplicate-dashboard.server.ts";
 import { percentOfTracksAffected } from "./database-quality.ts";
 import {
+  DATABASE_QUALITY_CACHE_KEY,
   countTracksWithMetadataIssues,
+  getDatabaseQualitySnapshot,
   getDuplicateTracksCount,
   getMetadataIssues,
   getStorageStats,
@@ -378,4 +381,46 @@ test("exact duplicate groups are ordered by count desc with oldest-first tracks"
     `four-c ${suffix}`,
     `four-d ${suffix}`,
   ]);
+});
+
+test("getDatabaseQualitySnapshot caches aggregates and keeps lastUpdated stable", async () => {
+  // Reset the cache so this test is deterministic regardless of prior runs.
+  await cache.delete(DATABASE_QUALITY_CACHE_KEY);
+
+  const first = await getDatabaseQualitySnapshot();
+
+  // Mutate the database: a fresh compute would see this new track, a cached
+  // read must not.
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = await prisma.artist.create({
+    data: { name: `Cache Artist ${suffix}`, normalizedName: `cache-artist-${suffix}` },
+  });
+  createdArtistIds.push(artist.id);
+  const service = await prisma.service.create({
+    data: {
+      name: `cache-service-${suffix}`,
+      displayName: `Cache Service ${suffix}`,
+      baseUrl: "https://example.com",
+    },
+  });
+  createdServiceIds.push(service.id);
+  const track = await prisma.track.create({
+    data: {
+      title: `Cache Track ${suffix}`,
+      artistId: artist.id,
+      serviceId: service.id,
+      externalId: `cache-track-${suffix}`,
+      duration: 180,
+    },
+  });
+  createdTrackIds.push(track.id);
+
+  const second = await getDatabaseQualitySnapshot();
+
+  // Cached: the new track is not counted and the "last updated" timestamp has
+  // not advanced (it only refreshes when the data actually refreshes).
+  expect(second.totalTracks).toBe(first.totalTracks);
+  expect(second.lastUpdated).toBe(first.lastUpdated);
+
+  await cache.delete(DATABASE_QUALITY_CACHE_KEY);
 });

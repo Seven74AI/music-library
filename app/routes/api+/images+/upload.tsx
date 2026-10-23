@@ -137,7 +137,6 @@ export async function action({ request }: Route.ActionArgs) {
         height,
         format: extension,
         fileSize: buffer.length,
-        isPrimary: false, // Will be set separately via set-primary endpoint
       },
     });
   }
@@ -149,7 +148,6 @@ export async function action({ request }: Route.ActionArgs) {
       objectKey: coverImage.objectKey,
       width: coverImage.width,
       height: coverImage.height,
-      isPrimary: coverImage.isPrimary,
     },
   });
 }
