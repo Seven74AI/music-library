@@ -1,5 +1,6 @@
 import { data } from "react-router";
 import { prisma } from "#app/utils/db.server.ts";
+import { releaseStaleClaims } from "#app/features/curator/review-queue.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/$id.claim.ts";
@@ -9,6 +10,8 @@ export async function action({ request, params }: Route.ActionArgs) {
   const id = params.id;
   if (!id) throw data({ success: false, error: "Queue item not found" }, { status: 404 });
 
+  // Reap stale claims first so an item claimed >2h ago (ADR-035) is claimable again.
+  await releaseStaleClaims();
   const item = await prisma.reviewQueueItem.findUnique({ where: { id } });
   if (!item) return data({ success: false, error: "Queue item not found" }, { status: 404 });
   if (item.status !== "open") {

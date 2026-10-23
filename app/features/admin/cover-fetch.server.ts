@@ -105,26 +105,26 @@ export async function getCoverStatistics() {
     select: { id: true, name: true, displayName: true },
   });
 
-  const serviceStats = await Promise.all(
-    services.map(async (service) => {
-      const total = await prisma.track.count({
-        where: { serviceId: service.id },
-      });
-      const withCovers = await prisma.track.count({
-        where: {
-          serviceId: service.id,
-          coverImageId: { not: null },
-        },
-      });
-      return {
-        serviceId: service.id,
-        serviceName: service.displayName || service.name,
-        totalTracks: total,
-        tracksWithCovers: withCovers,
-        coveragePercentage: total > 0 ? Math.round((withCovers / total) * 100 * 100) / 100 : 0,
-      };
-    }),
-  );
+  const serviceIds = services.map((service) => service.id);
+  const grouped = await prisma.track.groupBy({
+    by: ["serviceId"],
+    where: { serviceId: { in: serviceIds } },
+    _count: { _all: true, coverImageId: true },
+  });
+  const countsByService = new Map(grouped.map((g) => [g.serviceId, g._count] as const));
+
+  const serviceStats = services.map((service) => {
+    const counts = countsByService.get(service.id);
+    const total = counts?._all ?? 0;
+    const withCovers = counts?.coverImageId ?? 0;
+    return {
+      serviceId: service.id,
+      serviceName: service.displayName || service.name,
+      totalTracks: total,
+      tracksWithCovers: withCovers,
+      coveragePercentage: total > 0 ? Math.round((withCovers / total) * 100 * 100) / 100 : 0,
+    };
+  });
 
   return {
     totalTracks,

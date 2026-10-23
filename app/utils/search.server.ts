@@ -289,21 +289,19 @@ export async function searchTracks(
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
-  const tracks = rawResults.map(
-    (row): TrackSearchResult => ({
-      type: "track",
-      id: row.id,
-      title: row.title,
-      artistName: row.artist_name,
-      artistId: row.artist_id,
-      albumName: row.album_name || null,
-      albumId: row.album_id || null,
-      duration: row.duration,
-      coverImageId: row.coverImageId,
-      serviceId: row.serviceId,
-      relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
-    }),
-  );
+  const tracks = rawResults.map((row): TrackSearchResult => ({
+    type: "track",
+    id: row.id,
+    title: row.title,
+    artistName: row.artist_name,
+    artistId: row.artist_id,
+    albumName: row.album_name || null,
+    albumId: row.album_id || null,
+    duration: row.duration,
+    coverImageId: row.coverImageId,
+    serviceId: row.serviceId,
+    relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
+  }));
 
   const enrichedTracks = await enrichTrackSearchResults(tracks, userId);
 
@@ -399,18 +397,16 @@ export async function searchAlbums(
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
-  const albums = rawResults.map(
-    (row): AlbumSearchResult => ({
-      type: "album",
-      id: row.id,
-      name: row.name,
-      artistName: row.artist_name,
-      artistId: row.artist_id,
-      year: row.year,
-      coverImageId: row.coverImageId,
-      relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
-    }),
-  );
+  const albums = rawResults.map((row): AlbumSearchResult => ({
+    type: "album",
+    id: row.id,
+    name: row.name,
+    artistName: row.artist_name,
+    artistId: row.artist_id,
+    year: row.year,
+    coverImageId: row.coverImageId,
+    relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
+  }));
 
   const lastRow = rawResults[rawResults.length - 1];
   const newA = hasNext && lastRow ? lastCursorTuple(lastRow, "name") : null;
@@ -497,15 +493,13 @@ export async function searchArtists(
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
-  const artists = rawResults.map(
-    (row): ArtistSearchResult => ({
-      type: "artist",
-      id: row.id,
-      name: row.name,
-      genre: row.genre,
-      relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
-    }),
-  );
+  const artists = rawResults.map((row): ArtistSearchResult => ({
+    type: "artist",
+    id: row.id,
+    name: row.name,
+    genre: row.genre,
+    relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
+  }));
 
   const lastRow = rawResults[rawResults.length - 1];
   const newAr = hasNext && lastRow ? lastCursorTuple(lastRow, "name") : null;
@@ -573,10 +567,10 @@ export async function searchPlaylists(
 			'playlist' as type,
 			up.id,
 			up.title as name,
-			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as track_count,
+			COALESCE(uptc.cnt, 0) as track_count,
 			u.name as owner_name,
 			up.description,
-			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as item_count,
+			COALESCE(uptc.cnt, 0) as item_count,
 			NULL as thumbnail_url,
 			CASE 
 				WHEN LOWER(up.title) = ? THEN 1
@@ -586,6 +580,9 @@ export async function searchPlaylists(
 			0 as fts_rank
 		FROM "UserPlaylist" up
 		JOIN "User" u ON up."ownerId" = u.id
+		LEFT JOIN (
+			SELECT "playlistId", COUNT(*) as cnt FROM "UserPlaylistTrack" GROUP BY "playlistId"
+		) uptc ON uptc."playlistId" = up.id
 		WHERE up."ownerId" = ?
 		AND LOWER(up.title) LIKE ? ESCAPE '\\'${cursorFilter.sql}
 		ORDER BY relevance_rank, up.title
@@ -600,19 +597,17 @@ export async function searchPlaylists(
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
-  const playlists = rawResults.map(
-    (row): PlaylistSearchResult => ({
-      type: "playlist",
-      id: row.id,
-      name: row.name,
-      trackCount: Number(row.track_count),
-      ownerName: row.owner_name,
-      description: row.description,
-      itemCount: Number(row.item_count),
-      thumbnailUrl: row.thumbnail_url,
-      relevance: Number(row.relevance_rank),
-    }),
-  );
+  const playlists = rawResults.map((row): PlaylistSearchResult => ({
+    type: "playlist",
+    id: row.id,
+    name: row.name,
+    trackCount: Number(row.track_count),
+    ownerName: row.owner_name,
+    description: row.description,
+    itemCount: Number(row.item_count),
+    thumbnailUrl: row.thumbnail_url,
+    relevance: Number(row.relevance_rank),
+  }));
 
   const lastRow = rawResults[rawResults.length - 1];
   const newP = hasNext && lastRow ? lastCursorTuple(lastRow, "name") : null;
