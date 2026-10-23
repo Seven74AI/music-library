@@ -8,6 +8,10 @@ import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { getDomainUrl } from "#app/utils/misc.tsx";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
+import {
+  decryptVerificationSecret,
+  encryptVerificationSecret,
+} from "#app/utils/token-cipher.server.ts";
 import { generateTOTP, verifyTOTP } from "#app/utils/totp.server.ts";
 import { type twoFAVerifyVerificationType } from "../settings+/profile.two-factor.verify.tsx";
 import {
@@ -94,6 +98,8 @@ export async function prepareVerification({
     type,
     target,
     ...verificationConfig,
+    // Store the TOTP secret encrypted at rest (AES-256-GCM, `enc1:` prefix).
+    secret: encryptVerificationSecret(verificationConfig.secret),
     expiresAt: new Date(Date.now() + verificationConfig.period * 1000),
   };
   await prisma.verification.upsert({
@@ -128,6 +134,7 @@ export async function isCodeValid({
   const result = await verifyTOTP({
     otp: code,
     ...verification,
+    secret: decryptVerificationSecret(verification.secret),
   });
   if (!result) return false;
 
