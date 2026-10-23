@@ -1,5 +1,7 @@
 import { LOOP_MODES, type LoopMode } from "#app/features/queue/queue-navigation.ts";
+import { LIBRARY_SORT_OPTIONS } from "#app/features/listening-insights/heavy-rotation.ts";
 import { DISCOVER_SORT_OPTIONS } from "#app/utils/discover.ts";
+import { PLAYLIST_TRACK_SORT_OPTIONS } from "#app/utils/playlist-track-sort.ts";
 import { type PlayContextJson, type PlayerStateData } from "./player-state.ts";
 
 /**
@@ -19,24 +21,26 @@ function isPlayContextJson(value: unknown): value is PlayContextJson {
   if (value === null || typeof value !== "object") return false;
   const context = value as Record<string, unknown>;
 
+  // Optional direction field, shared by library/playlist/discover contexts.
+  const directionValid =
+    context.direction === undefined || context.direction === "asc" || context.direction === "desc";
+
   switch (context.type) {
     case "library":
       return (
-        context.sort === undefined ||
-        context.sort === "dateAdded" ||
-        context.sort === "mostPlayedMonth" ||
-        context.sort === "mostPlayedEver"
+        directionValid &&
+        (context.sort === undefined ||
+          LIBRARY_SORT_OPTIONS.includes(context.sort as (typeof LIBRARY_SORT_OPTIONS)[number]))
       );
     case "playlist":
       return (
+        directionValid &&
         typeof context.playlistId === "string" &&
         context.playlistId.length > 0 &&
         (context.sort === undefined ||
-          context.sort === "custom" ||
-          context.sort === "title" ||
-          context.sort === "artist" ||
-          context.sort === "duration" ||
-          context.sort === "dateAdded")
+          PLAYLIST_TRACK_SORT_OPTIONS.includes(
+            context.sort as (typeof PLAYLIST_TRACK_SORT_OPTIONS)[number],
+          ))
       );
     case "artist":
       return typeof context.artistId === "string" && context.artistId.length > 0;
@@ -48,9 +52,10 @@ function isPlayContextJson(value: unknown): value is PlayContextJson {
       return typeof context.snapshotId === "string" && context.snapshotId.length > 0;
     case "discover":
       return (
-        context.sort === undefined ||
-        (typeof context.sort === "string" &&
-          DISCOVER_SORT_OPTIONS.includes(context.sort as (typeof DISCOVER_SORT_OPTIONS)[number]))
+        directionValid &&
+        (context.sort === undefined ||
+          (typeof context.sort === "string" &&
+            DISCOVER_SORT_OPTIONS.includes(context.sort as (typeof DISCOVER_SORT_OPTIONS)[number])))
       );
     default:
       return false;

@@ -226,6 +226,28 @@ export async function calculateImageHash(buffer: Buffer): Promise<string> {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+/**
+ * Read an image buffer's intrinsic dimensions via sharp.
+ * Returns 0x0 when sharp is unavailable or the buffer is not a decodable image,
+ * so callers can fall back to metadata or fail validation instead of throwing.
+ */
+export async function getImageDimensions(
+  buffer: Buffer,
+): Promise<{ width: number; height: number; format?: string }> {
+  try {
+    const sharp = await import("sharp");
+    const metadata = await sharp.default(buffer).metadata();
+    return {
+      width: metadata.width || 0,
+      height: metadata.height || 0,
+      format: metadata.format,
+    };
+  } catch (error) {
+    console.error("Sharp not available for image processing:", error);
+    return { width: 0, height: 0 };
+  }
+}
+
 type AlbumLookup = {
   id: string;
   mergedIntoId: string | null;

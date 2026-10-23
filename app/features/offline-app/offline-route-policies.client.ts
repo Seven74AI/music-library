@@ -141,7 +141,11 @@ function paramsFromSegments(
 export const OFFLINE_ROUTE_POLICIES: Record<string, StubEntry> = {
   // ── Live routes (converted from old "live" mode) ──
 
-  root: sync({ kind: "constant", value: createFallbackOfflineRootShell() }),
+  // Root shell fallback is computed per-request: it re-reads the persisted user
+  // and the current window.location at resolve time, so an offline navigation to
+  // a different path (or after the shell is re-persisted) returns fresh
+  // requestInfo.path/origin and user instead of a frozen boot-time snapshot.
+  root: asyncFn(async () => createFallbackOfflineRootShell()),
 
   "routes/_marketing+/index": sync({
     kind: "constant",

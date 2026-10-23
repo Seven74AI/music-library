@@ -3,7 +3,7 @@ import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync, readdirSy
 import { join, dirname } from "path";
 import { createId } from "@paralleldrive/cuid2";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { LOCAL_SERVICE } from "#app/constants/services";
+import { LOCAL_SERVICE, YOUTUBE_SERVICE } from "#app/constants/services";
 import { getOrCreateArtistTx, extractArtistMetadata } from "#app/utils/artist-management.server";
 import { calculateAudioHash } from "#app/utils/audio-file-management.server";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
@@ -49,13 +49,13 @@ async function seed() {
   // Seed Services first (required for other entities)
   console.time(`🎵 Seeded services`);
   await prisma.service.upsert({
-    where: { id: "clnf2zvli0000pcou3zzzzome" },
+    where: { id: YOUTUBE_SERVICE.ID },
     update: {},
     create: {
-      id: "clnf2zvli0000pcou3zzzzome",
-      name: "youtube",
-      displayName: "YouTube",
-      baseUrl: "https://youtube.com",
+      id: YOUTUBE_SERVICE.ID,
+      name: YOUTUBE_SERVICE.NAME,
+      displayName: YOUTUBE_SERVICE.DISPLAY_NAME,
+      baseUrl: YOUTUBE_SERVICE.BASE_URL,
       logoUrl: "/logos/youtube.svg",
       isActive: true,
     },

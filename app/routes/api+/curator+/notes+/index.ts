@@ -1,6 +1,7 @@
 import { data, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { verifyEntityExists } from "#app/utils/entity-existence.server.ts";
 import { parseMentions } from "#app/utils/mention-parser.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/index.ts";
@@ -140,30 +141,10 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   // Verify entity exists
-  if (entityType === "track") {
-    const track = await prisma.track.findUnique({
-      where: { id: entityId },
-      select: { id: true },
-    });
-    if (!track) {
-      throw data({ error: "Not found", message: "Track not found" }, { status: 404 });
-    }
-  } else if (entityType === "artist") {
-    const artist = await prisma.artist.findUnique({
-      where: { id: entityId },
-      select: { id: true },
-    });
-    if (!artist) {
-      throw data({ error: "Not found", message: "Artist not found" }, { status: 404 });
-    }
-  } else if (entityType === "album") {
-    const album = await prisma.album.findUnique({
-      where: { id: entityId },
-      select: { id: true },
-    });
-    if (!album) {
-      throw data({ error: "Not found", message: "Album not found" }, { status: 404 });
-    }
+  const exists = await verifyEntityExists(entityType as "track" | "artist" | "album", entityId);
+  if (!exists) {
+    const label = entityType.charAt(0).toUpperCase() + entityType.slice(1);
+    throw data({ error: "Not found", message: `${label} not found` }, { status: 404 });
   }
 
   // If this is a reply, verify parent exists
