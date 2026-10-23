@@ -39,7 +39,8 @@ test.describe("Player / Queue", () => {
   // ─────────────────────────────────────────────────
   // 1. Play from playlist context
   // ─────────────────────────────────────────────────
-  // TODO: This test is flaky in CI - the html element intercepts pointer events when clicking the queue button
+  // TODO(#334): This test is flaky in CI - the html element intercepts pointer
+  // events when clicking the queue button (tracked, root cause unfixed).
   test.skip("playing from playlist shows playlist context in queue", async ({
     page,
     login,

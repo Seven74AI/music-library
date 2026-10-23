@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ignore from "ignore";
 import { describe, expect, test } from "vitest";
 
 const SECURITY_EVENTS_MIGRATION =
@@ -13,50 +14,14 @@ const SECURITY_EVENTS_MIGRATION_SHA256 =
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
 /**
- * Last matching Dockerfile.dockerignore pattern wins, same as Docker's ignore rules.
- * Enough to tell whether a startup script survives the production build context.
+ * Whether a path is excluded by a .dockerignore file. Uses the `ignore` package,
+ * which implements the same gitignore-style semantics Docker uses (anchored and
+ * unanchored patterns, `**`, negation, directory-only rules) rather than a
+ * hand-rolled regex that only approximated them.
  */
 function dockerignoreExcludes(ignoreFile: string, relativePath: string): boolean {
   const normalized = relativePath.replace(/^\.\//, "").replaceAll("\\", "/");
-  let excluded = false;
-
-  for (const rawLine of ignoreFile.split("\n")) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const negated = line.startsWith("!");
-    const pattern = (negated ? line.slice(1) : line).trim();
-    if (dockerPatternMatches(pattern, normalized)) excluded = !negated;
-  }
-
-  return excluded;
-}
-
-function dockerPatternMatches(pattern: string, filePath: string): boolean {
-  const directoryOnly = pattern.endsWith("/");
-  let source = pattern;
-  let anchored = false;
-  if (source.startsWith("/")) {
-    anchored = true;
-    source = source.slice(1);
-  }
-  if (directoryOnly) source = source.slice(0, -1);
-
-  const body = source
-    .split("/")
-    .map((segment) => {
-      if (segment === "**") return ".*";
-      return segment
-        .replaceAll(/[.+^${}()|[\]\\]/g, "\\$&")
-        .replaceAll("*", "[^/]*")
-        .replaceAll("?", "[^/]");
-    })
-    .join("/");
-
-  const file = anchored ? `^${body}$` : `(^|/)${body}$`;
-  if (new RegExp(file).test(filePath)) return true;
-  if (directoryOnly || source.endsWith("/**")) return false;
-  const children = anchored ? `^${body}/` : `(^|/)${body}/`;
-  return new RegExp(children).test(`${filePath}/`);
+  return ignore().add(ignoreFile).ignores(normalized);
 }
 
 function startupScripts(litefs: string): string[] {
