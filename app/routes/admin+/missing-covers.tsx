@@ -34,6 +34,7 @@ import {
   uploadTrackCover,
 } from "#app/features/admin/cover-fetch.server";
 import { coverImageUrl } from "#app/utils/cover-image-url";
+import { parsePageParam } from "#app/utils/parse-page-param.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/missing-covers.ts";
@@ -50,7 +51,7 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   await requireUserWithRole(request, "admin");
   const tabParam = url.searchParams.get("tab") ?? "tracks";
   const tab: Tab = TABS.includes(tabParam as Tab) ? (tabParam as Tab) : "tracks";
-  const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
+  const page = parsePageParam(url.searchParams.get("page"));
 
   const [statistics, tracksCount, albumsCount] = await Promise.all([
     getCoverStatistics(),

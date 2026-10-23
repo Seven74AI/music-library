@@ -9,15 +9,10 @@ import { cn } from "#app/utils/misc.tsx";
 
 type HomeRecentTrackCardProps = {
   userTrack: HomeRecentTrack;
-  index: number;
   playableTracks: FullTrack[];
 };
 
-export function HomeRecentTrackCard({
-  userTrack,
-  index: _index,
-  playableTracks,
-}: HomeRecentTrackCardProps) {
+export function HomeRecentTrackCard({ userTrack, playableTracks }: HomeRecentTrackCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const { currentTrack, playPlaylist } = useAudioPlayer();
   const track = userTrack.track;

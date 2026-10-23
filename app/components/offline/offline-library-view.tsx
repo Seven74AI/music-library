@@ -23,7 +23,7 @@ function toOfflineTrackListItemTrack(track: OfflineTrackSummary) {
     duration: track.duration,
     coverImage: track.coverObjectKey ? { objectKey: track.coverObjectKey } : null,
     serviceUrl: null,
-    audioFiles: [{ id: track.trackId, format: "mp3" as const, objectKey: "" }],
+    audioFiles: [{ id: track.trackId, format: track.audioFormat ?? "mp3", objectKey: "" }],
   };
 }
 
