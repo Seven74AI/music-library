@@ -89,6 +89,7 @@ async function setupTestData() {
   await prisma.trackAudioFile.create({
     data: {
       trackId: track.id,
+      serviceId: track.serviceId,
       objectKey: `audio/tracks/local/${track.id}.mp3`,
       fileName: "test.mp3",
       mimeType: "audio/mpeg",

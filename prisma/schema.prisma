@@ -483,9 +483,10 @@ model TrackAudioFile {
   trackId String
   track   Track  @relation(fields: [trackId], references: [id], onDelete: Cascade)
 
-  // Service attribution
-  serviceId String? // null = local upload, otherwise references Service
-  service   Service? @relation(fields: [serviceId], references: [id])
+  // Service attribution — always set (resolved from the track's Service); local
+  // uploads point at the seeded 'local' Service row. Never null going forward.
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
 
   // File storage
   objectKey        String  // S3 storage key
@@ -523,6 +524,7 @@ model ArchiveJob {
   retryCount     Int       @default(0)
   errorHistory   String    @default("[]") // JSON array of error objects
   lastAttemptAt  DateTime?
+  nextAttemptAt  DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   trackId        String    @unique
