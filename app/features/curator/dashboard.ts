@@ -252,8 +252,15 @@ export function paginateNewest<T>(
 }
 
 function csvEscape(value: string): string {
-  if (/[",\n\r]/.test(value)) return `"${value.replaceAll('"', '""')}"`;
-  return value;
+  // Neutralize CSV formula injection: spreadsheets treat cells starting with
+  // =, +, -, @, tab or CR as formulas. Prefix a single quote to force literal
+  // interpretation before any quoting.
+  let safe = value;
+  if (/^[=+\-@\t\r]/.test(safe)) {
+    safe = `'${safe}`;
+  }
+  if (/[",\n\r]/.test(safe)) return `"${safe.replaceAll('"', '""')}"`;
+  return safe;
 }
 
 export function activityToCsv(items: ActivityItem[]): string {

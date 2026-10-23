@@ -7,7 +7,10 @@ test("createCSP generates header with default directives", () => {
 
   expect(result).toContain("default-src 'none'");
   expect(result).toContain("frame-ancestors 'none'");
-  expect(result).toContain("style-src 'self' 'unsafe-inline'");
+  expect(result).toContain("style-src-elem 'self'");
+  expect(result).toContain("style-src-attr 'unsafe-inline'");
+  expect(result).toContain("object-src 'none'");
+  expect(result).toContain("base-uri 'none'");
   expect(result).toContain(
     "img-src 'self' data: blob: https://i.ytimg.com https://img.youtube.com",
   );
@@ -33,6 +36,15 @@ test("createCSP allows same-origin workers via worker-src", () => {
   const result = createCSP("abc123");
 
   expect(result).toContain("worker-src 'self'");
+});
+
+test("createCSP does not allow inline styles via a blanket style-src", () => {
+  const result = createCSP("abc123");
+
+  // The old blanket `style-src 'self' 'unsafe-inline'` must be gone: injected
+  // <style> blocks are blocked (style-src-elem is 'self'), only inline style
+  // *attributes* keep 'unsafe-inline' via style-src-attr.
+  expect(result).not.toContain("style-src ");
 });
 
 test("createCSP handles empty nonce", () => {
@@ -62,6 +74,6 @@ test("createCSP joins directives with semicolon and space", () => {
   const result = createCSP("test");
 
   expect(result).toBe(
-    "default-src 'none'; script-src 'nonce-test' 'strict-dynamic'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://i.ytimg.com https://img.youtube.com; connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io; font-src 'self'; media-src 'self' blob: https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev; manifest-src 'self'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'nonce-test' 'strict-dynamic'; worker-src 'self'; style-src-elem 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: https://i.ytimg.com https://img.youtube.com; connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io; font-src 'self'; media-src 'self' blob: https://fly.storage.tigris.dev https://*.fly.storage.tigris.dev; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   );
 });

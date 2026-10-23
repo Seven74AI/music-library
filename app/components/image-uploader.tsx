@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { Button } from "#app/components/ui/button";
 import { Input } from "#app/components/ui/input";
@@ -26,6 +26,10 @@ export function ImageUploader({
   const uploadTargetRef = useRef<{ entityType: string; entityId: string } | null>(null);
   const scope = `${entityType}:${entityId}`;
   const [appliedScope, setAppliedScope] = useState(scope);
+  // Track the last fetcher data object we've already handled, so the success
+  // effect fires exactly once per submission (no fetcher.data mutation needed).
+  const handledUploadDataRef = useRef<unknown>(null);
+  const handledUrlDataRef = useRef<unknown>(null);
   // Album and artist editors stay mounted when the route param changes.
   if (appliedScope !== scope) {
     setAppliedScope(scope);
@@ -70,55 +74,28 @@ export function ImageUploader({
     );
   };
 
-  const uploadStillForThisEntity = () =>
-    uploadTargetRef.current?.entityType === entityType &&
-    uploadTargetRef.current?.entityId === entityId;
+  // Handle a successful file upload once the action resolves.
+  useEffect(() => {
+    const data = uploadFetcher.data;
+    if (!data || handledUploadDataRef.current === data) return;
+    handledUploadDataRef.current = data;
+    const target = uploadTargetRef.current;
+    const stillForThisEntity = target?.entityType === entityType && target?.entityId === entityId;
+    if (!data.success || !onImageUploaded || !stillForThisEntity) return;
+    onImageUploaded(data.image.objectKey, data.image.id);
+  }, [uploadFetcher.data, entityType, entityId, onImageUploaded]);
 
-  // Handle successful uploads
-  if (uploadFetcher.data?.success && onImageUploaded) {
-    const objectKey = uploadFetcher.data.image.objectKey;
-    const imageId = uploadFetcher.data.image.id;
-    if (!uploadStillForThisEntity()) {
-      uploadFetcher.data = null;
-    } else {
-      const submittedType = entityType;
-      const submittedId = entityId;
-      setTimeout(() => {
-        if (
-          uploadTargetRef.current?.entityType !== submittedType ||
-          uploadTargetRef.current?.entityId !== submittedId
-        ) {
-          return;
-        }
-        onImageUploaded(objectKey, imageId);
-        // Reset fetcher to prevent infinite loop
-        uploadFetcher.data = null;
-      }, 0);
-    }
-  }
-
-  if (urlFetcher.data?.success && onImageUploaded) {
-    const objectKey = urlFetcher.data.image.objectKey;
-    const imageId = urlFetcher.data.image.id;
-    if (!uploadStillForThisEntity()) {
-      urlFetcher.data = null;
-    } else {
-      const submittedType = entityType;
-      const submittedId = entityId;
-      setTimeout(() => {
-        if (
-          uploadTargetRef.current?.entityType !== submittedType ||
-          uploadTargetRef.current?.entityId !== submittedId
-        ) {
-          return;
-        }
-        onImageUploaded(objectKey, imageId);
-        setImageUrl("");
-        // Reset fetcher to prevent infinite loop
-        urlFetcher.data = null;
-      }, 0);
-    }
-  }
+  // Handle a successful URL upload once the action resolves.
+  useEffect(() => {
+    const data = urlFetcher.data;
+    if (!data || handledUrlDataRef.current === data) return;
+    handledUrlDataRef.current = data;
+    const target = uploadTargetRef.current;
+    const stillForThisEntity = target?.entityType === entityType && target?.entityId === entityId;
+    if (!data.success || !onImageUploaded || !stillForThisEntity) return;
+    onImageUploaded(data.image.objectKey, data.image.id);
+    setImageUrl("");
+  }, [urlFetcher.data, entityType, entityId, onImageUploaded]);
 
   return (
     <div className="space-y-4">
@@ -169,7 +146,7 @@ export function ImageUploader({
           <Input
             id="image-file"
             type="file"
-            accept="image/jpeg,image/jpg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp"
             onChange={handleFileUpload}
             disabled={isUploading}
           />

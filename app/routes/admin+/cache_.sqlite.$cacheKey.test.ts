@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cache } from "#app/utils/cache.server.ts";
-import { loader } from "./cache_.sqlite.$cacheKey.ts";
+import { loader } from "./cache_.sqlite.$cacheKey.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
   requireUserWithRole: vi.fn(async () => "admin-user"),

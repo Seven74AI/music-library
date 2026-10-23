@@ -12,7 +12,27 @@ import { type Route } from "./+types/upload.ts";
 // Image validation
 const MIN_IMAGE_SIZE = 500; // 500x500 minimum
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+// Non-standard aliases some clients send (e.g. "image/jpg" instead of the
+// canonical "image/jpeg"). Normalize rather than reject so real uploads that
+// use the alias are not dropped.
+const MIME_ALIASES: Record<string, string> = {
+  "image/jpg": "image/jpeg",
+  "image/pjpeg": "image/jpeg",
+};
+
+// Canonical extension per MIME type — "image/jpeg" maps to "jpg" so the object
+// key and `format` column are stable regardless of how the browser labels it.
+const EXTENSION_BY_TYPE: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+function normalizeImageType(rawType: string): string {
+  return MIME_ALIASES[rawType] ?? rawType;
+}
 
 async function getImageDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
   // Import sharp dynamically to avoid issues if not installed
@@ -79,8 +99,9 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  // Validate content type
-  if (!ALLOWED_TYPES.includes(imageFile.type)) {
+  // Normalize aliases, then validate against the canonical allow-list
+  const contentType = normalizeImageType(imageFile.type);
+  if (!ALLOWED_TYPES.includes(contentType)) {
     return data(
       { error: `Invalid image type. Allowed types: ${ALLOWED_TYPES.join(", ")}` },
       { status: 400 },
@@ -112,14 +133,14 @@ export async function action({ request }: Route.ActionArgs) {
   if (!coverImage) {
     // Upload to storage
     const fileId = createId();
-    const extension = imageFile.type.split("/")[1] || "jpg";
+    const extension = EXTENSION_BY_TYPE[contentType] ?? "jpg";
     const timestamp = Date.now();
     const objectKey = `images/${entityType}s/${verifiedEntityId}/${timestamp}-${fileId}.${extension}`;
 
     await uploadFile({
       file: buffer,
       key: objectKey,
-      contentType: imageFile.type,
+      contentType,
     });
 
     // Create CoverImage record

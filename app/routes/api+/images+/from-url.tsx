@@ -19,7 +19,19 @@ const FromUrlSchema = z.object({
 // Image validation
 const MIN_IMAGE_SIZE = 500; // 500x500 minimum
 
-async function getImageDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
+// Canonical extension + MIME per sharp-detected format. Detecting the real
+// bytes avoids storing a PNG/WebP source under a hardcoded ".jpg" key.
+const FORMAT_BY_SHARP: Record<string, { ext: string; mime: string }> = {
+  jpeg: { ext: "jpg", mime: "image/jpeg" },
+  png: { ext: "png", mime: "image/png" },
+  webp: { ext: "webp", mime: "image/webp" },
+  gif: { ext: "gif", mime: "image/gif" },
+  avif: { ext: "avif", mime: "image/avif" },
+};
+
+async function getImageDimensions(
+  buffer: Buffer,
+): Promise<{ width: number; height: number; format?: string }> {
   // Import sharp dynamically to avoid issues if not installed
   try {
     const sharp = await import("sharp");
@@ -27,6 +39,7 @@ async function getImageDimensions(buffer: Buffer): Promise<{ width: number; heig
     return {
       width: metadata.width || 0,
       height: metadata.height || 0,
+      format: metadata.format,
     };
   } catch (error) {
     // If sharp is not available, return 0x0 (validation will fail if dimensions matter)
@@ -84,8 +97,8 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  // Get image dimensions
-  const { width, height } = await getImageDimensions(buffer);
+  // Get image dimensions and detect the real format from the bytes
+  const { width, height, format: detectedFormat } = await getImageDimensions(buffer);
 
   // Validate dimensions
   if (width < MIN_IMAGE_SIZE || height < MIN_IMAGE_SIZE) {
@@ -107,8 +120,11 @@ export async function action({ request }: Route.ActionArgs) {
   });
 
   if (!coverImage) {
-    // Determine file extension from content type or default to jpg
-    const extension = "jpg"; // Default, since we downloaded from URL
+    // Derive extension + MIME from the detected format, not a hardcoded jpg.
+    const { ext: extension, mime: contentType } = FORMAT_BY_SHARP[detectedFormat ?? ""] ?? {
+      ext: "jpg",
+      mime: "image/jpeg",
+    };
 
     // Upload to storage
     const fileId = createId();
@@ -118,7 +134,7 @@ export async function action({ request }: Route.ActionArgs) {
     await uploadFile({
       file: buffer,
       key: objectKey,
-      contentType: "image/jpeg",
+      contentType,
     });
 
     // Create CoverImage record

@@ -1,4 +1,4 @@
-# ADR-015: Unified Offline Middleware Architecture
+# ADR-039: Unified Offline Middleware Architecture
 
 **Status:** Accepted
 **Date:** 2026-07-30

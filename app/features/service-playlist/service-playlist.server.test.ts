@@ -663,12 +663,12 @@ describe("ServicePlaylistService - Batch Processing", () => {
         const tx = {
           track: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn(),
-            create: vi.fn().mockImplementation(async (args: any) => ({
-              id: args.data.id,
-              title: args.data.title,
-              externalId: args.data.externalId,
+            upsert: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.create.id,
+              title: args.create.title,
+              externalId: args.create.externalId,
             })),
+            create: vi.fn(),
           },
           artist: {
             findMany: vi.fn().mockResolvedValue([]),
@@ -764,12 +764,12 @@ describe("ServicePlaylistService - Batch Processing", () => {
         const tx = {
           track: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn(),
-            create: vi.fn().mockImplementation(async (args: any) => ({
-              id: args.data.id,
-              title: args.data.title,
-              externalId: args.data.externalId,
+            upsert: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.create.id,
+              title: args.create.title,
+              externalId: args.create.externalId,
             })),
+            create: vi.fn(),
           },
           artist: {
             findMany: vi.fn().mockResolvedValue([]),
