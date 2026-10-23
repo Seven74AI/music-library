@@ -53,19 +53,32 @@ export interface ArtistDuplicateGroup {
 }
 
 /**
+ * Album entry within a duplicate group. `artistId`/`artistName` are carried
+ * per-album so cross-artist fuzzy groups (which span multiple artists) can
+ * render each album's own artist.
+ */
+export interface AlbumDuplicateEntry {
+  id: string;
+  name: string;
+  year: number | null;
+  artistId: string;
+  artistName: string;
+  trackCount: number;
+}
+
+/**
  * Album duplicate group
  */
 export interface AlbumDuplicateGroup {
   normalizedName: string;
   matchType: MatchType;
-  artistId: string;
-  artistName: string;
-  albums: Array<{
-    id: string;
-    name: string;
-    year: number | null;
-    trackCount: number;
-  }>;
+  /**
+   * `null` when the group spans multiple artists (cross-artist fuzzy match).
+   * Set to the single artist for same-artist groups (exact + fuzzy).
+   */
+  artistId: string | null;
+  artistName: string | null;
+  albums: AlbumDuplicateEntry[];
   totalTracks: number;
 }
 
@@ -289,6 +302,8 @@ export async function findExactAlbumDuplicates(): Promise<AlbumDuplicateGroup[]>
       id: a.id,
       name: a.name,
       year: a.year,
+      artistId: a.artistId,
+      artistName: a.artist.name,
       trackCount: a._count.tracks,
     }));
 
@@ -311,11 +326,63 @@ export async function findExactAlbumDuplicates(): Promise<AlbumDuplicateGroup[]>
   return duplicateGroups;
 }
 
+type AlbumWithArtist = {
+  id: string;
+  name: string;
+  year: number | null;
+  artistId: string;
+  artist: { id: string; name: string };
+  _count: { tracks: number };
+};
+
+type NormalizedAlbum = AlbumWithArtist & {
+  normalized: string;
+  artistNormalized: string;
+};
+
 /**
- * Find fuzzy duplicate albums (same artist, similar names)
+ * Build an AlbumDuplicateGroup from a set of album ids.
+ * `artistId`/`artistName` are `null` for cross-artist groups.
+ */
+function buildAlbumDuplicateGroup(
+  albums: NormalizedAlbum[],
+  albumIds: Set<string>,
+  normalizedName: string,
+  matchType: MatchType,
+  artistId: string | null,
+  artistName: string | null,
+): AlbumDuplicateGroup | null {
+  const groupAlbums = albums.filter((a) => albumIds.has(a.id));
+  if (groupAlbums.length < 2) return null;
+
+  const albumList = groupAlbums.map((a) => ({
+    id: a.id,
+    name: a.name,
+    year: a.year,
+    artistId: a.artistId,
+    artistName: a.artist.name,
+    trackCount: a._count.tracks,
+  }));
+
+  // Sort by track count descending
+  albumList.sort((a, b) => b.trackCount - a.trackCount);
+
+  return {
+    normalizedName,
+    matchType,
+    artistId,
+    artistName,
+    albums: albumList,
+    totalTracks: albumList.reduce((sum, a) => sum + a.trackCount, 0),
+  };
+}
+
+/**
+ * Find fuzzy duplicate albums:
+ * - same artist + similar name, OR
+ * - similar artist + similar name + year within ±2 (cross-artist)
  */
 export async function findFuzzyAlbumDuplicates(): Promise<AlbumDuplicateGroup[]> {
-  // Get all albums with their artists
   const albums = await prisma.album.findMany({
     where: { mergedIntoId: null },
     select: {
@@ -337,88 +404,105 @@ export async function findFuzzyAlbumDuplicates(): Promise<AlbumDuplicateGroup[]>
     },
   });
 
-  // Group by artist first
-  const albumsByArtist = new Map<string, typeof albums>();
+  // Normalize album + artist names once
+  const albumsWithNormalized: NormalizedAlbum[] = albums.map((a) => ({
+    ...a,
+    normalized: normalizeAlbumName(a.name),
+    artistNormalized: normalizeArtistName(a.artist.name),
+  }));
 
-  for (const album of albums) {
+  const duplicateGroups: AlbumDuplicateGroup[] = [];
+
+  // Branch 1: same artist + similar name
+  const albumsByArtist = new Map<string, NormalizedAlbum[]>();
+  for (const album of albumsWithNormalized) {
     if (!albumsByArtist.has(album.artistId)) {
       albumsByArtist.set(album.artistId, []);
     }
     albumsByArtist.get(album.artistId)!.push(album);
   }
 
-  // Find fuzzy matches within each artist
-  const duplicateGroups: AlbumDuplicateGroup[] = [];
-
   for (const [artistId, artistAlbums] of albumsByArtist) {
     if (artistAlbums.length < 2) continue;
 
-    // Normalize album names
-    const albumsWithNormalized = artistAlbums.map((a) => ({
-      ...a,
-      normalized: normalizeAlbumName(a.name),
-    }));
-
-    // Find fuzzy matches
     const fuzzyPairs = new Map<string, Set<string>>();
-
-    for (let i = 0; i < albumsWithNormalized.length; i++) {
-      for (let j = i + 1; j < albumsWithNormalized.length; j++) {
-        const a1 = albumsWithNormalized[i];
-        const a2 = albumsWithNormalized[j];
-
+    for (let i = 0; i < artistAlbums.length; i++) {
+      for (let j = i + 1; j < artistAlbums.length; j++) {
+        const a1 = artistAlbums[i];
+        const a2 = artistAlbums[j];
         if (!a1 || !a2) continue;
-
-        // Skip if no normalized names
         if (!a1.normalized || !a2.normalized) continue;
-
-        // Skip if exact match (handled separately)
         if (isExactMatch(a1.normalized, a2.normalized)) continue;
+        if (!isFuzzyMatch(a1.normalized, a2.normalized)) continue;
 
-        // Check if fuzzy match
-        if (isFuzzyMatch(a1.normalized, a2.normalized)) {
-          // Use the shorter normalized name as the group key
-          const groupKey =
-            a1.normalized.length <= a2.normalized.length ? a1.normalized : a2.normalized;
-
-          if (!fuzzyPairs.has(groupKey)) {
-            fuzzyPairs.set(groupKey, new Set());
-          }
-          fuzzyPairs.get(groupKey)!.add(a1.id);
-          fuzzyPairs.get(groupKey)!.add(a2.id);
-        }
+        const groupKey =
+          a1.normalized.length <= a2.normalized.length ? a1.normalized : a2.normalized;
+        if (!fuzzyPairs.has(groupKey)) fuzzyPairs.set(groupKey, new Set());
+        fuzzyPairs.get(groupKey)!.add(a1.id);
+        fuzzyPairs.get(groupKey)!.add(a2.id);
       }
     }
 
-    // Build duplicate groups for this artist
     for (const [normalizedName, albumIds] of fuzzyPairs) {
-      if (albumIds.size < 2) continue;
-
-      const groupAlbums = albumsWithNormalized.filter((a) => albumIds.has(a.id));
-
-      if (groupAlbums.length === 0) continue;
-      const firstAlbum = groupAlbums[0];
-      if (!firstAlbum) continue;
-
-      const albumList = groupAlbums.map((a) => ({
-        id: a.id,
-        name: a.name,
-        year: a.year,
-        trackCount: a._count.tracks,
-      }));
-
-      // Sort by track count descending
-      albumList.sort((a, b) => b.trackCount - a.trackCount);
-
-      duplicateGroups.push({
+      const group = buildAlbumDuplicateGroup(
+        artistAlbums,
+        albumIds,
         normalizedName,
-        matchType: "fuzzy",
+        "fuzzy",
         artistId,
-        artistName: firstAlbum.artist.name,
-        albums: albumList,
-        totalTracks: albumList.reduce((sum, a) => sum + a.trackCount, 0),
-      });
+        artistAlbums[0]?.artist.name ?? null,
+      );
+      if (group) duplicateGroups.push(group);
     }
+  }
+
+  // Branch 2: similar artist + similar name + year within ±2 (cross-artist).
+  // Block by first 2 chars of the normalized album name to bound comparisons.
+  const blocks = new Map<string, NormalizedAlbum[]>();
+  for (const album of albumsWithNormalized) {
+    if (!album.normalized) continue;
+    const blockKey = album.normalized.slice(0, 2);
+    if (!blocks.has(blockKey)) blocks.set(blockKey, []);
+    blocks.get(blockKey)!.push(album);
+  }
+
+  const crossArtistPairs = new Map<string, Set<string>>();
+  for (const [, block] of blocks) {
+    for (let i = 0; i < block.length; i++) {
+      for (let j = i + 1; j < block.length; j++) {
+        const a1 = block[i];
+        const a2 = block[j];
+        if (!a1 || !a2) continue;
+        // Same artist is handled in branch 1
+        if (a1.artistId === a2.artistId) continue;
+        if (!a1.normalized || !a2.normalized) continue;
+        if (isExactMatch(a1.normalized, a2.normalized)) continue;
+        if (!isFuzzyMatch(a1.normalized, a2.normalized)) continue;
+        if (!a1.artistNormalized || !a2.artistNormalized) continue;
+        if (!isFuzzyMatch(a1.artistNormalized, a2.artistNormalized)) continue;
+        // Year must be within ±2 (both present)
+        if (a1.year == null || a2.year == null) continue;
+        if (Math.abs(a1.year - a2.year) > 2) continue;
+
+        const groupKey =
+          a1.normalized.length <= a2.normalized.length ? a1.normalized : a2.normalized;
+        if (!crossArtistPairs.has(groupKey)) crossArtistPairs.set(groupKey, new Set());
+        crossArtistPairs.get(groupKey)!.add(a1.id);
+        crossArtistPairs.get(groupKey)!.add(a2.id);
+      }
+    }
+  }
+
+  for (const [normalizedName, albumIds] of crossArtistPairs) {
+    const group = buildAlbumDuplicateGroup(
+      albumsWithNormalized,
+      albumIds,
+      normalizedName,
+      "fuzzy",
+      null,
+      null,
+    );
+    if (group) duplicateGroups.push(group);
   }
 
   // Sort groups by total track count descending
@@ -729,8 +813,8 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
     {
       matchType: MatchType;
       normalizedName: string;
-      artistId: string;
-      artistName: string;
+      artistId: string | null;
+      artistName: string | null;
       ids: Set<string>;
     }
   >();
@@ -739,10 +823,14 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
     const first = albumById.get(pair.entityId1);
     const second = albumById.get(pair.entityId2);
     if (!first || !second) continue;
-    if (first.artistId !== second.artistId) continue;
 
     const matchType = pair.matchType as MatchType;
-    const key = `${matchType}\u0000${first.artistId}\u0000${pair.normalizedName}`;
+    // Cross-artist fuzzy pairs span artists; group them under a single sentinel
+    // key (detection groups them by normalized name, with artistId null).
+    const crossArtist = first.artistId !== second.artistId;
+    const key = crossArtist
+      ? `${matchType}\u0000cross\u0000${pair.normalizedName}`
+      : `${matchType}\u0000${first.artistId}\u0000${pair.normalizedName}`;
     const existing = groups.get(key);
     if (existing) {
       existing.ids.add(pair.entityId1);
@@ -751,8 +839,8 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
       groups.set(key, {
         matchType,
         normalizedName: pair.normalizedName,
-        artistId: first.artistId,
-        artistName: first.artist.name,
+        artistId: crossArtist ? null : first.artistId,
+        artistName: crossArtist ? null : first.artist.name,
         ids: new Set([pair.entityId1, pair.entityId2]),
       });
     }
@@ -770,6 +858,8 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
           id: album.id,
           name: album.name,
           year: album.year,
+          artistId: album.artistId,
+          artistName: album.artist.name,
           trackCount: album._count.tracks,
         };
       })
