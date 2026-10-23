@@ -1,12 +1,6 @@
 import { Badge } from "./badge";
 
-interface StatusBadgeProps {
-  status: string;
-  variant?: "default" | "secondary" | "destructive" | "outline";
-  labels?: Record<string, string>;
-}
-
-const DEFAULT_STATUS_LABELS = {
+export const DEFAULT_STATUS_LABELS = {
   pending: "Pending",
   processing: "Processing",
   completed: "Completed",
@@ -16,7 +10,17 @@ const DEFAULT_STATUS_LABELS = {
   long_break: "Long Break",
 } as const;
 
-const DEFAULT_STATUS_VARIANTS = {
+/**
+ * Known status values: ArchiveJob.status ("pending" | "processing" |
+ * "completed" | "failed") plus WorkerState.status ("running" | "paused" |
+ * "long_break"). Keeping this a closed union prevents callers from passing
+ * arbitrary strings that silently fall back to a generic label.
+ */
+export type StatusBadgeStatus = keyof typeof DEFAULT_STATUS_LABELS;
+
+type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
+
+const DEFAULT_STATUS_VARIANTS: Record<StatusBadgeStatus, BadgeVariant> = {
   pending: "secondary",
   processing: "default",
   completed: "default",
@@ -24,14 +28,17 @@ const DEFAULT_STATUS_VARIANTS = {
   running: "default",
   paused: "secondary",
   long_break: "outline",
-} as const;
+};
+
+interface StatusBadgeProps {
+  status: StatusBadgeStatus;
+  variant?: BadgeVariant;
+  labels?: Partial<Record<StatusBadgeStatus, string>>;
+}
 
 export function StatusBadge({ status, variant, labels = DEFAULT_STATUS_LABELS }: StatusBadgeProps) {
-  const statusVariant =
-    variant ||
-    DEFAULT_STATUS_VARIANTS[status as keyof typeof DEFAULT_STATUS_VARIANTS] ||
-    "secondary";
-  const statusLabel = labels[status] || status.charAt(0).toUpperCase() + status.slice(1);
+  const statusVariant = variant ?? DEFAULT_STATUS_VARIANTS[status] ?? "secondary";
+  const statusLabel = labels[status] ?? status.charAt(0).toUpperCase() + status.slice(1);
 
-  return <Badge variant={statusVariant as any}>{statusLabel}</Badge>;
+  return <Badge variant={statusVariant}>{statusLabel}</Badge>;
 }

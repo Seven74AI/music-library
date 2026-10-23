@@ -1,8 +1,8 @@
 /**
  * Tigris/S3 helpers that target BACKUP_BUCKET_NAME (not the media bucket).
  */
-import { createWriteStream } from "node:fs";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { copyFile, mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -45,19 +45,19 @@ export async function uploadBackupObject(params: {
   if (process.env.MOCKS === "true") {
     const dest = join(localBackupDir(), key);
     await mkdir(dirname(dest), { recursive: true });
-    const body = await readFile(localPath);
-    await writeFile(dest, body);
+    await copyFile(localPath, dest);
     return key;
   }
 
   const bucket = getBackupBucketName();
-  const body = await readFile(localPath);
+  const { size } = await stat(localPath);
   const client = getS3Client();
   await client.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: key,
-      Body: body,
+      Body: createReadStream(localPath),
+      ContentLength: size,
       ContentType: contentType,
     }),
   );
@@ -114,8 +114,7 @@ export async function downloadBackupObject(key: string, localPath: string): Prom
 
   if (process.env.MOCKS === "true") {
     const src = join(localBackupDir(), key);
-    const body = await readFile(src);
-    await writeFile(localPath, body);
+    await copyFile(src, localPath);
     return;
   }
 

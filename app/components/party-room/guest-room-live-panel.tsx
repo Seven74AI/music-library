@@ -13,14 +13,10 @@ import { toast } from "#app/components/ui/use-toast.ts";
 import { writeActiveRoomCode } from "#app/features/party-room/api.client.ts";
 import { canAddTracks } from "#app/features/party-room/capabilities.ts";
 import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
-import { ROOM_ROLE, type RoomRole } from "#app/features/party-room/constants.ts";
+import { ROOM_ROLE, roomRoleLabel, type RoomRole } from "#app/features/party-room/constants.ts";
 
-export function formatRoomRole(role: string): string {
-  if (role === ROOM_ROLE.dj) return "DJ";
-  if (role === ROOM_ROLE.host) return "Host";
-  if (role === ROOM_ROLE.listener) return "Listener";
-  return role;
-}
+/** @deprecated Use {@link roomRoleLabel} from `#app/features/party-room/constants.ts`. */
+export const formatRoomRole = roomRoleLabel;
 
 export function GuestRoomLivePanel({
   code,

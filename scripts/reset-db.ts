@@ -26,10 +26,6 @@ const args = process.argv.slice(2);
 const shouldSeed = args.includes("--seed");
 const force = args.includes("--force");
 
-// Check if running in production
-const isProduction = process.env.NODE_ENV === "production";
-const isFly = process.env.FLY === "true";
-
 function resetDatabase() {
   const databaseUrl = getDatabaseUrl();
 
@@ -41,12 +37,6 @@ function resetDatabase() {
     console.error("Usage:");
     console.error("  tsx scripts/reset-db.ts --force");
     console.error("  tsx scripts/reset-db.ts --force --seed");
-    process.exit(1);
-  }
-
-  // Additional safety check for production
-  if ((isProduction || isFly) && !force) {
-    console.error("❌ ERROR: Database reset requires --force flag in production");
     process.exit(1);
   }
 

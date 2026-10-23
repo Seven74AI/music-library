@@ -1,7 +1,11 @@
 import { afterEach, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { QUEUE_STATUS_MINE } from "./review-queue.ts";
-import { createOrUpdateQueueItem, listReviewQueue } from "./review-queue.server.ts";
+import {
+  createOrUpdateQueueItem,
+  listReviewQueue,
+  releaseStaleClaims,
+} from "./review-queue.server.ts";
 
 const createdUserIds: string[] = [];
 const createdTrackIds: string[] = [];
@@ -260,4 +264,88 @@ test("createOrUpdateQueueItem dedupes open user reports and increments reportCou
     },
   });
   expect(count).toBe(1);
+});
+
+test("releaseStaleClaims resets claims older than 2h back to open and leaves recent claims alone", async () => {
+  const owner = await createCurator("StaleOwner");
+  const { track } = await createTrack("Stale Claim");
+
+  const stale = await prisma.reviewQueueItem.create({
+    data: {
+      entityType: "track",
+      entityId: track.id,
+      source: "system",
+      issueType: "missing_info",
+      status: "claimed",
+      claimedBy: owner.id,
+      claimedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+    },
+  });
+  const fresh = await prisma.reviewQueueItem.create({
+    data: {
+      entityType: "track",
+      entityId: track.id,
+      source: "system",
+      issueType: "low_quality",
+      status: "claimed",
+      claimedBy: owner.id,
+      claimedAt: new Date(Date.now() - 60 * 1000),
+    },
+  });
+
+  const released = await releaseStaleClaims(new Date());
+
+  expect(released).toBeGreaterThanOrEqual(1);
+
+  const staleAfter = await prisma.reviewQueueItem.findUniqueOrThrow({ where: { id: stale.id } });
+  expect(staleAfter.status).toBe("open");
+  expect(staleAfter.claimedBy).toBeNull();
+  expect(staleAfter.claimedAt).toBeNull();
+
+  const freshAfter = await prisma.reviewQueueItem.findUniqueOrThrow({ where: { id: fresh.id } });
+  expect(freshAfter.status).toBe("claimed");
+  expect(freshAfter.claimedBy).toBe(owner.id);
+});
+
+test("open queue orders by priority desc then oldest-first (FIFO) within a priority", async () => {
+  const { track } = await createTrack("FIFO Ordering");
+  const uniqueSource = `fifo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const highPriority = await prisma.reviewQueueItem.create({
+    data: {
+      entityType: "track",
+      entityId: track.id,
+      source: uniqueSource,
+      issueType: "duplicate",
+      status: "open",
+      priority: 3,
+      createdAt: new Date(Date.now() - 20 * 60 * 1000),
+    },
+  });
+  const older = await prisma.reviewQueueItem.create({
+    data: {
+      entityType: "track",
+      entityId: track.id,
+      source: uniqueSource,
+      issueType: "missing_info",
+      status: "open",
+      priority: 2,
+      createdAt: new Date(Date.now() - 10 * 60 * 1000),
+    },
+  });
+  const newer = await prisma.reviewQueueItem.create({
+    data: {
+      entityType: "track",
+      entityId: track.id,
+      source: uniqueSource,
+      issueType: "low_quality",
+      status: "open",
+      priority: 2,
+      createdAt: new Date(Date.now()),
+    },
+  });
+
+  const result = await listReviewQueue({ status: "open", source: uniqueSource });
+
+  expect(result.items.map((item) => item.id)).toEqual([highPriority.id, older.id, newer.id]);
 });

@@ -28,7 +28,6 @@ describe("findAllServicePlaylistTracks", () => {
       expect.objectContaining({
         where: { playlistId: "playlist-1" },
         take: SERVICE_PLAYLIST_TRACK_PAGE_SIZE,
-        skip: 0,
         orderBy: { id: "asc" },
       }),
     );
@@ -52,7 +51,8 @@ describe("findAllServicePlaylistTracks", () => {
     expect(results).toHaveLength(SERVICE_PLAYLIST_TRACK_PAGE_SIZE + 1);
     expect(findMany).toHaveBeenCalledTimes(2);
     expect(findMany.mock.calls[1]?.[0]).toMatchObject({
-      skip: SERVICE_PLAYLIST_TRACK_PAGE_SIZE,
+      skip: 1,
+      cursor: { id: `pt-${SERVICE_PLAYLIST_TRACK_PAGE_SIZE - 1}` },
     });
   });
 });

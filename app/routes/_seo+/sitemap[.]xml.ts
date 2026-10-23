@@ -12,8 +12,11 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
   const { build } = await serverBuild;
 
-  // TODO: This is typeerror is coming up since of the remix-run/server-runtime package. We might need to remove/update that one.
-  // @ts-expect-error
+  // `generateSitemap` expects `build.routes` as `EntryRoute[]`, but
+  // `react-router`'s server build types the routes as `AgnosticRouteObject[]`
+  // (an incompatible shape) — hence the suppression below. If this error ever
+  // disappears after a react-router upgrade, remove the directive.
+  // @ts-expect-error build.routes type mismatch vs generateSitemap's expected route shape
   return generateSitemap(request, build.routes, {
     siteUrl: getDomainUrl(request),
     headers: {

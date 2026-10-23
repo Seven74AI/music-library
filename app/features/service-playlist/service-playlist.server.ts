@@ -70,6 +70,23 @@ export type SyncServicePlaylistResult = {
   error?: string;
 };
 
+/** Distinguish an auth/token failure from a transient service error so the UI
+ * can report "reconnect" vs "try again" rather than one misleading "not
+ * connected" state. Heuristic: explicit status/code 401/403 or an auth-shaped
+ * message. */
+function looksLikeAuthError(error: unknown): boolean {
+  if (error && typeof error === "object") {
+    const status = (error as { status?: unknown }).status;
+    if (status === 401 || status === 403) return true;
+    const code = (error as { code?: unknown }).code;
+    if (code === 401 || code === 403) return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /401|403|unauthori[sz]ed|invalid_grant|token expired|credentials|authentication/i.test(
+    message,
+  );
+}
+
 export class ServicePlaylistService {
   private providers: Map<string, ServiceProviderBundle>;
   private archiveEnqueueAdapter: ArchiveEnqueueAdapter;
@@ -209,6 +226,7 @@ export class ServicePlaylistService {
   ): Promise<{
     playlists: PlaylistWithSyncStatus[];
     hasConnection: boolean;
+    error?: string;
     service: {
       id: string;
       name: string;
@@ -262,11 +280,18 @@ export class ServicePlaylistService {
         service,
       };
     } catch (error) {
-      console.error(`Error fetching playlists for ${serviceName}:`, error);
+      const isAuth = looksLikeAuthError(error);
+      console.error(
+        `Error fetching playlists for ${serviceName} (${isAuth ? "auth" : "service"}):`,
+        error,
+      );
       return {
         playlists: [],
         hasConnection: false,
         service: await getServiceByName(serviceName),
+        error: isAuth
+          ? "Your YouTube connection is no longer valid. Please reconnect."
+          : "Temporarily unable to load playlists. Please try again shortly.",
       };
     }
   }
@@ -418,7 +443,18 @@ export class ServicePlaylistService {
     const service = await getServiceByName(serviceName);
     const tokenData = await resolveServiceAccessToken(serviceName, userId);
     if (!tokenData) {
-      throw new Error(`No valid tokens found for service: ${serviceName}`);
+      // Same structured failure as registerAndSyncPlaylist — no token means the
+      // connection is missing, not a transient service error.
+      return {
+        success: false,
+        tracksAdded: 0,
+        totalTracks: 0,
+        deletedTracks: [],
+        removedTracks: [],
+        pendingMatches: [],
+        error: `No valid tokens found for service: ${serviceName}`,
+        message: `Failed to sync playlist: No valid tokens found for service: ${serviceName}`,
+      };
     }
 
     const { syncProvider, trackProcessor } = this.getProviderBundle(serviceName);

@@ -18,13 +18,6 @@ function isUniqueConstraintError(error: unknown): boolean {
   );
 }
 
-export async function clientLoader(args: Route.ClientLoaderArgs) {
-  // Genres are public and fetched via loader, no client-side override needed
-  const response = await fetch("/api/genres");
-  const data = await response.json();
-  return data;
-}
-
 async function readActionData(response: Response): Promise<unknown> {
   try {
     return await response.json();

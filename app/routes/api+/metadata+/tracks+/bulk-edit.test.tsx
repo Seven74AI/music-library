@@ -519,6 +519,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
       trackIds: mockTracks.map((t) => t.id),
       changes: { title: "Updated Title" },
       comment: "Bulk update 150 tracks",
+      overrideLimit: true,
     };
 
     const startTime = Date.now();
@@ -546,6 +547,20 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     const duration = endTime - startTime;
     console.log(`Bulk edit of 150 tracks took ${duration}ms`);
     expect(duration).toBeLessThan(5000); // Should complete in less than 5 seconds
+  });
+
+  test("rejects >100 tracks without overrideLimit (ADR-031 soft limit)", async () => {
+    const trackIds = Array.from({ length: 101 }, (_, i) => `track-${i}`);
+
+    await expectReturnedError(
+      {
+        trackIds,
+        changes: { title: "Updated Title" },
+        comment: "Bulk update 101 tracks",
+      },
+      400,
+      "Validation failed",
+    );
   });
 
   test("only updates fields that are provided in changes", async () => {

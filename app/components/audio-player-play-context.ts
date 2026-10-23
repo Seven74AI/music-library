@@ -28,7 +28,6 @@ export type PlayContext =
   | "artist"
   | "album"
   | "track"
-  | "music"
   | "discover"
   | "onRepeatSnapshot";
 
@@ -228,7 +227,7 @@ export function playContextToJson(context: PlaylistContext | null): PlayContextJ
       ...(direction !== defaultDiscoverSortDirection(sort) ? { direction } : {}),
     };
   }
-  return null; // "music" has no spine
+  return null; // no spine context for this type
 }
 
 export function hasPersistableQueue(state: PlayerStateData): boolean {

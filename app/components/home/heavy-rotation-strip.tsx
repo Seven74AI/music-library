@@ -34,14 +34,11 @@ export function HeavyRotationStrip({ title, tracks, librarySort }: HeavyRotation
         </Link>
       </div>
       <div className="-mx-1 flex gap-4 overflow-x-auto px-1 pb-2 snap-x snap-mandatory">
-        {tracks.map((item) => (
+        {tracks.map((item, index) => (
           <div key={item.track.id} className="snap-start">
             <HomeRecentTrackCard
-              userTrack={{
-                id: item.track.id,
-                createdAt: new Date(0),
-                track: item.track,
-              }}
+              track={item.track}
+              index={index}
               playableTracks={playableTracks}
             />
           </div>

@@ -66,18 +66,15 @@ describe("isSamePlayContext", () => {
       isSamePlayContext(playlistContext("p1"), playlistContext("p1", { sort: "custom" })),
     ).toBe(true);
     // custom vs title → not equal
-    expect(
-      isSamePlayContext(playlistContext("p1"), playlistContext("p1", { sort: "title" })),
-    ).toBe(false);
+    expect(isSamePlayContext(playlistContext("p1"), playlistContext("p1", { sort: "title" }))).toBe(
+      false,
+    );
   });
 
   test("library contexts compare sort (defaulting dateAdded)", () => {
     expect(isSamePlayContext(libraryContext(), libraryContext())).toBe(true);
     expect(
-      isSamePlayContext(
-        libraryContext(),
-        libraryContext({ librarySort: "mostPlayedMonth" }),
-      ),
+      isSamePlayContext(libraryContext(), libraryContext({ librarySort: "mostPlayedMonth" })),
     ).toBe(false);
   });
 
@@ -94,8 +91,8 @@ describe("playContextToJson", () => {
     expect(playContextToJson(null)).toBeNull();
   });
 
-  test("music context has no spine → null", () => {
-    expect(playContextToJson({ type: "music" })).toBeNull();
+  test("context without required spine id → null", () => {
+    expect(playContextToJson({ type: "track" })).toBeNull();
   });
 
   test("library default sort/direction omitted", () => {
@@ -181,9 +178,7 @@ describe("shouldPersistPlayerState", () => {
   });
 
   test("persists when user mutated a persistable queue", () => {
-    expect(shouldPersistPlayerState("u1", null, true, state({ currentTrackId: "t1" }))).toBe(
-      true,
-    );
+    expect(shouldPersistPlayerState("u1", null, true, state({ currentTrackId: "t1" }))).toBe(true);
   });
 
   test("does not persist without user mutation", () => {
