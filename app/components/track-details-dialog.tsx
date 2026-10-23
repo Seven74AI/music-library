@@ -185,8 +185,10 @@ export function TrackDetailsDialog({
   }, [restoreFetcher.state, restoreFetcher.data, trackId, detailsFetcher]);
 
   // BroadcastChannel integration
-  useCuratorSync(
-    (message) => {
+  useEffect(() => {
+    if (!open) return;
+
+    const cleanup = useCuratorSync((message) => {
       if (
         message.type === "LOCK_RELEASED" &&
         message.entityType === "track" &&
@@ -202,9 +204,10 @@ export function TrackDetailsDialog({
         // Track was updated by another curator, reload track details
         detailsFetcher.load(`/resources/track-details?trackId=${encodeURIComponent(trackId)}`);
       }
-    },
-    open,
-  );
+    });
+
+    return cleanup;
+  }, [open, trackId, refreshLock, detailsFetcher]);
 
   useEffect(() => {
     if (typeof saveSessionState !== "function") return;

@@ -1,5 +1,3 @@
-import { useEffect, useRef } from "react";
-
 /**
  * Real-time curator sync across browser tabs using BroadcastChannel API
  * See ADR-033 for full specification
@@ -127,24 +125,19 @@ export function subscribeToCuratorSync(
 /**
  * React hook for curator sync
  */
-export function useCuratorSync(
-  handler: (message: CuratorSyncMessage) => void,
-  enabled = true,
-) {
-  const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+export function useCuratorSync(handler: (message: CuratorSyncMessage) => void) {
+  if (typeof window === "undefined") {
+    return;
+  }
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!enabled) return;
+  // Initialize channel if needed
+  if (!channel) {
+    initCuratorSync();
+  }
 
-    // Initialize channel if needed
-    if (!channel) {
-      initCuratorSync();
-    }
+  // Subscribe to messages
+  const unsubscribe = subscribeToCuratorSync(handler);
 
-    // Subscribe via a stable wrapper so we never leak listeners when `handler`
-    // changes between renders.
-    return subscribeToCuratorSync((message) => handlerRef.current(message));
-  }, [enabled]);
+  // Cleanup on unmount
+  return unsubscribe;
 }
