@@ -26,6 +26,7 @@ import {
   saveSessionState,
   SESSION_SAVE_DEBOUNCE_MS,
 } from "#app/features/curator/session-recovery.client.ts";
+import { type TrackMetadataChanges } from "#app/types/track-metadata";
 import { UndoToast } from "./undo-toast";
 
 export interface TrackDetails {
@@ -92,7 +93,7 @@ export function TrackDetailsDialog({
   const restoreFetcher = useFetcher<MetadataWriteResult>();
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [showCommentDialog, setShowCommentDialog] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<any>(null);
+  const [pendingChanges, setPendingChanges] = useState<TrackMetadataChanges | null>(null);
   const [fieldDraft, setFieldDraft] = useState<Record<string, unknown> | null>(initialDraft);
   const [showUndoToast, setShowUndoToast] = useState(false);
   const handledEdit = useRef<unknown>(null);
@@ -242,7 +243,7 @@ export function TrackDetailsDialog({
       })
     : null;
 
-  const handleSaveChanges = (changes: any) => {
+  const handleSaveChanges = (changes: TrackMetadataChanges) => {
     setPendingChanges(changes);
     setShowCommentDialog(true);
   };

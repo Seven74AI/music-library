@@ -38,6 +38,11 @@ export function offlineSummaryToFullTrack(
     artist: { id: summary.artistId, name: summary.artistName },
     duration: summary.duration,
     coverImage: summary.coverObjectKey ? { objectKey: summary.coverObjectKey } : null,
+    // Fabricated audio file: playback is served from the offline blob, which
+    // ignores objectKey, so the empty key and reused trackId-as-id are inert
+    // today. If any code path (cover/proxy/presign) starts reading
+    // audioFiles[].objectKey, this synthetic identity must be replaced with a
+    // real storage key instead.
     audioFiles: [{ id: summary.trackId, format, objectKey: "" }],
   };
 }

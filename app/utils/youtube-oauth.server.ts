@@ -25,7 +25,7 @@ export type YouTubeOAuthConfig = z.infer<typeof YouTubeOAuthConfigSchema>;
  * Manages OAuth flow, token exchange, and user authorization
  */
 export class YouTubeOAuthService {
-  private oauth2Client: any;
+  private oauth2Client: InstanceType<typeof google.auth.OAuth2>;
   private config: YouTubeOAuthConfig;
 
   /**
@@ -87,7 +87,14 @@ export class YouTubeOAuthService {
 
     try {
       const { tokens } = await this.oauth2Client.getToken(code);
-      return tokens;
+      if (!tokens.access_token) {
+        throw new Error("Google token response omitted access_token");
+      }
+      return {
+        access_token: tokens.access_token,
+        ...(tokens.refresh_token ? { refresh_token: tokens.refresh_token } : {}),
+        ...(tokens.expiry_date ? { expiry_date: tokens.expiry_date } : {}),
+      };
     } catch (error) {
       console.error("Error exchanging code for tokens:", error);
       throw new Error("Failed to exchange authorization code for tokens", { cause: error });
@@ -115,7 +122,13 @@ export class YouTubeOAuthService {
       });
 
       const { credentials } = await this.oauth2Client.refreshAccessToken();
-      return credentials;
+      if (!credentials.access_token) {
+        throw new Error("Google token refresh omitted access_token");
+      }
+      return {
+        access_token: credentials.access_token,
+        ...(credentials.expiry_date ? { expiry_date: credentials.expiry_date } : {}),
+      };
     } catch (error) {
       console.error("Error refreshing access token:", error);
       throw new Error("Failed to refresh access token", { cause: error });
