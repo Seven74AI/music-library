@@ -272,6 +272,10 @@ function UpdateProfile({ loaderData }: { loaderData: Route.ComponentProps["loade
 }
 
 async function signOutOfSessionsAction({ request, userId }: ProfileActionArgs) {
+  // Require recent verification for consistency with change-email / 2FA-disable.
+  // requireRecentVerification only forces a re-auth when 2FA is enabled (via
+  // shouldRequestTwoFA); for accounts without 2FA the fresh session itself is
+  // the credential, matching the other destructive settings actions.
   await requireRecentVerification(request);
   const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
   const sessionId = authSession.get(sessionKey);
@@ -318,6 +322,8 @@ function SignOutOfSessions({ loaderData }: { loaderData: Route.ComponentProps["l
 }
 
 async function deleteDataAction({ request, userId }: ProfileActionArgs) {
+  // Highest-impact, irreversible action — demand fresh verification exactly like
+  // change-email and 2FA-disable. See note on signOutOfSessionsAction.
   await requireRecentVerification(request);
   await prisma.user.delete({ where: { id: userId } });
   return redirectWithToast("/", {

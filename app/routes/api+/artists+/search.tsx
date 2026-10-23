@@ -1,9 +1,16 @@
 import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { escapeLikeLiterals } from "#app/utils/fts5-query.server.ts";
 import { type Route } from "./+types/search.ts";
 
 const SearchQuerySchema = z.string().min(1).max(100);
+
+type ArtistRow = {
+  id: string;
+  name: string;
+  trackCount: number | bigint;
+};
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireUserId(request);
@@ -17,41 +24,25 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const searchQuery = result.data.toLowerCase();
 
-  // Strip LIKE wildcards so a user-supplied '%' or '_' is treated verbatim
-  // instead of as a SQLite LIKE wildcard.
-  const cleanQuery = searchQuery.replace(/[%_]/g, "");
-  if (!cleanQuery) {
-    return Response.json({ artists: [] });
-  }
+  // Escape LIKE wildcards so a user-supplied '%', '_' or '\' is matched
+  // literally rather than acting as a wildcard. Pair with `ESCAPE '\'`.
+  const like = `%${escapeLikeLiterals(searchQuery)}%`;
 
-  // Search artists by name (case-insensitive)
-  const artists = await prisma.artist.findMany({
-    where: {
-      mergedIntoId: null,
-      normalizedName: {
-        contains: cleanQuery,
-      },
-    },
-    select: {
-      id: true,
-      name: true,
-      _count: {
-        select: {
-          tracks: true,
-        },
-      },
-    },
-    orderBy: {
-      name: "asc",
-    },
-    take: 20,
-  });
+  const artists = await prisma.$queryRaw<ArtistRow[]>`
+    SELECT a.id, a.name,
+      (SELECT COUNT(*) FROM "Track" t WHERE t."artistId" = a.id) AS "trackCount"
+    FROM "Artist" a
+    WHERE a."mergedIntoId" IS NULL
+      AND a."normalizedName" LIKE ${like} ESCAPE '\\'
+    ORDER BY a.name ASC
+    LIMIT 20
+  `;
 
   return Response.json({
     artists: artists.map((artist) => ({
       id: artist.id,
       name: artist.name,
-      trackCount: artist._count.tracks,
+      trackCount: Number(artist.trackCount),
     })),
   });
 }
