@@ -8,12 +8,21 @@ import {
   prepareTrackAudioUpload,
   createTrackAudioFile,
 } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
-import { getOrCreateArtistTx, extractArtistMetadata } from "#app/utils/artist-management.server";
+import {
+  getOrCreateArtistTx,
+  getOrCreateArtist,
+  extractArtistMetadata,
+} from "#app/utils/artist-management.server";
 import {
   extractAudioMetadata,
   type ExtractedAudioMetadata,
 } from "#app/utils/audio-metadata.server";
-import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from "#app/utils/cover-management.server";
+import {
+  prepareCoverImageUpload,
+  createCoverImageInTx,
+  getOrCreateAlbumTx,
+  getOrCreateAlbum,
+} from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
@@ -450,14 +459,47 @@ async function processFilesAsync(
           );
         }
 
+        // Resolve the album OUTSIDE the transaction so the cover-image dedup check
+        // can read its current cover. getOrCreateArtist/getOrCreateAlbum use the
+        // global client; the transaction below re-resolves them idempotently.
+        const artistMetadata = extractArtistMetadata(file.metadata);
+        const albumArtist = file.userMetadata?.albumArtist || file.metadata.albumArtist || artist;
+        let resolvedAlbumId: string | null = null;
+        if (album) {
+          const albumArtistRecord = await getOrCreateArtist(albumArtist, artistMetadata);
+          const resolvedAlbum = await getOrCreateAlbum(
+            albumArtistRecord.id,
+            album,
+            file.userMetadata?.year || file.metadata.year || null,
+          );
+          resolvedAlbumId = resolvedAlbum?.id ?? null;
+        }
+
+        // Prepare the cover image OUTSIDE the transaction (sharp + Tigris upload).
+        // SQLite serializes writers, so holding the write lock across sharp + a network
+        // upload can trip the transaction timeout and roll back DB writes after the
+        // object was already uploaded (leaving an orphaned Tigris object).
+        let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+        if (file.metadata.coverImage) {
+          try {
+            preparedCover = await prepareCoverImageUpload({
+              imageBuffer: file.metadata.coverImage.data,
+              albumId: resolvedAlbumId,
+              trackId,
+              format: file.metadata.coverImage.format,
+            });
+          } catch (error) {
+            console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error);
+            // Continue without cover image
+          }
+        }
+
         // Create track and TrackAudioFile rows in a short transaction
         const result = await prisma.$transaction(async (tx) => {
           // Get or create artist
-          const artistMetadata = extractArtistMetadata(file.metadata);
           const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata);
 
           // Get or create album (using artistId)
-          const albumArtist = file.userMetadata?.albumArtist || file.metadata.albumArtist || artist;
           const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata);
           const albumRecord = await getOrCreateAlbumTx(
             tx,
@@ -466,20 +508,18 @@ async function processFilesAsync(
             file.userMetadata?.year || file.metadata.year || null,
           );
 
-          // Upload cover image if present (with deduplication)
-          // Note: File upload happens outside transaction, but DB operations are in transaction
+          // Associate the cover image (DB-only) — the upload already happened above.
           let coverImageId: string | null = null;
-          if (file.metadata.coverImage) {
+          if (preparedCover) {
             try {
-              const coverImage = await findOrCreateCoverImageTx(tx, {
-                imageBuffer: file.metadata.coverImage.data,
-                albumId: albumRecord?.id || null,
-                trackId,
-                format: file.metadata.coverImage.format,
-              });
+              const coverImage = await createCoverImageInTx(
+                tx,
+                preparedCover,
+                albumRecord?.id ?? null,
+              );
               coverImageId = coverImage.id;
             } catch (error) {
-              console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error);
+              console.warn(`⚠️  Failed to create cover image for ${file.fileName}:`, error);
               // Continue without cover image
             }
           }
