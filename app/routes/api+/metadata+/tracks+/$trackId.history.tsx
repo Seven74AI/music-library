@@ -13,7 +13,27 @@ interface Changes {
   [field: string]: FieldChange;
 }
 
-function computeChanges(previous: any, current: any): Changes {
+/** The editable track fields snapshot as stored on TrackEdit and queried from Track. */
+type TrackStateSnapshot = {
+  title: string;
+  artistId: string;
+  albumId: string | null;
+  genre: string | null;
+  year: number | null;
+  trackNumber: number | null;
+  albumArtist: string | null;
+  bpm: number | null;
+  label: string | null;
+  isrc: string | null;
+  releaseDate: Date | null;
+  originalDate: Date | null;
+  originalYear: number | null;
+  totalTracks: number | null;
+  totalDiscs: number | null;
+  lyrics: string | null;
+};
+
+function computeChanges(previous: TrackStateSnapshot, current: TrackStateSnapshot): Changes {
   const changes: Changes = {};
   const fields = [
     "title",
@@ -32,22 +52,15 @@ function computeChanges(previous: any, current: any): Changes {
     "totalTracks",
     "totalDiscs",
     "lyrics",
-  ];
+  ] as const;
 
   for (const field of fields) {
     const prevValue = previous[field];
     const currValue = current[field];
 
-    // Handle dates
-    let prevStr = prevValue;
-    let currStr = currValue;
-
-    if (prevValue instanceof Date) {
-      prevStr = prevValue.toISOString();
-    }
-    if (currValue instanceof Date) {
-      currStr = currValue.toISOString();
-    }
+    // Normalize DateTime fields to ISO strings for stable comparison.
+    const prevStr = prevValue instanceof Date ? prevValue.toISOString() : prevValue;
+    const currStr = currValue instanceof Date ? currValue.toISOString() : currValue;
 
     // Compare values
     if (prevStr !== currStr) {
@@ -69,32 +82,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw data({ error: "Track ID is required" }, { status: 400 });
   }
 
-  // Verify track exists
-  const track = await prisma.track.findUnique({
-    where: { id: trackId },
-    select: { id: true },
-  });
-
-  if (!track) {
-    throw data({ error: "Track not found" }, { status: 404 });
-  }
-
-  // Get all edits for this track, ordered by most recent first
-  const edits = await prisma.trackEdit.findMany({
-    where: { trackId },
-    orderBy: { editedAt: "desc" },
-    include: {
-      user: {
-        select: {
-          id: true,
-          username: true,
-          name: true,
-        },
-      },
-    },
-  });
-
-  // Get current track state
+  // Current track state also serves as the existence check (→ 404 if missing).
   const currentTrack = await prisma.track.findUnique({
     where: { id: trackId },
     select: {
@@ -117,12 +105,32 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     },
   });
 
-  // Compute changes for each edit
-  // The first edit (most recent) is compared with current track state
-  // Subsequent edits are compared with the previous edit
-  const history = edits.map((edit, index) => {
-    const nextState = index === 0 ? currentTrack : edits[index - 1];
+  if (!currentTrack) {
+    throw data({ error: "Track not found" }, { status: 404 });
+  }
+
+  // Get all edits for this track, ordered by most recent first
+  const edits = await prisma.trackEdit.findMany({
+    where: { trackId },
+    orderBy: { editedAt: "desc" },
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          name: true,
+        },
+      },
+    },
+  });
+
+  // Compute changes for each edit, walking from most recent to oldest: the
+  // newest edit is compared against the current track, then each older edit is
+  // compared against its successor (the next-newer edit).
+  let nextState: TrackStateSnapshot = currentTrack;
+  const history = edits.map((edit) => {
     const changes = computeChanges(edit, nextState);
+    nextState = edit;
 
     return {
       id: edit.id,

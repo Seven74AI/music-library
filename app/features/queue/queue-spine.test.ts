@@ -172,6 +172,18 @@ describe("fetchQueueSpine", () => {
       "Failed to fetch queue spine: 500",
     );
   });
+
+  test("throws when the queue-spine payload is malformed", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ unexpected: "shape" }),
+    } as Response);
+
+    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
+      "Invalid queue spine response",
+    );
+  });
 });
 
 describe("fullTrackStubFromQueueTrack", () => {

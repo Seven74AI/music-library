@@ -94,7 +94,22 @@ export async function fetchQueueSpine(context: QueueSpineContext): Promise<Queue
     throw new Error(`Failed to fetch queue spine: ${response.status}`);
   }
 
-  return response.json() as Promise<QueueSpineResponse>;
+  const data: unknown = await response.json();
+  if (!isQueueSpineResponse(data)) {
+    throw new Error("Invalid queue spine response");
+  }
+  return data;
+}
+
+/**
+ * Runtime guard for the queue-spine payload. Validates the two fields the
+ * caller actually reads so a malformed body fails loudly instead of silently
+ * propagating an unchecked cast.
+ */
+function isQueueSpineResponse(value: unknown): value is QueueSpineResponse {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.tracks) && typeof record.total === "number";
 }
 
 /**

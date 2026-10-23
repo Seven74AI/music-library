@@ -12,9 +12,19 @@ interface Changes {
   [field: string]: FieldChange;
 }
 
-function computeChanges(previous: any, current: any): Changes {
+/** The editable artist fields snapshot as stored on ArtistEdit and queried from Artist. */
+type ArtistStateSnapshot = {
+  name: string;
+  bio: string | null;
+  imageUrl: string | null;
+  website: string | null;
+  genre: string | null;
+  country: string | null;
+};
+
+function computeChanges(previous: ArtistStateSnapshot, current: ArtistStateSnapshot): Changes {
   const changes: Changes = {};
-  const fields = ["name", "bio", "genre", "country", "imageUrl", "website"];
+  const fields = ["name", "bio", "genre", "country", "imageUrl", "website"] as const;
 
   for (const field of fields) {
     const prevValue = previous[field];
@@ -40,13 +50,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw data({ error: "Artist ID is required" }, { status: 400 });
   }
 
-  // Verify artist exists
-  const artist = await prisma.artist.findUnique({
+  // Current artist state also serves as the existence check (→ 404 if missing).
+  const currentArtist = await prisma.artist.findUnique({
     where: { id: artistId },
-    select: { id: true },
+    select: {
+      name: true,
+      bio: true,
+      genre: true,
+      country: true,
+      imageUrl: true,
+      website: true,
+    },
   });
 
-  if (!artist) {
+  if (!currentArtist) {
     throw data({ error: "Artist not found" }, { status: 404 });
   }
 
@@ -65,25 +82,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     },
   });
 
-  // Get current artist state
-  const currentArtist = await prisma.artist.findUnique({
-    where: { id: artistId },
-    select: {
-      name: true,
-      bio: true,
-      genre: true,
-      country: true,
-      imageUrl: true,
-      website: true,
-    },
-  });
-
-  // Compute changes for each edit
-  // The first edit (most recent) is compared with current artist state
-  // Subsequent edits are compared with the previous edit
-  const history = edits.map((edit, index) => {
-    const nextState = index === 0 ? currentArtist : edits[index - 1];
+  // Compute changes for each edit, walking from most recent to oldest: the
+  // newest edit is compared against the current artist, then each older edit is
+  // compared against its successor (the next-newer edit).
+  let nextState: ArtistStateSnapshot = currentArtist;
+  const history = edits.map((edit) => {
     const changes = computeChanges(edit, nextState);
+    nextState = edit;
 
     return {
       id: edit.id,
