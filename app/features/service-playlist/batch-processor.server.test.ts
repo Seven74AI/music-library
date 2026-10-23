@@ -8,7 +8,7 @@ import { createYouTubeTrackSyncProcessor } from "./youtube-track-sync.server";
 function createTxMock() {
   const artistCreate = vi
     .fn()
-    .mockImplementation(({ data }: any) =>
+    .mockImplementation(({ data }: { data: { name: string } }) =>
       Promise.resolve({ id: `artist-${data.name}`, name: data.name }),
     );
   const tx = {
@@ -16,7 +16,9 @@ function createTxMock() {
       findMany: vi.fn().mockResolvedValue([]),
       upsert: vi
         .fn()
-        .mockImplementation(({ create }: any) => Promise.resolve({ id: "track-1", ...create })),
+        .mockImplementation(({ create }: { create: Record<string, unknown> }) =>
+          Promise.resolve({ id: "track-1", ...create }),
+        ),
     },
     artist: {
       findMany: vi.fn().mockResolvedValue([]),

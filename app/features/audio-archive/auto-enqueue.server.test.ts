@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
+import { type Prisma } from "#prisma/client.js";
 
 // Create a mock archiveJob object for the Prisma tx mock
 const mockArchiveJob = {
@@ -31,7 +32,7 @@ describe("enqueueArchiveJob", () => {
       mockArchiveJob.create.mockResolvedValue({ id: "job-1", trackId: "track-1" });
 
       const tx = { archiveJob: mockArchiveJob };
-      await enqueueArchiveJob(tx as any, "track-1");
+      await enqueueArchiveJob(tx as unknown as Prisma.TransactionClient, "track-1");
 
       expect(mockArchiveJob.create).toHaveBeenCalledTimes(1);
       const callArgs = mockArchiveJob.create.mock.calls[0]![0];
@@ -51,7 +52,9 @@ describe("enqueueArchiveJob", () => {
 
       const tx = { archiveJob: mockArchiveJob };
       // Should not throw
-      await expect(enqueueArchiveJob(tx as any, "track-1")).resolves.toBeUndefined();
+      await expect(
+        enqueueArchiveJob(tx as unknown as Prisma.TransactionClient, "track-1"),
+      ).resolves.toBeUndefined();
 
       expect(mockArchiveJob.create).toHaveBeenCalledTimes(1);
       expect(mockScheduleQueueTick).not.toHaveBeenCalled();
@@ -66,9 +69,9 @@ describe("enqueueArchiveJob", () => {
       // Transient DB failures must not be swallowed — a track would go
       // permanently un-archived with no observability (Decision #18).
       consoleError.mockImplementation(() => {});
-      await expect(enqueueArchiveJob(tx as any, "track-1")).rejects.toThrow(
-        "Database connection lost",
-      );
+      await expect(
+        enqueueArchiveJob(tx as unknown as Prisma.TransactionClient, "track-1"),
+      ).rejects.toThrow("Database connection lost");
       expect(mockScheduleQueueTick).not.toHaveBeenCalled();
     });
   });
@@ -87,7 +90,11 @@ describe("enqueueArchiveJobs (batch)", () => {
     mockArchiveJob.createMany.mockResolvedValue({ count: 2 });
 
     const tx = { archiveJob: mockArchiveJob };
-    await enqueueArchiveJobs(tx as any, ["track-1", "track-2", "track-3"]);
+    await enqueueArchiveJobs(tx as unknown as Prisma.TransactionClient, [
+      "track-1",
+      "track-2",
+      "track-3",
+    ]);
 
     expect(mockArchiveJob.findMany).toHaveBeenCalledTimes(1);
     expect(mockArchiveJob.findMany).toHaveBeenCalledWith({
@@ -110,7 +117,7 @@ describe("enqueueArchiveJobs (batch)", () => {
     mockArchiveJob.findMany.mockResolvedValue([{ trackId: "track-1" }, { trackId: "track-2" }]);
 
     const tx = { archiveJob: mockArchiveJob };
-    await enqueueArchiveJobs(tx as any, ["track-1", "track-2"]);
+    await enqueueArchiveJobs(tx as unknown as Prisma.TransactionClient, ["track-1", "track-2"]);
 
     expect(mockArchiveJob.createMany).not.toHaveBeenCalled();
     expect(mockScheduleQueueTick).not.toHaveBeenCalled();
@@ -120,7 +127,7 @@ describe("enqueueArchiveJobs (batch)", () => {
     const { enqueueArchiveJobs } = await import("./auto-enqueue.server.ts");
 
     const tx = { archiveJob: mockArchiveJob };
-    await enqueueArchiveJobs(tx as any, []);
+    await enqueueArchiveJobs(tx as unknown as Prisma.TransactionClient, []);
 
     expect(mockArchiveJob.findMany).not.toHaveBeenCalled();
     expect(mockArchiveJob.createMany).not.toHaveBeenCalled();
@@ -134,7 +141,7 @@ describe("enqueueArchiveJobs (batch)", () => {
     mockArchiveJob.createMany.mockResolvedValue({ count: 1 });
 
     const tx = { archiveJob: mockArchiveJob };
-    await enqueueArchiveJobs(tx as any, ["track-1", "track-1"]);
+    await enqueueArchiveJobs(tx as unknown as Prisma.TransactionClient, ["track-1", "track-1"]);
 
     expect(mockArchiveJob.createMany).toHaveBeenCalledWith({
       data: [{ trackId: "track-1", status: "pending", priority: false }],
@@ -148,9 +155,9 @@ describe("enqueueArchiveJobs (batch)", () => {
 
     const tx = { archiveJob: mockArchiveJob };
     consoleError.mockImplementation(() => {});
-    await expect(enqueueArchiveJobs(tx as any, ["track-1"])).rejects.toThrow(
-      "Database connection lost",
-    );
+    await expect(
+      enqueueArchiveJobs(tx as unknown as Prisma.TransactionClient, ["track-1"]),
+    ).rejects.toThrow("Database connection lost");
     expect(mockScheduleQueueTick).not.toHaveBeenCalled();
   });
 });
