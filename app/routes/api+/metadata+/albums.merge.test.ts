@@ -283,6 +283,58 @@ describe("POST /api/metadata/albums/merge", () => {
     await expect(action({ request, params: {} } as any)).rejects.toThrow();
   });
 
+  test("rejects cross-artist merge (differing source/target artistIds)", async () => {
+    await prisma.role.upsert({
+      where: { name: "curator" },
+      update: {},
+      create: { name: "curator", description: "Curator" },
+    });
+
+    await prisma.user.create({
+      data: {
+        id: mockUserId,
+        email: "curator@test.com",
+        username: "curator",
+        roles: { connect: { name: "curator" } },
+      },
+    });
+
+    const artistA = await prisma.artist.create({
+      data: { name: "Artist A", normalizedName: "artist a" },
+    });
+    const artistB = await prisma.artist.create({
+      data: { name: "Artist B", normalizedName: "artist b" },
+    });
+
+    const sourceAlbum = await prisma.album.create({
+      data: { name: "Same Name", artistId: artistA.id },
+    });
+    const targetAlbum = await prisma.album.create({
+      data: { name: "Same Name", artistId: artistB.id },
+    });
+
+    const request = new Request("http://localhost/api/metadata/albums/merge", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sourceId: sourceAlbum.id,
+        targetId: targetAlbum.id,
+        keepAsAlias: false,
+        comment: "Cross-artist merge attempt",
+      }),
+    });
+
+    await expect(action({ request, params: {} } as any)).rejects.toMatchObject({
+      status: 400,
+    });
+
+    // Tracks/albums must be untouched: source album still not merged
+    const sourceAfter = await prisma.album.findUnique({ where: { id: sourceAlbum.id } });
+    expect(sourceAfter?.mergedIntoId).toBeNull();
+  });
+
   test("regular user cannot merge albums", async () => {
     await prisma.role.upsert({
       where: { name: "user" },
