@@ -30,6 +30,7 @@ import {
   getCurrentlyProcessingJobs,
 } from "#app/features/audio-archive/worker.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { parsePageParam } from "#app/utils/parse-page-param.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/audio-queue.ts";
@@ -89,7 +90,7 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
   const filter: StatusFilter = STATUS_FILTERS.includes(filterParam as StatusFilter)
     ? (filterParam as StatusFilter)
     : "all";
-  const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
+  const page = parsePageParam(url.searchParams.get("page"));
 
   // Get worker state (ADR-002: Prisma directly, not via import)
   const workerState = await prisma.workerState.upsert({

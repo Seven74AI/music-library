@@ -254,16 +254,6 @@ export default function LocalUploadPage() {
     );
   };
 
-  // Handle bulk metadata edit
-  const applyBulkMetadata = (updates: Partial<FileWithMetadata["editedMetadata"]>) => {
-    setFilesWithMetadata((prev) =>
-      prev.map((file) => ({
-        ...file,
-        editedMetadata: { ...file.editedMetadata, ...updates },
-      })),
-    );
-  };
-
   // Start upload
   const startUpload = async () => {
     setStep("uploading");
@@ -521,7 +511,6 @@ export default function LocalUploadPage() {
             error: f.error,
           }))}
           onUpdate={updateFileMetadata}
-          onBulkUpdate={applyBulkMetadata}
           onConfirm={() => setStep("confirm")}
           onCancel={() => {
             setSelectedFiles([]);

@@ -1,3 +1,6 @@
-export function offlineAudioOpfsPath(trackId: string): string {
-  return `audio/${trackId}.mp3`;
+export function offlineAudioOpfsPath(
+  trackId: string,
+  format: string | null | undefined = "mp3",
+): string {
+  return `audio/${trackId}.${format ?? "mp3"}`;
 }

@@ -1,10 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  isProtectedOfflineTrack,
-  isQueueOnlyOfflineTrack,
-  selectQueueCacheEvictionCandidates,
-  shouldRemoveRecordAfterEviction,
-} from "./pin-policy.ts";
+import { isQueueOnlyOfflineTrack, selectQueueCacheEvictionCandidates } from "./pin-policy.ts";
 import { type OfflineTrackRecord } from "./types.ts";
 
 function record(
@@ -27,18 +22,6 @@ function record(
     ...overrides,
   };
 }
-
-describe("isProtectedOfflineTrack", () => {
-  test("pinned tracks are protected", () => {
-    expect(isProtectedOfflineTrack(record({ trackId: "a", isPinned: true }))).toBe(true);
-  });
-
-  test("queue-only tracks are not protected", () => {
-    expect(
-      isProtectedOfflineTrack(record({ trackId: "a", isPinned: false, isQueueCached: true })),
-    ).toBe(false);
-  });
-});
 
 describe("isQueueOnlyOfflineTrack", () => {
   test("true for queue-cached and not pinned", () => {
@@ -77,23 +60,5 @@ describe("selectQueueCacheEvictionCandidates", () => {
     );
 
     expect(candidates.map((t) => t.trackId)).toEqual(["old", "new"]);
-  });
-});
-
-describe("shouldRemoveRecordAfterEviction", () => {
-  test("queue-only records are removed", () => {
-    expect(
-      shouldRemoveRecordAfterEviction(
-        record({ trackId: "a", isPinned: false, isQueueCached: true }),
-      ),
-    ).toBe(true);
-  });
-
-  test("pinned records stay even if queue-cached", () => {
-    expect(
-      shouldRemoveRecordAfterEviction(
-        record({ trackId: "a", isPinned: true, isQueueCached: true }),
-      ),
-    ).toBe(false);
   });
 });

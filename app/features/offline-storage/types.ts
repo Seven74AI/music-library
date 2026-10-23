@@ -5,9 +5,6 @@ export const OFFLINE_DB_VERSION = 2;
 export const OFFLINE_TRACKS_STORE = "tracks";
 export const OFFLINE_COVERS_STORE = "covers";
 
-/** User explicitly downloaded — never LRU-evicted automatically. */
-export type OfflinePinSource = "pinned" | "queue";
-
 export type OfflineTrackRecord = {
   trackId: string;
   title: string;
