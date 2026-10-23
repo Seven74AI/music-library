@@ -10,6 +10,7 @@ import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
 import { requireUserId, sessionKey } from "#app/utils/auth.server.ts";
+import { requireRecentVerification } from "#app/routes/_auth+/verify.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { getUserImgSrc, useDoubleCheck } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -271,6 +272,7 @@ function UpdateProfile({ loaderData }: { loaderData: Route.ComponentProps["loade
 }
 
 async function signOutOfSessionsAction({ request, userId }: ProfileActionArgs) {
+  await requireRecentVerification(request);
   const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
   const sessionId = authSession.get(sessionKey);
   invariantResponse(sessionId, "You must be authenticated to sign out of other sessions");
@@ -315,7 +317,8 @@ function SignOutOfSessions({ loaderData }: { loaderData: Route.ComponentProps["l
   );
 }
 
-async function deleteDataAction({ userId }: ProfileActionArgs) {
+async function deleteDataAction({ request, userId }: ProfileActionArgs) {
+  await requireRecentVerification(request);
   await prisma.user.delete({ where: { id: userId } });
   return redirectWithToast("/", {
     type: "destructive",

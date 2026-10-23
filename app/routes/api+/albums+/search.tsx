@@ -22,10 +22,17 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const searchQuery = result.data;
 
+  // Strip LIKE wildcards so a user-supplied '%' or '_' is treated verbatim
+  // instead of as a SQLite LIKE wildcard (q=% would otherwise match everything).
+  const cleanQuery = searchQuery.replace(/[%_]/g, "");
+  if (!cleanQuery) {
+    return Response.json({ albums: [] });
+  }
+
   const albums = await prisma.album.findMany({
     where: {
       mergedIntoId: null,
-      OR: [{ name: { contains: searchQuery } }, { artist: { name: { contains: searchQuery } } }],
+      OR: [{ name: { contains: cleanQuery } }, { artist: { name: { contains: cleanQuery } } }],
     },
     select: {
       id: true,

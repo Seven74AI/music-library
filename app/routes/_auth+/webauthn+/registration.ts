@@ -1,7 +1,7 @@
 import { generateRegistrationOptions, verifyRegistrationResponse } from "@simplewebauthn/server";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { getDomainUrl, getErrorMessage } from "#app/utils/misc.tsx";
+import { getErrorMessage } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/registration.ts";
 import {
@@ -76,9 +76,7 @@ export async function action({ request }: Route.ActionArgs) {
     }
     const { challenge, userId: webauthnUserId } = parsedPasskeyCookieData.data;
 
-    const domain = new URL(getDomainUrl(request)).hostname;
-    const rpID = domain;
-    const origin = getDomainUrl(request);
+    const { rpID, origin } = getWebAuthnConfig(request);
 
     const verification = await verifyRegistrationResponse({
       response: data,

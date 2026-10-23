@@ -1,8 +1,8 @@
 import { invariantResponse } from "@epic-web/invariant";
-import { cache } from "#app/utils/cache.server.ts";
+import { lruCache } from "#app/utils/cache.server.ts";
 import { getAllInstances, getInstanceInfo, ensureInstance } from "#app/utils/litefs.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
-import { type Route } from "./+types/cache_.sqlite.$cacheKey.ts";
+import { type Route } from "./+types/cache_.lru.$cacheKey.ts";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   await requireUserWithRole(request, "admin");
@@ -21,6 +21,18 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       isPrimary: currentInstanceInfo.primaryInstance === instance,
     },
     cacheKey,
-    value: await cache.get(cacheKey),
+    value: lruCache.get(cacheKey),
   };
+}
+
+export default function LruCacheValueRoute({ loaderData }: Route.ComponentProps) {
+  return (
+    <div className="container">
+      <h1 className="text-h1">LRU cache value</h1>
+      <p className="text-muted-foreground font-mono text-body-sm">{loaderData.cacheKey}</p>
+      <pre className="font-mono text-body-sm overflow-auto">
+        {JSON.stringify(loaderData.value, null, 2)}
+      </pre>
+    </div>
+  );
 }
