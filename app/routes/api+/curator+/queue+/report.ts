@@ -2,7 +2,7 @@ import { data } from "react-router";
 import { z } from "zod";
 import { createOrUpdateQueueItem } from "#app/features/curator/review-queue.server.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
-import { prisma } from "#app/utils/db.server.ts";
+import { verifyEntityExists } from "#app/utils/entity-existence.server.ts";
 import { makeRateLimiter } from "#app/utils/rate-limit.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/report";
@@ -41,12 +41,9 @@ export async function action({ request }: Route.ActionArgs) {
     const validatedData = reportSchema.parse(rawData);
 
     // Verify track exists
-    const track = await prisma.track.findUnique({
-      where: { id: validatedData.trackId },
-      select: { id: true, title: true },
-    });
+    const trackExists = await verifyEntityExists("track", validatedData.trackId);
 
-    if (!track) {
+    if (!trackExists) {
       return data({ success: false, error: "Track not found" }, { status: 404 });
     }
 

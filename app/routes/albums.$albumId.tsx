@@ -148,7 +148,7 @@ export default function AlbumRoute({ loaderData }: Route.ComponentProps) {
         {album.tracks.length > 0 ? (
           <section>
             <h2 className="mb-4 text-xl font-semibold">Tracks ({album.tracks.length})</h2>
-            <div role="grid" aria-label={`Tracks from ${album.name}`}>
+            <div role="list" aria-label={`Tracks from ${album.name}`}>
               {album.tracks.map((track, index) => (
                 <TrackListItem
                   key={track.id}

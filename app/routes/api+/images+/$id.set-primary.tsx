@@ -72,27 +72,22 @@ export async function action({ request, params }: Route.ActionArgs) {
       // Find album
       const album = await tx.album.findUnique({
         where: { id: entityId },
+        select: { coverImageId: true },
       });
 
       if (!album) {
         throw data({ error: "Album not found" }, { status: 404 });
       }
 
-      // Update all related cover images to non-primary
-      await tx.coverImage.updateMany({
-        where: {
-          id: {
-            in: (
-              await tx.album.findMany({ where: { id: entityId }, select: { coverImageId: true } })
-            )
-              .map((a) => a.coverImageId)
-              .filter(Boolean) as string[],
+      // Clear the album's previous cover image's primary flag (at most one image)
+      if (album.coverImageId) {
+        await tx.coverImage.updateMany({
+          where: { id: album.coverImageId },
+          data: {
+            isPrimary: false,
           },
-        },
-        data: {
-          isPrimary: false,
-        },
-      });
+        });
+      }
 
       // Set the selected image as primary
       await tx.coverImage.update({

@@ -1,28 +1,9 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { createUser } from "#tests/db-utils.ts";
+import { createUser, createTrack, resetUsageAnalyticsTables } from "#tests/db-utils.ts";
 import { HEAVY_ROTATION_HOME_CAP } from "./heavy-rotation.ts";
 import { getHeavyRotationTracks } from "./heavy-rotation.server.ts";
-
-async function createTrack(title: string) {
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const service = await prisma.service.upsert({
-    where: { name: "local" },
-    update: {},
-    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
-  });
-  return prisma.track.create({
-    data: {
-      title,
-      externalId: `ext-${suffix}`,
-      service: { connect: { id: service.id } },
-      artist: {
-        create: { name: `Artist ${suffix}`, normalizedName: `artist ${suffix}` },
-      },
-    },
-  });
-}
 
 async function seedCompleted(userId: string, trackId: string, createdAt: Date, count = 1) {
   for (let i = 0; i < count; i++) {
@@ -39,7 +20,7 @@ async function seedCompleted(userId: string, trackId: string, createdAt: Date, c
 
 describe("getHeavyRotationTracks", () => {
   beforeEach(async () => {
-    await prisma.usageEvent.deleteMany();
+    await resetUsageAnalyticsTables();
     await prisma.trackAudioFile.deleteMany();
     await prisma.userTrack.deleteMany();
     await prisma.track.deleteMany();

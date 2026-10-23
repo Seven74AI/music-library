@@ -1,7 +1,7 @@
-// @context7: @mjackson/form-data-parser, @paralleldrive/cuid2, Prisma, React Router
 import { parseFormData } from "@mjackson/form-data-parser";
 import { createId } from "@paralleldrive/cuid2";
 import { data, type ActionFunctionArgs } from "react-router";
+import { z } from "zod";
 import { LOCAL_SERVICE } from "#app/constants/services";
 import {
   prepareTrackAudioUpload,
@@ -109,6 +109,47 @@ async function processWithConcurrency<T, R>(
   return results;
 }
 
+// Runtime validation for client-supplied per-file metadata. `metadata[i]` is a
+// JSON string the client sends alongside each file; without this, a mistyped
+// field (non-string title/artist, malformed date) flows into `tx.track.create`
+// and `new Date(...)` and fails the whole transaction. (ASVS L1 input validation.)
+const dateString = (label: string) =>
+  z.string().refine((v) => !Number.isNaN(Date.parse(v)), `${label} must be a valid date`);
+
+const UserMetadataSchema = z.object({
+  title: z.string().optional(),
+  artist: z.string().optional(),
+  album: z.string().optional(),
+  genre: z.string().optional(),
+  albumArtist: z.string().optional(),
+  label: z.string().optional(),
+  isrc: z.string().optional(),
+  originalDate: dateString("originalDate").optional(),
+  releaseDate: dateString("releaseDate").optional(),
+  lyrics: z.string().optional(),
+  year: z.coerce.number().optional(),
+  trackNumber: z.coerce.number().optional(),
+  bpm: z.coerce.number().optional(),
+  originalYear: z.coerce.number().optional(),
+  totalTracks: z.coerce.number().optional(),
+  totalDiscs: z.coerce.number().optional(),
+});
+
+function parseUserMetadata(raw: string | undefined): FileWithMetadata["userMetadata"] | undefined {
+  if (!raw) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Invalid user metadata JSON");
+  }
+  const result = UserMetadataSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`Invalid user metadata: ${result.error.issues.map((i) => i.message).join(", ")}`);
+  }
+  return result.data;
+}
+
 interface FileWithMetadata {
   fileName: string;
   /** Index in the original upload so progress ids stay aligned when some files are rejected. */
@@ -200,10 +241,7 @@ export async function action({ request }: ActionFunctionArgs) {
             );
 
             // Get user-provided metadata for this file (if any)
-            const userMetadata = formData.get(`metadata[${i}]`)?.toString();
-            const parsedMetadata = userMetadata
-              ? (JSON.parse(userMetadata) as FileWithMetadata["userMetadata"])
-              : undefined;
+            const parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
 
             filesToProcess.push({
               fileName: extractedFile.fileName,
@@ -272,10 +310,7 @@ export async function action({ request }: ActionFunctionArgs) {
           const metadata = await extractAudioMetadata(buffer, file.name);
 
           // Get user-provided metadata for this file (if any)
-          const userMetadata = formData.get(`metadata[${i}]`)?.toString();
-          const parsedMetadata = userMetadata
-            ? (JSON.parse(userMetadata) as FileWithMetadata["userMetadata"])
-            : undefined;
+          const parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
 
           filesToProcess.push({
             fileName: file.name,

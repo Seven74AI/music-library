@@ -1,4 +1,3 @@
-// @context7: React Router, Prisma, AWS S3
 import { type LoaderFunctionArgs } from "react-router";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import { requireUserId } from "#app/utils/auth.server";

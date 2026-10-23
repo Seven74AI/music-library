@@ -165,7 +165,7 @@ export default function EditUserProfile({ loaderData }: Route.ComponentProps) {
         <div>
           <Link
             reloadDocument
-            download="my-epic-notes-data.json"
+            download="music-library-data.json"
             to="/resources/download-user-data"
           >
             <Icon name="download">Download your data</Icon>

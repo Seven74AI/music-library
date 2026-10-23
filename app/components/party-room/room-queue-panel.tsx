@@ -84,7 +84,7 @@ function QueueRow({
           type="button"
           variant="ghost"
           size="sm"
-          aria-label="Remove from queue"
+          aria-label={`Remove ${item.track.title} from queue`}
           onClick={onRemove}
         >
           <Icon name="trash" className="h-4 w-4" />

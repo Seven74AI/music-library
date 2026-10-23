@@ -1,6 +1,7 @@
 /**
- * In-memory metadata clipboard. Values stay in the tab and are never written
- * to localStorage.
+ * Metadata clipboard shared across windows/tabs. Values are persisted to
+ * localStorage (with an in-memory fallback for environments without storage)
+ * and the `storage` event keeps this tab's copy in sync with other tabs.
  */
 
 export const CLIPBOARD_FIELDS = [
@@ -77,18 +78,62 @@ type DetailsTrack = {
   label: string | null;
 };
 
+const CLIPBOARD_STORAGE_KEY = "curator:metadata-clipboard";
+
 let clipboard: MetadataClipboard | null = null;
+
+function parseClipboard(raw: string): MetadataClipboard | null {
+  try {
+    return JSON.parse(raw) as MetadataClipboard;
+  } catch {
+    return null;
+  }
+}
+
+function readStoredClipboard(): MetadataClipboard | null {
+  try {
+    if (typeof globalThis.localStorage === "undefined") return null;
+    const raw = globalThis.localStorage.getItem(CLIPBOARD_STORAGE_KEY);
+    return raw ? parseClipboard(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredClipboard(value: MetadataClipboard | null): void {
+  try {
+    if (typeof globalThis.localStorage === "undefined") return;
+    if (value === null) {
+      globalThis.localStorage.removeItem(CLIPBOARD_STORAGE_KEY);
+    } else {
+      globalThis.localStorage.setItem(CLIPBOARD_STORAGE_KEY, JSON.stringify(value));
+    }
+  } catch {
+    // Storage may be unavailable (private mode / quota). In-memory copy still works.
+  }
+}
+
+// Keep this tab's in-memory copy in sync with copies made in other tabs.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== CLIPBOARD_STORAGE_KEY) return;
+    clipboard = event.newValue ? parseClipboard(event.newValue) : null;
+  });
+}
 
 export function copyMetadata(value: MetadataClipboard) {
   clipboard = value;
+  writeStoredClipboard(value);
 }
 
 export function peekMetadataClipboard(): MetadataClipboard | null {
-  return clipboard;
+  // Prefer localStorage so a copy made in another tab is visible here.
+  return readStoredClipboard() ?? clipboard;
 }
 
 export function clearMetadataClipboard() {
   clipboard = null;
+  writeStoredClipboard(null);
 }
 
 export function clipboardFromTrackDetails(track: DetailsTrack): MetadataClipboard {

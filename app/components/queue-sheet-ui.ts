@@ -1,13 +1,5 @@
 type PlayContext = {
-  type:
-    | "library"
-    | "playlist"
-    | "artist"
-    | "album"
-    | "track"
-    | "music"
-    | "discover"
-    | "onRepeatSnapshot";
+  type: "library" | "playlist" | "artist" | "album" | "track" | "discover" | "onRepeatSnapshot";
   playlistId?: string;
   snapshotId?: string;
 } | null;

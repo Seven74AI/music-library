@@ -130,6 +130,11 @@ const NON_RETRIABLE_ERRORS: ErrorCategoryType[] = [
   ErrorCategory.VIDEO_UNAVAILABLE,
   ErrorCategory.COOKIE_EXPIRED,
   ErrorCategory.FILE_NOT_FOUND,
+  // "Requested format is not available" is a permanent condition for that
+  // video — auto-retry only re-spawns yt-dlp to fail the same way. Manual
+  // re-enqueue (after fixing yt-dlp format selection) is the only recovery,
+  // which is what `recoverable-failure.ts` models.
+  ErrorCategory.FORMAT_UNAVAILABLE,
 ];
 
 function categorizeJobError(error: unknown): ErrorCategoryType {

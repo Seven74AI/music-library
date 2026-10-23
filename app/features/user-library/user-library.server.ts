@@ -29,7 +29,7 @@ export async function addTrackToUserLibrary(
         type: USAGE_EVENT_TYPES.library_add,
         userId,
         trackId,
-      }).catch(() => {});
+      }).catch((error) => console.error("Failed to record library_add usage event:", error));
       return { success: true, message: "Track re-added to library" };
     }
 
@@ -40,7 +40,7 @@ export async function addTrackToUserLibrary(
       type: USAGE_EVENT_TYPES.library_add,
       userId,
       trackId,
-    }).catch(() => {});
+    }).catch((error) => console.error("Failed to record library_add usage event:", error));
     return { success: true, message: "Track added to library" };
   } catch (error) {
     console.error("Error adding track to user library:", error);
@@ -151,7 +151,7 @@ export async function addTracksToUserLibrary(
         userId,
         meta: { count: addedCount },
         amount: addedCount,
-      }).catch(() => {});
+      }).catch((error) => console.error("Failed to record library_add usage event:", error));
     }
     return {
       success: true,
