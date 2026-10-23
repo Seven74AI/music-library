@@ -22,6 +22,7 @@ describe("sendTelegramMessage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env = { ...originalEnv };
+    delete process.env.MOCKS;
   });
 
   it("returns false when TELEGRAM_BOT_TOKEN is not set", async () => {
@@ -39,6 +40,16 @@ describe("sendTelegramMessage", () => {
 
     const result = await sendTelegramMessage("test message");
     expect(result).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns true without calling fetch when MOCKS=true", async () => {
+    process.env.MOCKS = "true";
+    process.env.TELEGRAM_BOT_TOKEN = "bot123:abc";
+    process.env.TELEGRAM_ADMIN_CHAT_ID = "987654";
+
+    const result = await sendTelegramMessage("mock mode");
+    expect(result).toBe(true);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -105,6 +116,7 @@ describe("notifyCookieExpired", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env = { ...originalEnv };
+    delete process.env.MOCKS;
     process.env.TELEGRAM_BOT_TOKEN = "bot:token";
     process.env.TELEGRAM_ADMIN_CHAT_ID = "123";
     mockFetch.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
@@ -144,6 +156,7 @@ describe("notifyJobFailed", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env = { ...originalEnv };
+    delete process.env.MOCKS;
     process.env.TELEGRAM_BOT_TOKEN = "bot:token";
     process.env.TELEGRAM_ADMIN_CHAT_ID = "123";
     mockFetch.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
