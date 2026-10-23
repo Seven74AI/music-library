@@ -414,6 +414,43 @@ async function handleJobError(
 export { resetCookieFailureStreak } from "./cookie-failure-streak.ts";
 
 /**
+ * Reset archive jobs whose latest error is an auth/cookie failure back to
+ * `pending` with a zeroed retry count. Called when an admin uploads fresh
+ * YouTube cookies (CONTEXT.md decision #10 — "Cookie refresh auto-reset").
+ * Jobs with other (non-auth) errors are left alone.
+ */
+export async function resetAuthFailedJobs(): Promise<number> {
+  const authCategories: ErrorCategoryType[] = [ErrorCategory.AUTH, ErrorCategory.COOKIE_EXPIRED];
+
+  const failedJobs = await prisma.archiveJob.findMany({
+    where: { status: "failed" },
+    select: { id: true, errorHistory: true },
+  });
+
+  const resetIds: string[] = [];
+  for (const job of failedJobs) {
+    try {
+      const errors = JSON.parse(job.errorHistory) as Array<{ category?: string }>;
+      const latest = errors[errors.length - 1];
+      if (latest && authCategories.includes(latest.category as ErrorCategoryType)) {
+        resetIds.push(job.id);
+      }
+    } catch {
+      // Unparseable history — leave the job alone.
+    }
+  }
+
+  if (resetIds.length === 0) return 0;
+
+  await prisma.archiveJob.updateMany({
+    where: { id: { in: resetIds } },
+    data: { status: "pending", retryCount: 0 },
+  });
+
+  return resetIds.length;
+}
+
+/**
  * Get the current queue stats for monitoring.
  */
 export async function getQueueStats(): Promise<{

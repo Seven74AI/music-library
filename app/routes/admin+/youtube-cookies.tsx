@@ -7,7 +7,10 @@ import { Alert, AlertDescription } from "#app/components/ui/alert.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Label } from "#app/components/ui/label.tsx";
 import { Textarea } from "#app/components/ui/textarea.tsx";
-import { resetCookieFailureStreak } from "#app/features/audio-archive/worker.server.ts";
+import {
+  resetCookieFailureStreak,
+  resetAuthFailedJobs,
+} from "#app/features/audio-archive/worker.server.ts";
 import {
   parseCookieLine,
   writeCookies,
@@ -120,6 +123,7 @@ export async function action({ request }: Route.ActionArgs) {
   });
 
   resetCookieFailureStreak();
+  const resetJobs = await resetAuthFailedJobs();
 
   return data({
     success: true,
@@ -127,6 +131,7 @@ export async function action({ request }: Route.ActionArgs) {
     parseErrors,
     recordId: record.id,
     fileWritten,
+    resetJobs,
   });
 }
 
