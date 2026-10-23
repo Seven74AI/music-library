@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useId } from "react";
 import { useFetcher } from "react-router";
 import { Input } from "#app/components/ui/input";
 import { Label } from "#app/components/ui/label";
@@ -41,7 +41,7 @@ export function GenreSelector({
   const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const listboxId = "genre-selector-listbox";
+  const listboxId = `${useId()}-genre-selector-listbox`;
   const genresFetcher = useFetcher<{ genres: Genre[] }>();
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
