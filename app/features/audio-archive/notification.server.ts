@@ -22,6 +22,8 @@ interface TelegramResponse {
  * are not configured (returns false, no throw).
  */
 export async function sendTelegramMessage(text: string): Promise<boolean> {
+  if (process.env.MOCKS === "true") return true;
+
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
 

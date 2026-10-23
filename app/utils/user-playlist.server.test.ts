@@ -121,6 +121,18 @@ describe("createUserPlaylist", () => {
 
     expect(result).toEqual({ status: "invalid_title" });
   });
+
+  test("returns duplicate_title when create hits the unique index (P2002)", async () => {
+    vi.mocked(prisma.userPlaylist.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.userPlaylist.create).mockRejectedValue({ code: "P2002" });
+
+    const result = await createUserPlaylist({
+      userId: "user-1",
+      title: "Road Trip",
+    });
+
+    expect(result).toEqual({ status: "duplicate_title", existingTitle: "Road Trip" });
+  });
 });
 
 describe("createUserPlaylistWithTrack", () => {
@@ -160,6 +172,19 @@ describe("createUserPlaylistWithTrack", () => {
         _count: { tracks: 1 },
       },
     });
+  });
+
+  test("returns duplicate_title when create hits the unique index (P2002)", async () => {
+    vi.mocked(prisma.userPlaylist.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.userPlaylist.create).mockRejectedValue({ code: "P2002" });
+
+    const result = await createUserPlaylistWithTrack({
+      userId: "user-1",
+      title: "Road Trip",
+      trackId: "track-1",
+    });
+
+    expect(result).toEqual({ status: "duplicate_title", existingTitle: "Road Trip" });
   });
 });
 
