@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
-import { parseRoomCodeInput } from "#app/features/party-room/code.ts";
+import { parseRoomCodeInput } from "#app/features/party-room/codes.ts";
 import { roomRoleLabel } from "#app/features/party-room/constants.ts";
 import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
 

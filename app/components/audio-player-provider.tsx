@@ -637,16 +637,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     ],
   );
 
-  const playLibrary = useCallback(
-    async (sort: LibrarySortOption = DEFAULT_LIBRARY_SORT) => {
+  const playContextSpine = useCallback(
+    async (context: PlaylistContext) => {
       if (roomSpeakerRef.current) return;
       noteUserQueueMutation();
       setIsLoadingNext(true);
       try {
-        const context: PlaylistContext = {
-          type: "library",
-          librarySort: librarySortOrDefault(sort),
-        };
         if (!isSamePlayContext(playContext, context)) {
           resetQueueState();
         }
@@ -689,57 +685,25 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     ],
   );
 
+  const playLibrary = useCallback(
+    async (sort: LibrarySortOption = DEFAULT_LIBRARY_SORT) => {
+      await playContextSpine({
+        type: "library",
+        librarySort: librarySortOrDefault(sort),
+      });
+    },
+    [playContextSpine],
+  );
+
   const playUserPlaylist = useCallback(
     async (playlistId: string, sort: PlaylistTrackSortOption = "custom") => {
-      if (roomSpeakerRef.current) return;
-      noteUserQueueMutation();
-      setIsLoadingNext(true);
-      try {
-        const context: PlaylistContext = {
-          type: "playlist",
-          playlistId,
-          sort: playlistSortOrCustom(sort),
-        };
-        if (!isSamePlayContext(playContext, context)) {
-          resetQueueState();
-        }
-
-        const loadedSpine = await loadSpineForContext(context);
-        if (loadedSpine.tracks.length === 0) return;
-
-        const order = buildShuffledOrder(loadedSpine.tracks.length);
-        const firstQueueTrack = loadedSpine.tracks[order[0] ?? 0];
-        if (!firstQueueTrack) return;
-
-        setUpNext([]);
-        setUpNextPlayNextCount(0);
-        upNextPlayNextCountRef.current = 0;
-        setSpine(loadedSpine.tracks);
-        setSpineTotal(loadedSpine.total);
-        setSpineOrder(order);
-        setSpinePosition(0);
-        setPlayContext(context);
-        setIsPlayerVisible(true);
-
-        await hydrateAround(firstQueueTrack.id);
-        const fullTrack = resolveFullTrack(playbackCacheRef.current, firstQueueTrack);
-        if (!isPlayableTrack(fullTrack)) return;
-
-        beginPlayback();
-        setCurrentTrack(fullTrack);
-      } finally {
-        setIsLoadingNext(false);
-      }
+      await playContextSpine({
+        type: "playlist",
+        playlistId,
+        sort: playlistSortOrCustom(sort),
+      });
     },
-    [
-      beginPlayback,
-      buildShuffledOrder,
-      hydrateAround,
-      loadSpineForContext,
-      noteUserQueueMutation,
-      playContext,
-      resetQueueState,
-    ],
+    [playContextSpine],
   );
 
   const addTrackToPlaylist = useCallback(
@@ -948,11 +912,25 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     [addToUpNext],
   );
 
-  const advanceToTarget = useCallback(
-    (target: QueueTarget) => {
+  const jumpToQueueTrack = useCallback(
+    (
+      target: QueueTarget,
+      options: {
+        noteMutation: boolean;
+        computeNextState: (
+          state: QueueNavigationState,
+          target: QueueTarget,
+        ) => QueueNavigationState;
+        discardPlayNextCount: (target: QueueTarget, playNextCount: number) => number;
+      },
+    ) => {
       if (roomSpeakerRef.current) return;
       const queueTrack = getTrackAtTarget(navigationState, target);
       if (!queueTrack) return;
+
+      if (options.noteMutation) {
+        noteUserQueueMutation();
+      }
 
       // Try to get the prefetched URL synchronously. If it exists, we can apply
       // it and call play() within the user gesture, satisfying autoplay policy.
@@ -979,14 +957,17 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           return;
         }
 
-        const nextState = advanceAfterPlay(navigationState, target);
+        const nextState = options.computeNextState(navigationState, target);
         setUpNext(nextState.upNext);
-        if (target.zone === "upNext" && target.index < upNextPlayNextCount) {
-          setUpNextPlayNextCount((count) => {
-            const next = Math.max(0, count - 1);
-            upNextPlayNextCountRef.current = next;
-            return next;
-          });
+        if (target.zone === "upNext") {
+          const discard = options.discardPlayNextCount(target, upNextPlayNextCount);
+          if (discard > 0) {
+            setUpNextPlayNextCount((count) => {
+              const next = Math.max(0, count - discard);
+              upNextPlayNextCountRef.current = next;
+              return next;
+            });
+          }
         }
         setSpinePosition(nextState.spinePosition);
 
@@ -1003,7 +984,19 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         setCurrentTrack(fullTrack);
       })();
     },
-    [navigationState, resolvePlayableTrack, upNextPlayNextCount],
+    [navigationState, noteUserQueueMutation, resolvePlayableTrack, upNextPlayNextCount],
+  );
+
+  const advanceToTarget = useCallback(
+    (target: QueueTarget) => {
+      jumpToQueueTrack(target, {
+        noteMutation: false,
+        computeNextState: advanceAfterPlay,
+        discardPlayNextCount: (t, playNextCount) =>
+          t.zone === "upNext" && t.index < playNextCount ? 1 : 0,
+      });
+    },
+    [jumpToQueueTrack],
   );
 
   const playNext = useCallback(() => {
@@ -1022,68 +1015,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
    */
   const playQueueTrack = useCallback(
     (target: QueueTarget) => {
-      if (roomSpeakerRef.current) return;
-      const queueTrack = getTrackAtTarget(navigationState, target);
-      if (!queueTrack) return;
-
-      noteUserQueueMutation();
-
-      // Try to get the prefetched URL synchronously. If it exists, we can apply
-      // it and call play() within the user gesture, satisfying autoplay policy.
-      const cachedUrl = peekCachedPlaybackUrl(queueTrack.id);
-      let appliedSynchronously = false;
-
-      if (cachedUrl && unlockAutoplayRef.current) {
-        // Apply the prefetched source and play synchronously within the gesture
-        appliedSynchronously = unlockAutoplayRef.current(queueTrack.id, cachedUrl);
-      }
-
-      if (!appliedSynchronously) {
-        // No cached URL or sync application failed - set autoplay intent for async flow
-        wantsAutoPlayRef.current = true;
-      }
-
-      void (async () => {
-        const fullTrack = await resolvePlayableTrack(queueTrack);
-        if (!fullTrack) {
-          // Hydration failed - clear autoplay intent
-          wantsAutoPlayRef.current = false;
-          return;
-        }
-
-        const nextState = jumpToTarget(navigationState, target);
-        setUpNext(nextState.upNext);
-
-        if (target.zone === "upNext") {
-          // Discarding 0..target.index drops the clicked track and everything before
-          // it. Play-next items sit at the front of Up Next, so decrement the count
-          // by however many of them fall inside the discarded range.
-          const playNextDiscarded = Math.min(target.index + 1, upNextPlayNextCount);
-          if (playNextDiscarded > 0) {
-            setUpNextPlayNextCount((count) => {
-              const next = Math.max(0, count - playNextDiscarded);
-              upNextPlayNextCountRef.current = next;
-              return next;
-            });
-          }
-        }
-
-        setSpinePosition(nextState.spinePosition);
-
-        if (!appliedSynchronously) {
-          // Async flow - increment token to trigger autoplay effect
-          setPlaybackToken((token) => token + 1);
-          if (hydrationTimerRef.current) {
-            clearTimeout(hydrationTimerRef.current);
-            hydrationTimerRef.current = null;
-          }
-          pendingHydrationIdsRef.current.clear();
-        }
-
-        setCurrentTrack(fullTrack);
-      })();
+      jumpToQueueTrack(target, {
+        noteMutation: true,
+        computeNextState: jumpToTarget,
+        discardPlayNextCount: (t, playNextCount) =>
+          t.zone === "upNext" ? Math.min(t.index + 1, playNextCount) : 0,
+      });
     },
-    [navigationState, noteUserQueueMutation, resolvePlayableTrack, upNextPlayNextCount],
+    [jumpToQueueTrack],
   );
 
   const startQueuePlayback = useCallback(() => {
