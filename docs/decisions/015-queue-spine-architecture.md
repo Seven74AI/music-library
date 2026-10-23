@@ -86,7 +86,7 @@ If spine fetch fails or returns empty, the provider falls back to device-local p
 | Hydration API          | `app/routes/api+/tracks+/playback.tsx`                                        |
 | Client queue modules   | `app/features/queue/`                                                         |
 | Provider orchestration | `app/components/audio-player-provider.tsx`                                    |
-| Queue sheet UI         | `app/components/audio-player.tsx`, `app/components/queue-sheet-ui.ts`         |
+| Queue sheet UI         | `app/components/player-queue-sheet.tsx`, `app/components/player-chrome.tsx`, `app/components/queue-sheet-ui.ts` |
 
 ## References
 
