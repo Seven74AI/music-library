@@ -195,6 +195,7 @@ describe("getRecentlyPlayedTracks", () => {
     await prisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/playable.mp3",
         format: "mp3",
       },

@@ -33,16 +33,39 @@ type HasAudioCursor = {
   ar: CursorSortTuple | null;
 };
 
-function decodeCursor(cursor: string): HasAudioCursor {
-  const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<
-    string,
-    unknown
-  >;
-  return {
-    t: (parsed.t as CursorSortTuple) ?? null,
-    a: (parsed.a as CursorSortTuple) ?? null,
-    ar: (parsed.ar as CursorSortTuple) ?? null,
-  };
+function isCursorSortTuple(value: unknown): value is CursorSortTuple {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.rk === "number" &&
+    typeof v.fr === "number" &&
+    typeof v.n === "string" &&
+    typeof v.id === "string"
+  );
+}
+
+/**
+ * Decodes the user-supplied cursor query param. Malformed input — invalid base64,
+ * invalid JSON, a non-object payload, or a non-tuple shape — yields `null` instead
+ * of throwing. The route layer already maps malformed cursors to a 400 via
+ * CursorSchema; this guard guarantees no unhandled 500 if that validation is ever
+ * bypassed or the shape is wrong.
+ */
+function decodeCursor(cursor: string): HasAudioCursor | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<
+      string,
+      unknown
+    >;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    return {
+      t: isCursorSortTuple(parsed.t) ? parsed.t : null,
+      a: isCursorSortTuple(parsed.a) ? parsed.a : null,
+      ar: isCursorSortTuple(parsed.ar) ? parsed.ar : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function encodeCursor(c: HasAudioCursor): string {

@@ -53,7 +53,7 @@ The player keeps its entire state in memory, so the queue, current track, shuffl
 - **Per-play listing.** Every `play_started` is its own row (repeats appear as separate timestamped entries). Rejected: per-track collapse (a separate "most played" feature).
 - **Cursor pagination + infinite scroll.** Key on `(createdAt, id)` (id as tiebreaker), initial page ~50, "load more" pages backward. Stable under new events arriving.
 - **Skip dangling track IDs.** The `Track` join filters out rows whose track is gone. Tracks that still exist in the DB but are no longer in the user's library are shown (they still have metadata).
-- **Dedicated `/history` route.** Reachable from nav. A home-page "recently played" strip is deferred.
+- **Dedicated `/history` route.** Reachable from nav. A home-page "recently played" strip was later shipped separately — see ADR-025 and CONTEXT decision #63.
 
 ### Schema changes (summary)
 
@@ -85,7 +85,7 @@ The player keeps its entire state in memory, so the queue, current track, shuffl
 - Per-track collapse of history (a "most played" view).
 - A dedicated `PlayHistory` table.
 - Backfilling completed status for plays recorded before `playId` exists.
-- A home-page "recently played" strip (deferred).
+- A home-page "recently played" strip (deferred here; later shipped separately — ADR-025, CONTEXT decision #63).
 
 ## Further Notes
 
