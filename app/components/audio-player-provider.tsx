@@ -92,16 +92,6 @@ import { toast } from "./ui/use-toast";
 
 type Track = FullTrack;
 
-type PlayContext =
-  | "library"
-  | "playlist"
-  | "artist"
-  | "album"
-  | "track"
-  | "music"
-  | "discover"
-  | "onRepeatSnapshot";
-
 /**
  * Discriminated union keyed on `type` instead of a 10-field optional data
  * clump: each variant carries only the fields that are meaningful for it, so
@@ -279,7 +269,9 @@ function isSamePlayContext(a: PlaylistContext | null, b: PlaylistContext): boole
     case "track":
       return a.trackId === (b as Extract<PlaylistContext, { type: "track" }>).trackId;
     case "onRepeatSnapshot":
-      return a.snapshotId === (b as Extract<PlaylistContext, { type: "onRepeatSnapshot" }>).snapshotId;
+      return (
+        a.snapshotId === (b as Extract<PlaylistContext, { type: "onRepeatSnapshot" }>).snapshotId
+      );
     case "music":
       return true;
   }
