@@ -63,6 +63,7 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
       },
     });
   } catch (error) {
+    if (error instanceof Response) throw error;
     console.error("Error fetching service playlist tracks:", error);
     return Response.json({ error: "Failed to fetch tracks" }, { status: 500 });
   }
