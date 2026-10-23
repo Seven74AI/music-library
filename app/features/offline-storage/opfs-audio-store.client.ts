@@ -7,7 +7,13 @@ type WorkerRequest = {
 };
 
 type WorkerResponse =
-  | { id: number; ok: true; buffer?: ArrayBuffer; exists?: boolean }
+  | {
+      id: number;
+      ok: true;
+      buffer?: ArrayBuffer;
+      exists?: boolean;
+      supported?: boolean;
+    }
   | { id: number; ok: false; error: string };
 
 export function createOpfsOfflineAudioStore(): OfflineAudioStore {
@@ -66,11 +72,38 @@ export function createOpfsOfflineAudioStore(): OfflineAudioStore {
   };
 }
 
-export function isOpfsAudioStoreSupported(): boolean {
-  return (
-    typeof Worker !== "undefined" &&
-    typeof navigator !== "undefined" &&
-    "storage" in navigator &&
-    typeof navigator.storage.getDirectory === "function"
-  );
+export async function isOpfsAudioStoreSupported(): Promise<boolean> {
+  if (typeof Worker === "undefined") {
+    return false;
+  }
+
+  try {
+    const worker = new Worker(new URL("./opfs.worker.ts", import.meta.url), {
+      type: "module",
+    });
+
+    try {
+      return await new Promise<boolean>((resolve) => {
+        const timeout = setTimeout(() => resolve(false), 2000);
+
+        worker.addEventListener("message", (event: MessageEvent<WorkerResponse>) => {
+          const response = event.data;
+          if (response.id !== 0) return;
+          clearTimeout(timeout);
+          resolve(response.ok && response.supported === true);
+        });
+
+        worker.addEventListener("error", () => {
+          clearTimeout(timeout);
+          resolve(false);
+        });
+
+        worker.postMessage({ type: "probe", id: 0 });
+      });
+    } finally {
+      worker.terminate();
+    }
+  } catch {
+    return false;
+  }
 }

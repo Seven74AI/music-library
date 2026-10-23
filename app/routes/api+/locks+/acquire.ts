@@ -1,5 +1,4 @@
 import { data, type ActionFunctionArgs } from "react-router";
-import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { acquireLock, type EntityType } from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -12,8 +11,7 @@ const AcquireLockSchema = z.object({
 });
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireCuratorOrAdmin(request);
-  const userId = await requireUserId(request);
+  const userId = await requireCuratorOrAdmin(request);
 
   const body = await request.json();
   const result = AcquireLockSchema.safeParse(body);

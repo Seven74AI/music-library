@@ -42,6 +42,7 @@ test.describe("Artist Page", () => {
       await testPrisma.trackAudioFile.create({
         data: {
           trackId: playableTrack.id,
+          serviceId: playableTrack.serviceId,
           objectKey: `audio/${playableTrack.id}.mp3`,
           format: "mp3",
           mimeType: "audio/mpeg",

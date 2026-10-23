@@ -1,5 +1,5 @@
 import { useFetcher } from "react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "#app/components/ui/button";
 import {
   Dialog,
@@ -121,15 +121,16 @@ export function AlbumEditDialog({
     setCoverImageId(imageId);
   };
 
-  if (
-    (editFetcher.state === "idle" && editFetcher.data && open) ||
-    (restoreFetcher.state === "idle" && restoreFetcher.data && open)
-  ) {
-    setTimeout(() => {
+  // Close the dialog and notify the parent when a save (edit or restore)
+  // completes. Runs in an effect, not the render body.
+  const editSucceeded = editFetcher.state === "idle" && editFetcher.data != null;
+  const restoreSucceeded = restoreFetcher.state === "idle" && restoreFetcher.data != null;
+  useEffect(() => {
+    if (open && (editSucceeded || restoreSucceeded)) {
       onOpenChange(false);
       onSaved?.();
-    }, 0);
-  }
+    }
+  }, [open, editSucceeded, restoreSucceeded, onOpenChange, onSaved]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

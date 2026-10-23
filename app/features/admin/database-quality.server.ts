@@ -310,7 +310,7 @@ export async function getDatabaseHealthSummary(): Promise<{
     prisma.track.count({ where: { duration: { not: null } } }),
     prisma.track.count({ where: { albumId: { not: null } } }),
     prisma.track.count({ where: { year: { not: null } } }),
-    prisma.track.count({ where: { genre: { not: null } } }),
+    prisma.track.count({ where: { OR: [{ genre: { not: null } }, { genres: { some: {} } }] } }),
     prisma.track.count({ where: { lyrics: { not: null } } }),
   ]);
 

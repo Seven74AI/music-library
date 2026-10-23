@@ -244,7 +244,12 @@ describe("listLibraryUserTracks most-played sorts", () => {
       await addToLibrary(user.id, silent.id, new Date("2026-02-01T00:00:00.000Z"));
       await addToLibrary(user.id, playable.id, new Date("2026-02-15T00:00:00.000Z"));
       await prisma.trackAudioFile.create({
-        data: { trackId: playable.id, objectKey: `audio/${playable.id}.mp3`, format: "mp3" },
+        data: {
+          trackId: playable.id,
+          serviceId: playable.serviceId,
+          objectKey: `audio/${playable.id}.mp3`,
+          format: "mp3",
+        },
       });
 
       const { userTracks } = await listLibraryUserTracks({

@@ -9,8 +9,10 @@ export const prisma = remember("prisma", () => {
   // NOTE: if you change anything in this function you'll need to restart
   // the dev server to see your changes.
 
-  // Always 20ms threshold as requested
-  const logThreshold = 20;
+  // Slow-query log threshold in ms. Tunable via QUERY_LOG_THRESHOLD_MS (default 20ms).
+  const parsedThreshold = Number.parseInt(process.env.QUERY_LOG_THRESHOLD_MS ?? "20", 10);
+  const logThreshold =
+    Number.isFinite(parsedThreshold) && parsedThreshold > 0 ? parsedThreshold : 20;
 
   const adapter = new PrismaBetterSqlite3({
     url: getDatabaseUrl(),

@@ -105,6 +105,7 @@ test.describe("Global Search", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/search-play.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
