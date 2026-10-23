@@ -127,15 +127,21 @@ describe("createShuffledOrder", () => {
 });
 
 describe("reshuffleFromCurrent", () => {
-  test("preserves indices before the current position", () => {
+  test("preserves indices up to and including the current position", () => {
     const order = [2, 0, 3, 1];
-    const reshuffled = reshuffleFromCurrent(order, 1, () => 0.5);
+    const currentPosition = 1;
+    // rng forcing the maximum swap on every iteration — would move the current
+    // track if it were ever included in the shuffled suffix.
+    const reshuffled = reshuffleFromCurrent(order, currentPosition, () => 0);
 
-    expect(reshuffled.slice(0, 2)).toEqual([2, 0]);
-    expect([...reshuffled.slice(2)].sort((a, b) => a - b)).toEqual([1, 3]);
+    expect(reshuffled.slice(0, currentPosition + 1)).toEqual(order.slice(0, currentPosition + 1));
+    expect(reshuffled[currentPosition]).toBe(order[currentPosition]);
+    expect([...reshuffled.slice(currentPosition + 1)].sort((a, b) => a - b)).toEqual(
+      [...order.slice(currentPosition + 1)].sort((a, b) => a - b),
+    );
   });
 
-  test("reshuffles only the current position when at the end", () => {
+  test("returns the order unchanged when already at the last position", () => {
     const order = [1, 0, 2];
     const reshuffled = reshuffleFromCurrent(order, 2, () => 0.5);
 
@@ -148,7 +154,9 @@ describe("reshuffleFromCurrent", () => {
   });
 
   test("produces different results for different seeds", () => {
-    const order = [2, 0, 3, 1];
+    // Suffix must have ≥3 elements so two seeds reliably diverge (a 2-element
+    // Fisher-Yates suffix can coincidentally produce the same swap).
+    const order = [2, 0, 3, 1, 4];
     expect(reshuffleFromCurrent(order, 1, 1)).not.toEqual(reshuffleFromCurrent(order, 1, 2));
   });
 });
