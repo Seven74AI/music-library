@@ -13,6 +13,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { getDomainUrl, useIsPending } from "#app/utils/misc.tsx";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { decryptVerificationSecret } from "#app/utils/token-cipher.server.ts";
 import { getTOTPAuthUri } from "#app/utils/totp.server.ts";
 import { type Route } from "./+types/profile.two-factor.verify.ts";
 import { type BreadcrumbHandle } from "./profile.tsx";
@@ -57,6 +58,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const issuer = new URL(getDomainUrl(request)).host;
   const otpUri = getTOTPAuthUri({
     ...verification,
+    secret: decryptVerificationSecret(verification.secret),
     accountName: user.email,
     issuer,
   });

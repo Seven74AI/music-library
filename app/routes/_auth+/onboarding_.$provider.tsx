@@ -1,42 +1,33 @@
 import { getFormProps, getInputProps, useForm, type SubmissionResult } from "@conform-to/react";
 import { getZodConstraint, parseWithZod } from "@conform-to/zod/v4";
 import { redirect, data, type Params, Form, useSearchParams } from "react-router";
-import { safeRedirect } from "remix-utils/safe-redirect";
 import { z } from "zod";
 import { CheckboxField, ErrorList, Field } from "#app/components/forms.tsx";
 import { Spacer } from "#app/components/spacer.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
-import { sessionKey, signupWithConnection, requireAnonymous } from "#app/utils/auth.server.ts";
+import { signupWithConnection } from "#app/utils/auth.server.ts";
 import { ProviderNameSchema } from "#app/utils/connections.tsx";
-import { prisma } from "#app/utils/db.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { authSessionStorage } from "#app/utils/session.server.ts";
-import { redirectWithToast } from "#app/utils/toast.server.ts";
-import { NameSchema, UsernameSchema } from "#app/utils/user-validation.ts";
 import { verifySessionStorage } from "#app/utils/verification.server.ts";
 import { type Route } from "./+types/onboarding_.$provider.ts";
-import { onboardingEmailSessionKey } from "./onboarding";
+import { SignupFormBaseSchema } from "./onboarding-shared.ts";
+import {
+  commitOnboardingSession,
+  requireOnboardingEmail,
+  usernameExists,
+} from "./onboarding-shared.server.ts";
 
 export const providerIdKey = "providerId";
 export const providerNameKey = "providerName";
 export const prefilledProfileKey = "prefilledProfile";
 
-const SignupFormSchema = z.object({
+const SignupFormSchema = SignupFormBaseSchema.extend({
   imageUrl: z.string().optional(),
-  username: UsernameSchema,
-  name: NameSchema,
-  agreeToTermsOfServiceAndPrivacyPolicy: z.boolean({
-    error: "You must agree to the terms of service and privacy policy",
-  }),
-  remember: z.boolean().optional(),
-  redirectTo: z.string().optional(),
 });
 
 async function requireData({ request, params }: { request: Request; params: Params }) {
-  await requireAnonymous(request);
-  const verifySession = await verifySessionStorage.getSession(request.headers.get("cookie"));
-  const email = verifySession.get(onboardingEmailSessionKey);
+  const { email, verifySession } = await requireOnboardingEmail(request);
   const providerId = verifySession.get(providerIdKey);
   const sessionProviderName = verifySession.get(providerNameKey);
   // The provider in the URL must match the provider that issued the providerId
@@ -83,15 +74,10 @@ export async function action({ request, params }: Route.ActionArgs) {
     params,
   });
   const formData = await request.formData();
-  const verifySession = await verifySessionStorage.getSession(request.headers.get("cookie"));
 
   const submission = await parseWithZod(formData, {
     schema: SignupFormSchema.superRefine(async (formValues, ctx) => {
-      const existingUser = await prisma.user.findUnique({
-        where: { username: formValues.username },
-        select: { id: true },
-      });
-      if (existingUser) {
+      if (await usernameExists(formValues.username)) {
         ctx.addIssue({
           path: ["username"],
           code: z.ZodIssueCode.custom,
@@ -120,23 +106,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 
   const { session, remember, redirectTo } = submission.value;
-
-  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
-  authSession.set(sessionKey, session.id);
-  const headers = new Headers();
-  headers.append(
-    "set-cookie",
-    await authSessionStorage.commitSession(authSession, {
-      expires: remember ? session.expirationDate : undefined,
-    }),
-  );
-  headers.append("set-cookie", await verifySessionStorage.destroySession(verifySession));
-
-  return redirectWithToast(
-    safeRedirect(redirectTo),
-    { title: "Welcome", description: "Thanks for signing up!", type: "success" },
-    { headers },
-  );
+  return commitOnboardingSession({ session, remember, redirectTo, request });
 }
 
 export const meta: Route.MetaFunction = () => {
