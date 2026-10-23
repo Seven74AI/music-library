@@ -79,23 +79,31 @@ export async function getLifetimePlayCompletedCounts(userId: string): Promise<Ma
 /**
  * SQL CASE expression: per-track boost from a preloaded lifetime count map.
  * Uses {@link computePersonalPlayBoost} so JS and SQL stay in lockstep.
+ *
+ * Returns the CASE fragment plus the bound `?` parameters (one per branch) so
+ * callers can splice both into a `$queryRawUnsafe` query — never interpolate
+ * the track ids as string literals.
  */
-export function personalPlayBoostCaseSql(playCounts: Map<string, number>): string {
+export function personalPlayBoostCaseSql(playCounts: Map<string, number>): {
+  sql: string;
+  params: unknown[];
+} {
   if (playCounts.size === 0) {
-    return "0";
+    return { sql: "0", params: [] };
   }
 
   const branches: string[] = [];
+  const params: unknown[] = [];
   for (const [trackId, count] of playCounts) {
     const boost = computePersonalPlayBoost(count);
     if (boost <= 0) continue;
-    const escapedId = trackId.replace(/'/g, "''");
-    branches.push(`WHEN '${escapedId}' THEN ${boost}`);
+    branches.push(`WHEN ? THEN ${boost}`);
+    params.push(trackId);
   }
 
   if (branches.length === 0) {
-    return "0";
+    return { sql: "0", params: [] };
   }
 
-  return `CASE t.id ${branches.join(" ")} ELSE 0 END`;
+  return { sql: `CASE t.id ${branches.join(" ")} ELSE 0 END`, params };
 }
