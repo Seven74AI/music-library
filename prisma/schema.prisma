@@ -484,7 +484,7 @@ model TrackAudioFile {
   track   Track  @relation(fields: [trackId], references: [id], onDelete: Cascade)
 
   // Service attribution
-  serviceId String? // null = local upload, otherwise references Service
+  serviceId String? // references Service; local uploads reference the "local" Service row
   service   Service? @relation(fields: [serviceId], references: [id])
 
   // File storage

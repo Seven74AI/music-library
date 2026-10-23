@@ -17,6 +17,21 @@ const sizeClassName = {
 
 type Size = keyof typeof sizeClassName;
 
+// Per ADR-008 the SVG sprite is injected into a hidden container before
+// hydration. Cache whether that container is present so the DOM query runs once
+// per page load instead of once per Icon render.
+let spriteContainerChecked = false;
+let spriteContainerPresent = false;
+
+function hasSpriteContainer(): boolean {
+  if (!spriteContainerChecked) {
+    spriteContainerChecked = true;
+    spriteContainerPresent =
+      typeof document !== "undefined" && document.getElementById("svg-sprite-container") !== null;
+  }
+  return spriteContainerPresent;
+}
+
 const childrenSizeClassName = {
   font: "gap-1.5",
   xs: "gap-1.5",
@@ -57,14 +72,10 @@ export function Icon({
       </span>
     );
   }
-  // Per ADR-008: Use local reference if sprite is in DOM, otherwise fallback to external
-  // Check once and memoize to avoid repeated DOM queries
-  // This ensures icons work even if DOM injection fails in production
-  const iconHref = (() => {
-    if (typeof document === "undefined") return `${href}#${name}`;
-    const spriteContainer = document.getElementById("svg-sprite-container");
-    return spriteContainer ? `#${name}` : `${href}#${name}`;
-  })();
+  // Per ADR-008: use a local symbol reference when the sprite is injected into
+  // the DOM, otherwise fall back to the external sprite URL. The container
+  // lookup is memoized in hasSpriteContainer().
+  const iconHref = hasSpriteContainer() ? `#${name}` : `${href}#${name}`;
 
   return (
     <svg {...props} className={cn(sizeClassName[size], "inline self-center", className)}>

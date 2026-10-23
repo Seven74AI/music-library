@@ -36,17 +36,19 @@ New contributors: read this before writing code.
 
 ### Error Categories
 
-yt-dlp errors are classified into one of six categories for retry decision-making:
+yt-dlp errors are classified into one of nine categories for retry decision-making:
 
-| Category            | Description                                | Retriable? |
-| ------------------- | ------------------------------------------ | ---------- |
-| `AUTH`              | HTTP 403, login required                   | No         |
-| `RATE_LIMITED`      | HTTP 429, too many requests                | Yes        |
-| `GEO_BLOCKED`       | Video blocked in current country           | No         |
-| `VIDEO_UNAVAILABLE` | Video removed, private, or unavailable     | No         |
-| `NETWORK`           | DNS failures, timeouts, connection refused | Yes        |
-| `COOKIE_EXPIRED`    | Sign-in required, cookie rejected          | No         |
-| `UNKNOWN`           | Unclassified failure                       | Yes        |
+| Category             | Description                                 | Retriable? |
+| -------------------- | ------------------------------------------- | ---------- |
+| `AUTH`               | HTTP 403, login required                    | No         |
+| `RATE_LIMITED`       | HTTP 429, too many requests                 | Yes        |
+| `GEO_BLOCKED`        | Video blocked in current country            | No         |
+| `VIDEO_UNAVAILABLE`  | Video removed, private, or unavailable      | No         |
+| `NETWORK`            | DNS failures, timeouts, connection refused  | Yes        |
+| `COOKIE_EXPIRED`     | Sign-in required, cookie rejected           | No         |
+| `FILE_NOT_FOUND`     | Download path missing or escapes output dir | No         |
+| `FORMAT_UNAVAILABLE` | Requested format not available              | Yes        |
+| `UNKNOWN`            | Unclassified failure                        | Yes        |
 
 ### YouTube Integration
 
@@ -220,7 +222,7 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 4. **WorkerState as singleton DB record** — Worker lifecycle (running/paused/long_break) stored in a singleton `WorkerState` database record rather than in-memory or a separate control file. Survives server restarts and is inspectable via the admin UI. Long breaks: 1-2h every 6-8h, polling-based (30s DB checks, admin-interruptible).
 
-5. **Error categorization before retry** — yt-dlp stderr is pattern-matched into error categories. Retry logic is category-aware: non-retriable errors (AUTH, GEO_BLOCKED, VIDEO_UNAVAILABLE, COOKIE_EXPIRED) fail permanently on first occurrence; retriable errors (RATE_LIMITED, NETWORK, UNKNOWN) retry up to 3 times. Exponential backoff: 1st retry 5min, 2nd 30min, 3rd 2h.
+5. **Error categorization before retry** — yt-dlp stderr is pattern-matched into error categories. Retry logic is category-aware: non-retriable errors (AUTH, GEO_BLOCKED, VIDEO_UNAVAILABLE, COOKIE_EXPIRED, FILE_NOT_FOUND) fail permanently on first occurrence; retriable errors (RATE_LIMITED, NETWORK, FORMAT_UNAVAILABLE, UNKNOWN) retry up to 3 times. Exponential backoff: 1st retry 5min, 2nd 30min, 3rd 2h.
 
 6. **Dockerfile** — Add `pip install yt-dlp` and `apt-get install -y ffmpeg` to the base Docker image.
 
@@ -232,7 +234,7 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 9. **Cookie upload UI** — Both file upload (drag-drop `cookies.txt`) and textarea paste on the admin panel. Both write to `/data/youtube-cookies.txt` and update the `YoutubeCookie` audit record.
 
-10. **Cookie refresh auto-reset** — When admin uploads new cookies, all `ArchiveJob`s whose latest error code is `AUTH_REQUIRED` are reset to `pending`. Jobs with `VIDEO_UNAVAILABLE` or other non-auth errors are left alone.
+10. **Cookie refresh auto-reset** — When admin uploads new cookies, all `ArchiveJob`s whose latest error category is recoverable (COOKIE_EXPIRED or FORMAT_UNAVAILABLE) can be reset to `pending` via the admin queue's "retry recoverable failures" action. Jobs with `VIDEO_UNAVAILABLE` or other non-auth errors are left alone.
 
 ### Storage
 
@@ -296,7 +298,7 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 
 38. **Logged-out landing is a minimal gate** — No feature pitch or screenshot sections. Show logo/product name, a one-liner (e.g. "Your personal music library"), and **Log in** / **Sign up** CTAs in the page body. The global header does not show a login button when logged out (auth entry is via `/` or auth routes). Footer links to About · Privacy · Terms as today. Replace Epic Stack boilerplate entirely.
 
-39. **Listening hub hero: Play library + recently added** — When in listening-hub mode, hero is a **Play library** CTA (starts queue from all playable tracks; disabled in gray zone per #36). Below the hero, a **recently added** row of latest `UserTrack`s with per-track play. Below that: recent playlists, then compact stats / YouTube status (content currently on Music Hub). v1 does **not** add play-history or "continue listening" — defer `localStorage`/DB resume to a follow-up.
+39. **Listening hub layout: no "Play library" hero** — In listening-hub mode the home page has **no** "Play library" CTA (the earlier hero design was dropped; `ListeningHome` renders the install prompt → archiving banner → Weekly Wrap → Explore Music card → recently added row → listening strips → playlists → overview stats). A **recently added** row of latest `UserTrack`s with per-track play remains below the fold. v1 does **not** add play-history or "continue listening" — defer `localStorage`/DB resume to a follow-up.
 
 40. **Remove Music Hub; no `/music` redirect** — Delete `music.index.tsx` (dashboard). Home is only `/`. Update internal links that pointed to `/music` (UserDropdown, `/music/services` back link) to `/`. Remove "Music Hub" from nav. **`/music/services/*` routes and `music.tsx` layout stay.** Bare `/music` may 404 — no redirect stub for bookmarks.
 
