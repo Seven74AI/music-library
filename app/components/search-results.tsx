@@ -75,16 +75,18 @@ function EntityResultRow({ result }: { result: Exclude<SearchResult, TrackSearch
   const config = ENTITY_CONFIG[result.type];
 
   return (
-    <Link
-      to={config.link(result.id)}
-      className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
-    >
-      <ResultImage result={result} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{result.name}</p>
-        <p className="truncate text-xs text-muted-foreground">{config.subtitle(result)}</p>
-      </div>
-    </Link>
+    <div role="listitem">
+      <Link
+        to={config.link(result.id)}
+        className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
+      >
+        <ResultImage result={result} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{result.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{config.subtitle(result)}</p>
+        </div>
+      </Link>
+    </div>
   );
 }
 
@@ -116,7 +118,7 @@ export function SearchResults({
   let trackIndex = 0;
 
   return (
-    <div>
+    <div role="list">
       {results.map((result) => {
         if (result.type === "track") {
           const currentTrackIndex = trackIndex;
@@ -146,17 +148,19 @@ export function SearchResults({
       })}
 
       {hasNext && onLoadMore && results.length > 0 && (
-        <InfiniteScrollSentinel
-          enabled={!isLoading}
-          onIntersect={onLoadMore}
-          className="flex justify-center pt-4"
-        >
-          {isLoading ? (
-            <Icon name="update" className="h-6 w-6 animate-spin text-muted-foreground" />
-          ) : (
-            <span className="text-sm text-muted-foreground">Scroll to load more</span>
-          )}
-        </InfiniteScrollSentinel>
+        <div role="presentation">
+          <InfiniteScrollSentinel
+            enabled={!isLoading}
+            onIntersect={onLoadMore}
+            className="flex justify-center pt-4"
+          >
+            {isLoading ? (
+              <Icon name="update" className="h-6 w-6 animate-spin text-muted-foreground" />
+            ) : (
+              <span className="text-sm text-muted-foreground">Scroll to load more</span>
+            )}
+          </InfiniteScrollSentinel>
+        </div>
       )}
     </div>
   );

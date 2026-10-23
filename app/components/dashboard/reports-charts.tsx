@@ -52,28 +52,32 @@ function LineChart({ points }: { points: { date: string; percent: number }[] }) 
     .map((coord, index) => `${index === 0 ? "M" : "L"} ${coord.x} ${coord.y}`)
     .join(" ");
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-64 w-full"
-      role="img"
-      aria-label="Metadata completeness over time"
-    >
-      <path d={d} fill="none" stroke="#2563eb" strokeWidth="2" />
-      {coords
-        .filter((_, index) => index % 5 === 0)
-        .map((coord) => (
-          <text
-            key={coord.point.date}
-            x={coord.x}
-            y={height - 6}
-            fontSize="10"
-            textAnchor="middle"
-            fill="currentColor"
-          >
-            {shortDate(coord.point.date)}
-          </text>
+    <>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full" aria-hidden="true">
+        <path d={d} fill="none" stroke="#2563eb" strokeWidth="2" />
+        {coords
+          .filter((_, index) => index % 5 === 0)
+          .map((coord) => (
+            <text
+              key={coord.point.date}
+              x={coord.x}
+              y={height - 6}
+              fontSize="10"
+              textAnchor="middle"
+              fill="currentColor"
+            >
+              {shortDate(coord.point.date)}
+            </text>
+          ))}
+      </svg>
+      <ul className="sr-only">
+        {points.map((point) => (
+          <li key={point.date}>
+            {point.date}: {point.percent}% complete
+          </li>
         ))}
-    </svg>
+      </ul>
+    </>
   );
 }
 
@@ -84,28 +88,32 @@ function BarChart({ points }: { points: { date: string; count: number }[] }) {
   const max = Math.max(1, ...points.map((point) => point.count));
   const barWidth = (width - pad * 2) / points.length;
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-64 w-full"
-      role="img"
-      aria-label="Edits per day"
-    >
-      {points.map((point, index) => {
-        const barHeight = (point.count / max) * (height - pad * 2);
-        const x = pad + index * barWidth;
-        const y = height - pad - barHeight;
-        return (
-          <rect
-            key={point.date}
-            x={x + 1}
-            y={y}
-            width={Math.max(barWidth - 2, 1)}
-            height={barHeight}
-            fill="#16a34a"
-          />
-        );
-      })}
-    </svg>
+    <>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full" aria-hidden="true">
+        {points.map((point, index) => {
+          const barHeight = (point.count / max) * (height - pad * 2);
+          const x = pad + index * barWidth;
+          const y = height - pad - barHeight;
+          return (
+            <rect
+              key={point.date}
+              x={x + 1}
+              y={y}
+              width={Math.max(barWidth - 2, 1)}
+              height={barHeight}
+              fill="#16a34a"
+            />
+          );
+        })}
+      </svg>
+      <ul className="sr-only">
+        {points.map((point) => (
+          <li key={point.date}>
+            {point.date}: {point.count} {point.count === 1 ? "edit" : "edits"}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

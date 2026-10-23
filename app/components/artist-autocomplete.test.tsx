@@ -68,7 +68,7 @@ beforeEach(() => {
 });
 
 function artistInput() {
-  return screen.getByRole("textbox", { name: /artist/i });
+  return screen.getByRole("combobox", { name: /artist/i });
 }
 
 test("shows the artist name for the provided id without clearing it", async () => {
@@ -188,7 +188,7 @@ test("selecting a search result reports that artist and shows the name", async (
   render(<ArtistAutocomplete value={null} onChange={onChange} />);
 
   await user.type(artistInput(), "Nova");
-  await user.click(await screen.findByRole("button", { name: /Match Nova/ }));
+  await user.click(await screen.findByRole("option", { name: /Match Nova/ }));
 
   expect(onChange).toHaveBeenCalledWith("artist-new", "Match Nova");
   expect(artistInput()).toHaveValue("Match Nova");
@@ -236,7 +236,7 @@ test("controlled parent can show the selected artist after onChange", async () =
 
   render(<Harness />);
   await user.type(artistInput(), "Nova");
-  await user.click(await screen.findByRole("button", { name: /Match Nova/ }));
+  await user.click(await screen.findByRole("option", { name: /Match Nova/ }));
 
   expect(artistInput()).toHaveValue("Match Nova");
 });

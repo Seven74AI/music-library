@@ -322,8 +322,15 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
           </p>
         </div>
       ) : (
-        <div ref={listRef} data-testid="discover-track-list" className="relative min-w-0">
+        <div
+          ref={listRef}
+          data-testid="discover-track-list"
+          className="relative min-w-0"
+          role="list"
+          aria-label="Discover tracks"
+        >
           <div
+            role="presentation"
             style={{
               height: `${virtualizer.getTotalSize()}px`,
               width: "100%",
@@ -346,6 +353,7 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
                     key="header"
                     data-index={virtualItem.index}
                     ref={virtualizer.measureElement}
+                    aria-hidden="true"
                     style={{ ...rowStyle, position: "sticky", top: 0, zIndex: 10 }}
                     className="bg-background border-b h-16"
                   >
@@ -369,6 +377,7 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
                     key="loading"
                     data-index={virtualItem.index}
                     ref={virtualizer.measureElement}
+                    role="presentation"
                     style={rowStyle}
                   >
                     <div className="flex w-full justify-center py-4">
@@ -392,6 +401,7 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
                   key={item.id}
                   data-index={virtualItem.index}
                   ref={virtualizer.measureElement}
+                  role="presentation"
                   style={rowStyle}
                 >
                   <DiscoverTrackListItem

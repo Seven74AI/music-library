@@ -2,7 +2,7 @@ import * as ToastPrimitives from "@radix-ui/react-toast";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { cn } from "#app/utils/misc.tsx";
-import { Icon } from "./icon.tsx";
+import { Icon, type IconName } from "./icon.tsx";
 
 /**
  * Toast provider component that manages toast context
@@ -93,6 +93,7 @@ const ToastClose = React.forwardRef<
     {...props}
   >
     <Icon name="cross-1" className="h-4 w-4" />
+    <span className="sr-only">Close</span>
   </ToastPrimitives.Close>
 ));
 ToastClose.displayName = ToastPrimitives.Close.displayName;
@@ -122,12 +123,12 @@ ToastDescription.displayName = ToastPrimitives.Description.displayName;
  */
 type ToastVariant = "default" | "success" | "destructive" | "error";
 
-export const TOAST_ICON_BY_VARIANT: Record<ToastVariant, string> = {
+export const TOAST_ICON_BY_VARIANT = {
   default: "file-text",
   success: "check-circled",
   destructive: "x-mark",
   error: "x-mark",
-} as const;
+} as const satisfies Record<ToastVariant, IconName>;
 
 /**
  * Toast icon component that displays appropriate icon based on variant
@@ -140,7 +141,7 @@ const ToastIcon = React.forwardRef<
 >(({ className, variant = "default", ...props }, ref) => {
   return (
     <div ref={ref} className={cn("flex-shrink-0", className)} {...props}>
-      <Icon name={TOAST_ICON_BY_VARIANT[variant] as any} className="h-5 w-5" />
+      <Icon name={TOAST_ICON_BY_VARIANT[variant]} className="h-5 w-5" />
     </div>
   );
 });
