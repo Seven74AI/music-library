@@ -1,7 +1,6 @@
 import { faker } from "@faker-js/faker";
 import { hashSync } from "bcryptjs";
 import { UniqueEnforcer } from "enforce-unique";
-import { prisma } from "#app/utils/db.server.ts";
 
 const uniqueUsernameEnforcer = new UniqueEnforcer();
 
@@ -34,30 +33,6 @@ export function createPassword(password: string = faker.internet.password()) {
   return {
     hash: hashSync(password, 10),
   };
-}
-
-/**
- * Create a `Track` with a unique external id and a fresh artist. Shared by the
- * listening-insights, on-repeat-snapshots, and recently-played test suites
- * (previously each copy-pasted its own helper).
- */
-export async function createTrack(title: string) {
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const service = await prisma.service.upsert({
-    where: { name: "local" },
-    update: {},
-    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
-  });
-  return prisma.track.create({
-    data: {
-      title,
-      externalId: `ext-${suffix}`,
-      service: { connect: { id: service.id } },
-      artist: {
-        create: { name: `Artist ${suffix}`, normalizedName: `artist ${suffix}` },
-      },
-    },
-  });
 }
 
 let userImages: Array<{ objectKey: string }> | undefined;

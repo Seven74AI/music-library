@@ -1,8 +1,27 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { createUser, createTrack } from "#tests/db-utils.ts";
+import { createUser } from "#tests/db-utils.ts";
 import { listLibraryQueueSpineTracks, listLibraryUserTracks } from "./library-tracks.server.ts";
+
+async function createTrack(title: string) {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const service = await prisma.service.upsert({
+    where: { name: "local" },
+    update: {},
+    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
+  });
+  return prisma.track.create({
+    data: {
+      title,
+      externalId: `ext-${suffix}`,
+      service: { connect: { id: service.id } },
+      artist: {
+        create: { name: `Artist ${suffix}`, normalizedName: `artist ${suffix}` },
+      },
+    },
+  });
+}
 
 async function addToLibrary(userId: string, trackId: string, createdAt: Date) {
   return prisma.userTrack.create({

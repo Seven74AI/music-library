@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "#app/components/ui/card.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
-import { StatusBadge, type StatusBadgeStatus } from "#app/components/ui/status-badge.tsx";
+import { StatusBadge } from "#app/components/ui/status-badge.tsx";
 import {
   Table,
   TableBody,
@@ -440,7 +440,7 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
         <div className="flex flex-wrap items-center gap-4 mb-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Status:</span>
-            <StatusBadge status={workerState.status as StatusBadgeStatus} />
+            <StatusBadge status={workerState.status} />
           </div>
 
           <Form method="post" className="flex gap-2">
@@ -614,7 +614,7 @@ export default function AudioQueueRoute({ loaderData }: Route.ComponentProps) {
                   <TableCell>{job.artistName}</TableCell>
                   <TableCell>{job.serviceDisplayName}</TableCell>
                   <TableCell>
-                    <StatusBadge status={job.status as StatusBadgeStatus} />
+                    <StatusBadge status={job.status} />
                     {job.priority && (
                       <Badge
                         variant="outline"
