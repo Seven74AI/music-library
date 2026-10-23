@@ -167,11 +167,12 @@ test("duplicate groups from a successful lookup are shown", async () => {
         exact: [
           {
             normalizedName: "abbey road",
+            matchType: "exact",
             artistId: "artist-1",
             artistName: "The Beatles",
             albums: [
-              { id: "album-1", name: "Abbey Road", year: 1969, trackCount: 17 },
-              { id: "album-2", name: "Abbey Road", year: null, trackCount: 1 },
+              { id: "album-1", name: "Abbey Road", year: 1969, artistId: "artist-1", artistName: "The Beatles", trackCount: 17 },
+              { id: "album-2", name: "Abbey Road", year: null, artistId: "artist-1", artistName: "The Beatles", trackCount: 1 },
             ],
             totalTracks: 18,
           },
@@ -183,11 +184,13 @@ test("duplicate groups from a successful lookup are shown", async () => {
       exact: [
         {
           normalizedName: "the beatles",
+          matchType: "exact",
           artists: [
             { id: "artist-1", name: "The Beatles", trackCount: 10, albumCount: 2 },
             { id: "artist-2", name: "Beatles", trackCount: 1, albumCount: 0 },
           ],
           totalTracks: 11,
+          totalAlbums: 2,
         },
       ],
       fuzzy: [],
@@ -212,11 +215,13 @@ test("merge these shows the chosen artist pair and can be confirmed", async () =
       exact: [
         {
           normalizedName: "the beatles",
+          matchType: "exact",
           artists: [
             { id: "artist-1", name: "The Beatles", trackCount: 10, albumCount: 2 },
             { id: "artist-2", name: "Beatles", trackCount: 1, albumCount: 0 },
           ],
           totalTracks: 11,
+          totalAlbums: 2,
         },
       ],
       fuzzy: [],
@@ -246,21 +251,23 @@ test("a later album group replaces the pair already shown in the merge dialog", 
         exact: [
           {
             normalizedName: "north album",
+            matchType: "exact",
             artistId: "artist-1",
             artistName: "Host",
             albums: [
-              { id: "album-north", name: "North Album", year: null, trackCount: 4 },
-              { id: "album-north-2", name: "North Album Copy", year: null, trackCount: 1 },
+              { id: "album-north", name: "North Album", year: null, artistId: "artist-1", artistName: "Host", trackCount: 4 },
+              { id: "album-north-2", name: "North Album Copy", year: null, artistId: "artist-1", artistName: "Host", trackCount: 1 },
             ],
             totalTracks: 5,
           },
           {
             normalizedName: "south album",
+            matchType: "exact",
             artistId: "artist-1",
             artistName: "Host",
             albums: [
-              { id: "album-south", name: "South Album", year: null, trackCount: 3 },
-              { id: "album-south-2", name: "South Album Copy", year: null, trackCount: 1 },
+              { id: "album-south", name: "South Album", year: null, artistId: "artist-1", artistName: "Host", trackCount: 3 },
+              { id: "album-south-2", name: "South Album Copy", year: null, artistId: "artist-1", artistName: "Host", trackCount: 1 },
             ],
             totalTracks: 4,
           },
