@@ -214,6 +214,33 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   });
 }
 
+type TrackOrderEntry = { id: string; position: number };
+
+/**
+ * Runtime type guard for the reorder payload. `JSON.parse` returns `unknown`
+ * (per `@epic-web/config/reset.d.ts`), so the parsed value is narrowed here
+ * rather than force-cast. Rejects non-arrays, empty arrays, entries with a
+ * missing/empty `id`, non-integer or negative `position`, and duplicate
+ * positions — before anything is written to the database.
+ */
+function isTrackOrderData(value: unknown): value is TrackOrderEntry[] {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  for (const entry of value) {
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      typeof (entry as { id?: unknown }).id !== "string" ||
+      ((entry as { id?: unknown }).id as string).length === 0 ||
+      !Number.isInteger((entry as { position?: unknown }).position) ||
+      ((entry as { position?: unknown }).position as number) < 0
+    ) {
+      return false;
+    }
+  }
+  const positions = value.map((entry) => (entry as { position: number }).position);
+  return new Set(positions).size === value.length;
+}
+
 export async function action({ request, params }: Route.ActionArgs) {
   const userId = await requireUserId(request);
   const formData = await request.formData();
@@ -330,40 +357,9 @@ export async function action({ request, params }: Route.ActionArgs) {
       return data({ error: "Track order is required" }, { status: 400 });
     }
 
+    let parsed: unknown;
     try {
-      const orderData = JSON.parse(trackOrder) as Array<{ id: string; position: number }>;
-
-      // Update all track positions in a transaction
-      await prisma.$transaction(
-        orderData.map(({ id, position }) =>
-          prisma.userPlaylistTrack.update({
-            where: {
-              id: id,
-              playlist: {
-                ownerId: userId,
-                id: params.playlistId,
-              },
-            },
-            data: { position },
-          }),
-        ),
-      );
-
-      await bumpUserPlaylistUpdatedAt({
-        playlistId: params.playlistId,
-        userId,
-      });
-
-      return data(
-        { success: true, message: "Tracks reordered successfully" },
-        {
-          headers: await createToastHeaders({
-            title: "Success",
-            description: "Tracks reordered successfully",
-            type: "success",
-          }),
-        },
-      );
+      parsed = JSON.parse(trackOrder);
     } catch {
       return data(
         { error: "Invalid track order data" },
@@ -377,6 +373,57 @@ export async function action({ request, params }: Route.ActionArgs) {
         },
       );
     }
+
+    // Validate before writing: every entry must carry a non-empty string id and
+    // a non-negative integer position, with no duplicate positions. A malformed
+    // payload must not be able to write negative/duplicate positions to the
+    // caller's own playlist.
+    if (!isTrackOrderData(parsed)) {
+      return data(
+        { error: "Invalid track order data" },
+        {
+          status: 400,
+          headers: await createToastHeaders({
+            title: "Error",
+            description: "Invalid track order data",
+            type: "error",
+          }),
+        },
+      );
+    }
+
+    // Update all track positions in a transaction. DB errors are NOT caught
+    // here — they propagate as 500 rather than being masked as a 400.
+    await prisma.$transaction(
+      parsed.map(({ id, position }) =>
+        prisma.userPlaylistTrack.update({
+          where: {
+            id,
+            playlist: {
+              ownerId: userId,
+              id: params.playlistId,
+            },
+          },
+          data: { position },
+        }),
+      ),
+    );
+
+    await bumpUserPlaylistUpdatedAt({
+      playlistId: params.playlistId,
+      userId,
+    });
+
+    return data(
+      { success: true, message: "Tracks reordered successfully" },
+      {
+        headers: await createToastHeaders({
+          title: "Success",
+          description: "Tracks reordered successfully",
+          type: "success",
+        }),
+      },
+    );
   }
 
   if (intent === "remove-track") {

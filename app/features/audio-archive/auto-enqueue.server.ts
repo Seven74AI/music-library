@@ -7,6 +7,8 @@
  */
 
 import { chunkArray } from "#app/utils/chunk-array";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
+import { type Prisma } from "#prisma/client.js";
 import { scheduleQueueTick } from "./worker.server.ts";
 
 /**
@@ -14,12 +16,18 @@ import { scheduleQueueTick } from "./worker.server.ts";
  *
  * - Creates a new pending ArchiveJob if none exists for this track
  * - Silently skips if a job already exists (unique constraint on trackId)
- *   — this handles re-syncs gracefully
+ *   — this handles re-syncs gracefully (Decision #18)
+ * - Re-throws any other error (transient DB failures must not silently drop
+ *   a track from the archive queue — that would leave it permanently
+ *   un-archived with zero observability)
  *
  * @param tx - Prisma transaction client
  * @param trackId - Track ID to enqueue for archiving
  */
-export async function enqueueArchiveJob(tx: any, trackId: string): Promise<void> {
+export async function enqueueArchiveJob(
+  tx: Prisma.TransactionClient,
+  trackId: string,
+): Promise<void> {
   try {
     await tx.archiveJob.create({
       data: {
@@ -29,10 +37,14 @@ export async function enqueueArchiveJob(tx: any, trackId: string): Promise<void>
       },
     });
     scheduleQueueTick();
-  } catch {
+  } catch (error) {
     // Unique constraint violation — job already exists for this track.
     // Silently skip: the existing job (pending/processing/completed/failed)
     // should not be disrupted by a re-import.
+    if (!isUniqueConstraintError(error)) {
+      console.error(`Failed to enqueue archive job for track ${trackId}:`, error);
+      throw error;
+    }
   }
 }
 
@@ -47,24 +59,27 @@ export async function enqueueArchiveJob(tx: any, trackId: string): Promise<void>
  * @param tx - Prisma transaction client
  * @param trackIds - Track IDs to enqueue for archiving
  */
-export async function enqueueArchiveJobs(tx: any, trackIds: string[]): Promise<void> {
+export async function enqueueArchiveJobs(
+  tx: Prisma.TransactionClient,
+  trackIds: string[],
+): Promise<void> {
   const uniqueTrackIds = [...new Set(trackIds)];
   if (uniqueTrackIds.length === 0) return;
 
+  const existingTrackIds = new Set<string>();
+  // Chunked IN queries to stay under SQLite bind-parameter limit
+  for (const idChunk of chunkArray(uniqueTrackIds)) {
+    const existing = await tx.archiveJob.findMany({
+      where: { trackId: { in: idChunk } },
+      select: { trackId: true },
+    });
+    for (const job of existing) existingTrackIds.add(job.trackId);
+  }
+
+  const toCreate = uniqueTrackIds.filter((id) => !existingTrackIds.has(id));
+  if (toCreate.length === 0) return;
+
   try {
-    const existingTrackIds = new Set<string>();
-    // Chunked IN queries to stay under SQLite bind-parameter limit
-    for (const idChunk of chunkArray(uniqueTrackIds)) {
-      const existing: Array<{ trackId: string }> = await tx.archiveJob.findMany({
-        where: { trackId: { in: idChunk } },
-        select: { trackId: true },
-      });
-      for (const job of existing) existingTrackIds.add(job.trackId);
-    }
-
-    const toCreate = uniqueTrackIds.filter((id) => !existingTrackIds.has(id));
-    if (toCreate.length === 0) return;
-
     await tx.archiveJob.createMany({
       data: toCreate.map((trackId) => ({
         trackId,
@@ -73,9 +88,14 @@ export async function enqueueArchiveJobs(tx: any, trackIds: string[]): Promise<v
       })),
     });
     scheduleQueueTick();
-  } catch {
-    // Best-effort: existing jobs (pending/processing/completed/failed)
-    // should not be disrupted by a re-import, and sync must not fail
-    // because of archive enqueueing.
+  } catch (error) {
+    // A concurrent sync can still race the findMany and hit the unique
+    // constraint on createMany. That is the only error we may swallow —
+    // everything else (transient DB failure) must propagate so the caller
+    // can observe it instead of silently leaving tracks un-archived.
+    if (!isUniqueConstraintError(error)) {
+      console.error(`Failed to enqueue archive jobs for ${toCreate.length} tracks:`, error);
+      throw error;
+    }
   }
 }

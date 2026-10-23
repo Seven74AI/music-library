@@ -311,6 +311,36 @@ describe("extractAudioMetadata", () => {
     expect(result.lyrics).toBe("Verse 1\nVerse 2\nChorus");
   });
 
+  test("narrows lyrics entries to strings, skipping odd tag shapes without throwing", async () => {
+    const { parseBuffer } = await import("music-metadata");
+
+    const mockMetadata = {
+      format: { container: "mp3" },
+      common: {
+        title: "Test Song",
+        artist: "Test Artist",
+        lyrics: [
+          "Plain text line",
+          { text: "Tag text line" },
+          null, // odd shape: null entry
+          { text: 12345 }, // odd shape: non-string .text
+          { contentType: 1, timeStampFormat: 2, syncText: [] }, // odd shape: no .text
+        ],
+      },
+      native: {},
+      quality: { warnings: [] },
+    } as unknown as IAudioMetadata;
+
+    vi.mocked(parseBuffer).mockResolvedValue(mockMetadata);
+
+    const buffer = Buffer.from("fake audio data");
+    const result = await extractAudioMetadata(buffer);
+
+    // String entries and string `.text` entries survive; null / non-string
+    // entries are dropped rather than throwing mid-map.
+    expect(result.lyrics).toBe("Plain text line\nTag text line");
+  });
+
   test("handles missing optional fields gracefully", async () => {
     const { parseBuffer } = await import("music-metadata");
 

@@ -6,6 +6,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -286,7 +287,7 @@ export function SortableTrackList({
     }
   }
 
-  function handleDragStart(event: any) {
+  function handleDragStart(event: DragStartEvent) {
     const activeId = event.active.id;
     const activeTrack = items.find((item) => item.id === activeId);
     if (activeTrack) {

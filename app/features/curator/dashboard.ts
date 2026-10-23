@@ -1,4 +1,5 @@
 import { type CuratorBadgeSummary } from "./badges.ts";
+import { isMergeComment, isSplitComment } from "./activity-comments.ts";
 
 export const DASHBOARD_METRICS_TTL_MS = 5 * 60 * 1000;
 export const DASHBOARD_METRICS_CACHE_KEY = "curator-dashboard-metrics:v1";
@@ -133,9 +134,8 @@ export function assignRanks<T extends { editCount: number }>(
 }
 
 export function activityAction(comment: string | null | undefined): ActivityAction {
-  const text = comment ?? "";
-  if (text.startsWith("SPLIT:") || text.startsWith("CREATED via split")) return "split";
-  if (text.startsWith("Merged into")) return "merged";
+  if (isSplitComment(comment)) return "split";
+  if (isMergeComment(comment)) return "merged";
   return "edited";
 }
 
