@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 
 // Create a mock archiveJob object for the Prisma tx mock
 const mockArchiveJob = {
@@ -64,6 +65,7 @@ describe("enqueueArchiveJob", () => {
       const tx = { archiveJob: mockArchiveJob };
       // Transient DB failures must not be swallowed — a track would go
       // permanently un-archived with no observability (Decision #18).
+      consoleError.mockImplementation(() => {});
       await expect(enqueueArchiveJob(tx as any, "track-1")).rejects.toThrow(
         "Database connection lost",
       );
@@ -145,6 +147,7 @@ describe("enqueueArchiveJobs (batch)", () => {
     mockArchiveJob.findMany.mockRejectedValue(new Error("Database connection lost"));
 
     const tx = { archiveJob: mockArchiveJob };
+    consoleError.mockImplementation(() => {});
     await expect(enqueueArchiveJobs(tx as any, ["track-1"])).rejects.toThrow(
       "Database connection lost",
     );
