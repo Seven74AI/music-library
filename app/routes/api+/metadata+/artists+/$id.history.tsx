@@ -50,20 +50,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw data({ error: "Artist ID is required" }, { status: 400 });
   }
 
-  // Current artist state also serves as the existence check (→ 404 if missing).
-  const currentArtist = await prisma.artist.findUnique({
+  // Verify artist exists
+  const artist = await prisma.artist.findUnique({
     where: { id: artistId },
-    select: {
-      name: true,
-      bio: true,
-      genre: true,
-      country: true,
-      imageUrl: true,
-      website: true,
-    },
+    select: { id: true },
   });
 
-  if (!currentArtist) {
+  if (!artist) {
     throw data({ error: "Artist not found" }, { status: 404 });
   }
 
@@ -81,6 +74,23 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       },
     },
   });
+
+  // Current artist state (existence verified above; null only if deleted mid-request).
+  const currentArtist = await prisma.artist.findUnique({
+    where: { id: artistId },
+    select: {
+      name: true,
+      bio: true,
+      genre: true,
+      country: true,
+      imageUrl: true,
+      website: true,
+    },
+  });
+
+  if (!currentArtist) {
+    throw data({ error: "Artist not found" }, { status: 404 });
+  }
 
   // Compute changes for each edit, walking from most recent to oldest: the
   // newest edit is compared against the current artist, then each older edit is

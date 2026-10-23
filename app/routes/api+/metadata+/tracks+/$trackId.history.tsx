@@ -82,7 +82,32 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw data({ error: "Track ID is required" }, { status: 400 });
   }
 
-  // Current track state also serves as the existence check (→ 404 if missing).
+  // Verify track exists
+  const track = await prisma.track.findUnique({
+    where: { id: trackId },
+    select: { id: true },
+  });
+
+  if (!track) {
+    throw data({ error: "Track not found" }, { status: 404 });
+  }
+
+  // Get all edits for this track, ordered by most recent first
+  const edits = await prisma.trackEdit.findMany({
+    where: { trackId },
+    orderBy: { editedAt: "desc" },
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          name: true,
+        },
+      },
+    },
+  });
+
+  // Current track state (existence verified above; null only if deleted mid-request).
   const currentTrack = await prisma.track.findUnique({
     where: { id: trackId },
     select: {
@@ -108,21 +133,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (!currentTrack) {
     throw data({ error: "Track not found" }, { status: 404 });
   }
-
-  // Get all edits for this track, ordered by most recent first
-  const edits = await prisma.trackEdit.findMany({
-    where: { trackId },
-    orderBy: { editedAt: "desc" },
-    include: {
-      user: {
-        select: {
-          id: true,
-          username: true,
-          name: true,
-        },
-      },
-    },
-  });
 
   // Compute changes for each edit, walking from most recent to oldest: the
   // newest edit is compared against the current track, then each older edit is
