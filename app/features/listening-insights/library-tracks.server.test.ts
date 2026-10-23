@@ -399,4 +399,73 @@ describe("listLibraryUserTracks most-played sorts", () => {
     });
     expect(countsByTitle(mostPlayed.userTracks)).toEqual({ Noted: 2, Plain: 0 });
   });
+
+  test("mostPlayedEver pagination does not drift when a play lands between pages", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+
+    // Six tracks with distinct, descending lifetime counts (T0=6 … T5=1).
+    const tracks: Array<{ id: string }> = [];
+    for (let i = 0; i < 6; i++) {
+      const track = await createTrack(`T${i}`);
+      tracks.push({ id: track.id });
+      await addToLibrary(user.id, track.id, new Date(`2026-01-0${i + 1}T00:00:00.000Z`));
+      await seedCompleted(user.id, track.id, new Date("2025-06-01T12:00:00.000Z"), 6 - i);
+    }
+
+    const page1 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedEver",
+      limit: 3,
+    });
+    expect(page1.userTracks.map((ut) => ut.track.title)).toEqual(["T0", "T1", "T2"]);
+    expect(page1.pagination.hasNext).toBe(true);
+
+    // A play lands between pages: T2 (the cursor) gains two more completes,
+    // jumping it up the ranking (now tied with T0 at 6). Offset pagination
+    // re-serves T1 here; the frozen keyset cursor must not.
+    await seedCompleted(user.id, tracks[2]!.id, new Date("2025-06-01T12:00:00.000Z"), 2);
+
+    const page2 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedEver",
+      limit: 3,
+      cursor: page1.pagination.nextCursor,
+    });
+
+    const page1Ids = new Set(page1.userTracks.map((ut) => ut.id));
+    const page2Ids = page2.userTracks.map((ut) => ut.id);
+    for (const id of page1Ids) {
+      expect(page2Ids).not.toContain(id);
+    }
+    expect(page2.userTracks.map((ut) => ut.track.title)).toEqual(["T3", "T4", "T5"]);
+    expect(page2.pagination.hasNext).toBe(false);
+  });
+
+  test("mostPlayedEver respects hasAudioOnly filter", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const playable = await createTrack("Playable");
+    const silent = await createTrack("Silent");
+    await addToLibrary(user.id, playable.id, new Date("2026-01-01T00:00:00.000Z"));
+    await addToLibrary(user.id, silent.id, new Date("2026-01-02T00:00:00.000Z"));
+    await prisma.trackAudioFile.create({
+      data: {
+        trackId: playable.id,
+        serviceId: playable.serviceId,
+        objectKey: `audio/${playable.id}.mp3`,
+        format: "mp3",
+      },
+    });
+
+    await seedCompleted(user.id, silent.id, new Date("2025-06-01T12:00:00.000Z"), 5);
+    await seedCompleted(user.id, playable.id, new Date("2025-06-01T12:00:00.000Z"), 1);
+
+    const { userTracks } = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedEver",
+      hasAudioOnly: true,
+      limit: 10,
+    });
+
+    expect(userTracks.map((ut) => ut.track.title)).toEqual(["Playable"]);
+  });
 });
