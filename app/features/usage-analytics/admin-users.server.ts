@@ -36,11 +36,12 @@ async function recordModeration(
   target: { id: string; username: string },
   actorUserId: string | null | undefined,
   metadata: Record<string, string | number | boolean | null> = {},
+  targetUserId: string | null = target.id,
 ) {
   await recordSecurityEvent({
     eventType,
     userId: actorUserId ?? null,
-    targetUserId: target.id,
+    targetUserId,
     metadata: { username: target.username, ...metadata },
   });
 }
@@ -333,9 +334,15 @@ export async function deleteUserAsAdmin({
     return forbidden("Cannot delete the last admin");
   }
 
-  await recordModeration(SECURITY_EVENT_TYPES.accountDeleted, target, actorUserId, {
-    action: "delete",
-  });
+  // The user no longer exists after the delete, so the audit event records a
+  // null targetUser (FK is onDelete:SetNull) and keeps the username in metadata.
+  await recordModeration(
+    SECURITY_EVENT_TYPES.accountDeleted,
+    target,
+    actorUserId,
+    { action: "delete" },
+    null,
+  );
   return { ok: true };
 }
 
