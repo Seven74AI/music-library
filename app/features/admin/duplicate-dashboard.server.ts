@@ -109,30 +109,48 @@ async function loadExactGroups(limit: number): Promise<DuplicateGroup[]> {
     LIMIT ${limit}
   `;
 
-  const groups: DuplicateGroup[] = [];
-  for (const { contentHash } of duplicateHashes) {
-    const audioFiles = await prisma.trackAudioFile.findMany({
-      where: { contentHash },
-      include: {
-        track: {
-          select: {
-            id: true,
-            title: true,
-            artist: {
-              select: { name: true },
-            },
+  const hashes = duplicateHashes.map(({ contentHash }) => contentHash);
+  if (hashes.length === 0) return [];
+
+  // Single batched fetch instead of one `findMany` per hash. Grouping back
+  // into per-hash lists happens in-memory; the global `createdAt` order keeps
+  // each group's files oldest-first, matching the previous per-hash query.
+  const audioFiles = await prisma.trackAudioFile.findMany({
+    where: { contentHash: { in: hashes } },
+    include: {
+      track: {
+        select: {
+          id: true,
+          title: true,
+          artist: {
+            select: { name: true },
           },
         },
       },
-      orderBy: { createdAt: "asc" },
-    });
+    },
+    orderBy: { createdAt: "asc" },
+  });
 
-    if (audioFiles.length > 1) {
+  const byHash = new Map<string, typeof audioFiles>();
+  for (const audioFile of audioFiles) {
+    const hash = audioFile.contentHash;
+    if (!hash) continue;
+    const group = byHash.get(hash);
+    if (group) group.push(audioFile);
+    else byHash.set(hash, [audioFile]);
+  }
+
+  // Iterate `hashes` (already ordered by duplicate count DESC) so the groups
+  // keep the same ordering the raw GROUP BY produced.
+  const groups: DuplicateGroup[] = [];
+  for (const contentHash of hashes) {
+    const files = byHash.get(contentHash) ?? [];
+    if (files.length > 1) {
       groups.push({
         id: contentHash,
         type: "exact",
         contentHash,
-        tracks: audioFiles.map((audioFile) => ({
+        tracks: files.map((audioFile) => ({
           trackId: audioFile.track.id,
           title: audioFile.track.title,
           artist: audioFile.track.artist.name,
