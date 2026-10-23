@@ -1,5 +1,15 @@
 import { prisma } from "#app/utils/db.server.ts";
 
+/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 export type AddTrackToUserPlaylistInput = {
   userId: string;
   playlistId: string;
@@ -91,21 +101,30 @@ export async function createUserPlaylist({
     };
   }
 
-  const playlist = await prisma.userPlaylist.create({
-    data: {
-      title: trimmedTitle,
-      description: description?.trim() || null,
-      ownerId: userId,
-    },
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      _count: { select: { tracks: true } },
-    },
-  });
+  try {
+    const playlist = await prisma.userPlaylist.create({
+      data: {
+        title: trimmedTitle,
+        description: description?.trim() || null,
+        ownerId: userId,
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        _count: { select: { tracks: true } },
+      },
+    });
 
-  return { status: "success", playlist };
+    return { status: "success", playlist };
+  } catch (error) {
+    // The DB unique index (ownerId, lower(trim(title))) is the atomic guard:
+    // a concurrent create with a case-insensitively equal title throws P2002.
+    if (isUniqueConstraintViolation(error)) {
+      return { status: "duplicate_title", existingTitle: trimmedTitle };
+    }
+    throw error;
+  }
 }
 
 export async function createUserPlaylistWithTrack({
@@ -130,14 +149,23 @@ export async function createUserPlaylistWithTrack({
     };
   }
 
-  const playlist = await prisma.userPlaylist.create({
-    data: {
-      title: trimmedTitle,
-      description: null,
-      ownerId: userId,
-    },
-    select: { id: true, title: true, description: true },
-  });
+  let playlist: { id: string; title: string; description: string | null };
+  try {
+    playlist = await prisma.userPlaylist.create({
+      data: {
+        title: trimmedTitle,
+        description: null,
+        ownerId: userId,
+      },
+      select: { id: true, title: true, description: true },
+    });
+  } catch (error) {
+    // Atomic guard via the DB unique index on (ownerId, lower(trim(title))).
+    if (isUniqueConstraintViolation(error)) {
+      return { status: "duplicate_title", existingTitle: trimmedTitle };
+    }
+    throw error;
+  }
 
   const addResult = await addTrackToUserPlaylist({
     userId,
