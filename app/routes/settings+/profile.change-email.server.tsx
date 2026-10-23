@@ -72,7 +72,7 @@ export async function handleVerification({ request, submission }: VerifyFunction
 
   void sendEmail({
     to: preUpdateUser.email,
-    subject: "Epic Stack email changed",
+    subject: "Music Library email changed",
     react: <EmailChangeNoticeEmail userId={user.id} />,
   });
 

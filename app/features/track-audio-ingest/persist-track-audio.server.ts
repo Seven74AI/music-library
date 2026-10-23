@@ -148,10 +148,10 @@ export async function prepareTrackAudioUpload(
   // Step 1: Calculate content hash for deduplication
   const contentHash = await calculateAudioHash(buffer);
 
-  // Step 2: Generate audio fingerprint for perceptual similarity
-  const audioFingerprint = await generateAudioFingerprint(buffer);
-
-  // Step 3: Check if audio with same hash already exists (exact duplicate)
+  // Step 2: Check if audio with same hash already exists (exact duplicate).
+  // Do this BEFORE fingerprint generation — fingerprinting is the CPU-expensive
+  // audio analysis, and for an exact duplicate it would be computed and then
+  // discarded. Only non-duplicates need a perceptual-similarity fingerprint.
   const existingByHash = await prisma.trackAudioFile.findFirst({
     where: {
       contentHash,
@@ -173,6 +173,10 @@ export async function prepareTrackAudioUpload(
       },
     },
   });
+
+  // Step 3: Generate audio fingerprint for perceptual similarity (skipped for
+  // exact duplicates, which never reach the similarity check below).
+  const audioFingerprint = existingByHash ? null : await generateAudioFingerprint(buffer);
 
   // Step 4: Check for similar audio by fingerprint (if fingerprint was generated)
   let similarByFingerprint: {
@@ -315,8 +319,7 @@ export async function createTrackAudioFile(
   prepared: PreparedTrackAudio,
   db: TrackAudioFileDb = prisma,
 ): Promise<{ id: string; trackId: string; objectKey: string }> {
-  const { trackId, serviceId = null, fileName, extension, metadata, uploadedBy, buffer } =
-    params;
+  const { trackId, serviceId = null, fileName, extension, metadata, uploadedBy, buffer } = params;
 
   const format = metadata.format || "mp3";
 

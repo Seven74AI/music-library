@@ -9,9 +9,13 @@
  */
 
 // YouTube API configuration constants
+import { YOUTUBE_SERVICE } from "#app/constants/services";
+
 export const YOUTUBE_API_BASE_URL = "https://youtube.googleapis.com/youtube/v3";
 export const YOUTUBE_OAUTH_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
-export const YOUTUBE_SERVICE_ID = "clnf2zvli0000pcou3zzzzome";
+// Single source of truth is YOUTUBE_SERVICE.ID (app/constants/services.ts) —
+// the seed and tests reference the name-based constant so a reseeded id can't drift.
+export const YOUTUBE_SERVICE_ID = YOUTUBE_SERVICE.ID;
 
 // API endpoints
 export const YOUTUBE_ENDPOINTS = {

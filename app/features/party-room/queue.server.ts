@@ -375,6 +375,28 @@ export async function recordRoomPlayEvent({
     throw new PartyRoomError("forbidden", "Only the Host/speaker may record room play events", 403);
   }
 
+  // A room_play event must describe a track that is actually on this room's
+  // queue. Otherwise a Host could mint play events for arbitrary tracks.
+  const queued = await prisma.roomQueueItem.findFirst({
+    where: { roomId, trackId },
+    select: { id: true },
+  });
+  if (!queued) {
+    throw new PartyRoomError("forbidden", "Track is not on this room's queue", 400);
+  }
+
+  // Dedupe by playId: a play session emits start + complete, but a retried or
+  // duplicated client call must not create duplicate events for the same playId.
+  if (playId) {
+    const existing = await prisma.roomPlayEvent.findFirst({
+      where: { roomId, playId, type },
+      select: { id: true, type: true, trackId: true, createdAt: true },
+    });
+    if (existing) {
+      return existing;
+    }
+  }
+
   const event = await prisma.roomPlayEvent.create({
     data: {
       roomId,

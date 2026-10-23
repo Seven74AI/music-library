@@ -261,7 +261,8 @@ model CoverImage {
   tracks      Track[]
   albums      Album[]
 
-  @@index([contentHash])
+  // contentHash is already @unique — the unique index serves equality lookups,
+  // so a second non-unique index would only double write cost.
 }
 
 model Album {
@@ -332,7 +333,7 @@ model Track {
   genres                  Genre[]       @relation("TrackGenres")
 
   @@unique([serviceId, externalId])
-  @@index([serviceId, externalId])
+  // serviceId+externalId is already @@unique — the unique index serves lookups.
   @@index([updatedAt])
   @@index([createdAt])
   @@index([albumId])
@@ -410,7 +411,7 @@ model Service {
   tracks      Track[]
   audioFiles  TrackAudioFile[]
 
-  @@index([name])
+  // name is already @unique — the unique index serves equality lookups.
 }
 
 model UserTrack {
