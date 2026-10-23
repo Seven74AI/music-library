@@ -51,8 +51,6 @@ export default function GuestSearchTab() {
   const [loading, setLoading] = useState(() => initialQuery.trim().length > 0);
   const requestRef = useRef(0);
   const immediateRef = useRef(true);
-  const searchParamsRef = useRef(searchParams);
-  searchParamsRef.current = searchParams;
 
   const returnState: RoomSearchReturnState = { q: query.trim(), type };
 
@@ -76,14 +74,20 @@ export default function GuestSearchTab() {
       window.clearTimeout(handle);
       requestRef.current += 1;
     };
-    // writeSearchParams and runSearch close over the latest code via this effect.
+    // runSearch and writeSearchParams close over the latest `code` and
+    // `searchParams` from this effect's render. The exhaustive-deps rule flags
+    // the component-scoped helpers; `searchParams` is only ever mutated by
+    // writeSearchParams itself, so reading it from the closure is safe.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, type, code]);
 
   function writeSearchParams(q: string, nextType: RoomBrowseType) {
-    const current = searchParamsRef.current;
-    const currentQ = current.get("q") ?? "";
-    const currentType = parseRoomBrowseType(current.get("type"));
+    // Compare against the current URL params and skip the navigation when they
+    // already match. (setSearchParams' functional updater always navigates, so
+    // a no-op check inside it would still trigger a redundant replace-navigation
+    // and re-run the route loader.)
+    const currentQ = searchParams.get("q") ?? "";
+    const currentType = parseRoomBrowseType(searchParams.get("type"));
     if (currentQ === q && currentType === nextType) return;
     const params = new URLSearchParams();
     if (q) params.set("q", q);

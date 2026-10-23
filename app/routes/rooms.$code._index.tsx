@@ -15,7 +15,7 @@ import {
   readGuestToken,
   serializeGuestTokenCookie,
 } from "#app/features/party-room/guest-token.server.ts";
-import { parseRoomCodeInput } from "#app/features/party-room/codes.ts";
+import { normalizeRoomCode, parseRoomCodeInput } from "#app/features/party-room/codes.ts";
 import { resolveRoomParticipantByCode } from "#app/features/party-room/participant-seat.server.ts";
 import { joinRoom, PartyRoomError } from "#app/features/party-room/party-room.server.ts";
 import { Button } from "#app/components/ui/button.tsx";
@@ -31,7 +31,7 @@ export type GuestRoomOutletContext = {
 };
 
 export async function loader({ request, params }: { request: Request; params: { code?: string } }) {
-  const code = parseRoomCodeInput(params.code ?? "") ?? (params.code ?? "").toUpperCase();
+  const code = parseRoomCodeInput(params.code ?? "") ?? normalizeRoomCode(params.code ?? "");
   const participant = await resolveRoomParticipantByCode(request, code);
   return { code, seated: Boolean(participant), participant };
 }
@@ -41,7 +41,7 @@ export async function clientAction(args: Route.ClientActionArgs) {
 }
 
 export async function action({ request, params }: { request: Request; params: { code?: string } }) {
-  const code = parseRoomCodeInput(params.code ?? "") ?? (params.code ?? "").toUpperCase();
+  const code = parseRoomCodeInput(params.code ?? "") ?? normalizeRoomCode(params.code ?? "");
   const formData = await request.formData();
   const displayName = String(formData.get("displayName") ?? "");
   const guestToken = await readGuestToken(request);

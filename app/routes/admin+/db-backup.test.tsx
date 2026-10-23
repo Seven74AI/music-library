@@ -10,6 +10,7 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { createSessionCookie } from "#tests/api-admin-test-utils.ts";
 import { default as DbBackupRoute, loader, action } from "./db-backup.tsx";
 
 vi.mock("#app/utils/litefs.server.ts", async (importOriginal) => {
@@ -126,4 +127,34 @@ test("backup-now action returns uploaded keys", async () => {
       : (result as { ok: boolean; dailyKey?: string });
   expect(body.ok).toBe(true);
   expect(body.dailyKey).toBe("backups/sqlite/daily/2026-09-28.db");
+});
+
+test("loader denies non-admin users with 403", async () => {
+  const { cookie } = await createSessionCookie();
+  const request = new Request("http://localhost/admin/db-backup", { headers: { cookie } });
+
+  await expect(
+    loader({ request, params: {}, context: {} as never } as never),
+  ).rejects.toMatchObject({
+    init: { status: 403 },
+    data: { requiredRole: "admin" },
+  });
+});
+
+test("backup-now action denies non-admin users with 403", async () => {
+  const { cookie } = await createSessionCookie();
+  const formData = new FormData();
+  formData.set("intent", "backup-now");
+  const request = new Request("http://localhost/admin/db-backup", {
+    method: "POST",
+    headers: { cookie },
+    body: formData,
+  });
+
+  await expect(
+    action({ request, params: {}, context: {} as never } as never),
+  ).rejects.toMatchObject({
+    init: { status: 403 },
+    data: { requiredRole: "admin" },
+  });
 });

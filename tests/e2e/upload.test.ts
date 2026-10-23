@@ -64,16 +64,6 @@ test.describe("Local Upload Service", { tag: "@slow" }, () => {
     await expect(page.getByText(/mp3.*flac.*wav/i)).toBeVisible();
   });
 
-  test("displays error message on invalid file as admin", async ({ page, loginAsAdmin }) => {
-    await loginAsAdmin();
-
-    await page.goto("/music/services/local/upload");
-
-    // This test would require mocking the API response
-    // For now, we verify the error display structure exists
-    // Error container should exist but may be hidden initially
-  });
-
   test("upload page has required UI elements as admin", async ({ page, loginAsAdmin }) => {
     await loginAsAdmin();
 

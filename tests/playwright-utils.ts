@@ -15,7 +15,18 @@ export const testPrisma = new PrismaClient({
     url: `file:${TEST_DATABASE_PATH}`,
   }),
 });
-void testPrisma.$connect();
+// Surface a connection failure as a clear test-setup error instead of an
+// unhandled rejection (fire-and-forget `$connect()` would reject silently).
+// Note: the handler logs and returns (no re-throw) so the promise returned by
+// `.catch()` resolves — re-throwing here would reject it unobserved and
+// recreate the very unhandled-rejection this guards against.
+testPrisma.$connect().catch((error: unknown) => {
+  console.error(
+    `Failed to connect to test database at ${TEST_DATABASE_PATH}. ` +
+      `Ensure the E2E test database is initialized (npm run test:e2e:run sets it up).`,
+    error,
+  );
+});
 
 export * from "./db-utils.ts";
 

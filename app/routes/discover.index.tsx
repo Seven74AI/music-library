@@ -205,6 +205,9 @@ export default function DiscoverIndexRoute({ loaderData }: Route.ComponentProps)
         params.set("dir", direction);
       }
       const res = await fetch(`/api/discover-tracks?${params}`);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch discover tracks: ${res.status}`);
+      }
       const json = (await res.json()) as {
         tracks: DiscoverTrack[];
         pagination: { hasNext: boolean; nextCursor: string | null };

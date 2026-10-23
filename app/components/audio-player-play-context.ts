@@ -22,32 +22,31 @@ import {
 } from "#app/utils/playlist-track-sort.ts";
 import { parseSortDirection, type SortDirection } from "#app/utils/sort-direction.ts";
 
-export type PlayContext =
-  | "library"
-  | "playlist"
-  | "artist"
-  | "album"
-  | "track"
-  | "discover"
-  | "onRepeatSnapshot";
-
-export interface PlaylistContext {
-  type: PlayContext;
-  playlistId?: string;
-  artistId?: string;
-  albumId?: string;
-  trackId?: string;
-  snapshotId?: string;
-  cursor?: string;
-  /** Active playlist track sort; only meaningful for playlist context. */
-  sort?: PlaylistTrackSortOption;
-  /** Active library sort; only meaningful for library context. */
-  librarySort?: LibrarySortOption;
-  /** Active Discover sort; only meaningful for discover context. */
-  discoverSort?: DiscoverSortOption;
-  /** Asc/desc for the active library or playlist sort. */
-  sortDirection?: SortDirection;
-}
+/**
+ * Discriminated union keyed on `type` instead of a 10-field optional data
+ * clump: each variant carries only the fields that are meaningful for it, so
+ * narrowing on `type` (in isSamePlayContext / playlistContextFromJson /
+ * toQueueSpineContext / playContextToJson) type-checks the correct fields and
+ * rejects cross-variant access.
+ */
+export type PlaylistContext =
+  | { type: "library"; librarySort?: LibrarySortOption; sortDirection?: SortDirection }
+  | {
+      type: "playlist";
+      playlistId?: string;
+      sort?: PlaylistTrackSortOption;
+      sortDirection?: SortDirection;
+    }
+  | { type: "artist"; artistId?: string }
+  | { type: "album"; albumId?: string }
+  | { type: "track"; trackId?: string }
+  | { type: "music" }
+  | {
+      type: "discover";
+      discoverSort?: DiscoverSortOption;
+      sortDirection?: SortDirection;
+    }
+  | { type: "onRepeatSnapshot"; snapshotId?: string };
 
 export function playlistSortOrCustom(
   sort: PlaylistTrackSortOption | undefined,
@@ -78,35 +77,47 @@ export function librarySortDirectionOrDefault(
 
 export function isSamePlayContext(a: PlaylistContext | null, b: PlaylistContext): boolean {
   if (!a || a.type !== b.type) return false;
-  if (a.playlistId !== b.playlistId) return false;
-  if (a.artistId !== b.artistId) return false;
-  if (a.albumId !== b.albumId) return false;
-  if (a.trackId !== b.trackId) return false;
-  if (a.snapshotId !== b.snapshotId) return false;
-  if (a.type === "playlist") {
-    return (
-      playlistSortOrCustom(a.sort) === playlistSortOrCustom(b.sort) &&
-      playlistSortDirectionOrDefault(a.sort, a.sortDirection) ===
-        playlistSortDirectionOrDefault(b.sort, b.sortDirection)
-    );
+  switch (a.type) {
+    case "playlist": {
+      const pb = b as Extract<PlaylistContext, { type: "playlist" }>;
+      return (
+        a.playlistId === pb.playlistId &&
+        playlistSortOrCustom(a.sort) === playlistSortOrCustom(pb.sort) &&
+        playlistSortDirectionOrDefault(a.sort, a.sortDirection) ===
+          playlistSortDirectionOrDefault(pb.sort, pb.sortDirection)
+      );
+    }
+    case "library": {
+      const lb = b as Extract<PlaylistContext, { type: "library" }>;
+      return (
+        librarySortOrDefault(a.librarySort) === librarySortOrDefault(lb.librarySort) &&
+        librarySortDirectionOrDefault(a.librarySort, a.sortDirection) ===
+          librarySortDirectionOrDefault(lb.librarySort, lb.sortDirection)
+      );
+    }
+    case "discover": {
+      const db = b as Extract<PlaylistContext, { type: "discover" }>;
+      const sortA = a.discoverSort ?? DEFAULT_DISCOVER_SORT;
+      const sortB = db.discoverSort ?? DEFAULT_DISCOVER_SORT;
+      return (
+        sortA === sortB &&
+        parseSortDirection(a.sortDirection, defaultDiscoverSortDirection(sortA)) ===
+          parseSortDirection(db.sortDirection, defaultDiscoverSortDirection(sortB))
+      );
+    }
+    case "artist":
+      return a.artistId === (b as Extract<PlaylistContext, { type: "artist" }>).artistId;
+    case "album":
+      return a.albumId === (b as Extract<PlaylistContext, { type: "album" }>).albumId;
+    case "track":
+      return a.trackId === (b as Extract<PlaylistContext, { type: "track" }>).trackId;
+    case "onRepeatSnapshot":
+      return (
+        a.snapshotId === (b as Extract<PlaylistContext, { type: "onRepeatSnapshot" }>).snapshotId
+      );
+    case "music":
+      return true;
   }
-  if (a.type === "library") {
-    return (
-      librarySortOrDefault(a.librarySort) === librarySortOrDefault(b.librarySort) &&
-      librarySortDirectionOrDefault(a.librarySort, a.sortDirection) ===
-        librarySortDirectionOrDefault(b.librarySort, b.sortDirection)
-    );
-  }
-  if (a.type === "discover") {
-    const sortA = a.discoverSort ?? DEFAULT_DISCOVER_SORT;
-    const sortB = b.discoverSort ?? DEFAULT_DISCOVER_SORT;
-    return (
-      sortA === sortB &&
-      parseSortDirection(a.sortDirection, defaultDiscoverSortDirection(sortA)) ===
-        parseSortDirection(b.sortDirection, defaultDiscoverSortDirection(sortB))
-    );
-  }
-  return true;
 }
 
 export function playlistContextFromJson(context: PlayContextJson | null): PlaylistContext | null {

@@ -31,9 +31,10 @@ export function parseGenreString(genreString: string | null): string[] {
     return [];
   }
 
-  // Split by common delimiters and clean up
+  // Split by common delimiters and clean up. Ampersand is deliberately NOT a
+  // delimiter: it appears inside genre names ("R&B", "Drum & Bass").
   const genres = genreString
-    .split(/[,;/&]/) // Split by comma, semicolon, slash, or ampersand
+    .split(/[,;/]/) // Split by comma, semicolon, or slash
     .map((g) => g.trim())
     .filter((g) => g.length > 0)
     .map((g) => {
