@@ -1,4 +1,5 @@
 import { prisma } from "./db.server.ts";
+import { type Prisma } from "#prisma/client.js";
 import {
   recordSecurityEvent,
   SECURITY_EVENT_TYPES,
@@ -203,9 +204,11 @@ export async function cleanupExpiredLocks(): Promise<number> {
 /**
  * Convert database lock to LockInfo
  */
-function toLockInfo(
-  lock: any & { user: { id: string; name: string | null; username: string } },
-): LockInfo {
+type EditLockWithUser = Prisma.EditLockGetPayload<{
+  include: { user: { select: { id: true; name: true; username: true } } };
+}>;
+
+function toLockInfo(lock: EditLockWithUser): LockInfo {
   return {
     id: lock.id,
     entityType: lock.entityType as EntityType,

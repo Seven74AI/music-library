@@ -1,25 +1,7 @@
-import { OFFLINE_COVERS_STORE, OFFLINE_DB_NAME, OFFLINE_DB_VERSION } from "./types.ts";
+import { OFFLINE_COVERS_STORE } from "./types.ts";
+import { openOfflineDatabase } from "./offline-database.client.ts";
 
 const coverUrlCache = new Map<string, string>();
-
-function openOfflineDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
-    request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains("tracks")) {
-        const store = db.createObjectStore("tracks", { keyPath: "trackId" });
-        store.createIndex("lastAccessedAt", "lastAccessedAt", { unique: false });
-        store.createIndex("isPinned", "isPinned", { unique: false });
-      }
-      if (!db.objectStoreNames.contains(OFFLINE_COVERS_STORE)) {
-        db.createObjectStore(OFFLINE_COVERS_STORE, { keyPath: "objectKey" });
-      }
-    };
-  });
-}
 
 export async function cacheCoverImage(objectKey: string, bytes: ArrayBuffer) {
   const db = await openOfflineDatabase();

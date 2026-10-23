@@ -26,6 +26,27 @@ export interface ImportTrackResult {
 }
 
 /**
+ * YouTube hosts we accept when parsing a URL. Host allow-listing is applied
+ * uniformly across every URL branch (`?v=`, `/embed/`, youtu.be) so a
+ * look-alike host cannot smuggle a video ID through.
+ */
+const ALLOWED_YOUTUBE_HOSTS = new Set([
+  "youtube.com",
+  "www.youtube.com",
+  "youtu.be",
+  "m.youtube.com",
+  "music.youtube.com",
+]);
+
+function isAllowedYouTubeHost(hostname: string): boolean {
+  return (
+    ALLOWED_YOUTUBE_HOSTS.has(hostname) ||
+    hostname.endsWith(".youtube.com") ||
+    hostname.endsWith(".youtu.be")
+  );
+}
+
+/**
  * Extract YouTube video ID from a URL or return the string as-is if it's
  * already a plain video ID.
  */
@@ -40,6 +61,7 @@ export function extractYouTubeVideoId(input: string): string | null {
   // Try to extract from various YouTube URL formats
   try {
     const url = new URL(trimmed);
+    if (!isAllowedYouTubeHost(url.hostname)) return null;
     // youtube.com/watch?v=VIDEO_ID
     if (url.searchParams.has("v")) {
       const v = url.searchParams.get("v");
