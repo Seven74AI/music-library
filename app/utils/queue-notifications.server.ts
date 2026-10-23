@@ -91,21 +91,32 @@ export async function sendReviewResolutionEmail({
   const resolutionLabel = RESOLUTION_LABELS[resolution] || resolution;
   const issueTypeLabel = ISSUE_TYPE_LABELS[item.issueType] || item.issueType;
 
+  // Escape user/DB-derived values before interpolating into the HTML body so a
+  // malicious report/comment cannot inject markup (format/spoofing surface in
+  // email clients). The plain-text alternative below is already inert.
+  const reporterDisplay = escapeHtml(reporter.name || reporter.username);
+  const entityNameHtml = escapeHtml(entityName);
+  const curatorNameHtml = escapeHtml(curatorName);
+  const resolutionLabelHtml = escapeHtml(resolutionLabel);
+  const issueTypeLabelHtml = escapeHtml(issueTypeLabel);
+  const descriptionHtml = item.description ? escapeHtml(item.description) : "";
+  const resolutionCommentHtml = escapeHtml(resolutionComment);
+
   const subject = `Your report has been ${resolutionLabel.toLowerCase()}`;
 
   const html = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
       <h2>Your Report Has Been Resolved</h2>
       
-      <p>Hi ${reporter.name || reporter.username},</p>
+      <p>Hi ${reporterDisplay},</p>
       
-      <p>Your report about <strong>${entityName}</strong> has been resolved by curator <strong>${curatorName}</strong>.</p>
+      <p>Your report about <strong>${entityNameHtml}</strong> has been resolved by curator <strong>${curatorNameHtml}</strong>.</p>
       
       <div style="background-color: #f5f5f5; padding: 16px; border-radius: 8px; margin: 20px 0;">
-        <p><strong>Issue Type:</strong> ${issueTypeLabel}</p>
-        ${item.description ? `<p><strong>Your Report:</strong> ${item.description}</p>` : ""}
-        <p><strong>Resolution:</strong> ${resolutionLabel}</p>
-        <p><strong>Curator's Comment:</strong> ${resolutionComment}</p>
+        <p><strong>Issue Type:</strong> ${issueTypeLabelHtml}</p>
+        ${item.description ? `<p><strong>Your Report:</strong> ${descriptionHtml}</p>` : ""}
+        <p><strong>Resolution:</strong> ${resolutionLabelHtml}</p>
+        <p><strong>Curator's Comment:</strong> ${resolutionCommentHtml}</p>
       </div>
       
       <p>Thank you for helping us maintain the quality of our music library!</p>
@@ -140,4 +151,17 @@ This is an automated email. Please do not reply to this message.
     html,
     text,
   });
+}
+
+/**
+ * Escape HTML special characters so interpolated user/DB text is inert in the
+ * email HTML body.
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
