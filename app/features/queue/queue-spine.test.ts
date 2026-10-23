@@ -124,14 +124,41 @@ describe("fetchQueueSpine", () => {
     expect(url).toContain("dir=asc");
   });
 
-  test("throws AuthExpiredError on redirect (302) response", async () => {
+  test("throws AuthExpiredError on a login-path redirect (302)", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
       ok: false,
       status: 302,
-    } as Response);
+      headers: { get: () => "/login" },
+    } as unknown as Response);
 
     await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(AuthExpiredError);
+  });
+
+  test("reports a redirect missing its Location header as a generic error, not auth expiry", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 302,
+      headers: { get: () => null },
+    } as unknown as Response);
+
+    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
+      "Failed to fetch queue spine: 302",
+    );
+  });
+
+  test("does NOT report a non-login redirect (trailing slash) as auth expiry", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 301,
+      headers: { get: () => "/api/queue-spine/" },
+    } as unknown as Response);
+
+    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
+      "Failed to fetch queue spine: 301",
+    );
   });
 
   test("throws generic Error on non-redirect error response (500)", async () => {
@@ -143,6 +170,18 @@ describe("fetchQueueSpine", () => {
 
     await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
       "Failed to fetch queue spine: 500",
+    );
+  });
+
+  test("throws when the queue-spine payload is malformed", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ unexpected: "shape" }),
+    } as Response);
+
+    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
+      "Invalid queue spine response",
     );
   });
 });

@@ -47,6 +47,7 @@ describe("dashboard calculations", () => {
   test("classifies edits, merges, and splits", () => {
     expect(activityAction("typo")).toBe("edited");
     expect(activityAction("Merged into Queen: duplicate")).toBe("merged");
+    expect(activityAction("MERGE: duplicate")).toBe("merged");
     expect(activityAction("SPLIT: moved side project")).toBe("split");
     expect(activityAction('CREATED via split from "Queen": side project')).toBe("split");
   });

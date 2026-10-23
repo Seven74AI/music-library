@@ -328,8 +328,9 @@ export async function skipToIndex({
   if (!Number.isInteger(index) || index < 0 || index >= count) {
     throw new PartyRoomError("invalid_queue_op", "Index out of range", 400);
   }
-  // Pointer may only move forward into upcoming (or stay); history stays above.
-  // Jumping to any index including past history is allowed for Host (jump-to).
+  // Host "jump-to" may move the pointer to any index 0..count-1, including
+  // backward into history — history rows then reappear as "upcoming" and become
+  // editable/removable again.
   await prisma.room.update({
     where: { id: roomId },
     data: {

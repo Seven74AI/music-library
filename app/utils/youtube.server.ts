@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { google, type youtube_v3 } from "googleapis";
 import { YOUTUBE_API_VERSION } from "#app/config/youtube";
 import {
   YouTubePlaylistListResponseSchema,
@@ -29,7 +29,7 @@ import { shouldMockYouTube } from "#app/utils/youtube-mock-utils";
 const VIDEOS_LIST_BATCH_SIZE = 50;
 
 export class YouTubeService {
-  private youtube: any;
+  private youtube: youtube_v3.Youtube;
   public readonly name = "youtube";
 
   constructor(apiKey?: string) {
