@@ -130,7 +130,7 @@ import { type Prisma } from "@prisma/client";
 // Use Prisma types directly
 const trackData: Prisma.TrackCreateInput = {
   title: validatedData.snippet.title,
-  artist: validatedData.snippet.channelTitle,
+  artist: validatedData.snippet.videoOwnerChannelTitle,
   // ... other fields
 };
 

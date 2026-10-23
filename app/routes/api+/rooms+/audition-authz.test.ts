@@ -74,6 +74,7 @@ async function createTrack(opts: { title: string; withAudio: boolean }) {
     await prisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: `audio/${suffix}.flac`,
         format: "flac",
       },

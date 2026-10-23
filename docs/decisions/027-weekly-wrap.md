@@ -43,5 +43,5 @@ No top-track / top-artist hero in v1 (keeps tone quiet; home already has track s
 
 ## Consequences
 
-- Glossary: **Weekly Wrap** (`docs/CONTEXT.md` decision #64).
+- Glossary: **Weekly Wrap** (`docs/CONTEXT.md` decision #65).
 - Home loader aggregates week-bounded `play_completed` counts + optional streak; no new tables required for v1.
