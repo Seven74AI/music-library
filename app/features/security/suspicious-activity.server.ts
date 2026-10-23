@@ -87,6 +87,7 @@ export async function getSecurityAlerts(now = new Date()): Promise<SecurityAlert
         createdAt: { gte: hourAgo },
       },
       select: { ipHash: true, userId: true, metadata: true, createdAt: true },
+      take: 5000,
     }),
     prisma.securityEvent.findMany({
       where: {
@@ -95,6 +96,7 @@ export async function getSecurityAlerts(now = new Date()): Promise<SecurityAlert
       },
       select: { userId: true, metadata: true, createdAt: true },
       orderBy: { createdAt: "asc" },
+      take: 5000,
     }),
   ]);
 
@@ -152,9 +154,9 @@ export async function getSecurityAlerts(now = new Date()): Promise<SecurityAlert
     ),
   ];
   if (successUserIds.length > 0) {
+    // recentSuccesses is ordered ascending, so the first row is the oldest.
     const lookbackStart = new Date(
-      Math.min(...recentSuccesses.map((event) => event.createdAt.getTime())) -
-        SECURITY_WINDOWS.successLookbackMs,
+      recentSuccesses[0]!.createdAt.getTime() - SECURITY_WINDOWS.successLookbackMs,
     );
     const [failures, successes] = await Promise.all([
       prisma.securityEvent.findMany({

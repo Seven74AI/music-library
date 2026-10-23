@@ -122,8 +122,8 @@ export async function action({ request }: Route.ActionArgs) {
       await rebuildFts.artists();
       return data({ message: `FTS indexes rebuilt for all entities` });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return data({ error: `Rebuild failed: ${msg}` });
+      console.error("FTS rebuild failed (all):", err);
+      return data({ error: "Rebuild failed. Check server logs for details." });
     }
   }
 
@@ -136,8 +136,8 @@ export async function action({ request }: Route.ActionArgs) {
     await rebuild();
     return data({ message: `FTS index rebuilt for: ${entity}` });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return data({ error: `Rebuild failed: ${msg}` });
+    console.error("FTS rebuild failed:", err);
+    return data({ error: "Rebuild failed. Check server logs for details." });
   }
 }
 
