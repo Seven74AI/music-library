@@ -152,7 +152,6 @@ async function searchHasAudioTracks(
   const cur = cursor ? decodeCursor(cursor) : null;
   const curT = cur?.t ?? null;
   const prefixPattern = `${escapeLikeLiterals(normalizedQuery)}%`;
-  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
   const cursorFilter = curT
     ? cursorClause(curT, "relevance_rank", "fts_rank", "t.title", "t.id")
     : { sql: "", params: [] as unknown[] };
@@ -194,13 +193,14 @@ async function searchHasAudioTracks(
     JOIN "Track" t ON tracks_fts.track_id = t.id
     JOIN "Artist" a ON t."artistId" = a.id
     LEFT JOIN "Album" alb ON t."albumId" = alb.id
-    WHERE tracks_fts MATCH '${sqlEscapedFtsQuery}'
+    WHERE tracks_fts MATCH ?
       AND ${HAS_AUDIO_TRACK}
       ${cursorFilter.sql}
     ORDER BY relevance_rank, fts_rank, t.title
     LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ftsQuery,
     ...cursorFilter.params,
     limit + 1,
   );
@@ -269,7 +269,6 @@ async function searchHasAudioAlbums(
   const cur = cursor ? decodeCursor(cursor) : null;
   const curA = cur?.a ?? null;
   const prefixPattern = `${escapeLikeLiterals(normalizedQuery)}%`;
-  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
   const cursorFilter = curA
     ? cursorClause(curA, "relevance_rank", "fts_rank", "alb.name", "alb.id")
     : { sql: "", params: [] as unknown[] };
@@ -304,13 +303,14 @@ async function searchHasAudioAlbums(
     FROM albums_fts
     JOIN "Album" alb ON albums_fts.album_id = alb.id
     JOIN "Artist" a ON alb."artistId" = a.id
-    WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'
+    WHERE albums_fts MATCH ?
       AND ${HAS_AUDIO_ALBUM}
       ${cursorFilter.sql}
     ORDER BY relevance_rank, fts_rank, alb.name
     LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ftsQuery,
     ...cursorFilter.params,
     limit + 1,
   );
@@ -360,7 +360,6 @@ async function searchHasAudioArtists(
   const cur = cursor ? decodeCursor(cursor) : null;
   const curAr = cur?.ar ?? null;
   const prefixPattern = `${escapeLikeLiterals(normalizedQuery)}%`;
-  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
   const cursorFilter = curAr
     ? cursorClause(curAr, "relevance_rank", "fts_rank", "a.name", "a.id")
     : { sql: "", params: [] as unknown[] };
@@ -388,13 +387,14 @@ async function searchHasAudioArtists(
       artists_fts.rank as fts_rank
     FROM artists_fts
     JOIN "Artist" a ON artists_fts.artist_id = a.id
-    WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'
+    WHERE artists_fts MATCH ?
       AND ${HAS_AUDIO_ARTIST}
       ${cursorFilter.sql}
     ORDER BY relevance_rank, fts_rank, a.name
     LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ftsQuery,
     ...cursorFilter.params,
     limit + 1,
   );
