@@ -507,21 +507,43 @@ export async function findOrCreateCoverImage(params: {
     },
   });
 
-  // Create cover image record
-  const coverImage = await prisma.coverImage.create({
-    data: {
-      contentHash,
-      objectKey,
-      width: finalWidth,
-      height: finalHeight,
-      format: finalFormat,
-      fileSize,
-    },
-    select: {
-      id: true,
-      objectKey: true,
-    },
-  });
+  // Create cover image record. `contentHash` is unique, so a concurrent
+  // identical upload can race past the findUnique above and throw P2002 here.
+  // Catch it and reuse the winner's row instead of failing the request.
+  let coverImage: { id: string; objectKey: string };
+  try {
+    coverImage = await prisma.coverImage.create({
+      data: {
+        contentHash,
+        objectKey,
+        width: finalWidth,
+        height: finalHeight,
+        format: finalFormat,
+        fileSize,
+      },
+      select: {
+        id: true,
+        objectKey: true,
+      },
+    });
+  } catch (error) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      const winner = await prisma.coverImage.findUnique({
+        where: { contentHash },
+        select: { id: true, objectKey: true },
+      });
+      if (winner) {
+        if (albumId) await associateCoverWithAlbum(winner.id, albumId);
+        return winner;
+      }
+    }
+    throw error;
+  }
 
   // Associate with album if provided
   if (albumId) {

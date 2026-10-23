@@ -19,6 +19,13 @@ type SpawnErrorSink = {
 /**
  * Set only for the synchronous `fpcalc()` call. The patched spawn reads it
  * before returning, so the async `error` event still reaches this call.
+ *
+ * Correct only because fpcalc invokes `spawn` synchronously inside the call —
+ * `activeSpawnErrorSink` is read at spawn time (see installFpcalcSpawnGuard).
+ * If a future fpcalc version defers the spawn to a microtask, two concurrent
+ * `generateAudioFingerprint` calls could misroute an ENOENT error. A scoped
+ * child-process wrapper (spawn override passed to fpcalc) would remove that
+ * coupling; the current package API exposes no such hook.
  */
 let activeSpawnErrorSink: SpawnErrorSink | null = null;
 

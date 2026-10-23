@@ -137,6 +137,21 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     return makeSession({ request, userId: existingConnection.userId, redirectTo });
   }
 
+  // Some providers/scopes return a profile without an email. Without an email
+  // we can neither match an existing account nor onboard, so route to a handled
+  // error instead of throwing a TypeError on `.toLowerCase()`.
+  if (!profile.email) {
+    throw await redirectWithToast(
+      "/login",
+      {
+        title: "Auth Failed",
+        description: `Your ${label} account did not provide an email address.`,
+        type: "error",
+      },
+      { headers: destroyRedirectTo },
+    );
+  }
+
   // if the email matches a user in the db, then link the account and
   // make a new session
   const user = await prisma.user.findUnique({

@@ -25,11 +25,13 @@ import { toast } from "#app/components/ui/use-toast.ts";
 import {
   entityPath,
   entityTypeLabel,
+  ISSUE_TYPE_LABELS,
   QUEUE_STATUS_MINE,
   queueActionFeedback,
   queueMatter,
   queueStatusLabel,
   resolutionLabel,
+  SOURCE_LABELS,
   type QueueMove,
   type ReviewQueueListItem,
 } from "#app/features/curator/review-queue.ts";
@@ -47,20 +49,6 @@ type QueueResponse = {
 type QueueActionResult = {
   success?: boolean;
   error?: string;
-};
-
-const ISSUE_TYPE_LABELS: Record<string, string> = {
-  wrong_metadata: "Wrong metadata",
-  missing_info: "Missing info",
-  low_quality: "Low quality",
-  duplicate: "Duplicate",
-  other: "Other",
-};
-
-const SOURCE_LABELS: Record<string, string> = {
-  user_report: "User report",
-  system: "System detection",
-  curator: "Curator flag",
 };
 
 const RESOLUTION_OPTIONS = [

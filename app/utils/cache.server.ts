@@ -167,14 +167,21 @@ export const cache: CachifiedCache = {
       void updatePrimaryCacheValue({
         key,
         cacheValue: entry,
-      }).then((response) => {
-        if (!response.ok) {
+      })
+        .then((response) => {
+          if (!response.ok) {
+            console.error(
+              `Error updating cache value for key "${key}" on primary instance (${primaryInstance}): ${response.status} ${response.statusText}`,
+              { entry },
+            );
+          }
+        })
+        .catch((error) => {
           console.error(
-            `Error updating cache value for key "${key}" on primary instance (${primaryInstance}): ${response.status} ${response.statusText}`,
-            { entry },
+            `Failed to update cache value for key "${key}" on primary instance (${primaryInstance})`,
+            error,
           );
-        }
-      });
+        });
     }
   },
   async delete(key) {
@@ -187,13 +194,20 @@ export const cache: CachifiedCache = {
       void updatePrimaryCacheValue({
         key,
         cacheValue: undefined,
-      }).then((response) => {
-        if (!response.ok) {
+      })
+        .then((response) => {
+          if (!response.ok) {
+            console.error(
+              `Error deleting cache value for key "${key}" on primary instance (${primaryInstance}): ${response.status} ${response.statusText}`,
+            );
+          }
+        })
+        .catch((error) => {
           console.error(
-            `Error deleting cache value for key "${key}" on primary instance (${primaryInstance}): ${response.status} ${response.statusText}`,
+            `Failed to delete cache value for key "${key}" on primary instance (${primaryInstance})`,
+            error,
           );
-        }
-      });
+        });
     }
   },
 };
