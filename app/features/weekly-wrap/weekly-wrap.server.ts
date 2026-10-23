@@ -54,8 +54,6 @@ export function summarizeWeeklyWrap({
   weekEvents: WeekEvent[];
   activeDayKeys: ReadonlySet<string>;
   now: Date;
-  weekStart: Date;
-  weekEnd: Date;
 }): WeeklyWrapSummary | null {
   if (weekEvents.length === 0) return null;
 
@@ -103,7 +101,5 @@ export async function getWeeklyWrap(
     weekEvents,
     activeDayKeys,
     now,
-    weekStart: start,
-    weekEnd: end,
   });
 }

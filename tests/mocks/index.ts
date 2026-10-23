@@ -13,10 +13,14 @@ export const server = setupServer(
   ...imageOptimizerHandlers,
 );
 
-// Optimization: start the server only once
-let serverStarted = false;
+// Start the mock server only in mock mode. This module can be imported in a
+// non-mock run (auth/cover-management tests import `server`), and MSW must not
+// intercept HTTP unless MOCKS is enabled — otherwise every request is hijacked
+// regardless of the MOCKS flag.
+if (process.env.MOCKS === "true") {
+  console.info("🔶 Mock server installed");
+  console.info("🔶 MSW server started");
 
-if (!serverStarted) {
   server.listen({
     onUnhandledRequest(request, print) {
       // Do not print warnings on unhandled requests to https://<:userId>.ingest.us.sentry.io/api/
@@ -34,12 +38,6 @@ if (!serverStarted) {
       print.warning();
     },
   });
-  serverStarted = true;
-}
-
-if (process.env.MOCKS === "true") {
-  console.info("🔶 Mock server installed");
-  console.info("🔶 MSW server started");
 
   // Only register close-with-grace outside vitest — in vitest, afterEach
   // cleanup in setup-test-env.ts handles server shutdown, and close-with-grace's

@@ -2,7 +2,6 @@ import { type FullTrack, type QueueTrack } from "#app/types/frontend/shared.ts";
 import { PLAYBACK_BATCH_MAX_IDS } from "./constants.ts";
 import {
   getQueueSpineDisplayTracks,
-  getSpinePlayOrder,
   type QueueNavigationState,
 } from "./queue-navigation.ts";
 import { fullTrackStubFromQueueTrack } from "./queue-spine.ts";
@@ -92,7 +91,8 @@ export function collectHydrationIds(
     if (tryAdd(track.id)) return ids;
   }
 
-  for (const track of getSpinePlayOrder(state)) {
+  for (let index = state.spinePosition; index < state.spineOrder.length; index++) {
+    const track = state.spine[state.spineOrder[index]!]!;
     if (tryAdd(track.id)) return ids;
   }
 

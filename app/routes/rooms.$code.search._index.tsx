@@ -51,8 +51,6 @@ export default function GuestSearchTab() {
   const [loading, setLoading] = useState(() => initialQuery.trim().length > 0);
   const requestRef = useRef(0);
   const immediateRef = useRef(true);
-  const searchParamsRef = useRef(searchParams);
-  searchParamsRef.current = searchParams;
 
   const returnState: RoomSearchReturnState = { q: query.trim(), type };
 
@@ -76,19 +74,27 @@ export default function GuestSearchTab() {
       window.clearTimeout(handle);
       requestRef.current += 1;
     };
-    // writeSearchParams and runSearch close over the latest code via this effect.
+    // runSearch closes over `code` (captured fresh here); writeSearchParams reads
+    // searchParams via setSearchParams' functional updater, so neither needs a
+    // latest-ref. The exhaustive-deps rule flags the component-scoped helpers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, type, code]);
 
   function writeSearchParams(q: string, nextType: RoomBrowseType) {
-    const current = searchParamsRef.current;
-    const currentQ = current.get("q") ?? "";
-    const currentType = parseRoomBrowseType(current.get("type"));
-    if (currentQ === q && currentType === nextType) return;
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    if (nextType !== "all") params.set("type", nextType);
-    setSearchParams(params, { replace: true });
+    // Read the latest params through setSearchParams' functional updater so this
+    // helper never closes over a stale `searchParams` snapshot (no latest-ref).
+    setSearchParams(
+      (current) => {
+        const currentQ = current.get("q") ?? "";
+        const currentType = parseRoomBrowseType(current.get("type"));
+        if (currentQ === q && currentType === nextType) return current;
+        const params = new URLSearchParams();
+        if (q) params.set("q", q);
+        if (nextType !== "all") params.set("type", nextType);
+        return params;
+      },
+      { replace: true },
+    );
   }
 
   async function runSearch(args: {
