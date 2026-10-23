@@ -150,7 +150,7 @@ export default function FtsIndexPage({ loaderData }: Route.ComponentProps) {
     navigation.state === "submitting" && navigation.formData?.get("entity") === entity;
 
   const ftsHealthy = (entity: keyof FtsCounts) =>
-    fts[entity] >= entities[entity] && entities[entity] > 0;
+    fts[entity] === entities[entity] && entities[entity] > 0;
 
   return (
     <div className="py-8">
