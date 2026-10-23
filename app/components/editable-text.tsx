@@ -68,30 +68,42 @@ export function EditableText({
   };
 
   if (isEditing) {
-    const InputComponent = multiline ? "textarea" : "input";
-    const inputProps = {
-      ref: inputRef as any,
-      value: editValue,
-      onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const newValue = e.target.value;
-        if (!maxLength || newValue.length <= maxLength) {
-          setEditValue(newValue);
-        }
-      },
-      onBlur: handleSave,
-      onKeyDown: handleKeyDown,
-      placeholder,
-      className: cn(
-        "w-full bg-transparent border-none outline-none resize-none",
-        "text-inherit font-inherit",
-        multiline ? "min-h-[60px]" : "h-auto",
-      ),
-      ...(multiline && { rows: 3 }),
+    const editClass = cn(
+      "w-full bg-transparent border-none outline-none resize-none",
+      "text-inherit font-inherit",
+      multiline ? "min-h-[60px]" : "h-auto",
+    );
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const newValue = e.target.value;
+      if (!maxLength || newValue.length <= maxLength) {
+        setEditValue(newValue);
+      }
     };
 
     return (
       <div className={cn("relative", className)}>
-        <InputComponent {...inputProps} />
+        {multiline ? (
+          <textarea
+            ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+            value={editValue}
+            onChange={handleChange}
+            onBlur={handleSave}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            rows={3}
+            className={editClass}
+          />
+        ) : (
+          <input
+            ref={inputRef as React.RefObject<HTMLInputElement>}
+            value={editValue}
+            onChange={handleChange}
+            onBlur={handleSave}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            className={editClass}
+          />
+        )}
         <div className="absolute top-1 right-1 flex gap-1">
           <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleSave}>
             <Icon name="check" className="h-3 w-3" />

@@ -41,7 +41,7 @@ function validateAuth(headers: Headers) {
   return false;
 }
 
-function assertKey(key: any): asserts key is Array<string> {
+function assertKey(key: unknown): asserts key is string[] {
   invariantResponse(
     Array.isArray(key) && key.length && key.every((k) => typeof k === "string"),
     "Key must contain a directory",

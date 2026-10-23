@@ -1,6 +1,7 @@
 import { invariantResponse } from "@epic-web/invariant";
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
 import { Link, Outlet, useMatches } from "react-router";
+import { type ReactNode } from "react";
 import { z } from "zod";
 import { OfflineAwareErrorBoundary } from "#app/components/offline/offline-aware-error-boundary.tsx";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
@@ -14,7 +15,7 @@ import { cn } from "#app/utils/misc.tsx";
 import { useOptionalUser } from "#app/utils/user.ts";
 import { type Route } from "./+types/profile.ts";
 
-export const BreadcrumbHandle = z.object({ breadcrumb: z.any() });
+export const BreadcrumbHandle = z.object({ breadcrumb: z.custom<ReactNode>() });
 export type BreadcrumbHandle = z.infer<typeof BreadcrumbHandle>;
 
 export const handle: BreadcrumbHandle & SEOHandle = {
