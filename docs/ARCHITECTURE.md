@@ -30,8 +30,14 @@ app/config/
 app/features/audio-archive/
 ├── auto-enqueue.server.ts          # Auto-enqueue on YouTube import
 ├── auto-enqueue.server.test.ts
+├── cookie-failure-streak.ts        # Cookie failure streak + auto-pause threshold
+├── cookie-failure-streak.test.ts
 ├── notification.server.ts          # Telegram notifications
 ├── notification.server.test.ts
+├── queue-stats.ts                  # Archive queue success-rate computation
+├── queue-stats.test.ts
+├── recoverable-failure.ts          # Recoverable failure classification
+├── recoverable-failure.test.ts
 ├── worker-control.server.ts        # Worker state machine (run/pause/break)
 ├── worker-control.server.test.ts
 ├── worker.server.ts                # Queue processing loop
@@ -42,9 +48,21 @@ app/features/audio-archive/
 └── youtube-cookie.server.test.ts
 
 docs/
-├── ARCHITECTURE.md    # This file - complete architecture overview
+├── ARCHITECTURE.md    # This file - architecture overview
 └── decisions/         # Architecture Decision Records (ADRs)
 ```
+
+## System Layers
+
+Beyond the type-safety and audio-archive layers above, the codebase includes these feature layers (each documented by its own ADR):
+
+- **Queue Spine & Queue** — lightweight `QueueTrack[]` spine with lazy hydration for large-library playback (ADR-015), `app/features/queue/`.
+- **PWA / Offline** — installable app, service worker, OPFS + IndexedDB device storage, unified offline middleware (ADR-013), `app/features/offline-storage/`, `app/features/offline-app/`.
+- **Usage Analytics** — append-only `UsageEvent` rows powering `/history`, listening insights, and admin charts (ADR-016), `app/features/usage-analytics/`.
+- **Listening Insights** — On-Repeat Snapshots, Recently Played Strip, Heavy Rotation, Weekly Wrap, Personal Play Boost (ADR-024–028), `app/features/listening-insights/`.
+- **Backups** — automated off-volume SQLite backups via LiteFS export (ADR-029), `app/features/db-backup/`.
+- **Party Room** — server-hosted shared live queue with Host/DJ/Listener roles (ADR-030), `app/features/party-room/`.
+- **Curator System** — trusted-user data-quality editing, duplicate detection/merge, audit trail (ADR-031–037), `app/features/curator/`.
 
 ## Key Principles
 
@@ -177,6 +195,8 @@ We implement both **server-side mocking** and **client-side mocking** for maximu
 
 ### Server-Side Mock Manager
 
+> **Removed:** The `MockManager` class no longer exists. Server-side mocking is implemented per-feature via `process.env.MOCKS === "true"` checks (`app/utils/storage.server.ts`, `app/features/audio-archive/yt-dlp.server.ts`, `app/utils/youtube-mock-utils.ts`, `app/features/db-backup/backup-storage.server.ts`). The sections below are retained for historical context only.
+
 #### MockManager Class
 
 - **Purpose**: Environment-aware server-side mocking with sophisticated decision logic
@@ -193,19 +213,18 @@ We implement both **server-side mocking** and **client-side mocking** for maximu
 
 ```typescript
 // Mock Strategy:
-// - Production: Real APIs (no mocks)
-// - Development: Mock everything EXCEPT YouTube (real YouTube API)
-// - Test/CI: Mock everything
-// - Explicit override: MOCKS=true/false
+// - MOCKS=true: Mock all external services (YouTube API, yt-dlp, Tigris uploads, Telegram)
+// - YOUTUBE_MOCKS=true|false: override YouTube-specific mocking
+// - Production: Real APIs (MOCKS not set)
 ```
 
 #### YouTube-Specific Logic
 
 ```typescript
-// YouTube Mock Strategy:
-// - Development: Real YouTube API (no mocks)
-// - Test/CI: Mock YouTube
-// - Production: Real YouTube API
+// YouTube Mock Strategy (app/utils/youtube-mock-utils.ts):
+// - YOUTUBE_MOCKS=true → always mock
+// - YOUTUBE_MOCKS=false → never mock (overrides MOCKS)
+// - unset → follow MOCKS
 ```
 
 #### Usage
@@ -226,8 +245,13 @@ NODE_ENV=production npm start
 
 #### Mocked Functions
 
-- `youtube.server.ts`: `getUserPlaylists()`, `getPlaylist()`, `getPlaylistItems()`
-- `youtube-search.server.ts`: `searchYouTubeVideos()`, `getYouTubeVideoDetails()`
+Mocked at the call site via `process.env.MOCKS === "true"` / `app/utils/youtube-mock-utils.ts`:
+
+- `app/utils/youtube.server.ts`: `getUserPlaylists()`, `getPlaylist()`, `getPlaylistItems()`
+- `app/utils/youtube-search.server.ts`: `searchYouTubeVideos()`, `getYouTubeVideoDetails()`
+- `app/utils/storage.server.ts`: `uploadFile()` (Tigris)
+- `app/features/audio-archive/yt-dlp.server.ts`: `executeYtDlp()`
+- `app/features/audio-archive/notification.server.ts`: `sendTelegramMessage()`
 
 #### API Key Management
 
