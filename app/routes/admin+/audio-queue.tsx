@@ -108,10 +108,15 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
   const total = pending + processing + completed + failed;
   const successRate = computeArchiveQueueSuccessRate(completed, failed);
 
+  // Bound the recoverable-failure count to a fixed cap so a very large failed
+  // queue cannot load unbounded errorHistory JSON into memory on every page
+  // load. The most recent failures are the ones an admin would retry anyway.
   const failedJobsForRetry = failed
     ? await prisma.archiveJob.findMany({
         where: { status: "failed" },
         select: { errorHistory: true },
+        orderBy: { lastAttemptAt: "desc" },
+        take: 5000,
       })
     : [];
   const recoverableFailed = failedJobsForRetry.filter((job) =>

@@ -19,7 +19,12 @@ function readAll(): Record<string, CachedPlaylistMeta> {
 }
 
 function writeAll(playlists: Record<string, CachedPlaylistMeta>) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(playlists));
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(playlists));
+  } catch {
+    // Best-effort — a full quota must never break the download flow
+  }
 }
 
 export function cachePlaylistMetadata(meta: CachedPlaylistMeta) {

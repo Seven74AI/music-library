@@ -210,12 +210,26 @@ export async function action({ request, params }: Route.ActionArgs) {
   const intent = formData.get("intent");
 
   if (intent === "delete") {
-    await prisma.userPlaylist.delete({
-      where: {
-        id: params.playlistId,
-        ownerId: userId,
-      },
-    });
+    try {
+      await prisma.userPlaylist.delete({
+        where: {
+          id: params.playlistId,
+          ownerId: userId,
+        },
+      });
+    } catch (error) {
+      // Playlist already gone (concurrent delete) or not owned — treat as
+      // success rather than 500ing on Prisma's P2025.
+      if (
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2025"
+      ) {
+        return redirect("/playlists");
+      }
+      throw error;
+    }
     return redirect("/playlists");
   }
 

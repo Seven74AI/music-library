@@ -20,7 +20,7 @@ import { useIsPending } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { EmailSchema } from "#app/utils/user-validation.ts";
 import { type Route } from "./+types/signup.ts";
-import { prepareVerification } from "./verify.server.ts";
+import { getRedirectToUrl, prepareVerification } from "./verify.server.ts";
 
 export const handle: SEOHandle = {
   getSitemapEntries: () => null,
@@ -40,23 +40,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   await checkHoneypot(formData);
 
-  const submission = await parseWithZod(formData, {
-    schema: SignupSchema.superRefine(async (formValues, ctx) => {
-      const existingUser = await prisma.user.findUnique({
-        where: { email: formValues.email },
-        select: { id: true },
-      });
-      if (existingUser) {
-        ctx.addIssue({
-          path: ["email"],
-          code: z.ZodIssueCode.custom,
-          message: "A user already exists with this email",
-        });
-        return;
-      }
-    }),
-    async: true,
-  });
+  const submission = parseWithZod(formData, { schema: SignupSchema });
   if (submission.status !== "success") {
     return data(
       { result: submission.reply() },
@@ -64,37 +48,49 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
   const { email } = submission.value;
-  const { verifyUrl, redirectTo, otp } = await prepareVerification({
-    period: 10 * 60,
-    request,
-    type: "onboarding",
-    target: email,
+
+  // Anti-enumeration: return the same redirect whether or not an account
+  // already exists, mirroring forgot-password.tsx, so the response does not
+  // reveal registration status.
+  let redirectTo = getRedirectToUrl({ request, type: "onboarding", target: email });
+
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
   });
 
-  const response = await sendEmail({
-    to: email,
-    subject: `Welcome to Music Library!`,
-    react: <SignupEmail onboardingUrl={verifyUrl.toString()} otp={otp} />,
-  });
-
-  if (response.status === "success") {
-    await recordSecurityEvent({
+  if (!existingUser) {
+    const prepared = await prepareVerification({
+      period: 10 * 60,
       request,
-      eventType: SECURITY_EVENT_TYPES.accountCreated,
-      perpetual: false,
-      metadata: { phase: "verification_sent" },
+      type: "onboarding",
+      target: email,
     });
-    return redirect(redirectTo.toString());
-  } else {
-    return data(
-      {
-        result: submission.reply({ formErrors: [response.error.message] }),
-      },
-      {
-        status: 500,
-      },
-    );
+
+    const response = await sendEmail({
+      to: email,
+      subject: `Welcome to Music Library!`,
+      react: <SignupEmail onboardingUrl={prepared.verifyUrl.toString()} otp={prepared.otp} />,
+    });
+
+    if (response.status === "success") {
+      await recordSecurityEvent({
+        request,
+        eventType: SECURITY_EVENT_TYPES.accountCreated,
+        perpetual: false,
+        metadata: { phase: "verification_sent" },
+      });
+    } else {
+      return data(
+        { result: submission.reply({ formErrors: [response.error.message] }) },
+        { status: 500 },
+      );
+    }
+
+    redirectTo = prepared.redirectTo;
   }
+
+  return redirect(redirectTo.toString());
 }
 
 export function SignupEmail({ onboardingUrl, otp }: { onboardingUrl: string; otp: string }) {

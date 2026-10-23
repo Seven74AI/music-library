@@ -243,9 +243,8 @@ export async function createRoom({
     );
   }
 
-  // Opportunistic TTL sweep so abandoned rooms do not linger forever.
-  await sweepExpiredEmptyRooms().catch(() => {});
-
+  // Opportunistic TTL sweep removed from the hot create path — the 5-minute
+  // sweeper (empty-room-sweeper.server.ts) already reconciles abandoned rooms.
   const code = await allocateUniqueCode();
   const now = new Date();
 

@@ -28,5 +28,9 @@ export default function Index() {
       return <ListeningHome {...data} showArchivingBanner />;
     case "listening":
       return <ListeningHome {...data} showArchivingBanner={false} />;
+    default:
+      // Fail loudly if loadHomeData ever returns a new mode — a silent blank
+      // page hides the regression.
+      throw new Error(`Unhandled home mode: ${String(data.mode)}`);
   }
 }
