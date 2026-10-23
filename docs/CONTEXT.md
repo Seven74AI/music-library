@@ -234,7 +234,7 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 9. **Cookie upload UI** — Both file upload (drag-drop `cookies.txt`) and textarea paste on the admin panel. Both write to `/data/youtube-cookies.txt` and update the `YoutubeCookie` audit record.
 
-10. **Cookie refresh auto-reset** — When admin uploads new cookies, all `ArchiveJob`s whose latest error category is recoverable (COOKIE_EXPIRED or FORMAT_UNAVAILABLE) can be reset to `pending` via the admin queue's "retry recoverable failures" action. Jobs with `VIDEO_UNAVAILABLE` or other non-auth errors are left alone.
+10. **Cookie upload does not auto-reset jobs** — Uploading new cookies writes the cookie file, updates the `YoutubeCookie` audit records, and resets the cookie failure streak (`resetCookieFailureStreak`), but does NOT touch `ArchiveJob`s. Failed jobs whose latest error is recoverable (COOKIE_EXPIRED or FORMAT_UNAVAILABLE) are re-queued only via the admin queue's explicit "Retry cookie & format failures" action (`audio-queue.tsx`), which sets them back to `pending` with `priority: true`. Jobs with non-recoverable errors are left alone.
 
 ### Storage
 
