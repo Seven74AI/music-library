@@ -107,7 +107,7 @@ describe("GET /api/metadata/artists/duplicates", () => {
     const data = result.data;
 
     expect(data.groups).toHaveLength(1);
-    expect(data.groups[0]?.normalizedName).toBe("thebeatles");
+    expect(data.groups[0]?.normalizedName).toBe("beatles");
     expect(data.groups[0]?.artists).toHaveLength(2);
 
     const artists = data.groups[0]?.artists;

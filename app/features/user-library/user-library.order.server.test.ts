@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { createUser } from "#tests/db-utils.ts";
+import { createUser, resetUsageAnalyticsTables } from "#tests/db-utils.ts";
 import { addTracksToUserLibrary } from "./user-library.server.ts";
 
-vi.mock("#app/features/usage-analytics/record-usage.server.ts", () => ({
-  USAGE_EVENT_TYPES: {
-    library_add: "library_add",
-  },
-  recordUsageEvent: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("#app/features/usage-analytics/record-usage.server.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("#app/features/usage-analytics/record-usage.server.ts")>();
+  return {
+    ...actual,
+    recordUsageEvent: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 async function createTrack(title: string) {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -31,9 +33,7 @@ async function createTrack(title: string) {
 
 describe("addTracksToUserLibrary playlist order", () => {
   beforeEach(async () => {
-    await prisma.usageEvent.deleteMany();
-    await prisma.dailyActiveUser.deleteMany();
-    await prisma.dailyUsageStat.deleteMany();
+    await resetUsageAnalyticsTables();
     await prisma.trackAudioFile.deleteMany();
     await prisma.userTrack.deleteMany();
     await prisma.track.deleteMany();

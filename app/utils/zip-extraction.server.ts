@@ -1,4 +1,3 @@
-// @context7: adm-zip, Buffer, TypeScript
 import AdmZip from "adm-zip";
 import { inflateRawSync } from "zlib";
 

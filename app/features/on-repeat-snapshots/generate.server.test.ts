@@ -1,32 +1,13 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { createUser } from "#tests/db-utils.ts";
+import { createUser, createTrack, resetUsageAnalyticsTables } from "#tests/db-utils.ts";
 import {
   generateOnRepeatSnapshotForUser,
   generateOnRepeatSnapshotsForMonth,
   rankPlayCompletedTracks,
 } from "./generate.server.ts";
 import { yearMonthToUtcWindow } from "./month.ts";
-
-async function createTrack(title: string) {
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const service = await prisma.service.upsert({
-    where: { name: "local" },
-    update: {},
-    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
-  });
-  return prisma.track.create({
-    data: {
-      title,
-      externalId: `ext-${suffix}`,
-      service: { connect: { id: service.id } },
-      artist: {
-        create: { name: `Artist ${suffix}`, normalizedName: `artist ${suffix}` },
-      },
-    },
-  });
-}
 
 async function recordCompleted({
   userId,
@@ -51,7 +32,7 @@ describe("rankPlayCompletedTracks", () => {
   beforeEach(async () => {
     await prisma.onRepeatSnapshotTrack.deleteMany();
     await prisma.onRepeatSnapshot.deleteMany();
-    await prisma.usageEvent.deleteMany();
+    await resetUsageAnalyticsTables();
     await prisma.track.deleteMany();
     await prisma.artist.deleteMany();
     await prisma.user.deleteMany();
@@ -154,7 +135,7 @@ describe("generateOnRepeatSnapshotForUser", () => {
   beforeEach(async () => {
     await prisma.onRepeatSnapshotTrack.deleteMany();
     await prisma.onRepeatSnapshot.deleteMany();
-    await prisma.usageEvent.deleteMany();
+    await resetUsageAnalyticsTables();
     await prisma.track.deleteMany();
     await prisma.artist.deleteMany();
     await prisma.user.deleteMany();
@@ -230,7 +211,7 @@ describe("generateOnRepeatSnapshotsForMonth", () => {
   beforeEach(async () => {
     await prisma.onRepeatSnapshotTrack.deleteMany();
     await prisma.onRepeatSnapshot.deleteMany();
-    await prisma.usageEvent.deleteMany();
+    await resetUsageAnalyticsTables();
     await prisma.track.deleteMany();
     await prisma.artist.deleteMany();
     await prisma.user.deleteMany();

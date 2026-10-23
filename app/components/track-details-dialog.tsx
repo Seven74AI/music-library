@@ -408,7 +408,7 @@ export function TrackDetailsDialog({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => window.open(track.serviceUrl!, "_blank")}
+                        onClick={() => window.open(track.serviceUrl!, "_blank", "noopener,noreferrer")}
                         className="flex-1"
                       >
                         <Icon name="link-2" className="mr-2 h-4 w-4" />

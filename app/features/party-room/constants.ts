@@ -21,7 +21,7 @@ export const AUDITION_GRANT_RATE_PER_MIN = 20;
 export const EMPTY_ROOM_TTL_MS = 45 * 60 * 1000;
 
 /** Non-speaker is Away when lastSeenAt is older than this. */
-export const HOST_GRACE_MS = 10_000;
+export const NON_SPEAKER_AWAY_MS = 10_000;
 
 /**
  * Speaker is Away when lastSeenAt is older than this.
@@ -45,6 +45,14 @@ export const ROOM_ROLE = {
 
 export type RoomRole = (typeof ROOM_ROLE)[keyof typeof ROOM_ROLE];
 
+/** Human-readable label for a room role. Unknown roles pass through unchanged. */
+export function roomRoleLabel(role: string): string {
+  if (role === ROOM_ROLE.host) return "Host";
+  if (role === ROOM_ROLE.dj) return "DJ";
+  if (role === ROOM_ROLE.listener) return "Listener";
+  return role;
+}
+
 /** Host-configurable default for new joiners — never host. */
 export const DEFAULT_JOIN_ROLE = {
   listener: "listener",
@@ -62,7 +70,7 @@ export type RoomPlayEventType = (typeof ROOM_PLAY_EVENT_TYPES)[keyof typeof ROOM
 
 export const RATE_LIMIT_WINDOW_MS = 60_000;
 
-/** Client presence heartbeat interval (target ~2–3s; non-speaker Away is HOST_GRACE_MS). */
+/** Client presence heartbeat interval (target ~2–3s; non-speaker Away is NON_SPEAKER_AWAY_MS). */
 export const ROOM_HOST_HEARTBEAT_INTERVAL_MS = 2500;
 
 /** Client-facing aliases (logged-in UX module). */
@@ -74,6 +82,6 @@ export const ROOM_GUEST_DISPLAY_NAME_MAX = GUEST_DISPLAY_NAME_MAX;
 export const ROOM_ADD_TRACK_RATE_PER_MIN = ADD_TRACK_RATE_PER_MIN;
 export const ROOM_AUDITION_RATE_PER_MIN = AUDITION_GRANT_RATE_PER_MIN;
 export const ROOM_EMPTY_TTL_MS = EMPTY_ROOM_TTL_MS;
-export const ROOM_HOST_GRACE_MS = HOST_GRACE_MS;
+export const ROOM_NON_SPEAKER_AWAY_MS = NON_SPEAKER_AWAY_MS;
 
 export type RoomDefaultJoinRole = DefaultJoinRole;

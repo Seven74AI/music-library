@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { forceUnlock } from "./locks.server.ts";
+import { forceUnlock, releaseLock } from "./locks.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 
 describe("forceUnlock", () => {
@@ -61,5 +61,64 @@ describe("forceUnlock", () => {
 
     expect(result).toBe(false);
     expect(await prisma.securityEvent.count({ where: { eventType: "force_unlock" } })).toBe(0);
+  });
+});
+
+describe("releaseLock", () => {
+  beforeEach(async () => {
+    await prisma.editLock.deleteMany();
+    await prisma.session.deleteMany();
+    await prisma.user.deleteMany();
+  });
+
+  test("returns not_found when no lock exists", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+
+    const result = await releaseLock("track", "track-none", user.id);
+
+    expect(result).toBe("not_found");
+  });
+
+  test("returns not_owner and keeps the lock when locked by someone else", async () => {
+    const owner = await prisma.user.create({ data: createUser() });
+    const other = await prisma.user.create({ data: createUser() });
+    await prisma.editLock.create({
+      data: {
+        entityType: "track",
+        entityId: "track-123",
+        lockedBy: owner.id,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const result = await releaseLock("track", "track-123", other.id);
+
+    expect(result).toBe("not_owner");
+    expect(
+      await prisma.editLock.findUnique({
+        where: { entityType_entityId: { entityType: "track", entityId: "track-123" } },
+      }),
+    ).not.toBeNull();
+  });
+
+  test("returns released and deletes the lock when owned by the caller", async () => {
+    const owner = await prisma.user.create({ data: createUser() });
+    await prisma.editLock.create({
+      data: {
+        entityType: "track",
+        entityId: "track-123",
+        lockedBy: owner.id,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const result = await releaseLock("track", "track-123", owner.id);
+
+    expect(result).toBe("released");
+    expect(
+      await prisma.editLock.findUnique({
+        where: { entityType_entityId: { entityType: "track", entityId: "track-123" } },
+      }),
+    ).toBeNull();
   });
 });

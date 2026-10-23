@@ -28,5 +28,12 @@ export default function Index() {
       return <ListeningHome {...data} showArchivingBanner />;
     case "listening":
       return <ListeningHome {...data} showArchivingBanner={false} />;
+    default: {
+      // Fail loudly if loadHomeData ever returns a new mode — a silent blank
+      // page hides the regression. `data` is `never` here (all known modes are
+      // handled above), so widen it to surface the unexpected runtime value.
+      const unexpected = data as { mode?: string };
+      throw new Error(`Unhandled home mode: ${String(unexpected.mode)}`);
+    }
   }
 }

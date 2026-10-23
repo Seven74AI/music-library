@@ -93,6 +93,43 @@ function resolvePublicImagePath(src: string): string {
   return resolved;
 }
 
+/** Resolve a storage key (objectKey or src-as-storage-key) to a local file or
+ * signed fetch URL. Shared by both image source branches. */
+async function resolveStorageKeySource(
+  storageKey: string,
+  context: { logLabel: string; fetchErrorMessage: string },
+) {
+  rejectDisallowedImagePath(storageKey, "storage");
+  // Validate and sanitize the storage key to prevent path traversal
+  let validatedKey: string;
+  try {
+    validatedKey = validateStorageKey(storageKey);
+  } catch {
+    throw invalidImagePath();
+  }
+
+  // Check for local file first (for local development)
+  const localFilePath = join(process.cwd(), "tests", "fixtures", "uploaded", validatedKey);
+  if (existsSync(localFilePath)) {
+    return { type: "fs" as const, path: localFilePath };
+  }
+
+  // Generate signed URL for remote storage (Tigris/S3)
+  try {
+    const { url: signedUrl, headers: signedHeaders } = await getFileUrl(validatedKey, 3600);
+    return { type: "fetch" as const, url: signedUrl, headers: signedHeaders };
+  } catch (error) {
+    // If storage is not configured and file not found locally, return 404
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes("Storage is not configured")) {
+      console.warn(`File not found locally and storage not configured: ${validatedKey}`);
+      throw new Response("Image not found", { status: 404 });
+    }
+    console.error(`Error generating signed URL for ${context.logLabel}:`, error);
+    throw new Response(context.fetchErrorMessage, { status: 500 });
+  }
+}
+
 export async function loader({ request, url }: Route.LoaderArgs) {
   const searchParams = url.searchParams;
 
@@ -121,44 +158,10 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     getImgSource: async () => {
       // If objectKey is explicitly provided, use it
       if (objectKey) {
-        rejectDisallowedImagePath(objectKey, "storage");
-        // Validate and sanitize the storage key to prevent path traversal
-        let validatedKey: string;
-        try {
-          validatedKey = validateStorageKey(objectKey);
-        } catch {
-          throw invalidImagePath();
-        }
-
-        // Check for local file first (for local development)
-        const localFilePath = join(process.cwd(), "tests", "fixtures", "uploaded", validatedKey);
-        if (existsSync(localFilePath)) {
-          // Serve from local filesystem
-          return {
-            type: "fs",
-            path: localFilePath,
-          };
-        }
-
-        // Generate signed URL for remote storage (Tigris/S3)
-        // Only if storage is configured (otherwise file should be in local filesystem)
-        try {
-          const { url: signedUrl, headers: signedHeaders } = await getFileUrl(validatedKey, 3600);
-          return {
-            type: "fetch",
-            url: signedUrl,
-            headers: signedHeaders,
-          };
-        } catch (error) {
-          // If storage is not configured and file not found locally, return 404
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          if (errorMessage.includes("Storage is not configured")) {
-            console.warn(`File not found locally and storage not configured: ${validatedKey}`);
-            throw new Response("Image not found", { status: 404 });
-          }
-          console.error("Error generating signed URL for image:", error);
-          throw new Response("Failed to generate image URL", { status: 500 });
-        }
+        return resolveStorageKeySource(objectKey, {
+          logLabel: "image",
+          fetchErrorMessage: "Failed to generate image URL",
+        });
       }
 
       const src = searchParams.get("src");
@@ -167,44 +170,10 @@ export async function loader({ request, url }: Route.LoaderArgs) {
 
       // Check if src is a storage key (for local dev and Tigris)
       if (isStorageKey(src)) {
-        rejectDisallowedImagePath(src, "storage");
-        // Validate and sanitize the storage key to prevent path traversal
-        let validatedKey: string;
-        try {
-          validatedKey = validateStorageKey(src);
-        } catch {
-          throw invalidImagePath();
-        }
-
-        // Check for local file first (for local development)
-        const localFilePath = join(process.cwd(), "tests", "fixtures", "uploaded", validatedKey);
-        if (existsSync(localFilePath)) {
-          // Serve from local filesystem
-          return {
-            type: "fs",
-            path: localFilePath,
-          };
-        }
-
-        // Generate signed URL for remote storage (Tigris/S3)
-        // Only if storage is configured (otherwise file should be in local filesystem)
-        try {
-          const { url: signedUrl, headers: signedHeaders } = await getFileUrl(validatedKey, 3600);
-          return {
-            type: "fetch",
-            url: signedUrl,
-            headers: signedHeaders,
-          };
-        } catch (error) {
-          // If storage is not configured and file not found locally, return 404
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          if (errorMessage.includes("Storage is not configured")) {
-            console.warn(`File not found locally and storage not configured: ${validatedKey}`);
-            throw new Response("Image not found", { status: 404 });
-          }
-          console.error("Error generating signed URL for storage key:", error);
-          throw new Response("Failed to generate image URL from storage key", { status: 500 });
-        }
+        return resolveStorageKeySource(src, {
+          logLabel: "storage key",
+          fetchErrorMessage: "Failed to generate image URL from storage key",
+        });
       }
 
       if (URL.canParse(src)) {

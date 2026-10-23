@@ -1,4 +1,3 @@
-// @context7: crypto, dns, net, Buffer, Prisma, sharp
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
@@ -224,6 +223,27 @@ export async function downloadExternalImage(
  */
 export async function calculateImageHash(buffer: Buffer): Promise<string> {
   return createHash("sha256").update(buffer).digest("hex");
+}
+
+/**
+ * Read an image buffer's intrinsic dimensions via sharp.
+ * Returns 0x0 when sharp is unavailable or the buffer is not a decodable image,
+ * so callers can fall back to metadata or fail validation instead of throwing.
+ */
+export async function getImageDimensions(
+  buffer: Buffer,
+): Promise<{ width: number; height: number }> {
+  try {
+    const sharp = await import("sharp");
+    const metadata = await sharp.default(buffer).metadata();
+    return {
+      width: metadata.width || 0,
+      height: metadata.height || 0,
+    };
+  } catch (error) {
+    console.error("Sharp not available for image processing:", error);
+    return { width: 0, height: 0 };
+  }
 }
 
 type AlbumLookup = {
@@ -486,21 +506,43 @@ export async function findOrCreateCoverImage(params: {
     },
   });
 
-  // Create cover image record
-  const coverImage = await prisma.coverImage.create({
-    data: {
-      contentHash,
-      objectKey,
-      width: finalWidth,
-      height: finalHeight,
-      format: finalFormat,
-      fileSize,
-    },
-    select: {
-      id: true,
-      objectKey: true,
-    },
-  });
+  // Create cover image record. `contentHash` is unique, so a concurrent
+  // identical upload can race past the findUnique above and throw P2002 here.
+  // Catch it and reuse the winner's row instead of failing the request.
+  let coverImage: { id: string; objectKey: string };
+  try {
+    coverImage = await prisma.coverImage.create({
+      data: {
+        contentHash,
+        objectKey,
+        width: finalWidth,
+        height: finalHeight,
+        format: finalFormat,
+        fileSize,
+      },
+      select: {
+        id: true,
+        objectKey: true,
+      },
+    });
+  } catch (error) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      const winner = await prisma.coverImage.findUnique({
+        where: { contentHash },
+        select: { id: true, objectKey: true },
+      });
+      if (winner) {
+        if (albumId) await associateCoverWithAlbum(winner.id, albumId);
+        return winner;
+      }
+    }
+    throw error;
+  }
 
   // Associate with album if provided
   if (albumId) {

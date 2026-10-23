@@ -114,14 +114,14 @@ export function TrackPreview({
               <Badge variant="secondary" className="text-xs">
                 {track.serviceName}
               </Badge>
-              <Link
-                to={track.serviceUrl}
+              <a
+                href={track.serviceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs text-primary hover:text-primary/80 underline"
               >
                 View on {track.serviceName}
-              </Link>
+              </a>
             </div>
           </div>
         </div>

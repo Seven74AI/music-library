@@ -36,13 +36,19 @@ export function partyRoomErrorResponse(error: unknown): Response {
 }
 
 export async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
+  const text = await request.text();
+  // An empty body is acceptable (some routes fall back to URL params) — return
+  // an empty object rather than a 400.
+  if (!text.trim()) return {};
+
+  let body: unknown;
   try {
-    const body: unknown = await request.json();
-    if (body && typeof body === "object" && !Array.isArray(body)) {
-      return body as Record<string, unknown>;
-    }
+    body = JSON.parse(text);
   } catch {
-    // fall through
+    throw new PartyRoomError("invalid_body", "Request body must be valid JSON", 400);
   }
-  return {};
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    return body as Record<string, unknown>;
+  }
+  throw new PartyRoomError("invalid_body", "Request body must be a JSON object", 400);
 }
