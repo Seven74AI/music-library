@@ -1,10 +1,9 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireUserWithRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { normalizeArtistName } from "#app/utils/artist-management.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { requireUserId } from "#app/utils/auth.server.ts";
 import { getLockStatus, releaseLock } from "#app/utils/locks.server.ts";
 import { type Route } from "./+types/artists.$id.edit.ts";
 
@@ -19,28 +18,7 @@ const EditArtistSchema = z.object({
 });
 
 export async function action({ request, params }: Route.ActionArgs) {
-  // Check curator/admin role
-  const userId = await requireUserId(request);
-  const user = await prisma.user.findFirst({
-    where: {
-      id: userId,
-      roles: {
-        some: {
-          name: { in: ["curator", "admin"] },
-        },
-      },
-    },
-  });
-
-  if (!user) {
-    throw data(
-      {
-        error: "Unauthorized",
-        message: "You must be a curator or admin to edit artists",
-      },
-      { status: 403 },
-    );
-  }
+  const userId = await requireCuratorOrAdmin(request);
 
   const { id: artistId } = params;
 

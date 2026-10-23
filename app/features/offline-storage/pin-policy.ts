@@ -1,9 +1,5 @@
 import { type OfflineTrackRecord } from "./types.ts";
 
-export function isProtectedOfflineTrack(track: OfflineTrackRecord): boolean {
-  return track.isPinned;
-}
-
 /** Queue Cache only — not a Pinned Download. Eligible for LRU eviction and purge. */
 export function isQueueOnlyOfflineTrack(track: OfflineTrackRecord): boolean {
   return track.isQueueCached && !track.isPinned;
@@ -27,8 +23,4 @@ export function selectQueueCacheEvictionCandidates(
   }
 
   return selected;
-}
-
-export function shouldRemoveRecordAfterEviction(track: OfflineTrackRecord): boolean {
-  return isQueueOnlyOfflineTrack(track);
 }

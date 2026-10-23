@@ -1,3 +1,5 @@
+import { offlineAudioOpfsPath } from "./offline-audio-path.ts";
+
 function isNotFoundError(error: unknown): error is DOMException {
   return error instanceof DOMException && error.name === "NotFoundError";
 }
@@ -13,6 +15,7 @@ function isNotFoundError(error: unknown): error is DOMException {
 export async function deleteOfflineAudioEntry(
   root: FileSystemDirectoryHandle,
   trackId: string,
+  format?: string | null,
 ): Promise<void> {
   let audioDir: FileSystemDirectoryHandle;
   try {
@@ -22,8 +25,11 @@ export async function deleteOfflineAudioEntry(
     throw error;
   }
 
+  const path = offlineAudioOpfsPath(trackId, format);
+  const fileName = path.slice(path.lastIndexOf("/") + 1);
+
   try {
-    await audioDir.removeEntry(`${trackId}.mp3`);
+    await audioDir.removeEntry(fileName);
   } catch (error) {
     if (isNotFoundError(error)) return;
     throw error;

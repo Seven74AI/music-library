@@ -1,31 +1,10 @@
 import { data } from "react-router";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireUserId } from "#app/utils/auth.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { type Route } from "./+types/artists.duplicates.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  // Check curator/admin role
-  const userId = await requireUserId(request);
-  const user = await prisma.user.findFirst({
-    where: {
-      id: userId,
-      roles: {
-        some: {
-          name: { in: ["curator", "admin"] },
-        },
-      },
-    },
-  });
-
-  if (!user) {
-    throw data(
-      {
-        error: "Unauthorized",
-        message: "You must be a curator or admin to view duplicates",
-      },
-      { status: 403 },
-    );
-  }
+  await requireCuratorOrAdmin(request);
 
   // Parse query parameters
   const url = new URL(request.url);

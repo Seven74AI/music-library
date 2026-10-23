@@ -325,13 +325,32 @@ export async function getUnusedTracks(
   };
 }
 
+export async function filterTracksWithoutAudio(trackIds: string[]): Promise<string[]> {
+  if (trackIds.length === 0) return [];
+  const rows = await prisma.trackAudioFile.findMany({
+    where: { trackId: { in: trackIds } },
+    select: { trackId: true },
+  });
+  const withAudio = new Set(rows.map((row) => row.trackId));
+  return trackIds.filter((id) => !withAudio.has(id));
+}
+
+export async function filterUnusedTracks(trackIds: string[]): Promise<string[]> {
+  if (trackIds.length === 0) return [];
+  const rows = await prisma.track.findMany({
+    where: { id: { in: trackIds }, ...unusedTrackWhere(null) },
+    select: { id: true },
+  });
+  const unused = new Set(rows.map((row) => row.id));
+  return trackIds.filter((id) => unused.has(id));
+}
+
 export async function queueTrackForDownload(trackId: string): Promise<void> {
   await prisma.archiveJob.upsert({
     where: { trackId },
     create: { trackId, status: "pending", priority: true },
     update: { status: "pending", priority: true, retryCount: 0, errorHistory: "[]" },
   });
-  scheduleQueueTick();
 }
 
 export async function queueTracksForDownload(trackIds: string[]): Promise<number> {
@@ -340,6 +359,8 @@ export async function queueTracksForDownload(trackIds: string[]): Promise<number
     await queueTrackForDownload(trackId);
     queued++;
   }
+  // Schedule the worker tick once after the batch instead of per-track.
+  if (queued > 0) scheduleQueueTick();
   return queued;
 }
 

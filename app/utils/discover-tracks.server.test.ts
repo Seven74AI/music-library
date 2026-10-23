@@ -190,7 +190,6 @@ describe("listDiscoverTracks", () => {
 
   test("mostPlayed sorts by play count descending", async () => {
     const user = await prisma.user.create({ data: createUser() });
-    const now = new Date("2026-09-20T12:00:00.000Z");
 
     const low = await createTrack("Low Play Count");
     const high = await createTrack("High Play Count");
@@ -203,7 +202,6 @@ describe("listDiscoverTracks", () => {
       userId: user.id,
       sort: "mostPlayed",
       limit: 50,
-      now,
     });
 
     const ourTracks = tracks.filter((t) => [low.id, high.id, zero.id].includes(t.id));
@@ -248,7 +246,6 @@ describe("listDiscoverTracks", () => {
 
   test("mostPlayed cursor pagination returns disjoint ordered pages", async () => {
     const user = await prisma.user.create({ data: createUser() });
-    const now = new Date("2026-09-20T12:00:00.000Z");
 
     const tracks: Array<{ id: string }> = [];
     for (let i = 0; i < 5; i++) {
@@ -259,20 +256,18 @@ describe("listDiscoverTracks", () => {
       await seedCompleted(user.id, tracks[i]!.id, new Date("2026-09-05T12:00:00.000Z"), i);
     }
 
-    const page1 = await listDiscoverTracks({ userId: user.id, sort: "mostPlayed", limit: 2, now });
+    const page1 = await listDiscoverTracks({ userId: user.id, sort: "mostPlayed", limit: 2 });
     const page2 = await listDiscoverTracks({
       userId: user.id,
       sort: "mostPlayed",
       limit: 2,
       cursor: page1.pagination.nextCursor,
-      now,
     });
     const page3 = await listDiscoverTracks({
       userId: user.id,
       sort: "mostPlayed",
       limit: 2,
       cursor: page2.pagination.nextCursor,
-      now,
     });
 
     const allIds = [page1, page2, page3].flatMap((p) => p.tracks.map((t) => t.id));
