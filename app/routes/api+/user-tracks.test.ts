@@ -94,7 +94,12 @@ describe("GET /api/user-tracks genre filter", () => {
       data: [tagged.id, other.id, playable.id].map((trackId) => ({ userId, trackId })),
     });
     await prisma.trackAudioFile.create({
-      data: { trackId: playable.id, objectKey: `audio/${playable.id}.mp3`, format: "mp3" },
+      data: {
+        trackId: playable.id,
+        serviceId: playable.serviceId,
+        objectKey: `audio/${playable.id}.mp3`,
+        format: "mp3",
+      },
     });
 
     const filtered = (await (
