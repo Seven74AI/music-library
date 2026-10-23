@@ -5,6 +5,16 @@ import {
   userPlaylistTitleTaken,
 } from "#app/utils/user-playlist.server.ts";
 
+/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 export type PromoteOnRepeatSnapshotResult =
   | {
       status: "success";
@@ -77,25 +87,37 @@ export async function promoteOnRepeatSnapshot(
       };
     }
 
-    const playlist = await prisma.$transaction(async (tx) => {
-      const created = await tx.userPlaylist.create({
-        data: { title: trimmedTitle, ownerId: input.userId },
-        select: { id: true, title: true },
+    const playlist = await prisma
+      .$transaction(async (tx) => {
+        const created = await tx.userPlaylist.create({
+          data: { title: trimmedTitle, ownerId: input.userId },
+          select: { id: true, title: true },
+        });
+
+        let position = 0;
+        for (const chunk of chunkArray(trackIds)) {
+          await tx.userPlaylistTrack.createMany({
+            data: chunk.map((trackId) => ({
+              playlistId: created.id,
+              trackId,
+              position: position++,
+            })),
+          });
+        }
+
+        return created;
+      })
+      .catch((error: unknown) => {
+        // Atomic guard via the DB unique index on (ownerId, lower(trim(title))).
+        if (isUniqueConstraintViolation(error)) {
+          return { status: "duplicate_title", existingTitle: trimmedTitle } as const;
+        }
+        throw error;
       });
 
-      let position = 0;
-      for (const chunk of chunkArray(trackIds)) {
-        await tx.userPlaylistTrack.createMany({
-          data: chunk.map((trackId) => ({
-            playlistId: created.id,
-            trackId,
-            position: position++,
-          })),
-        });
-      }
-
-      return created;
-    });
+    if ("status" in playlist) {
+      return playlist;
+    }
 
     return {
       status: "success",
