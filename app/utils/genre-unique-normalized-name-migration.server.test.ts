@@ -29,19 +29,22 @@ beforeAll(() => {
     .map((entry) => entry.name)
     .sort();
 
-  if (migrations[migrations.length - 1] !== TARGET_MIGRATION) {
-    throw new Error(
-      `${TARGET_MIGRATION} must be the most recent migration for this test to replay the correct prefix`,
-    );
+  if (migrations.indexOf(TARGET_MIGRATION) === -1) {
+    throw new Error(`${TARGET_MIGRATION} not found in ${MIGRATIONS_DIR}`);
   }
+
+  const targetIndex = migrations.indexOf(TARGET_MIGRATION);
 
   tempDir = mkdtempSync(join(tmpdir(), "genre-normalized-name-migration-"));
   preMigrationPath = join(tempDir, "pre-migration.db");
   const db = new DatabaseSync(preMigrationPath);
   db.exec("PRAGMA foreign_keys=ON;");
 
-  for (const name of migrations) {
-    if (name === TARGET_MIGRATION) continue;
+  // Replay only the migrations that precede the target, so the frozen DB
+  // reflects the schema state the target migration was written against — this
+  // stays correct even after later migrations land on main (the target is no
+  // longer the newest migration).
+  for (const name of migrations.slice(0, targetIndex)) {
     db.exec(readFileSync(join(MIGRATIONS_DIR, name, "migration.sql"), "utf8"));
   }
 
