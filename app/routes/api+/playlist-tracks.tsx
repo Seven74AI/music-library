@@ -71,7 +71,7 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
     const nextCursor = hasNext ? playlistTracksRaw[playlistTracksRaw.length - 1]?.id : null;
 
     return Response.json({
-      tracks: playlistTracksRaw.map((pt: any) => pt.track),
+      tracks: playlistTracksRaw.map((pt) => pt.track),
       pagination: {
         hasNext,
         nextCursor,

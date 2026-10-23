@@ -88,32 +88,6 @@ export function handleServiceError(
 }
 
 /**
- * Async error handler wrapper for service methods
- * Wraps async service methods with consistent error handling
- *
- * @param serviceMethod - The async service method to wrap
- * @param operation - The operation name for logging
- * @param service - The service name for logging
- * @returns Wrapped method with error handling
- */
-export function withServiceErrorHandler<T extends (...args: any[]) => Promise<any>>(
-  serviceMethod: T,
-  operation: string,
-  service: string = "Service",
-): T {
-  return (async (...args: Parameters<T>) => {
-    try {
-      return await serviceMethod(...args);
-    } catch (error) {
-      throw new Error(
-        `${service} ${operation} failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-        { cause: error },
-      );
-    }
-  }) as T;
-}
-
-/**
  * Validation error handler for form actions
  * Handles validation errors and returns appropriate form response
  *

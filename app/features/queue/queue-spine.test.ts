@@ -134,6 +134,19 @@ describe("fetchQueueSpine", () => {
     await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(AuthExpiredError);
   });
 
+  test("does NOT report a non-login redirect (trailing slash) as auth expiry", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 301,
+      headers: { get: () => "/api/queue-spine/" },
+    } as unknown as Response);
+
+    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
+      "Failed to fetch queue spine: 301",
+    );
+  });
+
   test("throws generic Error on non-redirect error response (500)", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({

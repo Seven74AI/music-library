@@ -81,13 +81,32 @@ export async function fetchQueueSpine(context: QueueSpineContext): Promise<Queue
   const base = typeof window !== "undefined" ? window.location.origin : "http://localhost";
   const response = await fetch(`${base}${url}`, { redirect: "manual" });
   if (response.status >= 300 && response.status < 400) {
-    throw new AuthExpiredError();
+    const location = response.headers.get("location");
+    // A redirect to the login route means the session expired. A trailing-slash
+    // or canonical-host redirect to any other path should NOT be reported as
+    // auth expiry — it falls through to the generic error below instead.
+    if (!location || isLoginPath(location)) {
+      throw new AuthExpiredError();
+    }
   }
   if (!response.ok) {
     throw new Error(`Failed to fetch queue spine: ${response.status}`);
   }
 
   return response.json() as Promise<QueueSpineResponse>;
+}
+
+/**
+ * True when a redirect Location targets the login route (relative or absolute).
+ * React Router's auth gate issues `redirect("/login[?…]")`, which surfaces as a
+ * 302 with a `/login` path.
+ */
+function isLoginPath(location: string): boolean {
+  try {
+    return new URL(location, "http://queue-spine.invalid").pathname === "/login";
+  } catch {
+    return location === "/login" || location.startsWith("/login?");
+  }
 }
 
 export function queueTrackFromFullTrack(track: FullTrack): QueueTrack {

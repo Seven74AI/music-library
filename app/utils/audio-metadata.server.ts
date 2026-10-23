@@ -161,7 +161,7 @@ export async function extractAudioMetadata(
     const lyricsData = metadata.common.lyrics;
     if (Array.isArray(lyricsData)) {
       lyrics = lyricsData
-        .map((item) => (typeof item === "string" ? item : (item as any)?.text || ""))
+        .map((item) => (typeof item === "string" ? item : (item.text ?? "")))
         .filter(Boolean)
         .join("\n");
     } else if (typeof lyricsData === "string") {

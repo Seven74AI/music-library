@@ -3,11 +3,12 @@ import { Button } from "#app/components/ui/button";
 import { Input } from "#app/components/ui/input";
 import { Label } from "#app/components/ui/label";
 import { Textarea } from "#app/components/ui/textarea";
+import { type TrackMetadataChanges } from "#app/types/track-metadata";
 import { type TrackDetails } from "../track-details-dialog";
 
 interface ExtendedMetadataTabProps {
   track: TrackDetails;
-  onSave: (changes: any) => void;
+  onSave: (changes: TrackMetadataChanges) => void;
   disabled?: boolean;
 }
 
