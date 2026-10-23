@@ -4,6 +4,7 @@ type WorkerRequest = {
   type: string;
   trackId: string;
   buffer?: ArrayBuffer;
+  format?: string | null;
 };
 
 type WorkerResponse =
@@ -45,21 +46,21 @@ export function createOpfsOfflineAudioStore(): OfflineAudioStore {
   }
 
   return {
-    async write(trackId, data) {
-      const response = await callWorker({ type: "write", trackId, buffer: data });
+    async write(trackId, data, format) {
+      const response = await callWorker({ type: "write", trackId, buffer: data, format });
       if (!response.ok) throw new Error("write failed");
     },
-    async read(trackId) {
-      const response = await callWorker({ type: "read", trackId });
+    async read(trackId, format) {
+      const response = await callWorker({ type: "read", trackId, format });
       if (!response.ok) throw new Error("read failed");
       return response.buffer ?? null;
     },
-    async delete(trackId) {
-      const response = await callWorker({ type: "delete", trackId });
+    async delete(trackId, format) {
+      const response = await callWorker({ type: "delete", trackId, format });
       if (!response.ok) throw new Error("delete failed");
     },
-    async has(trackId) {
-      const response = await callWorker({ type: "has", trackId });
+    async has(trackId, format) {
+      const response = await callWorker({ type: "has", trackId, format });
       if (!response.ok) throw new Error("has failed");
       return Boolean(response.exists);
     },

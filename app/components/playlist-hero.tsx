@@ -23,12 +23,10 @@ interface PlaylistHeroTrack {
 }
 
 interface PlaylistHeroProps {
-  id: string;
   title: string;
   description: string | null;
   tracks: PlaylistHeroTrack[];
   createdAt: string;
-  updatedAt: string;
   onTitleUpdate: (newTitle: string) => void;
   onDescriptionUpdate: (newDescription: string) => void;
   onBulkPlayNext: () => void;
@@ -62,12 +60,10 @@ function getGradientFromTitle(title: string): string {
 }
 
 export function PlaylistHero({
-  id: _id,
   title,
   description,
   tracks,
   createdAt,
-  updatedAt: _updatedAt,
   onTitleUpdate,
   onDescriptionUpdate,
   onBulkPlayNext,

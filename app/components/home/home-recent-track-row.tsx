@@ -15,13 +15,9 @@ export function HomeRecentTrackRow({ recentTracks }: HomeRecentTrackRowProps) {
 
   return (
     <div className="-mx-1 flex gap-4 overflow-x-auto px-1 pb-2 snap-x snap-mandatory">
-      {recentTracks.map((userTrack, index) => (
+      {recentTracks.map((userTrack) => (
         <div key={userTrack.id} className="snap-start">
-          <HomeRecentTrackCard
-            userTrack={userTrack}
-            index={index}
-            playableTracks={playableTracks}
-          />
+          <HomeRecentTrackCard userTrack={userTrack} playableTracks={playableTracks} />
         </div>
       ))}
     </div>

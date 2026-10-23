@@ -20,7 +20,7 @@ export async function requireCuratorOrAdmin(request: Request) {
     throw data(
       {
         error: "Forbidden",
-        message: "Only curators and admins can edit track metadata",
+        message: "Only curators and admins can perform this action",
       },
       { status: 403 },
     );

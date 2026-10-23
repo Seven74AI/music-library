@@ -328,6 +328,10 @@ export const test = base.extend<{
       // Use YOUTUBE_SERVICE_ID from config
       const { YOUTUBE_SERVICE_ID } = await import("#app/config/youtube");
 
+      if (!userId) {
+        throw new Error("insertNewPlaylist requires a userId (ownerId has no valid fallback)");
+      }
+
       const playlist = await testPrisma.servicePlaylist.create({
         data: {
           serviceId: YOUTUBE_SERVICE_ID,
@@ -338,7 +342,7 @@ export const test = base.extend<{
           channelTitle: "Test Channel",
           publishedAt: new Date(),
           itemCount: options?.itemCount || 0,
-          ownerId: userId || "test-user",
+          ownerId: userId,
           isActive: true,
           lastSyncedAt: new Date(),
         },
