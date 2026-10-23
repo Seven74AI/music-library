@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { MERGE_COMMENT_PREFIX, MERGED_INTO_PREFIX } from "./activity-comments.ts";
 import {
   badgeLabel,
   earnedBadgeTypes,
@@ -13,6 +14,11 @@ import {
 const AWARD_TTL_MS = 5 * 60 * 1000;
 let awardedAt = 0;
 let awardQueue: Promise<unknown> = Promise.resolve();
+
+// Merge metrics filter `ArtistEdit` / `AlbumEdit` rows whose comment carries a
+// merge prefix. The prefixes are shared with the dashboard activity feed via
+// activity-comments.ts so the two read paths cannot disagree on the marker.
+const MERGE_COMMENT_WHERE = `comment LIKE '${MERGE_COMMENT_PREFIX}%' OR comment LIKE '${MERGED_INTO_PREFIX}%'`;
 
 export function resetBadgeAwardCache() {
   awardedAt = 0;
@@ -84,10 +90,10 @@ export async function loadCuratorCounts(): Promise<Map<string, CuratorCounts>> {
       SELECT editedBy AS curatorId, COUNT(*) AS count
       FROM (
         SELECT editedBy FROM ArtistEdit
-        WHERE comment LIKE 'MERGE:%' OR comment LIKE 'Merged into%'
+        WHERE ${MERGE_COMMENT_WHERE}
         UNION ALL
         SELECT editedBy FROM AlbumEdit
-        WHERE comment LIKE 'MERGE:%' OR comment LIKE 'Merged into%'
+        WHERE ${MERGE_COMMENT_WHERE}
       )
       GROUP BY editedBy
     `),

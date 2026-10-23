@@ -167,7 +167,8 @@ model Verification {
   type      String
   /// The thing we're trying to verify, e.g. a user's email or phone number
   target    String
-  /// The secret key used to generate the otp
+  /// The secret key used to generate the otp. Stored encrypted at rest
+  /// (AES-256-GCM, `enc1:` prefix). Values without the prefix are legacy plaintext.
   secret    String
   /// The algorithm used to generate the otp
   algorithm String
@@ -548,14 +549,19 @@ model WorkerState {
 
 /// Singleton status for automated SQLite backups (ADR-029).
 model BackupState {
-  id             String    @id @default("singleton")
-  lastStatus     String? // success | failure | running
-  lastAttemptAt  DateTime?
-  lastSuccessAt  DateTime?
-  lastError      String?
-  lastObjectKey  String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                       String    @id @default("singleton")
+  lastStatus               String? // success | failure | running
+  lastAttemptAt            DateTime?
+  lastSuccessAt            DateTime?
+  lastError                String?
+  lastObjectKey            String?
+  /// Daily backup scheduler (ADR-029): UTC day string YYYY-MM-DD after last success.
+  schedulerLastSuccessDay  String?
+  schedulerAttemptDay      String?
+  schedulerAttemptsToday   Int       @default(0)
+  schedulerNextRetryAt     DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 }
 
 model YoutubeCookie {
@@ -850,12 +856,10 @@ model NormalizedName {
 model Genre {
   id             String   @id @default(cuid())
   name           String   @unique
-  normalizedName String
+  normalizedName String   @unique
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   tracks         Track[]  @relation("TrackGenres")
-  
-  @@index([normalizedName])
 }
 
 /// Threaded curator notes with @mentions

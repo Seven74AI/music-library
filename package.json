@@ -50,6 +50,7 @@
     "db:manage": "tsx scripts/manage-db.ts",
     "make-admin": "tsx scripts/make-admin.ts",
     "migrate-genres": "tsx scripts/migrate-genres.ts",
+    "migrate:encrypt-verification-secrets": "tsx scripts/encrypt-verification-secrets.ts",
     "prepare": "husky"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 import { transformYouTubePlaylistItemToTrack } from "#app/types/transformations";
 import { type YouTubePlaylistItem } from "#app/types/youtube-api";
 import { type Prisma } from "#prisma/client.js";
+import { type SyncableItem } from "./batch-processor.server";
 
 const UNAVAILABLE_TITLE_PATTERNS = [
   /^deleted video$/i,
@@ -21,14 +22,13 @@ function isPlaceholderTitle(title: string): boolean {
  * Not part of the public provider seam (fetch + normalize only).
  */
 export interface TrackSyncProcessor {
-  isUnavailableVideo(item: any): boolean;
-  shouldPreserveTrackData(existingTrack: { title: string } | null, item: any): boolean;
+  isUnavailableVideo(item: SyncableItem): boolean;
+  shouldPreserveTrackData(existingTrack: { title: string } | null, item: SyncableItem): boolean;
   transformPlaylistItem(
-    item: any,
+    item: SyncableItem,
     serviceId: string,
     artistId: string,
-  ): Omit<Prisma.TrackCreateInput, "artist"> & {
-    artistId: string;
+  ): Prisma.TrackUncheckedCreateInput & {
     thumbnailUrl?: string | null;
   };
 }
@@ -61,8 +61,7 @@ export class YouTubeTrackSyncProcessor implements TrackSyncProcessor {
     item: YouTubePlaylistItem,
     serviceId: string,
     artistId: string,
-  ): Omit<Prisma.TrackCreateInput, "artist"> & {
-    artistId: string;
+  ): Prisma.TrackUncheckedCreateInput & {
     thumbnailUrl?: string | null;
   } {
     return transformYouTubePlaylistItemToTrack(item, serviceId, artistId);
