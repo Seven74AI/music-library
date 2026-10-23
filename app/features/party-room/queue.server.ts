@@ -382,7 +382,7 @@ export async function recordRoomPlayEvent({
     select: { id: true },
   });
   if (!queued) {
-    throw new PartyRoomError("forbidden", "Track is not on this room's queue", 400);
+    throw new PartyRoomError("forbidden", "Track is not on this room's queue", 403);
   }
 
   // Dedupe by playId: a play session emits start + complete, but a retried or
@@ -390,7 +390,7 @@ export async function recordRoomPlayEvent({
   if (playId) {
     const existing = await prisma.roomPlayEvent.findFirst({
       where: { roomId, playId, type },
-      select: { id: true, type: true, trackId: true, createdAt: true },
+      select: { id: true, type: true, trackId: true, playId: true, createdAt: true },
     });
     if (existing) {
       return existing;
