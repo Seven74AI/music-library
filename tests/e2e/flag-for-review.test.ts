@@ -47,6 +47,7 @@ async function flagOpenEntity(
   page: import("@playwright/test").Page,
   entityName: string,
   comment: string,
+  testInfo: import("@playwright/test").TestInfo,
   screenshotName?: string,
 ) {
   const dialog = page.getByRole("dialog");
@@ -54,7 +55,7 @@ async function flagOpenEntity(
   await expect(dialog.getByText(entityName)).toBeVisible();
   if (screenshotName) {
     await page.screenshot({
-      path: `/opt/cursor/artifacts/${screenshotName}.png`,
+      path: testInfo.outputPath(`${screenshotName}.png`),
       fullPage: true,
     });
   }
@@ -96,7 +97,7 @@ test("admin can flag an artist, a track, and an album", async ({
   page,
   loginAsAdmin,
   insertNewTrack,
-}) => {
+}, testInfo) => {
   test.setTimeout(60_000);
   const user = await loginAsAdmin();
   const artistName = `Admin Flag Artist ${Date.now()}`;
@@ -122,7 +123,13 @@ test("admin can flag an artist, a track, and an album", async ({
     await dismissOverlays(page);
     await expect(page.getByRole("button", { name: /edit artist/i })).toBeVisible();
     await clickFlagForReview(page);
-    await flagOpenEntity(page, artistName, "Artist metadata needs a look", "flag-artist-dialog");
+    await flagOpenEntity(
+      page,
+      artistName,
+      "Artist metadata needs a look",
+      testInfo,
+      "flag-artist-dialog",
+    );
 
     const artistItem = await testPrisma.reviewQueueItem.findFirst({
       where: { entityType: "artist", entityId: artist!.id, source: "curator" },
@@ -135,9 +142,9 @@ test("admin can flag an artist, a track, and an album", async ({
 
     await openTrackActions(page);
     await expect(page.getByRole("menuitem", { name: /flag for review/i })).toBeVisible();
-    await page.screenshot({ path: "/opt/cursor/artifacts/flag-track-menu.png" });
+    await page.screenshot({ path: testInfo.outputPath("flag-track-menu.png") });
     await page.getByRole("menuitem", { name: /flag for review/i }).click();
-    await flagOpenEntity(page, title, "Track title looks wrong", "flag-track-dialog");
+    await flagOpenEntity(page, title, "Track title looks wrong", testInfo, "flag-track-dialog");
 
     const trackItem = await testPrisma.reviewQueueItem.findFirst({
       where: { entityType: "track", entityId: created.id, source: "curator" },
@@ -151,7 +158,7 @@ test("admin can flag an artist, a track, and an album", async ({
     await dismissOverlays(page);
     await expect(page.getByRole("button", { name: /edit album/i })).toBeVisible();
     await clickFlagForReview(page);
-    await flagOpenEntity(page, albumName, "Album year is missing", "flag-album-dialog");
+    await flagOpenEntity(page, albumName, "Album year is missing", testInfo, "flag-album-dialog");
 
     const albumItem = await testPrisma.reviewQueueItem.findFirst({
       where: { entityType: "album", entityId: album.id, source: "curator" },

@@ -23,11 +23,7 @@ const UNDO_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export function UndoToast({ open, onOpenChange, trackId, onUndo }: UndoToastProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [currentToast, setCurrentToast] = useState<{
-    id: string;
-    dismiss: () => void;
-    update: (props: any) => void;
-  } | null>(null);
+  const [currentToast, setCurrentToast] = useState<ReturnType<typeof toast> | null>(null);
   const submit = useSubmit();
 
   useEffect(() => {

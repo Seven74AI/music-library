@@ -56,14 +56,17 @@ describe("enqueueArchiveJob", () => {
       expect(mockScheduleQueueTick).not.toHaveBeenCalled();
     });
 
-    it("does not throw on any database error", async () => {
+    it("re-throws non-unique-constraint errors instead of silently dropping the enqueue", async () => {
       const { enqueueArchiveJob } = await import("./auto-enqueue.server.ts");
 
       mockArchiveJob.create.mockRejectedValue(new Error("Database connection lost"));
 
       const tx = { archiveJob: mockArchiveJob };
-      // Should not throw — errors are caught silently
-      await expect(enqueueArchiveJob(tx as any, "track-1")).resolves.toBeUndefined();
+      // Transient DB failures must not be swallowed — a track would go
+      // permanently un-archived with no observability (Decision #18).
+      await expect(enqueueArchiveJob(tx as any, "track-1")).rejects.toThrow(
+        "Database connection lost",
+      );
       expect(mockScheduleQueueTick).not.toHaveBeenCalled();
     });
   });
@@ -136,13 +139,15 @@ describe("enqueueArchiveJobs (batch)", () => {
     });
   });
 
-  it("does not throw on database error", async () => {
+  it("re-throws non-unique-constraint errors instead of silently dropping the batch", async () => {
     const { enqueueArchiveJobs } = await import("./auto-enqueue.server.ts");
 
     mockArchiveJob.findMany.mockRejectedValue(new Error("Database connection lost"));
 
     const tx = { archiveJob: mockArchiveJob };
-    await expect(enqueueArchiveJobs(tx as any, ["track-1"])).resolves.toBeUndefined();
+    await expect(enqueueArchiveJobs(tx as any, ["track-1"])).rejects.toThrow(
+      "Database connection lost",
+    );
     expect(mockScheduleQueueTick).not.toHaveBeenCalled();
   });
 });
