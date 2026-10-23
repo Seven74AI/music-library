@@ -67,8 +67,14 @@ export function OfflineLibraryView({ tracks }: OfflineLibraryViewProps) {
   }
 
   return (
-    <div ref={listRef} className="relative min-w-0 rounded-lg border">
+    <div
+      ref={listRef}
+      role="list"
+      aria-label="Downloaded tracks"
+      className="relative min-w-0 rounded-lg border"
+    >
       <div
+        role="presentation"
         style={{
           height: `${virtualizer.getTotalSize()}px`,
           width: "100%",
@@ -84,6 +90,7 @@ export function OfflineLibraryView({ tracks }: OfflineLibraryViewProps) {
               key={track.trackId}
               data-index={virtualItem.index}
               ref={virtualizer.measureElement}
+              role="presentation"
               style={{
                 position: "absolute",
                 top: 0,

@@ -74,7 +74,7 @@ export function OfflinePlaylistView({
           </Button>
         </div>
       ) : (
-        <ul className="divide-y rounded-lg border">
+        <div role="list" className="divide-y rounded-lg border">
           {tracks.map((track, index) => (
             <OfflinePlaylistTrackItem
               key={track.trackId}
@@ -83,7 +83,7 @@ export function OfflinePlaylistView({
               index={index}
             />
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
