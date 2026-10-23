@@ -9,6 +9,7 @@ const mockPrisma = {
     findMany: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
     groupBy: vi.fn(),
   },
   track: {
@@ -121,6 +122,7 @@ describe("processQueueTick", () => {
     });
     mockPrisma.workerState.upsert.mockResolvedValue({});
     mockPrisma.youtubeCookie.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.archiveJob.updateMany.mockResolvedValue({ count: 1 });
 
     mockPersistTrackAudio.mockResolvedValue({
       audioFile: {
@@ -1041,6 +1043,186 @@ describe("processQueueTick", () => {
       expect(mockNotifyCookieExpired).not.toHaveBeenCalled();
       expect(mockNotifyJobFailed).not.toHaveBeenCalled();
       expect(mockPrisma.youtubeCookie.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("exponential backoff (Decision #5)", () => {
+    function lastUpdateData(jobId: string): Record<string, unknown> {
+      const calls = mockPrisma.archiveJob.update.mock.calls.filter(
+        (call) => call[0]?.where?.id === jobId,
+      );
+      return (calls.at(-1)?.[0]?.data ?? {}) as Record<string, unknown>;
+    }
+
+    function queueRetriableJob(jobId: string, retryCount: number) {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: jobId,
+          status: "pending",
+          priority: false,
+          retryCount,
+          errorHistory: "[]",
+          track: {
+            id: `track-${jobId}`,
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=backoffxxxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount, errorHistory: "[]" });
+      mockExecuteYtDlp.mockResolvedValue({
+        exitCode: 1,
+        stdout: "",
+        stderr: "ERROR: ETIMEDOUT",
+        filePath: undefined,
+        errorCategory: "NETWORK",
+        errorMessage: "Connection timed out",
+      });
+    }
+
+    function expectBackoff(jobId: string, expectedRetryCount: number, delayMs: number) {
+      return async () => {
+        queueRetriableJob(jobId, expectedRetryCount - 1);
+        const before = Date.now();
+        const { processQueueTick } = await import("./worker.server.ts");
+        await processQueueTick();
+        const after = Date.now();
+
+        const data = lastUpdateData(jobId);
+        expect(data.status).toBe("pending");
+        expect(data.retryCount).toBe(expectedRetryCount);
+
+        const nextAttemptAt = data.nextAttemptAt as Date;
+        expect(nextAttemptAt).toBeInstanceOf(Date);
+        expect(nextAttemptAt.getTime()).toBeGreaterThanOrEqual(before + delayMs);
+        expect(nextAttemptAt.getTime()).toBeLessThanOrEqual(after + delayMs);
+      };
+    }
+
+    it("schedules the 1st retry 5 minutes out", expectBackoff("job-backoff-1", 1, 5 * 60_000));
+
+    it("schedules the 2nd retry 30 minutes out", expectBackoff("job-backoff-2", 2, 30 * 60_000));
+
+    it("schedules the 3rd retry 2 hours out", expectBackoff("job-backoff-3", 3, 2 * 60 * 60_000));
+
+    it("clears nextAttemptAt on permanent failure", async () => {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-backoff-perm",
+          status: "pending",
+          priority: false,
+          retryCount: 3,
+          errorHistory: "[]",
+          track: {
+            id: "track-backoff-perm",
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=backoffxxxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 3, errorHistory: "[]" });
+      mockExecuteYtDlp.mockResolvedValue({
+        exitCode: 1,
+        stdout: "",
+        stderr: "ERROR: ETIMEDOUT",
+        filePath: undefined,
+        errorCategory: "NETWORK",
+        errorMessage: "Connection timed out",
+      });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      const data = lastUpdateData("job-backoff-perm");
+      expect(data.status).toBe("failed");
+      expect(data.nextAttemptAt).toBeNull();
+    });
+
+    it("filters the pending pick to jobs whose nextAttemptAt has elapsed", async () => {
+      const pendingCalls: Array<{ where?: { status?: string; OR?: unknown } }> = [];
+      mockPrisma.archiveJob.findMany.mockImplementation((args) => {
+        if (args?.where?.status === "processing") return Promise.resolve([]);
+        pendingCalls.push(args);
+        return Promise.resolve([]);
+      });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(pendingCalls[0]?.where?.status).toBe("pending");
+      expect(pendingCalls[0]?.where?.OR).toEqual([
+        { nextAttemptAt: null },
+        { nextAttemptAt: { lte: expect.any(Date) } },
+      ]);
+    });
+  });
+
+  describe("atomic job claim", () => {
+    it("claims the job with a pending-status guard", async () => {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-claim",
+          status: "pending",
+          priority: false,
+          retryCount: 0,
+          errorHistory: "[]",
+          track: {
+            id: "track-claim",
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=claimxxxxxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: "track-claim" });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith({
+        where: { id: "job-claim", status: "pending" },
+        data: { status: "processing", lastAttemptAt: expect.any(Date) },
+      });
+    });
+
+    it("skips the job when the atomic claim updates 0 rows (lost race)", async () => {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-race",
+          status: "pending",
+          priority: false,
+          retryCount: 0,
+          errorHistory: "[]",
+          track: {
+            id: "track-race",
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=racexxxxxxxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.updateMany.mockResolvedValue({ count: 0 });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockExecuteYtDlp).not.toHaveBeenCalled();
+      expect(mockPersistTrackAudio).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("tick error containment", () => {
+    it("resolves without rejecting when the tick body throws (no unhandled rejection)", async () => {
+      const consoleErrorMock = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockPrisma.archiveJob.count.mockRejectedValue(new Error("transient DB hiccup"));
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await expect(processQueueTick()).resolves.toBeUndefined();
+
+      expect(consoleErrorMock).toHaveBeenCalledWith("processQueueTick failed:", expect.any(Error));
+      consoleErrorMock.mockRestore();
     });
   });
 
