@@ -5,7 +5,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { uploadFile } from "#app/utils/storage.server.ts";
-import { downloadExternalImage } from "#app/utils/cover-management.server.ts";
+import { downloadExternalImage, getImageDimensions } from "#app/utils/cover-management.server.ts";
 import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/from-url.ts";
@@ -28,25 +28,6 @@ const FORMAT_BY_SHARP: Record<string, { ext: string; mime: string }> = {
   gif: { ext: "gif", mime: "image/gif" },
   avif: { ext: "avif", mime: "image/avif" },
 };
-
-async function getImageDimensions(
-  buffer: Buffer,
-): Promise<{ width: number; height: number; format?: string }> {
-  // Import sharp dynamically to avoid issues if not installed
-  try {
-    const sharp = await import("sharp");
-    const metadata = await sharp.default(buffer).metadata();
-    return {
-      width: metadata.width || 0,
-      height: metadata.height || 0,
-      format: metadata.format,
-    };
-  } catch (error) {
-    // If sharp is not available, return 0x0 (validation will fail if dimensions matter)
-    console.error("Sharp not available for image processing:", error);
-    return { width: 0, height: 0 };
-  }
-}
 
 export async function action({ request }: Route.ActionArgs) {
   if (request.method !== "POST") {

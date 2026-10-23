@@ -56,3 +56,47 @@ test("writes do not throw when localStorage is unavailable", () => {
 
   expect(() => writeCachedPlayerState("user-1", savedState)).not.toThrow();
 });
+
+test("returns null when the play context direction is invalid", () => {
+  window.localStorage.setItem(
+    "music-library:player-state:user-1",
+    JSON.stringify({
+      playContext: { type: "library", direction: "up" },
+      currentTrackId: "track-1",
+      upNextIds: [],
+      shuffleSeed: null,
+      loopMode: "all",
+    }),
+  );
+
+  expect(readCachedPlayerState("user-1")).toBeNull();
+});
+
+test("returns null when the sort option is not canonical for the context", () => {
+  // "titleAZ" is a valid discover sort but NOT a library sort.
+  window.localStorage.setItem(
+    "music-library:player-state:user-1",
+    JSON.stringify({
+      playContext: { type: "library", sort: "titleAZ", direction: "asc" },
+      currentTrackId: "track-1",
+      upNextIds: [],
+      shuffleSeed: null,
+      loopMode: "all",
+    }),
+  );
+
+  expect(readCachedPlayerState("user-1")).toBeNull();
+});
+
+test("round-trips a valid library context with sort and direction", () => {
+  const state: PlayerStateData = {
+    playContext: { type: "library", sort: "dateAdded", direction: "desc" },
+    currentTrackId: "track-1",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "all",
+  };
+
+  writeCachedPlayerState("user-1", state);
+  expect(readCachedPlayerState("user-1")).toEqual(state);
+});

@@ -22,21 +22,25 @@ export async function findAllServicePlaylistTracks<T extends FindManyArgsWithout
   args: T,
 ): Promise<Prisma.ServicePlaylistTrackGetPayload<T & { orderBy: { id: "asc" } }>[]> {
   const results: Prisma.ServicePlaylistTrackGetPayload<T & { orderBy: { id: "asc" } }>[] = [];
-  let skip = 0;
+  let cursor: string | undefined;
 
   while (true) {
     const page = (await client.servicePlaylistTrack.findMany({
       ...args,
       orderBy: { id: "asc" },
       take: SERVICE_PLAYLIST_TRACK_PAGE_SIZE,
-      skip,
+      // Cursor pagination: skip the cursor row itself (Prisma's cursor is
+      // inclusive) and resume from the last id of the previous page. Stable
+      // under concurrent inserts unlike `skip` offset, which is O(n²) and can
+      // skip/duplicate rows when the set mutates mid-iteration.
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
     })) as Prisma.ServicePlaylistTrackGetPayload<T & { orderBy: { id: "asc" } }>[];
 
     results.push(...page);
     if (page.length < SERVICE_PLAYLIST_TRACK_PAGE_SIZE) {
       break;
     }
-    skip += SERVICE_PLAYLIST_TRACK_PAGE_SIZE;
+    cursor = page[page.length - 1]?.id;
   }
 
   return results;
