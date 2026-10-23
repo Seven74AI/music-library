@@ -92,7 +92,9 @@ test("album page keeps playable tracks in track-number order", async () => {
       serviceId: local,
       artistId: artist.id,
       albumId: album.id,
-      audioFiles: { create: { objectKey: `audio/2-${suffix}.flac`, format: "flac" } },
+      audioFiles: {
+        create: { serviceId: local, objectKey: `audio/2-${suffix}.flac`, format: "flac" },
+      },
     },
   });
   await prisma.track.create({
@@ -113,7 +115,9 @@ test("album page keeps playable tracks in track-number order", async () => {
       serviceId: local,
       artistId: artist.id,
       albumId: album.id,
-      audioFiles: { create: { objectKey: `audio/1-${suffix}.flac`, format: "flac" } },
+      audioFiles: {
+        create: { serviceId: local, objectKey: `audio/1-${suffix}.flac`, format: "flac" },
+      },
     },
   });
   const unnumbered = await prisma.track.create({
@@ -123,7 +127,9 @@ test("album page keeps playable tracks in track-number order", async () => {
       serviceId: local,
       artistId: artist.id,
       albumId: album.id,
-      audioFiles: { create: { objectKey: `audio/u-${suffix}.flac`, format: "flac" } },
+      audioFiles: {
+        create: { serviceId: local, objectKey: `audio/u-${suffix}.flac`, format: "flac" },
+      },
     },
   });
 
@@ -169,7 +175,9 @@ test("artist page lists playable albums and tracks only", async () => {
       serviceId: local,
       artistId: artist.id,
       albumId: later.id,
-      audioFiles: { create: { objectKey: `audio/later-${suffix}.flac`, format: "flac" } },
+      audioFiles: {
+        create: { serviceId: local, objectKey: `audio/later-${suffix}.flac`, format: "flac" },
+      },
     },
   });
   await prisma.track.create({
@@ -179,7 +187,9 @@ test("artist page lists playable albums and tracks only", async () => {
       serviceId: local,
       artistId: artist.id,
       albumId: earlier.id,
-      audioFiles: { create: { objectKey: `audio/early-${suffix}.flac`, format: "flac" } },
+      audioFiles: {
+        create: { serviceId: local, objectKey: `audio/early-${suffix}.flac`, format: "flac" },
+      },
     },
   });
   await prisma.track.create({

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (Note: Audio worker functionality has been removed from the codebase)
+Accepted (Note: the audio worker was removed in ADR-004, then reintroduced as `app/features/audio-archive/` by ADR-011 on 2026-07-07)
 
 ## Context
 
@@ -13,7 +13,7 @@ The Music Library application has a hybrid architecture with two distinct layers
 
 During development, we encountered cross-boundary import issues where the admin UI was importing functions directly from server workers, creating architectural coupling and build complexity.
 
-**Note**: This ADR documents the architectural pattern used for the audio worker system, which has since been removed from the codebase. The principles and patterns described here remain valid for any future background worker implementations.
+**Note**: This ADR documents the architectural pattern used for the audio worker system. The original `server/workers/` layout was removed (ADR-004), then the worker was reintroduced as the self-contained `app/features/audio-archive/` feature module (ADR-011, 2026-07-07). The database-as-communication-layer principles described here remain valid.
 
 ### Problems with Cross-Boundary Imports
 
@@ -324,7 +324,7 @@ function formatWorkerStatus(workerState: any) {
 3. Test admin UI functionality (completed, then removed)
 4. Document new patterns (completed)
 
-**Note**: The audio worker system described in this ADR has been removed from the codebase. The architectural principles remain valid for future background worker implementations.
+**Note**: The `server/workers/` layout described in this ADR was removed; the audio worker was later reintroduced as `app/features/audio-archive/` (ADR-011, 2026-07-07). The architectural principles remain valid.
 
 ## Success Metrics
 
@@ -391,3 +391,4 @@ function formatWorkerStatus(workerState: any) {
 - **2024-12-XX**: Initial version
 - **2024-12-XX**: Added implementation details and migration strategy
 - **2025-01-XX**: Updated to reflect removal of audio worker system - architectural principles remain valid
+- **2026-07-07**: Audio worker reintroduced as `app/features/audio-archive/` (ADR-011) — notes updated
