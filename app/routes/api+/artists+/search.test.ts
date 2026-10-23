@@ -85,6 +85,27 @@ describe("GET /api/artists/search", () => {
     expect(ids).toContain(target.id);
   });
 
+  test("treats LIKE wildcards literally", async () => {
+    const cookie = await createUserCookie();
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const artist = await prisma.artist.create({
+      data: {
+        name: `100% Sure ${stamp}`,
+        normalizedName: `100% sure ${stamp}`,
+      },
+    });
+    createdIds.push(artist.id);
+
+    // A bare '%' must not match every artist — only names containing a literal '%'.
+    const response = await loader({
+      request: new Request("http://localhost/api/artists/search?q=%25", { headers: { cookie } }),
+      params: {},
+      context: {},
+    } as never);
+    const body = (await response.json()) as { artists: Array<{ id: string; name: string }> };
+    expect(body.artists.map((item) => item.id)).toContain(artist.id);
+  });
+
   test("rejects unauthenticated requests", async () => {
     await expect(
       loader({

@@ -19,6 +19,7 @@ import { type Route } from "./+types/onboarding_.$provider.ts";
 import { onboardingEmailSessionKey } from "./onboarding";
 
 export const providerIdKey = "providerId";
+export const providerNameKey = "providerName";
 export const prefilledProfileKey = "prefilledProfile";
 
 const SignupFormSchema = z.object({
@@ -37,13 +38,22 @@ async function requireData({ request, params }: { request: Request; params: Para
   const verifySession = await verifySessionStorage.getSession(request.headers.get("cookie"));
   const email = verifySession.get(onboardingEmailSessionKey);
   const providerId = verifySession.get(providerIdKey);
+  const sessionProviderName = verifySession.get(providerNameKey);
+  // The provider in the URL must match the provider that issued the providerId
+  // stored in the session. Without this cross-check a user could navigate to
+  // /onboarding/<other-provider> after the OAuth callback and signupWithConnection
+  // would persist a Connection with mismatched providerName/providerId.
+  if (sessionProviderName && sessionProviderName !== params.provider) {
+    throw redirect("/signup");
+  }
+  const providerName = sessionProviderName ?? params.provider;
   const result = z
     .object({
       email: z.string(),
       providerName: ProviderNameSchema,
       providerId: z.string().or(z.number()),
     })
-    .safeParse({ email, providerName: params.provider, providerId });
+    .safeParse({ email, providerName, providerId });
   if (result.success) {
     return result.data;
   } else {

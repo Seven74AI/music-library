@@ -24,7 +24,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     searchParams.delete("query");
     return redirect(`/admin/cache?${searchParams.toString()}`);
   }
-  const limit = Number(searchParams.get("limit") ?? 100);
+  const rawLimit = Number(searchParams.get("limit") ?? 100);
+  // The client-side max=10000 is advisory only; clamp NaN/negative/huge values
+  // server-side so they can't be passed straight into searchCacheKeys/getAllCacheKeys.
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 10000) : 100;
 
   const currentInstanceInfo = await getInstanceInfo();
   const instance = searchParams.get("instance") ?? currentInstanceInfo.currentInstance;

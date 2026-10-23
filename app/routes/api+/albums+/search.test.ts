@@ -171,6 +171,20 @@ describe("GET /api/albums/search", () => {
     expect(await tooLong.json()).toEqual({ albums: [] });
   });
 
+  test("treats LIKE wildcards literally", async () => {
+    const cookie = await createUserCookie();
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const { album } = await createAlbum(`100% Sure ${stamp}`, `Artist ${stamp}`);
+
+    // A bare '%' must not match every album — only names containing a literal '%'.
+    const wildcard = await search("%", cookie);
+    expect(wildcard.albums.map((item) => item.id)).toContain(album.id);
+
+    // A bare '_' must not match every 1-char name — the stamp names have none.
+    const underscore = await search("_", cookie);
+    expect(underscore.albums.map((item) => item.id)).not.toContain(album.id);
+  });
+
   test("rejects unauthenticated requests", async () => {
     await expect(
       loader({

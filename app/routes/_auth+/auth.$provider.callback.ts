@@ -24,7 +24,7 @@ import { verifySessionStorage } from "#app/utils/verification.server.ts";
 import { type Route } from "./+types/auth.$provider.callback.ts";
 import { handleNewSession } from "./login.server.ts";
 import { onboardingEmailSessionKey } from "./onboarding.tsx";
-import { prefilledProfileKey, providerIdKey } from "./onboarding_.$provider.tsx";
+import { prefilledProfileKey, providerIdKey, providerNameKey } from "./onboarding_.$provider.tsx";
 
 const destroyRedirectTo = { "set-cookie": destroyRedirectToHeader };
 
@@ -134,7 +134,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   // Connection exists already? Make a new session
   if (existingConnection) {
-    return makeSession({ request, userId: existingConnection.userId });
+    return makeSession({ request, userId: existingConnection.userId, redirectTo });
   }
 
   // if the email matches a user in the db, then link the account and
@@ -159,7 +159,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       metadata: { provider: providerName },
     });
     return makeSession(
-      { request, userId: user.id },
+      { request, userId: user.id, redirectTo },
       {
         headers: await createToastHeaders({
           title: "Connected",
@@ -180,6 +180,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       typeof profile.username === "string" ? normalizeUsername(profile.username) : undefined,
   });
   verifySession.set(providerIdKey, profile.id);
+  verifySession.set(providerNameKey, providerName);
   const onboardingRedirect = [
     `/onboarding/${providerName}`,
     redirectTo ? new URLSearchParams({ redirectTo }) : null,
