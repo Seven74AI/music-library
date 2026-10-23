@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 
+import { deleteOfflineAudioEntry } from "./opfs-delete.ts";
 import { offlineAudioOpfsPath } from "./offline-audio-path.ts";
 
 type WorkerRequest =
@@ -50,8 +51,7 @@ async function readTrack(trackId: string) {
 
 async function deleteTrack(trackId: string) {
   const root = await navigator.storage.getDirectory();
-  const audioDir = await root.getDirectoryHandle("audio", { create: false });
-  await audioDir.removeEntry(`${trackId}.mp3`);
+  await deleteOfflineAudioEntry(root, trackId);
 }
 
 async function hasTrack(trackId: string) {
