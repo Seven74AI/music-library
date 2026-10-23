@@ -97,22 +97,19 @@
 - `npm run db:reset` - Reset database (migrations + generate)
 - `npm run db:seed` - Run seed script
 
-## Testing
+## Running tests
 
-This project uses Vitest for unit tests and Playwright for E2E tests. See [tests/README.md](./tests/README.md) for detailed testing guidelines.
+Unit tests run with Vitest; end-to-end tests run with Playwright. See [tests/README.md](./tests/README.md) for E2E patterns and fixtures.
 
 ```bash
-# Run unit tests
+# Unit tests (Vitest; add -- --run for a single non-watch run)
 npm run test
 
-# Run E2E tests
-npm run test:e2e
-
-# Run E2E tests in development mode (with UI)
+# E2E tests (Playwright UI; `npm run test:e2e` is an alias for this)
 npm run test:e2e:dev
 
-# Install Playwright browsers (first time only)
-npm run test:e2e:install
+# E2E tests headless (same as CI; runs `npm run build` first)
+npm run test:e2e:run
 ```
 
 ## Production Deployment
