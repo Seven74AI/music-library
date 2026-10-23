@@ -6,6 +6,10 @@ import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import { requireUserId } from "#app/utils/auth.server";
 import { prisma } from "#app/utils/db.server";
 import { getFileUrl, getStorageObjectStream } from "#app/utils/storage.server";
+import {
+  assertTrackAccessOrThrow,
+  trackOwnershipAccessInclude,
+} from "#app/utils/track-ownership.server";
 
 function serveLocalAudioFile(
   localFilePath: string,
@@ -77,24 +81,7 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
           mimeType: true,
         },
       },
-      userTracks: {
-        where: { userId, isActive: true, deletedAt: null },
-        select: { id: true },
-      },
-      servicePlaylistTracks: {
-        where: {
-          isDeleted: false,
-          deletedAt: null,
-          playlist: { ownerId: userId, isActive: true },
-        },
-        take: 1,
-      },
-      playlists: {
-        where: {
-          playlist: { ownerId: userId },
-        },
-        take: 1,
-      },
+      ...trackOwnershipAccessInclude(userId),
     },
   });
 
@@ -102,14 +89,9 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
     throw new Response("Track not found", { status: 404 });
   }
 
-  // Check if user has access to this track (must be in their library, a user-owned active service playlist, or a user playlist)
-  if (
-    track.userTracks.length === 0 &&
-    track.servicePlaylistTracks.length === 0 &&
-    track.playlists.length === 0
-  ) {
-    throw new Response("Access denied", { status: 403 });
-  }
+  // Deny-by-default: the caller must own the track (library, a user-owned
+  // active service playlist, or a user playlist).
+  assertTrackAccessOrThrow(track);
 
   // Get best available audio file
   const audioFile = selectBestAudioFile(track.audioFiles);
