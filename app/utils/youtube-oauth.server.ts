@@ -87,8 +87,11 @@ export class YouTubeOAuthService {
 
     try {
       const { tokens } = await this.oauth2Client.getToken(code);
+      if (!tokens.access_token) {
+        throw new Error("Google token response omitted access_token");
+      }
       return {
-        access_token: tokens.access_token ?? "",
+        access_token: tokens.access_token,
         ...(tokens.refresh_token ? { refresh_token: tokens.refresh_token } : {}),
         ...(tokens.expiry_date ? { expiry_date: tokens.expiry_date } : {}),
       };
@@ -119,8 +122,11 @@ export class YouTubeOAuthService {
       });
 
       const { credentials } = await this.oauth2Client.refreshAccessToken();
+      if (!credentials.access_token) {
+        throw new Error("Google token refresh omitted access_token");
+      }
       return {
-        access_token: credentials.access_token ?? "",
+        access_token: credentials.access_token,
         ...(credentials.expiry_date ? { expiry_date: credentials.expiry_date } : {}),
       };
     } catch (error) {

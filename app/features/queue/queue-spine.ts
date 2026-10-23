@@ -82,10 +82,11 @@ export async function fetchQueueSpine(context: QueueSpineContext): Promise<Queue
   const response = await fetch(`${base}${url}`, { redirect: "manual" });
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
-    // A redirect to the login route means the session expired. A trailing-slash
-    // or canonical-host redirect to any other path should NOT be reported as
-    // auth expiry — it falls through to the generic error below instead.
-    if (!location || isLoginPath(location)) {
+    // Only an explicit redirect to the login route signals session expiry.
+    // Any other redirect — a trailing-slash/canonical-host rewrite, or a
+    // malformed 3xx missing its Location header — is NOT an auth-expiry
+    // signal; it falls through to the generic non-ok error below.
+    if (location && isLoginPath(location)) {
       throw new AuthExpiredError();
     }
   }

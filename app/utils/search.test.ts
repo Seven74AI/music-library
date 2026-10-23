@@ -1152,6 +1152,20 @@ describe("Search Utilities", () => {
       expect(trackIds.indexOf(familiar.id)).toBeLessThan(trackIds.indexOf(unfamiliar.id));
     }, 10000);
 
+    it("splices the bound userId join and boost CASE params in the correct order for library-scoped search", async () => {
+      const { user, familiar, unfamiliar } = await seedBoostFixture();
+
+      // scope="library" exercises BOTH the bound `ut."userId" = ?` join param and
+      // the boost CASE `?` params in one query. A swap in placeholder order would
+      // either throw or drop the boost, so this asserts both are bound correctly.
+      const result = await searchTracks("Boost", 10, undefined, true, user.id, "library");
+      const trackIds = result.results.filter((r) => r.type === "track").map((r) => r.id);
+
+      expect(trackIds).toContain(familiar.id);
+      expect(trackIds).toContain(unfamiliar.id);
+      expect(trackIds.indexOf(familiar.id)).toBeLessThan(trackIds.indexOf(unfamiliar.id));
+    }, 10000);
+
     it("does not apply personal play boost when logged out (relevance only)", async () => {
       const { familiar, unfamiliar } = await seedBoostFixture();
 

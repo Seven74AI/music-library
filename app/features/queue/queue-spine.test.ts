@@ -124,7 +124,18 @@ describe("fetchQueueSpine", () => {
     expect(url).toContain("dir=asc");
   });
 
-  test("throws AuthExpiredError on redirect (302) response", async () => {
+  test("throws AuthExpiredError on a login-path redirect (302)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 302,
+      headers: { get: () => "/login" },
+    } as unknown as Response);
+
+    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(AuthExpiredError);
+  });
+
+  test("reports a redirect missing its Location header as a generic error, not auth expiry", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
       ok: false,
@@ -132,7 +143,9 @@ describe("fetchQueueSpine", () => {
       headers: { get: () => null },
     } as unknown as Response);
 
-    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(AuthExpiredError);
+    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
+      "Failed to fetch queue spine: 302",
+    );
   });
 
   test("does NOT report a non-login redirect (trailing slash) as auth expiry", async () => {
