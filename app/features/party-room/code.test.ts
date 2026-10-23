@@ -5,7 +5,7 @@ import {
   isValidRoomCode,
   normalizeRoomCode,
   parseRoomCodeInput,
-} from "./code.ts";
+} from "./codes.ts";
 import { ROOM_CODE_LENGTH } from "./constants.ts";
 import { canBecomeHost, canReclaimHost, isCurrentHost, splitRoomQueue } from "./index.ts";
 import { type RoomParticipantDto, type RoomQueueItemDto, type RoomSnapshot } from "./types.ts";

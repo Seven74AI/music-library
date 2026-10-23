@@ -8,6 +8,14 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { expect, test, vi } from "vitest";
 import { ArtistHistoryTab } from "./artist-history-tab";
 
+const latestSnapshot = {
+  id: "edit-latest",
+  editedAt: "2026-02-01T00:00:00.000Z",
+  editedBy: { id: "user-1", username: "kody", name: "Kody" },
+  comment: "The latest edit",
+  changes: { name: { from: "Meryl Checked", to: "Meryl" } },
+};
+
 const previousSnapshot = {
   id: "edit-previous",
   editedAt: "2026-01-01T00:00:00.000Z",
@@ -27,7 +35,7 @@ test("offers restore for the previous artist snapshot", async () => {
       },
       {
         path: "/api/metadata/artists/:artistId/history",
-        loader: () => ({ history: [previousSnapshot] }),
+        loader: () => ({ history: [latestSnapshot, previousSnapshot] }),
       },
     ],
     { initialEntries: ["/"] },

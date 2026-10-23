@@ -40,17 +40,11 @@ export type {
 export {
   generateRoomCode,
   isValidRoomCode,
+  normalizeRoomCode,
   parseRoomCodeInput,
   buildRoomJoinPath,
   buildRoomJoinUrl,
 } from "./codes.ts";
-
-export {
-  normalizeRoomCode,
-  parseRoomCodeInput as parseRoomCodeInputClient,
-  buildRoomJoinPath as buildRoomJoinPathClient,
-  buildRoomJoinUrl as buildRoomJoinUrlClient,
-} from "./code.ts";
 
 export {
   capabilitiesForRole,
