@@ -19,8 +19,9 @@ export async function requireCuratorOrAdmin(request: Request) {
   if (!user) {
     throw data(
       {
-        error: "Forbidden",
-        message: "Only curators and admins can perform this action",
+        error: "Unauthorized",
+        requiredRole: "curator or admin",
+        message: "Unauthorized: curator or admin role required",
       },
       { status: 403 },
     );

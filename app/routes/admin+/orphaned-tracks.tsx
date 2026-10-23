@@ -187,10 +187,17 @@ export async function action({ request }: Route.ActionArgs) {
       }
       // Defense-in-depth: only delete tracks matching the tab's semantic
       // criteria, so a crafted POST cannot delete non-orphaned/non-unused tracks.
+      // `tab` is required: an omitted/unknown tab is rejected rather than
+      // silently falling back to a different tab's filter.
       const validIds =
         tab === "unused-tracks"
           ? await filterUnusedTracks(trackIds)
-          : await filterTracksWithoutAudio(trackIds);
+          : tab === "missing-audio"
+            ? await filterTracksWithoutAudio(trackIds)
+            : null;
+      if (validIds === null) {
+        return data({ success: false, error: "Invalid tab for delete-tracks" }, { status: 400 });
+      }
       if (validIds.length === 0) {
         return data({ success: false, error: "No matching tracks selected" }, { status: 400 });
       }
