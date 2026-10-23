@@ -255,7 +255,6 @@ model CoverImage {
   height      Int?
   format      String? // jpeg, png, etc.
   fileSize    Int? // Size in bytes
-  isPrimary   Boolean  @default(true) // For multi-image support
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   tracks      Track[]

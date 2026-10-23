@@ -3,8 +3,12 @@
  */
 
 import { loadDuplicateDashboard } from "#app/features/admin/duplicate-dashboard.server.ts";
+import { cache, cachified } from "#app/utils/cache.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { METRIC_WEIGHTS } from "./database-quality.ts";
+
+export const DATABASE_QUALITY_CACHE_KEY = "admin:database-quality:v1";
+const DATABASE_QUALITY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export function getHealthColor(percentage: number): "green" | "yellow" | "red" {
   if (percentage >= 90) return "green";
@@ -287,6 +291,86 @@ export async function getDuplicateTracksCount(): Promise<number> {
 
 export async function getOrphanedFilesCount(): Promise<number> {
   return 0;
+}
+
+/**
+ * Raw aggregate counts backing the admin database-quality page. Computed in one
+ * cached pass so the loader does not re-run ~13 full-table aggregate queries
+ * (8 COUNT scans + 5 helper queries including duplicate detection) on every
+ * request.
+ */
+export interface DatabaseQualitySnapshot {
+  totalTracks: number;
+  tracksWithAudio: number;
+  tracksWithCovers: number;
+  tracksWithDuration: number;
+  tracksWithAlbum: number;
+  tracksWithYear: number;
+  tracksWithGenre: number;
+  tracksWithLyrics: number;
+  metadataIssues: MetadataIssues;
+  tracksWithMetadataIssues: number;
+  storageStats: StorageStats;
+  duplicateTracksCount: number;
+  orphanedFilesCount: number;
+  /** ISO timestamp of the most recent cache refresh (not the request time). */
+  lastUpdated: string;
+}
+
+export function getDatabaseQualitySnapshot(): Promise<DatabaseQualitySnapshot> {
+  return cachified({
+    key: DATABASE_QUALITY_CACHE_KEY,
+    cache,
+    ttl: DATABASE_QUALITY_CACHE_TTL_MS,
+    async getFreshValue(): Promise<DatabaseQualitySnapshot> {
+      const [
+        totalTracks,
+        tracksWithAudio,
+        tracksWithCovers,
+        tracksWithDuration,
+        tracksWithAlbum,
+        tracksWithYear,
+        tracksWithGenre,
+        tracksWithLyrics,
+        metadataIssues,
+        tracksWithMetadataIssues,
+        storageStats,
+        duplicateTracksCount,
+        orphanedFilesCount,
+      ] = await Promise.all([
+        prisma.track.count(),
+        prisma.track.count({ where: { audioFiles: { some: {} } } }),
+        prisma.track.count({ where: { coverImageId: { not: null } } }),
+        prisma.track.count({ where: { duration: { not: null } } }),
+        prisma.track.count({ where: { albumId: { not: null } } }),
+        prisma.track.count({ where: { year: { not: null } } }),
+        prisma.track.count({ where: { genre: { not: null } } }),
+        prisma.track.count({ where: { lyrics: { not: null } } }),
+        getMetadataIssues(),
+        countTracksWithMetadataIssues(),
+        getStorageStats(),
+        getDuplicateTracksCount(),
+        getOrphanedFilesCount(),
+      ]);
+
+      return {
+        totalTracks,
+        tracksWithAudio,
+        tracksWithCovers,
+        tracksWithDuration,
+        tracksWithAlbum,
+        tracksWithYear,
+        tracksWithGenre,
+        tracksWithLyrics,
+        metadataIssues,
+        tracksWithMetadataIssues,
+        storageStats,
+        duplicateTracksCount,
+        orphanedFilesCount,
+        lastUpdated: new Date().toISOString(),
+      };
+    },
+  });
 }
 
 /** Score and color for the admin overview. Same weights as the quality page. */

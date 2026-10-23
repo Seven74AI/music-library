@@ -35,16 +35,11 @@ import {
 } from "#app/features/admin/database-quality.ts";
 import {
   calculateHealthScore,
-  countTracksWithMetadataIssues,
-  getDuplicateTracksCount,
-  getMetadataIssues,
-  getOrphanedFilesCount,
-  getStorageStats,
+  getDatabaseQualitySnapshot,
   type QualityMetrics,
   type MetadataIssues,
   type StorageStats,
 } from "#app/features/admin/database-quality.server.ts";
-import { prisma } from "#app/utils/db.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/database-quality.ts";
 
@@ -70,7 +65,7 @@ interface LoaderData {
 export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
   await requireUserWithRole(request, "admin");
 
-  const [
+  const {
     totalTracks,
     tracksWithAudio,
     tracksWithCovers,
@@ -84,21 +79,8 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
     storageStats,
     duplicateTracksCount,
     orphanedFilesCount,
-  ] = await Promise.all([
-    prisma.track.count(),
-    prisma.track.count({ where: { audioFiles: { some: {} } } }),
-    prisma.track.count({ where: { coverImageId: { not: null } } }),
-    prisma.track.count({ where: { duration: { not: null } } }),
-    prisma.track.count({ where: { albumId: { not: null } } }),
-    prisma.track.count({ where: { year: { not: null } } }),
-    prisma.track.count({ where: { genre: { not: null } } }),
-    prisma.track.count({ where: { lyrics: { not: null } } }),
-    getMetadataIssues(),
-    countTracksWithMetadataIssues(),
-    getStorageStats(),
-    getDuplicateTracksCount(),
-    getOrphanedFilesCount(),
-  ]);
+    lastUpdated,
+  } = await getDatabaseQualitySnapshot();
 
   const metrics: QualityMetrics = {
     audio: totalTracks > 0 ? (tracksWithAudio / totalTracks) * 100 : 0,
@@ -121,7 +103,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
     storageStats,
     duplicateTracksCount,
     orphanedFilesCount,
-    lastUpdated: new Date().toISOString(),
+    lastUpdated,
   };
 }
 
