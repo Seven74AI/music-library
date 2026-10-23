@@ -75,8 +75,20 @@ export function sortByPlayCompletedCount<T extends PlayCountSortable>(
   counts: ReadonlyMap<string, number>,
   direction: "asc" | "desc" = "desc",
 ): T[] {
-  const ordered = [...items].sort((a, b) => compareByPlayCompletedCount(a, b, counts));
-  return direction === "asc" ? ordered.reverse() : ordered;
+  const dir = direction === "asc" ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const countA = counts.get(a.trackId) ?? 0;
+    const countB = counts.get(b.trackId) ?? 0;
+    const countDiff = (countA - countB) * dir;
+    if (countDiff !== 0) return countDiff;
+
+    // Tie-breaks are direction-independent: newer createdAt first, then id asc.
+    // (Reversing a desc sort here would silently flip both sub-keys for "asc".)
+    const timeDiff = toTime(b.createdAt) - toTime(a.createdAt);
+    if (timeDiff !== 0) return timeDiff;
+
+    return a.id.localeCompare(b.id);
+  });
 }
 
 /** Track tile shape for home Heavy Rotation strips (client-safe). */

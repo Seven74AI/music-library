@@ -33,7 +33,9 @@ export const SECURITY_EVENT_LABELS: Record<SecurityEventType, string> = {
 };
 
 export function securityEventLabel(eventType: string): string {
-  if (eventType in SECURITY_EVENT_LABELS) {
+  // `in` would also match inherited Object.prototype keys ("toString",
+  // "constructor"), returning a function instead of a string. Check own keys only.
+  if (Object.prototype.hasOwnProperty.call(SECURITY_EVENT_LABELS, eventType)) {
     return SECURITY_EVENT_LABELS[eventType as SecurityEventType];
   }
   return eventType.replaceAll("_", " ");

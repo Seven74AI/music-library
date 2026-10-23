@@ -43,6 +43,20 @@ const ISSUE_TYPE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+/**
+ * Escape HTML special characters for the email body. Interpolated values
+ * (entity names from YouTube, curator comments, report text) are untrusted and
+ * must never be injected raw into HTML.
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export async function sendReviewResolutionEmail({
   reporter,
   curator,
@@ -91,32 +105,29 @@ export async function sendReviewResolutionEmail({
   const resolutionLabel = RESOLUTION_LABELS[resolution] || resolution;
   const issueTypeLabel = ISSUE_TYPE_LABELS[item.issueType] || item.issueType;
 
-  // Escape user/DB-derived values before interpolating into the HTML body so a
-  // malicious report/comment cannot inject markup (format/spoofing surface in
-  // email clients). The plain-text alternative below is already inert.
-  const reporterDisplay = escapeHtml(reporter.name || reporter.username);
-  const entityNameHtml = escapeHtml(entityName);
-  const curatorNameHtml = escapeHtml(curatorName);
-  const resolutionLabelHtml = escapeHtml(resolutionLabel);
-  const issueTypeLabelHtml = escapeHtml(issueTypeLabel);
-  const descriptionHtml = item.description ? escapeHtml(item.description) : "";
-  const resolutionCommentHtml = escapeHtml(resolutionComment);
-
   const subject = `Your report has been ${resolutionLabel.toLowerCase()}`;
+
+  const reporterDisplay = reporter.name || reporter.username;
+  const escapedEntityName = escapeHtml(entityName);
+  const escapedCuratorName = escapeHtml(curatorName);
+  const escapedIssueTypeLabel = escapeHtml(issueTypeLabel);
+  const escapedDescription = item.description ? escapeHtml(item.description) : "";
+  const escapedResolutionLabel = escapeHtml(resolutionLabel);
+  const escapedResolutionComment = escapeHtml(resolutionComment);
 
   const html = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
       <h2>Your Report Has Been Resolved</h2>
       
-      <p>Hi ${reporterDisplay},</p>
+      <p>Hi ${escapeHtml(reporterDisplay)},</p>
       
-      <p>Your report about <strong>${entityNameHtml}</strong> has been resolved by curator <strong>${curatorNameHtml}</strong>.</p>
+      <p>Your report about <strong>${escapedEntityName}</strong> has been resolved by curator <strong>${escapedCuratorName}</strong>.</p>
       
       <div style="background-color: #f5f5f5; padding: 16px; border-radius: 8px; margin: 20px 0;">
-        <p><strong>Issue Type:</strong> ${issueTypeLabelHtml}</p>
-        ${item.description ? `<p><strong>Your Report:</strong> ${descriptionHtml}</p>` : ""}
-        <p><strong>Resolution:</strong> ${resolutionLabelHtml}</p>
-        <p><strong>Curator's Comment:</strong> ${resolutionCommentHtml}</p>
+        <p><strong>Issue Type:</strong> ${escapedIssueTypeLabel}</p>
+        ${item.description ? `<p><strong>Your Report:</strong> ${escapedDescription}</p>` : ""}
+        <p><strong>Resolution:</strong> ${escapedResolutionLabel}</p>
+        <p><strong>Curator's Comment:</strong> ${escapedResolutionComment}</p>
       </div>
       
       <p>Thank you for helping us maintain the quality of our music library!</p>
@@ -151,17 +162,4 @@ This is an automated email. Please do not reply to this message.
     html,
     text,
   });
-}
-
-/**
- * Escape HTML special characters so interpolated user/DB text is inert in the
- * email HTML body.
- */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
