@@ -15,13 +15,13 @@
  * - Helpful error messages with links to get API keys
  *
  * Usage:
- *   npm run generate-prompt <file-path>
- *   node scripts/generate-context7-prompt.js <file-path>
+ *   npm run add-headers <file-path>
+ *   node scripts/add-context7-headers.js <file-path>
  *
  * Examples:
- *   npm run generate-prompt app/routes/library.tsx
- *   npm run generate-prompt app/utils/storage.server.ts
- *   npm run generate-prompt prisma/schema.prisma
+ *   npm run add-headers app/routes/library.tsx
+ *   npm run add-headers app/utils/storage.server.ts
+ *   npm run add-headers prisma/schema.prisma
  *
  * Environment Variables (optional):
  *   OPENAI_API_KEY    - OpenAI API key for GPT-4 analysis (get from https://platform.openai.com/account/api-keys)
@@ -781,8 +781,8 @@ async function main() {
   const filePath = process.argv[2];
 
   if (!filePath) {
-    console.log("Usage: node generate-context7-prompt.js <file-path>");
-    console.log("Example: node generate-context7-prompt.js app/routes/resources+/audio.tsx");
+    console.log("Usage: node scripts/add-context7-headers.js <file-path>");
+    console.log("Example: node scripts/add-context7-headers.js app/routes/resources+/audio.tsx");
     console.log("");
     console.log("Environment Variables (optional):");
     console.log("  OPENAI_API_KEY    - OpenAI API key for GPT-4 analysis");

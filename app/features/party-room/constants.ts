@@ -45,6 +45,14 @@ export const ROOM_ROLE = {
 
 export type RoomRole = (typeof ROOM_ROLE)[keyof typeof ROOM_ROLE];
 
+/** Human-readable label for a room role. Unknown roles pass through unchanged. */
+export function roomRoleLabel(role: string): string {
+  if (role === ROOM_ROLE.host) return "Host";
+  if (role === ROOM_ROLE.dj) return "DJ";
+  if (role === ROOM_ROLE.listener) return "Listener";
+  return role;
+}
+
 /** Host-configurable default for new joiners — never host. */
 export const DEFAULT_JOIN_ROLE = {
   listener: "listener",
