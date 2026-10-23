@@ -167,7 +167,8 @@ model Verification {
   type      String
   /// The thing we're trying to verify, e.g. a user's email or phone number
   target    String
-  /// The secret key used to generate the otp
+  /// The secret key used to generate the otp. Stored encrypted at rest
+  /// (AES-256-GCM, `enc1:` prefix). Values without the prefix are legacy plaintext.
   secret    String
   /// The algorithm used to generate the otp
   algorithm String

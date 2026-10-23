@@ -16,8 +16,9 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     // Salt for hashing client IPs on security events. Required in production.
     // Dev/test fall back to DEV_IP_HASH_SALT when unset. See .env.example.
     IP_HASH_SALT: isProduction ? z.string().min(8) : z.string().optional(),
-    // AES-256-GCM secret for Connection.tokens (YouTube OAuth access and refresh tokens).
-    // Required in production so OAuth tokens are never stored at rest in plaintext
+    // AES-256-GCM secret for at-rest auth material: Connection.tokens (YouTube OAuth
+    // access/refresh tokens) and Verification.secret (TOTP/WebAuthn secrets).
+    // Required in production so this material is never stored at rest in plaintext
     // (fail-closed, matching SESSION_SECRET/IP_HASH_SALT). A value must be at least 32
     // characters, and production rejects the dev placeholder. Dev/test fall back to
     // DEV_TOKEN_ENCRYPTION_KEY when unset. See .env.example.
