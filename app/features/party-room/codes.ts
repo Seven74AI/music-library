@@ -47,15 +47,25 @@ export function isValidRoomCode(code: string | null | undefined): boolean {
   return true;
 }
 
+/** Normalize pasted input: uppercase, keep only charset chars, truncate to length. */
+export function normalizeRoomCode(raw: string): string {
+  const upper = raw.trim().toUpperCase();
+  let out = "";
+  for (const ch of upper) {
+    if (ROOM_CODE_CHARSET.includes(ch)) out += ch;
+  }
+  return out.slice(0, ROOM_CODE_LENGTH);
+}
+
 /**
  * Extract a room code from a raw code or a pasted join URL path
  * (e.g. `/rooms/AB3K9Q` or `https://example.com/rooms/AB3K9Q?x=1`).
+ * Bare codes are matched case-insensitively (uppercased before validation),
+ * but never sanitized: invalid characters are rejected, not stripped.
  */
 export function parseRoomCodeInput(input: string): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
-
-  if (isValidRoomCode(trimmed)) return trimmed;
 
   try {
     const url = trimmed.includes("://") ? new URL(trimmed) : new URL(trimmed, "http://localhost");
@@ -75,11 +85,13 @@ export function parseRoomCodeInput(input: string): string | null {
     return isValidRoomCode(candidate) ? candidate : null;
   }
 
-  return null;
+  // Bare code (case-insensitive): uppercase, then validate — do not strip.
+  const upper = trimmed.toUpperCase();
+  return isValidRoomCode(upper) ? upper : null;
 }
 
 export function buildRoomJoinPath(code: string): string {
-  return `/rooms/${code}`;
+  return `/rooms/${normalizeRoomCode(code)}`;
 }
 
 export function buildRoomJoinUrl(origin: string, code: string): string {

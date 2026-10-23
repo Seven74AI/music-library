@@ -34,9 +34,10 @@ This directory contains all type definitions with Zod validation for the Music L
 
 - **Purpose**: Contains functions to transform validated YouTube API data into Prisma input types
 - **Contains**:
-  - `transformYouTubeItemToTrack()` - Convert playlist item to Prisma TrackCreateInput
+  - `transformYouTubePlaylistItemToTrack()` - Convert playlist item to Prisma TrackCreateInput
   - `transformYouTubePlaylistToServicePlaylist()` - Convert playlist to Prisma ServicePlaylistCreateInput
   - `transformYouTubeVideoToTrack()` - Convert video details to Prisma TrackCreateInput
+  - `pickCoverThumbnailUrl()` - Pick the best thumbnail URL (maxres > medium > default)
 - **Usage**: Transform validated API data to Prisma input types
 
 ### `youtube.ts` - OAuth Types Only
@@ -77,10 +78,10 @@ const track = await prisma.track.create({ data: trackData });
 ### Data Transformation
 
 ```typescript
-import { transformYouTubeItemToTrack } from "#app/types/transformations";
+import { transformYouTubePlaylistItemToTrack } from "#app/types/transformations";
 
 // Transform API data to database format
-const trackData = transformYouTubeItemToTrack(validatedYouTubeItem, serviceId);
+const trackData = transformYouTubePlaylistItemToTrack(validatedYouTubeItem, serviceId, artistId);
 ```
 
 ### Type-Safe Database Operations
@@ -153,17 +154,16 @@ export type NewEntity = z.infer<typeof NewEntitySchema>;
 ### 3. Add to Appropriate File
 
 - API-related schemas → `youtube-api.ts`
-- Database-related schemas → `database.ts`
 - Transformation functions → `transformations.ts`
 
 ### 4. Add Validation
 
 ```typescript
 // Use existing validation utilities
-import { validateDatabaseInput } from "#app/utils/validation";
+import { validateYouTubeAPIResponse } from "#app/utils/validation";
 
-// Validate database input
-const validatedData = validateDatabaseInput(rawInput, NewEntitySchema);
+// Validate API data
+const validatedData = validateYouTubeAPIResponse(rawInput, NewEntitySchema);
 ```
 
 ## Testing with Types
