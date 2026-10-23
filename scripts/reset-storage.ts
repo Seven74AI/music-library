@@ -2,14 +2,26 @@
 /**
  * Script to reset/clear all files from Tigris storage
  *
+ * ⚠️  WARNING: This will DELETE ALL OBJECTS in the Tigris bucket!
+ *
  * Usage:
- *   npm run reset-storage
+ *   tsx scripts/reset-storage.ts --force --bucket <bucket-name>
  *   or
- *   tsx scripts/reset-storage.ts
+ *   npm run reset-storage -- --force --bucket <bucket-name>
+ *
+ * Options:
+ *   --force          Required flag to confirm you want to reset
+ *   --bucket <name>  Required; must match BUCKET_NAME (explicit bucket-name confirmation)
  */
 
 import "dotenv/config";
 import { ListObjectsV2Command, DeleteObjectsCommand, S3Client } from "@aws-sdk/client-s3";
+
+// Parse command-line arguments
+const args = process.argv.slice(2);
+const force = args.includes("--force");
+const bucketArgIndex = args.indexOf("--bucket");
+const bucketArg = bucketArgIndex !== -1 ? args[bucketArgIndex + 1] : undefined;
 
 // Get storage configuration from environment
 function getStorageConfig() {
@@ -40,6 +52,27 @@ function getStorageConfig() {
 
 async function resetStorage() {
   const config = getStorageConfig();
+
+  // Safety check: require --force flag
+  if (!force) {
+    console.error("❌ ERROR: --force flag is required");
+    console.error("   This is a safety measure to prevent accidental data loss.");
+    console.error("");
+    console.error("Usage:");
+    console.error("  tsx scripts/reset-storage.ts --force --bucket <bucket-name>");
+    process.exit(1);
+  }
+
+  // Explicit bucket-name confirmation
+  if (!bucketArg || bucketArg !== config.bucket) {
+    console.error("❌ ERROR: --bucket must match the configured BUCKET_NAME");
+    console.error(`   Configured bucket: ${config.bucket}`);
+    console.error("   This confirms you intend to delete THIS bucket.");
+    console.error("");
+    console.error("Usage:");
+    console.error(`  tsx scripts/reset-storage.ts --force --bucket "${config.bucket}"`);
+    process.exit(1);
+  }
 
   const s3Client = new S3Client({
     region: config.region,

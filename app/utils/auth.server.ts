@@ -149,16 +149,20 @@ export async function resetUserPassword({
     throw new Error("User not found");
   }
 
-  // Update the password directly
-  return prisma.password.upsert({
-    where: { userId: user.id },
-    create: {
-      hash: hashedPassword,
-      userId: user.id,
-    },
-    update: {
-      hash: hashedPassword,
-    },
+  // Rotate the password AND invalidate every existing session in a single
+  // transaction, so a stolen session cookie does not survive a password reset.
+  return prisma.$transaction(async ($tx) => {
+    await $tx.session.deleteMany({ where: { userId: user.id } });
+    return $tx.password.upsert({
+      where: { userId: user.id },
+      create: {
+        hash: hashedPassword,
+        userId: user.id,
+      },
+      update: {
+        hash: hashedPassword,
+      },
+    });
   });
 }
 
@@ -314,6 +318,14 @@ export async function getPasswordHash(password: string) {
   return passwordHash;
 }
 
+// A bcrypt hash we compare against on the "user not found" path so the timing
+// of a failed login does not reveal whether the username exists.
+let dummyPasswordHash: string | null = null;
+async function getDummyPasswordHash() {
+  dummyPasswordHash ??= await hash("music-library-timing-equalization", 10);
+  return dummyPasswordHash;
+}
+
 export async function verifyUserPassword(
   where: Pick<User, "username"> | Pick<User, "id">,
   password: Password["hash"],
@@ -324,6 +336,9 @@ export async function verifyUserPassword(
   });
 
   if (!userWithPassword || !userWithPassword.password) {
+    // Match the cost of a real comparison so the not-found path does not leak
+    // username existence through response timing.
+    await compare(password, await getDummyPasswordHash());
     return null;
   }
 
