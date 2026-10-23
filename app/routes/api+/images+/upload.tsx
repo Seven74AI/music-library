@@ -12,7 +12,15 @@ import { type Route } from "./+types/upload.ts";
 // Image validation
 const MIN_IMAGE_SIZE = 500; // 500x500 minimum
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+// Canonical extension per MIME type — "image/jpeg" maps to "jpg" so the object
+// key and `format` column are stable regardless of how the browser labels it.
+const EXTENSION_BY_TYPE: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
 
 async function getImageDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
   // Import sharp dynamically to avoid issues if not installed
@@ -112,7 +120,7 @@ export async function action({ request }: Route.ActionArgs) {
   if (!coverImage) {
     // Upload to storage
     const fileId = createId();
-    const extension = imageFile.type.split("/")[1] || "jpg";
+    const extension = EXTENSION_BY_TYPE[imageFile.type] ?? "jpg";
     const timestamp = Date.now();
     const objectKey = `images/${entityType}s/${verifiedEntityId}/${timestamp}-${fileId}.${extension}`;
 

@@ -8,7 +8,7 @@ const SearchQuerySchema = z.string().min(1).max(100);
 export async function loader({ request }: Route.LoaderArgs) {
   await requireUserId(request);
   const url = new URL(request.url);
-  const query = url.searchParams.get("q") ?? "";
+  const query = (url.searchParams.get("q") ?? "").trim();
 
   const result = SearchQuerySchema.safeParse(query);
   if (!result.success) {
@@ -17,12 +17,19 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const searchQuery = result.data.toLowerCase();
 
+  // Strip LIKE wildcards so a user-supplied '%' or '_' is treated verbatim
+  // instead of as a SQLite LIKE wildcard.
+  const cleanQuery = searchQuery.replace(/[%_]/g, "");
+  if (!cleanQuery) {
+    return Response.json({ artists: [] });
+  }
+
   // Search artists by name (case-insensitive)
   const artists = await prisma.artist.findMany({
     where: {
       mergedIntoId: null,
       normalizedName: {
-        contains: searchQuery,
+        contains: cleanQuery,
       },
     },
     select: {

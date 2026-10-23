@@ -21,8 +21,14 @@ export async function loader({ request }: Route.LoaderArgs) {
           objectKey: true,
         },
       },
-      password: false, // <-- intentionally omit password
-      sessions: true,
+      sessions: {
+        // Omit `id` — the session id is the raw cookie bearer value and would
+        // allow replay if this export ever leaks.
+        select: {
+          createdAt: true,
+          expirationDate: true,
+        },
+      },
       roles: true,
     },
   });
