@@ -8,6 +8,12 @@ export const ISSUE_TYPE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+export const SOURCE_LABELS: Record<string, string> = {
+  user_report: "User report",
+  system: "System detection",
+  curator: "Curator flag",
+};
+
 export const QUEUE_STATUS_LABELS: Record<string, string> = {
   open: "Open",
   claimed: "Claimed",

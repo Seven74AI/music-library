@@ -5,28 +5,34 @@ import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { uploadFile } from "#app/utils/storage.server.ts";
+import { getImageDimensions } from "#app/utils/cover-management.server.ts";
+import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/upload.ts";
 
 // Image validation
 const MIN_IMAGE_SIZE = 500; // 500x500 minimum
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
-async function getImageDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
-  // Import sharp dynamically to avoid issues if not installed
-  try {
-    const sharp = await import("sharp");
-    const metadata = await sharp.default(buffer).metadata();
-    return {
-      width: metadata.width || 0,
-      height: metadata.height || 0,
-    };
-  } catch (error) {
-    // If sharp is not available, return 0x0 (validation will fail if dimensions matter)
-    console.error("Sharp not available for image processing:", error);
-    return { width: 0, height: 0 };
-  }
+// Non-standard aliases some clients send (e.g. "image/jpg" instead of the
+// canonical "image/jpeg"). Normalize rather than reject so real uploads that
+// use the alias are not dropped.
+const MIME_ALIASES: Record<string, string> = {
+  "image/jpg": "image/jpeg",
+  "image/pjpeg": "image/jpeg",
+};
+
+// Canonical extension per MIME type — "image/jpeg" maps to "jpg" so the object
+// key and `format` column are stable regardless of how the browser labels it.
+const EXTENSION_BY_TYPE: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+function normalizeImageType(rawType: string): string {
+  return MIME_ALIASES[rawType] ?? rawType;
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -57,6 +63,15 @@ export async function action({ request }: Route.ActionArgs) {
     return data({ error: "entityId is required" }, { status: 400 });
   }
 
+  // The object key must derive from a verified record, never the raw client id.
+  if (!isValidCoverEntityId(entityId)) {
+    return data({ error: "Invalid entityId" }, { status: 400 });
+  }
+  const verifiedEntityId = await verifyCoverEntity(entityType as "artist" | "album", entityId);
+  if (!verifiedEntityId) {
+    return data({ error: `${entityType} not found` }, { status: 404 });
+  }
+
   // Convert file to buffer
   const arrayBuffer = await imageFile.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
@@ -69,8 +84,9 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  // Validate content type
-  if (!ALLOWED_TYPES.includes(imageFile.type)) {
+  // Normalize aliases, then validate against the canonical allow-list
+  const contentType = normalizeImageType(imageFile.type);
+  if (!ALLOWED_TYPES.includes(contentType)) {
     return data(
       { error: `Invalid image type. Allowed types: ${ALLOWED_TYPES.join(", ")}` },
       { status: 400 },
@@ -102,14 +118,14 @@ export async function action({ request }: Route.ActionArgs) {
   if (!coverImage) {
     // Upload to storage
     const fileId = createId();
-    const extension = imageFile.type.split("/")[1] || "jpg";
+    const extension = EXTENSION_BY_TYPE[contentType] ?? "jpg";
     const timestamp = Date.now();
-    const objectKey = `images/${entityType}s/${entityId}/${timestamp}-${fileId}.${extension}`;
+    const objectKey = `images/${entityType}s/${verifiedEntityId}/${timestamp}-${fileId}.${extension}`;
 
     await uploadFile({
       file: buffer,
       key: objectKey,
-      contentType: imageFile.type,
+      contentType,
     });
 
     // Create CoverImage record
@@ -121,7 +137,6 @@ export async function action({ request }: Route.ActionArgs) {
         height,
         format: extension,
         fileSize: buffer.length,
-        isPrimary: false, // Will be set separately via set-primary endpoint
       },
     });
   }
@@ -133,7 +148,6 @@ export async function action({ request }: Route.ActionArgs) {
       objectKey: coverImage.objectKey,
       width: coverImage.width,
       height: coverImage.height,
-      isPrimary: coverImage.isPrimary,
     },
   });
 }

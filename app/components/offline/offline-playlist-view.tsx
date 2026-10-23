@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { toOfflineTrackListItemTrack } from "#app/components/offline/to-offline-track-list-item-track.ts";
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { type OfflineTrackSummary } from "#app/features/offline-storage/types.ts";
@@ -9,18 +10,6 @@ type OfflinePlaylistViewProps = {
   description: string | null;
   tracks: OfflineTrackSummary[];
 };
-
-function toOfflineTrackListItemTrack(track: OfflineTrackSummary) {
-  return {
-    id: track.trackId,
-    title: track.title,
-    artist: { id: track.artistId, name: track.artistName },
-    duration: track.duration,
-    coverImage: track.coverObjectKey ? { objectKey: track.coverObjectKey } : null,
-    serviceUrl: null,
-    audioFiles: [{ id: track.trackId, format: "mp3" as const, objectKey: "" }],
-  };
-}
 
 function OfflinePlaylistTrackItem({
   playlistId,
@@ -74,7 +63,7 @@ export function OfflinePlaylistView({
           </Button>
         </div>
       ) : (
-        <ul className="divide-y rounded-lg border">
+        <div role="list" className="divide-y rounded-lg border">
           {tracks.map((track, index) => (
             <OfflinePlaylistTrackItem
               key={track.trackId}
@@ -83,7 +72,7 @@ export function OfflinePlaylistView({
               index={index}
             />
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

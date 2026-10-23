@@ -41,11 +41,16 @@ function validateAuth(headers: Headers) {
   return false;
 }
 
-function assertKey(key: any): asserts key is Array<string> {
-  invariantResponse(
-    Array.isArray(key) && key.length && key.every((k) => typeof k === "string"),
-    "Key must contain a directory",
+function isSafeKey(key: unknown): key is Array<string> {
+  return (
+    Array.isArray(key) &&
+    key.length > 0 &&
+    key.every((segment) => typeof segment === "string" && segment !== "." && segment !== "..")
   );
+}
+
+function assertKey(key: unknown): asserts key is Array<string> {
+  invariantResponse(isSafeKey(key), "Key must contain a directory");
 }
 
 export const handlers = [
@@ -105,7 +110,7 @@ export const handlers = [
         return new HttpResponse("Unauthorized", { status: 401 });
       }
       const { key } = params;
-      if (!key || !Array.isArray(key) || !key.length) {
+      if (!isSafeKey(key)) {
         return new HttpResponse("Key must contain a directory", { status: 400 });
       }
 
@@ -124,7 +129,7 @@ export const handlers = [
     `https://${STORAGE_BUCKET}.${new URL(STORAGE_ENDPOINT!).host}/:key*`,
     async ({ params }) => {
       const { key } = params;
-      if (!key || !Array.isArray(key) || !key.length) {
+      if (!isSafeKey(key)) {
         return new HttpResponse("Key must contain a directory", { status: 400 });
       }
 
@@ -184,7 +189,7 @@ export const handlers = [
         return new HttpResponse("Unauthorized", { status: 401 });
       }
       const { key } = params;
-      if (!key || !Array.isArray(key) || !key.length) {
+      if (!isSafeKey(key)) {
         return new HttpResponse("Key must contain a directory", { status: 400 });
       }
 

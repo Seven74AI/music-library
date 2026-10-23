@@ -167,7 +167,8 @@ model Verification {
   type      String
   /// The thing we're trying to verify, e.g. a user's email or phone number
   target    String
-  /// The secret key used to generate the otp
+  /// The secret key used to generate the otp. Stored encrypted at rest
+  /// (AES-256-GCM, `enc1:` prefix). Values without the prefix are legacy plaintext.
   secret    String
   /// The algorithm used to generate the otp
   algorithm String
@@ -255,13 +256,13 @@ model CoverImage {
   height      Int?
   format      String? // jpeg, png, etc.
   fileSize    Int? // Size in bytes
-  isPrimary   Boolean  @default(true) // For multi-image support
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   tracks      Track[]
   albums      Album[]
 
-  @@index([contentHash])
+  // contentHash is already @unique — the unique index serves equality lookups,
+  // so a second non-unique index would only double write cost.
 }
 
 model Album {
@@ -332,7 +333,7 @@ model Track {
   genres                  Genre[]       @relation("TrackGenres")
 
   @@unique([serviceId, externalId])
-  @@index([serviceId, externalId])
+  // serviceId+externalId is already @@unique — the unique index serves lookups.
   @@index([updatedAt])
   @@index([createdAt])
   @@index([albumId])
@@ -410,7 +411,7 @@ model Service {
   tracks      Track[]
   audioFiles  TrackAudioFile[]
 
-  @@index([name])
+  // name is already @unique — the unique index serves equality lookups.
 }
 
 model UserTrack {
@@ -483,9 +484,10 @@ model TrackAudioFile {
   trackId String
   track   Track  @relation(fields: [trackId], references: [id], onDelete: Cascade)
 
-  // Service attribution
-  serviceId String? // null = local upload, otherwise references Service
-  service   Service? @relation(fields: [serviceId], references: [id])
+  // Service attribution — always set (resolved from the track's Service); local
+  // uploads point at the seeded 'local' Service row. Never null going forward.
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
 
   // File storage
   objectKey        String  // S3 storage key
@@ -523,6 +525,7 @@ model ArchiveJob {
   retryCount     Int       @default(0)
   errorHistory   String    @default("[]") // JSON array of error objects
   lastAttemptAt  DateTime?
+  nextAttemptAt  DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   trackId        String    @unique
@@ -546,14 +549,19 @@ model WorkerState {
 
 /// Singleton status for automated SQLite backups (ADR-029).
 model BackupState {
-  id             String    @id @default("singleton")
-  lastStatus     String? // success | failure | running
-  lastAttemptAt  DateTime?
-  lastSuccessAt  DateTime?
-  lastError      String?
-  lastObjectKey  String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                       String    @id @default("singleton")
+  lastStatus               String? // success | failure | running
+  lastAttemptAt            DateTime?
+  lastSuccessAt            DateTime?
+  lastError                String?
+  lastObjectKey            String?
+  /// Daily backup scheduler (ADR-029): UTC day string YYYY-MM-DD after last success.
+  schedulerLastSuccessDay  String?
+  schedulerAttemptDay      String?
+  schedulerAttemptsToday   Int       @default(0)
+  schedulerNextRetryAt     DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 }
 
 model YoutubeCookie {
@@ -790,6 +798,7 @@ model ReviewQueueItem {
   reporter          User?     @relation("ReviewQueueReporter", fields: [reporterId], references: [id], onDelete: SetNull)
   status            String    @default("open") // 'open', 'claimed', 'resolved'
   priority          Int       @default(1) // 1 (low) to 3 (high)
+  reportCount       Int       @default(1) // number of duplicate user reports collapsed into this item (ADR-035)
   claimedBy         String?
   claimedByUser     User?     @relation("ReviewQueueClaimed", fields: [claimedBy], references: [id], onDelete: SetNull)
   claimedAt         DateTime?
@@ -847,12 +856,10 @@ model NormalizedName {
 model Genre {
   id             String   @id @default(cuid())
   name           String   @unique
-  normalizedName String
+  normalizedName String   @unique
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   tracks         Track[]  @relation("TrackGenres")
-  
-  @@index([normalizedName])
 }
 
 /// Threaded curator notes with @mentions

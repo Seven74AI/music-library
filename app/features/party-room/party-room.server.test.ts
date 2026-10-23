@@ -3,7 +3,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import {
   EMPTY_ROOM_TTL_MS,
-  HOST_GRACE_MS,
+  NON_SPEAKER_AWAY_MS,
   MAX_PARTICIPANTS,
   ROOM_ROLE,
   SPEAKER_SILENCE_GRACE_MS,
@@ -86,6 +86,7 @@ async function makeTrackWithAudio(title: string) {
   await prisma.trackAudioFile.create({
     data: {
       trackId: track.id,
+      serviceId: track.serviceId,
       objectKey: `audio/tracks/local/${track.id}.mp3`,
       format: "mp3",
     },
@@ -674,14 +675,14 @@ describe("party-room lifecycle", () => {
 
     await prisma.roomParticipant.update({
       where: { id: room.currentHostParticipantId! },
-      data: { lastSeenAt: new Date(Date.now() - HOST_GRACE_MS - 1000) },
+      data: { lastSeenAt: new Date(Date.now() - NON_SPEAKER_AWAY_MS - 1000) },
     });
     const listenerSeat = await prisma.roomParticipant.findFirstOrThrow({
       where: { roomId: room.id, userId: listener.id },
     });
     await prisma.roomParticipant.update({
       where: { id: listenerSeat.id },
-      data: { lastSeenAt: new Date(Date.now() - HOST_GRACE_MS - 1000) },
+      data: { lastSeenAt: new Date(Date.now() - NON_SPEAKER_AWAY_MS - 1000) },
     });
 
     await sweepExpiredEmptyRooms(new Date());
@@ -789,7 +790,7 @@ describe("party-room lifecycle", () => {
 
     await prisma.roomParticipant.update({
       where: { id: room.currentHostParticipantId! },
-      data: { lastSeenAt: new Date(Date.now() - HOST_GRACE_MS - 1000) },
+      data: { lastSeenAt: new Date(Date.now() - NON_SPEAKER_AWAY_MS - 1000) },
     });
 
     expect((await getRoomSnapshot(room.id))?.hostTakeoverAvailable).toBe(false);

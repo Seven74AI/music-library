@@ -1439,7 +1439,7 @@ describe("track list item queue integration", () => {
     mockSpineAndHydration(vi.mocked(fetch));
 
     renderQueueApp(<LibraryRowPlayAlpha />);
-    await user.click(screen.getByRole("gridcell", { name: /Track 1: Spine-Alpha-Now/i }));
+    await user.click(screen.getByRole("listitem", { name: /Track 1: Spine-Alpha-Now/i }));
 
     await waitFor(() => {
       expect(

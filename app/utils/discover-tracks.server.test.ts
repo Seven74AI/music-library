@@ -58,7 +58,7 @@ describe("listDiscoverTracks", () => {
 
   test("recentlyAdded shows all tracks sorted by createdAt desc", async () => {
     const user = await prisma.user.create({ data: createUser() });
-    
+
     const older = await createTrack("Older Track");
     await new Promise((resolve) => setTimeout(resolve, 10));
     const newer = await createTrack("Newer Track");
@@ -76,7 +76,7 @@ describe("listDiscoverTracks", () => {
 
   test("recentlyAdded respects ascending direction", async () => {
     const user = await prisma.user.create({ data: createUser() });
-    
+
     const older = await createTrack("Older Track");
     await new Promise((resolve) => setTimeout(resolve, 10));
     const newer = await createTrack("Newer Track");
@@ -94,7 +94,7 @@ describe("listDiscoverTracks", () => {
 
   test("titleAZ sorts tracks alphabetically by title", async () => {
     const user = await prisma.user.create({ data: createUser() });
-    
+
     const zebra = await createTrack("Zebra Song");
     const alpha = await createTrack("Alpha Song");
     const middle = await createTrack("Middle Song");
@@ -111,7 +111,7 @@ describe("listDiscoverTracks", () => {
 
   test("titleAZ respects descending direction", async () => {
     const user = await prisma.user.create({ data: createUser() });
-    
+
     const zebra = await createTrack("Zebra Song");
     const alpha = await createTrack("Alpha Song");
     const middle = await createTrack("Middle Song");
@@ -129,14 +129,14 @@ describe("listDiscoverTracks", () => {
 
   test("artistAZ sorts tracks by artist name then title", async () => {
     const user = await prisma.user.create({ data: createUser() });
-    
+
     const suffix1 = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const suffix2 = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    
+
     const zebraArtist = await prisma.artist.create({
       data: { name: `Zebra Artist ${suffix1}`, normalizedName: `zebra artist ${suffix1}` },
     });
-    
+
     const alphaArtist = await prisma.artist.create({
       data: { name: `Alpha Artist ${suffix2}`, normalizedName: `alpha artist ${suffix2}` },
     });
@@ -190,8 +190,7 @@ describe("listDiscoverTracks", () => {
 
   test("mostPlayed sorts by play count descending", async () => {
     const user = await prisma.user.create({ data: createUser() });
-    const now = new Date("2026-09-20T12:00:00.000Z");
-    
+
     const low = await createTrack("Low Play Count");
     const high = await createTrack("High Play Count");
     const zero = await createTrack("Zero Plays");
@@ -203,18 +202,21 @@ describe("listDiscoverTracks", () => {
       userId: user.id,
       sort: "mostPlayed",
       limit: 50,
-      now,
     });
 
     const ourTracks = tracks.filter((t) => [low.id, high.id, zero.id].includes(t.id));
-    expect(ourTracks.map((t) => t.title)).toEqual(["High Play Count", "Low Play Count", "Zero Plays"]);
+    expect(ourTracks.map((t) => t.title)).toEqual([
+      "High Play Count",
+      "Low Play Count",
+      "Zero Plays",
+    ]);
   });
 
   test("mostLiked sorts by number of users with track in library", async () => {
     const user1 = await prisma.user.create({ data: createUser() });
     const user2 = await prisma.user.create({ data: createUser() });
     const user3 = await prisma.user.create({ data: createUser() });
-    
+
     const popular = await createTrack("Popular Track");
     const somewhat = await createTrack("Somewhat Popular");
     const unpopular = await createTrack("Unpopular Track");
@@ -242,9 +244,88 @@ describe("listDiscoverTracks", () => {
     ]);
   });
 
+  test("mostPlayed cursor pagination returns disjoint ordered pages", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+
+    const tracks: Array<{ id: string }> = [];
+    for (let i = 0; i < 5; i++) {
+      tracks.push(await createTrack(`Paged Play ${i}`));
+    }
+    // Distinct play counts: tracks[i] has i plays.
+    for (let i = 0; i < tracks.length; i++) {
+      await seedCompleted(user.id, tracks[i]!.id, new Date("2026-09-05T12:00:00.000Z"), i);
+    }
+
+    const page1 = await listDiscoverTracks({ userId: user.id, sort: "mostPlayed", limit: 2 });
+    const page2 = await listDiscoverTracks({
+      userId: user.id,
+      sort: "mostPlayed",
+      limit: 2,
+      cursor: page1.pagination.nextCursor,
+    });
+    const page3 = await listDiscoverTracks({
+      userId: user.id,
+      sort: "mostPlayed",
+      limit: 2,
+      cursor: page2.pagination.nextCursor,
+    });
+
+    const allIds = [page1, page2, page3].flatMap((p) => p.tracks.map((t) => t.id));
+    expect(allIds).toEqual([
+      tracks[4]!.id,
+      tracks[3]!.id,
+      tracks[2]!.id,
+      tracks[1]!.id,
+      tracks[0]!.id,
+    ]);
+    expect(new Set(allIds).size).toBe(5);
+    expect(page1.pagination.hasNext).toBe(true);
+    expect(page2.pagination.hasNext).toBe(true);
+    expect(page3.pagination.hasNext).toBe(false);
+  });
+
+  test("mostLiked cursor pagination returns disjoint pages", async () => {
+    const viewer = await prisma.user.create({ data: createUser() });
+    const liker1 = await prisma.user.create({ data: createUser() });
+    const liker2 = await prisma.user.create({ data: createUser() });
+    const liker3 = await prisma.user.create({ data: createUser() });
+
+    const tracks: Array<{ id: string }> = [];
+    for (let i = 0; i < 5; i++) {
+      tracks.push(await createTrack(`Paged Like ${i}`));
+    }
+    // like counts: tracks[0]=3, tracks[1]=2, tracks[2]=1, tracks[3..4]=0
+    for (const liker of [liker1, liker2, liker3]) {
+      await addToLibrary(liker.id, tracks[0]!.id, new Date("2026-01-01T00:00:00.000Z"));
+    }
+    await addToLibrary(liker1.id, tracks[1]!.id, new Date("2026-01-01T00:00:00.000Z"));
+    await addToLibrary(liker2.id, tracks[1]!.id, new Date("2026-01-01T00:00:00.000Z"));
+    await addToLibrary(liker1.id, tracks[2]!.id, new Date("2026-01-01T00:00:00.000Z"));
+
+    const page1 = await listDiscoverTracks({ userId: viewer.id, sort: "mostLiked", limit: 2 });
+    const page2 = await listDiscoverTracks({
+      userId: viewer.id,
+      sort: "mostLiked",
+      limit: 2,
+      cursor: page1.pagination.nextCursor,
+    });
+    const page3 = await listDiscoverTracks({
+      userId: viewer.id,
+      sort: "mostLiked",
+      limit: 2,
+      cursor: page2.pagination.nextCursor,
+    });
+
+    expect(page1.tracks.map((t) => t.id)).toEqual([tracks[0]!.id, tracks[1]!.id]);
+    expect(page2.tracks[0]?.id).toBe(tracks[2]!.id);
+    const allIds = [page1, page2, page3].flatMap((p) => p.tracks.map((t) => t.id));
+    expect(new Set(allIds).size).toBe(5);
+    expect(page3.pagination.hasNext).toBe(false);
+  });
+
   test("isInUserLibrary flag is set correctly", async () => {
     const user = await prisma.user.create({ data: createUser() });
-    
+
     const inLibrary = await createTrack("In Library");
     const notInLibrary = await createTrack("Not In Library");
 

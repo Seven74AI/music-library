@@ -6,6 +6,7 @@
  * Run this after applying the database migrations.
  */
 
+import "dotenv/config";
 import { migrateTrackGenres } from "../app/utils/genre-migration.server.ts";
 
 async function main() {

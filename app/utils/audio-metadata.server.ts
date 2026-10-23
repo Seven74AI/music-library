@@ -1,4 +1,3 @@
-// @context7: music-metadata, File, Buffer, TypeScript
 import { parseBuffer, type IAudioMetadata } from "music-metadata";
 
 export interface ExtractedAudioMetadata {
@@ -161,7 +160,14 @@ export async function extractAudioMetadata(
     const lyricsData = metadata.common.lyrics;
     if (Array.isArray(lyricsData)) {
       lyrics = lyricsData
-        .map((item) => (typeof item === "string" ? item : (item as any)?.text || ""))
+        .map((item): string => {
+          if (typeof item === "string") return item;
+          // `lyrics` is typed ILyricsTag[], but real-world tags can arrive as
+          // odd shapes (null entries, non-string `.text`). Narrow to a string
+          // so a malformed tag can't throw mid-map.
+          const text = item?.text;
+          return typeof text === "string" ? text : "";
+        })
         .filter(Boolean)
         .join("\n");
     } else if (typeof lyricsData === "string") {

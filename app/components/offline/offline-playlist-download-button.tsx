@@ -31,31 +31,46 @@ export function OfflinePlaylistDownloadButton({
     const storage = getOfflineStorage();
 
     try {
-      cachePlaylistMetadata({
-        id: playlistId,
-        title,
-        description,
-        updatedAt: Date.now(),
-      });
-
       let downloaded = 0;
+      const failures: string[] = [];
       for (const track of playableTracks) {
-        await storage.downloadTrack(track, { pin: true, playlistId });
-        downloaded += 1;
+        try {
+          await storage.downloadTrack(track, { pin: true, playlistId });
+          downloaded += 1;
+        } catch (error) {
+          failures.push(
+            error instanceof Error ? error.message : track.title || track.id,
+          );
+        }
         setProgress({ completed: downloaded, total: playableTracks.length });
       }
 
-      toast({
-        title: "Playlist downloaded",
-        description: `${downloaded} track${downloaded === 1 ? "" : "s"} saved for offline listening.`,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Download failed";
-      toast({
-        title: "Playlist download failed",
-        description: message,
-        variant: "destructive",
-      });
+      if (downloaded === playableTracks.length) {
+        // Only register the playlist in the offline index once every track is
+        // actually pinned — a fully-failed download must not show as available.
+        cachePlaylistMetadata({
+          id: playlistId,
+          title,
+          description,
+          updatedAt: Date.now(),
+        });
+        toast({
+          title: "Playlist downloaded",
+          description: `${downloaded} track${downloaded === 1 ? "" : "s"} saved for offline listening.`,
+        });
+      } else if (downloaded > 0) {
+        toast({
+          title: "Playlist partially downloaded",
+          description: `${downloaded} of ${playableTracks.length} tracks saved. ${failures.length} failed.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Playlist download failed",
+          description: failures[0] ?? "Download failed",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsWorking(false);
       setProgress(null);

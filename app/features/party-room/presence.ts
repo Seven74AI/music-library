@@ -1,8 +1,8 @@
-import { HOST_GRACE_MS, SPEAKER_SILENCE_GRACE_MS } from "./constants.ts";
+import { NON_SPEAKER_AWAY_MS, SPEAKER_SILENCE_GRACE_MS } from "./constants.ts";
 
 /** Grace before a seated participant is Away. Speaker gets the longer silence window. */
 export function presenceGraceMs(isSpeaker: boolean): number {
-  return isSpeaker ? SPEAKER_SILENCE_GRACE_MS : HOST_GRACE_MS;
+  return isSpeaker ? SPEAKER_SILENCE_GRACE_MS : NON_SPEAKER_AWAY_MS;
 }
 
 /**

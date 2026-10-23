@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useId } from "react";
 import { useFetcher } from "react-router";
 import { Input } from "#app/components/ui/input";
 import { Label } from "#app/components/ui/label";
@@ -40,6 +40,8 @@ export function GenreSelector({
   const [inputValue, setInputValue] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const listboxId = `${useId()}-genre-selector-listbox`;
   const genresFetcher = useFetcher<{ genres: Genre[] }>();
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -142,9 +144,29 @@ export function GenreSelector({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && inputValue.trim()) {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (filteredGenres.length === 1 && filteredGenres[0]) {
+      setIsOpen(true);
+      setActiveIndex((current) =>
+        filteredGenres.length === 0 ? -1 : (current + 1) % filteredGenres.length,
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setIsOpen(true);
+      setActiveIndex((current) =>
+        filteredGenres.length === 0
+          ? -1
+          : (current - 1 + filteredGenres.length) % filteredGenres.length,
+      );
+    } else if (e.key === "Escape") {
+      setIsOpen(false);
+      setActiveIndex(-1);
+    } else if (e.key === "Enter" && inputValue.trim()) {
+      e.preventDefault();
+      if (activeIndex >= 0 && filteredGenres[activeIndex]) {
+        handleToggleGenre(filteredGenres[activeIndex]);
+        setActiveIndex(-1);
+      } else if (filteredGenres.length === 1 && filteredGenres[0]) {
         // If only one match, select it
         handleToggleGenre(filteredGenres[0]);
       } else if (onCreateNew && filteredGenres.length === 0) {
@@ -198,9 +220,18 @@ export function GenreSelector({
           onChange={(e) => {
             setInputValue(e.target.value);
             setIsOpen(true);
+            setActiveIndex(-1);
           }}
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined
+          }
           placeholder={
             selectedGenres.length > 0 ? "Add more genres..." : "Search or create genres..."
           }
@@ -218,6 +249,8 @@ export function GenreSelector({
       {isOpen && !disabled && (
         <div
           ref={dropdownRef}
+          id={listboxId}
+          role="listbox"
           className="absolute z-50 mt-1 max-h-60 overflow-y-auto rounded-md border bg-popover shadow-lg"
           style={{ width: inputRef.current?.offsetWidth }}
         >
@@ -257,10 +290,14 @@ export function GenreSelector({
             </div>
           ) : (
             <div className="p-1">
-              {filteredGenres.map((genre) => (
+              {filteredGenres.map((genre, index) => (
                 <button
                   key={genre.id}
                   type="button"
+                  role="option"
+                  id={`${listboxId}-option-${index}`}
+                  aria-selected={selectedGenres.some((g) => g.id === genre.id)}
+                  onMouseEnter={() => setActiveIndex(index)}
                   className="flex w-full items-center gap-3 rounded-sm px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
                   onClick={() => handleToggleGenre(genre)}
                 >

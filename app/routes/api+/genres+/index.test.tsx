@@ -46,8 +46,9 @@ describe("GET /api/genres", () => {
   });
 
   test("returns empty array when no genres exist", async () => {
-    // Clear all genres first
-    await prisma.genre.deleteMany({});
+    // Mock findMany instead of wiping the shared Genre table — deleteMany({})
+    // races other genre tests running against the same SQLite DB in parallel.
+    const findManySpy = vi.spyOn(prisma.genre, "findMany").mockResolvedValueOnce([] as never);
 
     const response = await loader({
       request: new Request("http://localhost/api/genres"),
@@ -60,12 +61,14 @@ describe("GET /api/genres", () => {
     };
 
     expect(body.genres).toEqual([]);
+    findManySpy.mockRestore();
   });
 });
 
 describe("POST /api/genres", () => {
   const createdIds: string[] = [];
   let curatorUserId: string;
+  let requireCuratorSpy: ReturnType<typeof vi.spyOn> | undefined;
 
   beforeEach(async () => {
     // Create a curator user for testing
@@ -89,9 +92,19 @@ describe("POST /api/genres", () => {
     });
 
     curatorUserId = curatorUser.id;
+
+    // Mock requireCuratorOrAdmin for every POST test; restored in afterEach so a
+    // failing assertion cannot leak the mock into later tests.
+    requireCuratorSpy = vi.spyOn(
+      await import("#app/utils/curator.server.ts"),
+      "requireCuratorOrAdmin",
+    );
+    requireCuratorSpy.mockResolvedValue(curatorUserId);
   });
 
   afterEach(async () => {
+    requireCuratorSpy?.mockRestore();
+    requireCuratorSpy = undefined;
     if (createdIds.length > 0) {
       await prisma.genre.deleteMany({ where: { id: { in: createdIds } } });
       createdIds.length = 0;
@@ -116,14 +129,6 @@ describe("POST /api/genres", () => {
       }),
     });
 
-    // Mock the requireCuratorOrAdmin to return our test curator
-    const originalRequireCurator = (await import("#app/utils/curator.server.ts"))
-      .requireCuratorOrAdmin;
-    vi.spyOn(
-      await import("#app/utils/curator.server.ts"),
-      "requireCuratorOrAdmin",
-    ).mockResolvedValue(curatorUserId);
-
     const response = await action({
       request,
       params: {},
@@ -137,9 +142,6 @@ describe("POST /api/genres", () => {
     expect(body.genre.name).toBe(genreName);
     expect(body.genre.trackCount).toBe(0);
     createdIds.push(body.genre.id);
-
-    // Restore original function
-    vi.mocked((await import("#app/utils/curator.server.ts")).requireCuratorOrAdmin).mockRestore();
   });
 
   test("returns 409 if genre already exists", async () => {
@@ -166,11 +168,6 @@ describe("POST /api/genres", () => {
       }),
     });
 
-    vi.spyOn(
-      await import("#app/utils/curator.server.ts"),
-      "requireCuratorOrAdmin",
-    ).mockResolvedValue(curatorUserId);
-
     await expect(async () => {
       await action({
         request,
@@ -178,8 +175,6 @@ describe("POST /api/genres", () => {
         context: {},
       } as never);
     }).rejects.toThrow();
-
-    vi.mocked((await import("#app/utils/curator.server.ts")).requireCuratorOrAdmin).mockRestore();
   });
 
   test("returns 400 for invalid genre name", async () => {
@@ -193,11 +188,6 @@ describe("POST /api/genres", () => {
       }),
     });
 
-    vi.spyOn(
-      await import("#app/utils/curator.server.ts"),
-      "requireCuratorOrAdmin",
-    ).mockResolvedValue(curatorUserId);
-
     await expect(async () => {
       await action({
         request,
@@ -205,8 +195,6 @@ describe("POST /api/genres", () => {
         context: {},
       } as never);
     }).rejects.toThrow();
-
-    vi.mocked((await import("#app/utils/curator.server.ts")).requireCuratorOrAdmin).mockRestore();
   });
 });
 
@@ -266,5 +254,31 @@ describe("clientAction for POST /api/genres", () => {
     } as never);
 
     expect(result).toEqual(payload);
+  });
+});
+
+describe("Genre normalizedName uniqueness", () => {
+  const createdIds: string[] = [];
+
+  afterEach(async () => {
+    if (createdIds.length === 0) return;
+    await prisma.genre.deleteMany({ where: { id: { in: createdIds } } });
+    createdIds.length = 0;
+  });
+
+  test("rejects a case-only duplicate at the DB level (P2002)", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const created = await prisma.genre.create({
+      data: { name: `Rock ${stamp}`, normalizedName: `rock ${stamp}` },
+    });
+    createdIds.push(created.id);
+
+    // 'rock' vs 'Rock' differ only by case: the raw `name` unique allows both,
+    // but the normalizedName unique must reject the second insert.
+    await expect(
+      prisma.genre.create({
+        data: { name: `rock ${stamp}`, normalizedName: `rock ${stamp}` },
+      }),
+    ).rejects.toThrow();
   });
 });

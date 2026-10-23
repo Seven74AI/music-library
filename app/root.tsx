@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { OpenImgContextProvider } from "openimg/react";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   data,
   Link,
@@ -419,14 +419,20 @@ function App() {
     };
   }, []);
 
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 1000 * 60 * 5, // 5 minutes
-        gcTime: 1000 * 60 * 10, // 10 minutes
-      },
-    },
-  });
+  // Lazy-init so a single QueryClient instance (and its cache) survives
+  // re-renders/navigations; a plain `new QueryClient()` here would rebuild
+  // an empty cache on every render, defeating staleTime/gcTime.
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 1000 * 60 * 5, // 5 minutes
+            gcTime: 1000 * 60 * 10, // 10 minutes
+          },
+        },
+      }),
+  );
 
   return (
     <QueryClientProvider client={queryClient}>

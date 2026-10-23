@@ -77,7 +77,6 @@ export async function action({ request }: Route.ActionArgs) {
   });
 
   if (submission.status !== "success") {
-    console.error("Form submission failed:", submission.reply());
     return data(
       { result: submission.reply() },
       { status: submission.status === "error" ? 400 : 200 },

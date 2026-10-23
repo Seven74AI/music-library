@@ -10,6 +10,7 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { createSessionCookie } from "#tests/api-admin-test-utils.ts";
 import {
   action,
   default as AdminUserDetailRoute,
@@ -269,6 +270,35 @@ test("action rejects an unknown intent", async () => {
 
   expect(errorOf(response).init?.status).toBe(400);
   expect(errorOf(response).data?.error).toBe("Unknown intent: launch-missiles");
+});
+
+test("loader denies non-admin users with 403", async () => {
+  const { cookie } = await createSessionCookie();
+  const request = new Request("http://localhost/admin/users/some-user", {
+    headers: { cookie },
+  });
+
+  await expect(
+    loader({
+      request,
+      params: { userId: "some-user" },
+      context: {} as never,
+      url: new URL(request.url),
+      pattern: "/admin/users/:userId",
+    } as never),
+  ).rejects.toMatchObject({
+    init: { status: 403 },
+    data: { requiredRole: "admin" },
+  });
+});
+
+test("action denies non-admin users with 403", async () => {
+  const { cookie } = await createSessionCookie();
+
+  await expect(runAction(cookie, "some-user", { intent: "enable" })).rejects.toMatchObject({
+    init: { status: 403 },
+    data: { requiredRole: "admin" },
+  });
 });
 
 test("action returns 404 when moderating a user that no longer exists", async () => {

@@ -47,9 +47,10 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Image not found" }, { status: 404 });
   }
 
-  // Update isPrimary for all images of this entity
+  // Update the entity's primary-cover pointer. A shared CoverImage (deduplicated
+  // by contentHash) cannot carry per-album/per-track primary state, so the
+  // nullable FK on the entity is the single source of truth.
   await prisma.$transaction(async (tx) => {
-    // First, set all images for this entity to non-primary
     if (entityType === "artist") {
       // Find artist
       const artist = await tx.artist.findUnique({
@@ -72,37 +73,14 @@ export async function action({ request, params }: Route.ActionArgs) {
       // Find album
       const album = await tx.album.findUnique({
         where: { id: entityId },
+        select: { coverImageId: true },
       });
 
       if (!album) {
         throw data({ error: "Album not found" }, { status: 404 });
       }
 
-      // Update all related cover images to non-primary
-      await tx.coverImage.updateMany({
-        where: {
-          id: {
-            in: (
-              await tx.album.findMany({ where: { id: entityId }, select: { coverImageId: true } })
-            )
-              .map((a) => a.coverImageId)
-              .filter(Boolean) as string[],
-          },
-        },
-        data: {
-          isPrimary: false,
-        },
-      });
-
-      // Set the selected image as primary
-      await tx.coverImage.update({
-        where: { id: imageId },
-        data: {
-          isPrimary: true,
-        },
-      });
-
-      // Update the album's coverImageId
+      // The album's `coverImageId` FK is the per-album primary cover pointer.
       await tx.album.update({
         where: { id: entityId },
         data: {

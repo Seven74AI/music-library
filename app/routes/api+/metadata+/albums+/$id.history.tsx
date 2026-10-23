@@ -1,6 +1,6 @@
 import { data } from "react-router";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireUserId } from "#app/utils/auth.server.ts";
+import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { labelsForChangeSets } from "#app/utils/history-display.server.ts";
 import { type Route } from "./+types/$id.history.ts";
 
@@ -13,9 +13,17 @@ interface Changes {
   [field: string]: FieldChange;
 }
 
-function computeChanges(previous: any, current: any): Changes {
+/** The editable album fields snapshot as stored on AlbumEdit and queried from Album. */
+type AlbumStateSnapshot = {
+  name: string;
+  artistId: string;
+  year: number | null;
+  coverImageId: string | null;
+};
+
+function computeChanges(previous: AlbumStateSnapshot, current: AlbumStateSnapshot): Changes {
   const changes: Changes = {};
-  const fields = ["name", "artistId", "year", "coverImageId"];
+  const fields = ["name", "artistId", "year", "coverImageId"] as const;
 
   for (const field of fields) {
     const prevValue = previous[field];
@@ -34,21 +42,11 @@ function computeChanges(previous: any, current: any): Changes {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireUserId(request);
+  await requireCuratorRole(request);
   const { id: albumId } = params;
 
   if (!albumId) {
     throw data({ error: "Album ID is required" }, { status: 400 });
-  }
-
-  // Verify album exists
-  const album = await prisma.album.findUnique({
-    where: { id: albumId },
-    select: { id: true },
-  });
-
-  if (!album) {
-    throw data({ error: "Album not found" }, { status: 404 });
   }
 
   // Get all edits for this album, ordered by most recent first
@@ -66,7 +64,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     },
   });
 
-  // Get current album state
+  // Current album state also serves as the existence check (→ 404 if missing).
   const currentAlbum = await prisma.album.findUnique({
     where: { id: albumId },
     select: {
@@ -77,12 +75,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     },
   });
 
-  // Compute changes for each edit
-  // The first edit (most recent) is compared with current album state
-  // Subsequent edits are compared with the previous edit
-  const history = edits.map((edit, index) => {
-    const nextState = index === 0 ? currentAlbum : edits[index - 1];
+  if (!currentAlbum) {
+    throw data({ error: "Album not found" }, { status: 404 });
+  }
+
+  // Compute changes for each edit, walking from most recent to oldest: the
+  // newest edit is compared against the current album, then each older edit is
+  // compared against its successor (the next-newer edit).
+  let nextState: AlbumStateSnapshot = currentAlbum;
+  const history = edits.map((edit) => {
     const changes = computeChanges(edit, nextState);
+    nextState = edit;
 
     return {
       id: edit.id,

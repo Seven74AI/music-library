@@ -1,4 +1,3 @@
-// @context7: crypto, dns, net, Buffer, Prisma, sharp
 import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
@@ -226,17 +225,46 @@ export async function calculateImageHash(buffer: Buffer): Promise<string> {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+/**
+ * Read an image buffer's intrinsic dimensions via sharp.
+ * Returns 0x0 when sharp is unavailable or the buffer is not a decodable image,
+ * so callers can fall back to metadata or fail validation instead of throwing.
+ */
+export async function getImageDimensions(
+  buffer: Buffer,
+): Promise<{ width: number; height: number }> {
+  try {
+    const sharp = await import("sharp");
+    const metadata = await sharp.default(buffer).metadata();
+    return {
+      width: metadata.width || 0,
+      height: metadata.height || 0,
+    };
+  } catch (error) {
+    console.error("Sharp not available for image processing:", error);
+    return { width: 0, height: 0 };
+  }
+}
+
 type AlbumLookup = {
   id: string;
   mergedIntoId: string | null;
 };
 
-type AlbumDb = {
+type AlbumClient = {
   album: {
+    findFirst: (args: {
+      where: { artistId: string; name: string };
+      select: { id: true; mergedIntoId: true };
+    }) => Promise<AlbumLookup | null>;
     findUnique: (args: {
       where: { id: string };
       select: { id: true; mergedIntoId: true };
     }) => Promise<AlbumLookup | null>;
+    create: (args: {
+      data: { name: string; artistId: string; year?: number };
+      select: { id: true; mergedIntoId: true };
+    }) => Promise<AlbumLookup>;
   };
 };
 
@@ -244,7 +272,7 @@ type AlbumDb = {
  * Follow mergedIntoId until we reach the living album.
  * Upload/import must not keep attaching tracks to a merged-away source.
  */
-async function resolveCanonicalAlbum(db: AlbumDb, album: AlbumLookup): Promise<{ id: string }> {
+async function resolveCanonicalAlbum(db: AlbumClient, album: AlbumLookup): Promise<{ id: string }> {
   const seen = new Set<string>();
   let current = album;
 
@@ -268,10 +296,11 @@ async function resolveCanonicalAlbum(db: AlbumDb, album: AlbumLookup): Promise<{
 }
 
 /**
- * Get or create an Album record
- * Uses (artistId, name) as unique identifier
+ * Shared get-or-create core, parameterized by client (global `prisma` or a
+ * transaction client).
  */
-export async function getOrCreateAlbum(
+async function getOrCreateAlbumCore(
+  client: AlbumClient,
   artistId: string,
   albumName: string | null | undefined,
   year?: number | null,
@@ -281,7 +310,7 @@ export async function getOrCreateAlbum(
   }
 
   // Try to find existing album first
-  let album = await prisma.album.findFirst({
+  let album = await client.album.findFirst({
     where: {
       artistId,
       name: albumName,
@@ -294,7 +323,7 @@ export async function getOrCreateAlbum(
 
   // If not found, create it
   if (!album) {
-    album = await prisma.album.create({
+    album = await client.album.create({
       data: {
         name: albumName,
         artistId,
@@ -307,7 +336,19 @@ export async function getOrCreateAlbum(
     });
   }
 
-  return resolveCanonicalAlbum(prisma, album);
+  return resolveCanonicalAlbum(client, album);
+}
+
+/**
+ * Get or create an Album record
+ * Uses (artistId, name) as unique identifier
+ */
+export async function getOrCreateAlbum(
+  artistId: string,
+  albumName: string | null | undefined,
+  year?: number | null,
+): Promise<{ id: string } | null> {
+  return getOrCreateAlbumCore(prisma, artistId, albumName, year);
 }
 
 /**
@@ -319,65 +360,99 @@ export async function getOrCreateAlbumTx(
   albumName: string | null | undefined,
   year?: number | null,
 ): Promise<{ id: string } | null> {
-  if (!albumName) {
-    return null;
-  }
+  return getOrCreateAlbumCore(tx, artistId, albumName, year);
+}
 
-  // Try to find existing album first
-  let album = await tx.album.findFirst({
-    where: {
-      artistId,
-      name: albumName,
-    },
-    select: {
-      id: true,
-      mergedIntoId: true,
-    },
-  });
-
-  // If not found, create it
-  if (!album) {
-    album = await tx.album.create({
+/**
+ * Structural client for cover writes — accepts both the global `prisma` client
+ * and a `Prisma.TransactionClient` so the shared core is client-agnostic.
+ */
+type CoverClient = {
+  coverImage: {
+    findUnique: (args: {
+      where: { contentHash: string };
+      select: { id: true; objectKey: true };
+    }) => Promise<{ id: string; objectKey: string } | null>;
+    create: (args: {
       data: {
-        name: albumName,
-        artistId,
-        ...(year && { year }),
-      },
-      select: {
-        id: true,
-        mergedIntoId: true,
-      },
+        contentHash: string;
+        objectKey: string;
+        width: number | null;
+        height: number | null;
+        format: string;
+        fileSize: number;
+      };
+      select: { id: true; objectKey: true };
+    }) => Promise<{ id: string; objectKey: string }>;
+  };
+  album: {
+    findUnique: (args: {
+      where: { id: string };
+      select: { coverImageId: true };
+    }) => Promise<{ coverImageId: string | null } | null>;
+    update: (args: { where: { id: string }; data: { coverImageId: string } }) => Promise<unknown>;
+  };
+};
+
+/**
+ * Reuse or create the CoverImage row for an already-prepared cover image.
+ * Parameterized by client: the global `prisma` (findOrCreateCoverImage) or a
+ * transaction client (createCoverImageInTx).
+ */
+async function createOrReuseCoverImage(
+  client: CoverClient,
+  prepared: PreparedCoverImage,
+  albumId?: string | null,
+): Promise<{ id: string; objectKey: string }> {
+  if (prepared.kind === "new") {
+    // Re-check: a concurrent upload may have created the same cover after
+    // prepare ran (contentHash is unique).
+    const existing = await client.coverImage.findUnique({
+      where: { contentHash: prepared.contentHash },
+      select: { id: true, objectKey: true },
     });
+
+    let coverImage = existing;
+    if (!coverImage) {
+      coverImage = await client.coverImage.create({
+        data: {
+          contentHash: prepared.contentHash,
+          objectKey: prepared.objectKey,
+          width: prepared.width,
+          height: prepared.height,
+          format: prepared.format,
+          fileSize: prepared.fileSize,
+        },
+        select: { id: true, objectKey: true },
+      });
+    }
+
+    if (albumId) {
+      await client.album.update({
+        where: { id: albumId },
+        data: { coverImageId: coverImage.id },
+      });
+    }
+
+    return coverImage;
   }
 
-  return resolveCanonicalAlbum(tx, album);
-}
+  // Reusing an existing cover (by content hash): associate the album only when
+  // it still has no cover.
+  if (prepared.kind === "existing" && albumId) {
+    const album = await client.album.findUnique({
+      where: { id: albumId },
+      select: { coverImageId: true },
+    });
+    if (album && !album.coverImageId) {
+      await client.album.update({
+        where: { id: albumId },
+        data: { coverImageId: prepared.id },
+      });
+    }
+  }
 
-/**
- * Associate a cover image with an album
- */
-export async function associateCoverWithAlbum(
-  coverImageId: string,
-  albumId: string,
-): Promise<void> {
-  await prisma.album.update({
-    where: { id: albumId },
-    data: { coverImageId },
-  });
-}
-
-/**
- * Transaction-aware version of associateCoverWithAlbum
- */
-export async function associateCoverWithAlbumTx(
-  tx: Prisma.TransactionClient,
-  coverImageId: string,
-  albumId: string,
-): Promise<void> {
-  await tx.album.update({
-    where: { id: albumId },
-    data: { coverImageId },
-  });
+  return { id: prepared.id, objectKey: prepared.objectKey };
 }
 
 /**
@@ -392,41 +467,71 @@ export async function associateCoverWithAlbumTx(
  * @param params - Cover image parameters
  * @returns CoverImage record
  */
-export async function findOrCreateCoverImage(params: {
+export async function findOrCreateCoverImage(
+  params: CoverImageUploadParams,
+): Promise<{ id: string; objectKey: string }> {
+  const prepared = await prepareCoverImageUpload(params);
+  return createOrReuseCoverImage(prisma, prepared, params.albumId ?? null);
+}
+
+export type CoverImageUploadParams = {
   imageBuffer: Buffer;
   albumId?: string | null;
   trackId?: string;
   width?: number;
   height?: number;
   format?: string;
-}): Promise<{ id: string; objectKey: string }> {
+};
+
+/**
+ * Result of {@link prepareCoverImageUpload}: the Tigris cover object has been
+ * resolved and — when new — uploaded. `kind` tells the DB step whether to create
+ * a new CoverImage row or reuse an existing one.
+ */
+export type PreparedCoverImage =
+  | { kind: "existing"; id: string; objectKey: string }
+  | { kind: "album-cover"; id: string; objectKey: string }
+  | {
+      kind: "new";
+      objectKey: string;
+      contentHash: string;
+      width: number | null;
+      height: number | null;
+      format: string;
+      fileSize: number;
+    };
+
+/**
+ * Resolve the Tigris cover object for an image, uploading it when it is new.
+ *
+ * This performs the content-hash and album-has-cover dedup checks, then — when
+ * the image is new — processes it with sharp and uploads it to Tigris. It uses
+ * the global `prisma` client and runs entirely OUTSIDE any database transaction,
+ * so a slow (or failing) sharp/upload never holds a SQLite write lock and can
+ * never be rolled back after the object is already in storage. Callers that need
+ * the CoverImage row created atomically with other writes should call
+ * {@link createCoverImageInTx} with the returned {@link PreparedCoverImage}
+ * inside their transaction.
+ */
+export async function prepareCoverImageUpload(
+  params: CoverImageUploadParams,
+): Promise<PreparedCoverImage> {
   const { imageBuffer, albumId, trackId, width, height, format } = params;
 
-  // Step 1: Calculate hash
+  // Step 1: Calculate hash for deduplication
   const contentHash = await calculateImageHash(imageBuffer);
 
-  // Step 2: Check if cover with same hash exists
+  // Step 2: Check if a cover with the same hash already exists
   const existingCover = await prisma.coverImage.findUnique({
     where: { contentHash },
     select: { id: true, objectKey: true },
   });
 
   if (existingCover) {
-    // Reuse existing cover
-    // If album provided and doesn't have a cover, associate it
-    if (albumId) {
-      const album = await prisma.album.findUnique({
-        where: { id: albumId },
-        select: { coverImageId: true },
-      });
-      if (album && !album.coverImageId) {
-        await associateCoverWithAlbum(existingCover.id, albumId);
-      }
-    }
-    return existingCover;
+    return { kind: "existing", id: existingCover.id, objectKey: existingCover.objectKey };
   }
 
-  // Step 3: If album provided, check if album already has a cover
+  // Step 3: If the album already has a cover, reuse it (skip upload)
   if (albumId) {
     const album = await prisma.album.findUnique({
       where: { id: albumId },
@@ -434,22 +539,20 @@ export async function findOrCreateCoverImage(params: {
     });
 
     if (album?.coverImage) {
-      // Album already has a cover, reuse it
       return {
+        kind: "album-cover",
         id: album.coverImage.id,
         objectKey: album.coverImage.objectKey,
       };
     }
   }
 
-  // Step 4: Upload new cover and create record
-  // Import sharp dynamically (only when needed)
+  // Step 4: Process and upload the new cover (outside any DB transaction)
   const sharp = await import("sharp").catch(() => null);
   if (!sharp) {
     throw new Error("sharp is not available for image processing");
   }
 
-  // Process image: resize to max 1000x1000, convert to JPEG, optimize
   const processedImage = await sharp
     .default(imageBuffer)
     .resize(1000, 1000, {
@@ -459,14 +562,12 @@ export async function findOrCreateCoverImage(params: {
     .jpeg({ quality: 85 })
     .toBuffer();
 
-  // Get image metadata for dimensions
   const metadata = await sharp.default(processedImage).metadata();
   const finalWidth = width || metadata.width || null;
   const finalHeight = height || metadata.height || null;
   const finalFormat = format || "jpeg";
   const fileSize = processedImage.length;
 
-  // Generate storage key
   const { createId } = await import("@paralleldrive/cuid2");
   const fileId = createId();
   const timestamp = Date.now();
@@ -474,7 +575,6 @@ export async function findOrCreateCoverImage(params: {
     ? `images/tracks/${trackId}/cover/${timestamp}-${fileId}.jpg`
     : `images/covers/${timestamp}-${fileId}.jpg`;
 
-  // Upload to storage
   await uploadFile({
     file: processedImage,
     key: objectKey,
@@ -486,151 +586,44 @@ export async function findOrCreateCoverImage(params: {
     },
   });
 
-  // Create cover image record
-  const coverImage = await prisma.coverImage.create({
-    data: {
-      contentHash,
-      objectKey,
-      width: finalWidth,
-      height: finalHeight,
-      format: finalFormat,
-      fileSize,
-    },
-    select: {
-      id: true,
-      objectKey: true,
-    },
-  });
-
-  // Associate with album if provided
-  if (albumId) {
-    await associateCoverWithAlbum(coverImage.id, albumId);
-  }
-
-  return coverImage;
+  return {
+    kind: "new",
+    objectKey,
+    contentHash,
+    width: finalWidth,
+    height: finalHeight,
+    format: finalFormat,
+    fileSize,
+  };
 }
 
 /**
- * Transaction-aware version of findOrCreateCoverImage
- * Note: File upload still happens outside transaction, but database operations are within transaction
+ * Create/associate the CoverImage row for an already-prepared cover image.
+ *
+ * This performs only fast DB writes (plus a re-check for concurrent dedup), so it
+ * is safe to call inside a `prisma.$transaction` (pass the transaction client as
+ * `tx`). The slow sharp/upload work must already have happened in
+ * {@link prepareCoverImageUpload}.
+ */
+export async function createCoverImageInTx(
+  tx: Prisma.TransactionClient,
+  prepared: PreparedCoverImage,
+  albumId?: string | null,
+): Promise<{ id: string; objectKey: string }> {
+  return createOrReuseCoverImage(tx, prepared, albumId);
+}
+
+/**
+ * Transaction-aware version of findOrCreateCoverImage.
+ *
+ * The file upload (sharp + Tigris write) happens OUTSIDE the transaction via
+ * {@link prepareCoverImageUpload}; only fast DB writes run within the transaction
+ * via {@link createCoverImageInTx}.
  */
 export async function findOrCreateCoverImageTx(
   tx: Prisma.TransactionClient,
-  params: {
-    imageBuffer: Buffer;
-    albumId?: string | null;
-    trackId?: string;
-    width?: number;
-    height?: number;
-    format?: string;
-  },
+  params: CoverImageUploadParams,
 ): Promise<{ id: string; objectKey: string }> {
-  const { imageBuffer, albumId, trackId, width, height, format } = params;
-
-  // Step 1: Calculate hash
-  const contentHash = await calculateImageHash(imageBuffer);
-
-  // Step 2: Check if cover with same hash exists
-  const existingCover = await tx.coverImage.findUnique({
-    where: { contentHash },
-    select: { id: true, objectKey: true },
-  });
-
-  if (existingCover) {
-    // Reuse existing cover
-    // If album provided and doesn't have a cover, associate it
-    if (albumId) {
-      const album = await tx.album.findUnique({
-        where: { id: albumId },
-        select: { coverImageId: true },
-      });
-      if (album && !album.coverImageId) {
-        await associateCoverWithAlbumTx(tx, existingCover.id, albumId);
-      }
-    }
-    return existingCover;
-  }
-
-  // Step 3: If album provided, check if album already has a cover
-  if (albumId) {
-    const album = await tx.album.findUnique({
-      where: { id: albumId },
-      include: { coverImage: { select: { id: true, objectKey: true } } },
-    });
-
-    if (album?.coverImage) {
-      // Album already has a cover, reuse it
-      return {
-        id: album.coverImage.id,
-        objectKey: album.coverImage.objectKey,
-      };
-    }
-  }
-
-  // Step 4: Upload new cover and create record
-  // Import sharp dynamically (only when needed)
-  const sharp = await import("sharp").catch(() => null);
-  if (!sharp) {
-    throw new Error("sharp is not available for image processing");
-  }
-
-  // Process image: resize to max 1000x1000, convert to JPEG, optimize
-  const processedImage = await sharp
-    .default(imageBuffer)
-    .resize(1000, 1000, {
-      fit: "inside",
-      withoutEnlargement: true,
-    })
-    .jpeg({ quality: 85 })
-    .toBuffer();
-
-  // Get image metadata for dimensions
-  const metadata = await sharp.default(processedImage).metadata();
-  const finalWidth = width || metadata.width || null;
-  const finalHeight = height || metadata.height || null;
-  const finalFormat = format || "jpeg";
-  const fileSize = processedImage.length;
-
-  // Generate storage key
-  const { createId } = await import("@paralleldrive/cuid2");
-  const fileId = createId();
-  const timestamp = Date.now();
-  const objectKey = trackId
-    ? `images/tracks/${trackId}/cover/${timestamp}-${fileId}.jpg`
-    : `images/covers/${timestamp}-${fileId}.jpg`;
-
-  // Upload to storage (outside transaction - storage operations can't be rolled back)
-  await uploadFile({
-    file: processedImage,
-    key: objectKey,
-    contentType: "image/jpeg",
-    metadata: {
-      ...(trackId && { trackId }),
-      type: "album-art",
-      contentHash,
-    },
-  });
-
-  // Create cover image record (within transaction)
-  const coverImage = await tx.coverImage.create({
-    data: {
-      contentHash,
-      objectKey,
-      width: finalWidth,
-      height: finalHeight,
-      format: finalFormat,
-      fileSize,
-    },
-    select: {
-      id: true,
-      objectKey: true,
-    },
-  });
-
-  // Associate with album if provided (within transaction)
-  if (albumId) {
-    await associateCoverWithAlbumTx(tx, coverImage.id, albumId);
-  }
-
-  return coverImage;
+  const prepared = await prepareCoverImageUpload(params);
+  return createCoverImageInTx(tx, prepared, params.albumId ?? null);
 }

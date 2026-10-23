@@ -18,7 +18,7 @@ export function HomeRecentTrackRow({ recentTracks }: HomeRecentTrackRowProps) {
       {recentTracks.map((userTrack, index) => (
         <div key={userTrack.id} className="snap-start">
           <HomeRecentTrackCard
-            userTrack={userTrack}
+            track={userTrack.track}
             index={index}
             playableTracks={playableTracks}
           />

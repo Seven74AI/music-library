@@ -107,15 +107,15 @@ describe("unused tracks age=all", () => {
       data: { createdAt: daysAgo(1) },
     });
 
-    const within90Days = await getUnusedTracks(90);
+    const within90Days = (await getUnusedTracks(90)).items;
     const within90Ids = within90Days.map((track) => track.id);
     expect(within90Ids).toContain(olderThan90.track.id);
     expect(within90Ids).not.toContain(newerThan7.track.id);
 
-    const within7Days = await getUnusedTracks(7);
+    const within7Days = (await getUnusedTracks(7)).items;
     expect(within7Days.map((track) => track.id)).not.toContain(newerThan7.track.id);
 
-    const allTracks = await getUnusedTracks(null);
+    const allTracks = (await getUnusedTracks(null)).items;
     const allIds = allTracks.map((track) => track.id);
     expect(allIds).toContain(olderThan90.track.id);
     expect(allIds).toContain(newerThan7.track.id);
@@ -208,7 +208,7 @@ describe("unused tracks still in use elsewhere", () => {
       },
     });
 
-    const unusedIds = (await getUnusedTracks(null)).map((track) => track.id);
+    const unusedIds = (await getUnusedTracks(null)).items.map((track) => track.id);
     expect(unusedIds).not.toContain(queued.track.id);
     expect(unusedIds).toContain(trulyUnused.track.id);
   });
@@ -247,7 +247,7 @@ describe("unused tracks still in use elsewhere", () => {
       },
     });
 
-    const unusedIds = (await getUnusedTracks(null)).map((track) => track.id);
+    const unusedIds = (await getUnusedTracks(null)).items.map((track) => track.id);
     expect(unusedIds).not.toContain(onPlaylist.track.id);
   });
 
@@ -433,10 +433,11 @@ describe("orphaned-tracks delete storage safety", () => {
     await prisma.$executeRaw`PRAGMA foreign_keys = OFF`;
     const orphanId = `orphan-audio-${Date.now()}`;
     await prisma.$executeRaw`
-      INSERT INTO TrackAudioFile (id, trackId, objectKey, contentHash, format, mimeType, fileName, createdAt, updatedAt, uploadedAt)
+      INSERT INTO TrackAudioFile (id, trackId, serviceId, objectKey, contentHash, format, mimeType, fileName, createdAt, updatedAt, uploadedAt)
       VALUES (
         ${orphanId},
         ${"missing-track-id"},
+        ${live.track.serviceId},
         ${objectKey},
         ${contentHash},
         ${"mp3"},

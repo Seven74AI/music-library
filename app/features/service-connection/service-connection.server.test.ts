@@ -132,6 +132,46 @@ describe("resolveServiceAccessToken", () => {
     expect(decoded.refresh_token).toBe("refresh-token");
   });
 
+  it("coalesces concurrent refreshes for the same connection into one refresh + one write", async () => {
+    const { prisma } = await import("#app/utils/db.server");
+    vi.mocked(prisma.connection.findFirst).mockResolvedValue({
+      id: "conn-1",
+      providerName: YOUTUBE_SERVICE.NAME,
+      providerId: "yt-1",
+      userId: "user-1",
+      tokens: JSON.stringify({
+        access_token: "expired-token",
+        refresh_token: "refresh-token",
+        expiry_date: Date.now() - 1000,
+      }),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    let resolveRefresh!: (tokens: { access_token: string; expiry_date: number }) => void;
+    const refreshGate = new Promise<{ access_token: string; expiry_date: number }>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    mockRefreshAccessToken.mockReturnValue(refreshGate);
+    vi.mocked(prisma.connection.update).mockResolvedValue({} as never);
+
+    const { resolveServiceAccessToken } = await import("./service-connection.server.ts");
+
+    const first = resolveServiceAccessToken(YOUTUBE_SERVICE.NAME, "user-1");
+    const second = resolveServiceAccessToken(YOUTUBE_SERVICE.NAME, "user-1");
+
+    // Both calls are now blocked on the single shared refresh.
+    resolveRefresh({ access_token: "refreshed-token", expiry_date: Date.now() + 3600_000 });
+
+    const [r1, r2] = await Promise.all([first, second]);
+
+    expect(r1).toEqual({ access_token: "refreshed-token" });
+    expect(r2).toEqual({ access_token: "refreshed-token" });
+    expect(mockRefreshAccessToken).toHaveBeenCalledTimes(1);
+    expect(mockRefreshAccessToken).toHaveBeenCalledWith("refresh-token");
+    expect(prisma.connection.update).toHaveBeenCalledTimes(1);
+  });
+
   it("reads a legacy plaintext JSON token and does not rewrite it", async () => {
     const legacy = JSON.stringify({
       access_token: "legacy-plaintext-access-token",

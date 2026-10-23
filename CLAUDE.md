@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Issue tracker
 
-GitHub Issues on `Seven74AI/music-library`. See `docs/agents/issue-tracker.md`.
+GitHub Issues on `mnlamart/music-library`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

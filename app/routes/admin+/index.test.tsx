@@ -11,6 +11,7 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { createSessionCookie } from "#tests/api-admin-test-utils.ts";
 import { adminNavSections, default as AdminOverviewRoute, loader } from "./index.tsx";
 
 async function createAdminCookie() {
@@ -84,6 +85,24 @@ test("health colors match the database quality thresholds", () => {
   expect(getHealthColor(89)).toBe("yellow");
   expect(getHealthColor(70)).toBe("yellow");
   expect(getHealthColor(69)).toBe("red");
+});
+
+test("loader denies non-admin users with 403", async () => {
+  const { cookie } = await createSessionCookie();
+  const request = new Request("http://localhost/admin", { headers: { cookie } });
+
+  await expect(
+    loader({
+      request,
+      params: {},
+      context: {} as never,
+      url: new URL(request.url),
+      pattern: "/admin",
+    }),
+  ).rejects.toMatchObject({
+    init: { status: 403 },
+    data: { requiredRole: "admin" },
+  });
 });
 
 test("admin overview links health, content, users, security, and settings", async () => {

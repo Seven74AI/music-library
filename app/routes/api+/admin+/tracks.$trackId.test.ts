@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { deleteFile } from "#app/utils/storage.server.ts";
+import { ensureLocalService, readThrownStatus } from "#tests/api-admin-test-utils.ts";
 import { action } from "./tracks.$trackId.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
@@ -11,14 +12,6 @@ vi.mock("#app/utils/permissions.server.ts", () => ({
 vi.mock("#app/utils/storage.server.ts", () => ({
   deleteFile: vi.fn(),
 }));
-
-async function ensureLocalService() {
-  return prisma.service.upsert({
-    where: { name: "local" },
-    update: {},
-    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
-  });
-}
 
 async function createTrackWithAudio({
   title,
@@ -66,15 +59,6 @@ function deleteRequest(trackId?: string) {
     params: { trackId },
     context: {},
   } as never;
-}
-
-async function readThrownStatus(error: unknown): Promise<number | undefined> {
-  if (error instanceof Response) return error.status;
-  if (typeof error === "object" && error !== null && "init" in error) {
-    const init = (error as { init?: { status?: number } }).init;
-    return init?.status;
-  }
-  return undefined;
 }
 
 describe("DELETE /api/admin/tracks/:trackId", () => {

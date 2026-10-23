@@ -231,7 +231,7 @@ export async function fetchQueueSpine(
 
   if (params.context === "artist") {
     const tracks = await prisma.track.findMany({
-      where: { artistId: params.artistId },
+      where: { artistId: params.artistId, audioFiles: { some: {} } },
       select: QUEUE_TRACK_SELECT,
       orderBy: { createdAt: "desc" },
     });
@@ -240,7 +240,7 @@ export async function fetchQueueSpine(
 
   if (params.context === "album") {
     const tracks = await prisma.track.findMany({
-      where: { albumId: params.albumId },
+      where: { albumId: params.albumId, audioFiles: { some: {} } },
       select: QUEUE_TRACK_SELECT,
       orderBy: { createdAt: "asc" },
     });

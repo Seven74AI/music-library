@@ -137,10 +137,13 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
 
   const cursor = url.searchParams.get("cursor");
-  const limit = Math.min(
-    100,
-    Math.max(1, parseInt(url.searchParams.get("limit") || String(LIBRARY_TRACKS_PAGE_SIZE))),
+  const parsedLimit = Number.parseInt(
+    url.searchParams.get("limit") || String(LIBRARY_TRACKS_PAGE_SIZE),
+    10,
   );
+  const limit = Number.isFinite(parsedLimit)
+    ? Math.min(100, Math.max(1, parsedLimit))
+    : LIBRARY_TRACKS_PAGE_SIZE;
   const hasAudioOnly = parseHasAudioOnlyParam(url.searchParams);
   const genreId = parseLibraryGenreParam(url.searchParams);
   const sort = parseLibrarySort(url.searchParams.get("sort"));
@@ -567,8 +570,15 @@ export default function LibraryIndexRoute({
           )}
         </div>
       ) : (
-        <div ref={listRef} data-testid="library-track-list" className="relative min-w-0">
+        <div
+          ref={listRef}
+          data-testid="library-track-list"
+          className="relative min-w-0"
+          role="list"
+          aria-label="Music library tracks"
+        >
           <div
+            role="presentation"
             data-testid="library-virtual-spacer"
             style={{
               height: `${virtualizer.getTotalSize()}px`,
@@ -593,6 +603,7 @@ export default function LibraryIndexRoute({
                     data-index={virtualItem.index}
                     data-testid="library-virtual-row"
                     ref={virtualizer.measureElement}
+                    aria-hidden="true"
                     style={{ ...rowStyle, position: "sticky", top: 0, zIndex: 10 }}
                     className="bg-background border-b h-16"
                   >
@@ -619,6 +630,7 @@ export default function LibraryIndexRoute({
                     data-index={virtualItem.index}
                     data-testid="library-virtual-row"
                     ref={virtualizer.measureElement}
+                    role="presentation"
                     style={rowStyle}
                   >
                     <div className="flex w-full justify-center py-4">
@@ -643,6 +655,7 @@ export default function LibraryIndexRoute({
                   data-index={virtualItem.index}
                   data-testid="library-virtual-row"
                   ref={virtualizer.measureElement}
+                  role="presentation"
                   style={rowStyle}
                 >
                   <LibraryTrackListItem

@@ -32,14 +32,15 @@ const selectionModeListeners = new Set<(enabled: boolean) => void>();
 const selectedTrackListeners = new Set<(trackIds: string[]) => void>();
 
 let selectionSessionTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingSelectionIds: string[] | null = null;
 
 function flushSelectionSession() {
   if (selectionSessionTimer) clearTimeout(selectionSessionTimer);
   selectionSessionTimer = null;
-  const trackIds = pendingSelectionIds;
-  pendingSelectionIds = null;
-  if (!trackIds || typeof saveSessionState !== "function") return;
+  if (typeof saveSessionState !== "function") return;
+  // Derive the snapshot from the canonical `curator:selected-tracks` key so the
+  // crash-recovery state can never drift from the live selection (single source
+  // of truth — previously both keys were written independently on every change).
+  const trackIds = Array.from(getSelectedTrackIds());
   if (trackIds.length === 0) {
     if (typeof clearSessionState === "function") clearSessionState("selection");
     return;
@@ -52,9 +53,8 @@ function flushSelectionSession() {
   });
 }
 
-function persistSelectionSession(trackIds: string[]) {
+function persistSelectionSession() {
   if (typeof saveSessionState !== "function") return;
-  pendingSelectionIds = trackIds;
   if (selectionSessionTimer) clearTimeout(selectionSessionTimer);
   selectionSessionTimer = setTimeout(flushSelectionSession, SESSION_SAVE_DEBOUNCE_MS);
 }
@@ -212,7 +212,7 @@ export function useSelection() {
     selectedTrackIdsRef.current = next;
     setSelectedTrackIds(next);
     saveSelectedTrackIds(next);
-    persistSelectionSession(Array.from(next));
+    persistSelectionSession();
   }, []);
 
   useEffect(() => {
@@ -247,7 +247,7 @@ export function useSelection() {
     selectedTrackIdsRef.current = new Set();
     setSelectedTrackIds(new Set());
     clearSelectedTrackIds();
-    persistSelectionSession([]);
+    persistSelectionSession();
   }, []);
 
   const toggleSelection = useCallback(

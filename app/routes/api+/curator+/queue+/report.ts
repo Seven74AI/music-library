@@ -1,13 +1,18 @@
 import { data } from "react-router";
 import { z } from "zod";
+import { createOrUpdateQueueItem } from "#app/features/curator/review-queue.server.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
-import { prisma } from "#app/utils/db.server.ts";
+import { verifyEntityExists } from "#app/utils/entity-existence.server.ts";
+import { makeRateLimiter } from "#app/utils/rate-limit.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/report";
 
 export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
 }
+
+/** Per-user report submissions allowed per minute (ASVS high-value endpoint cap). */
+export const REPORT_RATE_LIMIT_PER_MINUTE = 10;
 
 const reportSchema = z.object({
   trackId: z.string().min(1),
@@ -18,33 +23,40 @@ const reportSchema = z.object({
 export async function action({ request }: Route.ActionArgs) {
   const userId = await requireUserId(request);
 
+  const budget = makeRateLimiter("track-report", REPORT_RATE_LIMIT_PER_MINUTE).consume(userId);
+  if (!budget.allowed) {
+    return data(
+      {
+        success: false,
+        error: "Too many reports. Please try again later.",
+        retryAfterSeconds: budget.retryAfterSeconds,
+      },
+      { status: 429 },
+    );
+  }
+
   try {
     const formData = await request.formData();
     const rawData = Object.fromEntries(formData);
     const validatedData = reportSchema.parse(rawData);
 
     // Verify track exists
-    const track = await prisma.track.findUnique({
-      where: { id: validatedData.trackId },
-      select: { id: true, title: true },
-    });
+    const trackExists = await verifyEntityExists("track", validatedData.trackId);
 
-    if (!track) {
+    if (!trackExists) {
       return data({ success: false, error: "Track not found" }, { status: 404 });
     }
 
-    // Create review queue item
-    await prisma.reviewQueueItem.create({
-      data: {
-        entityType: "track",
-        entityId: validatedData.trackId,
-        source: "user_report",
-        issueType: validatedData.issueType,
-        description: validatedData.description,
-        reporterId: userId,
-        status: "open",
-        priority: 1,
-      },
+    // Idempotent upsert: a second report for the same open (track, issueType)
+    // increments the existing item's reportCount instead of creating a duplicate.
+    await createOrUpdateQueueItem({
+      entityType: "track",
+      entityId: validatedData.trackId,
+      source: "user_report",
+      issueType: validatedData.issueType,
+      description: validatedData.description,
+      reporterId: userId,
+      priority: 1,
     });
 
     return data({ success: true });

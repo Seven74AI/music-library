@@ -5,6 +5,7 @@ import { useId } from "react";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { ErrorList } from "#app/components/forms.tsx";
 import { prisma } from "#app/utils/db.server.ts";
+import { escapeLikeLiterals } from "#app/utils/fts5-query.server.ts";
 import { cn, getUserImgSrc, useDebounce, useDelayedIsPending } from "#app/utils/misc.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
@@ -35,7 +36,10 @@ export async function loader({ url }: Route.LoaderArgs) {
   }
 
   try {
-    const like = `%${searchTerm ?? ""}%`;
+    // Escape LIKE wildcard chars so a user-supplied '%', '_' or '\' is matched
+    // literally rather than acting as a wildcard (searching '%' would otherwise
+    // match every user).
+    const like = `%${escapeLikeLiterals(searchTerm ?? "")}%`;
 
     // Execute the raw SQL query with proper parameter binding
     const users = await prisma.$queryRaw<SearchUser[]>`
@@ -47,8 +51,8 @@ export async function loader({ url }: Route.LoaderArgs) {
 				"UserImage".objectKey AS imageObjectKey
 			FROM "User"
 			LEFT JOIN "UserImage" ON "User".id = "UserImage".userId
-			WHERE "User".username LIKE ${like}
-			OR "User".name LIKE ${like}
+			WHERE "User".username LIKE ${like} ESCAPE '\\'
+			OR "User".name LIKE ${like} ESCAPE '\\'
 			ORDER BY "User".createdAt DESC
 			LIMIT 50
 		`;

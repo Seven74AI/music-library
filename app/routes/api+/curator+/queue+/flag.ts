@@ -2,6 +2,7 @@ import { data } from "react-router";
 import { z } from "zod";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { verifyEntityExists } from "#app/utils/entity-existence.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/flag";
 
@@ -52,21 +53,5 @@ export async function action({ request }: Route.ActionArgs) {
     }
     console.error("Error flagging for review:", error);
     return data({ success: false, error: "Failed to flag for review" }, { status: 500 });
-  }
-}
-
-async function verifyEntityExists(entityType: string, entityId: string): Promise<boolean> {
-  switch (entityType) {
-    case "track":
-      const track = await prisma.track.findUnique({ where: { id: entityId } });
-      return !!track;
-    case "artist":
-      const artist = await prisma.artist.findUnique({ where: { id: entityId } });
-      return !!artist;
-    case "album":
-      const album = await prisma.album.findUnique({ where: { id: entityId } });
-      return !!album;
-    default:
-      return false;
   }
 }

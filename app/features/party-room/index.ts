@@ -10,7 +10,7 @@ export {
   ROOM_SEARCH_RATE_PER_MIN,
   AUDITION_GRANT_RATE_PER_MIN,
   EMPTY_ROOM_TTL_MS,
-  HOST_GRACE_MS,
+  NON_SPEAKER_AWAY_MS,
   SPEAKER_SILENCE_GRACE_MS,
   ROOM_STATUS,
   ROOM_ROLE,
@@ -26,7 +26,7 @@ export {
   ROOM_ADD_TRACK_RATE_PER_MIN,
   ROOM_AUDITION_RATE_PER_MIN,
   ROOM_EMPTY_TTL_MS,
-  ROOM_HOST_GRACE_MS,
+  ROOM_NON_SPEAKER_AWAY_MS,
 } from "./constants.ts";
 
 export type {
@@ -40,17 +40,11 @@ export type {
 export {
   generateRoomCode,
   isValidRoomCode,
+  normalizeRoomCode,
   parseRoomCodeInput,
   buildRoomJoinPath,
   buildRoomJoinUrl,
 } from "./codes.ts";
-
-export {
-  normalizeRoomCode,
-  parseRoomCodeInput as parseRoomCodeInputClient,
-  buildRoomJoinPath as buildRoomJoinPathClient,
-  buildRoomJoinUrl as buildRoomJoinUrlClient,
-} from "./code.ts";
 
 export {
   capabilitiesForRole,

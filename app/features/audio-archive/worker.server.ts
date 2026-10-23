@@ -28,8 +28,24 @@ import {
 
 /**
  * Maximum number of retry attempts for retriable errors.
+ * A job fails permanently only after this many retries have been exhausted
+ * (initial attempt + MAX_RETRIES retries), per Decision #5.
  */
 const MAX_RETRIES = 3;
+
+/**
+ * Exponential backoff between retries (Decision #5): 1st retry after 5 min,
+ * 2nd after 30 min, 3rd after 2 h. Indexed by the post-increment retryCount.
+ */
+const RETRY_BACKOFF_MS: ReadonlyArray<number> = [
+  5 * 60_000, // retry #1 → 5 min
+  30 * 60_000, // retry #2 → 30 min
+  2 * 60 * 60_000, // retry #3 → 2 h
+];
+
+function retryBackoffMs(retryCount: number): number {
+  return RETRY_BACKOFF_MS[retryCount - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]!;
+}
 
 /** Default stale threshold: 2× yt-dlp timeout (5 min each). */
 const DEFAULT_STALE_JOB_MS = 600_000;
@@ -114,6 +130,11 @@ const NON_RETRIABLE_ERRORS: ErrorCategoryType[] = [
   ErrorCategory.VIDEO_UNAVAILABLE,
   ErrorCategory.COOKIE_EXPIRED,
   ErrorCategory.FILE_NOT_FOUND,
+  // "Requested format is not available" is a permanent condition for that
+  // video — auto-retry only re-spawns yt-dlp to fail the same way. Manual
+  // re-enqueue (after fixing yt-dlp format selection) is the only recovery,
+  // which is what `recoverable-failure.ts` models.
+  ErrorCategory.FORMAT_UNAVAILABLE,
 ];
 
 function categorizeJobError(error: unknown): ErrorCategoryType {
@@ -142,6 +163,10 @@ export async function processQueueTick(): Promise<void> {
   queueTickInFlight = true;
   try {
     await processQueueTickInner();
+  } catch (error) {
+    // A transient DB/yt-dlp failure must not become an unhandled rejection
+    // and crash the process — log it and let the next tick retry.
+    console.error("processQueueTick failed:", error);
   } finally {
     queueTickInFlight = false;
   }
@@ -169,7 +194,10 @@ async function processQueueTickInner(): Promise<void> {
     if (available <= 0) break;
 
     const jobs = await prisma.archiveJob.findMany({
-      where: { status: "pending" },
+      where: {
+        status: "pending",
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
+      },
       orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
       take: available,
       include: {
@@ -216,14 +244,21 @@ async function processJob(
   url: string,
   cookieFile?: string,
 ): Promise<void> {
-  // Mark as processing
-  await prisma.archiveJob.update({
-    where: { id: jobId },
+  // Atomically claim the job. A conditional updateMany is a single SQL
+  // statement, so two instances racing on the same pending job can't both
+  // claim it — one gets count 0 and skips (no duplicate download/upload).
+  const claim = await prisma.archiveJob.updateMany({
+    where: { id: jobId, status: "pending" },
     data: {
       status: "processing",
       lastAttemptAt: new Date(),
     },
   });
+
+  if (claim.count === 0) {
+    // Another worker instance already claimed this job.
+    return;
+  }
 
   // Track in memory — avoids extra DB write per job
   currentlyProcessingSet.add(jobId);
@@ -340,13 +375,19 @@ async function handleJobError(
 
   const newRetryCount = job.retryCount + 1;
   const isNonRetriable = NON_RETRIABLE_ERRORS.includes(category);
-  const shouldFail = isNonRetriable || newRetryCount >= MAX_RETRIES;
+  // Fail only after all retries are exhausted (Decision #5): the 3rd retry
+  // (newRetryCount === MAX_RETRIES) still gets a 2 h backoff.
+  const shouldFail = isNonRetriable || newRetryCount > MAX_RETRIES;
+
+  // Only retriable failures get a scheduled next attempt (Decision #5).
+  const nextAttemptAt = shouldFail ? null : new Date(Date.now() + retryBackoffMs(newRetryCount));
 
   await prisma.archiveJob.update({
     where: { id: jobId },
     data: {
       status: shouldFail ? "failed" : "pending",
       retryCount: newRetryCount,
+      nextAttemptAt,
       errorHistory: JSON.stringify(errorHistory),
     },
   });
@@ -376,6 +417,43 @@ async function handleJobError(
 }
 
 export { resetCookieFailureStreak } from "./cookie-failure-streak.ts";
+
+/**
+ * Reset archive jobs whose latest error is an auth/cookie failure back to
+ * `pending` with a zeroed retry count. Called when an admin uploads fresh
+ * YouTube cookies (CONTEXT.md decision #10 — "Cookie refresh auto-reset").
+ * Jobs with other (non-auth) errors are left alone.
+ */
+export async function resetAuthFailedJobs(): Promise<number> {
+  const authCategories: ErrorCategoryType[] = [ErrorCategory.AUTH, ErrorCategory.COOKIE_EXPIRED];
+
+  const failedJobs = await prisma.archiveJob.findMany({
+    where: { status: "failed" },
+    select: { id: true, errorHistory: true },
+  });
+
+  const resetIds: string[] = [];
+  for (const job of failedJobs) {
+    try {
+      const errors = JSON.parse(job.errorHistory) as Array<{ category?: string }>;
+      const latest = errors[errors.length - 1];
+      if (latest && authCategories.includes(latest.category as ErrorCategoryType)) {
+        resetIds.push(job.id);
+      }
+    } catch {
+      // Unparseable history — leave the job alone.
+    }
+  }
+
+  if (resetIds.length === 0) return 0;
+
+  await prisma.archiveJob.updateMany({
+    where: { id: { in: resetIds } },
+    data: { status: "pending", retryCount: 0 },
+  });
+
+  return resetIds.length;
+}
 
 /**
  * Get the current queue stats for monitoring.

@@ -21,8 +21,18 @@ export async function loader({ request }: Route.LoaderArgs) {
           objectKey: true,
         },
       },
-      password: false, // <-- intentionally omit password
-      sessions: true,
+      sessions: {
+        // Omit `id` — the session id is the raw cookie bearer value and would
+        // allow replay if this export ever leaks.
+        select: {
+          createdAt: true,
+          expirationDate: true,
+        },
+      },
+      // Explicit no-op for reader intent: the Password hash lives in a separate
+      // model and is never included unless requested. Kept so future readers see
+      // the password is intentionally excluded from a GDPR-style export.
+      password: false,
       roles: true,
     },
   });

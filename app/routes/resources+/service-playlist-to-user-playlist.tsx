@@ -10,6 +10,16 @@ import {
 } from "#app/utils/user-playlist.server.ts";
 import { type Route } from "./+types/service-playlist-to-user-playlist";
 
+/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 /**
  * POST /resources/service-playlist-to-user-playlist
  *
@@ -124,26 +134,50 @@ export async function action({ request }: Route.ActionArgs) {
         );
       }
 
-      // Create playlist and bulk-add all tracks in a transaction
-      const userPlaylist = await prisma.$transaction(async (tx) => {
-        const playlist = await tx.userPlaylist.create({
-          data: { title: trimmedTitle, ownerId: userId },
-          select: { id: true, title: true },
-        });
-
-        let position = 0;
-        for (const chunk of chunkArray(trackIds)) {
-          await tx.userPlaylistTrack.createMany({
-            data: chunk.map((trackId) => ({
-              playlistId: playlist.id,
-              trackId,
-              position: position++,
-            })),
+      // Create playlist and bulk-add all tracks in a transaction. The DB unique
+      // index on (ownerId, lower(trim(title))) is the atomic guard against a
+      // concurrent create with a case-insensitively equal title.
+      let userPlaylist: { id: string; title: string };
+      try {
+        userPlaylist = await prisma.$transaction(async (tx) => {
+          const playlist = await tx.userPlaylist.create({
+            data: { title: trimmedTitle, ownerId: userId },
+            select: { id: true, title: true },
           });
-        }
 
-        return playlist;
-      });
+          let position = 0;
+          for (const chunk of chunkArray(trackIds)) {
+            await tx.userPlaylistTrack.createMany({
+              data: chunk.map((trackId) => ({
+                playlistId: playlist.id,
+                trackId,
+                position: position++,
+              })),
+            });
+          }
+
+          return playlist;
+        });
+      } catch (error) {
+        if (isUniqueConstraintViolation(error)) {
+          return data(
+            {
+              status: "duplicate_title",
+              message: `You already have a playlist named "${trimmedTitle}"`,
+              existingTitle: trimmedTitle,
+            },
+            {
+              status: 409,
+              headers: await createToastHeaders({
+                title: "Duplicate Playlist",
+                description: `You already have a playlist named "${trimmedTitle}"`,
+                type: "error",
+              }),
+            },
+          );
+        }
+        throw error;
+      }
 
       return data(
         {
@@ -200,13 +234,18 @@ export async function action({ request }: Route.ActionArgs) {
       }
 
       // Check which tracks already exist in the target playlist
-      const existingTracks = await prisma.userPlaylistTrack.findMany({
-        where: {
-          playlistId: targetPlaylistId,
-          trackId: { in: trackIds },
-        },
-        select: { trackId: true },
-      });
+      // (chunked to stay under SQLite's 999 bind-parameter limit)
+      const existingTracks: { trackId: string }[] = [];
+      for (const trackIdChunk of chunkArray(trackIds)) {
+        const batch = await prisma.userPlaylistTrack.findMany({
+          where: {
+            playlistId: targetPlaylistId,
+            trackId: { in: trackIdChunk },
+          },
+          select: { trackId: true },
+        });
+        existingTracks.push(...batch);
+      }
 
       const existingSet = new Set(existingTracks.map((et) => et.trackId));
       const newTrackIds = trackIds.filter((id) => !existingSet.has(id));

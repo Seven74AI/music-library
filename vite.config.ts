@@ -73,6 +73,9 @@ export default defineConfig(() => ({
     include: ["./app/**/*.test.{ts,tsx}"],
     setupFiles: ["./tests/setup/setup-test-env.ts"],
     globalSetup: ["./tests/setup/global-setup.ts"],
+    // One environment per file so db-setup can reset from base.db without
+    // cross-suite pollution when workers are reused (see reset-test-database.ts).
+    isolate: true,
     // Align with Playwright / npm run dev: app-level mock short-circuits
     // (skip uploads / yt-dlp / YouTube). MSW still handles HTTP separately.
     env: {

@@ -75,12 +75,10 @@ function sizeWhere(size: SizeFilter): Prisma.TrackAudioFileWhereInput {
 
 function serviceWhere(service: string): Prisma.TrackAudioFileWhereInput {
   if (service === "all") return {};
-  // Seeded and uploaded local files set serviceId to the local service.
-  // Older rows may still have a null serviceId, which the schema treats as local.
+  // Local files point at the seeded 'local' Service row. serviceId is NOT NULL
+  // (legacy nulls were backfilled in 20261022120200), so no null branch is needed.
   if (service === "local") {
-    return {
-      OR: [{ serviceId: null }, { service: { name: "local" } }],
-    };
+    return { service: { name: "local" } };
   }
   return { service: { name: service } };
 }

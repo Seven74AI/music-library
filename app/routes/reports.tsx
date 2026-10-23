@@ -21,10 +21,11 @@ export const handle: SEOHandle = {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
-  const page = Number(new URL(request.url).searchParams.get("page") ?? "1");
+  const rawPage = Number(new URL(request.url).searchParams.get("page") ?? "1");
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;
   const result = await listReviewQueue({
     status: "all",
-    page: Number.isFinite(page) ? page : 1,
+    page,
     reporterId: userId,
   });
   return data(result);

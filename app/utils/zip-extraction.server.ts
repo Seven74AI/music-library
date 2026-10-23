@@ -1,5 +1,5 @@
-// @context7: adm-zip, Buffer, TypeScript
 import AdmZip from "adm-zip";
+import { inflateRawSync } from "zlib";
 
 export interface ExtractedAudioFile {
   fileName: string;
@@ -16,6 +16,9 @@ const MAX_FILE_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
 const MAX_AUDIO_ENTRIES = 100;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024;
 const MIN_AUDIO_BYTES = 1024;
+
+/** ZIP compression methods (PKWARE APPNOTE). */
+const ZIP_METHOD_DEFLATED = 8;
 
 class ZipExtractionLimitError extends Error {
   constructor(message: string) {
@@ -59,6 +62,49 @@ function assertWithinExtractionLimits(
   if (runningTotal + uncompressedBytes > MAX_TOTAL_UNCOMPRESSED_BYTES) {
     throw new ZipExtractionLimitError("Uncompressed audio in the ZIP exceeds 1GB");
   }
+}
+
+/** True when zlib aborted because decompressed output exceeded maxOutputLength. */
+function isMaxOutputExceeded(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ERR_BUFFER_TOO_LARGE" || /larger than/i.test(error.message);
+}
+
+/**
+ * Decompress a single ZIP entry under a hard byte cap. A crafted archive that
+ * declares a small uncompressed size in its header (a high compression-ratio
+ * "zip bomb") must not be allowed to inflate unbounded into memory: the cap is
+ * enforced against OUR per-file limit, independent of the attacker-declared
+ * size, and throws ZipExtractionLimitError as soon as it is exceeded.
+ */
+function decompressEntryWithCap(entry: AdmZip.IZipEntry, fileName: string): Buffer {
+  const header = entry.header as { method?: number } | undefined;
+  const getCompressedData = (entry as unknown as { getCompressedData?: () => Buffer })
+    .getCompressedData;
+
+  // Only the deflate path needs a cap; STORED entries are already uncompressed
+  // (their size is bounded by the archive itself) and any other method is
+  // rejected by adm-zip. When raw compressed bytes are available, inflate them
+  // ourselves so the output is bounded by MAX_FILE_UNCOMPRESSED_BYTES.
+  if (typeof getCompressedData === "function" && header?.method === ZIP_METHOD_DEFLATED) {
+    const compressed = getCompressedData.call(entry);
+    try {
+      return inflateRawSync(compressed, { maxOutputLength: MAX_FILE_UNCOMPRESSED_BYTES });
+    } catch (error) {
+      if (isMaxOutputExceeded(error)) {
+        throw new ZipExtractionLimitError(
+          `File ${fileName} exceeds maximum size of ${MAX_FILE_UNCOMPRESSED_BYTES / 1024 / 1024}MB`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  // Fall back to adm-zip's own decompression (adm-zip >=0.6.1 bounds deflate
+  // output to the declared size, so this path is also memory-bounded).
+  const buffer = entry.getData();
+  return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
 }
 
 /**
@@ -111,9 +157,9 @@ export async function extractAudioFilesFromZip(zipBuffer: Buffer): Promise<Extra
         assertWithinExtractionLimits(fileName, declaredSize, audioFiles.length, runningTotal);
       }
 
-      // Extract file data (getData returns Buffer directly)
-      const buffer = entry.getData();
-      const fileBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+      // Extract file data under a hard byte cap (see decompressEntryWithCap) so
+      // a lying small header size cannot force an unbounded decompression.
+      const fileBuffer = decompressEntryWithCap(entry, fileName);
 
       if (fileBuffer.length < MIN_AUDIO_BYTES) {
         continue;

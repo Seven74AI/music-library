@@ -34,6 +34,7 @@ test.describe("Album Page", () => {
       await testPrisma.trackAudioFile.create({
         data: {
           trackId: playableTrack.id,
+          serviceId: playableTrack.serviceId,
           objectKey: `audio/${playableTrack.id}.mp3`,
           format: "mp3",
           mimeType: "audio/mpeg",
@@ -83,7 +84,7 @@ test.describe("Album Page", () => {
         (response) => response.url().includes("/api/queue-spine") && response.status() === 200,
         { timeout: 15000 },
       ),
-      page.getByRole("gridcell", { name: /Album Page Track One by Album Page Artist/i }).click(),
+      page.getByRole("listitem", { name: /Album Page Track One by Album Page Artist/i }).click(),
     ]);
 
     const playerBar = await waitForPlayerBar(page);

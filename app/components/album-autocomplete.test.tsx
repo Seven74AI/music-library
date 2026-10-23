@@ -105,7 +105,7 @@ beforeEach(() => {
 });
 
 function albumInput() {
-  return screen.getByRole("textbox", { name: /^album$/i });
+  return screen.getByRole("combobox", { name: /^album$/i });
 }
 
 test("shows a parent-supplied album name immediately and does not fetch", async () => {
@@ -134,7 +134,7 @@ test("selecting a search result reports that album and shows the name", async ()
   render(<AlbumAutocomplete value={null} onChange={onChange} />);
 
   await user.type(albumInput(), "Nova");
-  await user.click(await screen.findByRole("button", { name: /Match Nova/ }));
+  await user.click(await screen.findByRole("option", { name: /Match Nova/ }));
 
   expect(searchLoad).toHaveBeenCalledWith("/api/albums/search?q=Nova");
   expect(onChange).toHaveBeenCalledWith("album-blue", "Match Nova");
@@ -182,7 +182,7 @@ test("controlled parent can show the selected album after onChange", async () =>
 
   render(<Harness />);
   await user.type(albumInput(), "Nova");
-  await user.click(await screen.findByRole("button", { name: /Match Nova/ }));
+  await user.click(await screen.findByRole("option", { name: /Match Nova/ }));
 
   expect(albumInput()).toHaveValue("Match Nova");
 });

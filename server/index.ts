@@ -84,7 +84,11 @@ app.use((_req, res, next) => {
     general: { referrerPolicy: false },
     content: {
       crossOriginEmbedderPolicy: false,
-      // Document CSP is set in app/entry.server.tsx via createCSP().
+      // CSP is set once in app/entry.server.tsx via createCSP() (decision #32).
+      // The policy depends on a per-request nonce that is only known at document
+      // render time, so a second Helmet CSP here would have to duplicate the
+      // nonce and every host allowlist — a drift hazard with no added
+      // defense-in-depth. Helmet CSP stays disabled deliberately.
       contentSecurityPolicy: false,
     },
   });
@@ -150,13 +154,16 @@ const rateLimitDefault = {
   standardHeaders: true,
   legacyHeaders: false,
   validate: { trustProxy: false },
-  // Malicious users can spoof their IP address which means we should not default
-  // to trusting req.ip when hosted on Fly.io. However, users cannot spoof Fly-Client-Ip.
-  // When sitting behind a CDN such as cloudflare, replace fly-client-ip with the CDN
-  // specific header such as cf-connecting-ip
+  // Fly.io sets `fly-client-ip` to the real peer address on every proxied
+  // request; that header is the ONLY client-address source we trust here.
+  // `req.ip` honors `trust proxy` (true) and resolves to the leftmost
+  // `X-Forwarded-For` hop, which is client-supplied and spoofable. Do NOT read
+  // `Cf-Connecting-Ip` (Cloudflare-only, never sanitized here) or
+  // `X-Forwarded-For`. When `fly-client-ip` is absent (e.g. local dev), every
+  // request shares a single key instead of a spoofable header, so rate
+  // limiting cannot be bypassed by rotating client-supplied headers.
   keyGenerator: async (req: express.Request) => {
-    const ip = req.get("Cf-Connecting-Ip") ?? req.get("fly-client-ip") ?? `${req.ip}`;
-
+    const ip = req.get("fly-client-ip") ?? "";
     return ipKeyGenerator(ip);
   },
 };

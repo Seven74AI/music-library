@@ -5,6 +5,7 @@ import { Icon } from "#app/components/ui/icon.tsx";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { Prisma } from "#prisma/client.js";
 import { type Route } from "./+types/fts-index.ts";
 
 export const handle: SEOHandle = {
@@ -32,9 +33,9 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
   await requireUserWithRole(request, "admin");
 
   const [tracksFts, albumsFts, artistsFts] = await Promise.all([
-    prisma.$queryRawUnsafe<[{ count: bigint }]>("SELECT COUNT(*) as count FROM tracks_fts"),
-    prisma.$queryRawUnsafe<[{ count: bigint }]>("SELECT COUNT(*) as count FROM albums_fts"),
-    prisma.$queryRawUnsafe<[{ count: bigint }]>("SELECT COUNT(*) as count FROM artists_fts"),
+    prisma.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) as count FROM tracks_fts`,
+    prisma.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) as count FROM albums_fts`,
+    prisma.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) as count FROM artists_fts`,
   ]);
 
   const [trackCount, albumCount, artistCount] = await Promise.all([
@@ -67,40 +68,52 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const entity = formData.get("entity") as string | null;
 
+  // Each rebuild is a single BEGIN/DELETE/INSERT/COMMIT unit. On any failure we
+  // must ROLLBACK so a failed INSERT never leaves an open write transaction
+  // (which would hold the SQLite write lock and corrupt the next write).
+  async function rebuildFtsIndex(deleteSql: Prisma.Sql, insertSql: Prisma.Sql): Promise<void> {
+    await prisma.$executeRaw(Prisma.sql`BEGIN`);
+    try {
+      await prisma.$executeRaw(deleteSql);
+      await prisma.$executeRaw(insertSql);
+      await prisma.$executeRaw(Prisma.sql`COMMIT`);
+    } catch (err) {
+      await prisma.$executeRaw(Prisma.sql`ROLLBACK`);
+      throw err;
+    }
+  }
+
   const rebuildFts = {
-    tracks: async () => {
-      await prisma.$executeRawUnsafe(`BEGIN`);
-      await prisma.$executeRawUnsafe(`DELETE FROM tracks_fts`);
-      await prisma.$executeRawUnsafe(`
+    tracks: () =>
+      rebuildFtsIndex(
+        Prisma.sql`DELETE FROM tracks_fts`,
+        Prisma.sql`
         INSERT INTO tracks_fts(track_id, title, artist_name, album_name)
         SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
         FROM Track t
         JOIN Artist a ON t.artistId = a.id
         LEFT JOIN Album alb ON t.albumId = alb.id
-      `);
-      await prisma.$executeRawUnsafe(`COMMIT`);
-    },
-    albums: async () => {
-      await prisma.$executeRawUnsafe(`BEGIN`);
-      await prisma.$executeRawUnsafe(`DELETE FROM albums_fts`);
-      await prisma.$executeRawUnsafe(`
+      `,
+      ),
+    albums: () =>
+      rebuildFtsIndex(
+        Prisma.sql`DELETE FROM albums_fts`,
+        Prisma.sql`
         INSERT INTO albums_fts(album_id, name, artist_name)
         SELECT alb.id, alb.name, a.name
         FROM Album alb
         JOIN Artist a ON alb.artistId = a.id
-      `);
-      await prisma.$executeRawUnsafe(`COMMIT`);
-    },
-    artists: async () => {
-      await prisma.$executeRawUnsafe(`BEGIN`);
-      await prisma.$executeRawUnsafe(`DELETE FROM artists_fts`);
-      await prisma.$executeRawUnsafe(`
+      `,
+      ),
+    artists: () =>
+      rebuildFtsIndex(
+        Prisma.sql`DELETE FROM artists_fts`,
+        Prisma.sql`
         INSERT INTO artists_fts(artist_id, name, genre)
         SELECT id, name, COALESCE(genre, '')
         FROM Artist
-      `);
-      await prisma.$executeRawUnsafe(`COMMIT`);
-    },
+      `,
+      ),
   };
 
   if (entity === "all") {
@@ -110,8 +123,8 @@ export async function action({ request }: Route.ActionArgs) {
       await rebuildFts.artists();
       return data({ message: `FTS indexes rebuilt for all entities` });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return data({ error: `Rebuild failed: ${msg}` });
+      console.error("FTS rebuild failed (all):", err);
+      return data({ error: "Rebuild failed. Check server logs for details." });
     }
   }
 
@@ -124,8 +137,8 @@ export async function action({ request }: Route.ActionArgs) {
     await rebuild();
     return data({ message: `FTS index rebuilt for: ${entity}` });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return data({ error: `Rebuild failed: ${msg}` });
+    console.error("FTS rebuild failed:", err);
+    return data({ error: "Rebuild failed. Check server logs for details." });
   }
 }
 
@@ -138,7 +151,7 @@ export default function FtsIndexPage({ loaderData }: Route.ComponentProps) {
     navigation.state === "submitting" && navigation.formData?.get("entity") === entity;
 
   const ftsHealthy = (entity: keyof FtsCounts) =>
-    fts[entity] >= entities[entity] && entities[entity] > 0;
+    fts[entity] === entities[entity] && entities[entity] > 0;
 
   return (
     <div className="py-8">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useId } from "react";
 import { useFetcher } from "react-router";
 import { Input } from "#app/components/ui/input";
 import { Label } from "#app/components/ui/label";
@@ -42,6 +42,9 @@ export function AlbumAutocomplete({
   const [inputValue, setInputValue] = useState(albumId && knownName ? knownName : "");
   const [isEditing, setIsEditing] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const inputId = `${useId()}-album-input`;
+  const listboxId = `${inputId}-listbox`;
   const searchFetcher = useFetcher<{ albums: Album[] }>();
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -163,8 +166,27 @@ export function AlbumAutocomplete({
     editingRef.current = true;
     setIsEditing(true);
     setInputValue(next);
+    setActiveIndex(-1);
     if (!next.trim() && albumId) {
       onChange(null, "");
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setIsOpen(true);
+      setActiveIndex((c) => (albums.length === 0 ? -1 : (c + 1) % albums.length));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setIsOpen(true);
+      setActiveIndex((c) => (albums.length === 0 ? -1 : (c - 1 + albums.length) % albums.length));
+    } else if (e.key === "Escape") {
+      setIsOpen(false);
+      setActiveIndex(-1);
+    } else if (e.key === "Enter" && activeIndex >= 0 && albums[activeIndex]) {
+      e.preventDefault();
+      handleSelect(albums[activeIndex]);
     }
   };
 
@@ -181,14 +203,23 @@ export function AlbumAutocomplete({
 
   return (
     <div className={cn("relative", className)}>
-      <Label htmlFor="album-input">{label}</Label>
+      <Label htmlFor={inputId}>{label}</Label>
       <div className="relative">
         <Input
           ref={inputRef}
-          id="album-input"
+          id={inputId}
           type="text"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined
+          }
           value={inputValue}
           onChange={(e) => handleInputChange(e.target.value)}
+          onKeyDown={handleKeyDown}
           onFocus={() => {
             if (inputValue.trim()) {
               handleSearch(inputValue);
@@ -208,12 +239,18 @@ export function AlbumAutocomplete({
       {isOpen && (albums.length > 0 || showEmpty) && (
         <div
           ref={dropdownRef}
+          id={listboxId}
+          role="listbox"
           className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-popover p-1 shadow-md"
         >
-          {albums.map((album) => (
+          {albums.map((album, index) => (
             <button
               key={album.id}
               type="button"
+              role="option"
+              id={`${listboxId}-option-${index}`}
+              aria-selected={album.id === albumId}
+              onMouseEnter={() => setActiveIndex(index)}
               onClick={() => handleSelect(album)}
               className="flex w-full items-center justify-between gap-3 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent focus:bg-accent focus:outline-hidden"
             >
