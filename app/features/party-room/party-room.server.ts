@@ -33,6 +33,7 @@ export type PartyRoomErrorCode =
   | "queue_full"
   | "track_no_audio"
   | "invalid_queue_op"
+  | "invalid_body"
   | "conflict";
 
 export class PartyRoomError extends Error {
