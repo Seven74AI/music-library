@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, statSync, openSync, readSync, closeSync } from "fs";
+import { existsSync } from "fs";
 import { join, resolve, sep } from "path";
 import { type LoaderFunctionArgs } from "react-router";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";

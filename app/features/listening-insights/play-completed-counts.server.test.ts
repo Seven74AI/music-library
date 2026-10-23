@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { createUser, createTrack } from "#tests/db-utils.ts";
+import { createUser, createTrack, resetUsageAnalyticsTables } from "#tests/db-utils.ts";
 import {
   getPlayCompletedCountsByTrack,
   type HeavyRotationWindow,
@@ -22,7 +22,7 @@ async function seedCompleted(userId: string, trackId: string, createdAt: Date, c
 
 describe("getPlayCompletedCountsByTrack", () => {
   beforeEach(async () => {
-    await prisma.usageEvent.deleteMany();
+    await resetUsageAnalyticsTables();
     await prisma.userTrack.deleteMany();
     await prisma.track.deleteMany();
     await prisma.artist.deleteMany();

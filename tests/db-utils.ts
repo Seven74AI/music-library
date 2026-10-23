@@ -41,6 +41,13 @@ export function createPassword(password: string = faker.internet.password()) {
  * listening-insights, on-repeat-snapshots, and recently-played test suites
  * (previously each copy-pasted its own helper).
  */
+/** Clear usage analytics rows so parallel/isolated tests do not collide on DAU dedupe. */
+export async function resetUsageAnalyticsTables() {
+  await prisma.usageEvent.deleteMany();
+  await prisma.dailyUsageStat.deleteMany();
+  await prisma.dailyActiveUser.deleteMany();
+}
+
 export async function createTrack(title: string) {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const service = await prisma.service.upsert({

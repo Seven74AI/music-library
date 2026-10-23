@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { createUser, createTrack } from "#tests/db-utils.ts";
+import { createUser, createTrack, resetUsageAnalyticsTables } from "#tests/db-utils.ts";
 import {
   generateOnRepeatSnapshotForUser,
   generateOnRepeatSnapshotsForMonth,
@@ -32,7 +32,7 @@ describe("rankPlayCompletedTracks", () => {
   beforeEach(async () => {
     await prisma.onRepeatSnapshotTrack.deleteMany();
     await prisma.onRepeatSnapshot.deleteMany();
-    await prisma.usageEvent.deleteMany();
+    await resetUsageAnalyticsTables();
     await prisma.track.deleteMany();
     await prisma.artist.deleteMany();
     await prisma.user.deleteMany();
@@ -135,7 +135,7 @@ describe("generateOnRepeatSnapshotForUser", () => {
   beforeEach(async () => {
     await prisma.onRepeatSnapshotTrack.deleteMany();
     await prisma.onRepeatSnapshot.deleteMany();
-    await prisma.usageEvent.deleteMany();
+    await resetUsageAnalyticsTables();
     await prisma.track.deleteMany();
     await prisma.artist.deleteMany();
     await prisma.user.deleteMany();
@@ -211,7 +211,7 @@ describe("generateOnRepeatSnapshotsForMonth", () => {
   beforeEach(async () => {
     await prisma.onRepeatSnapshotTrack.deleteMany();
     await prisma.onRepeatSnapshot.deleteMany();
-    await prisma.usageEvent.deleteMany();
+    await resetUsageAnalyticsTables();
     await prisma.track.deleteMany();
     await prisma.artist.deleteMany();
     await prisma.user.deleteMany();
