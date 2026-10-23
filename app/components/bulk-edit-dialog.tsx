@@ -15,6 +15,7 @@ import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input";
 import { Label } from "#app/components/ui/label";
 import { Textarea } from "#app/components/ui/textarea";
+import { type TrackMetadataChanges } from "#app/types/track-metadata";
 import { toast } from "#app/components/ui/use-toast.ts";
 
 interface BulkEditDialogProps {
@@ -127,7 +128,7 @@ export function BulkEditDialog({ trackIds, open, onClose, onSuccess }: BulkEditD
     }
 
     // Build changes object - only include non-empty fields
-    const changes: Record<string, any> = {};
+    const changes: TrackMetadataChanges = {};
     if (formData.artistId) changes.artistId = formData.artistId;
     if (formData.albumId) changes.albumId = formData.albumId;
     if (formData.genres.length > 0) {

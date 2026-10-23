@@ -9,6 +9,15 @@ const UpdateGenreSchema = z.object({
   name: z.string().min(1, "Genre name is required").max(100),
 });
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
+}
+
 async function readActionData(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -109,24 +118,34 @@ async function handleUpdate(request: Request, genreId: string) {
     );
   }
 
-  // Update genre
-  const updatedGenre = await prisma.genre.update({
-    where: { id: genreId },
-    data: {
-      name: result.data.name,
-      normalizedName,
-    },
-    select: {
-      id: true,
-      name: true,
-      createdAt: true,
-      _count: {
-        select: {
-          tracks: true,
+  // Update genre. The normalizedName unique constraint backstops the dedup
+  // guard above against a concurrent rename race (e.g. 'Rock' -> 'rock' while
+  // another request creates/renames to 'rock'); surface that as the same 409.
+  let updatedGenre;
+  try {
+    updatedGenre = await prisma.genre.update({
+      where: { id: genreId },
+      data: {
+        name: result.data.name,
+        normalizedName,
+      },
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        _count: {
+          select: {
+            tracks: true,
+          },
         },
       },
-    },
-  });
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw data({ error: "A genre with this name already exists" }, { status: 409 });
+    }
+    throw error;
+  }
 
   return Response.json({
     genre: {

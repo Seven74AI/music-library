@@ -1,11 +1,34 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 import {
   clearOAuthState,
   commitOAuthState,
   generateOAuthState,
   verifyOAuthState,
   youtubeOAuthStateCookie,
+  YouTubeOAuthService,
 } from "./youtube-oauth.server";
+
+const { mockGetToken, mockRefreshAccessToken } = vi.hoisted(() => ({
+  mockGetToken: vi.fn(),
+  mockRefreshAccessToken: vi.fn(),
+}));
+
+vi.mock("googleapis", () => ({
+  google: {
+    auth: {
+      OAuth2: class {
+        getToken = mockGetToken;
+        setCredentials = vi.fn();
+        refreshAccessToken = mockRefreshAccessToken;
+      },
+    },
+  },
+}));
+
+vi.mock("#app/utils/youtube-mock-utils", () => ({
+  shouldMockYouTube: () => false,
+}));
 
 /** Builds a Request carrying the OAuth state cookie (as a request `Cookie` header). */
 async function makeRequest(state: string | null): Promise<Request> {
@@ -66,5 +89,44 @@ describe("clearOAuthState", () => {
 
     expect(cleared.startsWith(`${youtubeOAuthStateCookie.name}=`)).toBe(true);
     expect(cleared).toContain("Max-Age=0");
+  });
+});
+
+describe("YouTubeOAuthService token exchange", () => {
+  const config = {
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    redirectUri: "http://localhost:3000/music/services/youtube/callback",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleError.mockImplementation(() => {});
+  });
+
+  test("getTokens fails loudly when Google omits access_token", async () => {
+    mockGetToken.mockResolvedValue({ tokens: {} });
+
+    const service = new YouTubeOAuthService(config);
+    const error = await service.getTokens("mock-code").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Failed to exchange authorization code for tokens");
+    expect((error as Error).cause).toMatchObject({
+      message: "Google token response omitted access_token",
+    });
+  });
+
+  test("refreshAccessToken fails loudly when Google omits access_token", async () => {
+    mockRefreshAccessToken.mockResolvedValue({ credentials: {} });
+
+    const service = new YouTubeOAuthService(config);
+    const error = await service.refreshAccessToken("mock-refresh").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Failed to refresh access token");
+    expect((error as Error).cause).toMatchObject({
+      message: "Google token refresh omitted access_token",
+    });
   });
 });

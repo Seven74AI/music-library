@@ -1,6 +1,7 @@
 import { pickCoverThumbnailUrl } from "#app/types/transformations";
 import { getOrCreateArtistTx } from "#app/utils/artist-management.server";
 import { prisma } from "#app/utils/db.server";
+import { type Prisma } from "#prisma/client.js";
 import {
   classifyAbsentPlaylistTracks,
   isYouTubeVideoId,
@@ -437,7 +438,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
   playlistItems: TItem[],
   serviceId: string,
   playlistId: string,
-  tx: any,
+  tx: Prisma.TransactionClient,
   trackProcessor: TrackSyncProcessor,
   archiveEnqueueAdapter: ArchiveEnqueueAdapter,
   globalStartPosition: number = 0,
@@ -593,7 +594,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             serviceId,
             existingTrack.artistId,
           );
-          const { thumbnailUrl: _, service: __, externalId: ___, ...rest } = transformed;
+          const { thumbnailUrl: _, externalId: ___, ...rest } = transformed;
           trackData = {
             ...rest,
             serviceId, // Use serviceId directly instead of service relation
@@ -608,7 +609,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             serviceId,
             artistRecord.id,
           );
-          const { thumbnailUrl: _, service: __, externalId: ___, ...rest } = transformed;
+          const { thumbnailUrl: _, externalId: ___, ...rest } = transformed;
           trackData = {
             ...rest,
             serviceId, // Use serviceId directly instead of service relation
