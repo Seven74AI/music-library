@@ -129,7 +129,8 @@ describe("fetchQueueSpine", () => {
     fetchMock.mockResolvedValueOnce({
       ok: false,
       status: 302,
-    } as Response);
+      headers: { get: () => null },
+    } as unknown as Response);
 
     await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(AuthExpiredError);
   });
