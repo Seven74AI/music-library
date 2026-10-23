@@ -39,9 +39,9 @@ YouTube API calls are mocked automatically when `MOCKS=true` (E2E tests run with
 **Example:**
 
 ```typescript
-test("YouTube integration", async ({ page, login, insertYouTubeConnection }) => {
+test("YouTube integration", async ({ page, login }) => {
   const user = await login();
-  await insertYouTubeConnection(user.id); // Creates connection in DB
+  // YouTube is mocked server-side (MOCKS=true); no connection fixture needed.
   await page.goto("/music/services/youtube/playlists");
   // Server returns mock playlists automatically
 });
@@ -77,9 +77,9 @@ test.beforeEach(async () => {
 ✅ **Good:**
 
 ```typescript
-test("example", async ({ login, insertYouTubeConnection }) => {
+test("example", async ({ login, insertNewPlaylist }) => {
   const user = await login();
-  await insertYouTubeConnection(user.id); // Fixture cleans up automatically
+  await insertNewPlaylist({ title: "Test" }, user.id); // Fixture cleans up automatically
 });
 ```
 
@@ -125,7 +125,7 @@ newFixture: async ({}, use) => {
 ### Integration Tests
 
 - Test API integration with external services
-- Use `insertYouTubeConnection()` + server-side mocks
+- Use server-side mocks (`MOCKS=true`) for external APIs
 - Test complete user flows
 
 ### CRUD Tests
