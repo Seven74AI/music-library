@@ -88,7 +88,7 @@ Configuration: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_CHAT_ID` environment var
 
 **Pipeline**: `yt-dlp download → local temp file → Tigris upload → TrackAudioFile DB record`
 
-**Object key format**: `audio/{trackId}/{filename}` — predictable, no-hash, human-readable.
+**Object key format**: `audio/tracks/{serviceName}/{trackId}.{ext}` — unified across archive worker and admin upload (ADR-014, supersedes ADR-010 §12).
 
 **Upload strategy**:
 
@@ -148,10 +148,12 @@ All audio archiving code lives in `app/features/audio-archive/`:
 | `worker.server.ts`         | Queue processing loop (`processQueueTick`) + job processing (`processJob`) |
 | `worker-control.server.ts` | Worker state machine (pause/resume/break)                                  |
 | `yt-dlp.server.ts`         | yt-dlp child process spawn + error categorization                          |
-| `tigris-upload.server.ts`  | S3/Tigris upload + presigned URLs                                          |
 | `auto-enqueue.server.ts`   | Automatic ArchiveJob creation on import                                    |
 | `notification.server.ts`   | Telegram Bot API notifications                                             |
 | `youtube-cookie.server.ts` | Cookie upload + validation                                                 |
+| `cookie-failure-streak.ts` | Cookie-failure streak tracking + auto-pause threshold                      |
+| `queue-stats.ts`           | Archive queue success-rate computation                                     |
+| `recoverable-failure.ts`   | Recoverable failure classification (COOKIE_EXPIRED, FORMAT_UNAVAILABLE)    |
 
 Each file has a corresponding `.test.ts` file with full unit test coverage.
 
@@ -259,7 +261,7 @@ These were previously removed in ADR-004 and have been re-added.
 ### Positive
 
 - ✅ **Offline playback restored**: Tracks can be downloaded and played without internet
-- ✅ **Simpler architecture**: 14 files in a single feature directory vs. the previous scattered implementation
+- ✅ **Simpler architecture**: 18 files in a single feature directory vs. the previous scattered implementation
 - ✅ **Resilient error handling**: Category-aware retry prevents wasted attempts on permanent failures
 - ✅ **Operational visibility**: Database-backed queue with admin dashboard; Telegram notifications for critical events
 - ✅ **Cookie management**: Automatic invalidation on auth failures prevents silent queue stagnation

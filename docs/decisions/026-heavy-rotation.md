@@ -48,6 +48,6 @@ Home strip placement relative to **Recently Played Strip** / Snapshot Shelf is a
 
 ## Consequences
 
-- Glossary: **Heavy Rotation** (`docs/CONTEXT.md` decision #63).
+- Glossary: **Heavy Rotation** (`docs/CONTEXT.md` decision #64).
 - Shared query helpers for `play_completed` counts by `trackId` for (a) current UTC month and (b) lifetime — reusable by home loaders and library sort.
 - Library UI gains two sort values; home gains two strips with independent empty-hide behavior.
