@@ -73,6 +73,15 @@ export async function action({ request }: Route.ActionArgs) {
     throw new Response("Source album is already merged", { status: 400 });
   }
 
+  // Validate: both albums must belong to the same artist. Merging albums from
+  // different artists would move tracks into another artist's album while each
+  // track keeps its own artistId, silently corrupting artist attribution.
+  if (sourceAlbum.artistId !== targetAlbum.artistId) {
+    throw new Response("Cannot merge albums from different artists — merge the artists first", {
+      status: 400,
+    });
+  }
+
   try {
     // Perform merge in transaction
     const result = await prisma.$transaction(async (tx) => {
