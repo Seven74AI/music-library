@@ -572,10 +572,10 @@ export async function searchPlaylists(
 			'playlist' as type,
 			up.id,
 			up.title as name,
-			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as track_count,
+			COALESCE(uptc.cnt, 0) as track_count,
 			u.name as owner_name,
 			up.description,
-			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as item_count,
+			COALESCE(uptc.cnt, 0) as item_count,
 			NULL as thumbnail_url,
 			CASE 
 				WHEN LOWER(up.title) = ? THEN 1
@@ -585,6 +585,9 @@ export async function searchPlaylists(
 			0 as fts_rank
 		FROM "UserPlaylist" up
 		JOIN "User" u ON up."ownerId" = u.id
+		LEFT JOIN (
+			SELECT "playlistId", COUNT(*) as cnt FROM "UserPlaylistTrack" GROUP BY "playlistId"
+		) uptc ON uptc."playlistId" = up.id
 		WHERE up."ownerId" = ?
 		AND LOWER(up.title) LIKE ? ESCAPE '\\'${cursorFilter.sql}
 		ORDER BY relevance_rank, up.title

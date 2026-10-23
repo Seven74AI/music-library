@@ -9,13 +9,6 @@ const CreateGenreSchema = z.object({
   name: z.string().min(1, "Genre name is required").max(100),
 });
 
-export async function clientLoader(args: Route.ClientLoaderArgs) {
-  // Genres are public and fetched via loader, no client-side override needed
-  const response = await fetch("/api/genres");
-  const data = await response.json();
-  return data;
-}
-
 async function readActionData(response: Response): Promise<unknown> {
   try {
     return await response.json();

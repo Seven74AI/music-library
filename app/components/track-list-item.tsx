@@ -87,15 +87,7 @@ interface TrackListItemProps {
   userTrack: UserTrack;
   index: number;
   playlistContext?: {
-    type:
-      | "library"
-      | "playlist"
-      | "artist"
-      | "album"
-      | "track"
-      | "music"
-      | "discover"
-      | "onRepeatSnapshot";
+    type: "library" | "playlist" | "artist" | "album" | "track" | "discover" | "onRepeatSnapshot";
     playlistId?: string;
     artistId?: string;
     albumId?: string;

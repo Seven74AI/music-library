@@ -175,7 +175,6 @@ export async function action({ request }: ActionFunctionArgs) {
           playlistId,
           userId,
         );
-        console.error("playlistId", playlistId);
         return data({ status: "success", ...result });
       }
 

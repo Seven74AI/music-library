@@ -56,19 +56,12 @@ export function PlaylistCover({ tracks, size = "md", className }: PlaylistCoverP
     );
   }
 
-  // Create a mosaic layout for multiple thumbnails
-  const gridClasses =
-    thumbnails.length === 2
-      ? "grid-cols-2"
-      : thumbnails.length === 3
-        ? "grid-cols-2"
-        : "grid-cols-2";
-
+  // Create a mosaic layout for multiple thumbnails (2/3/4 all use a 2-col grid;
+  // for 3 thumbnails the first cell spans 2 rows).
   return (
     <div
       className={cn(
-        "rounded-lg overflow-hidden grid gap-0.5",
-        gridClasses,
+        "rounded-lg overflow-hidden grid grid-cols-2 gap-0.5",
         sizeClasses[size],
         className,
       )}

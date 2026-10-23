@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFetcher } from "react-router";
 import {
   Card,
@@ -33,8 +33,15 @@ const PERIOD_LABELS: Record<LeaderboardPeriod, string> = {
 export function Leaderboard({ initial }: { initial: LeaderboardResult }) {
   const fetcher = useFetcher<LeaderboardResult>();
   const [period, setPeriod] = useState<LeaderboardPeriod>(initial.period);
-  const data =
-    fetcher.data?.period === period ? fetcher.data : period === initial.period ? initial : null;
+  const [data, setData] = useState<LeaderboardResult>(initial);
+
+  // Keep the previous period's data visible while the new period loads so the
+  // card does not transiently render the empty state on period switch.
+  useEffect(() => {
+    if (fetcher.data?.period === period) {
+      setData(fetcher.data);
+    }
+  }, [fetcher.data, period]);
 
   return (
     <Card data-testid="leaderboard">
