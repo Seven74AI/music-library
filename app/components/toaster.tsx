@@ -26,60 +26,66 @@ export function useToast(toast?: Toast | null) {
     setMounted(true);
   }, []);
 
+  const toastId = toast?.id;
+  const title = toast?.title;
+  const description = toast?.description;
+  const type = toast?.type;
+  const duration = toast?.duration;
+  const action = toast?.action;
+
   useEffect(() => {
-    if (toast && mounted) {
-      // Use requestAnimationFrame instead of setTimeout to ensure proper timing
-      requestAnimationFrame(() => {
-        const getVariant = (type: Toast["type"]): ToastVariant => {
-          switch (type) {
-            case "error":
-              return "error";
-            case "success":
-              return "success";
-            case "destructive":
-              return "destructive";
-            default:
-              return "default";
-          }
-        };
+    if (!toastId || !type || !mounted) return;
 
-        const toastOptions: Parameters<typeof showToast>[0] = {
-          title: toast.title,
-          description: toast.description,
-          variant: getVariant(toast.type),
-        };
-
-        // Custom duration
-        if (toast.duration) {
-          toastOptions.duration = toast.duration;
+    const frame = requestAnimationFrame(() => {
+      const getVariant = (toastType: Toast["type"]): ToastVariant => {
+        switch (toastType) {
+          case "error":
+            return "error";
+          case "success":
+            return "success";
+          case "destructive":
+            return "destructive";
+          default:
+            return "default";
         }
+      };
 
-        // Custom action
-        if (toast.action) {
-          toastOptions.action = (
-            <ToastAction
-              altText={toast.action.label}
-              onClick={() => {
-                if (toast.action?.href) {
-                  void navigate(toast.action.href);
-                } else if (toast.action?.onClick) {
-                  // Safer global function access
-                  const globalFunction = (window as unknown as Record<string, unknown>)[
-                    toast.action.onClick
-                  ];
-                  if (typeof globalFunction === "function") {
-                    globalFunction();
-                  }
+      const toastOptions: Parameters<typeof showToast>[0] = {
+        id: toastId,
+        title,
+        description,
+        variant: getVariant(type),
+      };
+
+      if (duration) {
+        toastOptions.duration = duration;
+      }
+
+      if (action) {
+        toastOptions.action = (
+          <ToastAction
+            altText={action.label}
+            onClick={() => {
+              if (action.href) {
+                void navigate(action.href);
+              } else if (action.onClick) {
+                const globalFunction = (window as unknown as Record<string, unknown>)[
+                  action.onClick
+                ];
+                if (typeof globalFunction === "function") {
+                  globalFunction();
                 }
-              }}
-            >
-              {toast.action.label}
-            </ToastAction>
-          );
-        }
+              }
+            }}
+          >
+            {action.label}
+          </ToastAction>
+        );
+      }
 
-        showToast(toastOptions);
-      });
-    }
-  }, [toast, navigate, mounted]);
+      showToast(toastOptions);
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [toastId, title, description, type, duration, action, navigate, mounted]);
 }

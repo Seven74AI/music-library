@@ -41,6 +41,59 @@ describe("Toaster", () => {
     });
   });
 
+  test("a dismissed toast that is still mounted is replaced by the next one", async () => {
+    render(<Toaster />);
+
+    toast({
+      title: "Email Changed",
+      description: "Your email has been changed to ada@example.com",
+    });
+
+    expect(await screen.findByText("Email Changed")).toBeVisible();
+
+    fireEvent.click(screen.getByText("Your email has been changed to ada@example.com"));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Email Changed")).not.toBeInTheDocument();
+    });
+
+    toast({
+      title: "Password Changed",
+      description: "Your password has been changed.",
+    });
+
+    expect(await screen.findByText("Password Changed")).toBeVisible();
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(screen.getByText("Password Changed")).toBeVisible();
+    expect(screen.queryByText("Email Changed")).not.toBeInTheDocument();
+  });
+
+  test("a newly dispatched toast replaces the one on screen and stays visible", async () => {
+    render(<Toaster />);
+
+    toast({
+      title: "Email Changed",
+      description: "Your email has been changed to ada@example.com",
+    });
+
+    expect(await screen.findByText("Email Changed")).toBeVisible();
+
+    toast({
+      title: "Password Changed",
+      description: "Your password has been changed.",
+    });
+
+    expect(await screen.findByText("Password Changed")).toBeVisible();
+    expect(screen.queryByText("Email Changed")).not.toBeInTheDocument();
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(screen.getByText("Password Changed")).toBeVisible();
+    expect(screen.queryByText("Email Changed")).not.toBeInTheDocument();
+  });
+
   test("clicking toast action button runs the action without using body dismiss", async () => {
     const onAction = vi.fn();
     render(<Toaster />);

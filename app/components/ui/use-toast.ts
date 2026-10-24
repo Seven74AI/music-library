@@ -3,7 +3,9 @@ import * as React from "react";
 import { type ToastActionElement, type ToastProps } from "#app/components/ui/toast.tsx";
 
 const TOAST_LIMIT = 1;
-const TOAST_REMOVE_DELAY = 1000000;
+// Long enough for the close animation. A million-millisecond delay left a
+// dismissed toast mounted, so the next toast never took its place.
+const TOAST_REMOVE_DELAY = 1000;
 
 type ToasterToast = ToastProps & {
   id: string;
@@ -51,6 +53,23 @@ interface State {
 }
 
 const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const closeArmed = new Set<string>();
+const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+const clearToastTimeout = (toastId: string) => {
+  const timeout = toastTimeouts.get(toastId);
+  if (!timeout) return;
+  clearTimeout(timeout);
+  toastTimeouts.delete(toastId);
+};
+
+const clearAllToastTimeouts = () => {
+  for (const timeout of toastTimeouts.values()) clearTimeout(timeout);
+  toastTimeouts.clear();
+  for (const timeout of pendingTimeouts) clearTimeout(timeout);
+  pendingTimeouts.clear();
+  closeArmed.clear();
+};
 
 const addToRemoveQueue = (toastId: string) => {
   if (toastTimeouts.has(toastId)) {
@@ -68,13 +87,32 @@ const addToRemoveQueue = (toastId: string) => {
   toastTimeouts.set(toastId, timeout);
 };
 
+const armClose = (toastId: string) => {
+  const timeout = setTimeout(() => {
+    pendingTimeouts.delete(timeout);
+    closeArmed.add(toastId);
+  }, 0);
+  pendingTimeouts.add(timeout);
+};
+
 export const reducer = (state: State, action: Action): State => {
   switch (action.type) {
-    case "ADD_TOAST":
+    case "ADD_TOAST": {
+      const nextToasts = [
+        action.toast,
+        ...state.toasts.filter((t) => t.id !== action.toast.id),
+      ].slice(0, TOAST_LIMIT);
+      for (const existing of state.toasts) {
+        if (!nextToasts.some((t) => t.id === existing.id)) {
+          clearToastTimeout(existing.id);
+          closeArmed.delete(existing.id);
+        }
+      }
       return {
         ...state,
-        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
+        toasts: nextToasts,
       };
+    }
 
     case "UPDATE_TOAST":
       return {
@@ -132,10 +170,10 @@ function dispatch(action: Action) {
   });
 }
 
-type Toast = Omit<ToasterToast, "id">;
+type Toast = Omit<ToasterToast, "id"> & { id?: string };
 
-function toast({ ...props }: Toast) {
-  const id = genId();
+function toast({ id: idProp, ...props }: Toast) {
+  const id = idProp ?? genId();
 
   const update = (updateProps: ToasterToast) =>
     dispatch({
@@ -144,6 +182,8 @@ function toast({ ...props }: Toast) {
     });
   const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id });
 
+  armClose(id);
+
   dispatch({
     type: "ADD_TOAST",
     toast: {
@@ -151,7 +191,9 @@ function toast({ ...props }: Toast) {
       id,
       open: true,
       onOpenChange: (open) => {
-        if (!open) dismiss();
+        // Ignore the close Radix emits while the previous toast is swapped out.
+        // Dismissing here would flash the new toast away and leave the old one up.
+        if (!open && closeArmed.has(id)) dismiss();
       },
     },
   });
@@ -164,21 +206,23 @@ function toast({ ...props }: Toast) {
 }
 
 function resetToastsForTests() {
+  clearAllToastTimeouts();
   dispatch({ type: "REMOVE_TOAST" });
 }
 
 function useToast() {
   const [state, setState] = React.useState<State>(memoryState);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     listeners.push(setState);
+    setState(memoryState);
     return () => {
       const index = listeners.indexOf(setState);
       if (index > -1) {
         listeners.splice(index, 1);
       }
     };
-  }, [state]);
+  }, []);
 
   return {
     ...state,
