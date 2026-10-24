@@ -106,6 +106,7 @@ describe("Search Utilities", () => {
     await prisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: `audio/enriched-${timestamp}.mp3`,
         format: "mp3",
       },
@@ -949,6 +950,28 @@ describe("Search Utilities", () => {
       expect(result.results).toHaveLength(0);
     });
 
+    it("guests cannot enumerate another user's playlists via searchAll", async () => {
+      const owner = await prisma.user.create({
+        data: {
+          username: `guest-enum-${Date.now()}`,
+          email: `guest-enum-${Date.now()}@example.com`,
+          name: "Guest Enum Owner",
+        },
+      });
+
+      await prisma.userPlaylist.create({
+        data: { title: "Private Playlist", ownerId: owner.id },
+      });
+
+      // type=playlists with no userId → empty (searchAll gates on userId)
+      const playlistsOnly = await searchAll("Private", 10, undefined, "playlists");
+      expect(playlistsOnly.results).toHaveLength(0);
+
+      // type=all with no userId → playlist results are never included
+      const allTypes = await searchAll("Private", 10, undefined, "all");
+      expect(allTypes.results.filter((r) => r.type === "playlist")).toHaveLength(0);
+    });
+
     it("should return empty results for empty query", async () => {
       const user = await prisma.user.create({
         data: {
@@ -1123,6 +1146,20 @@ describe("Search Utilities", () => {
       const { user, familiar, unfamiliar } = await seedBoostFixture();
 
       const result = await searchTracks("Boost", 10, undefined, true, user.id);
+      const trackIds = result.results.filter((r) => r.type === "track").map((r) => r.id);
+
+      expect(trackIds).toContain(familiar.id);
+      expect(trackIds).toContain(unfamiliar.id);
+      expect(trackIds.indexOf(familiar.id)).toBeLessThan(trackIds.indexOf(unfamiliar.id));
+    }, 10000);
+
+    it("applies personal play boost within library-scoped search", async () => {
+      const { user, familiar, unfamiliar } = await seedBoostFixture();
+
+      // scope="library" exercises the bound `ut."userId" = ?` join param and the
+      // boost CASE `?` params in one query, so a regressed placeholder order
+      // surfaces as either a throw or a dropped boost.
+      const result = await searchTracks("Boost", 10, undefined, true, user.id, "library");
       const trackIds = result.results.filter((r) => r.type === "track").map((r) => r.id);
 
       expect(trackIds).toContain(familiar.id);

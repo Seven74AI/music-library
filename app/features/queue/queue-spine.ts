@@ -81,13 +81,48 @@ export async function fetchQueueSpine(context: QueueSpineContext): Promise<Queue
   const base = typeof window !== "undefined" ? window.location.origin : "http://localhost";
   const response = await fetch(`${base}${url}`, { redirect: "manual" });
   if (response.status >= 300 && response.status < 400) {
-    throw new AuthExpiredError();
+    const location = response.headers.get("location");
+    // Only an explicit redirect to the login route signals session expiry.
+    // Any other redirect — a trailing-slash/canonical-host rewrite, or a
+    // malformed 3xx missing its Location header — is NOT an auth-expiry
+    // signal; it falls through to the generic non-ok error below.
+    if (location && isLoginPath(location)) {
+      throw new AuthExpiredError();
+    }
   }
   if (!response.ok) {
     throw new Error(`Failed to fetch queue spine: ${response.status}`);
   }
 
-  return response.json() as Promise<QueueSpineResponse>;
+  const data: unknown = await response.json();
+  if (!isQueueSpineResponse(data)) {
+    throw new Error("Invalid queue spine response");
+  }
+  return data;
+}
+
+/**
+ * Runtime guard for the queue-spine payload. Validates the two fields the
+ * caller actually reads so a malformed body fails loudly instead of silently
+ * propagating an unchecked cast.
+ */
+function isQueueSpineResponse(value: unknown): value is QueueSpineResponse {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.tracks) && typeof record.total === "number";
+}
+
+/**
+ * True when a redirect Location targets the login route (relative or absolute).
+ * React Router's auth gate issues `redirect("/login[?…]")`, which surfaces as a
+ * 302 with a `/login` path.
+ */
+function isLoginPath(location: string): boolean {
+  try {
+    return new URL(location, "http://queue-spine.invalid").pathname === "/login";
+  } catch {
+    return location === "/login" || location.startsWith("/login?");
+  }
 }
 
 export function queueTrackFromFullTrack(track: FullTrack): QueueTrack {

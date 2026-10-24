@@ -1,37 +1,3 @@
-// @context7: Prisma, React, React Router, Tailwind CSS, TypeScript
-/*
-    Before answering my question, MANDATORY use Context7 to fetch documentation for:
-
-    - Prisma
-    - React
-    - React Router
-    - Tailwind CSS
-    - TypeScript
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    Context7 Instructions:
-    - resolve-library-id: Prisma
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: React Router
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: Tailwind CSS
-    - get-library-docs: [resolved-id] (focus: general usage)
-    - resolve-library-id: TypeScript
-    - get-library-docs: [resolved-id] (focus: general usage)
-
-    ⚠️  DO NOT PROCEED WITHOUT FETCHING ALL DOCUMENTATION ABOVE!
-*/
 import { useState, useEffect, useMemo } from "react";
 import { data, redirect, Link, useFetcher, useParams, useSubmit } from "react-router";
 import { useAudioPlayer } from "#app/components/audio-player-provider.tsx";
@@ -69,6 +35,16 @@ import { getPlaylistTitle } from "#app/utils/breadcrumb-utils.ts";
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { filterPlayableTracks } from "#app/utils/playable-track.ts";
+
+/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
 import {
   defaultPlaylistTrackSortDirection,
   parsePlaylistTrackSort,
@@ -204,18 +180,59 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   });
 }
 
+type TrackOrderEntry = { id: string; position: number };
+
+/**
+ * Runtime type guard for the reorder payload. `JSON.parse` returns `unknown`
+ * (per `@epic-web/config/reset.d.ts`), so the parsed value is narrowed here
+ * rather than force-cast. Rejects non-arrays, empty arrays, entries with a
+ * missing/empty `id`, non-integer or negative `position`, and duplicate
+ * positions — before anything is written to the database.
+ */
+function isTrackOrderData(value: unknown): value is TrackOrderEntry[] {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  for (const entry of value) {
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      typeof (entry as { id?: unknown }).id !== "string" ||
+      ((entry as { id?: unknown }).id as string).length === 0 ||
+      !Number.isInteger((entry as { position?: unknown }).position) ||
+      ((entry as { position?: unknown }).position as number) < 0
+    ) {
+      return false;
+    }
+  }
+  const positions = value.map((entry) => (entry as { position: number }).position);
+  return new Set(positions).size === value.length;
+}
+
 export async function action({ request, params }: Route.ActionArgs) {
   const userId = await requireUserId(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
 
   if (intent === "delete") {
-    await prisma.userPlaylist.delete({
-      where: {
-        id: params.playlistId,
-        ownerId: userId,
-      },
-    });
+    try {
+      await prisma.userPlaylist.delete({
+        where: {
+          id: params.playlistId,
+          ownerId: userId,
+        },
+      });
+    } catch (error) {
+      // Playlist already gone (concurrent delete) or not owned — treat as
+      // success rather than 500ing on Prisma's P2025.
+      if (
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2025"
+      ) {
+        return redirect("/playlists");
+      }
+      throw error;
+    }
     return redirect("/playlists");
   }
 
@@ -271,16 +288,35 @@ export async function action({ request, params }: Route.ActionArgs) {
       );
     }
 
-    await prisma.userPlaylist.update({
-      where: {
-        id: params.playlistId,
-        ownerId: userId,
-      },
-      data: {
-        title: title.trim(),
-        description: description.trim() || null,
-      },
-    });
+    const newTitle = title.trim();
+    try {
+      await prisma.userPlaylist.update({
+        where: {
+          id: params.playlistId,
+          ownerId: userId,
+        },
+        data: {
+          title: newTitle,
+          description: description.trim() || null,
+        },
+      });
+    } catch (error) {
+      // Atomic guard via the DB unique index on (ownerId, lower(trim(title))).
+      if (isUniqueConstraintViolation(error)) {
+        return data(
+          { error: `You already have a playlist named "${newTitle}"` },
+          {
+            status: 409,
+            headers: await createToastHeaders({
+              title: "Duplicate playlist",
+              description: `You already have a playlist named "${newTitle}"`,
+              type: "error",
+            }),
+          },
+        );
+      }
+      throw error;
+    }
 
     return data(
       { success: true, message: "Playlist updated successfully" },
@@ -301,40 +337,9 @@ export async function action({ request, params }: Route.ActionArgs) {
       return data({ error: "Track order is required" }, { status: 400 });
     }
 
+    let parsed: unknown;
     try {
-      const orderData = JSON.parse(trackOrder) as Array<{ id: string; position: number }>;
-
-      // Update all track positions in a transaction
-      await prisma.$transaction(
-        orderData.map(({ id, position }) =>
-          prisma.userPlaylistTrack.update({
-            where: {
-              id: id,
-              playlist: {
-                ownerId: userId,
-                id: params.playlistId,
-              },
-            },
-            data: { position },
-          }),
-        ),
-      );
-
-      await bumpUserPlaylistUpdatedAt({
-        playlistId: params.playlistId,
-        userId,
-      });
-
-      return data(
-        { success: true, message: "Tracks reordered successfully" },
-        {
-          headers: await createToastHeaders({
-            title: "Success",
-            description: "Tracks reordered successfully",
-            type: "success",
-          }),
-        },
-      );
+      parsed = JSON.parse(trackOrder);
     } catch {
       return data(
         { error: "Invalid track order data" },
@@ -348,6 +353,57 @@ export async function action({ request, params }: Route.ActionArgs) {
         },
       );
     }
+
+    // Validate before writing: every entry must carry a non-empty string id and
+    // a non-negative integer position, with no duplicate positions. A malformed
+    // payload must not be able to write negative/duplicate positions to the
+    // caller's own playlist.
+    if (!isTrackOrderData(parsed)) {
+      return data(
+        { error: "Invalid track order data" },
+        {
+          status: 400,
+          headers: await createToastHeaders({
+            title: "Error",
+            description: "Invalid track order data",
+            type: "error",
+          }),
+        },
+      );
+    }
+
+    // Update all track positions in a transaction. DB errors are NOT caught
+    // here — they propagate as 500 rather than being masked as a 400.
+    await prisma.$transaction(
+      parsed.map(({ id, position }) =>
+        prisma.userPlaylistTrack.update({
+          where: {
+            id,
+            playlist: {
+              ownerId: userId,
+              id: params.playlistId,
+            },
+          },
+          data: { position },
+        }),
+      ),
+    );
+
+    await bumpUserPlaylistUpdatedAt({
+      playlistId: params.playlistId,
+      userId,
+    });
+
+    return data(
+      { success: true, message: "Tracks reordered successfully" },
+      {
+        headers: await createToastHeaders({
+          title: "Success",
+          description: "Tracks reordered successfully",
+          type: "success",
+        }),
+      },
+    );
   }
 
   if (intent === "remove-track") {
@@ -837,12 +893,10 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
       {/* Hero Section */}
       <div className="space-y-4">
         <PlaylistHero
-          id={optimisticPlaylist.id}
           title={optimisticPlaylist.title}
           description={optimisticPlaylist.description}
           tracks={optimisticTracks.map((pt) => pt.track)}
           createdAt={optimisticPlaylist.createdAt.toISOString()}
-          updatedAt={optimisticPlaylist.updatedAt.toISOString()}
           onTitleUpdate={handleTitleUpdate}
           onDescriptionUpdate={handleDescriptionUpdate}
           onBulkPlayNext={handleBulkPlayNext}

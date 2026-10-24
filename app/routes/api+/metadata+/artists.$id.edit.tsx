@@ -1,10 +1,10 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireUserWithRole } from "#app/utils/permissions.server.ts";
-import { normalizeArtistName } from "#app/utils/artist-management.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { requireUserId } from "#app/utils/auth.server.ts";
+import { getLockStatus, releaseLock } from "#app/utils/locks.server.ts";
 import { type Route } from "./+types/artists.$id.edit.ts";
 
 const EditArtistSchema = z.object({
@@ -18,28 +18,7 @@ const EditArtistSchema = z.object({
 });
 
 export async function action({ request, params }: Route.ActionArgs) {
-  // Check curator/admin role
-  const userId = await requireUserId(request);
-  const user = await prisma.user.findFirst({
-    where: {
-      id: userId,
-      roles: {
-        some: {
-          name: { in: ["curator", "admin"] },
-        },
-      },
-    },
-  });
-
-  if (!user) {
-    throw data(
-      {
-        error: "Unauthorized",
-        message: "You must be a curator or admin to edit artists",
-      },
-      { status: 403 },
-    );
-  }
+  const userId = await requireCuratorOrAdmin(request);
 
   const { id: artistId } = params;
 
@@ -70,6 +49,18 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (!existingArtist) {
     throw data({ error: "Artist not found" }, { status: 404 });
+  }
+
+  // Reject the edit if another curator holds the lock (ADR-032).
+  const lock = await getLockStatus("artist", artistId);
+  if (lock && lock.lockedBy !== userId) {
+    throw data(
+      {
+        error: "Locked",
+        message: `${lock.lockedByName} is currently editing this artist`,
+      },
+      { status: 409 },
+    );
   }
 
   // Snapshot the current artist first so restore can recover the pre-edit values.
@@ -104,6 +95,9 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     return { artist: updatedArtist, edit: artistEdit };
   });
+
+  // Release the lock on successful save (ADR-032).
+  await releaseLock("artist", artistId, userId);
 
   return data({ artist, edit });
 }

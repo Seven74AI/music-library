@@ -5,11 +5,12 @@ import { GenreSelector, type Genre } from "#app/components/genre-selector";
 import { Button } from "#app/components/ui/button";
 import { Input } from "#app/components/ui/input";
 import { Label } from "#app/components/ui/label";
+import { type TrackMetadataChanges } from "#app/types/track-metadata";
 import { type TrackDetails } from "../track-details-dialog";
 
 interface BasicMetadataTabProps {
   track: TrackDetails;
-  onSave: (changes: any) => void;
+  onSave: (changes: TrackMetadataChanges) => void;
   disabled?: boolean;
   initialDraft?: Record<string, unknown> | null;
   onDraftChange?: (draft: Record<string, unknown> | null) => void;

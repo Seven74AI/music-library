@@ -3,6 +3,7 @@ import { beforeEach, expect, test } from "vitest";
 import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
+import { createSessionCookie } from "#tests/api-admin-test-utils.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { loader, parsePageParam } from "./users.tsx";
 
@@ -78,4 +79,13 @@ test("loader filters users by search query", async () => {
 
   expect(data.users.map((user) => user.username)).toEqual([target.username]);
   expect(data.q).toBe(target.username);
+});
+
+test("loader denies non-admin users with 403", async () => {
+  const { cookie } = await createSessionCookie();
+
+  await expect(loadUsers(cookie)).rejects.toMatchObject({
+    init: { status: 403 },
+    data: { requiredRole: "admin" },
+  });
 });

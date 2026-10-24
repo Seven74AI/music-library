@@ -36,10 +36,9 @@ The `MockManager` implements a sophisticated environment-based decision system:
 
 ```typescript
 // Mock Strategy:
-// - Production: Real APIs (no mocks)
-// - Development: Mock everything EXCEPT YouTube (real YouTube API)
-// - Test/CI: Mock everything
-// - Explicit override: MOCKS=true/false
+// - MOCKS=true: Mock all external services (YouTube API, yt-dlp, Tigris uploads, Telegram)
+// - YOUTUBE_MOCKS=true|false: override YouTube-specific mocking
+// - Production: Real APIs (MOCKS not set)
 ```
 
 ### YouTube-Specific Logic
@@ -47,13 +46,13 @@ The `MockManager` implements a sophisticated environment-based decision system:
 YouTube has special handling in the mocking strategy:
 
 ```typescript
-// YouTube Mock Strategy:
-// - Development: Real YouTube API (no mocks)
-// - Test/CI: Mock YouTube
-// - Production: Real YouTube API
+// YouTube Mock Strategy (app/utils/youtube-mock-utils.ts):
+// - YOUTUBE_MOCKS=true → always mock
+// - YOUTUBE_MOCKS=false → never mock (overrides MOCKS)
+// - unset → follow MOCKS
 ```
 
-This means that in development, YouTube uses the real API by default, while other services are mocked. This allows developers to test with real YouTube data while avoiding API quota usage for other services.
+`MOCKS=true` mocks every external service — YouTube API, yt-dlp, Tigris uploads, and Telegram — with no real network calls (see the `MOCKS` glossary entry in `docs/CONTEXT.md`). Use `YOUTUBE_MOCKS` to override YouTube-specific mocking.
 
 ### How to Enable
 
@@ -124,6 +123,8 @@ NODE_ENV=production npm start
 - 🔒 **API Key Management**: Automatic API key handling based on environment
 
 ### MockManager Class
+
+> **Removed:** The `MockManager` class no longer exists. Server-side mocking is implemented per-feature via `process.env.MOCKS === "true"` checks (`app/utils/storage.server.ts`, `app/features/audio-archive/yt-dlp.server.ts`, `app/utils/youtube-mock-utils.ts`, `app/features/db-backup/backup-storage.server.ts`). The sections below are retained for historical context only.
 
 The `MockManager` class (`app/utils/mock-manager.server.ts`) provides the core functionality for server-side mocking.
 

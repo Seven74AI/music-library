@@ -42,6 +42,7 @@ test.describe("Artist Page", () => {
       await testPrisma.trackAudioFile.create({
         data: {
           trackId: playableTrack.id,
+          serviceId: playableTrack.serviceId,
           objectKey: `audio/${playableTrack.id}.mp3`,
           format: "mp3",
           mimeType: "audio/mpeg",
@@ -69,7 +70,7 @@ test.describe("Artist Page", () => {
         { timeout: 15000 },
       ),
       page
-        .getByRole("gridcell", { name: new RegExp(`Artist Page Sibling Track by ${artistName}`) })
+        .getByRole("listitem", { name: new RegExp(`Artist Page Sibling Track by ${artistName}`) })
         .click(),
     ]);
 

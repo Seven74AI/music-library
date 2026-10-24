@@ -127,7 +127,7 @@ test("claiming a report points the curator at My claims", async () => {
     </MemoryRouter>,
   );
 
-  await user.click(screen.getByRole("button", { name: "Claim" }));
+  await user.click(screen.getByRole("button", { name: /^Claim / }));
   expect(mockSubmit).toHaveBeenCalledWith(expect.any(FormData), {
     method: "POST",
     action: "/api/curator/queue/item-1/claim",
@@ -171,7 +171,7 @@ test("unclaiming a report puts it back on the open list", async () => {
   );
 
   await user.click(screen.getByRole("button", { name: "My claims" }));
-  await user.click(screen.getByRole("button", { name: "Unclaim" }));
+  await user.click(screen.getByRole("button", { name: /^Unclaim / }));
 
   actionData = { success: true };
   view.rerender(

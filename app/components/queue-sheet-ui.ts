@@ -1,18 +1,6 @@
-type PlayContext = {
-  type:
-    | "library"
-    | "playlist"
-    | "artist"
-    | "album"
-    | "track"
-    | "music"
-    | "discover"
-    | "onRepeatSnapshot";
-  playlistId?: string;
-  snapshotId?: string;
-} | null;
+import { type PlaylistContext } from "./audio-player-play-context";
 
-export function getSpineSectionLabel(playContext: PlayContext): string {
+export function getSpineSectionLabel(playContext: PlaylistContext | null): string {
   if (playContext?.type === "playlist") return "from playlist";
   if (playContext?.type === "library") return "from library";
   if (playContext?.type === "artist") return "from artist";
@@ -42,7 +30,7 @@ export function formatQueueSheetTitle(
   return `Queue (${parts.join(" · ")})`;
 }
 
-export function getSpineSectionHeading(playContext: PlayContext): string {
+export function getSpineSectionHeading(playContext: PlaylistContext | null): string {
   if (playContext?.type === "playlist") return "From Playlist";
   if (playContext?.type === "library") return "From Library";
   if (playContext?.type === "artist") return "From Artist";

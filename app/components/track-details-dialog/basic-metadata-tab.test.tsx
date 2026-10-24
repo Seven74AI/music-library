@@ -90,9 +90,9 @@ test("disables artist, genres, and year while another curator holds the lock", (
   render(<BasicMetadataTab track={track} onSave={vi.fn()} disabled />);
 
   expect(screen.getByRole("textbox", { name: /^title/i })).toBeDisabled();
-  expect(screen.getByRole("textbox", { name: /artist/i })).toBeDisabled();
-  expect(screen.getByRole("textbox", { name: /^album$/i })).toBeDisabled();
-  expect(screen.getByRole("textbox", { name: /genres/i })).toBeDisabled();
+  expect(screen.getByRole("combobox", { name: /artist/i })).toBeDisabled();
+  expect(screen.getByRole("combobox", { name: /^album$/i })).toBeDisabled();
+  expect(screen.getByRole("combobox", { name: /genres/i })).toBeDisabled();
   expect(screen.getByRole("spinbutton", { name: /year/i })).toBeDisabled();
   expect(screen.getByRole("button", { name: /save changes/i })).toBeDisabled();
 });
@@ -100,9 +100,9 @@ test("disables artist, genres, and year while another curator holds the lock", (
 test("shows the track artist name in the required Artist field", () => {
   renderTab();
 
-  expect(screen.getByRole("textbox", { name: /artist/i })).toHaveValue("Meryl");
+  expect(screen.getByRole("combobox", { name: /artist/i })).toHaveValue("Meryl");
   expect(screen.getByRole("textbox", { name: /^title/i })).toHaveValue("Coca-Cola Mentos");
-  const album = screen.getByRole("textbox", { name: /^album$/i });
+  const album = screen.getByRole("combobox", { name: /^album$/i });
   expect(album).toHaveValue("Ozoror");
   expect(album).toBeEnabled();
   expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
@@ -129,7 +129,7 @@ test("saving after the user clears the artist requires an artist", async () => {
   const user = userEvent.setup();
   const onSave = renderTab();
 
-  await user.clear(screen.getByRole("textbox", { name: /artist/i }));
+  await user.clear(screen.getByRole("combobox", { name: /artist/i }));
   await user.type(screen.getByRole("textbox", { name: /^title/i }), "!");
   await user.click(screen.getByRole("button", { name: /save changes/i }));
 
@@ -141,10 +141,10 @@ test("selecting an album saves that album id", async () => {
   const user = userEvent.setup();
   const onSave = renderTab();
 
-  const album = screen.getByRole("textbox", { name: /^album$/i });
+  const album = screen.getByRole("combobox", { name: /^album$/i });
   await user.clear(album);
   await user.type(album, "Kind");
-  await user.click(await screen.findByRole("button", { name: /Kind of Blue/ }));
+  await user.click(await screen.findByRole("option", { name: /Kind of Blue/ }));
   await user.click(screen.getByRole("button", { name: /save changes/i }));
 
   expect(onSave).toHaveBeenCalledWith(
@@ -160,7 +160,7 @@ test("clearing the album saves a null album id", async () => {
   const user = userEvent.setup();
   const onSave = renderTab();
 
-  await user.clear(screen.getByRole("textbox", { name: /^album$/i }));
+  await user.clear(screen.getByRole("combobox", { name: /^album$/i }));
   await user.click(screen.getByRole("button", { name: /save changes/i }));
 
   expect(onSave).toHaveBeenCalledWith(
@@ -183,7 +183,7 @@ test("restores an album draft and saves that album id", async () => {
     />,
   );
 
-  expect(screen.getByRole("textbox", { name: /^album$/i })).toHaveValue("Kind of Blue");
+  expect(screen.getByRole("combobox", { name: /^album$/i })).toHaveValue("Kind of Blue");
   await user.click(screen.getByRole("button", { name: /save changes/i }));
 
   expect(onSave).toHaveBeenCalledWith(

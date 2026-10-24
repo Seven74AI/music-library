@@ -1,3 +1,4 @@
+import { Prisma } from "#prisma/client.js";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   DISCOVER_TRACKS_PAGE_SIZE,
@@ -10,7 +11,6 @@ import {
   type TrackPopularityStats,
 } from "#app/utils/discover.ts";
 import { type SortDirection } from "#app/utils/sort-direction.ts";
-import { getPlayCompletedCountsByTrack } from "#app/features/listening-insights/play-completed-counts.server.ts";
 import { getTrackPopularityStats, getTrackPlayCounts } from "#app/utils/track-popularity.server.ts";
 
 // Re-export shared types and functions for server use
@@ -82,17 +82,15 @@ export async function listDiscoverTracks({
   direction = defaultDiscoverSortDirection(sort),
   cursor,
   limit = DISCOVER_TRACKS_PAGE_SIZE,
-  now = new Date(),
 }: {
   userId: string;
   sort: DiscoverSortOption;
   direction?: SortDirection;
   cursor?: string | null;
   limit?: number;
-  now?: Date;
 }): Promise<ListDiscoverTracksResult> {
   if (sort === "mostPlayed") {
-    return listDiscoverTracksByPlayCount({ userId, direction, cursor, limit, now });
+    return listDiscoverTracksByPlayCount({ userId, direction, cursor, limit });
   }
 
   if (sort === "mostLiked") {
@@ -164,107 +162,159 @@ function getOrderByForSort(
   }
 }
 
+const PLAY_COUNT_SQL = Prisma.raw(
+  `SELECT trackId, COUNT(*) AS cnt FROM UsageEvent WHERE type = 'play_completed' GROUP BY trackId`,
+);
+
+const LIKE_COUNT_SQL = Prisma.raw(
+  `SELECT trackId, COUNT(*) AS cnt FROM UserTrack WHERE isActive = 1 AND deletedAt IS NULL GROUP BY trackId`,
+);
+
+type AggregatePage = {
+  ids: string[];
+  hasNext: boolean;
+  nextCursor: string | null;
+};
+
+/** Fetch full DiscoverTrack rows for an ordered page of ids (preserves order). */
+async function hydrateDiscoverPage({
+  userId,
+  orderedIds,
+}: {
+  userId: string;
+  orderedIds: string[];
+}): Promise<DiscoverTrack[]> {
+  if (orderedIds.length === 0) return [];
+
+  const [tracksRaw, userTracks] = await Promise.all([
+    prisma.track.findMany({
+      where: { id: { in: orderedIds } },
+      select: TRACK_SELECT,
+    }),
+    prisma.userTrack.findMany({
+      where: {
+        userId,
+        trackId: { in: orderedIds },
+        isActive: true,
+        deletedAt: null,
+      },
+      select: { trackId: true, createdAt: true },
+    }),
+  ]);
+
+  const userTrackMap = new Map(userTracks.map((ut) => [ut.trackId, ut.createdAt]));
+  const trackMap = new Map(tracksRaw.map((t) => [t.id, t]));
+  const popularityStatsMap = await getTrackPopularityStats(orderedIds, userId);
+
+  const tracks: DiscoverTrack[] = [];
+  for (const id of orderedIds) {
+    const track = trackMap.get(id);
+    if (!track) continue;
+    tracks.push({
+      ...track,
+      isInUserLibrary: userTrackMap.has(id),
+      userTrackCreatedAt: userTrackMap.get(id) ?? null,
+      popularityStats: popularityStatsMap.get(id),
+    });
+  }
+  return tracks;
+}
+
+/**
+ * Keyset-paginated track ids ordered by an aggregate count (global plays or
+ * library likes). The sort key is (count, createdAt, id); the cursor position is
+ * resolved with scalar subqueries so every comparison stays inside SQL — pages
+ * are O(page size) instead of loading and sorting the whole catalog in memory.
+ */
+async function aggregateOrderedTrackIds({
+  countSql,
+  direction,
+  cursor,
+  limit,
+}: {
+  countSql: Prisma.Sql;
+  direction: SortDirection;
+  cursor: string | null | undefined;
+  limit: number;
+}): Promise<AggregatePage> {
+  const desc = direction !== "asc";
+  const cntDir = desc ? "DESC" : "ASC";
+  const createdDir = desc ? "DESC" : "ASC";
+  const idDir = desc ? "ASC" : "DESC";
+  const cntOp = desc ? "<" : ">";
+  const createdOp = desc ? "<" : ">";
+  const idOp = desc ? ">" : "<";
+
+  const where = cursor
+    ? Prisma.sql`
+        COALESCE(c.cnt, 0) ${Prisma.raw(cntOp)} (
+          SELECT COALESCE(c2.cnt, 0) FROM Track t2
+          LEFT JOIN (${countSql}) c2 ON c2.trackId = t2.id
+          WHERE t2.id = ${cursor}
+        )
+        OR (
+          COALESCE(c.cnt, 0) = (
+            SELECT COALESCE(c2.cnt, 0) FROM Track t2
+            LEFT JOIN (${countSql}) c2 ON c2.trackId = t2.id
+            WHERE t2.id = ${cursor}
+          )
+          AND t.createdAt ${Prisma.raw(createdOp)} (
+            SELECT t2.createdAt FROM Track t2 WHERE t2.id = ${cursor}
+          )
+        )
+        OR (
+          COALESCE(c.cnt, 0) = (
+            SELECT COALESCE(c2.cnt, 0) FROM Track t2
+            LEFT JOIN (${countSql}) c2 ON c2.trackId = t2.id
+            WHERE t2.id = ${cursor}
+          )
+          AND t.createdAt = (SELECT t2.createdAt FROM Track t2 WHERE t2.id = ${cursor})
+          AND t.id ${Prisma.raw(idOp)} ${cursor}
+        )
+      `
+    : Prisma.sql`1 = 1`;
+
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT t.id
+    FROM Track t
+    LEFT JOIN (${countSql}) c ON c.trackId = t.id
+    WHERE ${where}
+    ORDER BY
+      COALESCE(c.cnt, 0) ${Prisma.raw(cntDir)},
+      t.createdAt ${Prisma.raw(createdDir)},
+      t.id ${Prisma.raw(idDir)}
+    LIMIT ${limit + 1}
+  `;
+
+  const hasNext = rows.length > limit;
+  const page = hasNext ? rows.slice(0, limit) : rows;
+  const nextCursor = hasNext ? (page[page.length - 1]?.id ?? null) : null;
+  return { ids: page.map((row) => row.id), hasNext, nextCursor };
+}
+
 async function listDiscoverTracksByPlayCount({
   userId,
   direction,
   cursor,
   limit,
-  now,
 }: {
   userId: string;
   direction: SortDirection;
   cursor: string | null | undefined;
   limit: number;
-  now: Date;
 }): Promise<ListDiscoverTracksResult> {
-  // Get all tracks first
-  const allTracks = await prisma.track.findMany({
-    select: {
-      id: true,
-      createdAt: true,
-    },
+  const { ids, hasNext, nextCursor } = await aggregateOrderedTrackIds({
+    countSql: PLAY_COUNT_SQL,
+    direction,
+    cursor,
+    limit,
   });
 
-  // Get GLOBAL play counts (across all users) for sorting
-  const trackIds = allTracks.map((t) => t.id);
-  const counts = await getTrackPlayCounts(trackIds);
-
-  const sorted = [...allTracks].sort((a, b) => {
-    const countA = counts.get(a.id) ?? 0;
-    const countB = counts.get(b.id) ?? 0;
-
-    if (countB !== countA) return countB - countA;
-
-    const timeDiff = b.createdAt.getTime() - a.createdAt.getTime();
-    if (timeDiff !== 0) return timeDiff;
-
-    return a.id.localeCompare(b.id);
-  });
-
-  const ordered = direction === "asc" ? sorted.reverse() : sorted;
-
-  let start = 0;
-  if (cursor) {
-    const idx = ordered.findIndex((t) => t.id === cursor);
-    start = idx >= 0 ? idx + 1 : 0;
-  }
-
-  const page = ordered.slice(start, start + limit);
-  const hasNext = start + limit < ordered.length;
-  const nextCursor = hasNext ? (page[page.length - 1]?.id ?? null) : null;
-
-  if (page.length === 0) {
-    return {
-      tracks: [],
-      pagination: { limit, hasNext: false, nextCursor: null },
-    };
-  }
-
-  const pageIds = page.map((t) => t.id);
-  const tracksRaw = await prisma.track.findMany({
-    where: { id: { in: pageIds } },
-    select: TRACK_SELECT,
-  });
-
-  const userTracks = await prisma.userTrack.findMany({
-    where: {
-      userId,
-      trackId: { in: pageIds },
-      isActive: true,
-      deletedAt: null,
-    },
-    select: {
-      trackId: true,
-      createdAt: true,
-    },
-  });
-
-  const userTrackMap = new Map(userTracks.map((ut) => [ut.trackId, ut.createdAt]));
-  const trackMap = new Map(tracksRaw.map((t) => [t.id, t]));
-
-  // Fetch popularity stats for all tracks in this page
-  const popularityStatsMap = await getTrackPopularityStats(pageIds, userId);
-
-  const tracks: DiscoverTrack[] = [];
-  for (const id of pageIds) {
-    const track = trackMap.get(id);
-    if (track) {
-      tracks.push({
-        ...track,
-        isInUserLibrary: userTrackMap.has(id),
-        userTrackCreatedAt: userTrackMap.get(id) ?? null,
-        popularityStats: popularityStatsMap.get(id),
-      });
-    }
-  }
+  const tracks = await hydrateDiscoverPage({ userId, orderedIds: ids });
 
   return {
     tracks,
-    pagination: {
-      limit,
-      hasNext,
-      nextCursor,
-    },
+    pagination: { limit, hasNext, nextCursor },
   };
 }
 
@@ -279,102 +329,18 @@ async function listDiscoverTracksByUserCount({
   cursor: string | null | undefined;
   limit: number;
 }): Promise<ListDiscoverTracksResult> {
-  const userCounts = await prisma.userTrack.groupBy({
-    by: ["trackId"],
-    where: {
-      isActive: true,
-      deletedAt: null,
-    },
-    _count: {
-      userId: true,
-    },
+  const { ids, hasNext, nextCursor } = await aggregateOrderedTrackIds({
+    countSql: LIKE_COUNT_SQL,
+    direction,
+    cursor,
+    limit,
   });
 
-  const countMap = new Map(userCounts.map((uc) => [uc.trackId, uc._count.userId]));
-
-  const allTracks = await prisma.track.findMany({
-    select: {
-      id: true,
-      createdAt: true,
-    },
-  });
-
-  const sorted = [...allTracks].sort((a, b) => {
-    const countA = countMap.get(a.id) ?? 0;
-    const countB = countMap.get(b.id) ?? 0;
-
-    if (countB !== countA) return countB - countA;
-
-    const timeDiff = b.createdAt.getTime() - a.createdAt.getTime();
-    if (timeDiff !== 0) return timeDiff;
-
-    return a.id.localeCompare(b.id);
-  });
-
-  const ordered = direction === "asc" ? sorted.reverse() : sorted;
-
-  let start = 0;
-  if (cursor) {
-    const idx = ordered.findIndex((t) => t.id === cursor);
-    start = idx >= 0 ? idx + 1 : 0;
-  }
-
-  const page = ordered.slice(start, start + limit);
-  const hasNext = start + limit < ordered.length;
-  const nextCursor = hasNext ? (page[page.length - 1]?.id ?? null) : null;
-
-  if (page.length === 0) {
-    return {
-      tracks: [],
-      pagination: { limit, hasNext: false, nextCursor: null },
-    };
-  }
-
-  const pageIds = page.map((t) => t.id);
-  const tracksRaw = await prisma.track.findMany({
-    where: { id: { in: pageIds } },
-    select: TRACK_SELECT,
-  });
-
-  const userTracks = await prisma.userTrack.findMany({
-    where: {
-      userId,
-      trackId: { in: pageIds },
-      isActive: true,
-      deletedAt: null,
-    },
-    select: {
-      trackId: true,
-      createdAt: true,
-    },
-  });
-
-  const userTrackMap = new Map(userTracks.map((ut) => [ut.trackId, ut.createdAt]));
-  const trackMap = new Map(tracksRaw.map((t) => [t.id, t]));
-
-  // Fetch popularity stats for all tracks in this page
-  const popularityStatsMap = await getTrackPopularityStats(pageIds, userId);
-
-  const tracks: DiscoverTrack[] = [];
-  for (const id of pageIds) {
-    const track = trackMap.get(id);
-    if (track) {
-      tracks.push({
-        ...track,
-        isInUserLibrary: userTrackMap.has(id),
-        userTrackCreatedAt: userTrackMap.get(id) ?? null,
-        popularityStats: popularityStatsMap.get(id),
-      });
-    }
-  }
+  const tracks = await hydrateDiscoverPage({ userId, orderedIds: ids });
 
   return {
     tracks,
-    pagination: {
-      limit,
-      hasNext,
-      nextCursor,
-    },
+    pagination: { limit, hasNext, nextCursor },
   };
 }
 

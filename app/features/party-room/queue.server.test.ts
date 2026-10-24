@@ -5,6 +5,7 @@ import { createRoom, joinRoom } from "./party-room.server.ts";
 import {
   addPlaylistToQueue,
   addTrackToQueue,
+  recordRoomPlayEvent,
   removeQueueItem,
   reorderUpcoming,
   setTransport,
@@ -62,6 +63,7 @@ async function makeTrackWithAudio(title: string) {
   await prisma.trackAudioFile.create({
     data: {
       trackId: track.id,
+      serviceId: track.serviceId,
       objectKey: `audio/tracks/local/${track.id}.mp3`,
       format: "mp3",
     },
@@ -373,5 +375,148 @@ describe("party-room SSE fan-out", () => {
     unsub1();
     unsub2();
     expect(roomSubscriberCount("room-1")).toBe(0);
+  });
+});
+
+describe("recordRoomPlayEvent", () => {
+  beforeEach(async () => {
+    await cleanup();
+  });
+
+  test("records a play event for a track on the room queue", async () => {
+    const host = await makeUser();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const track = await makeTrackWithAudio("Song");
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      trackId: track.id,
+    });
+
+    const event = await recordRoomPlayEvent({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      type: "room_play_started",
+      trackId: track.id,
+      playId: "play-1",
+    });
+
+    expect(event.trackId).toBe(track.id);
+    expect(event.type).toBe("room_play_started");
+    expect(event.playId).toBe("play-1");
+  });
+
+  test("rejects a play event for a track not on the room queue", async () => {
+    const host = await makeUser();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const queued = await makeTrackWithAudio("Queued");
+    const offQueue = await makeTrackWithAudio("Not queued");
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      trackId: queued.id,
+    });
+
+    await expect(
+      recordRoomPlayEvent({
+        roomId: room.id,
+        actor: { type: "user", userId: host.id },
+        type: "room_play_started",
+        trackId: offQueue.id,
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    expect(await prisma.roomPlayEvent.count({ where: { roomId: room.id } })).toBe(0);
+  });
+
+  test("dedupes by playId so a retried call does not create a duplicate event", async () => {
+    const host = await makeUser();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const track = await makeTrackWithAudio("Song");
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      trackId: track.id,
+    });
+
+    const first = await recordRoomPlayEvent({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      type: "room_play_started",
+      trackId: track.id,
+      playId: "play-1",
+    });
+    const second = await recordRoomPlayEvent({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      type: "room_play_started",
+      trackId: track.id,
+      playId: "play-1",
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(await prisma.roomPlayEvent.count({ where: { roomId: room.id, playId: "play-1" } })).toBe(
+      1,
+    );
+  });
+
+  test("same playId with a different type creates two distinct events", async () => {
+    const host = await makeUser();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const track = await makeTrackWithAudio("Song");
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      trackId: track.id,
+    });
+
+    await recordRoomPlayEvent({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      type: "room_play_started",
+      trackId: track.id,
+      playId: "play-1",
+    });
+    await recordRoomPlayEvent({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      type: "room_play_completed",
+      trackId: track.id,
+      playId: "play-1",
+    });
+
+    expect(await prisma.roomPlayEvent.count({ where: { roomId: room.id, playId: "play-1" } })).toBe(
+      2,
+    );
+  });
+
+  test("rejects a non-transport participant from recording play events", async () => {
+    const host = await makeUser();
+    const room = await createRoom({
+      userId: host.id,
+      displayName: "Host",
+      defaultJoinRole: "listener",
+    });
+    const listener = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Listener" },
+    });
+    const track = await makeTrackWithAudio("Song");
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      trackId: track.id,
+    });
+
+    await expect(
+      recordRoomPlayEvent({
+        roomId: room.id,
+        actor: { type: "guest", guestToken: listener.guestToken! },
+        type: "room_play_started",
+        trackId: track.id,
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    expect(await prisma.roomPlayEvent.count({ where: { roomId: room.id } })).toBe(0);
   });
 });

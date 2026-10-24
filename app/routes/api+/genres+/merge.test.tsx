@@ -9,6 +9,7 @@ describe("POST /api/genres/merge", () => {
     artists: [],
   };
   let curatorUserId: string;
+  let requireCuratorSpy: ReturnType<typeof vi.spyOn> | undefined;
 
   beforeEach(async () => {
     // Create a curator user for testing
@@ -32,9 +33,19 @@ describe("POST /api/genres/merge", () => {
     });
 
     curatorUserId = curatorUser.id;
+
+    // Mock requireCuratorOrAdmin for every POST test; restored in afterEach so a
+    // failing assertion cannot leak the mock into later tests.
+    requireCuratorSpy = vi.spyOn(
+      await import("#app/utils/curator.server.ts"),
+      "requireCuratorOrAdmin",
+    );
+    requireCuratorSpy.mockResolvedValue(curatorUserId);
   });
 
   afterEach(async () => {
+    requireCuratorSpy?.mockRestore();
+    requireCuratorSpy = undefined;
     // Clean up tracks first (they reference genres)
     if (createdIds.tracks.length > 0) {
       await prisma.track.deleteMany({ where: { id: { in: createdIds.tracks } } });
@@ -135,11 +146,6 @@ describe("POST /api/genres/merge", () => {
       }),
     });
 
-    vi.spyOn(
-      await import("#app/utils/curator.server.ts"),
-      "requireCuratorOrAdmin",
-    ).mockResolvedValue(curatorUserId);
-
     const response = await action({
       request,
       params: {},
@@ -169,8 +175,6 @@ describe("POST /api/genres/merge", () => {
       SELECT COUNT(*) as count FROM _TrackGenres WHERE A = ${targetGenre.id}
     `;
     expect(Number(targetLinks[0]?.count)).toBe(2);
-
-    vi.mocked((await import("#app/utils/curator.server.ts")).requireCuratorOrAdmin).mockRestore();
   });
 
   test("returns 400 if target is in sources", async () => {
@@ -195,11 +199,6 @@ describe("POST /api/genres/merge", () => {
       }),
     });
 
-    vi.spyOn(
-      await import("#app/utils/curator.server.ts"),
-      "requireCuratorOrAdmin",
-    ).mockResolvedValue(curatorUserId);
-
     await expect(async () => {
       await action({
         request,
@@ -207,8 +206,6 @@ describe("POST /api/genres/merge", () => {
         context: {},
       } as never);
     }).rejects.toThrow();
-
-    vi.mocked((await import("#app/utils/curator.server.ts")).requireCuratorOrAdmin).mockRestore();
   });
 
   test("returns 404 if genres not found", async () => {
@@ -223,11 +220,6 @@ describe("POST /api/genres/merge", () => {
       }),
     });
 
-    vi.spyOn(
-      await import("#app/utils/curator.server.ts"),
-      "requireCuratorOrAdmin",
-    ).mockResolvedValue(curatorUserId);
-
     await expect(async () => {
       await action({
         request,
@@ -235,8 +227,6 @@ describe("POST /api/genres/merge", () => {
         context: {},
       } as never);
     }).rejects.toThrow();
-
-    vi.mocked((await import("#app/utils/curator.server.ts")).requireCuratorOrAdmin).mockRestore();
   });
 
   test("handles tracks already linked to target", async () => {
@@ -301,11 +291,6 @@ describe("POST /api/genres/merge", () => {
       }),
     });
 
-    vi.spyOn(
-      await import("#app/utils/curator.server.ts"),
-      "requireCuratorOrAdmin",
-    ).mockResolvedValue(curatorUserId);
-
     const response = await action({
       request,
       params: {},
@@ -327,8 +312,6 @@ describe("POST /api/genres/merge", () => {
       SELECT COUNT(*) as count FROM _TrackGenres WHERE A = ${targetGenre.id}
     `;
     expect(Number(targetLinks[0]?.count)).toBe(1);
-
-    vi.mocked((await import("#app/utils/curator.server.ts")).requireCuratorOrAdmin).mockRestore();
   });
 });
 

@@ -1,6 +1,7 @@
 import { pickCoverThumbnailUrl } from "#app/types/transformations";
 import { getOrCreateArtistTx } from "#app/utils/artist-management.server";
 import { prisma } from "#app/utils/db.server";
+import { type Prisma } from "#prisma/client.js";
 import {
   classifyAbsentPlaylistTracks,
   isYouTubeVideoId,
@@ -355,12 +356,21 @@ export async function resolveDeletedVideosAfterSync(
   await prisma.$transaction(async (tx) => {
     for (const deletedVideo of deletedVideosWithoutMatch) {
       const artistRecord = await getOrCreateArtistTx(tx, "Unknown Artist");
-      const trackId = createId();
       const externalId = deletedVideo.externalId;
 
-      await tx.track.create({
-        data: {
-          id: trackId,
+      // Upsert, not create: an itemId-less unavailable item re-synthesizes the same
+      // `pending-{playlistId}-{position}` externalId on every sync, so a bare create
+      // throws the serviceId_externalId unique-constraint violation on the second sync.
+      const track = await tx.track.upsert({
+        where: {
+          serviceId_externalId: { serviceId, externalId },
+        },
+        update: {
+          title: "Deleted video",
+          artistId: artistRecord.id,
+        },
+        create: {
+          id: createId(),
           title: "Deleted video",
           artistId: artistRecord.id,
           duration: null,
@@ -371,20 +381,27 @@ export async function resolveDeletedVideosAfterSync(
         },
       });
 
-      await tx.servicePlaylistTrack.create({
-        data: {
+      await tx.servicePlaylistTrack.upsert({
+        where: {
+          playlistId_trackId: { playlistId, trackId: track.id },
+        },
+        update: {
+          position: deletedVideo.position,
+          isDeleted: true,
+        },
+        create: {
           id: createId(),
           playlistId,
-          trackId,
+          trackId: track.id,
           position: deletedVideo.position,
           isDeleted: true,
           deletedAt: new Date(),
         },
       });
 
-      nextProcessedIds.trackIds.add(trackId);
+      nextProcessedIds.trackIds.add(track.id);
       deletedTracks.push({
-        id: trackId,
+        id: track.id,
         title: "Deleted video",
         externalId,
       });
@@ -421,7 +438,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
   playlistItems: TItem[],
   serviceId: string,
   playlistId: string,
-  tx: any,
+  tx: Prisma.TransactionClient,
   trackProcessor: TrackSyncProcessor,
   archiveEnqueueAdapter: ArchiveEnqueueAdapter,
   globalStartPosition: number = 0,
@@ -450,6 +467,48 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     }> = [];
 
     // FIRST PASS: Process all items in the batch
+
+    // Pre-load existing tracks for the whole batch in a single findMany instead
+    // of issuing up to two findUnique lookups per item (N+1 pattern).
+    type ExistingTrackRow = {
+      id: string;
+      title: string;
+      artistId: string;
+      coverImageId: string | null;
+      externalId: string | null;
+    };
+
+    const trackSelect = {
+      id: true,
+      title: true,
+      artistId: true,
+      coverImageId: true,
+      externalId: true,
+    } as const;
+
+    const candidateKeys = new Set<string>();
+    for (const item of batch) {
+      if (!item) continue;
+      const videoId = item.snippet?.resourceId?.videoId || "";
+      const isUnavailable = trackProcessor.isUnavailableVideo(item);
+      if (isUnavailable && item.id) candidateKeys.add(item.id);
+      if (videoId) candidateKeys.add(videoId);
+    }
+
+    const existingTracksByExternalId = new Map<string, ExistingTrackRow>();
+    if (candidateKeys.size > 0) {
+      const found = await tx.track.findMany({
+        where: {
+          serviceId,
+          externalId: { in: [...candidateKeys] },
+        },
+        select: trackSelect,
+      });
+      for (const row of found) {
+        if (row.externalId) existingTracksByExternalId.set(row.externalId, row);
+      }
+    }
+
     for (let i = 0; i < batch.length; i++) {
       const item = batch[i] as TItem;
       if (!item) continue;
@@ -459,47 +518,16 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       const isUnavailable = trackProcessor.isUnavailableVideo(item);
 
       // Try to find existing track by stable identifiers
-      type ExistingTrackRow = {
-        id: string;
-        title: string;
-        artistId: string;
-        coverImageId: string | null;
-        externalId: string | null;
-      };
       let existingTrack: ExistingTrackRow | null = null;
-
-      const trackSelect = {
-        id: true,
-        title: true,
-        artistId: true,
-        coverImageId: true,
-        externalId: true,
-      } as const;
 
       // First, try matching by playlist item ID (for deleted videos)
       if (isUnavailable && item.id) {
-        existingTrack = await tx.track.findUnique({
-          where: {
-            serviceId_externalId: {
-              serviceId,
-              externalId: item.id,
-            },
-          },
-          select: trackSelect,
-        });
+        existingTrack = existingTracksByExternalId.get(item.id) ?? null;
       }
 
       // If not found, try matching by videoId (externalId)
       if (!existingTrack && videoId) {
-        existingTrack = await tx.track.findUnique({
-          where: {
-            serviceId_externalId: {
-              serviceId,
-              externalId: videoId,
-            },
-          },
-          select: trackSelect,
-        });
+        existingTrack = existingTracksByExternalId.get(videoId) ?? null;
       }
 
       const plan = planUnavailableItemProcessing({
@@ -566,7 +594,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             serviceId,
             existingTrack.artistId,
           );
-          const { thumbnailUrl: _, service: __, externalId: ___, ...rest } = transformed;
+          const { thumbnailUrl: _, externalId: ___, ...rest } = transformed;
           trackData = {
             ...rest,
             serviceId, // Use serviceId directly instead of service relation
@@ -581,7 +609,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             serviceId,
             artistRecord.id,
           );
-          const { thumbnailUrl: _, service: __, externalId: ___, ...rest } = transformed;
+          const { thumbnailUrl: _, externalId: ___, ...rest } = transformed;
           trackData = {
             ...rest,
             serviceId, // Use serviceId directly instead of service relation
@@ -683,6 +711,21 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       tracks.filter((track) => track.serviceUrl).map((track) => track.id),
     );
 
+    // Pre-load existing playlist tracks for the batch in a single findMany
+    // instead of one findUnique per track before each upsert (N+1 pattern).
+    const existingPlaylistTracksById = new Map<
+      string,
+      { trackId: string; isDeleted: boolean; deletedAt: Date | null }
+    >();
+    const batchTrackIds = tracks.map((track) => track.id);
+    if (batchTrackIds.length > 0) {
+      const existing = await tx.servicePlaylistTrack.findMany({
+        where: { playlistId, trackId: { in: batchTrackIds } },
+        select: { trackId: true, isDeleted: true, deletedAt: true },
+      });
+      for (const spt of existing) existingPlaylistTracksById.set(spt.trackId, spt);
+    }
+
     // Batch upsert playlist tracks with deletion status
     const playlistTrackPromises = tracks.map(async (track, index) => {
       const trackData = trackDataBatch[index];
@@ -696,14 +739,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       const thumbnailUrl = pickCoverThumbnailUrl(item?.snippet?.thumbnails);
 
       // Check if this track was previously deleted
-      const existingPlaylistTrack = await tx.servicePlaylistTrack.findUnique({
-        where: {
-          playlistId_trackId: {
-            playlistId: playlistId,
-            trackId: track.id,
-          },
-        },
-      });
+      const existingPlaylistTrack = existingPlaylistTracksById.get(track.id);
 
       const shouldSetDeletedAt = isDeleted && !existingPlaylistTrack?.isDeleted;
 

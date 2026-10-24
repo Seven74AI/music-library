@@ -38,6 +38,6 @@ ADR-017 shipped `/history` as a per-play chronological list from `play_started`,
 
 ## Consequences
 
-- Glossary: **Recently Played Strip** (`docs/CONTEXT.md` decision #62).
+- Glossary: **Recently Played Strip** (`docs/CONTEXT.md` decision #63).
 - Listening-hub loader needs a distinct-track query over `play_completed` (join `Track`, skip dangling IDs as history does).
 - May want a “See all” link to `/history`; optional, not required by this ADR.

@@ -10,7 +10,7 @@
 import { test, expect, testPrisma, dismissOverlays } from "#tests/playwright-utils.ts";
 
 /**
- * Helper: play a track from the library by clicking its gridcell row.
+ * Helper: play a track from the library by clicking its listitem row.
  */
 async function playTrackFromLibrary(page: import("@playwright/test").Page, trackTitle: string) {
   await page.goto("/library", { timeout: 30000 });
@@ -22,7 +22,7 @@ async function playTrackFromLibrary(page: import("@playwright/test").Page, track
       (response) => response.url().includes("/api/queue-spine") && response.status() === 200,
       { timeout: 15000 },
     ),
-    page.getByRole("gridcell", { name: new RegExp(`${trackTitle} by Test Artist`) }).click(),
+    page.getByRole("listitem", { name: new RegExp(`${trackTitle} by Test Artist`) }).click(),
   ]);
 
   // Wait for either the desktop bar or the mobile mini bar, depending on viewport.
@@ -39,7 +39,8 @@ test.describe("Player / Queue", () => {
   // ─────────────────────────────────────────────────
   // 1. Play from playlist context
   // ─────────────────────────────────────────────────
-  // TODO: This test is flaky in CI - the html element intercepts pointer events when clicking the queue button
+  // TODO(#334): This test is flaky in CI - the html element intercepts pointer
+  // events when clicking the queue button (tracked, root cause unfixed).
   test.skip("playing from playlist shows playlist context in queue", async ({
     page,
     login,
@@ -50,6 +51,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-playlist.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -123,7 +125,7 @@ test.describe("Player / Queue", () => {
     await expect(page.getByText("No Audio Track").first()).toBeVisible({ timeout: 10000 });
 
     // Click the track row — the app should handle it gracefully
-    await page.getByRole("gridcell", { name: /No Audio Track by Test Artist/ }).click();
+    await page.getByRole("listitem", { name: /No Audio Track by Test Artist/ }).click();
 
     // Page should not crash — verify the library heading is still visible
     await expect(page.getByRole("heading", { name: /music library/i })).toBeVisible({
@@ -144,6 +146,7 @@ test.describe("Player / Queue", () => {
       await testPrisma.trackAudioFile.create({
         data: {
           trackId: track.id,
+          serviceId: track.serviceId,
           objectKey: `audio/${track.id}.mp3`,
           format: "mp3",
           mimeType: "audio/mpeg",
@@ -178,6 +181,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-shuffle.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -211,6 +215,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-loop.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -255,6 +260,7 @@ test.describe("Player / Queue", () => {
       await testPrisma.trackAudioFile.create({
         data: {
           trackId: track.id,
+          serviceId: track.serviceId,
           objectKey: `audio/${track.id}.mp3`,
           format: "mp3",
           mimeType: "audio/mpeg",
@@ -287,6 +293,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-sleep.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -342,6 +349,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-download.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -365,6 +373,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-transport.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -409,6 +418,7 @@ test.describe("Player / Queue", () => {
       await testPrisma.trackAudioFile.create({
         data: {
           trackId: track.id,
+          serviceId: track.serviceId,
           objectKey: `audio/${track.id}.mp3`,
           format: "mp3",
           mimeType: "audio/mpeg",
@@ -448,6 +458,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-seek.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -472,6 +483,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-volume.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -508,6 +520,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-keyboard.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -544,6 +557,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-mutekey.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -574,6 +588,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-mobile.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -610,6 +625,7 @@ test.describe("Player / Queue", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: "audio/test-nowplaying.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",

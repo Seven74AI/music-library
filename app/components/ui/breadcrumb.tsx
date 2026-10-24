@@ -3,12 +3,9 @@ import * as React from "react";
 import { cn } from "#app/utils/misc.tsx";
 import { Icon } from "./icon";
 
-const Breadcrumb = React.forwardRef<
-  HTMLElement,
-  React.ComponentPropsWithoutRef<"nav"> & {
-    separator?: React.ReactNode;
-  }
->(({ ...props }, ref) => <nav ref={ref} aria-label="breadcrumb" {...props} />);
+const Breadcrumb = React.forwardRef<HTMLElement, React.ComponentPropsWithoutRef<"nav">>(
+  ({ ...props }, ref) => <nav ref={ref} aria-label="breadcrumb" {...props} />,
+);
 Breadcrumb.displayName = "Breadcrumb";
 
 const BreadcrumbList = React.forwardRef<HTMLOListElement, React.ComponentPropsWithoutRef<"ol">>(
@@ -87,7 +84,7 @@ const BreadcrumbEllipsis = ({ className, ...props }: React.ComponentProps<"span"
     <span className="sr-only">More</span>
   </span>
 );
-BreadcrumbEllipsis.displayName = "BreadcrumbElipssis";
+BreadcrumbEllipsis.displayName = "BreadcrumbEllipsis";
 
 export {
   Breadcrumb,

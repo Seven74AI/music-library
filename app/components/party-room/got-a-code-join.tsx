@@ -3,15 +3,9 @@ import { Link, useNavigate } from "react-router";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { Input } from "#app/components/ui/input.tsx";
-import { parseRoomCodeInput } from "#app/features/party-room/code.ts";
-import { ROOM_ROLE, type RoomRole } from "#app/features/party-room/constants.ts";
+import { parseRoomCodeInput } from "#app/features/party-room/codes.ts";
+import { roomRoleLabel } from "#app/features/party-room/constants.ts";
 import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
-
-function roomRoleLabel(role: RoomRole): string {
-  if (role === ROOM_ROLE.host) return "Host";
-  if (role === ROOM_ROLE.dj) return "DJ";
-  return "Listener";
-}
 
 /**
  * Home affordance: join a Party Room by code or pasted link.

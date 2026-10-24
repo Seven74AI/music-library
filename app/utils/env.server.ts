@@ -16,20 +16,20 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     // Salt for hashing client IPs on security events. Required in production.
     // Dev/test fall back to DEV_IP_HASH_SALT when unset. See .env.example.
     IP_HASH_SALT: isProduction ? z.string().min(8) : z.string().optional(),
-    // AES-256-GCM secret for Connection.tokens (YouTube OAuth access and refresh tokens).
-    // Optional so a missing Fly secret does not stop the process from listening.
-    // When unset, tokens stay plaintext. A value that is set must be at least 32
-    // characters, and production rejects the dev placeholder. See .env.example.
-    TOKEN_ENCRYPTION_KEY: z
-      .string()
-      .min(32)
-      .refine(
-        (value) => process.env.NODE_ENV !== "production" || value !== DEV_TOKEN_ENCRYPTION_KEY,
-        {
-          message: "must not be the development fallback",
-        },
-      )
-      .optional(),
+    // AES-256-GCM secret for at-rest auth material: Connection.tokens (YouTube OAuth
+    // access/refresh tokens) and Verification.secret (TOTP/WebAuthn secrets).
+    // Required in production so this material is never stored at rest in plaintext
+    // (fail-closed, matching SESSION_SECRET/IP_HASH_SALT). A value must be at least 32
+    // characters, and production rejects the dev placeholder. Dev/test fall back to
+    // DEV_TOKEN_ENCRYPTION_KEY when unset. See .env.example.
+    TOKEN_ENCRYPTION_KEY: isProduction
+      ? z
+          .string()
+          .min(32)
+          .refine((value) => value !== DEV_TOKEN_ENCRYPTION_KEY, {
+            message: "must not be the development fallback",
+          })
+      : z.string().min(32).optional(),
     INTERNAL_COMMAND_TOKEN: z.string(),
     HONEYPOT_SECRET: z.string(),
     CACHE_DATABASE_PATH: z.string(),
@@ -47,6 +47,12 @@ const createConditionalSchema = (): z.ZodObject<any> => {
     // Separate Tigris bucket for SQLite backups (optional — scheduler no-ops when unset)
     BACKUP_BUCKET_NAME: z.string().optional(),
     BACKUP_HOUR_UTC: z.coerce.number().min(0).max(23).optional().default(3),
+
+    // Shared upload-progress store (multi-instance). Optional: when both are
+    // set, upload progress lives in Upstash Redis; otherwise an in-memory Map
+    // is used (single-instance / tests). See ADR-038.
+    UPSTASH_REDIS_REST_URL: z.string().optional(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
     // YouTube Data API Configuration (uses existing Google OAuth credentials)
     YOUTUBE_API_KEY: z.string().optional(),
@@ -145,12 +151,6 @@ export function init() {
     console.error("❌", message, parsed.error.flatten().fieldErrors);
 
     throw new Error(message);
-  }
-
-  if (process.env.NODE_ENV === "production" && !process.env.TOKEN_ENCRYPTION_KEY) {
-    console.error(
-      "TOKEN_ENCRYPTION_KEY is unset. The app will start, and Connection.tokens stay plaintext until you set it. Generate one with: openssl rand -hex 32",
-    );
   }
 }
 

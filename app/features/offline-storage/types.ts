@@ -5,9 +5,6 @@ export const OFFLINE_DB_VERSION = 2;
 export const OFFLINE_TRACKS_STORE = "tracks";
 export const OFFLINE_COVERS_STORE = "covers";
 
-/** User explicitly downloaded — never LRU-evicted automatically. */
-export type OfflinePinSource = "pinned" | "queue";
-
 export type OfflineTrackRecord = {
   trackId: string;
   title: string;
@@ -83,17 +80,21 @@ export function mergeOfflineTrackRecord(
     >
   > & { playlistId?: string },
 ): OfflineTrackRecord {
-  const playlistIds = update.playlistId
-    ? [...new Set([...existing.playlistIds, update.playlistId])]
+  // `playlistId` is a transient merge input, not a stored field. Destructure it
+  // out so the `...rest` spread can't leak it onto the record alongside
+  // `playlistIds`.
+  const { playlistId, ...rest } = update;
+  const playlistIds = playlistId
+    ? [...new Set([...existing.playlistIds, playlistId])]
     : existing.playlistIds;
 
   return {
     ...existing,
-    ...update,
-    isPinned: update.isPinned ?? existing.isPinned,
-    isQueueCached: update.isQueueCached ?? existing.isQueueCached,
+    ...rest,
+    isPinned: rest.isPinned ?? existing.isPinned,
+    isQueueCached: rest.isQueueCached ?? existing.isQueueCached,
     pinnedAt:
-      update.pinnedAt ?? (update.isPinned && !existing.isPinned ? Date.now() : existing.pinnedAt),
+      rest.pinnedAt ?? (rest.isPinned && !existing.isPinned ? Date.now() : existing.pinnedAt),
     playlistIds,
   };
 }

@@ -37,11 +37,7 @@ export function HeavyRotationStrip({ title, tracks, librarySort }: HeavyRotation
         {tracks.map((item, index) => (
           <div key={item.track.id} className="snap-start">
             <HomeRecentTrackCard
-              userTrack={{
-                id: item.track.id,
-                createdAt: new Date(0),
-                track: item.track,
-              }}
+              track={item.track}
               index={index}
               playableTracks={playableTracks}
             />

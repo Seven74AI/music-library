@@ -1,52 +1,17 @@
-import { parseString } from "set-cookie-parser";
 import { afterEach, describe, expect, test } from "vitest";
-import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
+import { compressChromaprint } from "#tests/chromaprint-test-utils";
 import { prisma } from "#app/utils/db.server.ts";
-import { authSessionStorage } from "#app/utils/session.server.ts";
-import { createUser } from "#tests/db-utils.ts";
+import {
+  createSessionCookie,
+  ensureLocalService,
+  readThrownStatus,
+  unwrap,
+} from "#tests/api-admin-test-utils.ts";
 import { action as pageAction } from "#app/routes/music+/admin+/duplicates.tsx";
 import { action, loader } from "./duplicates.tsx";
 
 const EXACT_HASH = "exact-hash-dup-test";
 const FILE_SIZE = 4096;
-
-async function createCookie(role?: "admin") {
-  const userData = createUser();
-  const user = await prisma.user.create({
-    select: { id: true },
-    data: {
-      ...userData,
-      roles: role
-        ? {
-            connectOrCreate: {
-              where: { name: role },
-              create: { name: role, description: role },
-            },
-          }
-        : undefined,
-    },
-  });
-  const session = await prisma.session.create({
-    select: { id: true },
-    data: {
-      expirationDate: getSessionExpirationDate(),
-      userId: user.id,
-    },
-  });
-  const authSession = await authSessionStorage.getSession();
-  authSession.set(sessionKey, session.id);
-  const setCookieHeader = await authSessionStorage.commitSession(authSession);
-  const parsedCookie = parseString(setCookieHeader)!;
-  return { cookie: `${parsedCookie.name}=${parsedCookie.value}`, userId: user.id };
-}
-
-async function ensureLocalService() {
-  return prisma.service.upsert({
-    where: { name: "local" },
-    update: {},
-    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
-  });
-}
 
 async function createTrackWithAudio(opts: {
   title: string;
@@ -84,22 +49,6 @@ async function createTrackWithAudio(opts: {
     include: { audioFiles: true },
   });
   return track;
-}
-
-function unwrap<T>(result: unknown): T {
-  if (result && typeof result === "object" && "data" in result) {
-    return (result as { data: T }).data;
-  }
-  return result as T;
-}
-
-async function readThrownStatus(error: unknown): Promise<number | undefined> {
-  if (error instanceof Response) return error.status;
-  if (typeof error === "object" && error !== null && "init" in error) {
-    const init = (error as { init?: { status?: number } }).init;
-    return init?.status;
-  }
-  return undefined;
 }
 
 interface Dashboard {
@@ -151,7 +100,16 @@ describe("admin duplicate dashboard", () => {
   });
 
   test("similar, exact, all, and intentional filters return the right groups", async () => {
-    const { cookie } = await createCookie("admin");
+    const { cookie } = await createSessionCookie("admin");
+
+    // Valid compressed Chromaprints. Similar A/B differ by one bit (~0.998),
+    // Different A/B differ by 16 bits per subfingerprint (~0.5).
+    const similarBase = Array.from({ length: 20 }, (_, i) => 0x11110000 + i);
+    const similarNear = [...similarBase];
+    similarNear[5] = (similarNear[5]! ^ 1) >>> 0;
+    const differentA = Array.from({ length: 20 }, (_, i) => 0x22220000 + i);
+    const differentB = Array.from({ length: 20 }, (_, i) => 0xeeee0000 + i);
+
     await createTrackWithAudio({
       title: "Exact A",
       contentHash: EXACT_HASH,
@@ -165,22 +123,22 @@ describe("admin duplicate dashboard", () => {
     await createTrackWithAudio({
       title: "Similar A",
       contentHash: "similar-hash-a",
-      audioFingerprint: "0123456789",
+      audioFingerprint: compressChromaprint(similarBase),
     });
     await createTrackWithAudio({
       title: "Similar B",
       contentHash: "similar-hash-b",
-      audioFingerprint: "012345678X",
+      audioFingerprint: compressChromaprint(similarNear),
     });
     await createTrackWithAudio({
       title: "Different A",
       contentHash: "different-hash-a",
-      audioFingerprint: "aaaaaaaaaa",
+      audioFingerprint: compressChromaprint(differentA),
     });
     await createTrackWithAudio({
       title: "Different B",
       contentHash: "different-hash-b",
-      audioFingerprint: "aaaaaaXXXX",
+      audioFingerprint: compressChromaprint(differentB),
     });
 
     const exact = unwrap<Dashboard>(await loadDashboard(cookie, "exact"));
@@ -213,7 +171,7 @@ describe("admin duplicate dashboard", () => {
   });
 
   test("marking a group intentional hides it from the default list and updates stats", async () => {
-    const { cookie } = await createCookie("admin");
+    const { cookie } = await createSessionCookie("admin");
     const first = await createTrackWithAudio({
       title: "Keep A",
       contentHash: EXACT_HASH,
@@ -258,7 +216,7 @@ describe("admin duplicate dashboard", () => {
   });
 
   test("the page action round-trips a similar group into the intentional filter", async () => {
-    const { cookie } = await createCookie("admin");
+    const { cookie } = await createSessionCookie("admin");
     await createTrackWithAudio({
       title: "Near A",
       contentHash: "near-a",
@@ -293,7 +251,7 @@ describe("admin duplicate dashboard", () => {
   });
 
   test("non-admins cannot mark a group intentional", async () => {
-    const { cookie } = await createCookie();
+    const { cookie } = await createSessionCookie();
     let status: number | undefined;
     try {
       await action({

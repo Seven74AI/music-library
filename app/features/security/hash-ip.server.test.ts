@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
-import { DEV_IP_HASH_SALT, getIpHashSalt, hashIP, hashRequestIp } from "./hash-ip.server.ts";
+import {
+  DEV_IP_HASH_SALT,
+  getClientIp,
+  getIpHashSalt,
+  hashIP,
+  hashRequestIp,
+} from "./hash-ip.server.ts";
 
 describe("hashIP", () => {
   test("same IP and salt always yield the same hash", () => {
@@ -33,5 +39,36 @@ describe("hashIP", () => {
     expect(hash).toBe(hashIP("198.51.100.23", DEV_IP_HASH_SALT));
     expect(hash).not.toContain("198.51.100.23");
     expect(getIpHashSalt().length).toBeGreaterThan(0);
+  });
+});
+
+describe("getClientIp", () => {
+  test("prefers fly-client-ip over a spoofed cf-connecting-ip header", () => {
+    const request = new Request("http://localhost/login", {
+      headers: {
+        "cf-connecting-ip": "203.0.113.66",
+        "fly-client-ip": "198.51.100.23",
+      },
+    });
+    expect(getClientIp(request)).toBe("198.51.100.23");
+  });
+
+  test("returns null when only cf-connecting-ip is present (untrusted)", () => {
+    const request = new Request("http://localhost/login", {
+      headers: { "cf-connecting-ip": "203.0.113.66" },
+    });
+    expect(getClientIp(request)).toBeNull();
+  });
+
+  test("returns null for a client-supplied x-forwarded-for (untrusted)", () => {
+    const request = new Request("http://localhost/login", {
+      headers: { "x-forwarded-for": "198.51.100.23, 10.0.0.1" },
+    });
+    expect(getClientIp(request)).toBeNull();
+  });
+
+  test("returns null when no trusted header is present", () => {
+    const request = new Request("http://localhost/login");
+    expect(getClientIp(request)).toBeNull();
   });
 });

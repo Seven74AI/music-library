@@ -140,6 +140,7 @@ test.describe("Offline mode", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: `audio/${track.id}.mp3`,
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -197,7 +198,7 @@ test.describe("Offline mode", () => {
     await page.goto("/library", { timeout: 30000 });
     await page.waitForLoadState("domcontentloaded", { timeout: 15000 });
 
-    const trackRow = page.getByRole("gridcell", {
+    const trackRow = page.getByRole("listitem", {
       name: /Offline Playback Track by Offline Artist/i,
     });
     await trackRow.scrollIntoViewIfNeeded();
@@ -208,7 +209,7 @@ test.describe("Offline mode", () => {
 
     // Click the track to play it while offline
     await page
-      .getByRole("gridcell", {
+      .getByRole("listitem", {
         name: /Offline Playback Track by Offline Artist/i,
       })
       .click();

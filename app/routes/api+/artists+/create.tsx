@@ -2,16 +2,13 @@ import { data } from "react-router";
 import { z } from "zod";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/create.ts";
 
 const CreateArtistSchema = z.object({
   name: z.string().min(1, "Artist name is required").max(255),
 });
-
-function normalizeArtistName(name: string): string {
-  return name.toLowerCase().trim();
-}
 
 export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
@@ -39,7 +36,12 @@ export async function action({ request }: Route.ActionArgs) {
 
   const normalizedName = normalizeArtistName(result.data.name);
 
-  // Check if artist already exists
+  // Soft duplicate guard. Duplicate artists are a supported state (ADR-034
+  // duplicate-detection + merge workflow), so `Artist.normalizedName` is
+  // deliberately NOT unique (see migration
+  // `20260927010000_remove_unique_constraints_for_duplicates`). This check is
+  // best-effort UX to avoid obvious re-creation; a concurrent create may still
+  // produce a duplicate, which the merge tool reconciles.
   const existingArtist = await prisma.artist.findFirst({
     where: { normalizedName },
   });

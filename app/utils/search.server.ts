@@ -222,19 +222,19 @@ export async function searchTracks(
   const curT = cur?.t ?? null;
 
   const prefixPattern = `${escapeLikeLiterals(normalizedQuery)}%`;
-  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
 
-  const escapedUserId = userId ? userId.replace(/'/g, "''") : null;
   const userTrackJoin =
-    escapedUserId && scope === "library"
-      ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = '${escapedUserId}' AND ut."isActive" = true`
+    userId && scope === "library"
+      ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = ? AND ut."isActive" = true`
       : "";
 
   // Personal Play Boost (ADR-028): load/cache lifetime play_completed counts for
   // the current user, then subtract a bounded boost from FTS rank (lower = better).
   // Logged-out path skips this — relevance-only ordering.
   const playCounts = userId ? await getLifetimePlayCompletedCounts(userId) : null;
-  const playBoostExpr = playCounts ? personalPlayBoostCaseSql(playCounts) : "0";
+  const playBoostExpr = playCounts
+    ? personalPlayBoostCaseSql(playCounts)
+    : { sql: "0", params: [] as unknown[] };
 
   const cursorFilter = curT
     ? cursorClause(curT, "relevance_rank", "fts_rank", "t.title", "t.id")
@@ -272,38 +272,39 @@ export async function searchTracks(
 				WHEN LOWER(t.title) LIKE ? ESCAPE '\\' THEN 2
 				ELSE 3
 			END as relevance_rank,
-			(tracks_fts.rank - (${playBoostExpr})) as fts_rank
+			(tracks_fts.rank - (${playBoostExpr.sql})) as fts_rank
 		FROM tracks_fts
 		JOIN "Track" t ON tracks_fts.track_id = t.id
 		JOIN "Artist" a ON t."artistId" = a.id
 		LEFT JOIN "Album" alb ON t."albumId" = alb.id
 		${userTrackJoin}
-		WHERE tracks_fts MATCH '${sqlEscapedFtsQuery}'${cursorFilter.sql}
+		WHERE tracks_fts MATCH ?${cursorFilter.sql}
 		ORDER BY relevance_rank, fts_rank, t.title
 		LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ...playBoostExpr.params,
+    ...(userId && scope === "library" ? [userId] : []),
+    ftsQuery,
     ...cursorFilter.params,
     limit + 1,
   );
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
-  const tracks = rawResults.map(
-    (row): TrackSearchResult => ({
-      type: "track",
-      id: row.id,
-      title: row.title,
-      artistName: row.artist_name,
-      artistId: row.artist_id,
-      albumName: row.album_name || null,
-      albumId: row.album_id || null,
-      duration: row.duration,
-      coverImageId: row.coverImageId,
-      serviceId: row.serviceId,
-      relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
-    }),
-  );
+  const tracks = rawResults.map((row): TrackSearchResult => ({
+    type: "track",
+    id: row.id,
+    title: row.title,
+    artistName: row.artist_name,
+    artistId: row.artist_id,
+    albumName: row.album_name || null,
+    albumId: row.album_id || null,
+    duration: row.duration,
+    coverImageId: row.coverImageId,
+    serviceId: row.serviceId,
+    relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
+  }));
 
   const enrichedTracks = await enrichTrackSearchResults(tracks, userId);
 
@@ -347,11 +348,10 @@ export async function searchAlbums(
   const curA = cur?.a ?? null;
 
   const prefixPattern = `${escapeLikeLiterals(normalizedQuery)}%`;
-  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
 
   const albumUserJoin =
     userId && scope === "library"
-      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."albumId" = alb.id AND ut2."userId" = '${userId.replace(/'/g, "''")}' AND ut2."isActive" = true)`
+      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."albumId" = alb.id AND ut2."userId" = ? AND ut2."isActive" = true)`
       : "";
 
   const cursorFilter = curA
@@ -388,29 +388,29 @@ export async function searchAlbums(
 		FROM albums_fts
 		JOIN "Album" alb ON albums_fts.album_id = alb.id
 		JOIN "Artist" a ON alb."artistId" = a.id
-		WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'${albumUserJoin}${cursorFilter.sql}
+		WHERE albums_fts MATCH ?${albumUserJoin}${cursorFilter.sql}
 		ORDER BY relevance_rank, fts_rank, alb.name
 		LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ftsQuery,
+    ...(userId && scope === "library" ? [userId] : []),
     ...cursorFilter.params,
     limit + 1,
   );
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
-  const albums = rawResults.map(
-    (row): AlbumSearchResult => ({
-      type: "album",
-      id: row.id,
-      name: row.name,
-      artistName: row.artist_name,
-      artistId: row.artist_id,
-      year: row.year,
-      coverImageId: row.coverImageId,
-      relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
-    }),
-  );
+  const albums = rawResults.map((row): AlbumSearchResult => ({
+    type: "album",
+    id: row.id,
+    name: row.name,
+    artistName: row.artist_name,
+    artistId: row.artist_id,
+    year: row.year,
+    coverImageId: row.coverImageId,
+    relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
+  }));
 
   const lastRow = rawResults[rawResults.length - 1];
   const newA = hasNext && lastRow ? lastCursorTuple(lastRow, "name") : null;
@@ -452,11 +452,10 @@ export async function searchArtists(
   const curAr = cur?.ar ?? null;
 
   const prefixPattern = `${escapeLikeLiterals(normalizedQuery)}%`;
-  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
 
   const artistUserJoin =
     userId && scope === "library"
-      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."artistId" = a.id AND ut2."userId" = '${userId.replace(/'/g, "''")}' AND ut2."isActive" = true)`
+      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."artistId" = a.id AND ut2."userId" = ? AND ut2."isActive" = true)`
       : "";
 
   const cursorFilter = curAr
@@ -486,26 +485,26 @@ export async function searchArtists(
 			artists_fts.rank as fts_rank
 		FROM artists_fts
 		JOIN "Artist" a ON artists_fts.artist_id = a.id
-		WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'${artistUserJoin}${cursorFilter.sql}
+		WHERE artists_fts MATCH ?${artistUserJoin}${cursorFilter.sql}
 		ORDER BY relevance_rank, fts_rank, a.name
 		LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ftsQuery,
+    ...(userId && scope === "library" ? [userId] : []),
     ...cursorFilter.params,
     limit + 1,
   );
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
-  const artists = rawResults.map(
-    (row): ArtistSearchResult => ({
-      type: "artist",
-      id: row.id,
-      name: row.name,
-      genre: row.genre,
-      relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
-    }),
-  );
+  const artists = rawResults.map((row): ArtistSearchResult => ({
+    type: "artist",
+    id: row.id,
+    name: row.name,
+    genre: row.genre,
+    relevance: Number(row.relevance_rank) * 1000 + Number(row.fts_rank),
+  }));
 
   const lastRow = rawResults[rawResults.length - 1];
   const newAr = hasNext && lastRow ? lastCursorTuple(lastRow, "name") : null;
@@ -573,10 +572,10 @@ export async function searchPlaylists(
 			'playlist' as type,
 			up.id,
 			up.title as name,
-			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as track_count,
+			COALESCE(uptc.cnt, 0) as track_count,
 			u.name as owner_name,
 			up.description,
-			(SELECT COUNT(*) FROM "UserPlaylistTrack" upt WHERE upt."playlistId" = up.id) as item_count,
+			COALESCE(uptc.cnt, 0) as item_count,
 			NULL as thumbnail_url,
 			CASE 
 				WHEN LOWER(up.title) = ? THEN 1
@@ -586,6 +585,9 @@ export async function searchPlaylists(
 			0 as fts_rank
 		FROM "UserPlaylist" up
 		JOIN "User" u ON up."ownerId" = u.id
+		LEFT JOIN (
+			SELECT "playlistId", COUNT(*) as cnt FROM "UserPlaylistTrack" GROUP BY "playlistId"
+		) uptc ON uptc."playlistId" = up.id
 		WHERE up."ownerId" = ?
 		AND LOWER(up.title) LIKE ? ESCAPE '\\'${cursorFilter.sql}
 		ORDER BY relevance_rank, up.title
@@ -600,19 +602,17 @@ export async function searchPlaylists(
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
-  const playlists = rawResults.map(
-    (row): PlaylistSearchResult => ({
-      type: "playlist",
-      id: row.id,
-      name: row.name,
-      trackCount: Number(row.track_count),
-      ownerName: row.owner_name,
-      description: row.description,
-      itemCount: Number(row.item_count),
-      thumbnailUrl: row.thumbnail_url,
-      relevance: Number(row.relevance_rank),
-    }),
-  );
+  const playlists = rawResults.map((row): PlaylistSearchResult => ({
+    type: "playlist",
+    id: row.id,
+    name: row.name,
+    trackCount: Number(row.track_count),
+    ownerName: row.owner_name,
+    description: row.description,
+    itemCount: Number(row.item_count),
+    thumbnailUrl: row.thumbnail_url,
+    relevance: Number(row.relevance_rank),
+  }));
 
   const lastRow = rawResults[rawResults.length - 1];
   const newP = hasNext && lastRow ? lastCursorTuple(lastRow, "name") : null;

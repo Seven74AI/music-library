@@ -15,7 +15,18 @@ export const testPrisma = new PrismaClient({
     url: `file:${TEST_DATABASE_PATH}`,
   }),
 });
-void testPrisma.$connect();
+// Surface a connection failure as a clear test-setup error instead of an
+// unhandled rejection (fire-and-forget `$connect()` would reject silently).
+// Note: the handler logs and returns (no re-throw) so the promise returned by
+// `.catch()` resolves — re-throwing here would reject it unobserved and
+// recreate the very unhandled-rejection this guards against.
+testPrisma.$connect().catch((error: unknown) => {
+  console.error(
+    `Failed to connect to test database at ${TEST_DATABASE_PATH}. ` +
+      `Ensure the E2E test database is initialized (npm run test:e2e:run sets it up).`,
+    error,
+  );
+});
 
 export * from "./db-utils.ts";
 
@@ -157,7 +168,7 @@ export const test = base.extend<{
   insertNewTrack(
     options?: { title?: string; artist?: string },
     userId?: string,
-  ): Promise<{ id: string; title: string; artist: string }>;
+  ): Promise<{ id: string; title: string; artist: string; serviceId: string }>;
   insertNewPlaylist(
     options?: {
       title?: string;
@@ -304,6 +315,7 @@ export const test = base.extend<{
         id: track.id,
         title: track.title,
         artist: artist.name,
+        serviceId: track.serviceId,
       };
     });
     // Optimized cleanup - batch deletion
@@ -328,6 +340,10 @@ export const test = base.extend<{
       // Use YOUTUBE_SERVICE_ID from config
       const { YOUTUBE_SERVICE_ID } = await import("#app/config/youtube");
 
+      if (!userId) {
+        throw new Error("insertNewPlaylist requires a userId (ownerId has no valid fallback)");
+      }
+
       const playlist = await testPrisma.servicePlaylist.create({
         data: {
           serviceId: YOUTUBE_SERVICE_ID,
@@ -338,7 +354,7 @@ export const test = base.extend<{
           channelTitle: "Test Channel",
           publishedAt: new Date(),
           itemCount: options?.itemCount || 0,
-          ownerId: userId || "test-user",
+          ownerId: userId,
           isActive: true,
           lastSyncedAt: new Date(),
         },
@@ -393,27 +409,4 @@ export async function dismissOverlays(page: Page) {
   await dismissVisibleToasts(page);
 }
 
-/**
- * This allows you to wait for something (like an email to be available).
- *
- * It calls the callback every 50ms until it returns a value (and does not throw
- * an error). After the timeout, it will throw the last error that was thrown or
- * throw the error message provided as a fallback
- */
-export async function waitFor<ReturnValue>(
-  cb: () => ReturnValue | Promise<ReturnValue>,
-  { errorMessage, timeout = 5000 }: { errorMessage?: string; timeout?: number } = {},
-) {
-  const endTime = Date.now() + timeout;
-  let lastError: unknown = new Error(errorMessage);
-  while (Date.now() < endTime) {
-    try {
-      const response = await cb();
-      if (response) return response;
-    } catch (e: unknown) {
-      lastError = e;
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw lastError;
-}
+export { waitFor } from "./wait-for.ts";

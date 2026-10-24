@@ -10,13 +10,12 @@ import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { formatRoomRole } from "#app/components/party-room/guest-room-live-panel.tsx";
 import { RoomsHub } from "#app/components/party-room/rooms-hub.tsx";
 import { canAddTracks } from "#app/features/party-room/capabilities.ts";
+import { ROOM_STATUS } from "#app/features/party-room/constants.ts";
 import {
   isValidRoomCode,
   normalizeRoomCode,
-  parseRoomCodeInput as parseRoomCodeInputClient,
-} from "#app/features/party-room/code.ts";
-import { ROOM_STATUS } from "#app/features/party-room/constants.ts";
-import { parseRoomCodeInput } from "#app/features/party-room/codes.ts";
+  parseRoomCodeInput,
+} from "#app/features/party-room/codes.ts";
 import {
   resolveRoomParticipantByCode,
   type SeatedParticipant,
@@ -40,7 +39,7 @@ const ROOM_CODE_ALPHABET_COPY = "Codes use A–Z and 1–9, without 0, O, or I."
 function isInvalidRoomCode(raw: string): boolean {
   const trimmed = raw.trim();
   if (!trimmed) return false;
-  return !parseRoomCodeInput(trimmed) && !parseRoomCodeInputClient(trimmed);
+  return !parseRoomCodeInput(trimmed);
 }
 
 type GuestLoaderData = {
@@ -75,7 +74,7 @@ type UserLoaderData = {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const raw = params.code ?? "";
-  const code = parseRoomCodeInput(raw) ?? parseRoomCodeInputClient(raw);
+  const code = parseRoomCodeInput(raw);
   const userId = await resolveOptionalUserId(request);
 
   if (!code) {

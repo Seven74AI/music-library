@@ -30,11 +30,7 @@ export function RecentlyPlayedStrip({ tracks }: RecentlyPlayedStripProps) {
         {tracks.map((item, index) => (
           <div key={item.track.id} className="snap-start">
             <HomeRecentTrackCard
-              userTrack={{
-                id: item.track.id,
-                createdAt: item.playedAt,
-                track: item.track,
-              }}
+              track={item.track}
               index={index}
               playableTracks={playableTracks}
             />

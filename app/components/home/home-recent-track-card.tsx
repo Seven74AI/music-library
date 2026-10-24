@@ -3,25 +3,23 @@ import { useAudioPlayer } from "#app/components/audio-player-provider.tsx";
 import { TrackThumbnail } from "#app/components/track-thumbnail.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { type FullTrack } from "#app/types/frontend/shared.ts";
-import { type HomeRecentTrack } from "#app/utils/home.server.ts";
 import { nowPlayingCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { cn } from "#app/utils/misc.tsx";
 
 type HomeRecentTrackCardProps = {
-  userTrack: HomeRecentTrack;
+  track: FullTrack;
   index: number;
   playableTracks: FullTrack[];
 };
 
 export function HomeRecentTrackCard({
-  userTrack,
+  track,
   index: _index,
   playableTracks,
 }: HomeRecentTrackCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const { currentTrack, playPlaylist } = useAudioPlayer();
-  const track = userTrack.track;
-  const hasAudio = track.audioFiles.length > 0;
+  const hasAudio = (track.audioFiles?.length ?? 0) > 0;
   const isPlaying = currentTrack?.id === track.id;
 
   const handlePlay = () => {

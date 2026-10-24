@@ -1,6 +1,7 @@
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { useRef } from "react";
 import { Link } from "react-router";
+import { toOfflineTrackListItemTrack } from "#app/components/offline/to-offline-track-list-item-track.ts";
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { type OfflineTrackSummary } from "#app/features/offline-storage/types.ts";
@@ -14,18 +15,6 @@ import {
 type OfflineLibraryViewProps = {
   tracks: OfflineTrackSummary[];
 };
-
-function toOfflineTrackListItemTrack(track: OfflineTrackSummary) {
-  return {
-    id: track.trackId,
-    title: track.title,
-    artist: { id: track.artistId, name: track.artistName },
-    duration: track.duration,
-    coverImage: track.coverObjectKey ? { objectKey: track.coverObjectKey } : null,
-    serviceUrl: null,
-    audioFiles: [{ id: track.trackId, format: "mp3" as const, objectKey: "" }],
-  };
-}
 
 function OfflineLibraryTrackItem({ track, index }: { track: OfflineTrackSummary; index: number }) {
   const trackData = toOfflineTrackListItemTrack(track);
@@ -67,8 +56,14 @@ export function OfflineLibraryView({ tracks }: OfflineLibraryViewProps) {
   }
 
   return (
-    <div ref={listRef} className="relative min-w-0 rounded-lg border">
+    <div
+      ref={listRef}
+      role="list"
+      aria-label="Downloaded tracks"
+      className="relative min-w-0 rounded-lg border"
+    >
       <div
+        role="presentation"
         style={{
           height: `${virtualizer.getTotalSize()}px`,
           width: "100%",
@@ -84,6 +79,7 @@ export function OfflineLibraryView({ tracks }: OfflineLibraryViewProps) {
               key={track.trackId}
               data-index={virtualItem.index}
               ref={virtualizer.measureElement}
+              role="presentation"
               style={{
                 position: "absolute",
                 top: 0,

@@ -391,7 +391,7 @@ describe("fetchQueueSpine", () => {
     });
 
     expect(prisma.track.findMany).toHaveBeenCalledWith({
-      where: { artistId: "artist-3" },
+      where: { artistId: "artist-3", audioFiles: { some: {} } },
       select: QUEUE_TRACK_SELECT,
       orderBy: { createdAt: "desc" },
     });
@@ -427,7 +427,7 @@ describe("fetchQueueSpine", () => {
     });
 
     expect(prisma.track.findMany).toHaveBeenCalledWith({
-      where: { albumId: "album-4" },
+      where: { albumId: "album-4", audioFiles: { some: {} } },
       select: QUEUE_TRACK_SELECT,
       orderBy: { createdAt: "asc" },
     });

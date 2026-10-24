@@ -4,13 +4,25 @@
 import { render, screen } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import { parseString } from "set-cookie-parser";
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
 import { loader as rootLoader } from "#app/root.tsx";
 import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
+import { createSessionCookie } from "#tests/api-admin-test-utils.ts";
 import { createUser } from "#tests/db-utils.ts";
-import { default as YoutubeCookiesRoute, loader } from "./youtube-cookies.tsx";
+import { default as YoutubeCookiesRoute, action, loader } from "./youtube-cookies.tsx";
+
+vi.mock("#app/features/audio-archive/youtube-cookie.server.ts", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("#app/features/audio-archive/youtube-cookie.server.ts")
+  >();
+  return {
+    ...actual,
+    writeCookies: vi.fn(),
+    readCookies: vi.fn(() => []),
+  };
+});
 
 // Helper to create an admin session for testing
 async function createAdminSession() {
@@ -130,4 +142,70 @@ test("The youtube-cookies admin page shows file input for upload", async () => {
   const buttons = screen.getAllByRole("button");
   expect(buttons.some((b) => b.textContent?.includes("Upload"))).toBeTruthy();
   expect(buttons.some((b) => b.textContent?.includes("Import"))).toBeTruthy();
+});
+
+test("loader denies non-admin users with 403", async () => {
+  const { cookie } = await createSessionCookie();
+  const request = new Request("http://localhost/admin/youtube-cookies", {
+    headers: { cookie },
+  });
+
+  await expect(
+    loader({ request, params: {}, context: {} as never } as never),
+  ).rejects.toMatchObject({
+    init: { status: 403 },
+    data: { requiredRole: "admin" },
+  });
+});
+
+test("action denies non-admin users with 403", async () => {
+  const { cookie } = await createSessionCookie();
+  const formData = new FormData();
+  formData.set("mode", "paste");
+  formData.set("cookieText", ".youtube.com\tTRUE\t/\tTRUE\t0\tSID\ttest");
+  const request = new Request("http://localhost/admin/youtube-cookies", {
+    method: "POST",
+    headers: { cookie },
+    body: formData,
+  });
+
+  await expect(
+    action({ request, params: {}, context: {} as never } as never),
+  ).rejects.toMatchObject({
+    init: { status: 403 },
+    data: { requiredRole: "admin" },
+  });
+});
+
+test("paste action records valid cookies and returns imported count", async () => {
+  const { cookie, userId } = await createSessionCookie("admin");
+  await prisma.youtubeCookie.deleteMany();
+
+  const formData = new FormData();
+  formData.set("mode", "paste");
+  formData.set(
+    "cookieText",
+    "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\ttest-token",
+  );
+  const request = new Request("http://localhost/admin/youtube-cookies", {
+    method: "POST",
+    headers: { cookie },
+    body: formData,
+  });
+
+  const response = await action({
+    request,
+    params: {},
+    context: {} as never,
+  } as never);
+  const body =
+    response && typeof response === "object" && "data" in response
+      ? (response as { data: { success: boolean; cookiesImported: number } }).data
+      : (response as { success: boolean; cookiesImported: number });
+
+  expect(body.success).toBe(true);
+  expect(body.cookiesImported).toBe(1);
+
+  const record = await prisma.youtubeCookie.findFirstOrThrow({ where: { valid: true } });
+  expect(record.updatedBy).toBe(userId);
 });

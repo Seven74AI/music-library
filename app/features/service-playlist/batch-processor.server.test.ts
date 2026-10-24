@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
+import { type Prisma } from "#prisma/client.js";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
 import { processTracksInBatches } from "./batch-processor.server";
 import { createYouTubeTrackSyncProcessor } from "./youtube-track-sync.server";
@@ -7,31 +8,34 @@ import { createYouTubeTrackSyncProcessor } from "./youtube-track-sync.server";
 function createTxMock() {
   const artistCreate = vi
     .fn()
-    .mockImplementation(({ data }: any) =>
+    .mockImplementation(({ data }: { data: { name: string } }) =>
       Promise.resolve({ id: `artist-${data.name}`, name: data.name }),
     );
-  return {
-    tx: {
-      track: {
-        findUnique: vi.fn().mockResolvedValue(null),
-        upsert: vi
-          .fn()
-          .mockImplementation(({ create }: any) => Promise.resolve({ id: "track-1", ...create })),
-      },
-      artist: {
-        findMany: vi.fn().mockResolvedValue([]),
-        findFirst: vi.fn().mockResolvedValue(null),
-        create: artistCreate,
-      },
-      servicePlaylistTrack: {
-        findUnique: vi.fn().mockResolvedValue(null),
-        upsert: vi.fn().mockResolvedValue({ id: "spt-1" }),
-      },
-      archiveJob: {
-        findMany: vi.fn().mockResolvedValue([]),
-        createMany: vi.fn().mockResolvedValue({ count: 0 }),
-      },
+  const tx = {
+    track: {
+      findMany: vi.fn().mockResolvedValue([]),
+      upsert: vi
+        .fn()
+        .mockImplementation(({ create }: { create: Record<string, unknown> }) =>
+          Promise.resolve({ id: "track-1", ...create }),
+        ),
     },
+    artist: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: artistCreate,
+    },
+    servicePlaylistTrack: {
+      findMany: vi.fn().mockResolvedValue([]),
+      upsert: vi.fn().mockResolvedValue({ id: "spt-1" }),
+    },
+    archiveJob: {
+      findMany: vi.fn().mockResolvedValue([]),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+  } as unknown as Prisma.TransactionClient;
+  return {
+    tx,
     artistCreate,
   };
 }

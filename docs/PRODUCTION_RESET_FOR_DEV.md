@@ -137,8 +137,10 @@ The `Command` field should be empty, meaning the machine is using the Dockerfile
 From your local machine, with production Tigris credentials available in `.env`:
 
 ```bash
-npm run reset-storage
+npm run reset-storage -- --force --bucket "$BUCKET_NAME"
 ```
+
+`--force` and `--bucket` are both required: `--bucket` must match `BUCKET_NAME` from `.env` (explicit confirmation you are targeting the intended bucket).
 
 ### 7. Create your account and restore admin access
 
@@ -190,7 +192,7 @@ fly machine restart <new-machine-id> --app [APP_NAME] --skip-health-checks
 # wait for migrations in logs
 fly logs --app [APP_NAME] --no-tail | tail -30
 
-npm run reset-storage
+npm run reset-storage -- --force --bucket "$BUCKET_NAME"
 
 # sign up again, then:
 fly ssh console --app [APP_NAME] -C "cd /myapp && npx tsx scripts/make-admin.ts <username>"

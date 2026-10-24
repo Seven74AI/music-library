@@ -1,4 +1,3 @@
-// @context7: React, Form Components
 import { useState } from "react";
 import { Field } from "#app/components/forms";
 import { Button } from "#app/components/ui/button";
@@ -35,18 +34,11 @@ interface MetadataEditorProps {
     error?: string;
   }>;
   onUpdate: (index: number, updates: Partial<FileMetadata>) => void;
-  onBulkUpdate?: (updates: Partial<FileMetadata>) => void;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function MetadataEditor({
-  files,
-  onUpdate,
-  onBulkUpdate: _onBulkUpdate,
-  onConfirm,
-  onCancel,
-}: MetadataEditorProps) {
+export function MetadataEditor({ files, onUpdate, onConfirm, onCancel }: MetadataEditorProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [bulkEditMode, setBulkEditMode] = useState(false);

@@ -12,7 +12,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp for YouTube audio downloading
-ADD https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp /usr/local/bin/yt-dlp
+# yt-dlp_linux is the standalone x64 binary (self-contained, no Python needed);
+# the un-suffixed `yt-dlp` artifact is a zipimport binary that requires Python,
+# which this slim base image does not install.
+ADD https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp_linux /usr/local/bin/yt-dlp
 RUN chmod a+rx /usr/local/bin/yt-dlp
 
 # Install all node_modules, including dev dependencies
@@ -78,12 +81,12 @@ ENV INTERNAL_PORT="8080"
 ENV PORT="8081"
 ENV NODE_ENV="production"
 # For WAL support: https://github.com/prisma/prisma-engines/issues/4675#issuecomment-1914383246
-ENV PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK = "1"
+ENV PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK="1"
 
 # add shortcut for connecting to database CLI
 RUN echo "#!/bin/sh\nset -x\nsqlite3 \$DATABASE_URL" > /usr/local/bin/database-cli && chmod +x /usr/local/bin/database-cli
 # and one for the cache database
-RUN echo "#!/bin/sh\nset -x\nsqlite3 \$CACHE_DATABASE_URL" > /usr/local/bin/cache-database-cli && chmod +x /usr/local/bin/cache-database-cli
+RUN echo "#!/bin/sh\nset -x\nsqlite3 \$CACHE_DATABASE_PATH" > /usr/local/bin/cache-database-cli && chmod +x /usr/local/bin/cache-database-cli
 
 WORKDIR /myapp
 

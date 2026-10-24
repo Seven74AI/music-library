@@ -71,6 +71,7 @@ test.describe("Music Library", () => {
       await testPrisma.trackAudioFile.create({
         data: {
           trackId: playableTrack.id,
+          serviceId: playableTrack.serviceId,
           objectKey: `audio/${playableTrack.id}.mp3`,
           format: "mp3",
           mimeType: "audio/mpeg",
@@ -210,6 +211,7 @@ test.describe("Music Library", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: playable.id,
+        serviceId: playable.serviceId,
         objectKey: "audio/test-filter.mp3",
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -245,6 +247,7 @@ test.describe("Music Library", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: `audio/${track.id}.mp3`,
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -296,6 +299,7 @@ test.describe("Music Library", () => {
     await testPrisma.trackAudioFile.create({
       data: {
         trackId: track.id,
+        serviceId: track.serviceId,
         objectKey: `audio/${track.id}.mp3`,
         format: "mp3",
         mimeType: "audio/mpeg",
@@ -386,6 +390,7 @@ test.describe("Music Library", () => {
       await testPrisma.trackAudioFile.create({
         data: {
           trackId: track.id,
+          serviceId: track.serviceId,
           objectKey: `audio/${track.id}.mp3`,
           format: "mp3",
           mimeType: "audio/mpeg",
@@ -406,7 +411,7 @@ test.describe("Music Library", () => {
         (response) => response.url().includes("/api/queue-spine") && response.status() === 200,
         { timeout: 15000 },
       ),
-      page.getByRole("gridcell", { name: /Queue Beta by Test Artist/i }).click(),
+      page.getByRole("listitem", { name: /Queue Beta by Test Artist/i }).click(),
     ]);
 
     const playerBar = page.getByTestId("player-desktop-bar");

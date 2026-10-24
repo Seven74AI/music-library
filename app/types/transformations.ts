@@ -70,7 +70,7 @@ export function transformYouTubePlaylistItemToTrack(
   item: YouTubePlaylistItem,
   serviceId: string,
   artistId: string,
-): Omit<Prisma.TrackCreateInput, "artist"> & { artistId: string; thumbnailUrl?: string | null } {
+): Prisma.TrackUncheckedCreateInput & { thumbnailUrl?: string | null } {
   // thumbnailUrl is returned for downloading, but not saved to database
   // It will be downloaded and stored as CoverImage instead
   return {
@@ -80,7 +80,7 @@ export function transformYouTubePlaylistItemToTrack(
     // it from the downloaded audio file (see worker.server.ts).
     duration: null,
     externalId: item.snippet?.resourceId?.videoId || "",
-    service: { connect: { id: serviceId } },
+    serviceId,
     serviceUrl: item.snippet?.resourceId?.videoId
       ? `https://youtube.com/watch?v=${item.snippet.resourceId.videoId}`
       : null,

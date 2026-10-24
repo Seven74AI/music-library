@@ -801,3 +801,18 @@ test("showQuickAddToPlaylist opens playlist sheet directly on mobile", async () 
   expect(screen.getByRole("heading", { name: "Add to Playlist" })).toBeDefined();
   expect(screen.getByText("My Playlist")).toBeDefined();
 });
+
+test("listRole presentation omits row aria-label (outer listitem owns the name)", () => {
+  renderTrackListItem({ listRole: "presentation" });
+  const row = screen.getByRole("presentation");
+  expect(row.getAttribute("aria-label")).toBeNull();
+});
+
+test("listRole listitem exposes contextual row aria-label", () => {
+  renderTrackListItem({ listRole: "listitem", index: 2 });
+  expect(
+    screen.getByRole("listitem", {
+      name: "Track 3: Test Song by Test Artist",
+    }),
+  ).toBeDefined();
+});

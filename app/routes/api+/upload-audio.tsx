@@ -1,12 +1,23 @@
-// @context7: @mjackson/form-data-parser, @paralleldrive/cuid2, Prisma, Zod, React Router
 import { parseFormData } from "@mjackson/form-data-parser";
 import { createId } from "@paralleldrive/cuid2";
 import { data, type ActionFunctionArgs } from "react-router";
 import { LOCAL_SERVICE } from "#app/constants/services";
-import { persistTrackAudio } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
-import { getOrCreateArtistTx, extractArtistMetadata } from "#app/utils/artist-management.server";
+import {
+  prepareTrackAudioUpload,
+  createTrackAudioFile,
+} from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
+import {
+  getOrCreateArtistTx,
+  getOrCreateArtist,
+  extractArtistMetadata,
+} from "#app/utils/artist-management.server";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
-import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from "#app/utils/cover-management.server";
+import {
+  prepareCoverImageUpload,
+  createCoverImageInTx,
+  getOrCreateAlbumTx,
+  getOrCreateAlbum,
+} from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -104,14 +115,76 @@ export async function action({ request }: ActionFunctionArgs) {
     const trackId = createId();
     const fileId = createId();
 
-    // Create track and persist audio in transaction
+    // Upload the audio to Tigris OUTSIDE the database transaction. SQLite
+    // serializes writers, so holding the write lock across a network upload can
+    // trip the transaction timeout and roll back the DB writes after the object
+    // was already uploaded (leaving an orphaned Tigris object). The transaction
+    // below now contains only fast DB writes.
+    const preparedAudio = await prepareTrackAudioUpload({
+      trackId,
+      serviceName: LOCAL_SERVICE.NAME,
+      buffer,
+      metadata: extractedMetadata,
+      uploadedBy: userId,
+      serviceId: localService.id,
+      fileName: audioFile.name,
+      storageMetadata: {
+        title,
+        artist,
+        album: album || "",
+        uploadedBy: userId,
+      },
+    });
+
+    // Log duplicate detection
+    if (preparedAudio.isDuplicate && preparedAudio.duplicateTrack) {
+      console.warn(
+        `⚠️  Duplicate: "${audioFile.name}" has same audio as "${preparedAudio.duplicateTrack.title}" by ${preparedAudio.duplicateTrack.artist.name}`,
+      );
+    }
+
+    const artistMetadata = extractArtistMetadata(extractedMetadata);
+    const albumArtist = extractedMetadata.albumArtist || artist;
+
+    // Resolve the album OUTSIDE the transaction so the cover-image dedup check can
+    // read its current cover. getOrCreateArtist/getOrCreateAlbum use the global
+    // client; the transaction below re-resolves them idempotently.
+    let resolvedAlbumId: string | null = null;
+    if (album) {
+      const albumArtistRecord = await getOrCreateArtist(albumArtist, artistMetadata);
+      const resolvedAlbum = await getOrCreateAlbum(
+        albumArtistRecord.id,
+        album,
+        extractedMetadata.year || null,
+      );
+      resolvedAlbumId = resolvedAlbum?.id ?? null;
+    }
+
+    // Prepare the cover image OUTSIDE the transaction (sharp + Tigris upload).
+    // SQLite serializes writers, so holding the write lock across sharp + a network
+    // upload can trip the transaction timeout and roll back DB writes after the
+    // object was already uploaded (leaving an orphaned Tigris object).
+    let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+    if (extractedMetadata.coverImage) {
+      try {
+        preparedCover = await prepareCoverImageUpload({
+          imageBuffer: extractedMetadata.coverImage.data,
+          albumId: resolvedAlbumId,
+          trackId,
+          format: extractedMetadata.coverImage.format,
+        });
+      } catch (error) {
+        console.warn(`⚠️  Failed to upload cover image for ${audioFile.name}:`, error);
+        // Continue without cover image
+      }
+    }
+
+    // Create track and TrackAudioFile rows in a short transaction
     const result = await prisma.$transaction(async (tx) => {
       // Get or create artist
-      const artistMetadata = extractArtistMetadata(extractedMetadata);
       const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata);
 
       // Get or create album (using artistId)
-      const albumArtist = extractedMetadata.albumArtist || artist;
       const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata);
       const albumRecord = await getOrCreateAlbumTx(
         tx,
@@ -120,20 +193,14 @@ export async function action({ request }: ActionFunctionArgs) {
         extractedMetadata.year || null,
       );
 
-      // Upload cover image if present (with deduplication)
-      // Note: File upload happens outside transaction, but DB operations are in transaction
+      // Associate the cover image (DB-only) — the upload already happened above.
       let coverImageId: string | null = null;
-      if (extractedMetadata.coverImage) {
+      if (preparedCover) {
         try {
-          const coverImage = await findOrCreateCoverImageTx(tx, {
-            imageBuffer: extractedMetadata.coverImage.data,
-            albumId: albumRecord?.id || null,
-            trackId,
-            format: extractedMetadata.coverImage.format,
-          });
+          const coverImage = await createCoverImageInTx(tx, preparedCover, albumRecord?.id ?? null);
           coverImageId = coverImage.id;
         } catch (error) {
-          console.warn(`⚠️  Failed to upload cover image for ${audioFile.name}:`, error);
+          console.warn(`⚠️  Failed to create cover image for ${audioFile.name}:`, error);
           // Continue without cover image
         }
       }
@@ -154,29 +221,19 @@ export async function action({ request }: ActionFunctionArgs) {
         },
       });
 
-      const persistResult = await persistTrackAudio({
-        trackId: track.id,
-        serviceName: LOCAL_SERVICE.NAME,
-        buffer,
-        metadata: extractedMetadata,
-        uploadedBy: userId,
-        serviceId: localService.id,
-        fileName: audioFile.name,
-        storageMetadata: {
-          title,
-          artist,
-          album: album || "",
+      // Create the TrackAudioFile row (the upload already happened above)
+      await createTrackAudioFile(
+        {
+          trackId: track.id,
+          serviceId: localService.id,
+          fileName: audioFile.name,
+          metadata: extractedMetadata,
           uploadedBy: userId,
+          buffer,
         },
+        preparedAudio,
         tx,
-      });
-
-      // Log duplicate detection
-      if (persistResult.isDuplicate && persistResult.duplicateTrack) {
-        console.warn(
-          `⚠️  Duplicate: "${audioFile.name}" has same audio as "${persistResult.duplicateTrack.title}" by ${persistResult.duplicateTrack.artist.name}`,
-        );
-      }
+      );
 
       // Add track to user's library
       await tx.userTrack.create({
@@ -186,7 +243,7 @@ export async function action({ request }: ActionFunctionArgs) {
         },
       });
 
-      return { track, audioFile: persistResult.audioFile };
+      return { track };
     });
 
     // Fetch artist name for response

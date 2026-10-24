@@ -24,7 +24,6 @@ export interface UseLockResult {
 }
 
 const OTHER_LOCK_POLL_MS = 4000;
-const releaseInFlight = new Set<string>();
 
 /**
  * Hook to manage entity locks.
@@ -57,6 +56,7 @@ export function useLock(
   const ownedEntityRef = useRef<{ type: EntityType; id: string } | null>(null);
   const myUserIdRef = useRef<string | null>(null);
   const acquireGen = useRef(0);
+  const releaseInFlightRef = useRef(new Set<string>());
 
   const [lock, setLock] = useState<LockInfo | null>(null);
   const [isLockedByOther, setIsLockedByOther] = useState(false);
@@ -80,8 +80,8 @@ export function useLock(
       ownedEntityRef.current = null;
     }
     const key = `${type}:${id}`;
-    if (releaseInFlight.has(key)) return;
-    releaseInFlight.add(key);
+    if (releaseInFlightRef.current.has(key)) return;
+    releaseInFlightRef.current.add(key);
     void fetch("/api/locks/release", {
       method: "POST",
       keepalive: true,
@@ -92,7 +92,7 @@ export function useLock(
         console.error("Failed to release lock:", err);
       })
       .finally(() => {
-        releaseInFlight.delete(key);
+        releaseInFlightRef.current.delete(key);
       });
   }, []);
 

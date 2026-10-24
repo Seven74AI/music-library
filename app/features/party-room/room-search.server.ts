@@ -33,16 +33,39 @@ type HasAudioCursor = {
   ar: CursorSortTuple | null;
 };
 
-function decodeCursor(cursor: string): HasAudioCursor {
-  const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<
-    string,
-    unknown
-  >;
-  return {
-    t: (parsed.t as CursorSortTuple) ?? null,
-    a: (parsed.a as CursorSortTuple) ?? null,
-    ar: (parsed.ar as CursorSortTuple) ?? null,
-  };
+function isCursorSortTuple(value: unknown): value is CursorSortTuple {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.rk === "number" &&
+    typeof v.fr === "number" &&
+    typeof v.n === "string" &&
+    typeof v.id === "string"
+  );
+}
+
+/**
+ * Decodes the user-supplied cursor query param. Malformed input — invalid base64,
+ * invalid JSON, a non-object payload, or a non-tuple shape — yields `null` instead
+ * of throwing. The route layer already maps malformed cursors to a 400 via
+ * CursorSchema; this guard guarantees no unhandled 500 if that validation is ever
+ * bypassed or the shape is wrong.
+ */
+function decodeCursor(cursor: string): HasAudioCursor | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<
+      string,
+      unknown
+    >;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    return {
+      t: isCursorSortTuple(parsed.t) ? parsed.t : null,
+      a: isCursorSortTuple(parsed.a) ? parsed.a : null,
+      ar: isCursorSortTuple(parsed.ar) ? parsed.ar : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function encodeCursor(c: HasAudioCursor): string {
@@ -129,7 +152,6 @@ async function searchHasAudioTracks(
   const cur = cursor ? decodeCursor(cursor) : null;
   const curT = cur?.t ?? null;
   const prefixPattern = `${escapeLikeLiterals(normalizedQuery)}%`;
-  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
   const cursorFilter = curT
     ? cursorClause(curT, "relevance_rank", "fts_rank", "t.title", "t.id")
     : { sql: "", params: [] as unknown[] };
@@ -171,13 +193,14 @@ async function searchHasAudioTracks(
     JOIN "Track" t ON tracks_fts.track_id = t.id
     JOIN "Artist" a ON t."artistId" = a.id
     LEFT JOIN "Album" alb ON t."albumId" = alb.id
-    WHERE tracks_fts MATCH '${sqlEscapedFtsQuery}'
+    WHERE tracks_fts MATCH ?
       AND ${HAS_AUDIO_TRACK}
       ${cursorFilter.sql}
     ORDER BY relevance_rank, fts_rank, t.title
     LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ftsQuery,
     ...cursorFilter.params,
     limit + 1,
   );
@@ -246,7 +269,6 @@ async function searchHasAudioAlbums(
   const cur = cursor ? decodeCursor(cursor) : null;
   const curA = cur?.a ?? null;
   const prefixPattern = `${escapeLikeLiterals(normalizedQuery)}%`;
-  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
   const cursorFilter = curA
     ? cursorClause(curA, "relevance_rank", "fts_rank", "alb.name", "alb.id")
     : { sql: "", params: [] as unknown[] };
@@ -281,13 +303,14 @@ async function searchHasAudioAlbums(
     FROM albums_fts
     JOIN "Album" alb ON albums_fts.album_id = alb.id
     JOIN "Artist" a ON alb."artistId" = a.id
-    WHERE albums_fts MATCH '${sqlEscapedFtsQuery}'
+    WHERE albums_fts MATCH ?
       AND ${HAS_AUDIO_ALBUM}
       ${cursorFilter.sql}
     ORDER BY relevance_rank, fts_rank, alb.name
     LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ftsQuery,
     ...cursorFilter.params,
     limit + 1,
   );
@@ -337,7 +360,6 @@ async function searchHasAudioArtists(
   const cur = cursor ? decodeCursor(cursor) : null;
   const curAr = cur?.ar ?? null;
   const prefixPattern = `${escapeLikeLiterals(normalizedQuery)}%`;
-  const sqlEscapedFtsQuery = ftsQuery.replace(/'/g, "''");
   const cursorFilter = curAr
     ? cursorClause(curAr, "relevance_rank", "fts_rank", "a.name", "a.id")
     : { sql: "", params: [] as unknown[] };
@@ -365,13 +387,14 @@ async function searchHasAudioArtists(
       artists_fts.rank as fts_rank
     FROM artists_fts
     JOIN "Artist" a ON artists_fts.artist_id = a.id
-    WHERE artists_fts MATCH '${sqlEscapedFtsQuery}'
+    WHERE artists_fts MATCH ?
       AND ${HAS_AUDIO_ARTIST}
       ${cursorFilter.sql}
     ORDER BY relevance_rank, fts_rank, a.name
     LIMIT ?`,
     normalizedQuery,
     prefixPattern,
+    ftsQuery,
     ...cursorFilter.params,
     limit + 1,
   );
@@ -445,11 +468,12 @@ export async function searchRoomCatalog(options: {
     [...tracks.results, ...albums.results, ...artists.results],
     limit + 1,
   );
-  const hasNext = merged.length > limit;
-
+  // Mixed search has no cursor: the merged page cannot be advanced, so there is
+  // never a second page. hasNext is false rather than advertising a page the
+  // client cannot fetch.
   return {
     results: merged.slice(0, limit),
-    pagination: { limit, hasNext, nextCursor: null },
+    pagination: { limit, hasNext: false, nextCursor: null },
   };
 }
 

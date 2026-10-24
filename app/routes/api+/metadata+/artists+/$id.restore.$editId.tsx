@@ -2,7 +2,7 @@ import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
-import { normalizeArtistName } from "#app/utils/artist-management.server.ts";
+import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/$id.restore.$editId.ts";
 

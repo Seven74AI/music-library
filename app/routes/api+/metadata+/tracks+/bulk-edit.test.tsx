@@ -11,16 +11,12 @@ vi.mock("#app/utils/db.server.ts", () => ({
   prisma: {
     track: {
       findMany: vi.fn(),
-      update: vi.fn(),
     },
     artist: {
       findUnique: vi.fn(),
     },
     album: {
       findUnique: vi.fn(),
-    },
-    trackEdit: {
-      create: vi.fn(),
     },
     genre: {
       findMany: vi.fn(),
@@ -50,6 +46,31 @@ async function expectReturnedError(body: unknown, status: number, error: string)
   expect(response.init?.status).toBe(status);
   expect(response.data.error).toBe(error);
   return response;
+}
+
+/**
+ * Build a transaction mock exposing the batched write surface used by the
+ * action: trackEdit.createMany, track.updateMany and (for genre changes)
+ * $executeRaw.
+ */
+function makeTxMock(
+  overrides: {
+    executeRaw?: ReturnType<typeof vi.fn>;
+  } = {},
+) {
+  const mockTrackEditCreateMany = vi.fn().mockResolvedValue({ count: 1 });
+  const mockTrackUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+  const mockExecuteRaw = overrides.executeRaw ?? vi.fn().mockResolvedValue(0);
+
+  vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+    return callback({
+      trackEdit: { createMany: mockTrackEditCreateMany },
+      track: { updateMany: mockTrackUpdateMany },
+      $executeRaw: mockExecuteRaw,
+    });
+  });
+
+  return { mockTrackEditCreateMany, mockTrackUpdateMany, mockExecuteRaw };
 }
 
 describe("POST /api/metadata/tracks/bulk-edit", () => {
@@ -263,20 +284,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     ];
 
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: {
-          create: vi.fn().mockResolvedValue({}),
-        },
-        track: {
-          update: vi.fn().mockResolvedValue({
-            id: "track-1",
-            title: "Track 1",
-            artistId: "artist-1",
-          }),
-        },
-      });
-    });
+    makeTxMock();
 
     const body = {
       trackIds: ["track-1"],
@@ -291,7 +299,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     expect(response.data.updated).toBe(1);
   });
 
-  test("writes the selected album id onto every track", async () => {
+  test("writes the selected album id onto every track in a single updateMany", async () => {
     const mockTracks = [
       {
         id: "track-1",
@@ -338,24 +346,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
     vi.mocked(prisma.album.findUnique).mockResolvedValue({ id: "album-2" } as never);
 
-    const mockTrackUpdate = vi
-      .fn()
-      .mockImplementation(async ({ where }: { where: { id: string } }) => ({
-        id: where.id,
-        title: where.id,
-        artistId: "artist-1",
-      }));
-
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: {
-          create: vi.fn().mockResolvedValue({}),
-        },
-        track: {
-          update: mockTrackUpdate,
-        },
-      });
-    });
+    const { mockTrackUpdateMany } = makeTxMock();
 
     const response: any = await action(
       makeRequest({
@@ -367,18 +358,11 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     expect(response.data.success).toBe(true);
     expect(response.data.updatedCount).toBe(2);
-    expect(mockTrackUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "track-1" },
-        data: { albumId: "album-2" },
-      }),
-    );
-    expect(mockTrackUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "track-2" },
-        data: { albumId: "album-2" },
-      }),
-    );
+    expect(mockTrackUpdateMany).toHaveBeenCalledTimes(1);
+    expect(mockTrackUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["track-1", "track-2"] } },
+      data: { albumId: "album-2" },
+    });
   });
 
   test("successfully updates multiple tracks in a transaction", async () => {
@@ -426,22 +410,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
     vi.mocked(prisma.artist.findUnique).mockResolvedValue({ id: "artist-2" } as never);
 
-    const mockTrackEditCreate = vi.fn().mockResolvedValue({});
-    const mockTrackUpdate = vi.fn();
-    mockTrackUpdate
-      .mockResolvedValueOnce({ id: "track-1", title: "Track 1", artistId: "artist-2" })
-      .mockResolvedValueOnce({ id: "track-2", title: "Track 2", artistId: "artist-2" });
-
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: {
-          create: mockTrackEditCreate,
-        },
-        track: {
-          update: mockTrackUpdate,
-        },
-      });
-    });
+    const { mockTrackEditCreateMany, mockTrackUpdateMany } = makeTxMock();
 
     const body = {
       trackIds: ["track-1", "track-2"],
@@ -453,11 +422,11 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     expect(response.data.success).toBe(true);
     expect(response.data.updatedCount).toBe(2);
-    expect(mockTrackEditCreate).toHaveBeenCalledTimes(2);
-    expect(mockTrackUpdate).toHaveBeenCalledTimes(2);
+    expect(mockTrackEditCreateMany).toHaveBeenCalledTimes(1);
+    expect(mockTrackUpdateMany).toHaveBeenCalledTimes(1);
   });
 
-  test("creates edit history entry for each track", async () => {
+  test("creates a single batched edit-history entry for each track", async () => {
     const mockTracks = [
       {
         id: "track-1",
@@ -483,23 +452,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
 
-    const mockTrackEditCreate = vi.fn().mockResolvedValue({});
-    const mockTrackUpdate = vi.fn().mockResolvedValue({
-      id: "track-1",
-      title: "Updated Track",
-      artistId: "artist-1",
-    });
-
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: {
-          create: mockTrackEditCreate,
-        },
-        track: {
-          update: mockTrackUpdate,
-        },
-      });
-    });
+    const { mockTrackEditCreateMany } = makeTxMock();
 
     const body = {
       trackIds: ["track-1"],
@@ -509,33 +462,35 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     await action(makeRequest(body) as never);
 
-    expect(mockTrackEditCreate).toHaveBeenCalledWith({
-      data: {
-        trackId: "track-1",
-        editedBy: "user-1",
-        comment: "Fixing title",
-        title: "Track 1",
-        artistId: "artist-1",
-        albumId: null,
-        genre: "Rock",
-        genreIds: JSON.stringify(["genre-rock"]),
-        year: 2020,
-        trackNumber: 1,
-        albumArtist: null,
-        bpm: null,
-        label: null,
-        isrc: null,
-        releaseDate: null,
-        originalDate: null,
-        originalYear: null,
-        totalTracks: null,
-        totalDiscs: null,
-        lyrics: null,
-      },
+    expect(mockTrackEditCreateMany).toHaveBeenCalledWith({
+      data: [
+        {
+          trackId: "track-1",
+          editedBy: "user-1",
+          comment: "Fixing title",
+          title: "Track 1",
+          artistId: "artist-1",
+          albumId: null,
+          genre: "Rock",
+          genreIds: JSON.stringify(["genre-rock"]),
+          year: 2020,
+          trackNumber: 1,
+          albumArtist: null,
+          bpm: null,
+          label: null,
+          isrc: null,
+          releaseDate: null,
+          originalDate: null,
+          originalYear: null,
+          totalTracks: null,
+          totalDiscs: null,
+          lyrics: null,
+        },
+      ],
     });
   });
 
-  test("performance: handles 100+ tracks", async () => {
+  test("performance: handles 100+ tracks with a single createMany + updateMany", async () => {
     const mockTracks = Array.from({ length: 150 }, (_, i) => ({
       id: `track-${i}`,
       title: `Track ${i}`,
@@ -558,30 +513,13 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
 
-    const mockTrackEditCreate = vi.fn().mockResolvedValue({});
-    const mockTrackUpdate = vi.fn().mockImplementation((args: any) => {
-      return Promise.resolve({
-        id: args.where.id,
-        title: "Updated Title",
-        artistId: "artist-1",
-      });
-    });
-
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: {
-          create: mockTrackEditCreate,
-        },
-        track: {
-          update: mockTrackUpdate,
-        },
-      });
-    });
+    const { mockTrackEditCreateMany, mockTrackUpdateMany } = makeTxMock();
 
     const body = {
       trackIds: mockTracks.map((t) => t.id),
       changes: { title: "Updated Title" },
       comment: "Bulk update 150 tracks",
+      overrideLimit: true,
     };
 
     const startTime = Date.now();
@@ -590,13 +528,39 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     expect(response.data.success).toBe(true);
     expect(response.data.updatedCount).toBe(150);
-    expect(mockTrackEditCreate).toHaveBeenCalledTimes(150);
-    expect(mockTrackUpdate).toHaveBeenCalledTimes(150);
+    // No per-track queries: one createMany + one updateMany for all 150 tracks.
+    expect(mockTrackEditCreateMany).toHaveBeenCalledTimes(1);
+    expect(mockTrackUpdateMany).toHaveBeenCalledTimes(1);
+    expect(mockTrackEditCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([expect.objectContaining({ trackId: "track-0" })]),
+      }),
+    );
+    expect(mockTrackUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: mockTracks.map((t) => t.id) } },
+        data: { title: "Updated Title" },
+      }),
+    );
 
     // Performance assertion: should complete in reasonable time (adjust as needed)
     const duration = endTime - startTime;
     console.log(`Bulk edit of 150 tracks took ${duration}ms`);
     expect(duration).toBeLessThan(5000); // Should complete in less than 5 seconds
+  });
+
+  test("rejects >100 tracks without overrideLimit (ADR-031 soft limit)", async () => {
+    const trackIds = Array.from({ length: 101 }, (_, i) => `track-${i}`);
+
+    await expectReturnedError(
+      {
+        trackIds,
+        changes: { title: "Updated Title" },
+        comment: "Bulk update 101 tracks",
+      },
+      400,
+      "Validation failed",
+    );
   });
 
   test("only updates fields that are provided in changes", async () => {
@@ -624,22 +588,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
 
-    const mockTrackUpdate = vi.fn().mockResolvedValue({
-      id: "track-1",
-      title: "Track 1",
-      artistId: "artist-1",
-    });
-
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: {
-          create: vi.fn().mockResolvedValue({}),
-        },
-        track: {
-          update: mockTrackUpdate,
-        },
-      });
-    });
+    const { mockTrackUpdateMany } = makeTxMock();
 
     const body = {
       trackIds: ["track-1"],
@@ -649,16 +598,11 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     await action(makeRequest(body) as never);
 
-    expect(mockTrackUpdate).toHaveBeenCalledWith({
-      where: { id: "track-1" },
+    expect(mockTrackUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["track-1"] } },
       data: {
         genre: "Pop",
         year: 2021,
-      },
-      select: {
-        id: true,
-        title: true,
-        artistId: true,
       },
     });
   });
@@ -688,22 +632,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
 
-    const mockTrackUpdate = vi.fn().mockResolvedValue({
-      id: "track-1",
-      title: "Track 1",
-      artistId: "artist-1",
-    });
-
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: {
-          create: vi.fn().mockResolvedValue({}),
-        },
-        track: {
-          update: mockTrackUpdate,
-        },
-      });
-    });
+    const { mockTrackUpdateMany } = makeTxMock();
 
     const body = {
       trackIds: ["track-1"],
@@ -716,7 +645,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     await action(makeRequest(body) as never);
 
-    const updateCall = mockTrackUpdate.mock.calls[0]?.[0];
+    const updateCall = mockTrackUpdateMany.mock.calls[0]?.[0];
     expect(updateCall).toBeDefined();
     expect(updateCall?.data.releaseDate).toBeInstanceOf(Date);
     expect(updateCall?.data.originalDate).toBeInstanceOf(Date);
@@ -749,22 +678,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
 
-    const mockTrackUpdate = vi.fn().mockResolvedValue({
-      id: "track-1",
-      title: "Track 1",
-      artistId: "artist-1",
-    });
-
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: {
-          create: vi.fn().mockResolvedValue({}),
-        },
-        track: {
-          update: mockTrackUpdate,
-        },
-      });
-    });
+    const { mockTrackUpdateMany } = makeTxMock();
 
     const body = {
       trackIds: ["track-1"],
@@ -777,13 +691,13 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     await action(makeRequest(body) as never);
 
-    const updateCall = mockTrackUpdate.mock.calls[0]?.[0];
+    const updateCall = mockTrackUpdateMany.mock.calls[0]?.[0];
     expect(updateCall).toBeDefined();
     expect(updateCall?.data.releaseDate).toBeNull();
     expect(updateCall?.data.originalDate).toBeNull();
   });
 
-  test("sets genre ids on the track relation and syncs the legacy genre string", async () => {
+  test("sets genre ids via set-based SQL and syncs the legacy genre string", async () => {
     const mockTracks = [
       {
         id: "track-1",
@@ -836,21 +750,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
       { id: "genre-jazz", name: "Jazz" },
     ] as never);
 
-    const mockTrackEditCreate = vi.fn().mockResolvedValue({});
-    const mockTrackUpdate = vi.fn().mockImplementation((args: { where: { id: string } }) =>
-      Promise.resolve({
-        id: args.where.id,
-        title: "Track",
-        artistId: "artist-1",
-      }),
-    );
-
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: { create: mockTrackEditCreate },
-        track: { update: mockTrackUpdate },
-      });
-    });
+    const { mockTrackEditCreateMany, mockTrackUpdateMany, mockExecuteRaw } = makeTxMock();
 
     const response: any = await action(
       makeRequest({
@@ -864,47 +764,29 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     expect(response.data.updatedCount).toBe(2);
     expect(prisma.genre.findMany).toHaveBeenCalledTimes(1);
 
-    expect(mockTrackUpdate).toHaveBeenNthCalledWith(1, {
-      where: { id: "track-1" },
-      data: {
-        genre: "Jazz",
-        genres: { set: [{ id: "genre-jazz" }, { id: "genre-soul" }] },
-      },
-      select: {
-        id: true,
-        title: true,
-        artistId: true,
-      },
-    });
-    expect(mockTrackUpdate).toHaveBeenNthCalledWith(2, {
-      where: { id: "track-2" },
-      data: {
-        genre: "Jazz",
-        genres: { set: [{ id: "genre-jazz" }, { id: "genre-soul" }] },
-      },
-      select: {
-        id: true,
-        title: true,
-        artistId: true,
-      },
+    // The legacy genre string is the first resolved genre, set via updateMany.
+    expect(mockTrackUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["track-1", "track-2"] } },
+      data: { genre: "Jazz" },
     });
 
-    expect(mockTrackEditCreate).toHaveBeenNthCalledWith(
-      1,
+    // The many-to-many links are replaced with set-based SQL:
+    // one DELETE + one multi-row INSERT per genre (2 genres) = 3 statements.
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(3);
+
+    // Edit-history snapshots are still recorded per track.
+    expect(mockTrackEditCreateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          genre: "Rock",
-          genreIds: JSON.stringify(["genre-rock", "genre-pop"]),
-        }),
-      }),
-    );
-    expect(mockTrackEditCreate).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        data: expect.objectContaining({
-          genre: null,
-          genreIds: JSON.stringify([]),
-        }),
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            genre: "Rock",
+            genreIds: JSON.stringify(["genre-rock", "genre-pop"]),
+          }),
+          expect.objectContaining({
+            genre: null,
+            genreIds: JSON.stringify([]),
+          }),
+        ]),
       }),
     );
   });
@@ -933,18 +815,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
       },
     ] as never);
 
-    const mockTrackUpdate = vi.fn().mockResolvedValue({
-      id: "track-1",
-      title: "Track 1",
-      artistId: "artist-1",
-    });
-
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: { create: vi.fn().mockResolvedValue({}) },
-        track: { update: mockTrackUpdate },
-      });
-    });
+    const { mockTrackUpdateMany, mockExecuteRaw } = makeTxMock();
 
     await action(
       makeRequest({
@@ -955,14 +826,12 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     );
 
     expect(prisma.genre.findMany).not.toHaveBeenCalled();
-    expect(mockTrackUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: {
-          genre: null,
-          genres: { set: [] },
-        },
-      }),
-    );
+    expect(mockTrackUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["track-1"] } },
+      data: { genre: null },
+    });
+    // No INSERT (genre list empty), only the DELETE pass.
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1);
   });
 
   test("rejects unknown genre ids", async () => {
