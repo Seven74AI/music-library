@@ -293,6 +293,29 @@ describe("playlists index loader", () => {
     expect(new Set(allIds).size).toBe(created.length);
   });
 
+  test("ignores the routing-only index param when paging", async () => {
+    const { userId, cookie } = await createUserCookie();
+    await createPlaylist({ userId, title: "Only" });
+
+    const plain = readData(
+      await playlistsLoader(pageRequest(cookie, "http://localhost/playlists?limit=12") as never),
+    );
+    const indexed = readData(
+      await playlistsLoader(
+        pageRequest(cookie, "http://localhost/playlists?index&limit=12") as never,
+      ),
+    );
+
+    expect(indexed.playlists.map((playlist) => playlist.title)).toEqual(["Only"]);
+    expect(indexed.playlists.map((playlist) => playlist.id)).toEqual(
+      plain.playlists.map((playlist) => playlist.id),
+    );
+    expect(indexed.q).toBe("");
+    expect(indexed.sort).toBe(plain.sort);
+    expect(indexed.direction).toBe(plain.direction);
+    expect(indexed.pagination).toEqual(plain.pagination);
+  });
+
   test("cursor pagination respects an active filter", async () => {
     const { userId, cookie } = await createUserCookie();
     await createPlaylist({ userId, title: "Keep A" });

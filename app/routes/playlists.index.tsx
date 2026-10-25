@@ -63,6 +63,9 @@ function sortOrder(
 export async function loader({ request, url }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
 
+  // React Router uses a naked `index` param to address this index route.
+  url.searchParams.delete("index");
+
   const sort = parseSort(url.searchParams.get("sort"));
   const direction = resolveDirection(sort, url.searchParams.get("dir"));
   const q = (url.searchParams.get("q") ?? "").trim();
@@ -228,7 +231,8 @@ export default function PlaylistsIndexRoute({
       params.set("dir", direction);
     }
     if (q) params.set("q", q);
-    fetcher.load(`/playlists?${params.toString()}`);
+    // Naked `index` addresses this index route (react-router getTargetMatch).
+    fetcher.load(`/playlists?index&${params.toString()}`);
   };
 
   const resetToFirstPage = (mutate: (params: URLSearchParams) => void) => {
