@@ -351,7 +351,7 @@ function ShellLayout() {
       <header className="container py-6" role="banner">
         <nav className="flex items-center justify-between gap-3 md:gap-4">
           <Logo />
-          <DesktopNav />
+          <DesktopNav signedIn={Boolean(user)} />
           <div className="ml-auto hidden min-w-0 max-w-sm flex-1 sm:block">
             <Link
               to="/search"
@@ -394,7 +394,7 @@ function ShellLayout() {
         </div>
       </div>
 
-      <BottomNav />
+      <BottomNav signedIn={Boolean(user)} />
 
       <footer
         className="container py-8 pb-[calc(var(--bottom-bar-height)+var(--player-error-height,0px)+2rem+env(safe-area-inset-bottom))] md:pb-8 text-center text-sm text-muted-foreground"

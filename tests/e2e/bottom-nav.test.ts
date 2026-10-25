@@ -18,24 +18,24 @@ async function dismissInstallBanner(page: import("@playwright/test").Page) {
 }
 
 test.describe("Bottom Navigation", () => {
-  test("bottom nav is visible with 6 tabs", { tag: "@smoke" }, async ({ page }) => {
+  test("signed-out bottom nav keeps only public tabs", { tag: "@smoke" }, async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
     await expect(bottomNav).toBeVisible();
 
-    // 6 tabs: Home, Discover, Search, My Library, My Playlists, History
     const tabs = bottomNav.getByRole("listitem");
-    await expect(tabs).toHaveCount(6);
-
-    // Check each tab label
+    await expect(tabs).toHaveCount(2);
     await expect(bottomNav.getByText("Home")).toBeVisible();
-    await expect(bottomNav.getByText("Discover")).toBeVisible();
     await expect(bottomNav.getByText("Search")).toBeVisible();
-    await expect(bottomNav.getByText("My Library")).toBeVisible();
-    await expect(bottomNav.getByText("My Playlists")).toBeVisible();
-    await expect(bottomNav.getByText("History")).toBeVisible();
+    await expect(bottomNav.getByText("Discover")).toHaveCount(0);
+    await expect(bottomNav.getByText("My Library")).toHaveCount(0);
+    await expect(bottomNav.getByText("My Playlists")).toHaveCount(0);
+    await expect(bottomNav.getByText("History")).toHaveCount(0);
+
+    const header = page.getByRole("banner");
+    await expect(header.getByRole("navigation", { name: /primary navigation/i })).toHaveCount(0);
   });
 
   test("home tab is active on homepage", async ({ page }) => {
@@ -110,6 +110,11 @@ test.describe("Bottom Navigation", () => {
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
     await expect(bottomNav).toBeVisible();
+    await expect(bottomNav.getByRole("listitem")).toHaveCount(6);
+    await expect(bottomNav.getByText("Discover")).toBeVisible();
+    await expect(bottomNav.getByText("My Library")).toBeVisible();
+    await expect(bottomNav.getByText("My Playlists")).toBeVisible();
+    await expect(bottomNav.getByText("History")).toBeVisible();
   });
 
   test("search is not in the header on mobile", { tag: "@smoke" }, async ({ page }) => {

@@ -1,9 +1,9 @@
 import { getFormProps, getInputProps, useForm } from "@conform-to/react";
 import { getZodConstraint, parseWithZod } from "@conform-to/zod/v4";
 import { data, Form, useSearchParams } from "react-router";
-import { HoneypotInputs } from "remix-utils/honeypot/react";
 import { z } from "zod";
 import { CheckboxField, ErrorList, Field } from "#app/components/forms.tsx";
+import { HoneypotInputs } from "#app/components/honeypot-inputs.tsx";
 import { Spacer } from "#app/components/spacer.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
 import { signup } from "#app/utils/auth.server.ts";

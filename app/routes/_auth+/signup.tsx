@@ -3,10 +3,10 @@ import { getZodConstraint, parseWithZod } from "@conform-to/zod/v4";
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
 import * as E from "@react-email/components";
 import { data, redirect, Form } from "react-router";
-import { HoneypotInputs } from "remix-utils/honeypot/react";
 import { z } from "zod";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { ErrorList, Field } from "#app/components/forms.tsx";
+import { HoneypotInputs } from "#app/components/honeypot-inputs.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
 import {
   recordSecurityEvent,

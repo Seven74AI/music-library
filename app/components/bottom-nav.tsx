@@ -1,10 +1,11 @@
 import { NavLink, useNavigate } from "react-router";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { cn } from "#app/utils/misc.tsx";
-import { listeningNavItems } from "./app-navigation.ts";
+import { listeningNavItemsFor } from "./app-navigation.ts";
 
-export function BottomNav() {
+export function BottomNav({ signedIn }: { signedIn: boolean }) {
   const navigate = useNavigate();
+  const items = listeningNavItemsFor(signedIn);
 
   const handleSearchClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -18,7 +19,7 @@ export function BottomNav() {
       aria-label="Main navigation"
     >
       <ul className="flex h-16 items-center justify-around">
-        {listeningNavItems.map((tab) => (
+        {items.map((tab) => (
           <li key={tab.to} className="flex-1">
             <NavLink
               to={tab.to}

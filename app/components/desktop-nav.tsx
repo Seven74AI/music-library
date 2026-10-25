@@ -1,11 +1,14 @@
 import { NavLink } from "react-router";
 import { cn } from "#app/utils/misc.tsx";
-import { desktopNavItems } from "./app-navigation.ts";
+import { desktopNavItemsFor } from "./app-navigation.ts";
 
-export function DesktopNav() {
+export function DesktopNav({ signedIn }: { signedIn: boolean }) {
+  const items = desktopNavItemsFor(signedIn);
+  if (items.length === 0) return null;
+
   return (
     <nav aria-label="Primary navigation" className="hidden items-center gap-1 md:flex">
-      {desktopNavItems.map((item) => (
+      {items.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}

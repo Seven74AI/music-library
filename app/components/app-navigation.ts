@@ -8,7 +8,7 @@ export type NavLinkItem = {
   ariaLabel: string;
 };
 
-/** Listening destinations. The same list for a user, a curator, and an admin. */
+/** Signed-in listening destinations. The same list for a user, a curator, and an admin. */
 export const listeningNavItems = [
   { label: "Home", icon: "home", to: "/", ariaLabel: "Home page" },
   { label: "Discover", icon: "globe", to: "/discover", ariaLabel: "Discover music" },
@@ -18,8 +18,22 @@ export const listeningNavItems = [
   { label: "History", icon: "clock", to: "/history", ariaLabel: "Listening history" },
 ] as const satisfies ReadonlyArray<NavLinkItem>;
 
-/** Desktop header. Search stays the header search field, not a second link. */
+/** Routes that stay reachable before login. The rest call requireUserId and bounce to /login. */
+const publicListeningPaths = new Set<string>(["/", "/search"]);
+
+/** Desktop header for a signed-in listener. Search stays the header search field, not a second link. */
 export const desktopNavItems = listeningNavItems.filter((item) => item.to !== "/search");
+
+export function listeningNavItemsFor(signedIn: boolean) {
+  if (signedIn) return listeningNavItems;
+  return listeningNavItems.filter((item) => publicListeningPaths.has(item.to));
+}
+
+/** Signed-out header has no listening links. The logo already goes home, and the other destinations require an account. */
+export function desktopNavItemsFor(signedIn: boolean) {
+  if (!signedIn) return [];
+  return desktopNavItems;
+}
 
 /** Personal links in the account menu. Role tools live in their own header menus. */
 export const accountMenuItems = [
