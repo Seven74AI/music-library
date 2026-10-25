@@ -195,8 +195,15 @@ function ServiceCard({
     syncStatus: { totalPlaylists: number; lastSync: Date | null | undefined } | null;
   } | null;
 }) {
-  const isConnected = connectionStatus?.connected || false;
+  const isLocalUpload = service.name === LOCAL_SERVICE.NAME;
+  const isConnected = !isLocalUpload && Boolean(connectionStatus?.connected);
   const syncStatus = connectionStatus?.syncStatus;
+  let statusLabel = "Not connected";
+  if (isLocalUpload) {
+    statusLabel = "Upload audio files from your computer";
+  } else if (isConnected) {
+    statusLabel = "Connected";
+  }
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -214,11 +221,13 @@ function ServiceCard({
             </div>
           )}
           {service.displayName}
-          <div
-            className={`w-3 h-3 rounded-full ml-auto ${isConnected ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}
-          />
+          {!isLocalUpload && (
+            <div
+              className={`w-3 h-3 rounded-full ml-auto ${isConnected ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}
+            />
+          )}
         </CardTitle>
-        <CardDescription>{isConnected ? "Connected" : "Not connected"}</CardDescription>
+        <CardDescription>{statusLabel}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {isConnected && syncStatus && (
@@ -231,7 +240,7 @@ function ServiceCard({
         )}
 
         <div className="flex gap-2">
-          {service.name === LOCAL_SERVICE.NAME ? (
+          {isLocalUpload ? (
             <Button asChild className="w-full">
               <Link to={`/music/services/local/upload`}>
                 <Icon name="download" className="h-4 w-4 mr-2" />
