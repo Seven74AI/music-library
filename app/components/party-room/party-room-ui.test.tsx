@@ -429,8 +429,75 @@ describe("Party Room UI affordances", () => {
     expect(screen.getByLabelText(/drag to reorder guest next\./i)).toBeInTheDocument();
     expect(screen.getByLabelText(/drag to reorder guest next b/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /leave room/i })).toBeInTheDocument();
-    expect(screen.getByText(/signed in as/i)).toBeInTheDocument();
-    expect(screen.getByText("Walkup")).toBeInTheDocument();
+    const identity = screen.getByText(/joined as a guest/i);
+    expect(identity).toHaveTextContent("Walkup");
+    expect(identity).toHaveTextContent("DJ");
+    expect(screen.queryByText(/signed in as/i)).not.toBeInTheDocument();
+  });
+
+  it("says a logged-out guest joined as a guest, with display name and role", () => {
+    mockParty = {
+      ...mockParty,
+      refresh: vi.fn(),
+      room: {
+        id: "r1",
+        code: "AB3K9Q",
+        status: "open",
+        roomVersion: 1,
+        me: {
+          id: "g1",
+          role: "listener",
+          userId: null,
+          isGuest: true,
+          displayName: "QA Guest",
+        },
+        queue: [],
+        playback: { isPlaying: false, currentIndex: 0, currentTrackId: null },
+      },
+    };
+    renderWithRouter(<GuestRoomLivePanel code="AB3K9Q" role="listener" displayName="QA Guest" />);
+    const identity = screen.getByText(/joined as a guest/i);
+    expect(identity).toHaveTextContent("Joined as a guest QA Guest (Listener)");
+    expect(screen.queryByText(/signed in as/i)).not.toBeInTheDocument();
+  });
+
+  it("says a logged-out guest joined as a guest before the room snapshot arrives", () => {
+    mockParty = {
+      ...mockParty,
+      room: null,
+      loading: false,
+      refresh: vi.fn(),
+    };
+    renderWithRouter(<GuestRoomLivePanel code="AB3K9Q" role="listener" displayName="QA Guest" />);
+    const identity = screen.getByText(/joined as a guest/i);
+    expect(identity).toHaveTextContent("Joined as a guest QA Guest (Listener)");
+    expect(screen.queryByText(/signed in as/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps signed-in copy for a linked member", () => {
+    mockParty = {
+      ...mockParty,
+      refresh: vi.fn(),
+      room: {
+        id: "r1",
+        code: "AB3K9Q",
+        status: "open",
+        roomVersion: 1,
+        me: {
+          id: "p1",
+          role: "listener",
+          userId: "u1",
+          isGuest: false,
+          displayName: "Kody",
+        },
+        queue: [],
+        playback: { isPlaying: false, currentIndex: 0, currentTrackId: null },
+      },
+    };
+    renderWithRouter(<GuestRoomLivePanel code="AB3K9Q" role="listener" displayName="Kody" />);
+    const identity = screen.getByText(/signed in as/i);
+    expect(identity).toHaveTextContent("Signed in as Kody (Listener)");
+    expect(screen.queryByText(/joined as a guest/i)).not.toBeInTheDocument();
   });
 
   it("guest Leave room posts using the known join code even before snapshot sync", async () => {
@@ -468,7 +535,9 @@ describe("Party Room UI affordances", () => {
       },
     };
     renderWithRouter(<GuestRoomLivePanel code="AB3K9Q" role="dj" displayName="Walkup" />);
-    expect(screen.getByText(/signed in as/i).textContent).toMatch(/host/i);
+    const identity = screen.getByText(/signed in as/i);
+    expect(identity).toHaveTextContent("Signed in as Walkup (Host)");
+    expect(screen.queryByText(/joined as a guest/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /become host/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^play$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^end room$/i })).toBeInTheDocument();

@@ -288,7 +288,7 @@ describe("guest room shell", () => {
   test("kick replaces the room tab with the join form", async () => {
     mockParty = { ...mockParty, room: openRoom("listener") };
     renderShell("/rooms/AB3K9Q", seatedLoader);
-    expect(await screen.findByText(/signed in as/i)).toBeInTheDocument();
+    expect(await screen.findByText(/joined as a guest/i)).toBeInTheDocument();
 
     mockParty = {
       ...mockParty,
@@ -302,13 +302,13 @@ describe("guest room shell", () => {
 
     expect(await screen.findByText("The host removed you from this room.")).toBeInTheDocument();
     expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
-    expect(screen.queryByText(/signed in as/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/joined as a guest/i)).not.toBeInTheDocument();
   });
 
   test("end room replaces the open guest tab with the ended sentence", async () => {
     mockParty = { ...mockParty, room: openRoom("listener") };
     renderShell("/rooms/AB3K9Q", seatedLoader);
-    expect(await screen.findByText(/signed in as/i)).toBeInTheDocument();
+    expect(await screen.findByText(/joined as a guest/i)).toBeInTheDocument();
 
     mockParty = { ...mockParty, room: null, loading: false };
     fireEvent.click(screen.getByRole("button", { name: "Sync room" }));

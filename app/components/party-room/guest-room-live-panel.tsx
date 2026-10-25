@@ -18,6 +18,21 @@ import { ROOM_ROLE, roomRoleLabel, type RoomRole } from "#app/features/party-roo
 /** @deprecated Use {@link roomRoleLabel} from `#app/features/party-room/constants.ts`. */
 export const formatRoomRole = roomRoleLabel;
 
+/**
+ * Host seats and linked members keep "Signed in as".
+ * A logged-out guest joined with a display name and is not signed in.
+ */
+function seatUsesSignedInCopy(
+  seatRole: RoomRole,
+  me: { isGuest?: boolean; userId?: string | null } | null | undefined,
+): boolean {
+  if (seatRole === ROOM_ROLE.host) return true;
+  if (!me) return false;
+  if (me.isGuest === true) return false;
+  if (me.isGuest === false) return true;
+  return Boolean(me.userId);
+}
+
 export function GuestRoomLivePanel({
   code,
   role,
@@ -36,6 +51,9 @@ export function GuestRoomLivePanel({
   const seatRole = liveRole ?? role;
   const canAdd = canAddTracks(seatRole);
   const isHostSeat = seatRole === ROOM_ROLE.host;
+  const liveMe = party?.room?.code === code ? party.room.me : undefined;
+  const shownName = liveMe?.displayName ?? displayName;
+  const signedInCopy = seatUsesSignedInCopy(seatRole, liveMe);
 
   useEffect(() => {
     writeActiveRoomCode(code);
@@ -68,11 +86,9 @@ export function GuestRoomLivePanel({
 
       <section className="space-y-3 border-t border-border/60 pt-4 text-sm text-muted-foreground">
         <p>
-          Signed in as{" "}
-          <span className="text-foreground">
-            {party?.room?.code === code ? (party.room.me?.displayName ?? displayName) : displayName}
-          </span>{" "}
-          (<span>{formatRoomRole(seatRole)}</span>)
+          {signedInCopy ? "Signed in as" : "Joined as a guest"}{" "}
+          <span className="text-foreground">{shownName}</span> (
+          <span>{formatRoomRole(seatRole)}</span>)
         </p>
         <p>
           Room <span className="font-mono text-foreground">{code}</span>
