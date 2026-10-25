@@ -1120,8 +1120,16 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const currentTrackId = currentTrack?.id;
 
+  // Room Speaker audio comes from the speaker grant. Queue auto-cache and
+  // personal URL prefetch both hit `/resources/audio/:id`, which 403s when the
+  // speaker's user has no personal grant for a catalog track. Stay skipped
+  // through the handoff while personal PlayerState persistence is suspended.
+  const skipPersonalAudioFetch = () =>
+    roomSpeakerRef.current !== null || persistenceSuspendedRef.current;
+
   useEffect(() => {
     if (!isPlayerVisible || !currentTrackId || isOfflineEnvironment()) return;
+    if (skipPersonalAudioFetch()) return;
     if (!isQueueCacheEnabled(userId ?? "")) return;
 
     const storage = getOfflineStorage();
@@ -1133,9 +1141,11 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         console.warn("Queue auto-cache hydration failed:", error);
         return;
       }
+      if (skipPersonalAudioFetch()) return;
       const ids = collectHydrationIds(navigationState, currentTrackId);
 
       for (const id of ids) {
+        if (skipPersonalAudioFetch()) return;
         const queueTrack = playbackCacheRef.current.get(id);
         if (!queueTrack || !isPlayableTrack(queueTrack)) continue;
         try {
@@ -1145,7 +1155,15 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         }
       }
     })();
-  }, [currentTrackId, hydrateAround, isPlayerVisible, navigationState, userId]);
+  }, [
+    currentTrackId,
+    hydrateAround,
+    isPlayerVisible,
+    navigationState,
+    persistEpoch,
+    roomSpeaker,
+    userId,
+  ]);
 
   const restoreQueueFromServerRef = useRef<((saved: PlayerStateData) => Promise<void>) | null>(
     null,
@@ -1395,13 +1413,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   // at transition time is what makes the next track stall/silent.
   useEffect(() => {
     if (!currentTrackId || isOfflineEnvironment()) return;
+    if (skipPersonalAudioFetch()) return;
     const nextTarget = resolveNextTrack(navigationState);
     if (!nextTarget) return;
     const nextQueueTrack = getTrackAtTarget(navigationState, nextTarget);
     if (nextQueueTrack) {
       prefetchPlaybackAudioUrl(nextQueueTrack.id);
     }
-  }, [currentTrackId, navigationState]);
+  }, [currentTrackId, navigationState, persistEpoch, roomSpeaker]);
 
   // Rebuild the restored queue from a saved `PlayerState`: re-derive the spine
   // from the play context, replay Up Next + position on top, and leave the

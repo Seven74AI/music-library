@@ -782,6 +782,28 @@ test("paused room does not start playback on its own", async () => {
   expect(playSpy).not.toHaveBeenCalled();
 });
 
+test("room speaker writes room_play_completed and not a personal play_completed", async () => {
+  vi.mocked(reportPlayEvent).mockClear();
+  vi.mocked(reportRoomPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({
+    roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+    roomPlaying: true,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+  });
+
+  setProgress(audioEl, 50, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(reportPlayEvent).not.toHaveBeenCalled();
+  expect(reportRoomPlayEvent).toHaveBeenCalledWith(
+    "AB3K9Q",
+    "room_play_completed",
+    "track-1",
+    null,
+  );
+});
+
 test("blocked room autoplay stays paused and explains once", async () => {
   const onRoomAutoplayOutcome = vi.fn();
   vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => {

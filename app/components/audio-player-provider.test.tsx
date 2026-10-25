@@ -1883,3 +1883,126 @@ test("queue auto-cache skips OPFS write when Queue Cache Preference is off", asy
   expect(cacheQueueTrack).not.toHaveBeenCalled();
   expect(isQueueCacheEnabled).toHaveBeenCalledWith("user-1");
 });
+
+test("room speaker playback does not fetch the personal audio stream", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const cacheQueueTrack = vi.fn(async (track: { id: string }) => {
+    await fetch(`/resources/audio/${track.id}?stream=1`, { credentials: "same-origin" });
+  });
+  vi.mocked(isQueueCacheEnabled).mockReturnValue(true);
+  vi.mocked(prefetchPlaybackAudioUrl).mockClear();
+  vi.mocked(getOfflineStorage).mockReturnValue({
+    cacheQueueTrack,
+    listDownloaded: vi.fn().mockResolvedValue([]),
+    listPinned: vi.fn().mockResolvedValue([]),
+    listForPlaylist: vi.fn().mockResolvedValue([]),
+  } as unknown as ReturnType<typeof getOfflineStorage>);
+
+  const catalogTrack: FullTrack = {
+    ...playableTrack,
+    id: "catalog-track",
+    title: "Catalog Song",
+  };
+  const catalogNext: FullTrack = {
+    ...playableTrack,
+    id: "catalog-next",
+    title: "Catalog Next",
+  };
+
+  fetchMock.mockImplementation(async (input) => {
+    const url = String(input);
+    if (url === PLAYER_STATE_ROUTE || url.includes(PLAYER_STATE_ROUTE)) {
+      return {
+        status: 204,
+        ok: true,
+        json: async () => null,
+      } as Response;
+    }
+    if (url.includes("/api/queue-spine")) {
+      return {
+        ok: true,
+        json: async () => ({ tracks: [spineTrack], total: 1 }),
+      } as Response;
+    }
+    if (url.includes("/api/tracks/playback")) {
+      return {
+        ok: true,
+        json: async () => ({ tracks: [playableTrack] }),
+      } as Response;
+    }
+    return { ok: true, json: async () => ({}) } as Response;
+  });
+
+  function Probe() {
+    const audio = useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            audio.suspendPersonalPersistence();
+            audio.syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: catalogTrack,
+              upcoming: [catalogNext],
+            });
+          }}
+        >
+          Play room queue
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            audio.resumePersonalPersistence();
+            void audio.restorePersonalPlayerSnapshot(
+              {
+                playContext: { type: "library" },
+                currentTrackId: "track-1",
+                upNextIds: [],
+                shuffleSeed: null,
+                loopMode: "off",
+              },
+              true,
+            );
+          }}
+        >
+          Restore personal
+        </button>
+        <span data-testid="current-track-id">{audio.currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play room queue" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("catalog-track");
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  expect(cacheQueueTrack).not.toHaveBeenCalled();
+  expect(prefetchPlaybackAudioUrl).not.toHaveBeenCalled();
+  expect(
+    fetchMock.mock.calls.filter(([input]) => String(input).includes("/resources/audio/")),
+  ).toEqual([]);
+
+  await user.click(screen.getByRole("button", { name: "Restore personal" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+  await waitFor(() => {
+    expect(cacheQueueTrack).toHaveBeenCalled();
+  });
+  expect(cacheQueueTrack.mock.calls.map((call) => call[0]?.id)).toEqual(["track-1"]);
+});
