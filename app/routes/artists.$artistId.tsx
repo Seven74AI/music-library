@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { data, useFetcher } from "react-router";
+import { data, redirect, useFetcher } from "react-router";
 import { AlbumCard } from "#app/components/album-card.tsx";
 import { ArtistEditDialog } from "#app/components/artist-edit-dialog.tsx";
 import { CuratorNotes } from "#app/components/curator-notes.tsx";
@@ -25,11 +25,43 @@ export const handle: BreadcrumbHandle = {
   breadcrumb: ({ loaderData }) => getArtistTitle(loaderData),
 };
 
+/**
+ * Follow mergedIntoId, including a chain, to the living artist.
+ * A cycle or a missing target is a 404. Merged rows stay in the database.
+ */
+async function resolvePublicArtistId(startId: string): Promise<string> {
+  const seen = new Set<string>();
+  let currentId = startId;
+
+  for (;;) {
+    if (seen.has(currentId)) {
+      throw new Response("Artist not found", { status: 404 });
+    }
+    seen.add(currentId);
+
+    const row = await prisma.artist.findUnique({
+      where: { id: currentId },
+      select: { id: true, mergedIntoId: true },
+    });
+    if (!row) {
+      throw new Response("Artist not found", { status: 404 });
+    }
+    if (!row.mergedIntoId) {
+      return row.id;
+    }
+    currentId = row.mergedIntoId;
+  }
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const userId = await getUserId(request);
+  const canonicalId = await resolvePublicArtistId(params.artistId);
+  if (canonicalId !== params.artistId) {
+    throw redirect(`/artists/${canonicalId}`);
+  }
 
   const artist = await prisma.artist.findUnique({
-    where: { id: params.artistId },
+    where: { id: canonicalId },
     select: {
       id: true,
       name: true,
@@ -60,7 +92,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const { _count, ...artistData } = artist;
 
   const [{ tracks, pagination }, playlists] = await Promise.all([
-    getArtistTracksPage(userId, params.artistId),
+    getArtistTracksPage(userId, canonicalId),
     loadUserPlaylists(userId),
   ]);
 

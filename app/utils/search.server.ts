@@ -485,7 +485,8 @@ export async function searchArtists(
 			artists_fts.rank as fts_rank
 		FROM artists_fts
 		JOIN "Artist" a ON artists_fts.artist_id = a.id
-		WHERE artists_fts MATCH ?${artistUserJoin}${cursorFilter.sql}
+		WHERE artists_fts MATCH ?
+			AND a."mergedIntoId" IS NULL ${artistUserJoin}${cursorFilter.sql}
 		ORDER BY relevance_rank, fts_rank, a.name
 		LIMIT ?`,
     normalizedQuery,
