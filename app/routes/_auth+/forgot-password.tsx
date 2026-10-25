@@ -21,7 +21,9 @@ export const handle: SEOHandle = {
 };
 
 const ForgotPasswordSchema = z.object({
-  usernameOrEmail: z.union([EmailSchema, UsernameSchema]),
+  usernameOrEmail: z.union([EmailSchema, UsernameSchema], {
+    error: "Please enter a username or email",
+  }),
 });
 
 export async function action({ request }: Route.ActionArgs) {

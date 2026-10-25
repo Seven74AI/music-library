@@ -45,6 +45,15 @@ function codeLessVerifyUrl(request: Request, target: string) {
   }).toString();
 }
 
+const USERNAME_OR_EMAIL_MESSAGE = "Please enter a username or email";
+
+function validationFieldErrors(result: unknown) {
+  const payload = result as {
+    data?: { result?: { error?: Record<string, string[] | null | undefined> } };
+  };
+  return payload.data?.result?.error?.usernameOrEmail ?? [];
+}
+
 function successShape(response: Response) {
   const locationHeader = response.headers.get("location");
   const location = new URL(locationHeader ?? "http://invalid.example");
@@ -254,6 +263,32 @@ describe("forgot password action", () => {
       type: "DataWithResponseInit",
       init: { status: 400 },
     });
+    expect(validationFieldErrors(result)).toEqual([USERNAME_OR_EMAIL_MESSAGE]);
+    expect(JSON.stringify(result)).not.toContain("Invalid input");
+    expect(JSON.stringify(result)).not.toContain("No user exists");
+    expect(calls).toHaveLength(0);
+    expect(await verificationCount()).toBe(before);
+    expect(
+      await prisma.verification.findUnique({
+        where: { target_type: { target: malformed, type: "reset-password" } },
+      }),
+    ).toBeNull();
+  });
+
+  test("a hyphenated identifier that is neither a username nor an email asks for a username or email", async () => {
+    const malformed = "qa-auth-nosuchuser";
+    trackTarget(malformed);
+    const request = forgotPasswordRequest(malformed);
+    const before = await verificationCount();
+
+    const { result, calls } = await resendCallsDuring(() => callAction(request));
+
+    expect(result).toMatchObject({
+      type: "DataWithResponseInit",
+      init: { status: 400 },
+    });
+    expect(validationFieldErrors(result)).toEqual([USERNAME_OR_EMAIL_MESSAGE]);
+    expect(JSON.stringify(result)).not.toContain("Invalid input");
     expect(JSON.stringify(result)).not.toContain("No user exists");
     expect(calls).toHaveLength(0);
     expect(await verificationCount()).toBe(before);
