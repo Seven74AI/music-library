@@ -151,23 +151,33 @@ export class YouTubeOAuthService {
 }
 
 /**
- * Factory function to create a YouTubeOAuthService instance
- * Validates required environment variables
+ * Factory function to create a YouTubeOAuthService instance.
+ * Google client credentials are required for the real OAuth flow.
+ * When YouTube mocks are on they are optional, so mock connect can build
+ * the callback URL without a Google client. Production (mocks off) still
+ * refuses to start OAuth without both values.
  *
  * @returns YouTubeOAuthService instance
- * @throws Error if required environment variables are missing
+ * @throws Error if required environment variables are missing and mocks are off
  */
 export function createYouTubeOAuthService(): YouTubeOAuthService {
-  if (!process.env.GOOGLE_CLIENT_ID) {
-    throw new Error("GOOGLE_CLIENT_ID environment variable is required");
-  }
-  if (!process.env.GOOGLE_CLIENT_SECRET) {
-    throw new Error("GOOGLE_CLIENT_SECRET environment variable is required");
+  const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
+
+  // shouldMockYouTube() already short-circuits getAuthUrl and getTokens.
+  // Skip the credential gate only in that case so the mock callback can be built.
+  if (!shouldMockYouTube()) {
+    if (!clientId) {
+      throw new Error("GOOGLE_CLIENT_ID environment variable is required");
+    }
+    if (!clientSecret) {
+      throw new Error("GOOGLE_CLIENT_SECRET environment variable is required");
+    }
   }
 
   const config = YouTubeOAuthConfigSchema.parse({
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    clientId,
+    clientSecret,
     redirectUri: `${process.env.SITE_URL || "http://localhost:3000"}/music/services/youtube/callback`,
   });
 

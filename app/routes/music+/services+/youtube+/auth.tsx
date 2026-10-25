@@ -1,4 +1,10 @@
-import { redirect, type LoaderFunctionArgs, type ActionFunctionArgs, Form } from "react-router";
+import {
+  Form,
+  redirect,
+  useSearchParams,
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+} from "react-router";
 
 import { Button } from "#app/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#app/components/ui/card";
@@ -60,7 +66,22 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
+const YOUTUBE_AUTH_ERROR_MESSAGES: Record<string, string> = {
+  oauth_error: "Could not start the YouTube connection.",
+  oauth_failed: "YouTube authorization was denied or could not be verified.",
+  already_connected: "That YouTube account is already connected to another user.",
+  callback_failed: "YouTube authorization could not be completed.",
+};
+
+function youtubeAuthErrorText(error: string): string {
+  const detail = YOUTUBE_AUTH_ERROR_MESSAGES[error] ?? "YouTube connection failed.";
+  return `${detail} (${error})`;
+}
+
 export default function YouTubeAuthPage() {
+  const [searchParams] = useSearchParams();
+  const error = searchParams.get("error");
+
   return (
     <div className="py-8">
       <div className="mb-8">
@@ -96,6 +117,12 @@ export default function YouTubeAuthPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {error ? (
+              <p className="text-destructive text-sm" role="alert">
+                {youtubeAuthErrorText(error)}
+              </p>
+            ) : null}
+
             <div className="space-y-4">
               <h3 className="font-semibold">What you'll be able to do:</h3>
               <ul className="space-y-2 text-sm text-muted-foreground">
