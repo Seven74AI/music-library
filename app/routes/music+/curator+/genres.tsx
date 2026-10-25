@@ -571,6 +571,17 @@ export default function GenresPage() {
   );
 }
 
+function CuratorGenresForbidden() {
+  return (
+    <div className="container mx-auto max-w-lg px-4 py-16 text-center">
+      <h1 className="text-2xl font-semibold">Curators only</h1>
+      <p className="mt-2 text-muted-foreground">
+        You need the curator or admin role to view genre management.
+      </p>
+    </div>
+  );
+}
+
 export function ErrorBoundary() {
-  return <GeneralErrorBoundary />;
+  return <GeneralErrorBoundary statusHandlers={{ 403: CuratorGenresForbidden }} />;
 }
