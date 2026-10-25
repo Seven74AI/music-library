@@ -16,7 +16,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "#app/components/ui/button.tsx";
 import { Checkbox } from "#app/components/ui/checkbox.tsx";
 import {
@@ -150,10 +150,14 @@ function SortableTrackItem({
           aria-pressed={isDragging}
           aria-label={`Drag handle for track ${index + 1}: ${track.track.title} by ${track.track.artist.name}. Press Space or Enter to activate drag mode, then use arrow keys to reorder.`}
           aria-describedby={`track-${track.id}-description`}
-          onKeyDown={(e) => {
-            if (e.key === "Escape" && isDragging) {
-              e.preventDefault();
-              // Cancel drag operation
+          onKeyDown={(event) => {
+            // listeners.onKeyDown is the keyboard sensor. Replacing it drops Space, Enter, and arrows.
+            const sensorKeyDown = listeners?.onKeyDown as
+              | ((event: KeyboardEvent<HTMLButtonElement>) => void)
+              | undefined;
+            sensorKeyDown?.(event);
+            if (event.key === "Escape" && isDragging) {
+              event.preventDefault();
               announceToScreenReader("Drag operation cancelled");
             }
           }}

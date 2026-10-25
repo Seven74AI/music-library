@@ -132,3 +132,115 @@ test("clears a selection when the playlist id changes", async () => {
   ).toBeNull();
   expect(onBulkRemove).not.toHaveBeenCalled();
 });
+
+function installRowRects() {
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    if (this.getAttribute("role") === "listitem") {
+      const label = this.getAttribute("aria-label") ?? "";
+      const match = /^Track (\d+):/.exec(label);
+      const index = match ? Number(match[1]) - 1 : 0;
+      const top = index * 80;
+      return new DOMRect(0, top, 320, 64);
+    }
+    return original.call(this);
+  };
+  return () => {
+    HTMLElement.prototype.getBoundingClientRect = original;
+  };
+}
+
+function renderReorderList() {
+  const onReorder = vi.fn();
+  render(
+    <SortableTrackList
+      tracks={[playlistTrack("pt-1", "Alpha"), playlistTrack("pt-2", "Beta")]}
+      playlists={[]}
+      playlistId="playlist-1"
+      onReorder={onReorder}
+      onRemoveTrack={vi.fn()}
+      onBulkRemove={vi.fn()}
+      onBulkPlayNext={vi.fn()}
+      onBulkAddToUpNext={vi.fn()}
+      onBulkAddToQueue={vi.fn()}
+    />,
+  );
+  return { onReorder };
+}
+
+function dragHandle(trackNumber: number, title: string) {
+  return screen.getByRole("button", {
+    name: new RegExp(`drag handle for track ${trackNumber}: ${title}`, "i"),
+  });
+}
+
+/** KeyboardSensor attaches its document listener on the next turn. */
+async function flushKeyboardSensor() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+test("keyboard reorder moves a track with space and arrow keys", async () => {
+  const user = userEvent.setup();
+  const restoreRects = installRowRects();
+  try {
+    const { onReorder } = renderReorderList();
+    const handle = dragHandle(1, "Alpha");
+    handle.focus();
+
+    await user.keyboard("[Space]");
+    expect(handle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/started dragging track "alpha"/i)).toBeTruthy();
+
+    await flushKeyboardSensor();
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("[Space]");
+
+    expect(onReorder).toHaveBeenCalledWith([
+      { id: "pt-2", position: 1 },
+      { id: "pt-1", position: 2 },
+    ]);
+  } finally {
+    restoreRects();
+  }
+});
+
+test("enter starts a keyboard drag", async () => {
+  const user = userEvent.setup();
+  const restoreRects = installRowRects();
+  try {
+    renderReorderList();
+    const handle = dragHandle(1, "Alpha");
+    handle.focus();
+
+    await user.keyboard("{Enter}");
+
+    expect(handle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/started dragging track "alpha"/i)).toBeTruthy();
+  } finally {
+    restoreRects();
+  }
+});
+
+test("escape cancels a keyboard drag without reordering", async () => {
+  const user = userEvent.setup();
+  const restoreRects = installRowRects();
+  try {
+    const { onReorder } = renderReorderList();
+    const handle = dragHandle(1, "Alpha");
+    handle.focus();
+
+    await user.keyboard("[Space]");
+    expect(handle).toHaveAttribute("aria-pressed", "true");
+
+    await flushKeyboardSensor();
+    await user.keyboard("{Escape}");
+
+    expect(handle).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText(/drag operation cancelled/i)).toBeTruthy();
+    expect(onReorder).not.toHaveBeenCalled();
+  } finally {
+    restoreRects();
+  }
+});
