@@ -60,11 +60,17 @@ test.describe("Playlists", () => {
     });
 
     await page.goto("/playlists/new");
-    await page.getByRole("textbox", { name: /title/i }).fill("unique playlist");
+    const title = page.getByRole("textbox", { name: /title/i });
+    await title.fill("unique playlist");
+    await page.getByRole("textbox", { name: /description/i }).fill("Keep this note");
     await page.getByRole("button", { name: /create playlist/i }).click();
 
     await expect(page).toHaveURL("/playlists/new");
     await expect(page.getByText(/already have a playlist named/i)).toBeVisible({ timeout: 10000 });
+    await expect(title).toHaveValue("unique playlist");
+    await expect(page.getByRole("textbox", { name: /description/i })).toHaveValue("Keep this note");
+    await title.fill("unique playlist edit");
+    await expect(title).toHaveValue("unique playlist edit");
 
     await prisma.userPlaylist.deleteMany({ where: { ownerId: user.id, title: "Unique Playlist" } });
   });

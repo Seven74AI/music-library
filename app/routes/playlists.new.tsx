@@ -37,7 +37,12 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (result.status === "duplicate_title") {
     return data(
-      { error: `You already have a playlist named "${result.existingTitle}"` },
+      {
+        error: `You already have a playlist named "${result.existingTitle}"`,
+        // Echo the submitted fields so a form reset keeps what was typed.
+        title,
+        description,
+      },
       {
         status: 409,
         headers: await createToastHeaders({
@@ -60,6 +65,14 @@ export default function PlaylistsNewRoute({ loaderData: _loaderData }: Route.Com
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
+  const submittedTitle =
+    actionData && "title" in actionData && typeof actionData.title === "string"
+      ? actionData.title
+      : "";
+  const submittedDescription =
+    actionData && "description" in actionData && typeof actionData.description === "string"
+      ? actionData.description
+      : "";
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -77,7 +90,7 @@ export default function PlaylistsNewRoute({ loaderData: _loaderData }: Route.Com
             type="text"
             placeholder="Enter playlist title"
             required
-            defaultValue=""
+            defaultValue={submittedTitle}
           />
         </div>
 
@@ -88,6 +101,7 @@ export default function PlaylistsNewRoute({ loaderData: _loaderData }: Route.Com
             name="description"
             placeholder="Enter playlist description (optional)"
             rows={3}
+            defaultValue={submittedDescription}
           />
         </div>
 

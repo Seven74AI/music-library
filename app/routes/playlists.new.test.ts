@@ -87,6 +87,8 @@ describe("playlists.new action", () => {
       init: { status: 409 },
       data: {
         error: 'You already have a playlist named "Road Trip"',
+        title: "road trip",
+        description: "",
       },
     });
   });
