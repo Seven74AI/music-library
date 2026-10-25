@@ -28,6 +28,17 @@ import { shouldMockYouTube } from "#app/utils/youtube-mock-utils";
 
 const VIDEOS_LIST_BATCH_SIZE = 50;
 
+/**
+ * Channel identity used while YouTube mocking is on. Mocked OAuth hands out
+ * `mock-access-token`, which Google rejects, so the callback needs a stable
+ * channel id to store a Connection without calling channels.list.
+ */
+const MOCK_YOUTUBE_CHANNEL = {
+  id: "mock-youtube-channel",
+  email: "",
+  name: "Mock YouTube Channel",
+} as const;
+
 export class YouTubeService {
   private youtube: youtube_v3.Youtube;
   public readonly name = "youtube";
@@ -46,6 +57,11 @@ export class YouTubeService {
   async getYouTubeUserInfo(
     accessToken: string,
   ): Promise<{ id: string; email: string; name: string }> {
+    // Return mock data when mocking is enabled
+    if (shouldMockYouTube()) {
+      return { ...MOCK_YOUTUBE_CHANNEL };
+    }
+
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({ access_token: accessToken });
 

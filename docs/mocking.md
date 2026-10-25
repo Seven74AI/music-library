@@ -74,6 +74,7 @@ NODE_ENV=production npm start
 
 #### YouTube Service (`app/utils/youtube.server.ts`)
 
+- `getYouTubeUserInfo()` - Returns a stable mock channel (`id`, empty `email`, `name`) without calling Google
 - `getUserPlaylists()` - Returns mock user playlists
 - `getPlaylist()` - Returns mock playlist details
 - `getPlaylistItems()` - Returns mock playlist items
