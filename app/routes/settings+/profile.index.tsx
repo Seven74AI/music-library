@@ -236,9 +236,8 @@ function UpdateProfile({ loaderData }: { loaderData: Route.ComponentProps["loade
 
   return (
     <fetcher.Form method="POST" {...getFormProps(form)}>
-      <div className="grid grid-cols-6 gap-x-10">
+      <div className="grid grid-cols-1 gap-x-10 md:grid-cols-2">
         <Field
-          className="col-span-3"
           labelProps={{
             htmlFor: fields.username.id,
             children: "Username",
@@ -247,7 +246,6 @@ function UpdateProfile({ loaderData }: { loaderData: Route.ComponentProps["loade
           errors={fields.username.errors}
         />
         <Field
-          className="col-span-3"
           labelProps={{ htmlFor: fields.name.id, children: "Name" }}
           inputProps={getInputProps(fields.name, { type: "text" })}
           errors={fields.name.errors}
