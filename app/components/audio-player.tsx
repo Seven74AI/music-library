@@ -115,6 +115,11 @@ interface AudioPlayerProps {
   onRoomAutoplayOutcome?: (outcome: RoomAutoplayOutcome) => void;
   /** Prefer this audio URL (e.g. speaker grant) over personal /resources/audio. */
   audioSrcOverride?: string;
+  /**
+   * Reports whether the media element is actually playing. Track rows use this
+   * so a paused current track does not keep a pause icon.
+   */
+  onPlayingChange?: (isPlaying: boolean) => void;
 }
 
 function usePublishToastBottomOffset(
@@ -168,11 +173,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
     roomPlaying = null,
     onRoomAutoplayOutcome,
     audioSrcOverride,
+    onPlayingChange,
   } = props;
   const audioRef = useRef<HTMLAudioElement>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
   usePublishToastBottomOffset(chromeRef, isVisible, track?.id ?? "queue");
   const [isPlaying, setIsPlaying] = useState(false);
+  useLayoutEffect(() => {
+    onPlayingChange?.(isPlaying);
+  }, [isPlaying, onPlayingChange]);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(DEFAULT_PLAYER_VOLUME);

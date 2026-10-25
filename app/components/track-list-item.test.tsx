@@ -63,10 +63,12 @@ let mockPlayerState: {
   currentTrack: FullTrack | null;
   currentIndex: number;
   isPlayerVisible: boolean;
+  isPlaying: boolean;
 } = {
   currentTrack: null,
   currentIndex: 0,
   isPlayerVisible: false,
+  isPlaying: false,
 };
 
 vi.mock("./audio-player-provider", () => ({
@@ -75,6 +77,7 @@ vi.mock("./audio-player-provider", () => ({
     currentTrack: mockPlayerState.currentTrack,
     currentIndex: mockPlayerState.currentIndex,
     isPlayerVisible: mockPlayerState.isPlayerVisible,
+    isPlaying: mockPlayerState.isPlaying,
     playTrack: mockPlayTrack,
     playNextTrack: mockPlayNextTrack,
     addToUpNext: mockAddToUpNext,
@@ -220,6 +223,7 @@ beforeEach(() => {
     currentTrack: null,
     currentIndex: 0,
     isPlayerVisible: false,
+    isPlaying: false,
   };
   mockPlayTrack.mockReset();
   mockPlayNextTrack.mockReset();
@@ -800,6 +804,74 @@ test("showQuickAddToPlaylist opens playlist sheet directly on mobile", async () 
   await user.click(screen.getByRole("button", { name: "Add to playlist" }));
   expect(screen.getByRole("heading", { name: "Add to Playlist" })).toBeDefined();
   expect(screen.getByText("My Playlist")).toBeDefined();
+});
+
+function playIconName(button: HTMLElement) {
+  const href = button.querySelector("use")?.getAttribute("href") ?? "";
+  return href.slice(href.lastIndexOf("#") + 1);
+}
+
+test("shows Pause on the current row only while audio is playing", () => {
+  mockPlayerState = {
+    currentTrack: playableTrack,
+    currentIndex: 0,
+    isPlayerVisible: true,
+    isPlaying: true,
+  };
+
+  renderTrackListItem({ track: playableTrack });
+
+  const pause = screen.getByRole("button", { name: "Pause track" });
+  expect(playIconName(pause)).toBe("pause");
+  expect(screen.queryByRole("button", { name: "Play Test Song" })).toBeNull();
+});
+
+test("offers Play on a paused current track", () => {
+  mockPlayerState = {
+    currentTrack: playableTrack,
+    currentIndex: 0,
+    isPlayerVisible: true,
+    isPlaying: false,
+  };
+
+  renderTrackListItem({ track: playableTrack });
+
+  const play = screen.getByRole("button", { name: "Play Test Song" });
+  expect(playIconName(play)).toBe("play");
+  expect(screen.queryByRole("button", { name: "Pause track" })).toBeNull();
+  expect(screen.getByRole("listitem", { name: /Test Song/ }).className).toContain("bg-primary/5");
+});
+
+test("offers Play on a paused current track when the list does not use playback index", () => {
+  mockPlayerState = {
+    currentTrack: playableTrack,
+    currentIndex: 4,
+    isPlayerVisible: true,
+    isPlaying: false,
+  };
+
+  renderTrackListItem({ track: playableTrack, index: 0, usePlaybackIndex: false });
+
+  expect(screen.getByRole("button", { name: "Play Test Song" })).toBeDefined();
+  expect(screen.queryByRole("button", { name: "Pause track" })).toBeNull();
+});
+
+test("keeps Play on a hovered row while a different track is playing", async () => {
+  mockPlayerState = {
+    currentTrack: { ...playableTrack, id: "track-other", title: "Other Song" },
+    currentIndex: 1,
+    isPlayerVisible: true,
+    isPlaying: true,
+  };
+  const user = userEvent.setup();
+
+  renderTrackListItem({ track: playableTrack, index: 0 });
+
+  await user.hover(screen.getByRole("listitem", { name: /Test Song/ }));
+
+  const play = screen.getByRole("button", { name: "Play Test Song" });
+  expect(playIconName(play)).toBe("play");
+  expect(screen.queryByRole("button", { name: "Pause track" })).toBeNull();
 });
 
 test("listRole presentation omits row aria-label (outer listitem owns the name)", () => {

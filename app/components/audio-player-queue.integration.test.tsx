@@ -1474,6 +1474,42 @@ describe("queue sheet integration", () => {
 });
 
 describe("track list item queue integration", () => {
+  test("library row shows Pause only while the desktop player is playing", async () => {
+    const user = userEvent.setup();
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    // jsdom does not emit play/pause. Mirror a real element so the row follows
+    // the same isPlaying state as the desktop transport.
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      Object.defineProperty(this, "paused", { configurable: true, value: false });
+      this.dispatchEvent(new Event("play"));
+      return Promise.resolve();
+    });
+    vi.spyOn(window.HTMLMediaElement.prototype, "pause").mockImplementation(function (
+      this: HTMLMediaElement,
+    ) {
+      Object.defineProperty(this, "paused", { configurable: true, value: true });
+      this.dispatchEvent(new Event("pause"));
+    });
+
+    renderQueueApp(<LibraryRowPlayAlpha />);
+    const row = screen.getByRole("listitem", { name: /Track 1: Spine-Alpha-Now/i });
+    await user.click(row);
+
+    await waitFor(() => {
+      expect(within(row).getByRole("button", { name: "Pause track" })).toBeTruthy();
+    });
+
+    await user.click(within(screen.getByTestId("player-desktop-bar")).getByLabelText("Pause"));
+
+    await waitFor(() => {
+      expect(within(row).getByRole("button", { name: "Play Spine-Alpha-Now" })).toBeTruthy();
+    });
+    expect(within(row).queryByRole("button", { name: "Pause track" })).toBeNull();
+  });
+
   test("clicking a library row starts playback and shows upcoming tracks in the queue sheet", async () => {
     const user = userEvent.setup();
     mockSpineAndHydration(vi.mocked(fetch));

@@ -243,8 +243,15 @@ export const TrackListItem = memo(function TrackListItem({
   const playNextLabel = labelPersonalQueue ? "Play next in your queue" : "Play next";
   const addToUpNextLabel = labelPersonalQueue ? "Add to up next in your queue" : "Add to up next";
   const addToQueueLabel = labelPersonalQueue ? "Add to your queue" : "Add to queue";
-  const { currentTrack, currentIndex, playTrack, playNextTrack, addToUpNext, addToQueue } =
-    useAudioPlayer();
+  const {
+    currentTrack,
+    currentIndex,
+    isPlaying,
+    playTrack,
+    playNextTrack,
+    addToUpNext,
+    addToQueue,
+  } = useAudioPlayer();
 
   const handleRemoveFromQueue = useCallback(() => {
     if (onRemoveFromQueue) {
@@ -413,10 +420,11 @@ export const TrackListItem = memo(function TrackListItem({
     setIsActionsSheetOpen(false);
   }, [hasAudioFiles, addToQueue, track]);
 
-  // Check if this track is currently playing (both ID and position must match for duplicates)
-  const isCurrentlyPlaying = usePlaybackIndex
+  // Current row is the loaded track. Pause is only for audio that is actually playing.
+  const isCurrentTrack = usePlaybackIndex
     ? currentTrack?.id === track.id && currentIndex === index
     : currentTrack?.id === track.id;
+  const showPauseIcon = isCurrentTrack && isPlaying;
 
   const isCompact = variant === "compact";
   const rowClassName = isCompact
@@ -432,7 +440,7 @@ export const TrackListItem = memo(function TrackListItem({
   return (
     <>
       <div
-        className={`${rowClassName} ${isCurrentlyPlaying ? "bg-primary/5" : ""} ${
+        className={`${rowClassName} ${isCurrentTrack ? "bg-primary/5" : ""} ${
           isDeleted ? "opacity-60" : ""
         }`}
         onMouseEnter={() => setIsHovered(true)}
@@ -465,7 +473,7 @@ export const TrackListItem = memo(function TrackListItem({
         {/* Track Number / Play Button */}
         {!isCompact && !showCheckbox && (
           <div className="w-8 flex items-center justify-center min-w-8">
-            {hasAudioFiles && (isHovered || isCurrentlyPlaying) ? (
+            {hasAudioFiles && (isHovered || isCurrentTrack) ? (
               <Button
                 variant="ghost"
                 size="sm"
@@ -474,9 +482,9 @@ export const TrackListItem = memo(function TrackListItem({
                   e.stopPropagation();
                   handlePlayTrack();
                 }}
-                aria-label={isCurrentlyPlaying ? "Pause track" : `Play ${track.title}`}
+                aria-label={showPauseIcon ? "Pause track" : `Play ${track.title}`}
               >
-                <Icon name={isCurrentlyPlaying ? "pause" : "play"} className="h-4 w-4" />
+                <Icon name={showPauseIcon ? "pause" : "play"} className="h-4 w-4" />
               </Button>
             ) : (
               <span

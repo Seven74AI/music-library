@@ -22,6 +22,7 @@ const { unlockCalls } = vi.hoisted(() => ({
 }));
 
 let capturedRoomAutoplay: ((outcome: RoomAutoplayOutcome) => void) | null = null;
+let capturedPlayingChange: ((isPlaying: boolean) => void) | null = null;
 
 vi.mock("./audio-player", () => ({
   AudioPlayer: ({
@@ -30,6 +31,7 @@ vi.mock("./audio-player", () => ({
     playbackToken,
     roomPlaying,
     onRoomAutoplayOutcome,
+    onPlayingChange,
   }: {
     wantsAutoPlayRef?: React.MutableRefObject<boolean>;
     unlockAutoplayRef?: React.MutableRefObject<
@@ -38,8 +40,10 @@ vi.mock("./audio-player", () => ({
     playbackToken?: number;
     roomPlaying?: boolean | null;
     onRoomAutoplayOutcome?: (outcome: RoomAutoplayOutcome) => void;
+    onPlayingChange?: (isPlaying: boolean) => void;
   }) => {
     capturedRoomAutoplay = onRoomAutoplayOutcome ?? null;
+    capturedPlayingChange = onPlayingChange ?? null;
     // Mock the unlock function
     if (unlockAutoplayRef) {
       unlockAutoplayRef.current = (trackId: string, cachedUrl: string) => {
@@ -238,12 +242,39 @@ function PlayUserPlaylistProbe({
 
 beforeEach(() => {
   unlockCalls.length = 0;
+  capturedPlayingChange = null;
   vi.stubGlobal("fetch", vi.fn());
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+test("exposes isPlaying and updates it when the audio player reports playback", async () => {
+  function Probe() {
+    const { isPlaying } = useAudioPlayer();
+    return <span data-testid="hook-is-playing">{String(isPlaying)}</span>;
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  expect(screen.getByTestId("hook-is-playing").textContent).toBe("false");
+  expect(capturedPlayingChange).toEqual(expect.any(Function));
+
+  await act(async () => {
+    capturedPlayingChange!(true);
+  });
+  expect(screen.getByTestId("hook-is-playing").textContent).toBe("true");
+
+  await act(async () => {
+    capturedPlayingChange!(false);
+  });
+  expect(screen.getByTestId("hook-is-playing").textContent).toBe("false");
 });
 
 test("speaker mode replaces a personal queue with the room queue", async () => {

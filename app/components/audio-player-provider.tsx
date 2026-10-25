@@ -114,6 +114,8 @@ interface AudioPlayerContextType {
   hasNext: boolean;
   hasPrevious: boolean;
   isLoadingNext: boolean;
+  /** True only while the media element is actually playing. */
+  isPlaying: boolean;
   addTrackToPlaylist: (track: Track, position?: "next" | "end") => void;
   removeTrackFromPlaylist: (target: QueueTarget) => void;
   removeCurrentFromQueue: () => void;
@@ -180,6 +182,7 @@ interface AudioPlayerProviderProps {
 export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderProps) {
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [upNext, setUpNext] = useState<QueueTrack[]>([]);
   const [upNextPlayNextCount, setUpNextPlayNextCount] = useState(0);
   const [spine, setSpine] = useState<QueueTrack[]>([]);
@@ -1371,6 +1374,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       hasNext,
       hasPrevious,
       isLoadingNext,
+      isPlaying,
       addTrackToPlaylist,
       removeTrackFromPlaylist,
       removeCurrentFromQueue,
@@ -1416,6 +1420,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       hasNext,
       hasPrevious,
       isLoadingNext,
+      isPlaying,
       addTrackToPlaylist,
       removeTrackFromPlaylist,
       removeCurrentFromQueue,
@@ -1808,6 +1813,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         roomSpeaker={roomSpeaker}
         roomPlaying={roomPlaying}
         onRoomAutoplayOutcome={notifyRoomAutoplayOutcome}
+        onPlayingChange={setIsPlaying}
         audioSrcOverride={
           roomSpeaker && currentTrack ? `/resources/rooms/audio/${currentTrack.id}` : undefined
         }

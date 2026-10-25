@@ -656,6 +656,27 @@ test("keeps isPlaying through pause-before-ended during auto-advance", async () 
   expect(within(screen.getByTestId("player-desktop-bar")).getByLabelText("Pause")).toBeTruthy();
 });
 
+test("reports isPlaying to the provider only while audio is actually playing", async () => {
+  const user = userEvent.setup();
+  const onPlayingChange = vi.fn();
+  const { audioEl } = await renderPlayer({ onPlayingChange, loopMode: "off", hasNext: true });
+
+  expect(onPlayingChange).toHaveBeenCalledWith(false);
+
+  audioEl.dispatchEvent(new Event("play"));
+  setPaused(audioEl, false);
+  await waitFor(() => {
+    expect(onPlayingChange).toHaveBeenCalledWith(true);
+  });
+
+  await user.click(within(screen.getByTestId("player-desktop-bar")).getByLabelText("Pause"));
+  audioEl.dispatchEvent(new Event("pause"));
+
+  await waitFor(() => {
+    expect(onPlayingChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
 test("user pause still clears isPlaying when keepPlaying was armed", async () => {
   const user = userEvent.setup();
   const { audioEl } = await renderPlayer({ loopMode: "off", hasNext: true });
