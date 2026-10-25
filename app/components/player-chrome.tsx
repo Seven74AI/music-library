@@ -19,7 +19,11 @@ import { useSwipeGesture } from "#app/hooks/use-swipe-gesture";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { nowPlayingCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { getPlaybackProgressPercent } from "./audio-player-format";
-import { PlayerLoopShuffleDownload, PlayerSeekBar, PlayerTransportControls } from "./player-controls";
+import {
+  PlayerLoopShuffleDownload,
+  PlayerSeekBar,
+  PlayerTransportControls,
+} from "./player-controls";
 import { QueueSheet } from "./player-queue-sheet";
 import { PlayerTrackIdentity } from "./player-track-identity";
 import { isSleepTimerMenuTarget, SleepTimerControl } from "./sleep-timer-control";
@@ -221,7 +225,8 @@ function PlayerNowPlayingSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          className="flex max-h-[85vh] flex-col gap-6"
+          inert={isDetailsOpen ? true : undefined}
+          className={`flex max-h-[85vh] flex-col gap-6${isDetailsOpen ? " z-40" : ""}`}
           data-testid="player-now-playing-sheet"
           onPointerDownOutside={(event) => {
             // The sleep-timer menu is portaled outside this sheet. A tap on a

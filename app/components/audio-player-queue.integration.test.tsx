@@ -451,6 +451,46 @@ afterEach(() => {
 });
 
 describe("queue sheet integration", () => {
+  test("previous puts the audio element back on the track shown in the bar", async () => {
+    const user = userEvent.setup();
+    const { peekCachedPlaybackUrl } =
+      await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+    vi.mocked(peekCachedPlaybackUrl).mockImplementation(
+      (id: string) => `https://cdn.example/${id}.mp3`,
+    );
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    const audio = document.querySelector("audio");
+    if (!(audio instanceof HTMLAudioElement)) throw new Error("missing audio element");
+    await waitFor(() => {
+      expect(audio).toHaveAttribute("src", "https://cdn.example/track-a.mp3");
+    });
+
+    await clickNextTrack(user);
+    const bar = screen.getByTestId("player-desktop-bar");
+    await waitFor(() => {
+      expect(within(bar).getByText("Spine-Bravo-Upcoming")).toBeTruthy();
+      expect(audio).toHaveAttribute("src", "https://cdn.example/track-b.mp3");
+    });
+
+    Object.defineProperty(audio, "duration", { configurable: true, value: 222 });
+    audio.dispatchEvent(new Event("loadedmetadata"));
+    await waitFor(() => {
+      expect(within(bar).getByLabelText("Seek")).toHaveAttribute("max", "222");
+    });
+
+    await user.click(within(bar).getByLabelText("Previous track"));
+
+    await waitFor(() => {
+      expect(within(bar).getByText("Spine-Alpha-Now")).toBeTruthy();
+      expect(audio).toHaveAttribute("src", "https://cdn.example/track-a.mp3");
+    });
+    expect(within(bar).getByLabelText("Seek")).not.toHaveAttribute("max", "222");
+  });
+
   test("shows upcoming spine tracks while library playback is active", async () => {
     const user = userEvent.setup();
     mockSpineAndHydration(vi.mocked(fetch));

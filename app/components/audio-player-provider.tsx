@@ -552,15 +552,44 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   );
 
   const playResolvedTrack = useCallback(
-    async (queueTrack: QueueTrack): Promise<boolean> => {
-      const fullTrack = await resolvePlayableTrack(queueTrack);
-      if (!fullTrack) return false;
+    async (queueTrack: QueueTrack, options?: { commit?: () => void }): Promise<boolean> => {
+      // Apply a cached URL before the first await so Previous/Next stay inside
+      // the user gesture. Otherwise the bar can show the returned track while
+      // the element is still on the one we just left.
+      const cachedUrl = peekCachedPlaybackUrl(queueTrack.id);
+      let appliedSynchronously = false;
+      if (cachedUrl && unlockAutoplayRef.current) {
+        appliedSynchronously = unlockAutoplayRef.current(queueTrack.id, cachedUrl);
+      }
+      if (!appliedSynchronously) {
+        wantsAutoPlayRef.current = true;
+      }
 
-      beginPlayback();
+      const cachedFull = resolveFullTrack(playbackCacheRef.current, queueTrack);
+      if (isPlayableTrack(cachedFull)) {
+        options?.commit?.();
+        if (!appliedSynchronously) {
+          beginPlayback();
+        }
+        setCurrentTrack(cachedFull);
+        void hydrateAround(queueTrack.id).catch(() => {});
+        return true;
+      }
+
+      const fullTrack = await resolvePlayableTrack(queueTrack);
+      if (!fullTrack) {
+        wantsAutoPlayRef.current = false;
+        return false;
+      }
+
+      options?.commit?.();
+      if (!appliedSynchronously) {
+        beginPlayback();
+      }
       setCurrentTrack(fullTrack);
       return true;
     },
-    [beginPlayback, resolvePlayableTrack],
+    [beginPlayback, hydrateAround, resolvePlayableTrack],
   );
 
   const playTrack = useCallback(
@@ -1058,8 +1087,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     const queueTrack = getTrackAtTarget(navigationState, target);
     if (!queueTrack) return;
 
-    setSpinePosition(target.index);
-    void playResolvedTrack(queueTrack);
+    void playResolvedTrack(queueTrack, {
+      commit: () => setSpinePosition(target.index),
+    });
   }, [navigationState, playResolvedTrack]);
 
   const toggleLoop = useCallback(() => {

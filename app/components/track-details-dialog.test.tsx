@@ -109,6 +109,19 @@ test("fetches track details when opened", () => {
   expect(mockLoad).toHaveBeenCalledWith("/resources/track-details?trackId=track-1");
 });
 
+test("stacks the dialog above the now-playing sheet", () => {
+  renderDialog(true);
+
+  const dialog = screen.getByRole("dialog");
+  expect(dialog.className).toMatch(/\bz-\[80\]/);
+  expect(dialog.className).not.toMatch(/\bz-53\b/);
+
+  const overlay = document.querySelector("[data-testid='track-details-overlay']");
+  expect(overlay).toBeTruthy();
+  expect(overlay?.className).toMatch(/\bz-\[80\]/);
+  expect(overlay?.className).not.toMatch(/\bz-53\b/);
+});
+
 test("shows loading spinner while fetching", () => {
   fetcherState = "loading";
   renderDialog(true);

@@ -17,6 +17,10 @@ import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { type RoomAutoplayOutcome } from "./audio-player-room-playback.ts";
 import { AudioPlayerProvider, useAudioPlayer } from "./audio-player-provider";
 
+const { unlockCalls } = vi.hoisted(() => ({
+  unlockCalls: [] as Array<{ trackId: string; url: string }>,
+}));
+
 let capturedRoomAutoplay: ((outcome: RoomAutoplayOutcome) => void) | null = null;
 
 vi.mock("./audio-player", () => ({
@@ -38,7 +42,8 @@ vi.mock("./audio-player", () => ({
     capturedRoomAutoplay = onRoomAutoplayOutcome ?? null;
     // Mock the unlock function
     if (unlockAutoplayRef) {
-      unlockAutoplayRef.current = (_trackId: string, _cachedUrl: string) => {
+      unlockAutoplayRef.current = (trackId: string, cachedUrl: string) => {
+        unlockCalls.push({ trackId, url: cachedUrl });
         // Mock implementation - just set wants autoplay to true and return success
         if (wantsAutoPlayRef) {
           wantsAutoPlayRef.current = true;
@@ -232,6 +237,7 @@ function PlayUserPlaylistProbe({
 }
 
 beforeEach(() => {
+  unlockCalls.length = 0;
   vi.stubGlobal("fetch", vi.fn());
 });
 
@@ -691,6 +697,90 @@ test("playNext sets autoplay intent synchronously to enable browser autoplay", a
   // (In real usage, this synchronous setting enables browser autoplay)
   await waitFor(() => {
     expect(screen.getByTestId("current-track-id").textContent).toBe("track-2");
+  });
+});
+
+test("playPrevious applies the cached source for the track you return to", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const { peekCachedPlaybackUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(peekCachedPlaybackUrl).mockImplementation(
+    (id: string) => `https://cdn.example/${id}.mp3`,
+  );
+
+  const track2: FullTrack = {
+    ...playableTrack,
+    id: "track-2",
+    title: "Second Track",
+    audioFiles: [{ id: "af-2", format: "mp3", objectKey: "audio/test2.mp3" }],
+  };
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2", title: "Second Track" }],
+          total: 2,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const tracks = [playableTrack, track2].filter((track) => ids.includes(track.id));
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function Probe() {
+    const { playTrack, playNext, playPrevious, currentTrack } = useAudioPlayer();
+    return (
+      <div>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play first track
+        </button>
+        <button type="button" onClick={playNext}>
+          Play next
+        </button>
+        <button type="button" onClick={playPrevious}>
+          Play previous
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </div>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play first track" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  await user.click(screen.getByRole("button", { name: "Play next" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-2");
+  });
+
+  unlockCalls.length = 0;
+  await user.click(screen.getByRole("button", { name: "Play previous" }));
+
+  expect(unlockCalls).toContainEqual({
+    trackId: "track-1",
+    url: "https://cdn.example/track-1.mp3",
+  });
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
   });
 });
 

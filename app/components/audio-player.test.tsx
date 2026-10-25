@@ -468,6 +468,50 @@ test("shows playback error with user-friendly message for MEDIA_ERR_DECODE (code
   consoleSpy.mockRestore();
 });
 
+test("failed stream leaves a stopped play control and does not stretch the seek bar", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  const { resolveTrackPlaybackSource, resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(resolveTrackPlaybackSource).mockResolvedValue("https://cdn.example/broken.mp3");
+  vi.mocked(resolvePlaybackAudioUrl).mockResolvedValue(null);
+
+  vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => {
+    return Promise.reject(new Error("The play() request was interrupted by a new load request."));
+  });
+
+  const { audioEl } = await renderPlayer({
+    playbackToken: 1,
+    wantsAutoPlayRef: { current: true },
+  });
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "https://cdn.example/broken.mp3");
+  });
+
+  audioEl.dispatchEvent(new Event("play"));
+  Object.defineProperty(audioEl, "paused", { configurable: true, value: false });
+  Object.defineProperty(audioEl, "error", {
+    configurable: true,
+    value: { code: 4, message: "MEDIA_ELEMENT_ERROR: Format error" },
+  });
+  audioEl.dispatchEvent(new Event("error"));
+
+  const bar = screen.getByTestId("player-desktop-bar");
+  await waitFor(() => {
+    expect(screen.getByTestId("player-playback-error")).toHaveTextContent(
+      "The audio source could not be found or is not supported.",
+    );
+    expect(within(bar).getByRole("button", { name: "Play" })).toBeEnabled();
+  });
+  expect(screen.getByTestId("player-playback-error")).not.toHaveTextContent(
+    "Autoplay was prevented",
+  );
+  expect(within(bar).getByLabelText("Seek")).not.toHaveAttribute("max", "1000000");
+  expect(within(bar).queryByRole("button", { name: "Pause" })).toBeNull();
+
+  consoleSpy.mockRestore();
+});
+
 test("shows playback error with user-friendly message for MEDIA_ERR_SRC_NOT_SUPPORTED (code 4)", async () => {
   const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   const { resolveTrackPlaybackSource, resolvePlaybackAudioUrl } =
@@ -854,6 +898,75 @@ test("auto-plays after track change once the new audio URL has loaded", async ()
   });
 });
 
+test("returning to the previous track rewrites the element left on the track you just left", async () => {
+  const { peekCachedPlaybackUrl, resolveTrackPlaybackSource } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+
+  vi.mocked(peekCachedPlaybackUrl).mockImplementation((id: string) =>
+    id === "track-1"
+      ? "https://cdn.example/track-1.mp3"
+      : id === "track-2"
+        ? "https://cdn.example/track-2.mp3"
+        : null,
+  );
+  vi.mocked(resolveTrackPlaybackSource).mockImplementation(async (id: string) =>
+    id === "track-2" ? "https://cdn.example/track-2.mp3" : "https://cdn.example/track-1.mp3",
+  );
+
+  const unlockAutoplayRef: AudioPlayerTestProps["unlockAutoplayRef"] = { current: null };
+  const { audioEl, rerender } = await renderPlayer({
+    playbackToken: 1,
+    wantsAutoPlayRef: { current: true },
+    unlockAutoplayRef,
+  });
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "https://cdn.example/track-1.mp3");
+  });
+
+  // Next applies the following track inside the gesture and intentionally skips
+  // setAudioSrc, so React still holds the first URL while the element plays the second.
+  expect(unlockAutoplayRef.current?.("track-2", "https://cdn.example/track-2.mp3")).toBe(true);
+  expect(audioEl).toHaveAttribute("src", "https://cdn.example/track-2.mp3");
+  Object.defineProperty(audioEl, "duration", { configurable: true, value: 222 });
+  audioEl.dispatchEvent(new Event("loadedmetadata"));
+
+  rerender(
+    playerUi({
+      track: mockTrack2,
+      playbackToken: 1,
+      wantsAutoPlayRef: { current: false },
+      unlockAutoplayRef,
+    }),
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("player-desktop-bar")).toHaveTextContent("Second Song");
+    expect(within(screen.getByTestId("player-desktop-bar")).getByLabelText("Seek")).toHaveAttribute(
+      "max",
+      "222",
+    );
+  });
+  expect(audioEl).toHaveAttribute("src", "https://cdn.example/track-2.mp3");
+
+  rerender(
+    playerUi({
+      track: mockTrack,
+      playbackToken: 2,
+      wantsAutoPlayRef: { current: true },
+      unlockAutoplayRef,
+    }),
+  );
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "https://cdn.example/track-1.mp3");
+  });
+  expect(screen.getByTestId("player-desktop-bar")).toHaveTextContent("Test Song");
+  expect(
+    within(screen.getByTestId("player-desktop-bar")).getByLabelText("Seek"),
+  ).not.toHaveAttribute("max", "222");
+});
+
 test("applies a prefetched URL synchronously on track change without blanking src", async () => {
   const { peekCachedPlaybackUrl, resolveTrackPlaybackSource } =
     await import("#app/features/offline-storage/resolve-playback-url.client.ts");
@@ -1080,6 +1193,22 @@ test("now playing add-to-playlist sheet constrains the menu so New playlist stay
     "true",
   );
   expect(within(sheet).getByRole("button", { name: "New playlist" })).toBeTruthy();
+});
+
+test("track details covers the now-playing sheet so its controls are not left on top", async () => {
+  const user = userEvent.setup();
+  await renderPlayer();
+
+  await user.click(screen.getByLabelText("Open now playing"));
+  const sheet = await screen.findByTestId("player-now-playing-sheet");
+  await user.click(within(sheet).getByLabelText("More actions"));
+  await user.click(screen.getByText("Track Details"));
+
+  await waitFor(() => {
+    expect(sheet).toHaveAttribute("inert");
+  });
+  expect(sheet.className).toMatch(/\bz-40\b/);
+  expect(sheet.className).not.toMatch(/\bz-53\b/);
 });
 
 test("overflow sheet opens with all action buttons", async () => {

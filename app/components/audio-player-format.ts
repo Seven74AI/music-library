@@ -58,7 +58,13 @@ export function swapPlaybackSource(
       audio.currentTime = savedTime;
     }
     if (shouldResume) {
-      void audio.play();
+      try {
+        void Promise.resolve(audio.play()).catch(() => {
+          // A newer load, or a terminal media error, supersedes this play().
+        });
+      } catch {
+        // play() threw synchronously (for example, interrupted by a new load).
+      }
     }
   };
 
@@ -69,4 +75,11 @@ export function swapPlaybackSource(
   if (audio.readyState < (HTMLMediaElement.HAVE_CURRENT_DATA ?? 2)) {
     audio.addEventListener("loadeddata", restore, { once: true });
   }
+}
+
+/** A new src/load aborted play(). Callers already surface the media error. */
+export function isPlayInterrupted(error: unknown): boolean {
+  const name = error instanceof Error ? error.name : "";
+  const message = error instanceof Error ? error.message : "";
+  return name === "AbortError" || message.includes("interrupted by a new load request");
 }

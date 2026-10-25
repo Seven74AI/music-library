@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   outcomeFromPlayCall,
   roomStateAfterAutoplay,
@@ -46,7 +40,13 @@ import {
   isSleepTimerExpired,
 } from "#app/utils/sleep-timer.ts";
 import { toast } from "#app/components/ui/use-toast.ts";
-import { generatePlayId, getMediaErrorMessage, swapPlaybackSource } from "./audio-player-format";
+import {
+  generatePlayId,
+  getMediaErrorMessage,
+  isDurationKnown,
+  isPlayInterrupted,
+  swapPlaybackSource,
+} from "./audio-player-format";
 import {
   PlayerDesktopBar,
   PlayerMiniBar,
@@ -73,6 +73,16 @@ function isPlaybackSourceReady(
   if (!trackId || !audioSrc) return false;
   if (pending?.trackId === trackId) return pending.url === audioSrc;
   return loadedTrackId === trackId;
+}
+
+/** React state can still hold a URL after a gesture wrote a different one onto the element. */
+function mediaElementHasSrc(audio: HTMLAudioElement, url: string): boolean {
+  if (audio.getAttribute("src") === url) return true;
+  try {
+    return audio.src === new URL(url, window.location.href).href;
+  } catch {
+    return false;
+  }
 }
 
 interface AudioPlayerProps {
@@ -223,6 +233,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
         // interrupt the play() call by resetting the audio element.
         audio.src = cachedUrl;
         loadedTrackIdRef.current = trackId;
+        if (previousTrackIdRef.current !== trackId) {
+          previousTrackIdRef.current = trackId;
+          setDuration(0);
+          setCurrentTime(0);
+        }
         audio.currentTime = 0;
         audio.volume = isMuted ? 0 : volume;
 
@@ -319,6 +334,19 @@ export function AudioPlayer(props: AudioPlayerProps) {
   audioSrcRef.current = audioSrc;
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const playbackErrorRef = useRef<HTMLDivElement>(null);
+  // Set when we had to write a URL onto the element because React state already
+  // matched it. The autoplay effect must not copy the previous element's duration.
+  const suppressStaleDurationRef = useRef(false);
+
+  const stopFailedPlayback = useCallback((message: string) => {
+    keepPlayingRef.current = false;
+    setIsPlaying(false);
+    const audio = audioRef.current;
+    if (audio && !audio.paused) {
+      audio.pause();
+    }
+    setPlaybackError(message);
+  }, []);
 
   // The fixed player grows when autoplay is blocked. Publish that extra height
   // so page padding can scroll the last rows clear of the bar.
@@ -374,8 +402,19 @@ export function AudioPlayer(props: AudioPlayerProps) {
     const directUrl = cachedUrl || audioSrcOverride || null;
     if (directUrl) {
       pendingAudioSrcRef.current = { trackId, url: directUrl };
-      if (audioSrcRef.current === directUrl) {
+      const audio = audioRef.current;
+      const elementOnUrl = audio ? mediaElementHasSrc(audio, directUrl) : false;
+      if (audioSrcRef.current === directUrl && elementOnUrl) {
         loadedTrackIdRef.current = trackId;
+      } else if (audioSrcRef.current === directUrl && audio) {
+        // Same React src as the track we are returning to, but the element is
+        // still playing the track we just left. setAudioSrc would no-op.
+        audio.src = directUrl;
+        loadedTrackIdRef.current = trackId;
+        suppressStaleDurationRef.current = true;
+        setDuration(0);
+        setCurrentTime(0);
+        setPlaybackError(null);
       } else {
         loadedTrackIdRef.current = null;
         setAudioSrc(directUrl);
@@ -480,8 +519,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
         setIsPlaying(false);
       }
       setCurrentTime(0);
-      if (track.id !== previousTrackIdRef.current) {
+      if (track.id !== previousTrackIdRef.current || suppressStaleDurationRef.current) {
         previousTrackIdRef.current = track.id;
+        suppressStaleDurationRef.current = false;
         setDuration(0);
       } else if (
         audioRef.current.duration &&
@@ -494,10 +534,20 @@ export function AudioPlayer(props: AudioPlayerProps) {
       if (shouldAutoPlay) {
         keepPlayingRef.current = true;
         audioRef.current.currentTime = 0;
-        const playPromise = audioRef.current.play();
+        let playPromise: Promise<void> | undefined;
+        try {
+          playPromise = audioRef.current.play() ?? undefined;
+        } catch (error) {
+          playPromise = Promise.reject(error);
+        }
         if (playPromise !== undefined) {
           playPromise
             .then(() => {
+              if (audioRef.current?.error) {
+                setIsPlaying(false);
+                keepPlayingRef.current = false;
+                return;
+              }
               setIsPlaying(true);
               keepPlayingRef.current = true;
               if (track && playStartedForTrackRef.current !== track.id) {
@@ -507,9 +557,12 @@ export function AudioPlayer(props: AudioPlayerProps) {
                 emitPlayEvent("play_started", track.id, playIdRef.current);
               }
             })
-            .catch(() => {
+            .catch((error: unknown) => {
               setIsPlaying(false);
               keepPlayingRef.current = false;
+              // A failed source reports its own message. An aborted play() from a
+              // newer load must not replace that with the autoplay toast.
+              if (audioRef.current?.error || isPlayInterrupted(error)) return;
               setPlaybackError("Autoplay was prevented by your browser. Press play to start.");
               recordAutoplayFailure();
               toast({
@@ -935,20 +988,17 @@ export function AudioPlayer(props: AudioPlayerProps) {
                 setAudioSrc(offlineUrl);
                 setPlaybackError(null);
               } else {
-                setPlaybackError(getMediaErrorMessage(errorCode));
-                setAudioSrc(undefined);
+                stopFailedPlayback(getMediaErrorMessage(errorCode));
               }
             });
           })
           .catch(() => {
-            setPlaybackError(getMediaErrorMessage(errorCode));
-            setAudioSrc(undefined);
+            stopFailedPlayback(getMediaErrorMessage(errorCode));
           });
         return;
       }
 
-      setPlaybackError(getMediaErrorMessage(errorCode));
-      setAudioSrc(undefined);
+      stopFailedPlayback(getMediaErrorMessage(errorCode));
     };
 
     audio.addEventListener("timeupdate", updateTime);
@@ -970,7 +1020,16 @@ export function AudioPlayer(props: AudioPlayerProps) {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
     };
-  }, [onNext, loopMode, trackId, audioSrc, hasNext, emitPlayEvent, roomSpeaker]);
+  }, [
+    onNext,
+    loopMode,
+    trackId,
+    audioSrc,
+    hasNext,
+    emitPlayEvent,
+    roomSpeaker,
+    stopFailedPlayback,
+  ]);
 
   const handleDownload = async () => {
     if (!track) return;
@@ -1057,13 +1116,19 @@ export function AudioPlayer(props: AudioPlayerProps) {
     );
   }
 
-  const isAudioLoading = !audioSrc;
+  const isAudioLoading = !audioSrc && !playbackError;
+  const catalogDuration = track.duration ?? 0;
+  const seekDuration = isDurationKnown(duration)
+    ? duration
+    : playbackError && isDurationKnown(catalogDuration)
+      ? catalogDuration
+      : duration;
   const chromeProps: PlayerChromeProps = {
     track,
     isPlaying,
     isAudioLoading,
     currentTime,
-    duration,
+    duration: seekDuration,
     loopMode,
     isShuffleEnabled,
     isDownloading,

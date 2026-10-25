@@ -279,7 +279,11 @@ export function TrackDetailsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto">
+        <DialogContent
+          overlayClassName="z-[80]"
+          overlayTestId="track-details-overlay"
+          className="z-[80] max-h-[90vh] w-[calc(100%-2rem)] max-w-3xl overflow-y-auto"
+        >
           {isLoading || isStale ? (
             <>
               <div className="flex items-center justify-center py-12">
@@ -408,7 +412,9 @@ export function TrackDetailsDialog({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => window.open(track.serviceUrl!, "_blank", "noopener,noreferrer")}
+                        onClick={() =>
+                          window.open(track.serviceUrl!, "_blank", "noopener,noreferrer")
+                        }
                         className="flex-1"
                       >
                         <Icon name="link-2" className="mr-2 h-4 w-4" />
