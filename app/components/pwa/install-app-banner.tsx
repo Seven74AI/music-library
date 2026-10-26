@@ -26,6 +26,55 @@ export const roomChromeScrollClearance =
 
 const INSTALL_BANNER_HEIGHT_VAR = "--install-banner-height";
 
+type RoomChromeCollisionPadding = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+};
+
+function readCssPx(name: string) {
+  if (typeof document === "undefined") return 0;
+  const raw = getComputedStyle(document.body).getPropertyValue(name).trim();
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) ? value : 0;
+}
+
+/** Padding so portaled menus stay above the fixed install banner and the mobile nav. */
+export function roomChromeCollisionPadding(): RoomChromeCollisionPadding {
+  const edge = 8;
+  const banner = readCssPx(INSTALL_BANNER_HEIGHT_VAR);
+  const desktop =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(min-width: 48rem)").matches;
+  const bottom = desktop
+    ? readCssPx("--toast-bottom-offset") + banner
+    : readCssPx("--bottom-bar-height") + readCssPx("--player-error-height") + banner;
+  return { top: edge, right: edge, bottom: bottom + edge, left: edge };
+}
+
+export function withRoomChromeCollisionPadding(
+  explicit?: number | Partial<RoomChromeCollisionPadding>,
+): RoomChromeCollisionPadding {
+  const chrome = roomChromeCollisionPadding();
+  if (explicit == null) return chrome;
+  if (typeof explicit === "number") {
+    return {
+      top: explicit,
+      right: explicit,
+      bottom: Math.max(explicit, chrome.bottom),
+      left: explicit,
+    };
+  }
+  return {
+    top: explicit.top ?? chrome.top,
+    right: explicit.right ?? chrome.right,
+    bottom: Math.max(explicit.bottom ?? 0, chrome.bottom),
+    left: explicit.left ?? chrome.left,
+  };
+}
+
 export function InstallAppBanner({ playerVisible }: InstallAppBannerProps) {
   const { visible, dismiss, install, isIos, canInstallNatively } = usePwaInstall();
   const bannerRef = useRef<HTMLDivElement>(null);

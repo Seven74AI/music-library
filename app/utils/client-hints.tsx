@@ -45,6 +45,8 @@ export function ClientHintCheck({ nonce }: { nonce: string }) {
   return (
     <script
       nonce={nonce}
+      // The server nonce is real; browsers hide it, so the client nonce is "".
+      suppressHydrationWarning
       dangerouslySetInnerHTML={{
         __html: hintsUtils.getClientHintCheckScript(),
       }}

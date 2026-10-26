@@ -80,7 +80,7 @@ export function Icon({
   return (
     <svg {...props} className={cn(sizeClassName[size], "inline self-center", className)}>
       {title ? <title>{title}</title> : null}
-      <use href={iconHref} />
+      <use href={iconHref} suppressHydrationWarning />
     </svg>
   );
 }

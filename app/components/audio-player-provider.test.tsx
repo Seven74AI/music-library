@@ -65,9 +65,13 @@ vi.mock("./audio-player", () => ({
   },
 }));
 
-vi.mock("#app/components/pwa/install-app-banner", () => ({
-  InstallAppBanner: () => null,
-}));
+vi.mock("#app/components/pwa/install-app-banner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/components/pwa/install-app-banner")>();
+  return {
+    ...actual,
+    InstallAppBanner: () => null,
+  };
+});
 
 vi.mock("#app/features/offline-storage/offline-storage.client.ts", () => ({
   getOfflineStorage: vi.fn(() => ({

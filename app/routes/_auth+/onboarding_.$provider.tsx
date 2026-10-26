@@ -11,6 +11,7 @@ import { useIsPending } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { verifySessionStorage } from "#app/utils/verification.server.ts";
 import { type Route } from "./+types/onboarding_.$provider.ts";
+import { OnboardingAgreementLabel } from "./onboarding-agreement.tsx";
 import { SignupFormBaseSchema } from "./onboarding-shared.ts";
 import {
   commitOnboardingSession,
@@ -177,7 +178,7 @@ export default function OnboardingProviderRoute({ loaderData, actionData }: Rout
           <CheckboxField
             labelProps={{
               htmlFor: fields.agreeToTermsOfServiceAndPrivacyPolicy.id,
-              children: "Do you agree to our Terms of Service and Privacy Policy?",
+              children: <OnboardingAgreementLabel />,
             }}
             buttonProps={getInputProps(fields.agreeToTermsOfServiceAndPrivacyPolicy, {
               type: "checkbox",

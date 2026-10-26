@@ -83,7 +83,7 @@ test("onboarding with link", { tag: "@slow" }, async ({ page, navigate, getOnboa
 
   await page.waitForLoadState("domcontentloaded"); // ensure js is fully loaded.
 
-  await page.getByLabel(/terms/i).check();
+  await page.getByRole("checkbox", { name: /terms of service/i }).check();
 
   await page.getByLabel(/remember me/i).check();
 

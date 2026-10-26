@@ -3,8 +3,12 @@
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import { InstallAppBanner, roomChromeScrollClearance } from "./install-app-banner.tsx";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  InstallAppBanner,
+  roomChromeCollisionPadding,
+  roomChromeScrollClearance,
+} from "./install-app-banner.tsx";
 
 const pwa = vi.hoisted(() => ({
   visible: true,
@@ -111,5 +115,47 @@ describe("InstallAppBanner", () => {
       if (original) Object.defineProperty(proto, "offsetHeight", original);
       document.body.style.removeProperty("--install-banner-height");
     }
+  });
+});
+
+describe("roomChromeCollisionPadding", () => {
+  const originalMatchMedia = window.matchMedia;
+
+  function mockViewport(desktop: boolean) {
+    window.matchMedia = ((query: string) => ({
+      matches: desktop,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+  }
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+    document.body.style.removeProperty("--install-banner-height");
+    document.body.style.removeProperty("--bottom-bar-height");
+    document.body.style.removeProperty("--player-error-height");
+    document.body.style.removeProperty("--toast-bottom-offset");
+  });
+
+  test("keeps portaled menus above the banner and the mobile nav", () => {
+    mockViewport(false);
+    document.body.style.setProperty("--install-banner-height", "133px");
+    document.body.style.setProperty("--bottom-bar-height", "64px");
+    document.body.style.setProperty("--player-error-height", "10px");
+
+    expect(roomChromeCollisionPadding().bottom).toBeGreaterThanOrEqual(133 + 64 + 10);
+  });
+
+  test("keeps portaled menus above the banner and the desktop player", () => {
+    mockViewport(true);
+    document.body.style.setProperty("--install-banner-height", "113px");
+    document.body.style.setProperty("--toast-bottom-offset", "80px");
+
+    expect(roomChromeCollisionPadding().bottom).toBeGreaterThanOrEqual(113 + 80);
   });
 });

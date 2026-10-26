@@ -84,20 +84,28 @@ export const links: Route.LinksFunction = () => {
   return [
     // Preload svg sprite as a resource to avoid render blocking
     // Use fetchpriority="high" to ensure it loads early
-    { rel: "preload", href: iconsHref, as: "image/svg+xml", fetchPriority: "high" as const },
+    {
+      rel: "preload",
+      href: iconsHref,
+      as: "image",
+      fetchPriority: "high" as const,
+      suppressHydrationWarning: true,
+    },
     {
       rel: "icon",
       href: "/favicon.ico",
       sizes: "48x48",
+      suppressHydrationWarning: true,
     },
-    { rel: "icon", type: "image/svg+xml", href: faviconAssetUrl },
-    { rel: "apple-touch-icon", href: appleTouchIconAssetUrl },
+    { rel: "icon", type: "image/svg+xml", href: faviconAssetUrl, suppressHydrationWarning: true },
+    { rel: "apple-touch-icon", href: appleTouchIconAssetUrl, suppressHydrationWarning: true },
     {
       rel: "manifest",
       href: "/site.webmanifest",
       crossOrigin: "use-credentials",
+      suppressHydrationWarning: true,
     } as const, // necessary to make typescript happy
-    { rel: "stylesheet", href: tailwindStyleSheetUrl },
+    { rel: "stylesheet", href: tailwindStyleSheetUrl, suppressHydrationWarning: true },
   ].filter(Boolean);
 };
 
@@ -222,6 +230,7 @@ function Document({
         {/* Inject SVG sprite into DOM before React hydrates */}
         <script
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `
 (function() {
@@ -250,6 +259,7 @@ function Document({
         {children}
         <script
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `window.ENV = ${JSON.stringify(env)}`,
           }}
@@ -257,6 +267,7 @@ function Document({
         <ScrollRestoration nonce={nonce} />
         <script
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `window.__reactRouterHdrActive = true`,
           }}
@@ -332,7 +343,7 @@ function ShellLayout() {
         >
           Skip to content
         </a>
-        <div className="flex flex-1 flex-col" id="main-content">
+        <div className={`flex flex-1 flex-col ${roomChromeScrollClearance}`} id="main-content">
           <Outlet />
         </div>
       </div>
@@ -396,12 +407,7 @@ function ShellLayout() {
 
       <BottomNav signedIn={Boolean(user)} />
 
-      <footer
-        className="container py-8 pb-[calc(var(--bottom-bar-height)+var(--player-error-height,0px)+2rem+env(safe-area-inset-bottom))] md:pb-8 text-center text-sm text-muted-foreground"
-        role="contentinfo"
-      >
-        <p>&copy; {new Date().getFullYear()} Music Library</p>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
@@ -451,6 +457,26 @@ function App() {
         </AudioPlayerProvider>
       </OpenImgContextProvider>
     </QueryClientProvider>
+  );
+}
+
+export function SiteFooter() {
+  return (
+    <footer
+      className={`container py-8 text-center text-sm text-muted-foreground ${roomChromeScrollClearance}`}
+      role="contentinfo"
+    >
+      <nav aria-label="About, privacy, and terms">
+        <p>
+          <Link to="/about">About</Link>
+          <span aria-hidden="true"> · </span>
+          <Link to="/privacy">Privacy</Link>
+          <span aria-hidden="true"> · </span>
+          <Link to="/tos">Terms</Link>
+        </p>
+      </nav>
+      <p>&copy; {new Date().getFullYear()} Music Library</p>
+    </footer>
   );
 }
 
