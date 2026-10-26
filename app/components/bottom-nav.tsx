@@ -18,9 +18,9 @@ export function BottomNav({ signedIn }: { signedIn: boolean }) {
       role="navigation"
       aria-label="Main navigation"
     >
-      <ul className="flex h-16 items-center justify-around">
+      <ul className="flex h-16 items-stretch">
         {items.map((tab) => (
-          <li key={tab.to} className="flex-1">
+          <li key={tab.to} className="flex min-w-0 flex-1">
             <NavLink
               to={tab.to}
               end={tab.to === "/"}
@@ -30,15 +30,19 @@ export function BottomNav({ signedIn }: { signedIn: boolean }) {
               prefetch="intent"
               className={({ isActive }) =>
                 cn(
-                  "flex h-full flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors",
+                  "flex h-full w-full min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 text-[11px] font-medium leading-none transition-colors",
                   isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
                 )
               }
             >
               {({ isActive }) => (
                 <>
-                  <Icon name={tab.icon} size="lg" className={cn(isActive && "text-foreground")} />
-                  <span>{tab.label}</span>
+                  <Icon
+                    name={tab.icon}
+                    size="lg"
+                    className={cn("shrink-0", isActive && "text-foreground")}
+                  />
+                  <span className="w-full truncate text-center">{tab.label}</span>
                 </>
               )}
             </NavLink>
