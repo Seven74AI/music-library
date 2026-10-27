@@ -20,7 +20,7 @@ Split the queue into three zones and load data in two tiers:
 | ------------------- | -------------------------------------------------- | ----------------------------------------- |
 | **Spine**           | `QueueTrack[]` — id, title, artist                 | One request on play                       |
 | **Hydration cache** | `Map<id, FullTrack>` — audioFiles, cover, duration | On demand: current + lookahead (4 tracks) |
-| **Up Next**         | `QueueTrack[]` — user-injected manual zone         | In memory only                            |
+| **Up Next**         | `QueueTrack[]` — user-injected manual zone         | Persisted via `PlayerState.upNextIds` (ADR-017); restored on load |
 
 ## Playback order
 
@@ -208,7 +208,7 @@ This section documents the known edge cases in the queue navigation and mutation
 | End of spine with loop off                 | Empty   | `spinePosition` is last in `spineOrder` | `off`     | `null` |
 | End of spine with loop-all but empty spine | Empty   | `spineOrder.length === 0`               | `all`     | `null` |
 
-**Note:** `loopMode === 'one'` always returns the current spine position and never produces `null` from `resolveNextTrack`. Loop-one takes priority over both Up Next draining (checked first) and all other spine logic.
+**Note:** `loopMode === 'one'` returns the current spine position — but only *after* Up Next is drained. Up Next always drains first (rule 1), so with a non-empty Up Next, `resolveNextTrack` returns the Up Next front regardless of loop mode. Loop-one applies to the spine only.
 
 **Caller contract:** The `audio-player-provider` calls `resolveNextTrack` in `playNext`, the `removeCurrentFromQueue` fallback, and the queue-sheet-driven `advanceToTarget` path. Every caller checks for `null` before proceeding — `playNext` returns early, `advanceToTarget` is guarded by `hasNextTrack`.
 
