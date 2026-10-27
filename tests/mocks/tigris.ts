@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { invariantResponse } from "@epic-web/invariant";
 import { lookup as getMimeType } from "mime-types";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw/http";
 
 // Ensure we have a valid URL by explicitly creating it from the import.meta.url
 const __filename = fileURLToPath(import.meta.url);

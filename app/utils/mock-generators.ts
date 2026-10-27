@@ -1,5 +1,5 @@
 import { faker } from "@faker-js/faker";
-import { HttpResponse, http, type HttpHandler } from "msw";
+import { HttpResponse, http, type HttpHandler } from "msw/http";
 import { YOUTUBE_SERVICE_ID } from "#app/config/youtube";
 import {
   type YouTubePlaylistItem,

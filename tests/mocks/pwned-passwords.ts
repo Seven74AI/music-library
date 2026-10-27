@@ -1,4 +1,4 @@
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw/http";
 
 export const handlers = [
   http.get("https://api.pwnedpasswords.com/range/:prefix", () => {

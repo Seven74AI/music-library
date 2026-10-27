@@ -1,4 +1,4 @@
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw/http";
 
 // 1×1 transparent PNG (base64)
 const PIXEL =

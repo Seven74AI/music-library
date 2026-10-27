@@ -9,6 +9,13 @@
   "rules": {
     "react/react-in-jsx-scope": "off",
     "react/jsx-no-useless-fragment": "warn",
+    "react/refs": "off",
+    "react/set-state-in-effect": "off",
+    "react/purity": "off",
+    "react/immutability": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/globals": "off",
+    "react/incompatible-library": "off",
     "react-hooks/exhaustive-deps": "warn",
     "eslint/no-await-in-loop": "off",
     "eslint/no-unused-vars": [

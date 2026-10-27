@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw/http";
 import { describe, expect, test } from "vitest";
 import { server } from "#tests/mocks/index.ts";
 import { useLock, type LockInfo } from "./use-lock";

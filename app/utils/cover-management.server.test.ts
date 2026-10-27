@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw/http";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { server } from "#tests/mocks";
 import { consoleWarn } from "#tests/setup/setup-test-env.ts";
