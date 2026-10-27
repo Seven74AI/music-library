@@ -1247,8 +1247,6 @@ app/
 
 ## Implementation Phases
 
-See separate `curator-system-implementation-plan.md` for detailed breakdown.
-
 High-level phases:
 
 1. **Foundation** - Permissions, locks, sync infrastructure

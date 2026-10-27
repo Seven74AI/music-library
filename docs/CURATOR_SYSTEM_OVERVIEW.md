@@ -156,21 +156,6 @@ Added curator-specific terms:
 - **Notes**: CRUD, reply, resolve
 - **Dashboard**: Metrics, activity, leaderboard, stats
 
-### Implementation Timeline
-
-- **Phase 0**: Foundation (5 days)
-- **Phase 1A**: Track Editing (8.5 days)
-- **Phase 1B**: Artist/Album Editing (6 days, parallel)
-- **Phase 2**: Bulk Operations (8.5 days)
-- **Phase 3A**: Review Queue (9.5 days)
-- **Phase 3B**: Duplicate Detection (11 days, parallel)
-- **Phase 4**: Dashboard (8.5 days)
-- **Phase 5A**: Genre Management (7.5 days)
-- **Phase 5B**: Curator Notes (6.5 days, parallel)
-- **Phase 6**: Polish (13 days)
-
-**Total**: 10-12 weeks with 3 parallel workstreams
-
 ---
 
 ## Next Steps
@@ -184,24 +169,21 @@ Added curator-specific terms:
 
 ### For Engineering Planning
 
-1. Review **Implementation Plan** for task breakdown
-2. Assign workstreams to developers (A: Backend, B: UI, C: Features)
-3. Set up project board with Phase 0-6 milestones
-4. Create GitHub issues from task list
-5. Review **ADRs** for technical context
+1. Review **ADRs** for technical context
+2. Review **Feature Specification** for feature details
 
 ### For Database Team
 
 1. Review **ADRs** for schema decisions
 2. Prepare migrations in order (8 migrations total)
-3. Plan data migration for multi-genre (Phase 5A)
+3. Plan data migration for multi-genre
 4. Set up test data fixtures
 
 ### For QA/Testing
 
 1. Review **Testing Strategy** in specification
 2. Prepare test environment with curator role
-3. Review E2E test scenarios in implementation plan
+3. Review E2E test scenarios (tests/e2e/)
 4. Plan manual testing for mobile/browser compatibility
 
 ---
@@ -277,7 +259,6 @@ Added curator-specific terms:
 
 - **Architecture Questions**: See ADRs for rationale
 - **Feature Clarifications**: See Feature Specification
-- **Implementation Questions**: See Implementation Plan
 - **Terminology**: See CONTEXT.md glossary
 
 ---

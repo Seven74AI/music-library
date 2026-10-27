@@ -16,18 +16,18 @@ Split the queue into three zones and load data in two tiers:
 [ Now playing ] → [ Up Next (manual) ] → [ From Library / playlist (spine) ]
 ```
 
-| Tier                | Data                                               | When loaded                               |
-| ------------------- | -------------------------------------------------- | ----------------------------------------- |
-| **Spine**           | `QueueTrack[]` — id, title, artist                 | One request on play                       |
-| **Hydration cache** | `Map<id, FullTrack>` — audioFiles, cover, duration | On demand: current + lookahead (4 tracks) |
-| **Up Next**         | `QueueTrack[]` — user-injected manual zone         | In memory only                            |
+| Tier                | Data                                               | When loaded                                                       |
+| ------------------- | -------------------------------------------------- | ----------------------------------------------------------------- |
+| **Spine**           | `QueueTrack[]` — id, title, artist                 | One request on play                                               |
+| **Hydration cache** | `Map<id, FullTrack>` — audioFiles, cover, duration | On demand: current + lookahead (4 tracks)                         |
+| **Up Next**         | `QueueTrack[]` — user-injected manual zone         | Persisted via `PlayerState.upNextIds` (ADR-017); restored on load |
 
 ## Playback order
 
 On **Next**:
 
 1. Drain **Up Next** front (FIFO among Play-next inserts).
-2. Advance **spine pointer** (linear index or Fisher-Yates shuffled order).
+2. Advance **spine pointer** (linear index or seeded shuffled order).
 3. **Loop all** wraps spine; **loop one** replays current.
 
 ## Navigation
@@ -104,10 +104,12 @@ Used when the user taps a specific track in the queue sheet — the provider use
 - **`flatIndexForSpinePosition(state, spinePosition)`** — maps a spine position to an index in the flat queue view.
 - **`getQueueSpineDisplayTracks(state, hasCurrentTrack)`** — returns upcoming spine tracks (position+1) when a track is playing, or the full spine order when nothing is playing.
 
-## Shuffle (Fisher-Yates)
+## Shuffle (seeded Fisher-Yates)
 
+- Shuffle permutes spine **play order** (an index array), never the underlying spine list.
 - When shuffle is **enabled**: build a permuted index array over the spine once (or when toggled on).
 - When shuffle is **toggled on mid-playback**: reshuffle spine indices **from current position onward**; Up Next zone is untouched.
+- **Seeded PRNG** — `mulberry32` over a 32-bit `shuffleSeed` (ADR-017). Seed generated on toggle/reshuffle, persisted in `PlayerState.shuffleSeed`, so a restored queue reproduces the identical order. Seed is positional: a different spine length yields a different (but deterministic) order.
 - **Next/Prev** walk the shuffled index list; hydrate full track before play.
 
 ## Queue actions
@@ -165,13 +167,13 @@ Response:
 
 ## Client modules
 
-| Module                                   | Responsibility                                                         |
-| ---------------------------------------- | ---------------------------------------------------------------------- |
-| `app/features/queue/queue-spine.ts`      | Spine fetch, types                                                     |
-| `app/features/queue/queue-hydration.ts`  | Batch fetch + cache                                                    |
-| `app/features/queue/queue-shuffle.ts`    | Fisher-Yates, reshuffle-from-current                                   |
-| `app/features/queue/queue-navigation.ts` | Next/prev resolution across Up Next + spine                            |
-| `audio-player-provider.tsx`              | Orchestration; replaces `fetchAllTracks` / flat `FullTrack[]` playlist |
+| Module                                   | Responsibility                                             |
+| ---------------------------------------- | ---------------------------------------------------------- |
+| `app/features/queue/queue-spine.ts`      | Spine fetch, types                                         |
+| `app/features/queue/queue-hydration.ts`  | Batch fetch + cache                                        |
+| `app/features/queue/queue-shuffle.ts`    | Seeded Fisher-Yates (`mulberry32`), reshuffle-from-current |
+| `app/features/queue/queue-navigation.ts` | Next/prev resolution across Up Next + spine                |
+| `audio-player-provider.tsx`              | Orchestration (spine fetch, hydration, navigation)         |
 
 ## Queue sheet UI
 
@@ -187,9 +189,10 @@ Unchanged fallback: if spine fetch returns empty, use `offline-storage` pinned /
 
 ## Non-goals (v1)
 
-- Queue persistence across sessions
 - Drag-and-drop reorder of spine
-- Server-side shuffle (client Fisher-Yates is sufficient)
+- Server-side shuffle (client seeded Fisher-Yates is sufficient)
+
+> Note: "queue persistence across sessions" was originally a v1 non-goal; it shipped later via ADR-017 (`PlayerState`).
 
 ## Edge Cases
 
@@ -205,9 +208,9 @@ This section documents the known edge cases in the queue navigation and mutation
 | End of spine with loop off                 | Empty   | `spinePosition` is last in `spineOrder` | `off`     | `null` |
 | End of spine with loop-all but empty spine | Empty   | `spineOrder.length === 0`               | `all`     | `null` |
 
-**Note:** `loopMode === 'one'` always returns the current spine position and never produces `null` from `resolveNextTrack`. Loop-one takes priority over both Up Next draining (checked first) and all other spine logic.
+**Note:** `loopMode === 'one'` returns the current spine position — but only _after_ Up Next is drained. Up Next always drains first (rule 1), so with a non-empty Up Next, `resolveNextTrack` returns the Up Next front regardless of loop mode. Loop-one applies to the spine only.
 
-**Caller contract:** The `audio-player-provider` calls `resolveNextTrack` in `playNext` (line 710), `removeCurrentFromQueue` fallback (line 594), and the queue-sheet-driven `advanceToTarget` path. Every caller checks for `null` before proceeding — `playNext` returns early, `advanceToTarget` is guarded by `hasNextTrack`.
+**Caller contract:** The `audio-player-provider` calls `resolveNextTrack` in `playNext`, the `removeCurrentFromQueue` fallback, and the queue-sheet-driven `advanceToTarget` path. Every caller checks for `null` before proceeding — `playNext` returns early, `advanceToTarget` is guarded by `hasNextTrack`.
 
 ### Null returns from `resolvePreviousTrack`
 
@@ -289,5 +292,5 @@ There is no code path that produces a length mismatch. A `spineOrder` index poin
 ## References
 
 - Existing type: `QueueTrack` in `app/types/frontend/shared.ts`
-- Current provider: `app/components/audio-player-provider.tsx` (`fetchAllTracks`)
+- Current provider: `app/components/audio-player-provider.tsx`
 - Product doc to update: `docs/AUDIO_PLAYER_AND_QUEUE.md`
