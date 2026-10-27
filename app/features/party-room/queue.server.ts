@@ -1,3 +1,4 @@
+import { type Prisma } from "#prisma/client.js";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   canAddTracks,
@@ -12,6 +13,23 @@ import { publishRoomEvent } from "./sse.server.ts";
 
 async function loadOpenRoom(roomId: string) {
   const room = await prisma.room.findUnique({ where: { id: roomId } });
+  if (!room) throw new PartyRoomError("not_found", "Room not found", 404);
+  if (room.status !== ROOM_STATUS.open) {
+    throw new PartyRoomError("room_ended", "Room has ended", 410);
+  }
+  return room;
+}
+
+/**
+ * Take the room write lock so concurrent queue and pointer mutations serialize.
+ * Increments `roomVersion`, then returns the latest open room row.
+ */
+async function lockOpenRoom(tx: Prisma.TransactionClient, roomId: string) {
+  await tx.room.update({
+    where: { id: roomId },
+    data: { roomVersion: { increment: 1 } },
+  });
+  const room = await tx.room.findUnique({ where: { id: roomId } });
   if (!room) throw new PartyRoomError("not_found", "Room not found", 404);
   if (room.status !== ROOM_STATUS.open) {
     throw new PartyRoomError("room_ended", "Room has ended", 410);
@@ -56,16 +74,7 @@ async function appendTracksToOpenRoomQueue({
   }
 
   return prisma.$transaction(async (tx) => {
-    const room = await tx.room.findUnique({ where: { id: roomId } });
-    if (!room) throw new PartyRoomError("not_found", "Room not found", 404);
-    if (room.status !== ROOM_STATUS.open) {
-      throw new PartyRoomError("room_ended", "Room has ended", 410);
-    }
-
-    await tx.room.update({
-      where: { id: roomId },
-      data: { roomVersion: { increment: 1 } },
-    });
+    await lockOpenRoom(tx, roomId);
 
     const count = await tx.roomQueueItem.count({ where: { roomId } });
     if (count >= MAX_QUEUE_TRACKS) {
@@ -186,26 +195,28 @@ export async function removeQueueItem({
   actor: ParticipantActor;
   queueItemId: string;
 }) {
-  const room = await loadOpenRoom(roomId);
+  await loadOpenRoom(roomId);
   const participant = await requireParticipant(roomId, actor);
-  const item = await prisma.roomQueueItem.findFirst({
-    where: { id: queueItemId, roomId },
-  });
-  if (!item) throw new PartyRoomError("not_found", "Queue item not found", 404);
-
-  const isUpcoming = item.position > room.currentIndex;
-  if (
-    !canRemoveQueueItem({
-      role: participant.role as RoomRole,
-      addedByParticipantId: item.addedByParticipantId,
-      actorParticipantId: participant.id,
-      isUpcoming,
-    })
-  ) {
-    throw new PartyRoomError("forbidden", "Cannot remove this queue item", 403);
-  }
 
   await prisma.$transaction(async (tx) => {
+    const room = await lockOpenRoom(tx, roomId);
+    const item = await tx.roomQueueItem.findFirst({
+      where: { id: queueItemId, roomId },
+    });
+    if (!item) throw new PartyRoomError("not_found", "Queue item not found", 404);
+
+    const isUpcoming = item.position > room.currentIndex;
+    if (
+      !canRemoveQueueItem({
+        role: participant.role as RoomRole,
+        addedByParticipantId: item.addedByParticipantId,
+        actorParticipantId: participant.id,
+        isUpcoming,
+      })
+    ) {
+      throw new PartyRoomError("forbidden", "Cannot remove this queue item", 403);
+    }
+
     await tx.roomQueueItem.delete({ where: { id: item.id } });
     // Compact positions after the removed item
     await tx.roomQueueItem.updateMany({
@@ -225,7 +236,7 @@ export async function removeQueueItem({
     }
     await tx.room.update({
       where: { id: roomId },
-      data: { currentIndex, roomVersion: { increment: 1 } },
+      data: { currentIndex },
     });
   });
 
@@ -241,45 +252,42 @@ export async function reorderUpcoming({
   actor: ParticipantActor;
   orderedUpcomingIds: string[];
 }) {
-  const room = await loadOpenRoom(roomId);
+  await loadOpenRoom(roomId);
   const participant = await requireParticipant(roomId, actor);
   if (!canEditOthersUpcoming(participant.role as RoomRole)) {
     throw new PartyRoomError("forbidden", "Your role cannot reorder the queue", 403);
   }
 
-  const upcoming = await prisma.roomQueueItem.findMany({
-    where: { roomId, position: { gt: room.currentIndex } },
-    orderBy: { position: "asc" },
-  });
-
-  if (upcoming.length !== orderedUpcomingIds.length) {
-    throw new PartyRoomError(
-      "invalid_queue_op",
-      "orderedUpcomingIds must include every upcoming item exactly once",
-      400,
-    );
-  }
-  const upcomingIds = new Set(upcoming.map((u) => u.id));
-  for (const id of orderedUpcomingIds) {
-    if (!upcomingIds.has(id)) {
-      throw new PartyRoomError("invalid_queue_op", "Unknown upcoming queue item", 400);
-    }
-  }
-  if (new Set(orderedUpcomingIds).size !== orderedUpcomingIds.length) {
-    throw new PartyRoomError("invalid_queue_op", "Duplicate queue item ids", 400);
-  }
-
   await prisma.$transaction(async (tx) => {
+    const room = await lockOpenRoom(tx, roomId);
+    const upcoming = await tx.roomQueueItem.findMany({
+      where: { roomId, position: { gt: room.currentIndex } },
+      orderBy: { position: "asc" },
+    });
+
+    if (upcoming.length !== orderedUpcomingIds.length) {
+      throw new PartyRoomError(
+        "invalid_queue_op",
+        "orderedUpcomingIds must include every upcoming item exactly once",
+        400,
+      );
+    }
+    const upcomingIds = new Set(upcoming.map((u) => u.id));
+    for (const id of orderedUpcomingIds) {
+      if (!upcomingIds.has(id)) {
+        throw new PartyRoomError("invalid_queue_op", "Unknown upcoming queue item", 400);
+      }
+    }
+    if (new Set(orderedUpcomingIds).size !== orderedUpcomingIds.length) {
+      throw new PartyRoomError("invalid_queue_op", "Duplicate queue item ids", 400);
+    }
+
     for (let i = 0; i < orderedUpcomingIds.length; i++) {
       await tx.roomQueueItem.update({
         where: { id: orderedUpcomingIds[i]! },
         data: { position: room.currentIndex + 1 + i },
       });
     }
-    await tx.room.update({
-      where: { id: roomId },
-      data: { roomVersion: { increment: 1 } },
-    });
   });
 
   return emitSnapshot(roomId);
@@ -321,38 +329,60 @@ export async function skipToIndex({
     throw new PartyRoomError("forbidden", "Only the Host can skip", 403);
   }
 
-  const count = await prisma.roomQueueItem.count({ where: { roomId } });
-  if (count === 0) {
-    throw new PartyRoomError("invalid_queue_op", "Queue is empty", 400);
-  }
-  if (!Number.isInteger(index) || index < 0 || index >= count) {
-    throw new PartyRoomError("invalid_queue_op", "Index out of range", 400);
-  }
-  // Host "jump-to" may move the pointer to any index 0..count-1, including
-  // backward into history — history rows then reappear as "upcoming" and become
-  // editable/removable again.
-  await prisma.room.update({
-    where: { id: roomId },
-    data: {
-      currentIndex: index,
-      isPlaying: true,
-      roomVersion: { increment: 1 },
-    },
+  await prisma.$transaction(async (tx) => {
+    await lockOpenRoom(tx, roomId);
+    const count = await tx.roomQueueItem.count({ where: { roomId } });
+    if (count === 0) {
+      throw new PartyRoomError("invalid_queue_op", "Queue is empty", 400);
+    }
+    if (!Number.isInteger(index) || index < 0 || index >= count) {
+      throw new PartyRoomError("invalid_queue_op", "Index out of range", 400);
+    }
+    // Host "jump-to" may move the pointer to any index 0..count-1, including
+    // backward into history — history rows then reappear as "upcoming" and become
+    // editable/removable again. The count check runs after the room write lock
+    // so a concurrent tail remove cannot leave currentIndex past the end.
+    await tx.room.update({
+      where: { id: roomId },
+      data: {
+        currentIndex: index,
+        isPlaying: true,
+      },
+    });
   });
   return emitSnapshot(roomId);
 }
 
 export async function skipNext({ roomId, actor }: { roomId: string; actor: ParticipantActor }) {
-  const room = await loadOpenRoom(roomId);
-  const count = await prisma.roomQueueItem.count({ where: { roomId } });
-  const next = room.currentIndex + 1;
-  // End of queue (or empty): stop instead of clamping to the last row and
-  // leaving isPlaying true. Host auto-skip on `ended` would otherwise stall
-  // with a silent speaker while the room still reports "playing".
-  if (count === 0 || next >= count) {
-    return setTransport({ roomId, actor, isPlaying: false });
+  await loadOpenRoom(roomId);
+  const participant = await requireParticipant(roomId, actor);
+  if (!canTransport(participant.role as RoomRole)) {
+    throw new PartyRoomError("forbidden", "Only the Host can skip", 403);
   }
-  return skipToIndex({ roomId, actor, index: next });
+
+  await prisma.$transaction(async (tx) => {
+    const room = await lockOpenRoom(tx, roomId);
+    const count = await tx.roomQueueItem.count({ where: { roomId } });
+    const next = room.currentIndex + 1;
+    // End of queue (or empty): stop instead of clamping to the last row and
+    // leaving isPlaying true. Host auto-skip on `ended` would otherwise stall
+    // with a silent speaker while the room still reports "playing".
+    if (count === 0 || next >= count) {
+      await tx.room.update({
+        where: { id: roomId },
+        data: { isPlaying: false },
+      });
+      return;
+    }
+    await tx.room.update({
+      where: { id: roomId },
+      data: {
+        currentIndex: next,
+        isPlaying: true,
+      },
+    });
+  });
+  return emitSnapshot(roomId);
 }
 
 export async function recordRoomPlayEvent({

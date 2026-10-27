@@ -950,6 +950,29 @@ describe("queue sheet integration", () => {
     expect(spineTitlesInSheet(sheet)).toEqual(["Spine-Charlie-Upcoming"]);
   });
 
+  test("removing the now-playing spine track advances to the next remaining track", async () => {
+    const user = userEvent.setup();
+    mockSpineAndHydration(vi.mocked(fetch));
+
+    renderQueueApp(<WarmPlaybackControls />);
+    await startWarmLibraryPlayback(user);
+
+    const sheet = await openQueueSheet(user);
+    expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Alpha-Now");
+    expect(spineTitlesInSheet(sheet)).toEqual(["Spine-Bravo-Upcoming", "Spine-Charlie-Upcoming"]);
+
+    await user.click(
+      within(sheet).getByRole("button", { name: "Remove Spine-Alpha-Now from queue" }),
+    );
+
+    await waitFor(() => {
+      expect(nowPlayingTitleInSheet(sheet)).toBe("Spine-Bravo-Upcoming");
+    });
+    expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-b");
+    expect(spineTitlesInSheet(sheet)).toEqual(["Spine-Charlie-Upcoming"]);
+    expect(within(sheet).queryByText("Spine-Alpha-Now")).toBeNull();
+  });
+
   test("clicking a spine row jumps playback and drops the skipped tracks", async () => {
     const user = userEvent.setup();
     mockSpineAndHydration(vi.mocked(fetch));

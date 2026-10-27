@@ -38,6 +38,7 @@ import {
   hasNextTrack,
   hasPreviousTrack,
   jumpToTarget,
+  removeSpineAtOrderIndex,
   resolveNextTrack,
   resolvePreviousTrack,
   type LoopMode,
@@ -248,6 +249,10 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   // offline partial restore must not apply after this — it would wipe the
   // spine and persist a truncated Up Next (only downloaded ids).
   const onlineRestoreAppliedRef = useRef(false);
+  // Saved PlayerState fetched while this device was already the speaker
+  // (refresh on the room page). The in-memory suspend snapshot is empty in
+  // that case; apply this on the way out instead of persisting an empty queue.
+  const deferredPersonalRestoreRef = useRef<PlayerStateData | null>(null);
   // Set when the user starts or edits a queue before (or instead of) restore.
   // In-flight restore must not overwrite that session.
   const userMutatedQueueRef = useRef(false);
@@ -265,6 +270,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     onlineRestoreAppliedRef.current = false;
     userMutatedQueueRef.current = false;
     onlineRestoredForUserIdRef.current = null;
+    deferredPersonalRestoreRef.current = null;
     wantsAutoPlayRef.current = false;
     upNextPlayNextCountRef.current = 0;
     playbackCacheRef.current.clear();
@@ -794,39 +800,33 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         return;
       }
 
-      const orderIndex = target.index;
-      if (orderIndex < 0 || orderIndex >= spineOrder.length) return;
+      const result = removeSpineAtOrderIndex(navigationState, target.index);
+      if (!result) return;
 
-      const spineIndexToRemove = spineOrder[orderIndex];
-      if (spineIndexToRemove === undefined) return;
-
-      setSpine((prev) => prev.filter((_, itemIndex) => itemIndex !== spineIndexToRemove));
-      setSpineOrder((prev) =>
-        prev
-          .filter((_, itemIndex) => itemIndex !== orderIndex)
-          .map((spineIndex) => (spineIndex > spineIndexToRemove ? spineIndex - 1 : spineIndex)),
-      );
+      setSpine(result.state.spine);
+      setSpineOrder(result.state.spineOrder);
+      setSpinePosition(result.state.spinePosition);
       setSpineTotal((total) => Math.max(0, total - 1));
 
-      if (orderIndex < spinePosition) {
-        setSpinePosition((position) => Math.max(0, position - 1));
-      } else if (orderIndex === spinePosition) {
-        const nextState = advanceAfterPlay(navigationState, {
-          zone: "spine",
-          index: Math.min(spinePosition, spineOrder.length - 2),
-        });
-        const nextTrack = getTrackAtTarget(nextState, {
-          zone: "spine",
-          index: nextState.spinePosition,
-        });
-        if (nextTrack) {
-          void playResolvedTrack(nextTrack);
-        } else {
-          setCurrentTrack(null);
+      if (result.consumedUpNextIndex !== null) {
+        setUpNext(result.state.upNext);
+        if (result.consumedUpNextIndex < upNextPlayNextCount) {
+          setUpNextPlayNextCount((count) => {
+            const next = Math.max(0, count - 1);
+            upNextPlayNextCountRef.current = next;
+            return next;
+          });
         }
       }
+
+      if (!result.removedCurrent) return;
+      if (result.playTrack) {
+        void playResolvedTrack(result.playTrack);
+      } else {
+        setCurrentTrack(null);
+      }
     },
-    [navigationState, playResolvedTrack, spineOrder, spinePosition, upNextPlayNextCount],
+    [navigationState, playResolvedTrack, upNextPlayNextCount],
   );
 
   const removeCurrentFromQueue = useCallback(() => {
@@ -1236,12 +1236,27 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       roomQueueSignatureRef.current = null;
       roomTrackIdRef.current = null;
       try {
-        if (!wasVisible || !hasPersistableQueue(snapshot)) {
+        let nextSnapshot = hasPersistableQueue(snapshot)
+          ? snapshot
+          : deferredPersonalRestoreRef.current;
+        if (!nextSnapshot || !hasPersistableQueue(nextSnapshot)) {
+          try {
+            nextSnapshot = (await fetchPlayerState()) ?? nextSnapshot;
+          } catch {
+            // Keep the empty snapshot; close the player below.
+          }
+        }
+        const nextVisible = wasVisible || hasPersistableQueue(nextSnapshot ?? snapshot);
+        if (!nextSnapshot || !nextVisible || !hasPersistableQueue(nextSnapshot)) {
           closePlayer();
           return;
         }
         allowRestoreWhileSuspendedRef.current = true;
-        await restoreQueueFromServerRef.current?.(snapshot);
+        await restoreQueueFromServerRef.current?.(nextSnapshot);
+        deferredPersonalRestoreRef.current = null;
+        if (userId) {
+          onlineRestoredForUserIdRef.current = userId;
+        }
       } finally {
         allowRestoreWhileSuspendedRef.current = false;
         if (!roomSpeakerRef.current) {
@@ -1249,7 +1264,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         }
       }
     },
-    [closePlayer, releasePersonalPersistence],
+    [closePlayer, releasePersonalPersistence, userId],
   );
 
   const syncRoomSpeakerQueue = useCallback(
@@ -1741,17 +1756,21 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       try {
         const saved = await fetchPlayerState();
         if (epoch !== restoreEpochRef.current) return;
-        if (
-          saved &&
-          !userMutatedQueueRef.current &&
-          !roomSpeakerRef.current &&
-          !(persistenceSuspendedRef.current && !allowRestoreWhileSuspendedRef.current)
-        ) {
+        const blockedBySpeaker =
+          Boolean(roomSpeakerRef.current) ||
+          (persistenceSuspendedRef.current && !allowRestoreWhileSuspendedRef.current);
+        if (saved && !userMutatedQueueRef.current && !blockedBySpeaker) {
           await restoreQueueFromServer(saved);
+        } else if (saved && blockedBySpeaker) {
+          // Refresh while speaker: do not paint the personal queue over the
+          // room, but keep the saved row so leave-speaker cannot persist empty.
+          deferredPersonalRestoreRef.current = saved;
         }
         if (epoch !== restoreEpochRef.current) return;
         onlineRestoreDoneRef.current = true;
-        onlineRestoredForUserIdRef.current = userId;
+        if (!deferredPersonalRestoreRef.current) {
+          onlineRestoredForUserIdRef.current = userId;
+        }
         setPersistEpoch((value) => value + 1);
       } catch (error) {
         if (epoch === restoreEpochRef.current) {

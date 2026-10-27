@@ -64,10 +64,14 @@ function deleteRequest(trackId?: string) {
 describe("DELETE /api/admin/tracks/:trackId", () => {
   const createdTrackIds: string[] = [];
   const createdArtistIds: string[] = [];
+  const createdUserIds: string[] = [];
+  const createdRoomIds: string[] = [];
 
   beforeEach(() => {
     createdTrackIds.length = 0;
     createdArtistIds.length = 0;
+    createdUserIds.length = 0;
+    createdRoomIds.length = 0;
     vi.clearAllMocks();
     vi.mocked(requireUserWithRole).mockResolvedValue("admin-user");
     vi.mocked(deleteFile).mockResolvedValue(undefined);
@@ -75,11 +79,19 @@ describe("DELETE /api/admin/tracks/:trackId", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    if (createdRoomIds.length > 0) {
+      await prisma.roomQueueItem.deleteMany({ where: { roomId: { in: createdRoomIds } } });
+      await prisma.roomParticipant.deleteMany({ where: { roomId: { in: createdRoomIds } } });
+      await prisma.room.deleteMany({ where: { id: { in: createdRoomIds } } });
+    }
     if (createdTrackIds.length > 0) {
       await prisma.track.deleteMany({ where: { id: { in: createdTrackIds } } }).catch(() => {});
     }
     if (createdArtistIds.length > 0) {
       await prisma.artist.deleteMany({ where: { id: { in: createdArtistIds } } }).catch(() => {});
+    }
+    if (createdUserIds.length > 0) {
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }).catch(() => {});
     }
   });
 
@@ -206,5 +218,59 @@ describe("DELETE /api/admin/tracks/:trackId", () => {
       where: { id: incomingAudio!.id },
     });
     expect(surviving?.objectKey).toBe(objectKey);
+  });
+
+  test("rejects delete when the track is on a live party room queue", async () => {
+    const { track, artist } = await createTrackWithAudio({
+      title: "Queued in a room",
+      objectKey: `audio/tracks/local/room-queued-${Date.now()}.mp3`,
+    });
+    createdTrackIds.push(track.id);
+    createdArtistIds.push(artist.id);
+
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const host = await prisma.user.create({
+      data: {
+        email: `admin-del-${suffix}@example.com`,
+        username: `admdel${suffix}`.slice(0, 20),
+      },
+    });
+    createdUserIds.push(host.id);
+    const room = await prisma.room.create({
+      data: {
+        code: suffix.slice(-6).toUpperCase(),
+        status: "open",
+        originalHostUserId: host.id,
+        currentIndex: 0,
+      },
+    });
+    createdRoomIds.push(room.id);
+    const participant = await prisma.roomParticipant.create({
+      data: {
+        roomId: room.id,
+        userId: host.id,
+        displayName: "Host",
+        role: "host",
+      },
+    });
+    await prisma.roomQueueItem.create({
+      data: {
+        roomId: room.id,
+        trackId: track.id,
+        position: 0,
+        addedByParticipantId: participant.id,
+      },
+    });
+
+    const result = await action(deleteRequest(track.id));
+    expect(result).toMatchObject({
+      data: { error: "Track is queued in a party room and cannot be deleted" },
+      init: { status: 409 },
+    });
+
+    expect(deleteFile).not.toHaveBeenCalled();
+    expect(await prisma.track.findUnique({ where: { id: track.id } })).not.toBeNull();
+    expect(await prisma.roomQueueItem.count({ where: { trackId: track.id } })).toBe(1);
+    expect((await prisma.room.findUnique({ where: { id: room.id } }))?.currentIndex).toBe(0);
   });
 });

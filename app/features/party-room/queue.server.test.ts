@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { createRoom, joinRoom } from "./party-room.server.ts";
@@ -69,6 +69,41 @@ async function makeTrackWithAudio(title: string) {
     },
   });
   return track;
+}
+
+function stallFirstRoomRead(roomId: string) {
+  const realFindUnique = prisma.room.findUnique.bind(prisma.room);
+  let releaseLoad: (() => void) | undefined;
+  const loadHeld = new Promise<void>((resolve) => {
+    releaseLoad = resolve;
+  });
+  let heldStaleRead = false;
+  const findUniqueSpy = vi.spyOn(prisma.room, "findUnique").mockImplementation(((args: {
+    where?: { id?: string };
+  }) => {
+    const pending = Promise.resolve(
+      realFindUnique(args as Parameters<typeof prisma.room.findUnique>[0]),
+    ).then(async (result) => {
+      if (!heldStaleRead && args.where?.id === roomId) {
+        heldStaleRead = true;
+        await loadHeld;
+      }
+      return result;
+    });
+    return pending;
+  }) as unknown as typeof prisma.room.findUnique);
+
+  return {
+    get heldStaleRead() {
+      return heldStaleRead;
+    },
+    release() {
+      releaseLoad?.();
+    },
+    restore() {
+      findUniqueSpy.mockRestore();
+    },
+  };
 }
 
 async function makeTrackNoAudio(title: string) {
@@ -344,6 +379,113 @@ describe("party-room queue mutations", () => {
     });
     expect(ended?.currentIndex).toBe(1);
     expect(ended?.isPlaying).toBe(false);
+  });
+
+  test("remove-own does not rewind a skip that already landed on that row", async () => {
+    const host = await makeUser();
+    const room = await createRoom({
+      userId: host.id,
+      displayName: "Host",
+      defaultJoinRole: "dj",
+    });
+    const guest = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "DJ" },
+    });
+    const trackA = await makeTrackWithAudio("A");
+    const trackB = await makeTrackWithAudio("B");
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: guest.guestToken! },
+      trackId: trackA.id,
+    });
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: guest.guestToken! },
+      trackId: trackB.id,
+    });
+    const items = await prisma.roomQueueItem.findMany({
+      where: { roomId: room.id },
+      orderBy: { position: "asc" },
+    });
+
+    const stall = stallFirstRoomRead(room.id);
+
+    try {
+      const removePromise = removeQueueItem({
+        roomId: room.id,
+        actor: { type: "guest", guestToken: guest.guestToken! },
+        queueItemId: items[1]!.id,
+      });
+      await vi.waitFor(() => expect(stall.heldStaleRead).toBe(true));
+      const skipped = await skipToIndex({
+        roomId: room.id,
+        actor: { type: "user", userId: host.id },
+        index: 1,
+      });
+      expect(skipped?.currentIndex).toBe(1);
+      stall.release();
+
+      await expect(removePromise).rejects.toMatchObject({ code: "forbidden" });
+    } finally {
+      stall.restore();
+    }
+
+    const after = await prisma.room.findUniqueOrThrow({ where: { id: room.id } });
+    const remaining = await prisma.roomQueueItem.findMany({
+      where: { roomId: room.id },
+      orderBy: { position: "asc" },
+    });
+    expect(remaining.map((item) => item.trackId)).toEqual([trackA.id, trackB.id]);
+    expect(after.currentIndex).toBe(1);
+  });
+
+  test("skipToIndex does not write past the queue after a concurrent tail remove", async () => {
+    const host = await makeUser();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const tracks = await Promise.all([
+      makeTrackWithAudio("1"),
+      makeTrackWithAudio("2"),
+      makeTrackWithAudio("3"),
+    ]);
+    for (const track of tracks) {
+      await addTrackToQueue({
+        roomId: room.id,
+        actor: { type: "user", userId: host.id },
+        trackId: track.id,
+      });
+    }
+    const items = await prisma.roomQueueItem.findMany({
+      where: { roomId: room.id },
+      orderBy: { position: "asc" },
+    });
+
+    const stall = stallFirstRoomRead(room.id);
+
+    try {
+      const skipPromise = skipToIndex({
+        roomId: room.id,
+        actor: { type: "user", userId: host.id },
+        index: 2,
+      });
+      await vi.waitFor(() => expect(stall.heldStaleRead).toBe(true));
+      await removeQueueItem({
+        roomId: room.id,
+        actor: { type: "user", userId: host.id },
+        queueItemId: items[2]!.id,
+      });
+      stall.release();
+
+      await expect(skipPromise).rejects.toMatchObject({ code: "invalid_queue_op" });
+    } finally {
+      stall.restore();
+    }
+
+    const after = await prisma.room.findUniqueOrThrow({ where: { id: room.id } });
+    const remaining = await prisma.roomQueueItem.count({ where: { roomId: room.id } });
+    expect(remaining).toBe(2);
+    expect(after.currentIndex).toBeGreaterThanOrEqual(0);
+    expect(after.currentIndex).toBeLessThan(remaining);
   });
 });
 

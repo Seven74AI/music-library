@@ -46,6 +46,18 @@ export function getMediaErrorMessage(code: number): string {
   }
 }
 
+/**
+ * Cache-bust a playback URL so the browser retries a failed load.
+ * Used when the room speaker grant path is the same after a media error.
+ */
+export function withRecoveryNonce(url: string, now = Date.now()): string {
+  const hashIndex = url.indexOf("#");
+  const withoutHash = hashIndex === -1 ? url : url.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? "" : url.slice(hashIndex);
+  const separator = withoutHash.includes("?") ? "&" : "?";
+  return `${withoutHash}${separator}recovery=${now}${hash}`;
+}
+
 /** Swap <audio> to a new source URL, restore position, and optionally resume play. */
 export function swapPlaybackSource(
   audio: HTMLAudioElement,

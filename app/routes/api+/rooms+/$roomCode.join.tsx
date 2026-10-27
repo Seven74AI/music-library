@@ -39,9 +39,10 @@ export async function action({
     const displayName = typeof body.displayName === "string" ? body.displayName : undefined;
 
     if (userId) {
+      const existingToken = await readGuestToken(request);
       const result = await joinRoom({
         code,
-        actor: { type: "user", userId, displayName },
+        actor: { type: "user", userId, displayName, guestToken: existingToken },
       });
       return Response.json({
         roomId: result.roomId,

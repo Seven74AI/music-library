@@ -161,6 +161,91 @@ describe("party-room lifecycle", () => {
     expect(guest.participant.role).toBe(ROOM_ROLE.listener);
   });
 
+  test("logging in claims the open guest seat instead of minting a second one", async () => {
+    const host = await makeUser("Host");
+    const room = await createRoom({
+      userId: host.id,
+      displayName: "Host",
+      defaultJoinRole: "dj",
+    });
+    const guest = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Walkup DJ" },
+    });
+    expect(guest.participant.role).toBe(ROOM_ROLE.dj);
+
+    const account = await makeUser("Walkup");
+    const claimed = await joinRoom({
+      code: room.code,
+      actor: {
+        type: "user",
+        userId: account.id,
+        displayName: "Account Name",
+        guestToken: guest.guestToken,
+      },
+    });
+
+    expect(claimed.participant.id).toBe(guest.participant.id);
+    expect(claimed.participant.userId).toBe(account.id);
+    expect(claimed.participant.guestTokenHash).toBeNull();
+    expect(claimed.participant.role).toBe(ROOM_ROLE.dj);
+    expect(claimed.participant.displayName).toBe("Walkup DJ");
+    expect(claimed.guestToken).toBeNull();
+
+    const seated = await prisma.roomParticipant.findMany({
+      where: { roomId: room.id, leftAt: null },
+      select: { id: true, userId: true, guestTokenHash: true },
+    });
+    expect(seated).toHaveLength(2);
+    expect(seated.map((row) => row.id).sort()).toEqual(
+      [room.participants[0]!.id, guest.participant.id].sort(),
+    );
+  });
+
+  test("login can claim a guest host seat in a full room", async () => {
+    const host = await makeUser("Host");
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const guest = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Speaker" },
+    });
+    await agePastGrace(room.participants[0]!.id);
+    await becomeHost({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: guest.guestToken! },
+    });
+    await leaveRoom({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+    });
+    expect(reclaimSeatId(await loadRoom(room.id))).toBe(guest.participant.id);
+
+    for (let i = 0; i < MAX_PARTICIPANTS - 1; i++) {
+      await joinRoom({
+        code: room.code,
+        actor: { type: "guest", displayName: `G${String(i).padStart(2, "0")}` },
+      });
+    }
+    expect(await prisma.roomParticipant.count({ where: { roomId: room.id, leftAt: null } })).toBe(
+      MAX_PARTICIPANTS,
+    );
+
+    const account = await makeUser("Now Signed In");
+    const claimed = await joinRoom({
+      code: room.code,
+      actor: { type: "user", userId: account.id, guestToken: guest.guestToken },
+    });
+
+    const after = await loadRoom(room.id);
+    expect(claimed.participant.id).toBe(guest.participant.id);
+    expect(claimed.participant.role).toBe(ROOM_ROLE.host);
+    expect(after.currentHostParticipantId).toBe(guest.participant.id);
+    expect(reclaimSeatId(after)).toBe(guest.participant.id);
+    expect(await prisma.roomParticipant.count({ where: { roomId: room.id, leftAt: null } })).toBe(
+      MAX_PARTICIPANTS,
+    );
+  }, 30_000);
+
   test("defaultJoinRole dj promotes new joiners to DJ", async () => {
     const host = await makeUser();
     const room = await createRoom({
@@ -585,6 +670,48 @@ describe("party-room lifecycle", () => {
     expect(freshBrowser.participant.id).not.toBe(guest.participant.id);
     expect(freshBrowser.participant.role).toBe(ROOM_ROLE.listener);
     expect(reclaimSeatId(await loadRoom(room.id))).toBe(creatorSeatId);
+  });
+
+  test("guest host rejoin while still seated keeps host role and speaker pointer", async () => {
+    const hostUser = await makeUser("Original");
+    const room = await createRoom({
+      userId: hostUser.id,
+      displayName: "Original",
+      defaultJoinRole: "listener",
+    });
+    const creatorSeatId = room.participants[0]!.id;
+
+    const guest = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Speaker" },
+    });
+
+    await agePastGrace(creatorSeatId);
+    await becomeHost({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: guest.guestToken! },
+    });
+
+    const again = await joinRoom({
+      code: room.code,
+      actor: {
+        type: "guest",
+        displayName: "Speaker",
+        guestToken: guest.guestToken,
+      },
+    });
+
+    expect(again.participant.id).toBe(guest.participant.id);
+    expect(again.participant.role).toBe(ROOM_ROLE.host);
+    expect(again.participant.leftAt).toBeNull();
+    expect((await loadRoom(room.id)).currentHostParticipantId).toBe(guest.participant.id);
+
+    await expect(
+      endRoom({
+        roomId: room.id,
+        actor: { type: "guest", guestToken: guest.guestToken! },
+      }),
+    ).resolves.toMatchObject({ status: "ended" });
   });
 
   test("PartyRoomError carries status codes", () => {

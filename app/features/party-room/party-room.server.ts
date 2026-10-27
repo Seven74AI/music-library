@@ -311,11 +311,113 @@ export async function findOpenRoomByCode(code: string) {
 }
 
 type JoinActor =
-  | { type: "user"; userId: string; displayName?: string }
+  | { type: "user"; userId: string; displayName?: string; guestToken?: string | null }
   | { type: "guest"; displayName: string; guestToken?: string | null };
+
+/**
+ * Attach this browser's open guest seat to a signed-in account.
+ * Keeps the same participant id so role, host, and reclaim stay put
+ * and a second seat is not minted (ADR-030: one open seat).
+ */
+export async function claimOpenGuestSeatForUser({
+  userId,
+  guestToken,
+  roomId,
+}: {
+  userId: string;
+  guestToken: string;
+  roomId?: string;
+}) {
+  const tokenHash = hashGuestToken(guestToken);
+  const guestSeat = await prisma.roomParticipant.findFirst({
+    where: {
+      guestTokenHash: tokenHash,
+      leftAt: null,
+      room: { status: ROOM_STATUS.open },
+      ...(roomId ? { roomId } : {}),
+    },
+    orderBy: { lastSeenAt: "desc" },
+  });
+  if (!guestSeat) return null;
+
+  const userOpen = await prisma.roomParticipant.findFirst({
+    where: {
+      userId,
+      leftAt: null,
+      room: { status: ROOM_STATUS.open },
+    },
+  });
+  if (userOpen) {
+    if (userOpen.id !== guestSeat.id) {
+      await leaveRoom({
+        roomId: guestSeat.roomId,
+        actor: { type: "guest", guestToken },
+      });
+    }
+    return userOpen.roomId === guestSeat.roomId ? userOpen : null;
+  }
+
+  const leftover = await prisma.roomParticipant.findFirst({
+    where: { roomId: guestSeat.roomId, userId, id: { not: guestSeat.id } },
+    select: { id: true },
+  });
+  if (leftover) {
+    await prisma.roomParticipant.update({
+      where: { id: leftover.id },
+      data: { userId: null },
+    });
+  }
+
+  const participant = await prisma.roomParticipant.update({
+    where: { id: guestSeat.id },
+    data: {
+      userId,
+      guestTokenHash: null,
+      lastSeenAt: new Date(),
+    },
+  });
+  await bumpRoomVersion(guestSeat.roomId);
+  await emitRoomSnapshot(guestSeat.roomId);
+  return participant;
+}
+
+async function vacateOpenGuestSeat(guestToken: string, exceptRoomId: string) {
+  const tokenHash = hashGuestToken(guestToken);
+  const leftover = await prisma.roomParticipant.findFirst({
+    where: {
+      guestTokenHash: tokenHash,
+      leftAt: null,
+      room: { status: ROOM_STATUS.open },
+      NOT: { roomId: exceptRoomId },
+    },
+    select: { roomId: true },
+  });
+  if (!leftover) return;
+  await leaveRoom({
+    roomId: leftover.roomId,
+    actor: { type: "guest", guestToken },
+  });
+}
 
 export async function joinRoom({ code, actor }: { code: string; actor: JoinActor }) {
   const room = await findOpenRoomByCode(code);
+
+  if (actor.type === "user" && actor.guestToken) {
+    const claimed = await claimOpenGuestSeatForUser({
+      userId: actor.userId,
+      guestToken: actor.guestToken,
+      roomId: room.id,
+    });
+    if (claimed && claimed.roomId === room.id && claimed.leftAt === null) {
+      return {
+        roomId: room.id,
+        code: room.code,
+        participant: claimed,
+        guestToken: null as string | null,
+      };
+    }
+    await vacateOpenGuestSeat(actor.guestToken, room.id);
+  }
 
   const activeCount = await prisma.roomParticipant.count({
     where: { roomId: room.id, leftAt: null },
@@ -445,9 +547,11 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
     if (existing) {
       // Same browser (same guest token) coming back after Leave takes the
       // current defaultJoinRole and does not regain reclaimParticipantId.
+      // A second join while still seated keeps the role, except a stale host
+      // seat that is no longer the speaker — same rule as the user path.
       const role = existing.leftAt
         ? joinRole
-        : existing.role === ROOM_ROLE.host
+        : existing.role === ROOM_ROLE.host && room.currentHostParticipantId !== existing.id
           ? joinRole
           : existing.role;
       const participant = await prisma.roomParticipant.update({

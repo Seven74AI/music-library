@@ -33,6 +33,20 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Track not found" }, { status: 404 });
   }
 
+  // RoomQueueItem.track is onDelete: Cascade. Deleting a queued track
+  // silently drops the live queue row and leaves Room.currentIndex pointing
+  // at a hole. Bulk unused-track cleanup already skips these ids.
+  const queuedOnRoom = await prisma.roomQueueItem.findFirst({
+    where: { trackId },
+    select: { id: true },
+  });
+  if (queuedOnRoom) {
+    return data(
+      { error: "Track is queued in a party room and cannot be deleted" },
+      { status: 409 },
+    );
+  }
+
   const audioFiles = track.audioFiles;
 
   // Cascade-delete first, then re-count remaining TrackAudioFile rows.

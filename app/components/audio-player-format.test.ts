@@ -9,6 +9,7 @@ import {
   getPlaybackProgressPercent,
   isDurationKnown,
   swapPlaybackSource,
+  withRecoveryNonce,
 } from "./audio-player-format.ts";
 
 describe("formatPlayerTime", () => {
@@ -77,9 +78,7 @@ describe("getMediaErrorMessage", () => {
 describe("generatePlayId", () => {
   test("returns a UUID v4-shaped string", () => {
     const id = generatePlayId();
-    expect(id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-    );
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 });
 
@@ -128,10 +127,28 @@ describe("swapPlaybackSource", () => {
   test("attaches loadeddata listener when media not ready", () => {
     const audio = fakeAudio({ readyState: 0 });
     swapPlaybackSource(audio as never, "https://x/a.mp3", 0, false);
-    expect(audio.addEventListener).toHaveBeenCalledWith(
-      "loadeddata",
-      expect.any(Function),
-      { once: true },
+    expect(audio.addEventListener).toHaveBeenCalledWith("loadeddata", expect.any(Function), {
+      once: true,
+    });
+  });
+});
+
+describe("withRecoveryNonce", () => {
+  test("adds a recovery query to a path-only speaker grant URL", () => {
+    expect(withRecoveryNonce("/resources/rooms/audio/track-1", 1700000000000)).toBe(
+      "/resources/rooms/audio/track-1?recovery=1700000000000",
+    );
+  });
+
+  test("appends to an existing query string", () => {
+    expect(withRecoveryNonce("/resources/rooms/audio/track-1?stream=1", 9)).toBe(
+      "/resources/rooms/audio/track-1?stream=1&recovery=9",
+    );
+  });
+
+  test("keeps a hash suffix after the recovery query", () => {
+    expect(withRecoveryNonce("/resources/rooms/audio/track-1#t=12", 9)).toBe(
+      "/resources/rooms/audio/track-1?recovery=9#t=12",
     );
   });
 });

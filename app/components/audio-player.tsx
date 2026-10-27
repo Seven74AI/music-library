@@ -46,6 +46,7 @@ import {
   isDurationKnown,
   isPlayInterrupted,
   swapPlaybackSource,
+  withRecoveryNonce,
 } from "./audio-player-format";
 import {
   PlayerDesktopBar,
@@ -208,6 +209,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
   });
   const onRoomAutoplayOutcomeRef = useRef(onRoomAutoplayOutcome);
   onRoomAutoplayOutcomeRef.current = onRoomAutoplayOutcome;
+  // Last room-speaker source we started. Queue snapshots recreate `track` /
+  // `roomSpeaker` without changing this key and must not rewind.
+  const roomPlayKeyRef = useRef<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
@@ -640,6 +644,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
   // token and the next URL stays silent. A blocked play() leaves the room
   // paused with one explanation and does not report playback.
   useEffect(() => {
+    if (!roomSpeaker) {
+      roomPlayKeyRef.current = null;
+    }
     if (!roomSpeaker || roomPlaying === null || !audioRef.current) return;
     const audio = audioRef.current;
     if (!roomPlaying) {
@@ -659,12 +666,23 @@ export function AudioPlayer(props: AudioPlayerProps) {
       return;
     }
 
+    const playKey = `${track?.id ?? ""}:${audioSrc ?? ""}`;
+    // Queue adds recreate `track` / `roomSpeaker` while this source is already
+    // playing. Seeking to 0 would restart the song for the whole room.
+    if (roomPlayKeyRef.current === playKey && keepPlayingRef.current && !audio.paused) {
+      return;
+    }
+
+    const isNewSource = roomPlayKeyRef.current !== playKey;
+    roomPlayKeyRef.current = playKey;
     let cancelled = false;
     keepPlayingRef.current = true;
-    try {
-      audio.currentTime = 0;
-    } catch {
-      // The element may not be seekable until metadata arrives.
+    if (isNewSource) {
+      try {
+        audio.currentTime = 0;
+      } catch {
+        // The element may not be seekable until metadata arrives.
+      }
     }
     let playResult: Promise<void> | void;
     try {
@@ -975,6 +993,22 @@ export function AudioPlayer(props: AudioPlayerProps) {
         const shouldResume = keepPlayingRef.current || !audioElement.paused;
         const previousSrc = audioElement.src;
 
+        // Speaker grant is `/resources/rooms/audio/:id`. Personal
+        // `/resources/audio/:id` 403s for catalog tracks the host does not
+        // own (same reason queue auto-cache is skipped in speaker mode).
+        if (roomSpeaker && audioSrcOverride) {
+          const retryUrl = withRecoveryNonce(audioSrcOverride);
+          if (audioRef.current && loadedTrackIdRef.current === trackId) {
+            pendingAudioSrcRef.current = { trackId, url: retryUrl };
+            swapPlaybackSource(audioRef.current, retryUrl, savedTime || 0, shouldResume);
+            setAudioSrc(retryUrl);
+            setPlaybackError(null);
+          } else {
+            stopFailedPlayback(getMediaErrorMessage(errorCode));
+          }
+          return;
+        }
+
         invalidateRemotePlaybackUrl(trackId);
 
         void resolveTrackPlaybackSource(trackId)
@@ -1037,6 +1071,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     hasNext,
     emitPlayEvent,
     roomSpeaker,
+    audioSrcOverride,
     stopFailedPlayback,
   ]);
 

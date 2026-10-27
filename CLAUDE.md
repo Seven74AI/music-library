@@ -36,4 +36,8 @@ server (`npm run dev:youtube-mocks`, MSW plus YouTube mocks) on
   (after loading Node 24 as above); it serves on port 3000.
 - **E2E:** `npm run test:e2e:run` is headless. `npm run test:e2e` is the
   interactive Playwright UI.
+- **Pull requests:** follow `AGENTS.md`. One draft per run, then subscribe to
+  CI on its head branch and to the pull request. Do not merge. A task that
+  says not to open a pull request (the scheduled security review) stops after
+  its report.
 - **Reset/reseed the database:** `npx prisma migrate reset --force`.

@@ -19,6 +19,7 @@ const { toastSpy, fetcherControls } = vi.hoisted(() => {
     data:
       | {
           success?: boolean;
+          error?: string;
           trackId?: string;
           objectsDeleted?: number;
           objectsPreserved?: number;
@@ -297,6 +298,29 @@ test("shows Track Deleted once when the group stays mounted after delete", async
   expect(toastSpy).toHaveBeenCalledWith({
     title: "Track deleted",
     description: "Copy Song. It has been removed from the library.",
+  });
+});
+
+test("shows why a party-queued track cannot be deleted", async () => {
+  const user = userEvent.setup();
+  renderDashboard([exactGroup]);
+
+  await user.click(screen.getByRole("button", { name: /^delete$/i }));
+  const dialog = await screen.findByRole("alertdialog");
+  await user.click(within(dialog).getByRole("button", { name: /^delete$/i }));
+
+  const conflict = {
+    error: "Track is queued in a party room and cannot be deleted",
+  };
+  await act(async () => {
+    fetcherControls.set({ state: "idle", data: conflict });
+  });
+
+  expect(screen.getByText("Copy Song")).toBeInTheDocument();
+  expect(toastSpy).toHaveBeenCalledWith({
+    title: "Could not delete track",
+    description: "Track is queued in a party room and cannot be deleted",
+    variant: "destructive",
   });
 });
 

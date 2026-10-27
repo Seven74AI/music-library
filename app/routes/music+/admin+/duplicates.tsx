@@ -154,7 +154,18 @@ function DuplicateGroupCard({
   // unmounts before an idle-only effect can run.
   useEffect(() => {
     const result = deleteFetcher.data;
-    if (!result?.success) return;
+    if (!result) return;
+    if (!result.success) {
+      const error = typeof result.error === "string" ? result.error : null;
+      if (!error || toastedTrackId.current === `error:${error}`) return;
+      toastedTrackId.current = `error:${error}`;
+      toast({
+        title: "Could not delete track",
+        description: error,
+        variant: "destructive",
+      });
+      return;
+    }
     const trackId = typeof result.trackId === "string" ? result.trackId : "";
     if (toastedTrackId.current === trackId) return;
     toastedTrackId.current = trackId;

@@ -90,7 +90,7 @@ export async function handleVerification({ request, submission }: VerifyFunction
   const unverifiedSessionId = verifySession.get(unverifiedSessionIdKey);
   if (unverifiedSessionId) {
     const session = await prisma.session.findUnique({
-      select: { expirationDate: true },
+      select: { expirationDate: true, userId: true },
       where: { id: unverifiedSessionId },
     });
     if (!session) {
@@ -98,6 +98,16 @@ export async function handleVerification({ request, submission }: VerifyFunction
         type: "error",
         title: "Invalid session",
         description: "Could not find session to verify. Please try again.",
+      });
+    }
+    // isCodeValid checks the OTP against form `target`, a client-editable
+    // hidden field. Bind it to the pending session so another account's
+    // authenticator cannot complete this login.
+    if (session.userId !== submission.value.target) {
+      throw await redirectWithToast("/login", {
+        type: "error",
+        title: "Invalid verification",
+        description: "Could not verify this session. Please try again.",
       });
     }
     authSession.set(sessionKey, unverifiedSessionId);
@@ -109,6 +119,15 @@ export async function handleVerification({ request, submission }: VerifyFunction
       }),
     );
   } else {
+    // Reverify while already signed in: the OTP target must be this user.
+    const userId = await getUserId(request);
+    if (!userId || userId !== submission.value.target) {
+      throw await redirectWithToast("/login", {
+        type: "error",
+        title: "Invalid verification",
+        description: "Could not verify this session. Please try again.",
+      });
+    }
     headers.append("set-cookie", await authSessionStorage.commitSession(authSession));
   }
 

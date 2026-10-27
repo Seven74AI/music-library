@@ -118,6 +118,91 @@ export function jumpToTarget(
   };
 }
 
+export type RemoveSpineResult = {
+  state: QueueNavigationState;
+  playTrack: QueueTrack | null;
+  removedCurrent: boolean;
+  consumedUpNextIndex: number | null;
+};
+
+/**
+ * Drop one spine-order row and, if it was now playing, choose the next track.
+ * The next play head is the remaining item that slid into this position —
+ * not `advanceAfterPlay` on the pre-removal snapshot, which would replay
+ * the row that just left the queue.
+ */
+export function removeSpineAtOrderIndex(
+  state: QueueNavigationState,
+  orderIndex: number,
+): RemoveSpineResult | null {
+  if (orderIndex < 0 || orderIndex >= state.spineOrder.length) return null;
+
+  const spineIndexToRemove = state.spineOrder[orderIndex];
+  if (spineIndexToRemove === undefined) return null;
+
+  const spine = state.spine.filter((_, itemIndex) => itemIndex !== spineIndexToRemove);
+  const spineOrder = state.spineOrder
+    .filter((_, itemIndex) => itemIndex !== orderIndex)
+    .map((spineIndex) => (spineIndex > spineIndexToRemove ? spineIndex - 1 : spineIndex));
+
+  const removedCurrent = orderIndex === state.spinePosition;
+  const removedLast = removedCurrent && orderIndex === spineOrder.length;
+  let spinePosition = state.spinePosition;
+  if (orderIndex < state.spinePosition) {
+    spinePosition = Math.max(0, state.spinePosition - 1);
+  } else if (removedLast) {
+    // Nothing remains after the play head. Park at 0 so leftover tracks stay
+    // visible when playback stops; loop-all wraps from here.
+    spinePosition = 0;
+  }
+
+  let nextState: QueueNavigationState = {
+    ...state,
+    spine,
+    spineOrder,
+    spinePosition,
+  };
+
+  if (!removedCurrent) {
+    return {
+      state: nextState,
+      playTrack: null,
+      removedCurrent: false,
+      consumedUpNextIndex: null,
+    };
+  }
+
+  if (nextState.upNext.length > 0) {
+    const playTrack = nextState.upNext[0]!;
+    return {
+      state: advanceAfterPlay(nextState, { zone: "upNext", index: 0 }),
+      playTrack,
+      removedCurrent: true,
+      consumedUpNextIndex: 0,
+    };
+  }
+
+  if (removedLast && nextState.loopMode !== "all") {
+    return {
+      state: nextState,
+      playTrack: null,
+      removedCurrent: true,
+      consumedUpNextIndex: null,
+    };
+  }
+
+  const currentAfterRemoval = getTrackAtTarget(nextState, {
+    zone: "spine",
+    index: nextState.spinePosition,
+  });
+  return {
+    state: nextState,
+    playTrack: currentAfterRemoval,
+    removedCurrent: true,
+    consumedUpNextIndex: null,
+  };
+}
+
 export function getTrackAtTarget(
   state: QueueNavigationState,
   target: QueueTarget,

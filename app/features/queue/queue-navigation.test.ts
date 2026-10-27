@@ -7,6 +7,7 @@ import {
   hasNextTrack,
   hasPreviousTrack,
   jumpToTarget,
+  removeSpineAtOrderIndex,
   resolveNextTrack,
   resolvePreviousTrack,
   type QueueNavigationState,
@@ -216,6 +217,92 @@ describe("jumpToTarget", () => {
     const next = jumpToTarget(state, { zone: "spine", index: 2 });
 
     expect(next.loopMode).toBe("one");
+  });
+});
+
+describe("removeSpineAtOrderIndex", () => {
+  test("removing the current first spine track plays the next remaining track", () => {
+    const result = removeSpineAtOrderIndex(baseState({ spinePosition: 0 }), 0);
+
+    expect(result).not.toBeNull();
+    expect(result!.removedCurrent).toBe(true);
+    expect(result!.playTrack?.id).toBe("s2");
+    expect(result!.state.spine.map((item) => item.id)).toEqual(["s2", "s3"]);
+    expect(result!.state.spineOrder).toEqual([0, 1]);
+    expect(result!.state.spinePosition).toBe(0);
+  });
+
+  test("removing the current middle spine track plays the following track, not the removed one", () => {
+    const result = removeSpineAtOrderIndex(baseState({ spinePosition: 1 }), 1);
+
+    expect(result!.playTrack?.id).toBe("s3");
+    expect(result!.state.spine.map((item) => item.id)).toEqual(["s1", "s3"]);
+    expect(result!.state.spineOrder).toEqual([0, 1]);
+    expect(result!.state.spinePosition).toBe(1);
+  });
+
+  test("removing the current last spine track with loop off stops playback", () => {
+    const result = removeSpineAtOrderIndex(baseState({ spinePosition: 2 }), 2);
+
+    expect(result!.removedCurrent).toBe(true);
+    expect(result!.playTrack).toBeNull();
+    expect(result!.state.spine.map((item) => item.id)).toEqual(["s1", "s2"]);
+  });
+
+  test("removing the current last spine track with loop all wraps to the first remaining track", () => {
+    const result = removeSpineAtOrderIndex(baseState({ spinePosition: 2, loopMode: "all" }), 2);
+
+    expect(result!.playTrack?.id).toBe("s1");
+    expect(result!.state.spinePosition).toBe(0);
+  });
+
+  test("removing the current spine track drains Up Next first", () => {
+    const result = removeSpineAtOrderIndex(
+      baseState({
+        upNext: [track("u1"), track("u2")],
+        spinePosition: 0,
+      }),
+      0,
+    );
+
+    expect(result!.playTrack?.id).toBe("u1");
+    expect(result!.consumedUpNextIndex).toBe(0);
+    expect(result!.state.upNext.map((item) => item.id)).toEqual(["u2"]);
+    expect(result!.state.spine.map((item) => item.id)).toEqual(["s2", "s3"]);
+    expect(result!.state.spinePosition).toBe(0);
+  });
+
+  test("removing an upcoming spine track does not change what should play", () => {
+    const result = removeSpineAtOrderIndex(baseState({ spinePosition: 0 }), 1);
+
+    expect(result!.removedCurrent).toBe(false);
+    expect(result!.playTrack).toBeNull();
+    expect(result!.state.spine.map((item) => item.id)).toEqual(["s1", "s3"]);
+    expect(result!.state.spinePosition).toBe(0);
+  });
+
+  test("removing a spine track before the play head shifts the pointer back", () => {
+    const result = removeSpineAtOrderIndex(baseState({ spinePosition: 2 }), 0);
+
+    expect(result!.removedCurrent).toBe(false);
+    expect(result!.playTrack).toBeNull();
+    expect(result!.state.spinePosition).toBe(1);
+    expect(result!.state.spine.map((item) => item.id)).toEqual(["s2", "s3"]);
+  });
+
+  test("removing the current shuffled spine track follows the remaining play order", () => {
+    const result = removeSpineAtOrderIndex(
+      baseState({
+        spineOrder: [2, 0, 1],
+        spinePosition: 0,
+      }),
+      0,
+    );
+
+    expect(result!.playTrack?.id).toBe("s1");
+    expect(result!.state.spine.map((item) => item.id)).toEqual(["s1", "s2"]);
+    expect(result!.state.spineOrder).toEqual([0, 1]);
+    expect(result!.state.spinePosition).toBe(0);
   });
 });
 

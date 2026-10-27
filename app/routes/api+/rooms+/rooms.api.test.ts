@@ -451,6 +451,64 @@ describe("rooms API", () => {
     expect(left.status).toBe(204);
   });
 
+  test("GET /api/rooms/current claims the guest cookie seat after login", async () => {
+    const host = await createUserCookie("Host");
+    const walker = await createUserCookie("Walkup");
+
+    const createRes = await createRoomAction({
+      request: new Request("http://localhost/api/rooms", {
+        method: "POST",
+        headers: { cookie: host.cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: "Host", defaultJoinRole: "dj" }),
+      }),
+    });
+    expect(createRes.status).toBe(200);
+    const created = (await createRes.json()) as { code: string; roomId: string };
+
+    const joinRes = await joinRoomAction({
+      request: new Request(`http://localhost/api/rooms/${created.code}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: "Walkup DJ" }),
+      }),
+      params: { roomCode: created.code },
+    });
+    expect(joinRes.status).toBe(200);
+    const guestSetCookie = joinRes.headers.get("Set-Cookie");
+    expect(guestSetCookie).toBeTruthy();
+    const guestCookie = parseString(guestSetCookie!)!;
+    const guestCookieHeader = `${guestCookie.name}=${guestCookie.value}`;
+
+    const guestSeat = await prisma.roomParticipant.findFirstOrThrow({
+      where: { roomId: created.roomId, userId: null, leftAt: null },
+    });
+
+    const afterLogin = await currentRoomLoader({
+      request: new Request("http://localhost/api/rooms/current", {
+        headers: { cookie: `${walker.cookie}; ${guestCookieHeader}` },
+      }),
+    });
+    expect(afterLogin.status).toBe(200);
+    const body = (await afterLogin.json()) as {
+      code: string;
+      me: { id: string; displayName: string; role: string; userId: string | null } | null;
+    };
+    expect(body.code).toBe(created.code);
+    expect(body.me).toMatchObject({
+      id: guestSeat.id,
+      displayName: "Walkup DJ",
+      role: "dj",
+      userId: walker.userId,
+    });
+
+    const seated = await prisma.roomParticipant.findMany({
+      where: { roomId: created.roomId, leftAt: null },
+    });
+    expect(seated).toHaveLength(2);
+    expect(seated.find((row) => row.id === guestSeat.id)?.userId).toBe(walker.userId);
+    expect(seated.find((row) => row.id === guestSeat.id)?.guestTokenHash).toBeNull();
+  });
+
   test("skip at last queue item stops playback instead of staying playing", async () => {
     const { cookie } = await createUserCookie("Host");
 
