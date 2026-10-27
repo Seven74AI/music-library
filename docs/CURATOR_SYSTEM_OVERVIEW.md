@@ -68,24 +68,7 @@ Complete specification covering:
 
 **Use this for**: Understanding what will be built, feature requirements, UI/UX details
 
-### 3. Implementation Plan
-
-**File**: `/workspace/docs/curator-system-implementation-plan.md`
-
-Detailed implementation roadmap:
-
-- 6 phases with task breakdown
-- Dependency graph
-- Work parallelization (3 workstreams)
-- 200+ granular tasks with estimates
-- Database migration order
-- Testing checkpoints per phase
-- Risk mitigation strategies
-- 10-12 week timeline
-
-**Use this for**: Project planning, task assignment, tracking progress
-
-### 4. Context & Glossary
+### 3. Context & Glossary
 
 **File**: `/workspace/docs/CONTEXT.md` (updated)
 
