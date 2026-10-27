@@ -208,6 +208,10 @@ Implementation tickets: [On-Repeat Snapshots #198](https://github.com/mnlamart/m
 
 - **Offline Stub Route** — A route that loads offline with placeholder data or a blocker UI instead of network-backed content (YouTube sync, search, admin).
 
+### Supply chain
+
+- **Minimum release age** — A newly published dependency version is ignored until it has been public for 7 days. Applies to npm resolution, pnpm resolution, and Dependabot version updates for npm, GitHub Actions, and Docker. No package is exempt. Dependabot security updates, and `npm ci` of an existing lockfile, are outside the wait. See [ADR-041](./decisions/041-minimum-release-age.md).
+
 ## Settled Decisions
 
 These decisions emerged from the audio archiving implementation, architecture review, and subsequent feature work.
@@ -379,3 +383,7 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 ### Party Room
 
 67. **Party Room (shared live queue)** — In-person collaborative queue: server-owned **Room Queue** + SSE, roles **Host / DJ / Listener** with Host-configurable **`defaultJoinRole`**, one **Room Speaker**, **RoomParticipant** seats (users or guests), **Room Code** + URL + QR with **smart join** (no display name), **Guest Shell** + **Audition**, catalog = any track with audio, Host **Add playlist to queue**, remove-own for every role. One open seat at a time. Return from the account, or from the joining browser’s guest cookie. Closing the last tab starts a ~45 minute empty clock once everyone is **Away**; the current Host’s exit ends the room after confirmation. **Become host** waits until the sound has been stopped ~30s. **Reclaim host** can interrupt playback and passes to whoever has the speaker if the creator Leaves. Room plays as **Room Play Event**s only (no personal **UsageEvent** inflation). Personal **PlayerState** suspended on the speaker device. Caps and UX details in [ADR-030](./decisions/030-party-room.md) (amended 2026-10-13). Tracking: [#284](https://github.com/mnlamart/music-library/issues/284).
+
+### Supply chain
+
+68. **Seven-day minimum release age** — npm, pnpm, and Dependabot version updates (npm, GitHub Actions, Docker) ignore a release until it is 7 days old. No package is exempt. Security updates and `npm ci` of the existing lockfile are outside the wait. See [ADR-041](./decisions/041-minimum-release-age.md).

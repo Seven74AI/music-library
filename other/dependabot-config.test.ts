@@ -10,6 +10,15 @@ type DependabotGroup = {
   patterns: string[];
 };
 
+type DependabotCooldown = {
+  "default-days": number;
+  "semver-major-days"?: number;
+  "semver-minor-days"?: number;
+  "semver-patch-days"?: number;
+  include?: string[];
+  exclude?: string[];
+};
+
 type DependabotUpdate = {
   "package-ecosystem": string;
   directory: string;
@@ -20,6 +29,7 @@ type DependabotUpdate = {
     timezone: string;
   };
   "open-pull-requests-limit": number;
+  cooldown?: DependabotCooldown;
   "versioning-strategy"?: string;
   labels?: string[];
   "commit-message": {
@@ -104,6 +114,7 @@ describe("dependabot config", () => {
       });
       expect(update.labels).toBeUndefined();
       expect(update["open-pull-requests-limit"]).toBe(20);
+      expect(update.cooldown).toEqual({ "default-days": 7 });
     }
 
     const npm = config.updates[0];
@@ -185,6 +196,51 @@ describe("dependabot config", () => {
 
     expect(groupFor("react-router", groups)).toBe("react-router");
     expect(groupFor("react-dom", groups)).toBe("react");
+  });
+});
+
+describe("minimum release age", () => {
+  test("npm ignores versions published less than 7 days ago", () => {
+    const raw = readFileSync(path.join(repoRoot, ".npmrc"), "utf8");
+    const settings = Object.fromEntries(
+      raw
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith("#"))
+        .map((line) => {
+          const separator = line.indexOf("=");
+          return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
+        }),
+    );
+
+    expect(settings["min-release-age"]).toBe("7");
+    expect(settings).not.toHaveProperty("min-release-age-exclude");
+    expect(settings).not.toHaveProperty("min-release-age-exclude[]");
+  });
+
+  test("pnpm waits 7 days, in minutes, with no package exempt", () => {
+    const raw = readFileSync(path.join(repoRoot, "pnpm-workspace.yaml"), "utf8");
+    const workspace = parse(raw) as {
+      minimumReleaseAge?: number;
+      minimumReleaseAgeExclude?: unknown;
+    };
+
+    expect(workspace.minimumReleaseAge).toBe(7 * 24 * 60);
+    expect(workspace.minimumReleaseAgeExclude).toBeUndefined();
+  });
+
+  test("records the 7-day wait as an accepted decision", () => {
+    const raw = readFileSync(
+      path.join(repoRoot, "docs", "decisions", "041-minimum-release-age.md"),
+      "utf8",
+    );
+
+    expect(raw).toContain("Accepted");
+    expect(raw).toContain("7 days");
+    expect(raw).toContain("min-release-age");
+    expect(raw).toContain("minimumReleaseAge");
+    expect(raw).toContain("default-days");
+    expect(raw).toMatch(/security updates/i);
   });
 });
 
