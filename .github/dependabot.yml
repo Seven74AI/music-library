@@ -1,17 +1,17 @@
+# Labels are omitted on purpose. A custom `labels` list replaces Dependabot's
+# defaults, and any name that is not already on the repo is dropped. With no
+# list, Dependabot creates and applies `dependencies` plus the ecosystem label
+# (`npm`, `github-actions`, or `docker`).
 version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
       time: "09:00"
       timezone: "Europe/Paris"
     open-pull-requests-limit: 10
     versioning-strategy: increase
-    labels:
-      - "dependencies"
-      - "automated"
     commit-message:
       prefix: "chore"
       prefix-development: "chore"
@@ -27,6 +27,11 @@ updates:
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
+      react-router:
+        patterns:
+          - "react-router"
+          - "@react-router/*"
+          - "@remix-run/*"
       testing:
         patterns:
           - "@playwright/*"
@@ -37,16 +42,10 @@ updates:
         patterns:
           - "tailwindcss"
           - "@tailwindcss/*"
-      eslint:
+      oxc:
         patterns:
-          - "eslint"
-          - "@eslint/*"
-          - "eslint-*"
-          - "@epic-web/config-eslint"
-          - "typescript-eslint"
-      remix:
-        patterns:
-          - "@remix-run/*"
+          - "oxlint"
+          - "oxfmt"
       aws:
         patterns:
           - "@aws-sdk/*"
@@ -56,3 +55,43 @@ updates:
       dnd:
         patterns:
           - "@dnd-kit/*"
+      sentry:
+        patterns:
+          - "@sentry/*"
+      serwist:
+        patterns:
+          - "serwist"
+          - "@serwist/*"
+      radix:
+        patterns:
+          - "@radix-ui/*"
+      tanstack:
+        patterns:
+          - "@tanstack/*"
+      webauthn:
+        patterns:
+          - "@simplewebauthn/*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "09:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Scans other/Dockerfile (FROM and COPY --from). The pinned yt-dlp release
+  # URL in that file is not an image reference, so it stays a manual bump.
+  - package-ecosystem: "docker"
+    directory: "/other"
+    schedule:
+      interval: "daily"
+      time: "09:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"

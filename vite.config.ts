@@ -70,7 +70,7 @@ export default defineConfig(() => ({
       : null,
   ],
   test: {
-    include: ["./app/**/*.test.{ts,tsx}"],
+    include: ["./app/**/*.test.{ts,tsx}", "./other/**/*.test.ts"],
     setupFiles: ["./tests/setup/setup-test-env.ts"],
     globalSetup: ["./tests/setup/global-setup.ts"],
     // One environment per file so db-setup can reset from base.db without
