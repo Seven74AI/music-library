@@ -10,7 +10,7 @@ updates:
       interval: "daily"
       time: "09:00"
       timezone: "Europe/Paris"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 20
     versioning-strategy: increase
     commit-message:
       prefix: "chore"
@@ -78,7 +78,7 @@ updates:
       interval: "daily"
       time: "09:00"
       timezone: "Europe/Paris"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 20
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -91,7 +91,7 @@ updates:
       interval: "daily"
       time: "09:00"
       timezone: "Europe/Paris"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 20
     commit-message:
       prefix: "chore"
       include: "scope"

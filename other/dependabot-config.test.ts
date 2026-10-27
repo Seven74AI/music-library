@@ -103,14 +103,13 @@ describe("dependabot config", () => {
         include: "scope",
       });
       expect(update.labels).toBeUndefined();
-      expect(update["open-pull-requests-limit"]).toBeGreaterThan(0);
+      expect(update["open-pull-requests-limit"]).toBe(20);
     }
 
     const npm = config.updates[0];
     expect(npm).toBeDefined();
     expect(npm?.["versioning-strategy"]).toBe("increase");
     expect(npm?.["commit-message"]["prefix-development"]).toBe("chore");
-    expect(npm?.["open-pull-requests-limit"]).toBe(10);
 
     const actions = config.updates[1];
     expect(actions?.["versioning-strategy"]).toBeUndefined();
