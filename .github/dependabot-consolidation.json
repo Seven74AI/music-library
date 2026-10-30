@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "exclusions": [
+    {
+      "ecosystem": "docker",
+      "dependency": "node",
+      "reason": "engines.node and CI pin Node 24; the image bump must be coordinated with a Node upgrade"
+    }
+  ]
+}
