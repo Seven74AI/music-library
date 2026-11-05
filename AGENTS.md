@@ -2,6 +2,15 @@
 
 Operating guide for Cursor Cloud Agents in this repository.
 
+## Workflow (canonical: Seven74AI/agent-workflow)
+
+- Non-negotiable: secrets never in context; never ship without a risk gate; read
+  `docs/decisions/` before proposing a new primitive or surface.
+- Track work: GitHub Issues + the "Development" board. `ready-for-agent` =
+  implement unattended; `needs-info` / `ready-for-human` / `wontfix` = stop.
+- ADRs: `docs/decisions/` — steering veto list.
+- Process detail: `Seven74AI/agent-workflow` (`docs/domains/`, `docs/decisions/`).
+
 ## Node
 
 Node 24 is required. `package.json` `engines` pins Node `24`. The default shell node may be 22. Before app commands:
