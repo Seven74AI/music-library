@@ -35,6 +35,7 @@ If the dev server is down, start `npm run dev:youtube-mocks` after loading Node 
 
 ## Tests
 
+- Testing principles: read `testingprinciples.md` before writing tests.
 - `npm test -- --run` (Vitest).
 - E2E: `npm run test:e2e:run` (headless, builds first).
 - Smoke: `npm run test:e2e:smoke`.
