@@ -54,7 +54,7 @@ Active SSE connections remain instance-local (they wrap in-process
 mechanisms make progress visible:
 
 1. An immediate, instance-local push via a store subscription (same-instance
-   upload + poll — the common single-instance case today).
+   upload + poll — the common single-instance case).
 2. The SSE loader's 1 s heartbeat, which now polls the shared store every tick
    and pushes a full snapshot. On a multi-instance deploy this is the mechanism
    that makes progress visible at 1 s granularity even when upload and poll land
@@ -74,7 +74,7 @@ which the synchronous Map previously hid but the async Redis round-trip exposes.
   memory backend keeps the TTL sweep + cap.
 - Failed-file retry buffers are no longer held server-side; retry re-uploads
   from the browser. (This is the existing client behaviour — no UX change.)
-- `fly.toml` remains single-instance today; this ADR is forward-looking and the
+- `fly.toml` remains single-instance; this ADR is forward-looking and the
   Redis backend only activates when the Upstash env vars are provided.
 
 ## References

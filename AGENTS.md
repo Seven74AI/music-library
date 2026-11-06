@@ -46,7 +46,7 @@ Reset the database with `npx prisma migrate reset --force`.
 
 ## Domain docs
 
-Read the glossary at `docs/CONTEXT.md`. Read ADRs in `docs/decisions/` for the area you change, and `docs/adr/` (currently one file). Use glossary terms. If an output contradicts an ADR, say so.
+Read the glossary at `docs/CONTEXT.md`. Read ADRs in `docs/decisions/` for the area you change, and `docs/adr/` (one file). Use glossary terms. If an output contradicts an ADR, say so.
 
 ## Issues
 

@@ -10,7 +10,7 @@ Accepted
 
 The queue sheet (`app/components/audio-player.tsx` → `QueueSheet`) renders three zones —
 **Now playing**, **Up Next**, and the **spine** (the remainder of the active library/playlist/
-artist/album source). Rows in all three zones are currently inert except for a remove button;
+artist/album source). Rows in all three zones are inert except for a remove button;
 there is no way to jump the queue to a specific track. Users can only skip forward/back, remove
 tracks, or add to up-next. This is inconsistent with every other list in the app, where clicking
 a row plays that track immediately.
@@ -48,6 +48,6 @@ Loop mode is left unchanged — `loop="one"` re-applies to the new current track
 ## Non-goals
 
 - No drag-to-reorder of the queue.
-- No undo of the discard when jumping (skipped tracks are gone, same as skip-forward today).
+- No undo of the discard when jumping (skipped tracks are gone, same as skip-forward).
 - No change to how a new context (library/playlist/artist/album) _builds_ the queue — this only
   adds navigation _within_ an already-built queue.

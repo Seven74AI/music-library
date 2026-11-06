@@ -20,7 +20,7 @@ empty state, so the user briefly sees a wrong message before the list appears.
   (title + track count) to avoid layout jump.
 - "No playlists yet" remains only for the genuine empty case (fetch settled, zero results).
 - When `playlists` is supplied as a prop there is no fetch, so no loading state — the list renders
-  immediately, as today.
+  immediately.
 
 ## Non-goals
 

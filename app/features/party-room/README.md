@@ -4,7 +4,7 @@ Logged-in UX + speaker player integration for [ADR-030](../../../docs/decisions/
 
 ## Ownership
 
-This package currently mixes:
+This package mixes:
 
 - **UI client** (this PR): `api.client.ts`, `party-room-provider.tsx`, `player-suspend.ts`, `types.ts`, routes/components under `app/routes/rooms*` and `app/components/party-room/`
 - **Overlapping domain helpers** (`constants.ts`, `capabilities.ts`, `code.ts`) that duplicate names from backend PR **#294**

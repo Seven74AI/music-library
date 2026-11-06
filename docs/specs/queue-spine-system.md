@@ -147,7 +147,7 @@ Response:
 }
 ```
 
-Implementation: one Prisma query with minimal `select` (same projection as `fields=minimal` today). Consider response compression (gzip is automatic).
+Implementation: one Prisma query with minimal `select` (same projection as `fields=minimal`). Consider response compression (gzip is automatic).
 
 ### `GET /api/tracks/playback`
 

@@ -68,7 +68,7 @@ Radix UI primitives are individually chunked but share internal Radix primitives
 
 The Vite plugin `stripMonitoringWhenNoDSN()` already removes the Sentry monitoring chunk when `SENTRY_DSN` is empty. However, the Sentry React Router integration code in `entry.client.tsx` adds ~30KB even when DSN is empty (the plugin only strips the dynamic import, not the static import).
 
-**Recommendation:** Make the Sentry import itself dynamic only when DSN is present. Currently the plugin removes the conditional `if(ENV.SENTRY_DSN)` block but the `import { Sentry }` at the top of entry.client remains.
+**Recommendation:** Make the Sentry import itself dynamic only when DSN is present. The plugin removes the conditional `if(ENV.SENTRY_DSN)` block but the `import { Sentry }` at the top of entry.client remains.
 
 ### 5. openimg Component: ~31KB in `misc`
 
