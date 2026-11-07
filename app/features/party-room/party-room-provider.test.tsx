@@ -4,12 +4,20 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { consoleWarn } from "#tests/setup/setup-test-env.ts";
 import { writeActiveRoomCode } from "./api.client.ts";
 import { PartyRoomProvider, usePartyRoom } from "./party-room-provider.tsx";
 
 vi.mock("#app/utils/user.ts", () => ({
   useOptionalUser: () => null,
 }));
+
+// Every open-room test heartbeats (fire-and-forget POST). Tests mock `fetch`
+// directly; a heartbeat leaking to MSW under load is noise — MSW has no
+// room-API handler and setup-test-env throws on `console.warn`.
+beforeEach(() => {
+  consoleWarn.mockImplementation(() => {});
+});
 
 function LeaveOnMount() {
   const { leave } = usePartyRoom();
