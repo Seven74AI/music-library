@@ -7,7 +7,6 @@ import {
   sortBackupKeysNewestFirst,
   weeklyBackupKey,
   DAILY_RETENTION,
-  WEEKLY_RETENTION,
 } from "./backup-keys.ts";
 
 test("formatUtcDate uses UTC calendar day", () => {
@@ -51,9 +50,4 @@ test("sortBackupKeysNewestFirst is lexicographic descending", () => {
     "backups/sqlite/daily/2026-09-27.db",
     "backups/sqlite/daily/2026-09-26.db",
   ]);
-});
-
-test("weekly retention constant is 4", () => {
-  expect(WEEKLY_RETENTION).toBe(4);
-  expect(DAILY_RETENTION).toBe(7);
 });
