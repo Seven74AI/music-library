@@ -52,7 +52,7 @@ yt-dlp errors are classified into one of nine categories for retry decision-maki
 
 ### YouTube Integration
 
-- **ServicePlaylist** — A playlist imported from an external service (YouTube today). Owned by a user and kept in sync with the service's playlist state.
+- **ServicePlaylist** — A playlist imported from an external service (YouTube). Owned by a user and kept in sync with the service's playlist state.
 
 - **ServicePlaylistTrack** — A track's membership in a synced playlist, including position and deletion status (`isDeleted`, `deletedAt`) when the YouTube video becomes unavailable.
 
@@ -64,7 +64,7 @@ yt-dlp errors are classified into one of nine categories for retry decision-maki
 
 - **CoverImage** — A processed, deduplicated cover image stored in Tigris. Keyed by SHA-256 `contentHash` so identical thumbnails are stored once and shared across tracks/albums. Populated by a post-sync background step from YouTube thumbnails.
 
-- **Service Connection** — OAuth link between a user and an external music service (YouTube today). Holds access and refresh tokens for API calls during playlist sync and browsing. Implemented in `app/features/service-connection/`. **`resolveServiceAccessToken(serviceName, userId)`** returns a valid access token or `null`; expired tokens are refreshed automatically when a refresh token is available. **`hasServiceConnection(serviceName, userId)`** is the boolean check for UI ("connected or not"). **`disconnectServiceConnection(serviceName, userId)`** removes the OAuth link.
+- **Service Connection** — OAuth link between a user and an external music service (YouTube). Holds access and refresh tokens for API calls during playlist sync and browsing. Implemented in `app/features/service-connection/`. **`resolveServiceAccessToken(serviceName, userId)`** returns a valid access token or `null`; expired tokens are refreshed automatically when a refresh token is available. **`hasServiceConnection(serviceName, userId)`** is the boolean check for UI ("connected or not"). **`disconnectServiceConnection(serviceName, userId)`** removes the OAuth link.
 
 ### Personal Library
 
@@ -82,7 +82,7 @@ yt-dlp errors are classified into one of nine categories for retry decision-maki
 
 - **Recently Played Strip** — Listening-hub row of the user's most recently finished tracks, ranked by latest `play_completed` **UsageEvent**. **Distinct tracks only** (collapse repeats — one row per `trackId`, ordered by most recent completion). Cap **20** tiles. Placed **above** the recent-playlists section on `/` (does not replace **recently added**). Distinct from `/history`, which remains a per-play chronological list (ADR-017).
 
-- **Heavy Rotation** — Live ranking of distinct tracks by `play_completed` count. Two windows: **this month** (current UTC calendar month) and **ever** (lifetime). Complements frozen **On-Repeat Snapshot**s (previous month). Surfaces: (1) **two** listening-hub strips — one per window — each capped at **50** and hidden when empty; (2) two mutually exclusive **Personal Library** (`/library`) sort options (“Most played · this month” / “Most played · ever”) that reorder the full library list by the chosen signal with **no 50 cap** (the sorted list is the whole library, searchable/pageable as today). Not dated snapshots — recomputed on read.
+- **Heavy Rotation** — Live ranking of distinct tracks by `play_completed` count. Two windows: **this month** (current UTC calendar month) and **ever** (lifetime). Complements frozen **On-Repeat Snapshot**s (previous month). Surfaces: (1) **two** listening-hub strips — one per window — each capped at **50** and hidden when empty; (2) two mutually exclusive **Personal Library** (`/library`) sort options (“Most played · this month” / “Most played · ever”) that reorder the full library list by the chosen signal with **no 50 cap** (the sorted list is the whole library, searchable/pageable). Not dated snapshots — recomputed on read.
 
 - **Weekly Wrap** — Quiet listening-hub summary for the **current UTC calendar week (Monday–Sunday)**. Shows `play_completed` **finishes** count and **unique tracks** count; if the user has a **day streak** > 1 (consecutive UTC days with ≥1 `play_completed` ending today), also show that streak. Home only; **hide when empty** (zero finishes in the week). Not a playlist or strip of tracks — stats copy only. Distinct from admin **DailyUsageStat** charts.
 
@@ -300,7 +300,7 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 
 31. **Empty-state onboarding is context-aware** — When the user has **zero** library tracks, primary CTA depends on YouTube connection state: not connected → **Connect YouTube** (`/music/services/youtube/auth`); connected but no tracks → **Sync a playlist** (`/music/services/youtube/playlists` or synced-playlists flow). **Upload** (`/music/services/local/upload`) and **search** (global search bar) are always available as secondary paths below the primary CTA.
 
-32. **Logged-out landing is a minimal gate** — No feature pitch or screenshot sections. Show logo/product name, a one-liner (e.g. "Your personal music library"), and **Log in** / **Sign up** CTAs in the page body. The global header does not show a login button when logged out (auth entry is via `/` or auth routes). Footer links to About · Privacy · Terms as today. Replace Epic Stack boilerplate entirely.
+32. **Logged-out landing is a minimal gate** — No feature pitch or screenshot sections. Show logo/product name, a one-liner (e.g. "Your personal music library"), and **Log in** / **Sign up** CTAs in the page body. The global header does not show a login button when logged out (auth entry is via `/` or auth routes). Footer links to About · Privacy · Terms. Replace Epic Stack boilerplate entirely.
 
 33. **Listening hub layout: no "Play library" hero** — In listening-hub mode the home page has **no** "Play library" CTA (the earlier hero design was dropped; `ListeningHome` renders the install prompt → archiving banner → Weekly Wrap → Explore Music card → recently added row → listening strips → playlists → overview stats). A **recently added** row of latest `UserTrack`s with per-track play remains below the fold. v1 does **not** add play-history or "continue listening" — defer `localStorage`/DB resume to a follow-up.
 

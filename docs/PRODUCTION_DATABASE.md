@@ -404,7 +404,7 @@ fly ssh console --app [APP_NAME] -C "sqlite3 /litefs/data/sqlite.db \"SELECT u.u
 
 - The `_RoleToUser` join table uses: `A` = Role ID, `B` = User ID
 - User must **log out and log back in** for the session to refresh with new roles
-- The script method (`npx tsx scripts/make-admin.ts`) only works if scripts directory is deployed (not currently in Dockerfile)
+- The script method (`npx tsx scripts/make-admin.ts`) only works if scripts directory is deployed (not in Dockerfile)
 
 **The script will (when available):**
 

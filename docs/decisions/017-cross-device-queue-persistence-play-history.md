@@ -38,7 +38,7 @@ model PlayerState {
 
 Re-derive is preferred over snapshot because (a) the spine is the canonical "what's in this playlist/library right now" — a snapshot would resurrect tracks removed since the last session (a bug); (b) storage cost: a 15k-track `shuffleIds` list is ~420KB written on every mutation, vs. a single `shuffleSeed` integer.
 
-**Shuffle — seeded PRNG.** The client Fisher-Yates shuffle (ADR-015) currently uses `Math.random()` (no seed). Switch to a seeded PRNG: generate a 32-bit seed when shuffle is toggled on / reshuffled, store it, and regenerate the _identical_ permutation on restore. `currentTrackId` is the position anchor (resolved via `findSpinePositionForTrackId`), not a raw index.
+**Shuffle — seeded PRNG.** The client Fisher-Yates shuffle (ADR-015) uses `Math.random()` (no seed). Switch to a seeded PRNG: generate a 32-bit seed when shuffle is toggled on / reshuffled, store it, and regenerate the _identical_ permutation on restore. `currentTrackId` is the position anchor (resolved via `findSpinePositionForTrackId`), not a raw index.
 
 - **Accepted tradeoff:** a seed is _positional_. If the spine length changes between sessions (track added/removed), the same seed yields a different (but deterministic) order — we lose "preserve exact order across edits." For a 15k library this is imperceptible (it's a random permutation of 15k songs); for small playlists a seeded shuffle reproduces the exact order as long as the playlist didn't change.
 

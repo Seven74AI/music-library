@@ -46,7 +46,7 @@ whose interfaces would be nearly as large as their implementations — the
 definition of **shallow modules** (see the `codebase-design` skill: small
 interface + large implementation = deep; large interface + thin implementation
 = shallow). That increases coupling without adding leverage or locality: callers
-would have to learn a 25-field parameter contract to invoke what is today one
+would have to learn a 25-field parameter contract to invoke what is one
 hook's internal state.
 
 Only pure, uncoupled logic was extracted (`audio-player-play-context.ts`), and

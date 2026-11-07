@@ -10,7 +10,7 @@ Accepted. Amended 2026-10-13 (presence, return, host exit, reclaim). The 2026-09
 
 ## Context
 
-Playback today is per-user and client-owned: **Queue Spine** + **Up Next** in `AudioPlayerProvider`, with personal **PlayerState** restore (ADR-015 / ADR-017). Audio and hydration require a logged-in user with track access (library / user playlist / service playlist). There is no friend graph, no shared queue, and no player realtime channel (SSE exists only for upload progress; WebSockets were removed in ADR-004).
+Playback is per-user and client-owned: **Queue Spine** + **Up Next** in `AudioPlayerProvider`, with personal **PlayerState** restore (ADR-015 / ADR-017). Audio and hydration require a logged-in user with track access (library / user playlist / service playlist). There is no friend graph, no shared queue, and no player realtime channel (SSE exists only for upload progress; WebSockets were removed in ADR-004).
 
 The product need is an **in-person party**: many people want to queue tracks on one sound system, with live updates, optional walk-up guests, and roles — not Spotify-style sample-accurate listen-together, and not a 10k-track personal library spine shared across phones.
 
@@ -137,7 +137,7 @@ The product need is an **in-person party**: many people want to queue tracks on 
 - Guest shell is a distinct route tree from the full app chrome.
 - Upload SSE’s process-local connection map is acceptable on a single Fly machine; multi-node fan-out or version-polling fallback may be needed if the app scales out.
 - Glossary: **Party Room** section in `docs/CONTEXT.md`; settled decision #67.
-- The 2026-10-13 amendment is not implemented. Today the active code lives in `sessionStorage` (no account or guest-cookie lookup), `emptySince` is set only when the last seat clicks Leave, the Host heartbeat alone opens **Become host** after 10s, Host Leave does not end the room, and **Reclaim host** stays on the creator’s user id.
+- The 2026-10-13 amendment is not implemented. The active code lives in `sessionStorage` (no account or guest-cookie lookup), `emptySince` is set only when the last seat clicks Leave, the Host heartbeat alone opens **Become host** after 10s, Host Leave does not end the room, and **Reclaim host** stays on the creator’s user id.
 
 ## References
 
