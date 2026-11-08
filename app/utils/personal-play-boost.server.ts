@@ -33,6 +33,13 @@ export const PLAY_BOOST_CAP = 40;
 const LIFETIME_PLAY_COUNTS_TTL_MS = 60 * 1000;
 
 /**
+ * SQLite allows 999 bind parameters per statement (CONTEXT #40). Track FTS search
+ * uses a fixed bundle plus up to one `?` per boosted track in the CASE expression.
+ */
+const TRACK_FTS_BIND_RESERVE = 20;
+export const PERSONAL_PLAY_BOOST_MAX_SQL_BINDS = 999 - TRACK_FTS_BIND_RESERVE;
+
+/**
  * Bounded soft boost for a single track's lifetime completed-play count.
  * Returns 0 for missing/zero plays; never exceeds PLAY_BOOST_CAP.
  */
@@ -74,6 +81,20 @@ export async function getLifetimePlayCompletedCounts(userId: string): Promise<Ma
   });
 
   return new Map(Object.entries(record));
+}
+
+/**
+ * Top-N tracks by play count with a non-zero boost, capped for SQLite bind budget.
+ */
+export function playCountsForBoostSql(playCounts: Map<string, number>): Map<string, number> {
+  const ranked: Array<{ id: string; count: number; boost: number }> = [];
+  for (const [id, count] of playCounts) {
+    const boost = computePersonalPlayBoost(count);
+    if (boost > 0) ranked.push({ id, count, boost });
+  }
+  ranked.sort((a, b) => b.count - a.count || b.boost - a.boost);
+  const capped = ranked.slice(0, PERSONAL_PLAY_BOOST_MAX_SQL_BINDS);
+  return new Map(capped.map((row) => [row.id, row.count]));
 }
 
 /**

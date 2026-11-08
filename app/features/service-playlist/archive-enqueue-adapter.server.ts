@@ -5,7 +5,7 @@ import { enqueueArchiveJobs } from "#app/features/audio-archive/auto-enqueue.ser
  * Injected so sync tests do not wake the archive worker.
  */
 export interface ArchiveEnqueueAdapter {
-  enqueueArchiveJobs(tx: unknown, trackIds: string[]): Promise<void>;
+  enqueueArchiveJobs(tx: unknown, trackIds: string[]): Promise<boolean>;
 }
 
 export function createProductionArchiveEnqueueAdapter(): ArchiveEnqueueAdapter {
@@ -15,5 +15,7 @@ export function createProductionArchiveEnqueueAdapter(): ArchiveEnqueueAdapter {
 }
 
 export const noopArchiveEnqueueAdapter: ArchiveEnqueueAdapter = {
-  async enqueueArchiveJobs() {},
+  async enqueueArchiveJobs() {
+    return false;
+  },
 };

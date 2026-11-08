@@ -8,11 +8,14 @@
  * full set is an SSRF + credential-leak vector on admin/curator-gated pages.
  */
 
-function trustedOrigin(): string {
+/** Configured SITE_URL without trailing slash, if set. */
+export function configuredSiteUrl(): string | null {
   const configured = process.env.SITE_URL?.trim();
-  return configured
-    ? configured.replace(/\/$/, "")
-    : `http://127.0.0.1:${process.env.PORT || "3000"}`;
+  return configured ? configured.replace(/\/$/, "") : null;
+}
+
+export function trustedOrigin(): string {
+  return configuredSiteUrl() ?? `http://127.0.0.1:${process.env.PORT || "3000"}`;
 }
 
 /** Build an absolute URL on the trusted origin for the given pathname (and query). */

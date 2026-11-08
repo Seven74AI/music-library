@@ -1048,6 +1048,55 @@ describe("Search Utilities", () => {
     });
   });
 
+  describe("searchAll merged pagination", () => {
+    it("page 2 surfaces a type that did not appear on page 1 (no dropped interleaved rows)", async () => {
+      const stamp = `MergeInterleave${Date.now()}`;
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: { name: stamp, normalizedName: stamp.toLowerCase() },
+      });
+
+      const track = await prisma.track.create({
+        data: {
+          title: `Other ${stamp}`,
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `interleave-track-${Date.now()}`,
+        },
+      });
+
+      await prisma.album.create({
+        data: {
+          name: `${stamp} Album`,
+          artistId: artist.id,
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const page1 = await searchAll(stamp, 2, undefined, "all");
+      expect(page1.results).toHaveLength(2);
+      const page1TrackIds = page1.results.filter((r) => r.type === "track").map((r) => r.id);
+      expect(page1TrackIds).not.toContain(track.id);
+      expect(page1.pagination.hasNext).toBe(true);
+      expect(page1.pagination.nextCursor).toBeTruthy();
+
+      const page2 = await searchAll(stamp, 2, page1.pagination.nextCursor ?? undefined, "all");
+      const page2TrackIds = page2.results.filter((r) => r.type === "track").map((r) => r.id);
+      expect(page2TrackIds).toContain(track.id);
+    });
+  });
+
   describe("Personal Play Boost (ADR-028)", () => {
     async function seedBoostFixture() {
       const timestamp = Date.now();

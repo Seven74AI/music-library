@@ -77,6 +77,7 @@ vi.mock("#app/utils/artist-management.server.ts", () => ({
 // Mock auto-enqueue
 vi.mock("#app/features/audio-archive/auto-enqueue.server.ts", () => ({
   enqueueArchiveJob: vi.fn(),
+  scheduleArchiveQueueTickAfterCommit: vi.fn(),
 }));
 
 // Mock db.server
@@ -117,7 +118,7 @@ describe("importTrackDirectly", () => {
 
     vi.mocked(getServiceByName).mockResolvedValue(mockService);
     vi.mocked(getOrCreateArtistTx).mockResolvedValue(mockArtist);
-    vi.mocked(enqueueArchiveJob).mockResolvedValue(undefined);
+    vi.mocked(enqueueArchiveJob).mockResolvedValue(true);
 
     mockTx.track.findUnique.mockResolvedValue(null);
     mockTx.track.upsert.mockResolvedValue({ id: "track-new" });

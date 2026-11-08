@@ -12,6 +12,9 @@ describe("mutationRateLimitTier", () => {
     expect(mutationRateLimitTier("POST", "/login")).toBe("sensitive");
     expect(mutationRateLimitTier("POST", "/signup")).toBe("sensitive");
     expect(mutationRateLimitTier("POST", "/reset-password")).toBe("sensitive");
+    expect(mutationRateLimitTier("POST", "/forgot-password")).toBe("sensitive");
+    expect(mutationRateLimitTier("POST", "/webauthn/authentication")).toBe("sensitive");
+    expect(mutationRateLimitTier("POST", "/webauthn/registration")).toBe("sensitive");
     expect(mutationRateLimitTier("GET", "/verify")).toBe("sensitive");
   });
 

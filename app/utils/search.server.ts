@@ -16,6 +16,7 @@ import { escapeLikeLiterals, toLiteralFts5Query } from "#app/utils/fts5-query.se
 import {
   getLifetimePlayCompletedCounts,
   personalPlayBoostCaseSql,
+  playCountsForBoostSql,
 } from "#app/utils/personal-play-boost.server.ts";
 import { getTrackPopularityStats } from "#app/utils/track-popularity.server.ts";
 import {
@@ -106,6 +107,50 @@ function lastCursorTuple(
 
 function emptySearchResponse(limit: number): SearchResponse {
   return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
+}
+
+/**
+ * Merged-feed cursor for one entity type: advance only when that type contributed
+ * rows to the displayed page, and only past the last consumed row in its batch.
+ */
+function mergedFeedCursorArm(
+  typeResults: SearchResult[],
+  sortTuples: CursorSortTuple[],
+  displayedIds: Set<string>,
+  incomingArm: CursorSortTuple | null,
+  pageNextCursor: string | null,
+  armKey: keyof CompositeCursor,
+): CursorSortTuple | null {
+  if (typeResults.length === 0) return incomingArm;
+
+  let lastConsumedIndex = -1;
+  for (let i = 0; i < typeResults.length; i++) {
+    const row = typeResults[i];
+    if (row && displayedIds.has(row.id)) {
+      lastConsumedIndex = i;
+    }
+  }
+
+  if (lastConsumedIndex === -1) {
+    return incomingArm;
+  }
+
+  const undisplayedBeforeLast = typeResults
+    .slice(0, lastConsumedIndex)
+    .some((row) => !displayedIds.has(row.id));
+  if (undisplayedBeforeLast) {
+    return incomingArm;
+  }
+
+  const lastTuple = sortTuples[lastConsumedIndex];
+  if (!lastTuple) return incomingArm;
+
+  const consumedEntireBatch = lastConsumedIndex === typeResults.length - 1;
+  if (consumedEntireBatch) {
+    return pageNextCursor ? decodeCursor(pageNextCursor)[armKey] : lastTuple;
+  }
+
+  return lastTuple;
 }
 
 async function enrichTrackSearchResults(
@@ -236,7 +281,7 @@ export async function searchTracks(
   // Logged-out path skips this — relevance-only ordering.
   const playCounts = userId ? await getLifetimePlayCompletedCounts(userId) : null;
   const playBoostExpr = playCounts
-    ? personalPlayBoostCaseSql(playCounts)
+    ? personalPlayBoostCaseSql(playCountsForBoostSql(playCounts))
     : { sql: "0", params: [] as unknown[] };
 
   const cursorFilter = curT
@@ -323,6 +368,7 @@ export async function searchTracks(
   return {
     results: enrichedTracks,
     pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
+    sortTuples: rawResults.map((row) => lastCursorTuple(row, "title")),
   };
 }
 
@@ -427,6 +473,7 @@ export async function searchAlbums(
   return {
     results: albums,
     pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
+    sortTuples: rawResults.map((row) => lastCursorTuple(row, "name")),
   };
 }
 
@@ -522,6 +569,7 @@ export async function searchArtists(
   return {
     results: artists,
     pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
+    sortTuples: rawResults.map((row) => lastCursorTuple(row, "name")),
   };
 }
 
@@ -630,6 +678,7 @@ export async function searchPlaylists(
   return {
     results: playlists,
     pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
+    sortTuples: rawResults.map((row) => lastCursorTuple(row, "name")),
   };
 }
 
@@ -664,24 +713,28 @@ export async function searchAll(
       : Promise.resolve({
           results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
+          sortTuples: [],
         }),
     albumLimit > 0
       ? searchAlbums(query, albumLimit, cursor, usePrefix, userId, scope)
       : Promise.resolve({
           results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
+          sortTuples: [],
         }),
     artistLimit > 0
       ? searchArtists(query, artistLimit, cursor, usePrefix, userId, scope)
       : Promise.resolve({
           results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
+          sortTuples: [],
         }),
     playlistLimit > 0 && userId
       ? searchPlaylists(query, userId, playlistLimit, cursor, usePrefix)
       : Promise.resolve({
           results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
+          sortTuples: [],
         }),
   ]);
 
@@ -695,27 +748,61 @@ export async function searchAll(
 
   // Take top N results
   const results = allResults.slice(0, limit);
+  const displayedIds = new Set(results.map((row) => row.id));
+  const incoming = cursor ? decodeCursor(cursor) : null;
+
+  const tCur = mergedFeedCursorArm(
+    tracksResult.results,
+    tracksResult.sortTuples ?? [],
+    displayedIds,
+    incoming?.t ?? null,
+    tracksResult.pagination.nextCursor,
+    "t",
+  );
+  const aCur = mergedFeedCursorArm(
+    albumsResult.results,
+    albumsResult.sortTuples ?? [],
+    displayedIds,
+    incoming?.a ?? null,
+    albumsResult.pagination.nextCursor,
+    "a",
+  );
+  const arCur = mergedFeedCursorArm(
+    artistsResult.results,
+    artistsResult.sortTuples ?? [],
+    displayedIds,
+    incoming?.ar ?? null,
+    artistsResult.pagination.nextCursor,
+    "ar",
+  );
+  const pCur = mergedFeedCursorArm(
+    playlistsResult.results,
+    playlistsResult.sortTuples ?? [],
+    displayedIds,
+    incoming?.p ?? null,
+    playlistsResult.pagination.nextCursor,
+    "p",
+  );
+  const nextCursor: CompositeCursor = { t: tCur, a: aCur, ar: arCur, p: pCur };
+
+  const typeHasBufferedRows = (
+    typeResults: SearchResult[],
+    arm: CursorSortTuple | null,
+    incomingArm: CursorSortTuple | null,
+  ) =>
+    typeResults.some((row) => !displayedIds.has(row.id)) &&
+    JSON.stringify(arm) === JSON.stringify(incomingArm);
+
   const hasNext =
     allResults.length > limit ||
     tracksResult.pagination.hasNext ||
     albumsResult.pagination.hasNext ||
     artistsResult.pagination.hasNext ||
-    playlistsResult.pagination.hasNext;
-
-  // Combine per-function cursors into a composite
-  const tCur = tracksResult.pagination.nextCursor
-    ? decodeCursor(tracksResult.pagination.nextCursor).t
-    : null;
-  const aCur = albumsResult.pagination.nextCursor
-    ? decodeCursor(albumsResult.pagination.nextCursor).a
-    : null;
-  const arCur = artistsResult.pagination.nextCursor
-    ? decodeCursor(artistsResult.pagination.nextCursor).ar
-    : null;
-  const pCur = playlistsResult.pagination.nextCursor
-    ? decodeCursor(playlistsResult.pagination.nextCursor).p
-    : null;
-  const nextCursor: CompositeCursor = { t: tCur, a: aCur, ar: arCur, p: pCur };
+    playlistsResult.pagination.hasNext ||
+    typeHasBufferedRows(tracksResult.results, tCur, incoming?.t ?? null) ||
+    typeHasBufferedRows(albumsResult.results, aCur, incoming?.a ?? null) ||
+    typeHasBufferedRows(artistsResult.results, arCur, incoming?.ar ?? null) ||
+    typeHasBufferedRows(playlistsResult.results, pCur, incoming?.p ?? null);
 
   return {
     results,

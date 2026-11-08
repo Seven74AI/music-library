@@ -23,7 +23,10 @@ function isPlaceholderTitle(title: string): boolean {
  */
 export interface TrackSyncProcessor {
   isUnavailableVideo(item: SyncableItem): boolean;
-  shouldPreserveTrackData(existingTrack: { title: string } | null, item: SyncableItem): boolean;
+  shouldPreserveTrackData(
+    existingTrack: { title: string; hasTrackAudioFile?: boolean } | null,
+    item: SyncableItem,
+  ): boolean;
   transformPlaylistItem(
     item: SyncableItem,
     serviceId: string,
@@ -45,10 +48,13 @@ export class YouTubeTrackSyncProcessor implements TrackSyncProcessor {
   }
 
   shouldPreserveTrackData(
-    existingTrack: { title: string } | null,
+    existingTrack: { title: string; hasTrackAudioFile?: boolean } | null,
     newItem: YouTubePlaylistItem,
   ): boolean {
     if (!existingTrack) return false;
+
+    // Archive worker metadata wins once audio is stored (ADR-012 / CONTEXT #36).
+    if (existingTrack.hasTrackAudioFile) return true;
 
     if (this.isUnavailableVideo(newItem) && !isPlaceholderTitle(existingTrack.title)) {
       return true;

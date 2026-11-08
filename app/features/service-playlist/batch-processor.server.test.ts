@@ -40,6 +40,77 @@ function createTxMock() {
   };
 }
 
+describe("processTracksInBatches - archived metadata", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not overwrite archive-worker title on re-sync when TrackAudioFile exists", async () => {
+    const trackUpsert = vi
+      .fn()
+      .mockImplementation(
+        ({
+          update,
+          create,
+        }: {
+          update: Record<string, unknown>;
+          create: Record<string, unknown>;
+        }) => Promise.resolve({ id: "track-archived", ...(create.serviceUrl ? update : create) }),
+      );
+
+    const tx = {
+      track: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: "track-archived",
+            title: "Archive Worker Title",
+            artistId: "artist-1",
+            albumId: "album-1",
+            releaseDate: new Date("2020-01-01"),
+            duration: 200,
+            coverImageId: "cover-1",
+            externalId: "video-archived",
+            audioFiles: [{ id: "audio-1" }],
+          },
+        ]),
+        upsert: trackUpsert,
+      },
+      artist: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue({ id: "artist-yt", name: "YouTube Artist" }),
+        create: vi.fn(),
+      },
+      servicePlaylistTrack: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue({ id: "spt-1" }),
+      },
+    } as unknown as Prisma.TransactionClient;
+
+    await processTracksInBatches(
+      [
+        {
+          snippet: {
+            title: "YouTube Re-sync Title",
+            resourceId: { videoId: "video-archived" },
+            videoOwnerChannelTitle: "YouTube Artist",
+            thumbnails: { default: { url: "https://example.com/t.jpg" } },
+          },
+        },
+      ],
+      "service-1",
+      "playlist-1",
+      tx,
+      createYouTubeTrackSyncProcessor(),
+      noopArchiveEnqueueAdapter,
+    );
+
+    expect(trackUpsert).toHaveBeenCalled();
+    const update = trackUpsert.mock.calls[0]![0].update as { title?: string; artistId?: string };
+    expect(update.title).toBe("Archive Worker Title");
+    expect(update.artistId).toBe("artist-1");
+  });
+});
+
 describe("processTracksInBatches - artist naming", () => {
   beforeEach(() => {
     vi.clearAllMocks();
