@@ -19,6 +19,7 @@ import { type ProviderUser } from "./providers/provider.ts";
 import { authSessionStorage } from "./session.server.ts";
 import { uploadProfileImage } from "./storage.server.ts";
 import { createToastHeaders } from "./toast.server.ts";
+import { validatePublicHttpsUrl } from "./validate-public-url.server.ts";
 
 export const SESSION_EXPIRATION_TIME = 1000 * 60 * 60 * 24 * 30;
 export const getSessionExpirationDate = () => new Date(Date.now() + SESSION_EXPIRATION_TIME);
@@ -243,17 +244,20 @@ export async function signupWithConnection({
   });
 
   if (imageUrl) {
-    const imageFile = await downloadFile(imageUrl);
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        image: {
-          create: {
-            objectKey: await uploadProfileImage(user.id, imageFile),
+    const safeImageUrl = await validatePublicHttpsUrl(imageUrl);
+    if (safeImageUrl) {
+      const imageFile = await downloadFile(safeImageUrl.href);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          image: {
+            create: {
+              objectKey: await uploadProfileImage(user.id, imageFile),
+            },
           },
         },
-      },
-    });
+      });
+    }
   }
 
   void recordUsageEvent({ type: USAGE_EVENT_TYPES.signup, userId: user.id }).catch(() => {});

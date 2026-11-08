@@ -104,34 +104,6 @@ async function resolveCanonicalArtist(
 }
 
 /**
- * Find all artists with matching normalized name
- */
-export async function findArtistsByName(name: string): Promise<
-  Array<{
-    id: string;
-    name: string;
-    normalizedName: string;
-    mergedIntoId: string | null;
-  }>
-> {
-  const normalizedName = normalizeArtistName(name);
-  if (!normalizedName) {
-    return [];
-  }
-
-  return await prisma.artist.findMany({
-    where: { normalizedName },
-    select: {
-      id: true,
-      name: true,
-      normalizedName: true,
-      mergedIntoId: true,
-    },
-    orderBy: { createdAt: "asc" }, // First match = oldest
-  });
-}
-
-/**
  * Shared get-or-create core, parameterized by client (global `prisma` or a
  * transaction client).
  */
