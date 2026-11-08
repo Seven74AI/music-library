@@ -19,6 +19,19 @@ describe("search API loader", () => {
     vi.clearAllMocks();
   });
 
+  test("returns 400 when search layer rejects invalid cursor format", async () => {
+    vi.mocked(searchWithCache).mockRejectedValue(new Error("Invalid cursor format"));
+
+    const response = await loader({
+      ...makeRequest("http://localhost/api/search?q=test"),
+    } as never);
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string; results: unknown[] };
+    expect(body.error).toBe("Invalid cursor format");
+    expect(body.results).toEqual([]);
+  });
+
   test("returns 400 with results shape when query parameter is missing", async () => {
     const response = await loader({
       ...makeRequest("http://localhost/api/search"),

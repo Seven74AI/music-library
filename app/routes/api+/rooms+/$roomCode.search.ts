@@ -15,7 +15,7 @@ import {
 } from "#app/features/party-room/room-search.server.ts";
 import {
   CursorSchema,
-  INVALID_CURSOR_FORMAT_MESSAGE,
+  isInvalidCursorFormatError,
   SearchLimitSchema,
   SearchQuerySchema,
 } from "#app/utils/search-validation.server.ts";
@@ -30,11 +30,7 @@ function empty(limit: number) {
 }
 
 function isMalformedSearchQuery(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.message === INVALID_CURSOR_FORMAT_MESSAGE ||
-      /syntax error|malformed match|fts5/i.test(error.message))
-  );
+  return error instanceof Error && /syntax error|malformed match|fts5/i.test(error.message);
 }
 
 export async function loader({
@@ -107,6 +103,9 @@ export async function loader({
       },
     });
   } catch (error) {
+    if (isInvalidCursorFormatError(error)) {
+      return Response.json({ error: "Invalid cursor", ...empty(limit) }, { status: 400 });
+    }
     if (isMalformedSearchQuery(error)) {
       return Response.json({ error: "Invalid search query", ...empty(limit) }, { status: 400 });
     }

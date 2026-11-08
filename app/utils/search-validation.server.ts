@@ -65,6 +65,10 @@ export type CursorSortTuple = {
 
 export const INVALID_CURSOR_FORMAT_MESSAGE = "Invalid cursor format";
 
+export function isInvalidCursorFormatError(error: unknown): boolean {
+  return error instanceof Error && error.message === INVALID_CURSOR_FORMAT_MESSAGE;
+}
+
 /** Validates a single keyset pagination tuple inside a composite cursor. */
 export function isCursorSortTuple(value: unknown): value is CursorSortTuple {
   if (typeof value !== "object" || value === null) return false;

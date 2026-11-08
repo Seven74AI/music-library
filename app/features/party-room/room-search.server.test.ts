@@ -45,6 +45,17 @@ async function createTrackWithOptionalAudio(opts: {
   return { track, artist };
 }
 
+describe("searchRoomCatalog cursor", () => {
+  test("throws on present-but-malformed cursor arm", async () => {
+    const malformed = Buffer.from(
+      JSON.stringify({ t: { rk: 1, fr: "x", n: "a", id: "b" } }),
+    ).toString("base64");
+    await expect(
+      searchRoomCatalog({ query: "test", limit: 10, cursor: malformed, type: "tracks" }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+});
+
 describe("trackHasAudioFiles", () => {
   test("true only when at least one audio file exists", () => {
     expect(trackHasAudioFiles(0)).toBe(false);
@@ -133,7 +144,7 @@ describe("searchRoomCatalog has-audio filter", () => {
     expect(names.some((n) => n.includes("Without"))).toBe(false);
   });
 
-  test("malformed cursor (invalid JSON after decode) fails closed", async () => {
+  test("malformed cursor (invalid base64) fails closed", async () => {
     await expect(
       searchRoomCatalog({
         query: `NoSuchMarker${Date.now()}`,
