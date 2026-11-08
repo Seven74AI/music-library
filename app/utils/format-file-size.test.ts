@@ -13,8 +13,9 @@ describe("formatFileSize", () => {
     expect(formatFileSize(1.5 * 1024 * 1024)).toBe("1.5 MB");
   });
 
-  test("uses KB below 1 MiB, minimum 1 KB", () => {
+  test("uses KB below 1 MiB and bytes below 1 KiB", () => {
     expect(formatFileSize(500_000)).toBe("488 KB");
-    expect(formatFileSize(500)).toBe("1 KB");
+    expect(formatFileSize(500)).toBe("500 B");
+    expect(formatFileSize(1024)).toBe("1 KB");
   });
 });
