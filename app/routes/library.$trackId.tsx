@@ -25,6 +25,7 @@ import { requireUserId } from "#app/utils/auth.server.ts";
 import { getTrackTitle } from "#app/utils/breadcrumb-utils.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { formatDuration } from "#app/utils/format-duration.ts";
+import { formatFileSize } from "#app/utils/format-file-size.ts";
 import { isPlayableTrack } from "#app/utils/playable-track.ts";
 import { loadUserPlaylists } from "#app/utils/track-list-loader.server.ts";
 import { useTrackAudioFileDownload } from "#app/hooks/use-track-audio-file-download.ts";
@@ -83,12 +84,6 @@ export function orderedGenreNames(
     names.unshift(primary);
   }
   return names;
-}
-
-function formatFileSize(bytes: number) {
-  const megabytes = bytes / (1024 * 1024);
-  if (megabytes >= 1) return `${megabytes.toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 function formatAudioDetails(file: {

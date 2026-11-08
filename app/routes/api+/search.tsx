@@ -21,6 +21,7 @@ import { type SearchResponse } from "#app/types/search.ts";
 import { getUserId } from "#app/utils/auth.server.ts";
 import {
   CursorSchema,
+  INVALID_CURSOR_FORMAT_MESSAGE,
   SearchLimitSchema,
   SearchQuerySchema,
   SearchScopeSchema,
@@ -37,7 +38,11 @@ function emptySearchResponse(limit: number): SearchResponse {
 }
 
 function isMalformedSearchQuery(error: unknown): boolean {
-  return error instanceof Error && /syntax error|malformed match|fts5/i.test(error.message);
+  return (
+    error instanceof Error &&
+    (error.message === INVALID_CURSOR_FORMAT_MESSAGE ||
+      /syntax error|malformed match|fts5/i.test(error.message))
+  );
 }
 
 function invalidSearchParameters(error: z.ZodError, limit = 20) {

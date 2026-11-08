@@ -56,6 +56,23 @@ describe("search-validation.server", () => {
     expect(result.success).toBe(true);
   });
 
+  test("accepts valid composite cursor with sort tuples", () => {
+    const payload = {
+      t: { rk: 1, fr: 0.5, n: "track", id: "t1" },
+      a: null,
+    };
+    const cursor = Buffer.from(JSON.stringify(payload)).toString("base64");
+    const result = CursorSchema.safeParse(cursor);
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects cursor with malformed sort tuple arm", () => {
+    const payload = { t: { rk: 1, fr: "bad", n: "x", id: "y" } };
+    const cursor = Buffer.from(JSON.stringify(payload)).toString("base64");
+    const result = CursorSchema.safeParse(cursor);
+    expect(result.success).toBe(false);
+  });
+
   test("accepts playlists search type", () => {
     const result = SearchTypeSchema.safeParse("playlists");
     expect(result.success).toBe(true);

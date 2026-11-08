@@ -12,6 +12,11 @@ import {
 } from "#app/types/search.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { escapeLikeLiterals, toLiteralFts5Query } from "#app/utils/fts5-query.server.ts";
+import {
+  decodeCursorArm,
+  INVALID_CURSOR_FORMAT_MESSAGE,
+  type CursorSortTuple,
+} from "#app/utils/search-validation.server.ts";
 
 function emptySearchResponse(limit: number): SearchResponse {
   return {
@@ -20,52 +25,28 @@ function emptySearchResponse(limit: number): SearchResponse {
   };
 }
 
-type CursorSortTuple = {
-  rk: number;
-  fr: number;
-  n: string;
-  id: string;
-};
-
 type HasAudioCursor = {
   t: CursorSortTuple | null;
   a: CursorSortTuple | null;
   ar: CursorSortTuple | null;
 };
 
-function isCursorSortTuple(value: unknown): value is CursorSortTuple {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.rk === "number" &&
-    typeof v.fr === "number" &&
-    typeof v.n === "string" &&
-    typeof v.id === "string"
-  );
-}
-
-/**
- * Decodes the user-supplied cursor query param. Malformed input — invalid base64,
- * invalid JSON, a non-object payload, or a non-tuple shape — yields `null` instead
- * of throwing. The route layer already maps malformed cursors to a 400 via
- * CursorSchema; this guard guarantees no unhandled 500 if that validation is ever
- * bypassed or the shape is wrong.
- */
-function decodeCursor(cursor: string): HasAudioCursor | null {
+/** Fail-closed decode aligned with global search: invalid present arms reject pagination. */
+function decodeCursor(cursor: string): HasAudioCursor {
+  let parsed: Record<string, unknown>;
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<
-      string,
-      unknown
-    >;
-    if (typeof parsed !== "object" || parsed === null) return null;
-    return {
-      t: isCursorSortTuple(parsed.t) ? parsed.t : null,
-      a: isCursorSortTuple(parsed.a) ? parsed.a : null,
-      ar: isCursorSortTuple(parsed.ar) ? parsed.ar : null,
-    };
+    parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<string, unknown>;
   } catch {
-    return null;
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
   }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
+  return {
+    t: decodeCursorArm(parsed, "t"),
+    a: decodeCursorArm(parsed, "a"),
+    ar: decodeCursorArm(parsed, "ar"),
+  };
 }
 
 function encodeCursor(c: HasAudioCursor): string {

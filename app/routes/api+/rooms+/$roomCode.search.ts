@@ -15,6 +15,7 @@ import {
 } from "#app/features/party-room/room-search.server.ts";
 import {
   CursorSchema,
+  INVALID_CURSOR_FORMAT_MESSAGE,
   SearchLimitSchema,
   SearchQuerySchema,
 } from "#app/utils/search-validation.server.ts";
@@ -26,6 +27,14 @@ function empty(limit: number) {
     results: [] as unknown[],
     pagination: { limit, hasNext: false, nextCursor: null as string | null },
   };
+}
+
+function isMalformedSearchQuery(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === INVALID_CURSOR_FORMAT_MESSAGE ||
+      /syntax error|malformed match|fts5/i.test(error.message))
+  );
 }
 
 export async function loader({
@@ -80,20 +89,31 @@ export async function loader({
 
   await touchParticipant(participant.id);
 
-  const results = await searchRoomCatalog({
-    query: queryResult.data,
-    limit,
-    cursor: cursorResult.data,
-    type: typeResult.data as RoomSearchType,
-  });
+  try {
+    const results = await searchRoomCatalog({
+      query: queryResult.data,
+      limit,
+      cursor: cursorResult.data,
+      type: typeResult.data as RoomSearchType,
+    });
 
-  return Response.json({
-    ...results,
-    meta: {
-      participantId: participant.id,
-      role: participant.role,
-      canAddTracks: canAddTracks(participant.role),
-      hasAudioOnly: true,
-    },
-  });
+    return Response.json({
+      ...results,
+      meta: {
+        participantId: participant.id,
+        role: participant.role,
+        canAddTracks: canAddTracks(participant.role),
+        hasAudioOnly: true,
+      },
+    });
+  } catch (error) {
+    if (isMalformedSearchQuery(error)) {
+      return Response.json({ error: "Invalid search query", ...empty(limit) }, { status: 400 });
+    }
+    console.error("[ROOM SEARCH API] Unexpected error searching:", error);
+    if (error instanceof Error) {
+      console.error("[ROOM SEARCH API] Error stack:", error.stack);
+    }
+    return Response.json({ error: "Failed to perform search", ...empty(limit) }, { status: 500 });
+  }
 }
