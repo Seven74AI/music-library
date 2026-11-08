@@ -1,53 +1,89 @@
 -- ADR-037: backfill _TrackGenres from legacy Track.genre, then drop the column.
+-- Mirrors parseGenreString (comma, semicolon, slash) + normalizeGenreName (approximate in SQL).
+-- Per-link INSERT OR IGNORE: tracks with partial M2M still receive missing legacy genres.
 
--- Link tracks whose legacy string matches an existing Genre (by name).
-INSERT OR IGNORE INTO "_TrackGenres" ("A", "B")
-SELECT g.id, t.id
-FROM "Track" t
-INNER JOIN "Genre" g ON g.name = trim(t.genre)
-WHERE t.genre IS NOT NULL AND trim(t.genre) != '';
+CREATE TEMP TABLE "_legacy_genre_backfill" AS
+WITH RECURSIVE
+source AS (
+  SELECT t.id AS track_id, trim(t.genre) AS raw
+  FROM "Track" t
+  WHERE t.genre IS NOT NULL AND trim(t.genre) != ''
+),
+prep AS (
+  SELECT
+    track_id,
+    replace(replace(replace(raw, ';', ','), '/', ','), ',', ',') AS list
+  FROM source
+),
+split(track_id, token, rest) AS (
+  SELECT track_id, '', list || ',' FROM prep
+  UNION ALL
+  SELECT
+    track_id,
+    trim(substr(rest, 1, CASE WHEN instr(rest, ',') = 0 THEN length(rest) ELSE instr(rest, ',') - 1 END)),
+    CASE WHEN instr(rest, ',') = 0 THEN '' ELSE substr(rest, instr(rest, ',') + 1) END
+  FROM split
+  WHERE rest != ''
+),
+tokens AS (
+  SELECT track_id, trim(token) AS raw_token
+  FROM split
+  WHERE trim(token) != ''
+),
+normalized AS (
+  SELECT
+    track_id,
+    raw_token AS display_name,
+    trim(
+      lower(
+        replace(
+          replace(
+            replace(
+              replace(
+                replace(
+                  replace(replace(replace(raw_token, '&', ''), '''', ''), '.', ''), '(', ''), ')', ''),
+                  '-',
+                  '-'
+                ),
+                '  ',
+                ' '
+              ),
+              '  ',
+              ' '
+            ),
+            '  ',
+            ' '
+          )
+        )
+      )
+    ) AS normalized_name
+  FROM tokens
+)
+SELECT track_id, MIN(display_name) AS display_name, normalized_name
+FROM normalized
+WHERE normalized_name != ''
+GROUP BY track_id, normalized_name;
 
--- Link tracks whose legacy string matches an existing Genre (by normalizedName).
-INSERT OR IGNORE INTO "_TrackGenres" ("A", "B")
-SELECT g.id, t.id
-FROM "Track" t
-INNER JOIN "Genre" g ON g."normalizedName" = lower(trim(t.genre))
-WHERE t.genre IS NOT NULL AND trim(t.genre) != ''
-  AND NOT EXISTS (SELECT 1 FROM "_TrackGenres" tg WHERE tg."B" = t.id);
-
--- Create Genre rows for legacy strings on tracks that still have no M2M link.
 INSERT OR IGNORE INTO "Genre" ("id", "name", "normalizedName", "createdAt", "updatedAt")
 SELECT
   lower(hex(randomblob(16))),
-  legacy.name,
-  lower(trim(legacy.name)),
+  need.display_name,
+  need.normalized_name,
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
 FROM (
-  SELECT DISTINCT trim(t.genre) AS name
-  FROM "Track" t
-  WHERE t.genre IS NOT NULL AND trim(t.genre) != ''
-    AND NOT EXISTS (SELECT 1 FROM "_TrackGenres" tg WHERE tg."B" = t.id)
-) AS legacy
-WHERE NOT EXISTS (
-  SELECT 1 FROM "Genre" g
-  WHERE g.name = legacy.name OR g."normalizedName" = lower(trim(legacy.name))
-);
-
--- Link newly created (or previously missing) genres.
-INSERT OR IGNORE INTO "_TrackGenres" ("A", "B")
-SELECT g.id, t.id
-FROM "Track" t
-INNER JOIN "Genre" g ON g.name = trim(t.genre)
-WHERE t.genre IS NOT NULL AND trim(t.genre) != ''
-  AND NOT EXISTS (SELECT 1 FROM "_TrackGenres" tg WHERE tg."B" = t.id);
+  SELECT b.normalized_name, MIN(b.display_name) AS display_name
+  FROM "_legacy_genre_backfill" b
+  WHERE NOT EXISTS (SELECT 1 FROM "Genre" g WHERE g."normalizedName" = b.normalized_name)
+  GROUP BY b.normalized_name
+) AS need;
 
 INSERT OR IGNORE INTO "_TrackGenres" ("A", "B")
-SELECT g.id, t.id
-FROM "Track" t
-INNER JOIN "Genre" g ON g."normalizedName" = lower(trim(t.genre))
-WHERE t.genre IS NOT NULL AND trim(t.genre) != ''
-  AND NOT EXISTS (SELECT 1 FROM "_TrackGenres" tg WHERE tg."B" = t.id);
+SELECT g.id, b.track_id
+FROM "_legacy_genre_backfill" b
+INNER JOIN "Genre" g ON g."normalizedName" = b.normalized_name;
+
+DROP TABLE "_legacy_genre_backfill";
 
 -- Drop FTS sync triggers before Track table rebuild (SQLite recompiles triggers on rename).
 DROP TRIGGER IF EXISTS tracks_fts_ai;
