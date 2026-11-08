@@ -27,17 +27,22 @@ describe("getEnv", () => {
 });
 
 describe("validateEnv", () => {
-  test("production rejects PLAYWRIGHT_TEST_BASE_URL", () => {
+  test("production rejects PLAYWRIGHT_TEST_BASE_URL unless MOCKS=true", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     const env = {
       ...process.env,
       TOKEN_ENCRYPTION_KEY: "unit-test-production-token-encryption-key",
       PLAYWRIGHT_TEST_BASE_URL: "http://localhost:3000/",
+      MOCKS: "false",
     };
 
     try {
       expect(validateEnv(env).success).toBe(false);
+      expect(
+        validateEnv({ ...env, MOCKS: "true", PLAYWRIGHT_TEST_BASE_URL: "http://localhost:3000/" })
+          .success,
+      ).toBe(true);
       const { PLAYWRIGHT_TEST_BASE_URL: _playwright, ...withoutPlaywright } = env;
       expect(validateEnv(withoutPlaywright).success).toBe(true);
     } finally {

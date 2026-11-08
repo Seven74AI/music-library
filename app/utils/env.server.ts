@@ -70,6 +70,7 @@ const createConditionalSchema = (): z.ZodObject<any> => {
       // YouTube cookie file path for audio archiving
       COOKIE_FILE_PATH: z.string().optional().default("/data/youtube-cookies.txt"),
 
+      MOCKS: z.enum(["true", "false"]).optional(),
       // YouTube mocking override (takes priority over MOCKS)
       YOUTUBE_MOCKS: z.enum(["true", "false"]).optional(),
 
@@ -89,7 +90,13 @@ const createConditionalSchema = (): z.ZodObject<any> => {
       DISABLE_SERVICE_WORKER: z.enum(["true", "false"]).optional(),
     })
     .superRefine((values, ctx) => {
-      if (values.NODE_ENV === "production" && values.PLAYWRIGHT_TEST_BASE_URL) {
+      // CI runs start:mocks with NODE_ENV=production while Playwright injects
+      // PLAYWRIGHT_TEST_BASE_URL — MOCKS=true is not a real production deploy.
+      if (
+        values.NODE_ENV === "production" &&
+        values.PLAYWRIGHT_TEST_BASE_URL &&
+        values.MOCKS !== "true"
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "PLAYWRIGHT_TEST_BASE_URL must not be set when NODE_ENV is production",
