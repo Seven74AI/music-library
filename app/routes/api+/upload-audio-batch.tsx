@@ -29,6 +29,7 @@ import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { replaceTrackGenresFromStrings } from "#app/utils/track-genres.server.ts";
+import { pickIntField } from "#app/utils/track-metadata-int.server.ts";
 import {
   initUploadProgress,
   updateFileProgress,
@@ -130,12 +131,12 @@ const UserMetadataSchema = z.object({
   originalDate: dateString("originalDate").optional(),
   releaseDate: dateString("releaseDate").optional(),
   lyrics: z.string().optional(),
-  year: z.coerce.number().optional(),
-  trackNumber: z.coerce.number().optional(),
-  bpm: z.coerce.number().optional(),
-  originalYear: z.coerce.number().optional(),
-  totalTracks: z.coerce.number().optional(),
-  totalDiscs: z.coerce.number().optional(),
+  year: z.coerce.number().int().optional(),
+  trackNumber: z.coerce.number().int().optional(),
+  bpm: z.coerce.number().int().optional(),
+  originalYear: z.coerce.number().int().optional(),
+  totalTracks: z.coerce.number().int().optional(),
+  totalDiscs: z.coerce.number().int().optional(),
 });
 
 function parseUserMetadata(raw: string | undefined): FileWithMetadata["userMetadata"] | undefined {
@@ -553,11 +554,11 @@ async function processFilesAsync(
                 : file.metadata.releaseDate
                   ? new Date(file.metadata.releaseDate)
                   : null,
-              year: file.userMetadata?.year || file.metadata.year || null,
-              trackNumber: file.userMetadata?.trackNumber || file.metadata.track?.no || null,
+              year: pickIntField(file.userMetadata?.year, file.metadata.year),
+              trackNumber: pickIntField(file.userMetadata?.trackNumber, file.metadata.track?.no),
               albumArtist: file.userMetadata?.albumArtist || file.metadata.albumArtist || null,
               // Additional metadata
-              bpm: file.userMetadata?.bpm || file.metadata.bpm || null,
+              bpm: pickIntField(file.userMetadata?.bpm, file.metadata.bpm),
               label: file.userMetadata?.label || file.metadata.label || null,
               isrc: file.userMetadata?.isrc || file.metadata.isrc || null,
               originalDate: file.userMetadata?.originalDate
@@ -565,9 +566,12 @@ async function processFilesAsync(
                 : file.metadata.originalDate
                   ? new Date(file.metadata.originalDate)
                   : null,
-              originalYear: file.userMetadata?.originalYear || file.metadata.originalYear || null,
-              totalTracks: file.userMetadata?.totalTracks || file.metadata.totalTracks || null,
-              totalDiscs: file.userMetadata?.totalDiscs || file.metadata.totalDiscs || null,
+              originalYear: pickIntField(
+                file.userMetadata?.originalYear,
+                file.metadata.originalYear,
+              ),
+              totalTracks: pickIntField(file.userMetadata?.totalTracks, file.metadata.totalTracks),
+              totalDiscs: pickIntField(file.userMetadata?.totalDiscs, file.metadata.totalDiscs),
               lyrics: file.userMetadata?.lyrics || file.metadata.lyrics || null,
             },
           });

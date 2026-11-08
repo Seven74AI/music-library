@@ -1,7 +1,6 @@
 import { data, type ActionFunctionArgs } from "react-router";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { parseMentions } from "#app/utils/mention-parser.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/$id.ts";
 
@@ -69,15 +68,12 @@ async function handleUpdate(request: Request, noteId: string, curatorId: string)
     );
   }
 
-  // Parse mentions from content
-  const mentions = await parseMentions(content);
-
   // Update note
   const note = await prisma.curatorNote.update({
     where: { id: noteId },
     data: {
       content,
-      mentions: JSON.stringify(mentions),
+      mentions: JSON.stringify([]),
     },
     include: {
       curator: {

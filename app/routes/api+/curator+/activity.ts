@@ -4,6 +4,7 @@ import {
   activityToCsv,
   type ActivityEntityType,
 } from "#app/features/curator/dashboard.ts";
+import { parsePageParam } from "#app/utils/parse-page-param.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 
 function parseDate(value: string | null, endOfDay: boolean): Date | undefined {
@@ -22,10 +23,9 @@ export async function loader({ request }: { request: Request }) {
     entityParam === "track" || entityParam === "artist" || entityParam === "album"
       ? (entityParam as ActivityEntityType)
       : undefined;
-  const page = Number(url.searchParams.get("page") ?? "1");
   const format = url.searchParams.get("format");
   const filters = {
-    page: format === "csv" ? 1 : Number.isFinite(page) ? page : 1,
+    page: format === "csv" ? 1 : parsePageParam(url.searchParams.get("page")),
     pageSize: format === "csv" ? 5000 : ACTIVITY_PAGE_SIZE,
     curatorId: url.searchParams.get("curatorId") || undefined,
     entityType,

@@ -190,6 +190,24 @@ export function createOfflineStorage(
     }
   }
 
+  async function filterSummariesWithOpfs(
+    summaries: OfflineTrackSummary[],
+  ): Promise<OfflineTrackSummary[]> {
+    const audioStore = await resolveAudioStore();
+    const kept: OfflineTrackSummary[] = [];
+    for (const summary of summaries) {
+      const record = await metadataStore.get(summary.trackId);
+      if (!record) continue;
+      const exists = await audioStore.has(summary.trackId, record.audioFormat);
+      if (!exists) {
+        await metadataStore.delete(summary.trackId);
+        continue;
+      }
+      kept.push(summary);
+    }
+    return kept;
+  }
+
   return {
     async downloadTrack(track, options = {}) {
       const pin = options.pin ?? true;
@@ -207,9 +225,15 @@ export function createOfflineStorage(
       options.onProgress?.({ completed: 1, total: 1 });
     },
     async cacheQueueTrack(track) {
-      if (await metadataStore.get(track.id)) {
-        await metadataStore.touch(track.id);
-        return;
+      const existing = await metadataStore.get(track.id);
+      if (existing) {
+        const audioStore = await resolveAudioStore();
+        const exists = await audioStore.has(track.id, existing.audioFormat);
+        if (exists) {
+          await metadataStore.touch(track.id);
+          return;
+        }
+        await metadataStore.delete(track.id);
       }
       const buffer = await fetchAudioBytes(track.id);
       await storeTrack(track, buffer, { pin: false, queue: true });
@@ -256,14 +280,14 @@ export function createOfflineStorage(
       }
       return true;
     },
-    listDownloaded() {
-      return metadataStore.listDownloaded();
+    async listDownloaded() {
+      return filterSummariesWithOpfs(await metadataStore.listDownloaded());
     },
-    listPinned() {
-      return metadataStore.listPinned();
+    async listPinned() {
+      return filterSummariesWithOpfs(await metadataStore.listPinned());
     },
-    listForPlaylist(playlistId) {
-      return metadataStore.listForPlaylist(playlistId);
+    async listForPlaylist(playlistId) {
+      return filterSummariesWithOpfs(await metadataStore.listForPlaylist(playlistId));
     },
     getRecord(trackId) {
       return metadataStore.get(trackId);

@@ -62,16 +62,21 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
             },
       },
       orderBy: { position: "asc" },
-      take: query.limit,
+      take: query.limit + 1,
       ...(query.cursor && {
         skip: 1, // Skip the cursor item
         cursor: { id: query.cursor },
       }),
     });
 
+    const { pageRows, hasNext, nextCursor, limit } = playlistTracksPagination(
+      playlistTracksRaw,
+      query.limit,
+    );
+
     return Response.json({
-      tracks: playlistTracksRaw.map((pt) => pt.track),
-      pagination: playlistTracksPagination(playlistTracksRaw, query.limit),
+      tracks: pageRows.map((pt) => pt.track),
+      pagination: { hasNext, nextCursor, limit },
     });
   } catch (error) {
     if (error instanceof Response) throw error;

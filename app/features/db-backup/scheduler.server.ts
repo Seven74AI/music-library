@@ -96,43 +96,43 @@ export async function processBackupSchedulerTick(options?: {
   if (!isBackupBucketConfigured()) return;
   if (state.inFlight) return;
 
-  if (!options?.skipPersistence) {
-    await hydrateSchedulerStateFromDb();
-  }
-
-  const now = options?.now ?? new Date();
-  const day = formatUtcDate(now);
-  const hour = getBackupHourUtc();
-
-  if (!options?.skipPrimaryCheck) {
-    const { currentIsPrimary } = await getInstanceInfo();
-    if (!currentIsPrimary) return;
-  }
-
-  // Reset attempt counter on a new UTC day
-  if (state.attemptDay !== day) {
-    state.attemptDay = day;
-    state.attemptsToday = 0;
-    state.nextRetryAt = null;
-    if (!options?.skipPersistence) {
-      await saveSchedulerStateToDb();
-    }
-  }
-
-  // Already succeeded today
-  if (state.lastSuccessDay === day) return;
-
-  // Wait until backup hour
-  if (now.getUTCHours() < hour) return;
-
-  // Wait for retry backoff
-  if (state.nextRetryAt !== null && now.getTime() < state.nextRetryAt) return;
-
-  // Exhausted retries for the day
-  if (state.attemptsToday >= BACKUP_SCHEDULER_MAX_ATTEMPTS) return;
-
   state.inFlight = true;
+  const now = options?.now ?? new Date();
   try {
+    if (!options?.skipPersistence) {
+      await hydrateSchedulerStateFromDb();
+    }
+
+    const day = formatUtcDate(now);
+    const hour = getBackupHourUtc();
+
+    if (!options?.skipPrimaryCheck) {
+      const { currentIsPrimary } = await getInstanceInfo();
+      if (!currentIsPrimary) return;
+    }
+
+    // Reset attempt counter on a new UTC day
+    if (state.attemptDay !== day) {
+      state.attemptDay = day;
+      state.attemptsToday = 0;
+      state.nextRetryAt = null;
+      if (!options?.skipPersistence) {
+        await saveSchedulerStateToDb();
+      }
+    }
+
+    // Already succeeded today
+    if (state.lastSuccessDay === day) return;
+
+    // Wait until backup hour
+    if (now.getUTCHours() < hour) return;
+
+    // Wait for retry backoff
+    if (state.nextRetryAt !== null && now.getTime() < state.nextRetryAt) return;
+
+    // Exhausted retries for the day
+    if (state.attemptsToday >= BACKUP_SCHEDULER_MAX_ATTEMPTS) return;
+
     const attemptCount = state.attemptsToday + 1;
     const notifyOnFailure = attemptCount >= BACKUP_SCHEDULER_MAX_ATTEMPTS;
     const run = options?.run ?? runBackup;
@@ -171,6 +171,18 @@ export async function processBackupSchedulerTick(options?: {
     if (!options?.skipPersistence) {
       await saveSchedulerStateToDb();
     }
+  } catch (error) {
+    console.error("Backup scheduler tick failed", error);
+    if (state.attemptsToday < BACKUP_SCHEDULER_MAX_ATTEMPTS) {
+      state.nextRetryAt = now.getTime() + BACKUP_SCHEDULER_RETRY_DELAY_MS;
+    }
+    if (!options?.skipPersistence) {
+      try {
+        await saveSchedulerStateToDb();
+      } catch (persistError) {
+        console.error("Failed to persist backup scheduler state after tick failure", persistError);
+      }
+    }
   } finally {
     state.inFlight = false;
   }
@@ -184,7 +196,9 @@ export function startBackupScheduler(): void {
   }
 
   const runTick = () => {
-    void processBackupSchedulerTick();
+    void processBackupSchedulerTick().catch((error) => {
+      console.error("Backup scheduler tick failed", error);
+    });
   };
   void runTick();
   intervalHandle = setInterval(runTick, TICK_INTERVAL_MS);

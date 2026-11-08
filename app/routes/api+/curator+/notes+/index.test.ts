@@ -256,9 +256,8 @@ describe("POST /api/curator/notes", () => {
     }
   });
 
-  test("creates note with mentions", async () => {
+  test("does not persist mentions until notification wiring exists", async () => {
     vi.mocked(prisma.track.findUnique).mockResolvedValue({ id: "track-1" } as never);
-    vi.mocked(parseMentions).mockResolvedValue(["curator-2"]);
 
     const mockNote = {
       id: "note-1",
@@ -271,7 +270,7 @@ describe("POST /api/curator/notes", () => {
         name: "Alice Smith",
       },
       content: "Hey @bob can you check this?",
-      mentions: '["curator-2"]',
+      mentions: "[]",
       parentId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -288,9 +287,13 @@ describe("POST /api/curator/notes", () => {
     const response: any = await action({ request, params: {}, context: {} } as never);
 
     expect(response.data.note).toBeDefined();
-    expect(response.data.note.content).toBe("Hey @bob can you check this?");
-    expect(response.data.note.mentions).toContain("curator-2");
-    expect(parseMentions).toHaveBeenCalledWith("Hey @bob can you check this?");
+    expect(response.data.note.mentions).toEqual([]);
+    expect(parseMentions).not.toHaveBeenCalled();
+    expect(prisma.curatorNote.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ mentions: "[]" }),
+      }),
+    );
   });
 
   test("creates reply to parent note", async () => {

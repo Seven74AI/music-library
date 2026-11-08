@@ -41,9 +41,10 @@ export function parsePlaylistTracksQuery(url: URL): PlaylistTracksQuery {
 }
 
 export function playlistTracksPagination<T extends { id: string }>(rows: T[], limit: number) {
-  const hasNext = rows.length === limit;
-  const nextCursor = hasNext ? rows[rows.length - 1]?.id : null;
-  return { hasNext, nextCursor, limit };
+  const hasNext = rows.length > limit;
+  const pageRows = hasNext ? rows.slice(0, limit) : rows;
+  const nextCursor = hasNext ? (pageRows[pageRows.length - 1]?.id ?? null) : null;
+  return { pageRows, hasNext, nextCursor, limit };
 }
 
 /** Fail closed when the cursor row is missing or belongs to another playlist. */

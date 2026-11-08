@@ -1,11 +1,8 @@
 import { data } from "react-router";
 import { parseFormData } from "@mjackson/form-data-parser";
-import { createHash } from "node:crypto";
-import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
-import { uploadFile } from "#app/utils/storage.server.ts";
-import { getImageDimensions } from "#app/utils/cover-management.server.ts";
+import { findOrCreateCoverImage, getImageDimensions } from "#app/utils/cover-management.server.ts";
 import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/upload.ts";
@@ -21,14 +18,6 @@ const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MIME_ALIASES: Record<string, string> = {
   "image/jpg": "image/jpeg",
   "image/pjpeg": "image/jpeg",
-};
-
-// Canonical extension per MIME type — "image/jpeg" maps to "jpg" so the object
-// key and `format` column are stable regardless of how the browser labels it.
-const EXTENSION_BY_TYPE: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
 };
 
 function normalizeImageType(rawType: string): string {
@@ -107,39 +96,17 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  // Calculate hash for deduplication
-  const contentHash = createHash("sha256").update(buffer).digest("hex");
-
-  // Check if image already exists
-  let coverImage = await prisma.coverImage.findUnique({
-    where: { contentHash },
+  const { id } = await findOrCreateCoverImage({
+    imageBuffer: buffer,
+    albumId: entityType === "album" ? verifiedEntityId : undefined,
+    width,
+    height,
   });
 
-  if (!coverImage) {
-    // Upload to storage
-    const fileId = createId();
-    const extension = EXTENSION_BY_TYPE[contentType] ?? "jpg";
-    const timestamp = Date.now();
-    const objectKey = `images/${entityType}s/${verifiedEntityId}/${timestamp}-${fileId}.${extension}`;
-
-    await uploadFile({
-      file: buffer,
-      key: objectKey,
-      contentType,
-    });
-
-    // Create CoverImage record
-    coverImage = await prisma.coverImage.create({
-      data: {
-        contentHash,
-        objectKey,
-        width,
-        height,
-        format: extension,
-        fileSize: buffer.length,
-      },
-    });
-  }
+  const coverImage = await prisma.coverImage.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, objectKey: true, width: true, height: true },
+  });
 
   return data({
     success: true,

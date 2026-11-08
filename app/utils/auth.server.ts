@@ -14,7 +14,7 @@ import {
 } from "#app/features/usage-analytics/record-usage.server.ts";
 import { providers } from "./connections.server.ts";
 import { prisma } from "./db.server.ts";
-import { combineHeaders, downloadFile } from "./misc.tsx";
+import { combineHeaders } from "./misc.tsx";
 import { type ProviderUser } from "./providers/provider.ts";
 import { authSessionStorage } from "./session.server.ts";
 import { uploadProfileImage } from "./storage.server.ts";
@@ -246,17 +246,23 @@ export async function signupWithConnection({
   if (imageUrl) {
     const safeImageUrl = await validatePublicHttpsUrl(imageUrl);
     if (safeImageUrl) {
-      const imageFile = await downloadFile(safeImageUrl.href);
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          image: {
-            create: {
-              objectKey: await uploadProfileImage(user.id, imageFile),
+      const { downloadExternalImage } = await import("./cover-management.server.ts");
+      const imageBuffer = await downloadExternalImage(safeImageUrl.href);
+      if (imageBuffer) {
+        const imageFile = new File([new Uint8Array(imageBuffer)], "profile.jpg", {
+          type: "image/jpeg",
+        });
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            image: {
+              create: {
+                objectKey: await uploadProfileImage(user.id, imageFile),
+              },
             },
           },
-        },
-      });
+        });
+      }
     }
   }
 
