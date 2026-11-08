@@ -68,25 +68,18 @@ export async function sendEmail({
       status: "success",
       data: parsedData,
     } as const;
-  } else {
-    const parseResult = resendErrorSchema.safeParse(data);
-    if (parseResult.success) {
-      return {
-        status: "error",
-        error: parseResult.data,
-      } as const;
-    } else {
-      return {
-        status: "error",
-        error: {
-          name: "UnknownError",
-          message: "Unknown Error",
-          statusCode: 500,
-          cause: data,
-        } satisfies ResendError,
-      } as const;
-    }
   }
+
+  const parseResult = resendErrorSchema.safeParse(data);
+  const resendError: ResendError = parseResult.success
+    ? parseResult.data
+    : {
+        name: "UnknownError",
+        message: "Unknown Error",
+        statusCode: 500,
+        cause: data,
+      };
+  throw new Error(`Resend API error (${resendError.statusCode}): ${resendError.message}`);
 }
 
 async function renderReactEmail(react: ReactElement) {

@@ -550,24 +550,6 @@ export async function claimOpenGuestSeatForUser({
   return participant;
 }
 
-async function vacateOpenGuestSeat(guestToken: string, exceptRoomId: string) {
-  const tokenHash = hashGuestToken(guestToken);
-  const leftover = await prisma.roomParticipant.findFirst({
-    where: {
-      guestTokenHash: tokenHash,
-      leftAt: null,
-      room: { status: ROOM_STATUS.open },
-      NOT: { roomId: exceptRoomId },
-    },
-    select: { roomId: true },
-  });
-  if (!leftover) return;
-  await leaveRoom({
-    roomId: leftover.roomId,
-    actor: { type: "guest", guestToken },
-  });
-}
-
 export async function joinRoom({ code, actor }: { code: string; actor: JoinActor }) {
   const room = await findOpenRoomByCode(code);
 
@@ -585,7 +567,6 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
         guestToken: null as string | null,
       };
     }
-    await vacateOpenGuestSeat(actor.guestToken, room.id);
   }
 
   const activeCount = await prisma.roomParticipant.count({
@@ -649,6 +630,7 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
       return { roomId: room.id, code: room.code, participant, guestToken: null as string | null };
     }
 
+    let vacatedRoomId: string | undefined;
     const participant = await prisma.$transaction(async (tx) => {
       const seatedElsewhere = await tx.roomParticipant.findFirst({
         where: {
@@ -666,13 +648,29 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
           409,
         );
       }
+      let guestSwitchFrom: { id: string; roomId: string } | null = null;
+      if (actor.guestToken) {
+        const tokenHash = hashGuestToken(actor.guestToken);
+        const guestElsewhere = await tx.roomParticipant.findFirst({
+          where: {
+            guestTokenHash: tokenHash,
+            leftAt: null,
+            room: { status: ROOM_STATUS.open },
+            NOT: { roomId: room.id },
+          },
+          select: { id: true, roomId: true },
+        });
+        if (guestElsewhere) {
+          guestSwitchFrom = guestElsewhere;
+        }
+      }
       const activeCount = await tx.roomParticipant.count({
         where: { roomId: room.id, leftAt: null },
       });
       if (activeCount >= MAX_PARTICIPANTS) {
         throw new PartyRoomError("room_full", "Room is full", 409);
       }
-      return tx.roomParticipant.create({
+      const created = await tx.roomParticipant.create({
         data: {
           roomId: room.id,
           userId: actor.userId,
@@ -681,6 +679,11 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
           lastSeenAt: now,
         },
       });
+      if (guestSwitchFrom) {
+        await vacateParticipantSeatInTx(tx, guestSwitchFrom.id, guestSwitchFrom.roomId, now);
+        vacatedRoomId = guestSwitchFrom.roomId;
+      }
+      return created;
     }, SERIALIZABLE_TX);
     await prisma.room.update({
       where: { id: room.id },
@@ -688,6 +691,9 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
     });
     await bumpRoomVersion(room.id);
     await emitRoomSnapshot(room.id);
+    if (vacatedRoomId) {
+      await emitRoomSnapshot(vacatedRoomId);
+    }
     return { roomId: room.id, code: room.code, participant, guestToken: null as string | null };
   }
 

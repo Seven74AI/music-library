@@ -121,7 +121,7 @@ describe("checkPlaylistArchiveReadyAfterTrackArchived", () => {
     expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
-  it("rolls back the archive-ready claim when email sending fails", async () => {
+  it("rolls back the archive-ready claim when Resend returns an error status", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     let claimedAt: Date | undefined;
     mockPrisma.servicePlaylist.findMany.mockResolvedValue([
@@ -139,7 +139,7 @@ describe("checkPlaylistArchiveReadyAfterTrackArchived", () => {
     mockPrisma.servicePlaylistTrack.findFirst.mockResolvedValue(null);
     mockPrisma.userNotification.create.mockResolvedValue({ id: "notif-1" });
     mockPrisma.userNotification.deleteMany.mockResolvedValue({ count: 1 });
-    mockSendEmail.mockRejectedValueOnce(new Error("smtp down"));
+    mockSendEmail.mockRejectedValueOnce(new Error("Resend API error (429): rate limited"));
     mockPrisma.servicePlaylist.updateMany.mockImplementation(async (args) => {
       const data = (args as { data?: { archiveReadyNotifiedAt?: Date | null } }).data;
       if (data?.archiveReadyNotifiedAt instanceof Date) {

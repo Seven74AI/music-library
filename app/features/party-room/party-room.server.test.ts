@@ -517,6 +517,43 @@ describe("party-room lifecycle", () => {
     ).toBe(1);
   });
 
+  test("a logged-in user with a guest seat who fails to join a full room keeps that guest seat", async () => {
+    const hostA = await makeUser("Host A");
+    const hostB = await makeUser("Host B");
+    const member = await makeUser("Member");
+    const roomA = await createRoom({ userId: hostA.id, displayName: "Host A" });
+    const roomB = await createRoom({ userId: hostB.id, displayName: "Host B" });
+
+    const guest = await joinRoom({
+      code: roomA.code,
+      actor: { type: "guest", displayName: "Walkup" },
+    });
+
+    for (let i = 0; i < MAX_PARTICIPANTS - 1; i++) {
+      await joinRoom({
+        code: roomB.code,
+        actor: { type: "guest", displayName: `B${String(i).padStart(2, "0")}` },
+      });
+    }
+
+    await expect(
+      joinRoom({
+        code: roomB.code,
+        actor: {
+          type: "user",
+          userId: member.id,
+          guestToken: guest.guestToken,
+        },
+      }),
+    ).rejects.toMatchObject({ code: "room_full" });
+
+    const stillSeated = await prisma.roomParticipant.findFirst({
+      where: { id: guest.participant.id, leftAt: null },
+    });
+    expect(stillSeated).not.toBeNull();
+    expect(stillSeated?.roomId).toBe(roomA.id);
+  }, 30_000);
+
   test("a guest who fails to join a full room keeps their previous seat", async () => {
     const hostA = await makeUser("Host A");
     const hostB = await makeUser("Host B");
