@@ -27,6 +27,7 @@ import {
   type LibrarySortOption,
 } from "#app/features/listening-insights/index.ts";
 import { listLibraryUserTracks } from "#app/features/listening-insights/library-tracks.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 import { type LibraryOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
@@ -152,15 +153,24 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     defaultLibrarySortDirection(sort),
   );
 
-  const { userTracks, pagination } = await listLibraryUserTracks({
-    userId,
-    sort,
-    direction,
-    hasAudioOnly,
-    genreId,
-    cursor,
-    limit,
-  });
+  let userTracks: Awaited<ReturnType<typeof listLibraryUserTracks>>["userTracks"];
+  let pagination: Awaited<ReturnType<typeof listLibraryUserTracks>>["pagination"];
+  try {
+    ({ userTracks, pagination } = await listLibraryUserTracks({
+      userId,
+      sort,
+      direction,
+      hasAudioOnly,
+      genreId,
+      cursor,
+      limit,
+    }));
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      throw data({ error: "Invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 
   // Add playlists to loader
   const playlists = await prisma.userPlaylist.findMany({

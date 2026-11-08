@@ -52,6 +52,13 @@ describe("on-repeat snapshot queries", () => {
     expect(shelf[0]?.trackCount).toBe(1);
   });
 
+  test("rejects invalid history cursor", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    await expect(
+      listOnRepeatSnapshotHistory({ userId: user.id, cursor: "not-a-month" }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
   test("history lists all snapshots newest first", async () => {
     const user = await prisma.user.create({ data: createUser() });
     const track = await createTrack("A");

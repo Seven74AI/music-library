@@ -1,4 +1,5 @@
 import { requireUserId } from "#app/utils/auth.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 import {
   getPlayHistory,
   parseHistoryCursor,
@@ -18,7 +19,14 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
     limit = parsed;
   }
 
-  const cursor = parseHistoryCursor(url.searchParams.get("cursor"));
-  const { items, nextCursor } = await getPlayHistory({ userId, cursor, limit });
-  return Response.json({ items, nextCursor });
+  try {
+    const cursor = parseHistoryCursor(url.searchParams.get("cursor"));
+    const { items, nextCursor } = await getPlayHistory({ userId, cursor, limit });
+    return Response.json({ items, nextCursor });
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      return Response.json({ error: "Invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 }

@@ -27,10 +27,28 @@ export async function cleanupFailedUploadArtifacts(
   }
 
   if (preparedCover?.kind === "new") {
+    await deleteUnreferencedCoverObjectKeys([preparedCover.objectKey]);
+  }
+}
+
+/** Delete cover images not referenced by any CoverImage row (post-upload txn failure). */
+export async function deleteUnreferencedCoverObjectKeys(objectKeys: string[]): Promise<void> {
+  const uniqueKeys = [...new Set(objectKeys)];
+  if (uniqueKeys.length === 0) return;
+
+  const referenced = await prisma.coverImage.findMany({
+    where: { objectKey: { in: uniqueKeys } },
+    select: { objectKey: true },
+    distinct: ["objectKey"],
+  });
+  const referencedKeys = new Set(referenced.map((row) => row.objectKey));
+
+  for (const objectKey of uniqueKeys) {
+    if (referencedKeys.has(objectKey)) continue;
     try {
-      await deleteFile(preparedCover.objectKey);
+      await deleteFile(objectKey);
     } catch (error) {
-      console.error(`Failed to delete cover object ${preparedCover.objectKey}:`, error);
+      console.error(`Failed to delete cover object ${objectKey}:`, error);
     }
   }
 }

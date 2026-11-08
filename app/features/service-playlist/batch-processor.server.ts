@@ -51,6 +51,19 @@ export interface TrackDataBatch<TItem extends SyncableItem = SyncableItem> {
   item: TItem;
 }
 
+/** Safety filter before batch track upsert — drops rows with unusable service/external ids. */
+export function filterValidTrackDataBatchEntries<TItem extends SyncableItem>(
+  trackDataBatch: TrackDataBatch<TItem>[],
+): TrackDataBatch<TItem>[] {
+  return trackDataBatch.filter(({ serviceId: sid, externalId: eid }) => {
+    if (!sid || !eid || eid.trim() === "") {
+      console.warn(`Skipping track upsert with invalid IDs: serviceId=${sid}, externalId=${eid}`);
+      return false;
+    }
+    return true;
+  });
+}
+
 /**
  * Track information for sync reporting.
  */
@@ -666,14 +679,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
 
     // Batch upsert tracks — pair each upserted track with its source row so a
     // filtered middle entry cannot shift positions/deletion flags onto the wrong track.
-    const validTrackEntries = trackDataBatch.filter(({ serviceId: sid, externalId: eid }) => {
-      // Filter out any entries with invalid IDs (shouldn't happen, but safety check)
-      if (!sid || !eid || eid.trim() === "") {
-        console.warn(`Skipping track upsert with invalid IDs: serviceId=${sid}, externalId=${eid}`);
-        return false;
-      }
-      return true;
-    });
+    const validTrackEntries = filterValidTrackDataBatchEntries(trackDataBatch);
 
     const pairedTrackUpserts = validTrackEntries.map(
       async ({ serviceId: sid, externalId: eid, trackData: td, position, item }) => {

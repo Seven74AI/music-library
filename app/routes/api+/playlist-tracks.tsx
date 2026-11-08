@@ -4,6 +4,8 @@ import {
   parsePlaylistTracksQuery,
   playlistTracksPagination,
 } from "#app/utils/playlist-tracks-pagination.server.ts";
+import { assertUserPlaylistTrackCursor } from "#app/utils/playlist-tracks-cursor.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 
 export async function loader({ request, url }: { request: Request; url: URL }) {
   try {
@@ -11,6 +13,10 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
 
     const query = parsePlaylistTracksQuery(url);
     if (query.kind === "error") return query.response;
+
+    if (query.cursor) {
+      await assertUserPlaylistTrackCursor(userId, query.playlistId, query.cursor);
+    }
 
     const fields = url.searchParams.get("fields") || "full"; // 'minimal' or 'full'
     const isMinimal = fields === "minimal";
@@ -66,6 +72,9 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
     });
   } catch (error) {
     if (error instanceof Response) throw error;
+    if (isInvalidCursorError(error)) {
+      return Response.json({ error: "Invalid cursor" }, { status: 400 });
+    }
     console.error("Error fetching playlist tracks:", error);
     return Response.json({ error: "Failed to fetch tracks" }, { status: 500 });
   }

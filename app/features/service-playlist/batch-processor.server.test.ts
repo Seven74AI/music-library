@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { consoleError } from "#tests/setup/setup-test-env.ts";
+import { consoleError, consoleWarn } from "#tests/setup/setup-test-env.ts";
 import { type Prisma } from "#prisma/client.js";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
-import { processTracksInBatches } from "./batch-processor.server";
+import { filterValidTrackDataBatchEntries, processTracksInBatches } from "./batch-processor.server";
 import { createYouTubeTrackSyncProcessor } from "./youtube-track-sync.server";
 
 function createTxMock() {
@@ -172,6 +172,45 @@ describe("processTracksInBatches - artist naming", () => {
         data: expect.objectContaining({ name: "Unknown Artist" }),
       }),
     );
+  });
+});
+
+describe("filterValidTrackDataBatchEntries", () => {
+  it("drops blank externalIds so pairing keeps source positions on remaining rows", () => {
+    consoleWarn.mockImplementation(() => {});
+    const batch = [
+      {
+        serviceId: "service-1",
+        externalId: "video-a",
+        trackData: {} as never,
+        position: 1,
+        item: {} as never,
+      },
+      {
+        serviceId: "service-1",
+        externalId: "   ",
+        trackData: {} as never,
+        position: 2,
+        item: {} as never,
+      },
+      {
+        serviceId: "service-1",
+        externalId: "video-c",
+        trackData: {} as never,
+        position: 3,
+        item: {} as never,
+      },
+    ];
+
+    const valid = filterValidTrackDataBatchEntries(batch);
+    expect(valid.map((row) => row.position)).toEqual([1, 3]);
+
+    const paired = valid.map((trackData, index) => ({
+      track: { id: `track-${index}`, title: trackData.externalId },
+      trackData,
+    }));
+    expect(paired[1]!.trackData.position).toBe(3);
+    expect(paired[1]!.track.id).toBe("track-1");
   });
 });
 

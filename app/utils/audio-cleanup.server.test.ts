@@ -3,12 +3,16 @@ import { prisma } from "#app/utils/db.server.ts";
 import { deleteFile } from "#app/utils/storage.server.ts";
 import {
   cleanupFailedUploadArtifacts,
+  deleteUnreferencedCoverObjectKeys,
   deleteUnreferencedObjectKeys,
 } from "./audio-cleanup.server.ts";
 
 vi.mock("#app/utils/db.server.ts", () => ({
   prisma: {
     trackAudioFile: {
+      findMany: vi.fn(),
+    },
+    coverImage: {
       findMany: vi.fn(),
     },
   },
@@ -19,11 +23,13 @@ vi.mock("#app/utils/storage.server.ts", () => ({
 }));
 
 const findMany = vi.mocked(prisma.trackAudioFile.findMany);
+const coverFindMany = vi.mocked(prisma.coverImage.findMany);
 const deleteFileMock = vi.mocked(deleteFile);
 
 beforeEach(() => {
   vi.clearAllMocks();
   findMany.mockResolvedValue([]);
+  coverFindMany.mockResolvedValue([]);
   deleteFileMock.mockResolvedValue(undefined);
 });
 
@@ -63,6 +69,19 @@ describe("cleanupFailedUploadArtifacts", () => {
     );
     expect(findMany).not.toHaveBeenCalled();
     expect(deleteFileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteUnreferencedCoverObjectKeys", () => {
+  test("does not delete when a CoverImage row still references the key", async () => {
+    coverFindMany.mockResolvedValue([{ objectKey: "covers/live.jpg" }] as never);
+    await deleteUnreferencedCoverObjectKeys(["covers/live.jpg"]);
+    expect(deleteFileMock).not.toHaveBeenCalled();
+  });
+
+  test("deletes when no CoverImage references the key", async () => {
+    await deleteUnreferencedCoverObjectKeys(["covers/orphan.jpg"]);
+    expect(deleteFileMock).toHaveBeenCalledWith("covers/orphan.jpg");
   });
 });
 

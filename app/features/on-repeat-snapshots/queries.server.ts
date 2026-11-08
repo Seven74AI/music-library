@@ -1,4 +1,7 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { INVALID_CURSOR_FORMAT_MESSAGE } from "#app/utils/search-validation.server.ts";
+
+const ON_REPEAT_CURSOR = /^\d{4}-(0[1-9]|1[0-2])$/;
 import { ON_REPEAT_SHELF_SIZE } from "./month.ts";
 
 const SNAPSHOT_TRACK_SELECT = {
@@ -116,6 +119,19 @@ export async function listOnRepeatSnapshotHistory({
   cursor?: string | null;
   limit?: number;
 }): Promise<{ items: OnRepeatSnapshotSummary[]; nextCursor: string | null }> {
+  if (cursor) {
+    if (!ON_REPEAT_CURSOR.test(cursor)) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+    const anchor = await prisma.onRepeatSnapshot.findFirst({
+      where: { userId, yearMonth: cursor },
+      select: { id: true },
+    });
+    if (!anchor) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+  }
+
   const snapshots = await prisma.onRepeatSnapshot.findMany({
     where: {
       userId,

@@ -2,15 +2,24 @@ import { Link } from "react-router";
 import { PlaylistCover } from "#app/components/playlist-cover.tsx";
 import { formatYearMonthLabel } from "#app/features/on-repeat-snapshots/month.ts";
 import { listOnRepeatSnapshotHistory } from "#app/features/on-repeat-snapshots/queries.server.ts";
+import { data } from "react-router";
 import { requireUserId } from "#app/utils/auth.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 import { type Route } from "./+types/on-repeat.index.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
   const url = new URL(request.url);
-  const cursor = url.searchParams.get("cursor");
-  const { items, nextCursor } = await listOnRepeatSnapshotHistory({ userId, cursor });
-  return { items, nextCursor };
+  try {
+    const cursor = url.searchParams.get("cursor");
+    const { items, nextCursor } = await listOnRepeatSnapshotHistory({ userId, cursor });
+    return { items, nextCursor };
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      throw data({ error: "Invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 }
 
 export default function OnRepeatHistoryPage({ loaderData }: Route.ComponentProps) {

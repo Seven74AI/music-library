@@ -23,6 +23,7 @@ import {
   type DiscoverTrack,
 } from "#app/utils/discover.ts";
 import { listDiscoverTracks } from "#app/utils/discover-tracks.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 import { parseSortDirection, type SortDirection } from "#app/utils/sort-direction.ts";
 import {
   estimateTrackListItemSize,
@@ -49,13 +50,22 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     defaultDiscoverSortDirection(sort),
   );
 
-  const { tracks, pagination } = await listDiscoverTracks({
-    userId,
-    sort,
-    direction,
-    cursor,
-    limit,
-  });
+  let tracks: Awaited<ReturnType<typeof listDiscoverTracks>>["tracks"];
+  let pagination: Awaited<ReturnType<typeof listDiscoverTracks>>["pagination"];
+  try {
+    ({ tracks, pagination } = await listDiscoverTracks({
+      userId,
+      sort,
+      direction,
+      cursor,
+      limit,
+    }));
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      throw data({ error: "Invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 
   const playlists = await prisma.userPlaylist.findMany({
     where: { ownerId: userId },
