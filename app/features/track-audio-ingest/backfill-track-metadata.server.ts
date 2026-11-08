@@ -16,6 +16,15 @@ function parseOptionalDate(value?: string): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
+export type BackfillTrackMetadataOptions = {
+  /** Keep the track title already stored (e.g. curator form input). */
+  preserveTitle?: boolean;
+  /** Keep the linked artist from the upload transaction. */
+  preserveArtist?: boolean;
+  /** Keep the linked album from the upload transaction. */
+  preserveAlbum?: boolean;
+};
+
 /**
  * Best-effort metadata backfill from an archived or uploaded audio file.
  * Failures are logged by the caller — persist must not fail when backfill throws.
@@ -23,6 +32,7 @@ function parseOptionalDate(value?: string): Date | undefined {
 export async function backfillTrackMetadata(
   trackId: string,
   metadata: ExtractedAudioMetadata,
+  options: BackfillTrackMetadataOptions = {},
 ): Promise<void> {
   const trackUpdateData: Record<string, unknown> = {};
   const existingTrack = await prisma.track.findUnique({
@@ -30,7 +40,7 @@ export async function backfillTrackMetadata(
     select: { artistId: true },
   });
 
-  if (metadata.title) trackUpdateData.title = metadata.title;
+  if (metadata.title && !options.preserveTitle) trackUpdateData.title = metadata.title;
   if (metadata.duration !== undefined) trackUpdateData.duration = metadata.duration;
   if (metadata.albumArtist) trackUpdateData.albumArtist = metadata.albumArtist;
   assignOptionalInt(trackUpdateData, "bpm", metadata.bpm);
@@ -48,13 +58,13 @@ export async function backfillTrackMetadata(
   if (originalDate) trackUpdateData.originalDate = originalDate;
 
   let artistId = existingTrack?.artistId;
-  if (metadata.artist) {
+  if (metadata.artist && !options.preserveArtist) {
     const artist = await getOrCreateArtist(metadata.artist);
     artistId = artist.id;
     trackUpdateData.artistId = artist.id;
   }
 
-  if (metadata.album && artistId) {
+  if (metadata.album && artistId && !options.preserveAlbum) {
     const album = await getOrCreateAlbum(artistId, metadata.album, pickIntField(metadata.year));
     if (album) {
       trackUpdateData.albumId = album.id;

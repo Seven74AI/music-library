@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import {
   HEAVY_ROTATION_HOME_CAP,
   type HeavyRotationTrack,
@@ -70,11 +71,14 @@ export async function getHeavyRotationTracks({
   );
 
   const candidateIds = ranked.map((row) => row.trackId);
-  const existingTracks = await prisma.track.findMany({
-    where: { id: { in: candidateIds } },
-    select: { id: true },
-  });
-  const existingIds = new Set(existingTracks.map((track) => track.id));
+  const existingIds = new Set<string>();
+  for (const idChunk of chunkArray(candidateIds)) {
+    const existingTracks = await prisma.track.findMany({
+      where: { id: { in: idChunk } },
+      select: { id: true },
+    });
+    for (const track of existingTracks) existingIds.add(track.id);
+  }
   const topIds = ranked
     .filter((row) => existingIds.has(row.trackId))
     .slice(0, limit)

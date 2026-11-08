@@ -292,6 +292,55 @@ describe("party-room lifecycle", () => {
     ).rejects.toMatchObject({ code: "room_full" });
   }, 30_000);
 
+  test("reuses the caller guest cookie instead of minting a new token for a first seat", async () => {
+    const host = await makeUser("Host");
+    const room = await createRoom({
+      userId: host.id,
+      displayName: "Host",
+      defaultJoinRole: "listener",
+    });
+    const cookieToken = "guest-cookie-token-from-browser";
+
+    const joined = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Cookie Guest", guestToken: cookieToken },
+    });
+
+    expect(joined.guestToken).toBe(cookieToken);
+    expect(joined.participant.guestTokenHash).toBe(hashGuestToken(cookieToken));
+
+    const seated = await prisma.roomParticipant.count({
+      where: { roomId: room.id, leftAt: null },
+    });
+    expect(seated).toBe(2);
+  });
+
+  test("a second join with the same guest token does not create a duplicate seat", async () => {
+    const host = await makeUser("Host");
+    const room = await createRoom({
+      userId: host.id,
+      displayName: "Host",
+      defaultJoinRole: "listener",
+    });
+    const cookieToken = "shared-guest-cookie-token";
+
+    const first = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Guest", guestToken: cookieToken },
+    });
+    const second = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Guest", guestToken: cookieToken },
+    });
+
+    expect(second.participant.id).toBe(first.participant.id);
+    expect(
+      await prisma.roomParticipant.count({
+        where: { roomId: room.id, guestTokenHash: hashGuestToken(cookieToken), leftAt: null },
+      }),
+    ).toBe(1);
+  });
+
   test("guest joining a second room vacates the previous open seat", async () => {
     const hostA = await makeUser("Host A");
     const hostB = await makeUser("Host B");

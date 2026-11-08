@@ -84,18 +84,19 @@ export async function checkPlaylistArchiveReadyAfterTrackArchived(
     const playlistPath = `/music/services/youtube/playlist/${playlist.id}`;
     const playlistUrl = `${siteOrigin}${playlistPath}`;
 
-    const claimedAt = await prisma.$transaction(async (tx) => {
+    const claim = await prisma.$transaction(async (tx) => {
+      const now = new Date();
       const claimResult = await tx.servicePlaylist.updateMany({
         where: {
           id: playlist.id,
           archiveReadyNotifiedAt: null,
         },
-        data: { archiveReadyNotifiedAt: new Date() },
+        data: { archiveReadyNotifiedAt: now },
       });
 
       if (claimResult.count === 0) return null;
 
-      await tx.userNotification.create({
+      const notification = await tx.userNotification.create({
         data: {
           userId: playlist.ownerId,
           type: "playlist_archive_ready",
@@ -105,10 +106,10 @@ export async function checkPlaylistArchiveReadyAfterTrackArchived(
         },
       });
 
-      return new Date();
+      return { claimedAt: now, notificationId: notification.id };
     });
 
-    if (!claimedAt) continue;
+    if (!claim) continue;
 
     try {
       await sendPlaylistArchiveReadyEmail({
@@ -122,9 +123,14 @@ export async function checkPlaylistArchiveReadyAfterTrackArchived(
         `Failed to send playlist archive ready email for playlist ${playlist.id}:`,
         error,
       );
-      await prisma.servicePlaylist.updateMany({
-        where: { id: playlist.id, archiveReadyNotifiedAt: claimedAt },
-        data: { archiveReadyNotifiedAt: null },
+      await prisma.$transaction(async (tx) => {
+        await tx.servicePlaylist.updateMany({
+          where: { id: playlist.id, archiveReadyNotifiedAt: claim.claimedAt },
+          data: { archiveReadyNotifiedAt: null },
+        });
+        await tx.userNotification.deleteMany({
+          where: { id: claim.notificationId },
+        });
       });
     }
   }

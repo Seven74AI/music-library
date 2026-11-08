@@ -613,9 +613,11 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
     }
   }
 
-  // A different device is a new seat. Do not copy reclaimParticipantId onto it.
-  token = createGuestToken();
-  tokenHash = hashGuestToken(token);
+  // A different device is a new seat unless the browser already sent a guest cookie.
+  if (!token) {
+    token = createGuestToken();
+    tokenHash = hashGuestToken(token);
+  }
 
   const participant = await prisma.$transaction(
     async (tx) => {
@@ -635,7 +637,10 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
           select: { id: true },
         });
         if (duplicateGuest) {
-          throw new PartyRoomError("room_full", "Room is full", 409);
+          return tx.roomParticipant.update({
+            where: { id: duplicateGuest.id },
+            data: { lastSeenAt: now, displayName },
+          });
         }
       }
       return tx.roomParticipant.create({

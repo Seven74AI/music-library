@@ -21,6 +21,23 @@ describe("serveLocalAudioFile", () => {
     expect(response.headers.get("Content-Range")).toBe("bytes */5");
   });
 
+  it("clamps an end byte past EOF and still returns 206", () => {
+    const dir = mkdtempSync(join(tmpdir(), "audio-serve-"));
+    const filePath = join(dir, "clip.mp3");
+    writeFileSync(filePath, Buffer.from([1, 2, 3, 4, 5]));
+
+    const response = serveLocalAudioFile(
+      filePath,
+      { mimeType: "audio/mpeg" },
+      new Request("http://localhost/test", { headers: { Range: "bytes=0-999999" } }),
+      "private, no-store",
+    );
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("Content-Range")).toBe("bytes 0-4/5");
+    expect(response.headers.get("Content-Length")).toBe("5");
+  });
+
   it("returns 206 with Content-Length matching bytes read for a valid range", () => {
     const dir = mkdtempSync(join(tmpdir(), "audio-serve-"));
     const filePath = join(dir, "clip.mp3");

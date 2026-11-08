@@ -1,5 +1,6 @@
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import {
   ON_REPEAT_SNAPSHOT_CAP,
   getPreviousCalendarMonthUtc,
@@ -77,11 +78,14 @@ export async function rankPlayCompletedTracks({
     });
 
   const candidateIds = sorted.map((row) => row.trackId);
-  const existingTracks = await prisma.track.findMany({
-    where: { id: { in: candidateIds } },
-    select: { id: true },
-  });
-  const existingIds = new Set(existingTracks.map((track) => track.id));
+  const existingIds = new Set<string>();
+  for (const idChunk of chunkArray(candidateIds)) {
+    const existingTracks = await prisma.track.findMany({
+      where: { id: { in: idChunk } },
+      select: { id: true },
+    });
+    for (const track of existingTracks) existingIds.add(track.id);
+  }
 
   return sorted.filter((row) => existingIds.has(row.trackId)).slice(0, limit);
 }

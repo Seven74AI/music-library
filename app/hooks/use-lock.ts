@@ -25,7 +25,10 @@ export interface UseLockResult {
 
 const OTHER_LOCK_POLL_MS = 4000;
 
-type LockStatusReadResult = { kind: "success"; lock: LockInfo | null } | { kind: "failure" };
+type LockStatusReadResult =
+  | { kind: "success"; lock: LockInfo | null }
+  | { kind: "stale" }
+  | { kind: "failure" };
 
 /**
  * Hook to manage entity locks.
@@ -80,16 +83,13 @@ export function useLock(
 
   const releaseRequest = useCallback(
     (type: EntityType, id: string, proof?: { id: string; acquiredAt: string }) => {
-      if (
+      const ownsTarget =
         ownedRef.current &&
-        ownedLockProofRef.current &&
-        proof &&
-        ownedLockProofRef.current.id !== proof.id
-      ) {
-        return;
-      }
+        ownedEntityRef.current?.type === type &&
+        ownedEntityRef.current?.id === id;
+      const releaseProof = ownsTarget ? (ownedLockProofRef.current ?? proof) : proof;
 
-      const key = `${type}:${id}:${proof?.id ?? ""}`;
+      const key = `${type}:${id}:${releaseProof?.id ?? ""}`;
       if (releaseInFlightRef.current.has(key)) return;
       releaseInFlightRef.current.add(key);
       void fetch("/api/locks/release", {
@@ -99,7 +99,7 @@ export function useLock(
         body: JSON.stringify({
           entityType: type,
           entityId: id,
-          ...(proof ? { lockId: proof.id, acquiredAt: proof.acquiredAt } : {}),
+          ...(releaseProof ? { lockId: releaseProof.id, acquiredAt: releaseProof.acquiredAt } : {}),
         }),
       })
         .catch((err) => {
@@ -123,14 +123,14 @@ export function useLock(
       if (!res.ok) return { kind: "failure" };
       const data = (await res.json()) as { lock: LockInfo | null };
       if (generation !== statusReadGen.current) {
-        return { kind: "failure" };
+        return { kind: "stale" };
       }
       if (type !== entityTypeRef.current || id !== entityIdRef.current) {
-        return { kind: "failure" };
+        return { kind: "stale" };
       }
       return { kind: "success", lock: data.lock ?? null };
     } catch {
-      if (generation !== statusReadGen.current) return { kind: "failure" };
+      if (generation !== statusReadGen.current) return { kind: "stale" };
       return { kind: "failure" };
     }
   }, []);
@@ -203,6 +203,10 @@ export function useLock(
           const statusRead = await readStatus();
           if (!mountedRef.current || generation !== acquireGen.current) return;
           if (type !== entityTypeRef.current || id !== entityIdRef.current) return;
+          if (statusRead.kind === "stale") {
+            setError(message);
+            return;
+          }
           if (statusRead.kind === "failure") {
             setError(message);
             return;
@@ -276,6 +280,9 @@ export function useLock(
     void readStatus()
       .then((statusRead) => {
         if (!mountedRef.current) return;
+        if (statusRead.kind === "stale") {
+          return;
+        }
         if (statusRead.kind === "failure") {
           setError((prev) => prev ?? "Failed to read lock status");
           return;

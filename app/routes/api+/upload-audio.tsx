@@ -95,9 +95,12 @@ export async function action({ request }: ActionFunctionArgs) {
     const extractedMetadata = await extractAudioMetadata(buffer, audioFile.name);
 
     // Get form data for manual overrides
-    const title = formData.get("title")?.toString() || extractedMetadata.title;
-    const artist = formData.get("artist")?.toString() || extractedMetadata.artist;
-    const album = formData.get("album")?.toString() || extractedMetadata.album;
+    const formTitle = formData.get("title")?.toString();
+    const formArtist = formData.get("artist")?.toString();
+    const formAlbum = formData.get("album")?.toString();
+    const title = formTitle || extractedMetadata.title;
+    const artist = formArtist || extractedMetadata.artist;
+    const album = formAlbum || extractedMetadata.album;
 
     // Validate required fields
     if (!title || !artist) {
@@ -256,7 +259,11 @@ export async function action({ request }: ActionFunctionArgs) {
     });
     transactionCommitted = true;
 
-    await backfillTrackMetadata(result.track.id, extractedMetadata);
+    await backfillTrackMetadata(result.track.id, extractedMetadata, {
+      preserveTitle: Boolean(formTitle),
+      preserveArtist: Boolean(formArtist),
+      preserveAlbum: Boolean(formAlbum),
+    });
 
     // Fetch artist name for response
     const artistRecord = await prisma.artist.findUnique({

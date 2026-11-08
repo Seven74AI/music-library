@@ -26,10 +26,20 @@ export function serveLocalAudioFile(
     const rangeMatch = rangeHeader.match(/bytes=(\d+)-(\d*)/);
     if (rangeMatch && rangeMatch[1]) {
       const start = parseInt(rangeMatch[1], 10);
-      const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1;
+      if (start >= fileSize || start < 0) {
+        return new Response("Requested range not satisfiable", {
+          status: 416,
+          headers: {
+            "Content-Range": `bytes */${fileSize}`,
+            "Accept-Ranges": "bytes",
+          },
+        });
+      }
+      const requestedEnd = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1;
+      const end = Math.min(requestedEnd, fileSize - 1);
       const chunkSize = end - start + 1;
 
-      if (start >= 0 && start < fileSize && end < fileSize && start <= end) {
+      if (start <= end) {
         const fileBuffer = Buffer.alloc(chunkSize);
         const fd = openSync(localFilePath, "r");
         try {

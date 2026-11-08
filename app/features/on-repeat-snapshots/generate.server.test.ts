@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser, createTrack, resetUsageAnalyticsTables } from "#tests/db-utils.ts";
@@ -156,6 +156,32 @@ describe("rankPlayCompletedTracks", () => {
     expect(ranked).toHaveLength(1);
     expect(ranked[0]?.trackId).toBe(kept.id);
     expect(ranked[0]?.listenCount).toBe(31);
+  });
+
+  test("chunks track existence IN queries for large candidate sets", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const { windowStart, windowEndExclusive } = yearMonthToUtcWindow("2026-08");
+    const events = Array.from({ length: 1200 }, (_, index) => ({
+      trackId: `ghost-${index}`,
+      createdAt: new Date(Date.UTC(2026, 7, 1, 0, index)),
+    }));
+    vi.spyOn(prisma.usageEvent, "findMany").mockResolvedValue(events as never);
+    const findManySpy = vi.spyOn(prisma.track, "findMany").mockResolvedValue([] as never);
+
+    await rankPlayCompletedTracks({
+      userId: user.id,
+      windowStart,
+      windowEndExclusive,
+    });
+
+    const chunkSizes = findManySpy.mock.calls.map(
+      (call) => (call[0] as { where: { id: { in: string[] } } }).where.id.in.length,
+    );
+    expect(chunkSizes.every((size) => size <= 500)).toBe(true);
+    expect(chunkSizes).toEqual([500, 500, 200]);
+
+    findManySpy.mockRestore();
+    vi.restoreAllMocks();
   });
 });
 
