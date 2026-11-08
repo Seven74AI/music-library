@@ -172,6 +172,7 @@ describe("awardCuratorBadges", () => {
   test("counts merges, genre changes, and resolved user reports without awarding early", async () => {
     const curator = await createCurator("StatsCurator");
     const { track, artist } = await createTrack("Genre Track", "Jazz");
+    await prisma.$executeRaw`DELETE FROM _TrackGenres WHERE B = ${track.id}`;
     await prisma.trackEdit.createMany({
       data: [
         {

@@ -20,16 +20,16 @@ describe("useOfflineTrackStatus", () => {
   });
 
   test("refresh clears download state when storage lookup rejects", async () => {
-    mockGetRecord.mockRejectedValue(new Error("indexeddb unavailable"));
+    mockGetRecord.mockResolvedValueOnce({ isPinned: true, isQueueCached: true });
 
     const { result } = renderHook(() => useOfflineTrackStatus("track-1"));
 
     await waitFor(() => {
-      expect(result.current.isDownloaded).toBe(false);
-      expect(result.current.isPinned).toBe(false);
+      expect(result.current.isDownloaded).toBe(true);
+      expect(result.current.isPinned).toBe(true);
     });
 
-    mockGetRecord.mockRejectedValue(new Error("still down"));
+    mockGetRecord.mockRejectedValue(new Error("indexeddb unavailable"));
     await act(async () => {
       await result.current.refresh();
     });

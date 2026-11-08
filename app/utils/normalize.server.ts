@@ -32,8 +32,8 @@ export function normalizeArtistName(name: string): string {
       .replace(/[\u0300-\u036f]/g, "")
       // Remove leading "the" (with word boundary)
       .replace(/^the\s+/i, "")
-      // Remove all special characters and punctuation
-      .replace(/[^\w\s]/g, "")
+      // Remove all special characters and punctuation (Unicode letters/numbers kept)
+      .replace(/[^\p{L}\p{N}\s]/gu, "")
       // Collapse multiple spaces into one
       .replace(/\s+/g, " ")
       .trim()
@@ -72,8 +72,8 @@ export function normalizeAlbumName(name: string): string {
         /\((remaster|deluxe|expanded|special edition|bonus|anniversary|collector'?s?)\)/gi,
         "",
       )
-      // Remove special characters and punctuation
-      .replace(/[^\w\s]/g, "")
+      // Remove special characters and punctuation (Unicode letters/numbers kept)
+      .replace(/[^\p{L}\p{N}\s]/gu, "")
       // Collapse multiple spaces
       .replace(/\s+/g, " ")
       .trim()

@@ -69,9 +69,16 @@ export async function getHeavyRotationTracks({
     counts,
   );
 
-  // Prefer higher counts; among equal counts the stub createdAt is identical so
-  // id asc (from compare) keeps ordering stable.
-  const topIds = ranked.slice(0, limit).map((row) => row.trackId);
+  const candidateIds = ranked.map((row) => row.trackId);
+  const existingTracks = await prisma.track.findMany({
+    where: { id: { in: candidateIds } },
+    select: { id: true },
+  });
+  const existingIds = new Set(existingTracks.map((track) => track.id));
+  const topIds = ranked
+    .filter((row) => existingIds.has(row.trackId))
+    .slice(0, limit)
+    .map((row) => row.trackId);
 
   const tracks = await prisma.track.findMany({
     where: { id: { in: topIds } },
@@ -79,14 +86,8 @@ export async function getHeavyRotationTracks({
   });
   const trackById = new Map(tracks.map((track) => [track.id, track]));
 
-  const result: HeavyRotationTrack[] = [];
-  for (const trackId of topIds) {
-    const track = trackById.get(trackId);
-    if (!track) continue; // dangling UsageEvent trackId
-    result.push({
-      completedCount: counts.get(trackId) ?? 0,
-      track,
-    });
-  }
-  return result;
+  return topIds.map((trackId) => ({
+    completedCount: counts.get(trackId) ?? 0,
+    track: trackById.get(trackId)!,
+  }));
 }

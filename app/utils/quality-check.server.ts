@@ -70,7 +70,7 @@ export async function runQualityCheck() {
       if (track.coverImage) {
         const width = track.coverImage.width || 0;
         const height = track.coverImage.height || 0;
-        if (width > 0 && width < 300) {
+        if ((width > 0 && width < 300) || (height > 0 && height < 300)) {
           issues.push({
             trackId: track.id,
             issueType: "low_quality",

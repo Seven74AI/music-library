@@ -62,7 +62,7 @@ export async function rankPlayCompletedTracks({
     }
   }
 
-  return [...byTrack.entries()]
+  const sorted = [...byTrack.entries()]
     .map(([trackId, stats]) => ({
       trackId,
       listenCount: stats.listenCount,
@@ -74,8 +74,16 @@ export async function rankPlayCompletedTracks({
         return b.lastCompletedAt.getTime() - a.lastCompletedAt.getTime();
       }
       return a.trackId.localeCompare(b.trackId);
-    })
-    .slice(0, limit);
+    });
+
+  const candidateIds = sorted.map((row) => row.trackId);
+  const existingTracks = await prisma.track.findMany({
+    where: { id: { in: candidateIds } },
+    select: { id: true },
+  });
+  const existingIds = new Set(existingTracks.map((track) => track.id));
+
+  return sorted.filter((row) => existingIds.has(row.trackId)).slice(0, limit);
 }
 
 export type GenerateSnapshotResult =

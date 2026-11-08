@@ -7,9 +7,16 @@ import {
   findExactAlbumDuplicates,
   findExactArtistDuplicates,
   findFuzzyAlbumDuplicates,
+  isFuzzyMatch,
   readAlbumDuplicateGroupsFromCache,
   saveDuplicateDetectionResults,
 } from "./duplicate-detection.server.ts";
+
+test("isFuzzyMatch uses the shorter string for threshold (order independent)", () => {
+  const short = "ab";
+  const long = "abcdefghij";
+  expect(isFuzzyMatch(short, long)).toBe(isFuzzyMatch(long, short));
+});
 
 const artistIds: string[] = [];
 

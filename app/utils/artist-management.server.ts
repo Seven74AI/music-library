@@ -86,7 +86,7 @@ async function resolveCanonicalArtist(
 
   while (current.mergedIntoId) {
     if (seen.has(current.id)) {
-      break;
+      throw new Error(`Artist merge chain is cyclic (artist ${current.id})`);
     }
     seen.add(current.id);
 
@@ -95,7 +95,9 @@ async function resolveCanonicalArtist(
       select: { id: true, name: true, mergedIntoId: true },
     });
     if (!next) {
-      break;
+      throw new Error(
+        `Artist merge chain is broken: mergedIntoId ${current.mergedIntoId} not found`,
+      );
     }
     current = next;
   }

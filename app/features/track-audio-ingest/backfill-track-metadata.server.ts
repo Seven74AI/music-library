@@ -63,17 +63,18 @@ export async function backfillTrackMetadata(
 
   assignOptionalInt(trackUpdateData, "year", metadata.year);
 
-  if (Object.keys(trackUpdateData).length === 0) return;
+  const hasScalarPatch = Object.keys(trackUpdateData).length > 0;
+  const hasGenreBackfill = (metadata.genre?.length ?? 0) > 0;
+  if (!hasScalarPatch && !hasGenreBackfill) return;
 
-  await prisma.$transaction(async (tx) => {
-    if (Object.keys(trackUpdateData).length > 0) {
-      await tx.track.update({
-        where: { id: trackId },
-        data: trackUpdateData,
-      });
-    }
-    if (metadata.genre?.length) {
-      await replaceTrackGenresFromStrings(tx, trackId, metadata.genre);
-    }
-  });
+  if (hasScalarPatch) {
+    await prisma.track.update({
+      where: { id: trackId },
+      data: trackUpdateData,
+    });
+  }
+
+  if (hasGenreBackfill) {
+    await replaceTrackGenresFromStrings(prisma, trackId, metadata.genre);
+  }
 }
