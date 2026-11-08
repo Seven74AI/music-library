@@ -1,11 +1,12 @@
 import { data } from "react-router";
 import { z } from "zod";
-import { createHash } from "node:crypto";
-import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
-import { uploadFile } from "#app/utils/storage.server.ts";
-import { downloadExternalImage, getImageDimensions } from "#app/utils/cover-management.server.ts";
+import {
+  downloadExternalImage,
+  findOrCreateCoverImage,
+  getImageDimensions,
+} from "#app/utils/cover-management.server.ts";
 import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/from-url.ts";
@@ -82,40 +83,16 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  // Calculate hash for deduplication
-  const contentHash = createHash("sha256").update(buffer).digest("hex");
-
-  // Check if image already exists
-  let coverImage = await prisma.coverImage.findUnique({
-    where: { contentHash },
+  // Do not pass albumId — prepareCoverImageUpload would reuse the album's existing
+  // cover and drop the image the curator chose (see cover-fetch.server.ts).
+  const { id } = await findOrCreateCoverImage({
+    imageBuffer: buffer,
   });
 
-  if (!coverImage) {
-    const extension = "jpg";
-
-    // Upload to storage
-    const fileId = createId();
-    const timestamp = Date.now();
-    const objectKey = `images/${entityType}s/${verifiedEntityId}/${timestamp}-${fileId}.${extension}`;
-
-    await uploadFile({
-      file: buffer,
-      key: objectKey,
-      contentType: "image/jpeg",
-    });
-
-    // Create CoverImage record
-    coverImage = await prisma.coverImage.create({
-      data: {
-        contentHash,
-        objectKey,
-        width,
-        height,
-        format: extension,
-        fileSize: buffer.length,
-      },
-    });
-  }
+  const coverImage = await prisma.coverImage.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, objectKey: true, width: true, height: true },
+  });
 
   return data({
     success: true,

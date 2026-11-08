@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { downloadExternalImage } from "#app/utils/cover-management.server.ts";
+import {
+  downloadExternalImage,
+  findOrCreateCoverImage,
+  getImageDimensions,
+} from "#app/utils/cover-management.server.ts";
 import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { action, clientAction } from "./from-url.tsx";
@@ -10,6 +14,16 @@ vi.mock("#app/utils/permissions.server.ts", () => ({
 
 vi.mock("#app/utils/cover-management.server.ts", () => ({
   downloadExternalImage: vi.fn(),
+  findOrCreateCoverImage: vi.fn(),
+  getImageDimensions: vi.fn(),
+}));
+
+vi.mock("#app/utils/db.server.ts", () => ({
+  prisma: {
+    coverImage: {
+      findUniqueOrThrow: vi.fn(),
+    },
+  },
 }));
 
 vi.mock("#app/utils/cover-entity.server.ts", () => ({
@@ -85,6 +99,35 @@ describe("POST /api/images/from-url validation", () => {
       init: { status: 404 },
     });
     expect(downloadExternalImage).not.toHaveBeenCalled();
+  });
+
+  test("does not pass albumId into findOrCreateCoverImage for album targets", async () => {
+    vi.mocked(verifyCoverEntity).mockResolvedValue("album-1");
+    const buffer = Buffer.from("fake-image");
+    vi.mocked(downloadExternalImage).mockResolvedValue(buffer);
+    vi.mocked(getImageDimensions).mockResolvedValue({ width: 600, height: 600 });
+    vi.mocked(findOrCreateCoverImage).mockResolvedValue({
+      id: "cover-new",
+      objectKey: "images/covers/new.jpg",
+    });
+    const { prisma } = await import("#app/utils/db.server.ts");
+    vi.mocked(prisma.coverImage.findUniqueOrThrow).mockResolvedValue({
+      id: "cover-new",
+      objectKey: "images/covers/new.jpg",
+      width: 1000,
+      height: 1000,
+    } as never);
+
+    const result = await action({
+      request: jsonRequest({
+        url: "https://example.com/cover.jpg",
+        entityType: "album",
+        entityId: "album-1",
+      }),
+    } as never);
+
+    expect(findOrCreateCoverImage).toHaveBeenCalledWith({ imageBuffer: buffer });
+    expect(result).toMatchObject({ data: { success: true } });
   });
 
   test("returns 400 when entityId carries path segments", async () => {

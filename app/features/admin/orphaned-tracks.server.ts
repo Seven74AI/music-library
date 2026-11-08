@@ -364,50 +364,6 @@ export async function queueTracksForDownload(trackIds: string[]): Promise<number
   return queued;
 }
 
-export interface DeleteImpact {
-  trackCount: number;
-  audioFilesCount: number;
-  storageMB: number;
-  userTracksCount: number;
-  playlistReferencesCount: number;
-}
-
-export async function getDeleteImpact(trackIds: string[]): Promise<DeleteImpact> {
-  if (trackIds.length === 0) {
-    return {
-      trackCount: 0,
-      audioFilesCount: 0,
-      storageMB: 0,
-      userTracksCount: 0,
-      playlistReferencesCount: 0,
-    };
-  }
-
-  const [audioFiles, userTracks, playlistRefs] = await Promise.all([
-    prisma.trackAudioFile.findMany({
-      where: { trackId: { in: trackIds } },
-      select: { fileSize: true },
-    }),
-    prisma.userTrack.count({
-      where: { trackId: { in: trackIds } },
-    }),
-    prisma.userPlaylistTrack.count({
-      where: { trackId: { in: trackIds } },
-    }),
-  ]);
-
-  const storageBytes = audioFiles.reduce((sum, file) => sum + (file.fileSize ?? 0), 0);
-  const storageMB = Math.round(storageBytes / (1024 * 1024));
-
-  return {
-    trackCount: trackIds.length,
-    audioFilesCount: audioFiles.length,
-    storageMB,
-    userTracksCount: userTracks,
-    playlistReferencesCount: playlistRefs,
-  };
-}
-
 export async function deleteTracks(trackIds: string[]): Promise<{ deleted: number }> {
   if (trackIds.length === 0) {
     return { deleted: 0 };

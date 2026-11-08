@@ -8,6 +8,7 @@ import { getOrCreateArtistTx, extractArtistMetadata } from "#app/utils/artist-ma
 import { calculateAudioHash } from "#app/utils/audio-file-management.server";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
 import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from "#app/utils/cover-management.server";
+import { pickIntField } from "#app/utils/track-metadata-int.server.ts";
 import { getDatabaseUrl } from "#app/utils/database-url.server.ts";
 import { uploadFile, buildAudioObjectKey } from "#app/utils/storage.server";
 import { PrismaClient } from "#prisma/client.js";
@@ -528,7 +529,7 @@ async function seedAudioFiles(userId: string) {
               tx,
               albumArtistRecord.id,
               album || null,
-              extractedMetadata.year || null,
+              pickIntField(extractedMetadata.year),
             );
 
             // Upload cover image if present (with deduplication)
@@ -556,9 +557,6 @@ async function seedAudioFiles(userId: string) {
               ? new Date(extractedMetadata.originalDate)
               : null;
 
-            // Extract trackNumber from track.no
-            const trackNumber = extractedMetadata.track?.no || null;
-
             // Create track
             const track = await tx.track.create({
               data: {
@@ -572,16 +570,16 @@ async function seedAudioFiles(userId: string) {
                 externalId: fileId,
                 serviceUrl: null,
                 releaseDate: releaseDate,
-                year: extractedMetadata.year || null,
-                trackNumber: trackNumber,
+                year: pickIntField(extractedMetadata.year),
+                trackNumber: pickIntField(extractedMetadata.track?.no),
                 albumArtist: extractedMetadata.albumArtist || null,
-                bpm: extractedMetadata.bpm || null,
+                bpm: pickIntField(extractedMetadata.bpm),
                 label: extractedMetadata.label || null,
                 isrc: extractedMetadata.isrc || null,
                 originalDate: originalDate,
-                originalYear: extractedMetadata.originalYear || null,
-                totalTracks: extractedMetadata.totalTracks || null,
-                totalDiscs: extractedMetadata.totalDiscs || null,
+                originalYear: pickIntField(extractedMetadata.originalYear),
+                totalTracks: pickIntField(extractedMetadata.totalTracks),
+                totalDiscs: pickIntField(extractedMetadata.totalDiscs),
                 lyrics: extractedMetadata.lyrics || null,
               },
             });

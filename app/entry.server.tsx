@@ -22,10 +22,14 @@ global.ENV = getEnv();
 if (process.env.AUDIO_ARCHIVE_ENABLED === "true") {
   const intervalMs = Number(process.env.AUDIO_ARCHIVE_INTERVAL_MS) || 120_000;
   void import("./features/audio-archive/worker.server.ts").then(({ processQueueTick }) => {
-    const runTick = async () => {
-      const { currentIsPrimary } = await getInstanceInfo();
-      if (!currentIsPrimary) return;
-      await processQueueTick();
+    const runTick = () => {
+      void (async () => {
+        const { currentIsPrimary } = await getInstanceInfo();
+        if (!currentIsPrimary) return;
+        await processQueueTick();
+      })().catch((error) => {
+        console.error("Audio archive worker tick failed", error);
+      });
     };
 
     void runTick();

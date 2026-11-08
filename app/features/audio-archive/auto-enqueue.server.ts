@@ -109,6 +109,12 @@ export async function enqueueArchiveJobs(
       console.error(`Failed to enqueue archive jobs for ${toCreate.length} tracks:`, error);
       throw error;
     }
-    return false;
+    let anyEnqueued = false;
+    for (const trackId of toCreate) {
+      if (await enqueueArchiveJob(tx, trackId)) {
+        anyEnqueued = true;
+      }
+    }
+    return anyEnqueued;
   }
 }

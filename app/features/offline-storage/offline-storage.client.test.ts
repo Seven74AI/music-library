@@ -115,6 +115,46 @@ describe("createOfflineStorage", () => {
     expect(await storage.hasTrack("track-1")).toBe(true);
   });
 
+  test("listDownloaded drops metadata when OPFS audio is missing", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+    await audioStore.delete(track.id, "mp3");
+
+    expect(await storage.listDownloaded()).toEqual([]);
+    expect(await metadataStore.get(track.id)).toBeFalsy();
+  });
+
+  test("cacheQueueTrack re-downloads when metadata exists without OPFS bytes", async () => {
+    const fetchAudioBytes = vi.fn().mockResolvedValue(new Uint8Array([4, 5, 6]).buffer);
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: false });
+    await audioStore.delete(track.id, "mp3");
+    fetchAudioBytes.mockClear();
+
+    await storage.cacheQueueTrack(track);
+
+    expect(fetchAudioBytes).toHaveBeenCalledWith(track.id);
+    expect(await storage.hasTrack(track.id)).toBe(true);
+  });
+
   test("purgeQueueCache removes queue-only tracks and keeps pinned", async () => {
     const audioStore = createMemoryOfflineAudioStore();
     const metadataStore = createOfflineMetadataStore();

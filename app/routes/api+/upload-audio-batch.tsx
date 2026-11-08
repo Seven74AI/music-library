@@ -30,6 +30,11 @@ import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { replaceTrackGenresFromStrings } from "#app/utils/track-genres.server.ts";
 import {
+  coerceOptionalInt,
+  pickIntField,
+  zBatchCoerceRoundedOptionalInt,
+} from "#app/utils/track-metadata-int.server.ts";
+import {
   initUploadProgress,
   updateFileProgress,
   addSuccessfulTrack,
@@ -130,13 +135,33 @@ const UserMetadataSchema = z.object({
   originalDate: dateString("originalDate").optional(),
   releaseDate: dateString("releaseDate").optional(),
   lyrics: z.string().optional(),
-  year: z.coerce.number().optional(),
-  trackNumber: z.coerce.number().optional(),
-  bpm: z.coerce.number().optional(),
-  originalYear: z.coerce.number().optional(),
-  totalTracks: z.coerce.number().optional(),
-  totalDiscs: z.coerce.number().optional(),
+  year: zBatchCoerceRoundedOptionalInt(),
+  trackNumber: zBatchCoerceRoundedOptionalInt(),
+  bpm: zBatchCoerceRoundedOptionalInt(),
+  originalYear: zBatchCoerceRoundedOptionalInt(),
+  totalTracks: zBatchCoerceRoundedOptionalInt(),
+  totalDiscs: zBatchCoerceRoundedOptionalInt(),
 });
+
+function roundExtractedNumericMetadata(metadata: ExtractedAudioMetadata): ExtractedAudioMetadata {
+  const trackNo = metadata.track?.no;
+  const roundedTrackNo = trackNo === undefined ? undefined : coerceOptionalInt(trackNo);
+  return {
+    ...metadata,
+    year: coerceOptionalInt(metadata.year),
+    bpm: coerceOptionalInt(metadata.bpm),
+    originalYear: coerceOptionalInt(metadata.originalYear),
+    totalTracks: coerceOptionalInt(metadata.totalTracks),
+    totalDiscs: coerceOptionalInt(metadata.totalDiscs),
+    track:
+      metadata.track === undefined
+        ? undefined
+        : {
+            ...metadata.track,
+            no: roundedTrackNo ?? metadata.track.no,
+          },
+  };
+}
 
 function parseUserMetadata(raw: string | undefined): FileWithMetadata["userMetadata"] | undefined {
   if (!raw) return undefined;
@@ -241,9 +266,8 @@ export async function action({ request }: ActionFunctionArgs) {
 
           try {
             await updateFileProgress(uploadId, fileId, 0, "processing");
-            const metadata = await extractAudioMetadata(
-              extractedFile.buffer,
-              extractedFile.fileName,
+            const metadata = roundExtractedNumericMetadata(
+              await extractAudioMetadata(extractedFile.buffer, extractedFile.fileName),
             );
 
             // Get user-provided metadata for this file (if any)
@@ -314,7 +338,9 @@ export async function action({ request }: ActionFunctionArgs) {
           await updateFileProgress(uploadId, fileId, 0, "processing");
           const arrayBuffer = await file.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
-          const metadata = await extractAudioMetadata(buffer, file.name);
+          const metadata = roundExtractedNumericMetadata(
+            await extractAudioMetadata(buffer, file.name),
+          );
 
           // Get user-provided metadata for this file (if any)
           const parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
@@ -481,7 +507,7 @@ async function processFilesAsync(
           const resolvedAlbum = await getOrCreateAlbum(
             albumArtistRecord.id,
             album,
-            file.userMetadata?.year || file.metadata.year || null,
+            pickIntField(file.userMetadata?.year, file.metadata.year),
           );
           resolvedAlbumId = resolvedAlbum?.id ?? null;
         }
@@ -516,7 +542,7 @@ async function processFilesAsync(
             tx,
             albumArtistRecord.id,
             album || null,
-            file.userMetadata?.year || file.metadata.year || null,
+            pickIntField(file.userMetadata?.year, file.metadata.year),
           );
 
           // Associate the cover image (DB-only) — the upload already happened above.
@@ -553,11 +579,11 @@ async function processFilesAsync(
                 : file.metadata.releaseDate
                   ? new Date(file.metadata.releaseDate)
                   : null,
-              year: file.userMetadata?.year || file.metadata.year || null,
-              trackNumber: file.userMetadata?.trackNumber || file.metadata.track?.no || null,
+              year: pickIntField(file.userMetadata?.year, file.metadata.year),
+              trackNumber: pickIntField(file.userMetadata?.trackNumber, file.metadata.track?.no),
               albumArtist: file.userMetadata?.albumArtist || file.metadata.albumArtist || null,
               // Additional metadata
-              bpm: file.userMetadata?.bpm || file.metadata.bpm || null,
+              bpm: pickIntField(file.userMetadata?.bpm, file.metadata.bpm),
               label: file.userMetadata?.label || file.metadata.label || null,
               isrc: file.userMetadata?.isrc || file.metadata.isrc || null,
               originalDate: file.userMetadata?.originalDate
@@ -565,9 +591,12 @@ async function processFilesAsync(
                 : file.metadata.originalDate
                   ? new Date(file.metadata.originalDate)
                   : null,
-              originalYear: file.userMetadata?.originalYear || file.metadata.originalYear || null,
-              totalTracks: file.userMetadata?.totalTracks || file.metadata.totalTracks || null,
-              totalDiscs: file.userMetadata?.totalDiscs || file.metadata.totalDiscs || null,
+              originalYear: pickIntField(
+                file.userMetadata?.originalYear,
+                file.metadata.originalYear,
+              ),
+              totalTracks: pickIntField(file.userMetadata?.totalTracks, file.metadata.totalTracks),
+              totalDiscs: pickIntField(file.userMetadata?.totalDiscs, file.metadata.totalDiscs),
               lyrics: file.userMetadata?.lyrics || file.metadata.lyrics || null,
             },
           });

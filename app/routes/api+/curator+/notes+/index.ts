@@ -2,7 +2,6 @@ import { data, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-ro
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { verifyEntityExists } from "#app/utils/entity-existence.server.ts";
-import { parseMentions } from "#app/utils/mention-parser.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/index.ts";
 
@@ -167,9 +166,6 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
-  // Parse mentions from content
-  const mentions = await parseMentions(content);
-
   // Create note
   const note = await prisma.curatorNote.create({
     data: {
@@ -177,7 +173,7 @@ export async function action({ request }: ActionFunctionArgs) {
       entityId,
       curatorId,
       content,
-      mentions: JSON.stringify(mentions),
+      mentions: JSON.stringify([]),
       parentId: parentId || null,
     },
     include: {
@@ -190,9 +186,6 @@ export async function action({ request }: ActionFunctionArgs) {
       },
     },
   });
-
-  // TODO: Send notifications to mentioned users (Phase 5B requirement)
-  // This would be implemented in a separate notification service
 
   return data({
     note: {

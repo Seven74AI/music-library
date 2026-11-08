@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { prisma } from "#app/utils/db.server";
 import { type Prisma } from "#prisma/client.js";
 import { deleteFile, uploadFile } from "./storage.server";
+import { coerceOptionalInt } from "#app/utils/track-metadata-int.server.ts";
 import { validatePublicHttpsUrl } from "./validate-public-url.server.ts";
 
 /** Per-attempt timeout for external cover downloads (YouTube thumbnails, etc.) */
@@ -236,6 +237,8 @@ async function getOrCreateAlbumCore(
     return null;
   }
 
+  const albumYear = year === undefined || year === null ? year : (coerceOptionalInt(year) ?? null);
+
   // Try to find existing album first
   let album = await client.album.findFirst({
     where: {
@@ -254,7 +257,7 @@ async function getOrCreateAlbumCore(
       data: {
         name: albumName,
         artistId,
-        ...(year && { year }),
+        ...(albumYear != null && { year: albumYear }),
       },
       select: {
         id: true,
@@ -467,38 +470,9 @@ export async function cleanupFailedCoverUpload(error: unknown): Promise<void> {
 export async function prepareCoverImageUpload(
   params: CoverImageUploadParams,
 ): Promise<PreparedCoverImage> {
-  const { imageBuffer, albumId, trackId, width, height, format } = params;
+  const { imageBuffer, albumId, trackId, format } = params;
 
-  // Step 1: Calculate hash for deduplication
-  const contentHash = await calculateImageHash(imageBuffer);
-
-  // Step 2: Check if a cover with the same hash already exists
-  const existingCover = await prisma.coverImage.findUnique({
-    where: { contentHash },
-    select: { id: true, objectKey: true },
-  });
-
-  if (existingCover) {
-    return { kind: "existing", id: existingCover.id, objectKey: existingCover.objectKey };
-  }
-
-  // Step 3: If the album already has a cover, reuse it (skip upload)
-  if (albumId) {
-    const album = await prisma.album.findUnique({
-      where: { id: albumId },
-      include: { coverImage: { select: { id: true, objectKey: true } } },
-    });
-
-    if (album?.coverImage) {
-      return {
-        kind: "album-cover",
-        id: album.coverImage.id,
-        objectKey: album.coverImage.objectKey,
-      };
-    }
-  }
-
-  // Step 4: Process and upload the new cover (outside any DB transaction)
+  // Step 1: Re-encode to the canonical master (same as the sync pipeline).
   const sharp = await import("sharp").catch(() => null);
   if (!sharp) {
     throw new Error("sharp is not available for image processing");
@@ -514,10 +488,42 @@ export async function prepareCoverImageUpload(
     .toBuffer();
 
   const metadata = await sharp.default(processedImage).metadata();
-  const finalWidth = width || metadata.width || null;
-  const finalHeight = height || metadata.height || null;
+  const finalWidth = metadata.width ?? null;
+  const finalHeight = metadata.height ?? null;
   const finalFormat = format || "jpeg";
   const fileSize = processedImage.length;
+
+  // Step 2: Hash the canonical bytes for deduplication (not the raw upload).
+  const contentHash = await calculateImageHash(processedImage);
+
+  // Step 3: Check if a cover with the same hash already exists
+  const existingCover = await prisma.coverImage.findUnique({
+    where: { contentHash },
+    select: { id: true, objectKey: true },
+  });
+
+  if (existingCover) {
+    return { kind: "existing", id: existingCover.id, objectKey: existingCover.objectKey };
+  }
+
+  // Step 4: If the album already has a cover, reuse it (skip upload).
+  // Curator upload/from-url routes must not pass albumId — see cover-fetch.server.ts.
+  if (albumId) {
+    const album = await prisma.album.findUnique({
+      where: { id: albumId },
+      include: { coverImage: { select: { id: true, objectKey: true } } },
+    });
+
+    if (album?.coverImage) {
+      return {
+        kind: "album-cover",
+        id: album.coverImage.id,
+        objectKey: album.coverImage.objectKey,
+      };
+    }
+  }
+
+  // Step 5: Upload the new cover (outside any DB transaction)
 
   const { createId } = await import("@paralleldrive/cuid2");
   const fileId = createId();

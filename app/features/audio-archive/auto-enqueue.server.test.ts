@@ -134,6 +134,23 @@ describe("enqueueArchiveJobs (batch)", () => {
     expect(mockScheduleQueueTick).not.toHaveBeenCalled();
   });
 
+  it("falls back to per-track enqueue when createMany hits unique constraint", async () => {
+    const { enqueueArchiveJobs } = await import("./auto-enqueue.server.ts");
+
+    mockArchiveJob.findMany.mockResolvedValue([]);
+    mockArchiveJob.createMany.mockRejectedValue(
+      new Error("Unique constraint failed on the fields: (`trackId`)"),
+    );
+    mockArchiveJob.create.mockResolvedValue({ id: "job-1", trackId: "track-1" });
+
+    const tx = { archiveJob: mockArchiveJob };
+    await expect(
+      enqueueArchiveJobs(tx as unknown as Prisma.TransactionClient, ["track-1", "track-2"]),
+    ).resolves.toBe(true);
+
+    expect(mockArchiveJob.create).toHaveBeenCalledTimes(2);
+  });
+
   it("deduplicates trackIds before querying", async () => {
     const { enqueueArchiveJobs } = await import("./auto-enqueue.server.ts");
 

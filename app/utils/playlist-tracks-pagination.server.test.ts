@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
-import { assertPlaylistTrackCursorInScope } from "./playlist-tracks-pagination.server.ts";
+import {
+  assertPlaylistTrackCursorInScope,
+  playlistTracksPagination,
+} from "./playlist-tracks-pagination.server.ts";
 
 async function ensureLocalService() {
   return prisma.service.upsert({
@@ -10,6 +13,24 @@ async function ensureLocalService() {
     create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
   });
 }
+
+describe("playlistTracksPagination", () => {
+  test("does not advertise a next page when row count equals limit exactly", () => {
+    const rows = [{ id: "a" }, { id: "b" }];
+    const result = playlistTracksPagination(rows, 2);
+    expect(result.hasNext).toBe(false);
+    expect(result.nextCursor).toBeNull();
+    expect(result.pageRows).toHaveLength(2);
+  });
+
+  test("fetches limit+1 pattern: extra row yields next cursor without empty page", () => {
+    const rows = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    const result = playlistTracksPagination(rows, 2);
+    expect(result.hasNext).toBe(true);
+    expect(result.nextCursor).toBe("b");
+    expect(result.pageRows.map((r) => r.id)).toEqual(["a", "b"]);
+  });
+});
 
 describe("assertPlaylistTrackCursorInScope", () => {
   beforeEach(async () => {

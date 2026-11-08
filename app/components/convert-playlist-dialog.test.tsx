@@ -1,7 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, fireEvent } from "@testing-library/react";
+import { useState } from "react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -10,9 +11,16 @@ import { ConvertPlaylistDialog } from "./convert-playlist-dialog";
 
 const mockConvertSubmit = vi.fn();
 
+let convertFetcherState: "idle" | "submitting" | "loading" = "idle";
+let convertFetcherData: { status: string; message?: string; existingTitle?: string } | undefined;
+
 const mockConvertFetcher = {
-  state: "idle" as const,
-  data: undefined as { status: string; message?: string; existingTitle?: string } | undefined,
+  get state() {
+    return convertFetcherState;
+  },
+  get data() {
+    return convertFetcherData;
+  },
   submit: mockConvertSubmit,
 };
 
@@ -49,20 +57,45 @@ vi.mock("react-router", async (importOriginal) => {
 beforeEach(() => {
   consoleError.mockImplementation(() => {});
   fetcherIndex = 0;
-  mockConvertFetcher.state = "idle";
-  mockConvertFetcher.data = undefined;
+  convertFetcherState = "idle";
+  convertFetcherData = undefined;
   mockPlaylistsFetcher.state = "idle";
   mockPlaylistsFetcher.data = undefined;
   mockPlaylistsFetcher.load.mockReset();
   mockConvertSubmit.mockReset();
 });
 
+function ConvertDialogHarness({ simulateSuccess }: { simulateSuccess: boolean }) {
+  convertFetcherState = "idle";
+  if (simulateSuccess) {
+    convertFetcherData = { status: "success", message: "Created" };
+  }
+
+  return <ConvertPlaylistDialog playlistId="sp-1" playlistTitle="Chill Vibes" />;
+}
+
 function renderDialog() {
+  function TestHost() {
+    const [simulateSuccess, setSimulateSuccess] = useState(false);
+    return (
+      <>
+        <button
+          id="simulate-convert-success"
+          type="button"
+          onClick={() => setSimulateSuccess(true)}
+        >
+          Simulate success
+        </button>
+        <ConvertDialogHarness simulateSuccess={simulateSuccess} />
+      </>
+    );
+  }
+
   const router = createMemoryRouter(
     [
       {
         path: "/",
-        element: <ConvertPlaylistDialog playlistId="sp-1" playlistTitle="Chill Vibes" />,
+        element: <TestHost />,
       },
     ],
     { initialEntries: ["/"] },
@@ -203,16 +236,21 @@ test("closes dialog on successful convert", async () => {
 
   await user.click(screen.getByRole("button", { name: "More actions for Chill Vibes" }));
   await user.click(screen.getByText("Create New Playlist"));
-
-  mockConvertFetcher.state = "idle";
-  mockConvertFetcher.data = { status: "success", message: "Created" };
-
   await user.click(screen.getByText("Create Playlist"));
+
+  expect(mockConvertSubmit).toHaveBeenCalled();
+
+  fireEvent.click(document.getElementById("simulate-convert-success")!);
+
+  await waitFor(() => {
+    expect(screen.queryByPlaceholderText("Playlist name")).toBeNull();
+  });
+  expect(screen.queryByText("Convert to user playlist")).toBeNull();
 });
 
 test("shows duplicate title error in create mode", async () => {
   const user = userEvent.setup();
-  mockConvertFetcher.data = {
+  convertFetcherData = {
     status: "duplicate_title",
     message: 'You already have a playlist named "Chill Vibes"',
     existingTitle: "Chill Vibes",
