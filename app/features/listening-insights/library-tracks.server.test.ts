@@ -495,6 +495,31 @@ describe("listLibraryUserTracks most-played sorts", () => {
     ).rejects.toThrow(/Invalid cursor format/);
   });
 
+  test.each([
+    ["mostPlayedEver", -1],
+    ["mostPlayedEver", 1.5],
+    ["mostPlayedMonth", -1],
+    ["mostPlayedMonth", 1.5],
+  ] as const)("rejects non-integer or negative count on %s (count=%s)", async (sort, count) => {
+    const user = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("One");
+    const userTrack = await addToLibrary(user.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
+    await seedCompleted(user.id, track.id, new Date("2026-09-01T12:00:00.000Z"), 2);
+
+    const cursor = Buffer.from(JSON.stringify({ v: 1, count, id: userTrack.id })).toString(
+      "base64url",
+    );
+
+    await expect(
+      listLibraryUserTracks({
+        userId: user.id,
+        sort,
+        cursor,
+        limit: 10,
+      }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
   test("rejects dateAdded cursor when userTrack id is out of scope", async () => {
     const user = await prisma.user.create({ data: createUser() });
     const other = await prisma.user.create({ data: createUser() });

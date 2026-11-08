@@ -199,6 +199,8 @@ function decodeMostPlayedCursor(raw: string): MostPlayedCursor {
       parsed?.v !== 1 ||
       typeof parsed.count !== "number" ||
       !Number.isFinite(parsed.count) ||
+      !Number.isInteger(parsed.count) ||
+      parsed.count < 0 ||
       typeof parsed.id !== "string" ||
       parsed.id.length === 0 ||
       parsed.id.length > 200
