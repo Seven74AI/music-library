@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { Prisma } from "#prisma/client.js";
 import { canManageRoom, isRoomRole } from "./capabilities.ts";
 import { generateRoomCode, isValidRoomCode } from "./codes.ts";
 import {
@@ -7,6 +8,7 @@ import {
   GUEST_DISPLAY_NAME_MAX,
   GUEST_DISPLAY_NAME_MIN,
   MAX_PARTICIPANTS,
+  MAX_ACTIVE_ROOMS_PER_CREATOR,
   ROOM_ROLE,
   ROOM_STATUS,
   type DefaultJoinRole,
@@ -250,6 +252,36 @@ export async function createRoom({
   const now = new Date();
 
   const room = await prisma.$transaction(async (tx) => {
+    const stillSeatedElsewhere = await tx.roomParticipant.findFirst({
+      where: {
+        userId,
+        leftAt: null,
+        room: { status: ROOM_STATUS.open },
+      },
+      select: { id: true },
+    });
+    if (stillSeatedElsewhere) {
+      throw new PartyRoomError(
+        "already_in_room",
+        "Leave your current room before creating another",
+        409,
+      );
+    }
+
+    const activeHostedRooms = await tx.room.count({
+      where: {
+        originalHostUserId: userId,
+        status: ROOM_STATUS.open,
+      },
+    });
+    if (activeHostedRooms >= MAX_ACTIVE_ROOMS_PER_CREATOR) {
+      throw new PartyRoomError(
+        "creator_has_active_room",
+        "End your current room before creating another",
+        409,
+      );
+    }
+
     const created = await tx.room.create({
       data: {
         code,
@@ -490,15 +522,26 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
       return { roomId: room.id, code: room.code, participant, guestToken: null as string | null };
     }
 
-    const participant = await prisma.roomParticipant.create({
-      data: {
-        roomId: room.id,
-        userId: actor.userId,
-        displayName,
-        role: joinRole,
-        lastSeenAt: now,
+    const participant = await prisma.$transaction(
+      async (tx) => {
+        const activeCount = await tx.roomParticipant.count({
+          where: { roomId: room.id, leftAt: null },
+        });
+        if (activeCount >= MAX_PARTICIPANTS) {
+          throw new PartyRoomError("room_full", "Room is full", 409);
+        }
+        return tx.roomParticipant.create({
+          data: {
+            roomId: room.id,
+            userId: actor.userId,
+            displayName,
+            role: joinRole,
+            lastSeenAt: now,
+          },
+        });
       },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
     await prisma.room.update({
       where: { id: room.id },
       data: { emptySince: null },
@@ -574,15 +617,39 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
   token = createGuestToken();
   tokenHash = hashGuestToken(token);
 
-  const participant = await prisma.roomParticipant.create({
-    data: {
-      roomId: room.id,
-      guestTokenHash: tokenHash,
-      displayName,
-      role: joinRole,
-      lastSeenAt: now,
+  const participant = await prisma.$transaction(
+    async (tx) => {
+      const activeCount = await tx.roomParticipant.count({
+        where: { roomId: room.id, leftAt: null },
+      });
+      if (activeCount >= MAX_PARTICIPANTS) {
+        throw new PartyRoomError("room_full", "Room is full", 409);
+      }
+      if (tokenHash) {
+        const duplicateGuest = await tx.roomParticipant.findFirst({
+          where: {
+            roomId: room.id,
+            guestTokenHash: tokenHash,
+            leftAt: null,
+          },
+          select: { id: true },
+        });
+        if (duplicateGuest) {
+          throw new PartyRoomError("room_full", "Room is full", 409);
+        }
+      }
+      return tx.roomParticipant.create({
+        data: {
+          roomId: room.id,
+          guestTokenHash: tokenHash,
+          displayName,
+          role: joinRole,
+          lastSeenAt: now,
+        },
+      });
     },
-  });
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
   await prisma.room.update({ where: { id: room.id }, data: { emptySince: null } });
   await bumpRoomVersion(room.id);
   await emitRoomSnapshot(room.id);

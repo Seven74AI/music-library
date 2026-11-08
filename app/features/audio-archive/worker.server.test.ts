@@ -9,7 +9,7 @@ const mockPrisma = {
     findMany: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
-    updateMany: vi.fn(),
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     groupBy: vi.fn(),
   },
   track: {
@@ -472,7 +472,13 @@ describe("processQueueTick", () => {
     }
 
     function jobStatuses(): unknown[] {
-      return mockPrisma.archiveJob.update.mock.calls.map((call) => call[0]?.data?.status);
+      const fromUpdate = mockPrisma.archiveJob.update.mock.calls.map(
+        (call) => call[0]?.data?.status,
+      );
+      const fromUpdateMany = mockPrisma.archiveJob.updateMany.mock.calls.map(
+        (call) => call[0]?.data?.status,
+      );
+      return [...fromUpdate, ...fromUpdateMany];
     }
 
     it("does not start yt-dlp for a non-YouTube URL", async () => {
@@ -572,9 +578,9 @@ describe("processQueueTick", () => {
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "job-2" },
+          where: expect.objectContaining({ id: "job-2", status: "processing" }),
           data: expect.objectContaining({
             status: "failed",
             retryCount: 1,
@@ -618,9 +624,9 @@ describe("processQueueTick", () => {
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "job-enoent" },
+          where: expect.objectContaining({ id: "job-enoent", status: "processing" }),
           data: expect.objectContaining({
             status: "failed",
             retryCount: 1,
@@ -659,8 +665,9 @@ describe("processQueueTick", () => {
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: "job-3", status: "processing" }),
           data: expect.objectContaining({
             status: "pending",
             retryCount: 2,
@@ -698,8 +705,9 @@ describe("processQueueTick", () => {
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: "job-4", status: "processing" }),
           data: expect.objectContaining({
             status: "failed",
             retryCount: 4,
@@ -1048,9 +1056,10 @@ describe("processQueueTick", () => {
 
   describe("exponential backoff (Decision #5)", () => {
     function lastUpdateData(jobId: string): Record<string, unknown> {
-      const calls = mockPrisma.archiveJob.update.mock.calls.filter(
-        (call) => call[0]?.where?.id === jobId,
-      );
+      const calls = [
+        ...mockPrisma.archiveJob.update.mock.calls,
+        ...mockPrisma.archiveJob.updateMany.mock.calls,
+      ].filter((call) => call[0]?.where?.id === jobId);
       return (calls.at(-1)?.[0]?.data ?? {}) as Record<string, unknown>;
     }
 
@@ -1250,9 +1259,9 @@ describe("processQueueTick", () => {
       const recovered = await recoverStaleProcessingJobs();
 
       expect(recovered).toBe(1);
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "stale-job-1" },
+          where: expect.objectContaining({ id: "stale-job-1", status: "processing" }),
           data: expect.objectContaining({ status: "pending" }),
         }),
       );

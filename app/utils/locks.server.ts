@@ -115,6 +115,7 @@ export async function releaseLock(
   entityType: EntityType,
   entityId: string,
   userId: string,
+  expected?: { lockId: string; acquiredAt: Date },
 ): Promise<ReleaseLockResult> {
   const lock = await prisma.editLock.findUnique({
     where: { entityType_entityId: { entityType, entityId } },
@@ -127,9 +128,26 @@ export async function releaseLock(
     return "not_owner";
   }
 
-  await prisma.editLock.delete({
-    where: { id: lock.id },
+  if (expected) {
+    if (
+      lock.id !== expected.lockId ||
+      lock.acquiredAt.getTime() !== expected.acquiredAt.getTime()
+    ) {
+      return "not_found";
+    }
+  }
+
+  const deleted = await prisma.editLock.deleteMany({
+    where: {
+      id: lock.id,
+      lockedBy: userId,
+      ...(expected ? { acquiredAt: expected.acquiredAt } : {}),
+    },
   });
+
+  if (deleted.count === 0) {
+    return "not_found";
+  }
 
   return "released";
 }

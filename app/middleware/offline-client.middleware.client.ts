@@ -103,21 +103,30 @@ export const offlineClientMiddleware: MiddlewareFunction<
   if (!offline) {
     const rootResult = results["root"];
     if (rootResult?.type === "data" && rootResult.result) {
-      const shell = rootResult.result as OfflineRootShell;
-      persistOfflineRootShell({
-        user: shell.user,
-        requestInfo: {
-          ...shell.requestInfo,
-          userPrefs: {
-            theme: shell.requestInfo.userPrefs.theme ?? "light",
+      try {
+        const shell = rootResult.result as OfflineRootShell;
+        persistOfflineRootShell({
+          user: shell.user,
+          requestInfo: {
+            ...shell.requestInfo,
+            userPrefs: {
+              theme: shell.requestInfo.userPrefs.theme ?? "light",
+            },
           },
-        },
-        ENV: shell.ENV,
-      });
+          ENV: shell.ENV,
+        });
+      } catch (error) {
+        console.error("Failed to persist offline root shell:", error);
+      }
     }
     return results;
   }
 
   // Offline: patch all results with offline stubs
-  return patchOfflineDataStrategyResults(results, request);
+  try {
+    return await patchOfflineDataStrategyResults(results, request);
+  } catch (error) {
+    console.error("Failed to patch offline data strategy results:", error);
+    return results;
+  }
 };

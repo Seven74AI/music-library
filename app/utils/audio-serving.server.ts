@@ -30,22 +30,33 @@ export function serveLocalAudioFile(
       const chunkSize = end - start + 1;
 
       if (start >= 0 && start < fileSize && end < fileSize && start <= end) {
-        const fileBuffer = Buffer.allocUnsafe(chunkSize);
+        const fileBuffer = Buffer.alloc(chunkSize);
         const fd = openSync(localFilePath, "r");
-        readSync(fd, fileBuffer, 0, chunkSize, start);
-        closeSync(fd);
-
-        return new Response(fileBuffer, {
-          status: 206,
-          headers: {
-            "Content-Type": mimeType,
-            "Content-Length": chunkSize.toString(),
-            "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-            "Accept-Ranges": "bytes",
-            "Cache-Control": cacheControl,
-          },
-        });
+        try {
+          const bytesRead = readSync(fd, fileBuffer, 0, chunkSize, start);
+          const body = bytesRead === chunkSize ? fileBuffer : fileBuffer.subarray(0, bytesRead);
+          return new Response(body, {
+            status: 206,
+            headers: {
+              "Content-Type": mimeType,
+              "Content-Length": bytesRead.toString(),
+              "Content-Range": `bytes ${start}-${start + bytesRead - 1}/${fileSize}`,
+              "Accept-Ranges": "bytes",
+              "Cache-Control": cacheControl,
+            },
+          });
+        } finally {
+          closeSync(fd);
+        }
       }
+
+      return new Response("Requested range not satisfiable", {
+        status: 416,
+        headers: {
+          "Content-Range": `bytes */${fileSize}`,
+          "Accept-Ranges": "bytes",
+        },
+      });
     }
   }
 

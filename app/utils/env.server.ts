@@ -129,6 +129,8 @@ declare global {
  * This is the single source of truth for session secrets — all cookie-based
  * session storage modules MUST use this instead of reading process.env directly.
  */
+let devSessionSecretFallback: string | null = null;
+
 export function getSessionSecret(): string[] {
   const secret = process.env.SESSION_SECRET;
   if (secret) {
@@ -145,12 +147,14 @@ export function getSessionSecret(): string[] {
 
   // In dev/test, generate a random secret so dev workflow isn't blocked.
   // Cache it so it's stable across module reloads in the same process.
-  const devFallback = `dev-${crypto.randomUUID()}`;
-  console.warn(
-    "⚠ SESSION_SECRET not set — using randomly generated fallback for dev/test only. " +
-      "DO NOT use in production.",
-  );
-  return [devFallback];
+  if (!devSessionSecretFallback) {
+    devSessionSecretFallback = `dev-${crypto.randomUUID()}`;
+    console.warn(
+      "⚠ SESSION_SECRET not set — using randomly generated fallback for dev/test only. " +
+        "DO NOT use in production.",
+    );
+  }
+  return [devSessionSecretFallback];
 }
 
 export function formatInvalidEnvMessage(fieldErrors: Record<string, string[] | undefined>): string {

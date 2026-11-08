@@ -5,6 +5,15 @@ import { deleteFile, uploadFile } from "./storage.server";
 import { coerceOptionalInt } from "#app/utils/track-metadata-int.server.ts";
 import { validatePublicHttpsUrl } from "./validate-public-url.server.ts";
 
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 /** Per-attempt timeout for external cover downloads (YouTube thumbnails, etc.) */
 export const IMAGE_DOWNLOAD_TIMEOUT_MS = 15_000;
 
@@ -206,7 +215,7 @@ async function resolveCanonicalAlbum(db: AlbumClient, album: AlbumLookup): Promi
 
   while (current.mergedIntoId) {
     if (seen.has(current.id)) {
-      break;
+      throw new Error(`Album merge cycle detected at album ${current.id}`);
     }
     seen.add(current.id);
 
@@ -215,7 +224,7 @@ async function resolveCanonicalAlbum(db: AlbumClient, album: AlbumLookup): Promi
       select: { id: true, mergedIntoId: true },
     });
     if (!next) {
-      break;
+      throw new Error(`Album merge target missing for album ${current.id}`);
     }
     current = next;
   }
@@ -347,17 +356,29 @@ async function createOrReuseCoverImage(
 
     let coverImage = existing;
     if (!coverImage) {
-      coverImage = await client.coverImage.create({
-        data: {
-          contentHash: prepared.contentHash,
-          objectKey: prepared.objectKey,
-          width: prepared.width,
-          height: prepared.height,
-          format: prepared.format,
-          fileSize: prepared.fileSize,
-        },
-        select: { id: true, objectKey: true },
-      });
+      try {
+        coverImage = await client.coverImage.create({
+          data: {
+            contentHash: prepared.contentHash,
+            objectKey: prepared.objectKey,
+            width: prepared.width,
+            height: prepared.height,
+            format: prepared.format,
+            fileSize: prepared.fileSize,
+          },
+          select: { id: true, objectKey: true },
+        });
+      } catch (error) {
+        if (!isUniqueConstraintViolation(error)) throw error;
+        coverImage = await client.coverImage.findUnique({
+          where: { contentHash: prepared.contentHash },
+          select: { id: true, objectKey: true },
+        });
+        if (!coverImage) throw error;
+        await deleteFile(prepared.objectKey).catch((deleteError) => {
+          console.error("Failed to delete orphan cover object after P2002:", deleteError);
+        });
+      }
     }
 
     if (albumId) {

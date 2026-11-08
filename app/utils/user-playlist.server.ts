@@ -235,17 +235,19 @@ export async function addTrackToUserPlaylist({
     }
   }
 
-  const maxPosition = await prisma.userPlaylistTrack.aggregate({
-    where: { playlistId },
-    _max: { position: true },
-  });
+  await prisma.$transaction(async (tx) => {
+    const maxPosition = await tx.userPlaylistTrack.aggregate({
+      where: { playlistId },
+      _max: { position: true },
+    });
 
-  await prisma.userPlaylistTrack.create({
-    data: {
-      playlistId,
-      trackId,
-      position: (maxPosition._max.position ?? -1) + 1,
-    },
+    await tx.userPlaylistTrack.create({
+      data: {
+        playlistId,
+        trackId,
+        position: (maxPosition._max.position ?? -1) + 1,
+      },
+    });
   });
 
   await bumpUserPlaylistUpdatedAt({ playlistId, userId });

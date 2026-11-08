@@ -120,6 +120,36 @@ describe("checkPlaylistArchiveReadyAfterTrackArchived", () => {
     expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
+  it("rolls back the archive-ready claim when email sending fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockPrisma.servicePlaylist.findMany.mockResolvedValue([
+      {
+        id: "playlist-1",
+        title: "Chill Mix",
+        ownerId: "user-1",
+        owner: {
+          email: "user@example.com",
+          name: "Alex",
+          username: "alex",
+        },
+      },
+    ]);
+    mockPrisma.servicePlaylistTrack.findFirst.mockResolvedValue(null);
+    mockPrisma.servicePlaylist.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.userNotification.create.mockResolvedValue({ id: "notif-1" });
+    mockSendEmail.mockRejectedValueOnce(new Error("smtp down"));
+
+    await checkPlaylistArchiveReadyAfterTrackArchived("track-1");
+
+    expect(mockSendEmail).toHaveBeenCalled();
+    expect(mockPrisma.servicePlaylist.updateMany).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.servicePlaylist.updateMany).toHaveBeenLastCalledWith({
+      where: expect.objectContaining({ id: "playlist-1" }),
+      data: { archiveReadyNotifiedAt: null },
+    });
+    consoleError.mockRestore();
+  });
+
   it("skips notification when another worker already claimed the playlist", async () => {
     mockPrisma.servicePlaylist.findMany.mockResolvedValue([
       {
