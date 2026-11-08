@@ -1,4 +1,3 @@
-import { processTrackImagesAsync } from "#app/features/service-playlist/image-processor.server";
 import { downloadExternalImage, findOrCreateCoverImage } from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server";
 import { type Prisma } from "#prisma/client.js";

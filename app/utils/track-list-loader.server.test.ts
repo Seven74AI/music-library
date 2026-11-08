@@ -39,6 +39,16 @@ describe("track-list-loader.server", () => {
 
     const result = await loadLibraryStatusByTrackId("user-1", ["track-1", "track-2"]);
 
+    expect(prisma.userTrack.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: "user-1",
+          isActive: true,
+          deletedAt: null,
+          trackId: { in: ["track-1", "track-2"] },
+        }),
+      }),
+    );
     expect(result.libraryTrackIds.has("track-1")).toBe(true);
     expect(result.libraryTrackIds.has("track-2")).toBe(false);
     expect(result.userTrackCreatedAtByTrackId.get("track-1")).toEqual(createdAt);

@@ -69,7 +69,7 @@ export async function getSyncedPlaylistsTrackStats(
   }
 
   const libraryTrackIds = await prisma.userTrack.findMany({
-    where: { userId, trackId: { in: trackIds }, isActive: true },
+    where: { userId, trackId: { in: trackIds }, isActive: true, deletedAt: null },
     select: { trackId: true },
   });
 

@@ -135,7 +135,7 @@ function relatedTrackSelect(userId: string) {
     service: { select: { displayName: true, logoUrl: true } },
     audioFiles: { select: { id: true, format: true, objectKey: true } },
     userTracks: {
-      where: { userId, isActive: true },
+      where: { userId, isActive: true, deletedAt: null },
       select: { createdAt: true },
       take: 1,
     },
@@ -189,7 +189,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         },
       },
       userTracks: {
-        where: { userId, isActive: true },
+        where: { userId, isActive: true, deletedAt: null },
         select: { id: true },
         take: 1,
       },
@@ -237,13 +237,19 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     }),
   ]);
 
-  const { userTracks, servicePlaylistTracks, ...track } = trackRaw;
+  const { userTracks, servicePlaylistTracks, audioFiles, ...trackRest } = trackRaw;
+  const isInUserLibrary = userTracks.length > 0;
+  const canAccessAudio =
+    isInUserLibrary || containingPlaylists.length > 0 || servicePlaylistTracks.length > 0;
+  const track = {
+    ...trackRest,
+    audioFiles: canAccessAudio ? audioFiles : [],
+  };
 
   return data({
     track,
-    isInUserLibrary: userTracks.length > 0,
-    canDownload:
-      userTracks.length > 0 || containingPlaylists.length > 0 || servicePlaylistTracks.length > 0,
+    isInUserLibrary,
+    canDownload: canAccessAudio,
     playlists,
     containingPlaylists,
     related: chooseRelatedTracks({

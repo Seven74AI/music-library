@@ -283,9 +283,7 @@ async function listMostPlayedLibraryPage({
       )`
     : Prisma.empty;
 
-  const rows = await prisma.$queryRaw<
-    Array<{ id: string; cnt: number | bigint; createdAt: Date }>
-  >`
+  const rows = await prisma.$queryRaw<Array<{ id: string; cnt: number | bigint; createdAt: Date }>>`
     SELECT ut."id", COALESCE(c.cnt, 0) AS cnt, ut."createdAt" AS "createdAt"
     FROM "UserTrack" ut
     LEFT JOIN (${countSql}) c ON c."trackId" = ut."trackId"
@@ -341,26 +339,31 @@ export async function listLibraryUserTracks({
         track: { select: LIBRARY_TRACK_SELECT },
       },
       orderBy: [{ createdAt: direction }, { id: direction }],
-      take: limit,
+      take: limit + 1,
       cursor: cursor ? { id: cursor } : undefined,
       skip: cursor ? 1 : undefined,
     });
 
-    const nextCursor =
-      userTracksRaw.length === limit ? (userTracksRaw[userTracksRaw.length - 1]?.id ?? null) : null;
-    const noteCounts = await curatorNoteCountsByTrackId(userTracksRaw.map((row) => row.track.id));
+    const hasNext = userTracksRaw.length > limit;
+    const pageRows = hasNext ? userTracksRaw.slice(0, limit) : userTracksRaw;
+    const nextCursor = hasNext ? (pageRows[pageRows.length - 1]?.id ?? null) : null;
+    const noteCounts = await curatorNoteCountsByTrackId(pageRows.map((row) => row.track.id));
 
     return {
-      userTracks: withCuratorNoteCounts(userTracksRaw, noteCounts),
+      userTracks: withCuratorNoteCounts(pageRows, noteCounts),
       pagination: {
         limit,
-        hasNext: !!nextCursor,
+        hasNext,
         nextCursor,
       },
     };
   }
 
-  const { ids: pageIds, hasNext, nextCursor } = await listMostPlayedLibraryPage({
+  const {
+    ids: pageIds,
+    hasNext,
+    nextCursor,
+  } = await listMostPlayedLibraryPage({
     userId,
     window,
     direction,

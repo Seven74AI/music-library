@@ -192,6 +192,24 @@ describe("listLibraryUserTracks most-played sorts", () => {
     expect(userTracks.map((ut) => ut.track.title)).toEqual(["Newer", "Older"]);
   });
 
+  test("dateAdded pagination does not claim hasNext when page size equals total library rows", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const t1 = await createTrack("Lib Page A");
+    const t2 = await createTrack("Lib Page B");
+    await addToLibrary(user.id, t1.id, new Date("2026-01-01T00:00:00.000Z"));
+    await addToLibrary(user.id, t2.id, new Date("2026-02-01T00:00:00.000Z"));
+
+    const page = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "dateAdded",
+      limit: 2,
+    });
+
+    expect(page.userTracks).toHaveLength(2);
+    expect(page.pagination.hasNext).toBe(false);
+    expect(page.pagination.nextCursor).toBeNull();
+  });
+
   test("genreId returns only that user's active library tracks tagged with the genre", async () => {
     const user = await prisma.user.create({ data: createUser() });
     const otherUser = await prisma.user.create({ data: createUser() });

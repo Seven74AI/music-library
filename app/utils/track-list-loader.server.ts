@@ -29,6 +29,7 @@ export async function loadLibraryStatusByTrackId(userId: string | null, trackIds
     where: {
       userId,
       isActive: true,
+      deletedAt: null,
       trackId: { in: trackIds },
     },
     select: { trackId: true, createdAt: true },
