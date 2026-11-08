@@ -21,7 +21,7 @@ import {
   createCoverImageInTx,
   getOrCreateAlbumTx,
   getOrCreateAlbum,
-  CoverImageUploadError,
+  cleanupFailedCoverUpload,
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
@@ -499,17 +499,7 @@ async function processFilesAsync(
               format: file.metadata.coverImage.format,
             });
           } catch (error) {
-            if (error instanceof CoverImageUploadError && error.uploadedObjectKey) {
-              preparedCover = {
-                kind: "new",
-                objectKey: error.uploadedObjectKey,
-                contentHash: "",
-                width: 0,
-                height: 0,
-                format: "jpeg",
-                fileSize: 0,
-              };
-            }
+            await cleanupFailedCoverUpload(error);
             console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error);
             // Continue without cover image
           }

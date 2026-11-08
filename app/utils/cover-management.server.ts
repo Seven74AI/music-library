@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { prisma } from "#app/utils/db.server";
 import { type Prisma } from "#prisma/client.js";
-import { uploadFile } from "./storage.server";
+import { deleteFile, uploadFile } from "./storage.server";
 import { validatePublicHttpsUrl } from "./validate-public-url.server.ts";
 
 /** Per-attempt timeout for external cover downloads (YouTube thumbnails, etc.) */
@@ -332,6 +332,9 @@ async function createOrReuseCoverImage(
   albumId?: string | null,
 ): Promise<{ id: string; objectKey: string }> {
   if (prepared.kind === "new") {
+    if (!prepared.contentHash) {
+      throw new Error("Cannot persist cover image without content hash");
+    }
     // Re-check: a concurrent upload may have created the same cover after
     // prepare ran (contentHash is unique).
     const existing = await client.coverImage.findUnique({
@@ -436,6 +439,16 @@ export class CoverImageUploadError extends Error {
     super(message);
     this.name = "CoverImageUploadError";
     this.uploadedObjectKey = uploadedObjectKey;
+  }
+}
+
+/** Best-effort delete of a cover object left in storage after a failed upload. */
+export async function cleanupFailedCoverUpload(error: unknown): Promise<void> {
+  if (!(error instanceof CoverImageUploadError) || !error.uploadedObjectKey) return;
+  try {
+    await deleteFile(error.uploadedObjectKey);
+  } catch (deleteError) {
+    console.error(`Failed to delete cover object ${error.uploadedObjectKey}:`, deleteError);
   }
 }
 

@@ -82,6 +82,29 @@ export function parseHistoryCursor(raw: string | null): PlayHistoryCursor | null
   return { createdAt: new Date(ms), id };
 }
 
+/**
+ * Resolve a history cursor against this user's `play_started` events. The
+ * keyset uses the anchored row's `createdAt` so a tampered timestamp cannot
+ * skew pagination.
+ */
+export async function assertPlayHistoryCursor(
+  userId: string,
+  cursor: PlayHistoryCursor,
+): Promise<PlayHistoryCursor> {
+  const anchor = await prisma.usageEvent.findFirst({
+    where: {
+      id: cursor.id,
+      userId,
+      type: USAGE_EVENT_TYPES.play_started,
+    },
+    select: { id: true, createdAt: true },
+  });
+  if (!anchor) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
+  return { id: anchor.id, createdAt: anchor.createdAt };
+}
+
 function playStartedWhere(userId: string, cursor: PlayHistoryCursor | null) {
   return {
     userId,
@@ -113,7 +136,7 @@ export async function getPlayHistory({
   limit?: number;
 }): Promise<{ items: PlayHistoryItem[]; nextCursor: string | null }> {
   const collected: PlayHistoryItem[] = [];
-  let pageCursor = cursor ?? null;
+  let pageCursor = cursor ? await assertPlayHistoryCursor(userId, cursor) : null;
 
   // Keep fetching until we have `limit + 1` items (proof a next page exists)
   // or we run out of events. Dangling tracks are dropped, so a single batch
