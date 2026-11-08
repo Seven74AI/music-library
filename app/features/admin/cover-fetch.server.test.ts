@@ -192,7 +192,11 @@ test("track cover upload stores the chosen file when the album already has a cov
   })
     .jpeg()
     .toBuffer();
-  const uploadedHash = createHash("sha256").update(image).digest("hex");
+  const canonical = await sharp(image)
+    .resize(1000, 1000, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toBuffer();
+  const uploadedHash = createHash("sha256").update(canonical).digest("hex");
 
   const result = await uploadTrackCover(track.id, image);
   expect(result).toEqual({ success: true });

@@ -9,7 +9,7 @@ import { type Route } from "./+types/albums.$id.edit.ts";
 const EditAlbumSchema = z.object({
   name: z.string().min(1, "Name is required"),
   artistId: z.string().min(1, "Artist ID is required"),
-  year: z.number().nullable().optional(),
+  year: z.number().int().nullable().optional(),
   coverImageId: z.string().nullable().optional(),
   comment: z.string().optional(),
 });

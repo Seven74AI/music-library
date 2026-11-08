@@ -482,7 +482,7 @@ async function processFilesAsync(
           const resolvedAlbum = await getOrCreateAlbum(
             albumArtistRecord.id,
             album,
-            file.userMetadata?.year || file.metadata.year || null,
+            pickIntField(file.userMetadata?.year, file.metadata.year),
           );
           resolvedAlbumId = resolvedAlbum?.id ?? null;
         }
@@ -517,7 +517,7 @@ async function processFilesAsync(
             tx,
             albumArtistRecord.id,
             album || null,
-            file.userMetadata?.year || file.metadata.year || null,
+            pickIntField(file.userMetadata?.year, file.metadata.year),
           );
 
           // Associate the cover image (DB-only) — the upload already happened above.

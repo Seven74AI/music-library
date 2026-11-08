@@ -3,7 +3,7 @@ import { type ExtractedAudioMetadata } from "#app/utils/audio-metadata.server";
 import { getOrCreateAlbum } from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server.ts";
 import { replaceTrackGenresFromStrings } from "#app/utils/track-genres.server.ts";
-import { coerceOptionalInt } from "#app/utils/track-metadata-int.server.ts";
+import { coerceOptionalInt, pickIntField } from "#app/utils/track-metadata-int.server.ts";
 
 function assignOptionalInt(data: Record<string, unknown>, key: string, value: unknown) {
   const coerced = coerceOptionalInt(value);
@@ -55,7 +55,7 @@ export async function backfillTrackMetadata(
   }
 
   if (metadata.album && artistId) {
-    const album = await getOrCreateAlbum(artistId, metadata.album, metadata.year);
+    const album = await getOrCreateAlbum(artistId, metadata.album, pickIntField(metadata.year));
     if (album) {
       trackUpdateData.albumId = album.id;
     }

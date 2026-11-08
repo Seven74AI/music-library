@@ -83,11 +83,10 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
+  // Do not pass albumId — prepareCoverImageUpload would reuse the album's existing
+  // cover and drop the image the curator chose (see cover-fetch.server.ts).
   const { id } = await findOrCreateCoverImage({
     imageBuffer: buffer,
-    albumId: entityType === "album" ? verifiedEntityId : undefined,
-    width,
-    height,
   });
 
   const coverImage = await prisma.coverImage.findUniqueOrThrow({

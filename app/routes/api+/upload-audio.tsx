@@ -21,6 +21,7 @@ import {
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
+import { pickIntField } from "#app/utils/track-metadata-int.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/upload-audio.ts";
@@ -162,7 +163,7 @@ export async function action({ request }: ActionFunctionArgs) {
       const resolvedAlbum = await getOrCreateAlbum(
         albumArtistRecord.id,
         album,
-        extractedMetadata.year || null,
+        pickIntField(extractedMetadata.year),
       );
       resolvedAlbumId = resolvedAlbum?.id ?? null;
     }
@@ -197,7 +198,7 @@ export async function action({ request }: ActionFunctionArgs) {
         tx,
         albumArtistRecord.id,
         album || null,
-        extractedMetadata.year || null,
+        pickIntField(extractedMetadata.year),
       );
 
       // Associate the cover image (DB-only) — the upload already happened above.
