@@ -6,9 +6,13 @@
 
 import "dotenv/config";
 import { execSync } from "node:child_process";
-import { backfillLegacyTrackGenresIfNeeded } from "../app/utils/genre-migration.server.ts";
 
 async function main() {
+  // CI and fresh checkouts run migrate before `prisma generate --sql`; the backfill needs the client.
+  execSync("npx prisma generate", { stdio: "inherit", env: process.env });
+
+  const { backfillLegacyTrackGenresIfNeeded } =
+    await import("../app/utils/genre-migration.server.ts");
   const { ran, result } = await backfillLegacyTrackGenresIfNeeded();
   if (ran) {
     console.log(
