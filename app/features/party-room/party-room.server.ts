@@ -97,10 +97,12 @@ const SERIALIZABLE_TX = {
 async function reactivateParticipantWithCapacityCheck({
   roomId,
   participantId,
+  userId,
   data,
 }: {
   roomId: string;
   participantId: string;
+  userId?: string;
   data: {
     leftAt: null;
     lastSeenAt: Date;
@@ -109,6 +111,24 @@ async function reactivateParticipantWithCapacityCheck({
   };
 }) {
   return prisma.$transaction(async (tx) => {
+    if (userId) {
+      const seatedElsewhere = await tx.roomParticipant.findFirst({
+        where: {
+          userId,
+          leftAt: null,
+          room: { status: ROOM_STATUS.open },
+          NOT: { roomId },
+        },
+        select: { id: true },
+      });
+      if (seatedElsewhere) {
+        throw new PartyRoomError(
+          "already_in_room",
+          "Leave your current room before joining another",
+          409,
+        );
+      }
+    }
     const activeCount = await tx.roomParticipant.count({
       where: { roomId, leftAt: null },
     });
@@ -305,6 +325,7 @@ export async function createRoom({
       where: {
         originalHostUserId: userId,
         status: ROOM_STATUS.open,
+        participants: { some: { userId, leftAt: null } },
       },
     });
     if (activeHostedRooms >= MAX_ACTIVE_ROOMS_PER_CREATOR) {
@@ -524,6 +545,7 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
         ? await reactivateParticipantWithCapacityCheck({
             roomId: room.id,
             participantId: existingHere.id,
+            userId: actor.userId,
             data: { leftAt: null, lastSeenAt: now, displayName, role: role as RoomRole },
           })
         : await prisma.roomParticipant.update({
