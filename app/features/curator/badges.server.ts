@@ -162,7 +162,7 @@ export async function loadCuratorCounts(): Promise<Map<string, CuratorCounts>> {
             AND prv.id IS NULL
             AND (cur.genre != '' OR (cur.genreIds != '' AND cur.genreIds != '[]'))
           )
-        UNION ALL
+        UNION
         SELECT sg.editedBy AS curatorId
         FROM snapshot_genre_ids sg
         INNER JOIN live_genres lg ON lg.trackId = sg.trackId

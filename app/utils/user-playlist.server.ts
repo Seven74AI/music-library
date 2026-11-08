@@ -251,16 +251,8 @@ export async function addTrackToUserPlaylist({
     });
   };
 
-  try {
-    await prisma.$transaction(async (tx) => appendTrackAtNextPosition(tx));
-  } catch (error) {
-    // Concurrent adds can race on the same next position; the unique
-    // (playlistId, position) index turns that into P2002 — re-read max once.
-    if (!isUniqueConstraintViolation(error)) {
-      throw error;
-    }
-    await prisma.$transaction(async (tx) => appendTrackAtNextPosition(tx));
-  }
+  // SQLite adapter $transaction holds the process mutex — appends serialize.
+  await prisma.$transaction(async (tx) => appendTrackAtNextPosition(tx));
 
   await bumpUserPlaylistUpdatedAt({ playlistId, userId });
 
