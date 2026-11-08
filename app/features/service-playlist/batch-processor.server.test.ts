@@ -175,6 +175,77 @@ describe("processTracksInBatches - artist naming", () => {
   });
 });
 
+describe("processTracksInBatches - playlist track pairing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("keeps playlist positions aligned when the safety filter drops a middle row", async () => {
+    const playlistTrackUpsert = vi
+      .fn()
+      .mockImplementation(({ create }: { create: { position: number; trackId: string } }) =>
+        Promise.resolve({ id: "spt", trackId: create.trackId, position: create.position }),
+      );
+
+    const trackUpsert = vi
+      .fn()
+      .mockImplementation(({ create }: { create: { externalId: string } }) =>
+        Promise.resolve({
+          id: `track-${create.externalId}`,
+          title: create.externalId,
+          externalId: create.externalId,
+        }),
+      );
+
+    const tx = {
+      track: { findMany: vi.fn().mockResolvedValue([]), upsert: trackUpsert },
+      artist: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi
+          .fn()
+          .mockImplementation(({ data }: { data: { name: string } }) =>
+            Promise.resolve({ id: `artist-${data.name}`, name: data.name }),
+          ),
+      },
+      servicePlaylistTrack: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: playlistTrackUpsert,
+      },
+      archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
+    } as unknown as Prisma.TransactionClient;
+
+    const items = [
+      { snippet: { title: "A", resourceId: { videoId: "video-a" }, videoOwnerChannelTitle: "A" } },
+      { snippet: { title: "B", resourceId: { videoId: "" }, videoOwnerChannelTitle: "B" } },
+      {
+        snippet: {
+          title: "C",
+          resourceId: { videoId: "video-c" },
+          videoOwnerChannelTitle: "C",
+          thumbnails: { default: { url: "https://example.com/c.jpg" } },
+        },
+      },
+    ] as never[];
+
+    await processTracksInBatches(
+      items,
+      "service-1",
+      "playlist-1",
+      tx,
+      createYouTubeTrackSyncProcessor(),
+      noopArchiveEnqueueAdapter,
+      0,
+    );
+
+    const positions = playlistTrackUpsert.mock.calls.map(
+      (call) => (call[0] as { create: { position: number } }).create.position,
+    );
+    expect(positions).toEqual([1, 3]);
+    expect(trackUpsert).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("processTracksInBatches - ingest failure", () => {
   beforeEach(() => {
     vi.clearAllMocks();

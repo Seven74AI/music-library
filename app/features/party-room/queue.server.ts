@@ -416,26 +416,36 @@ export async function recordRoomPlayEvent({
     throw new PartyRoomError("forbidden", "Track is not on this room's queue", 403);
   }
 
+  const data = {
+    roomId,
+    trackId,
+    type,
+    playId: playId ?? null,
+    addedByParticipantId: addedByParticipantId ?? null,
+  };
+
   // Dedupe by playId: a play session emits start + complete, but a retried or
-  // duplicated client call must not create duplicate events for the same playId.
+  // concurrent client call must not create duplicate events for the same playId.
   if (playId) {
-    const existing = await prisma.roomPlayEvent.findFirst({
-      where: { roomId, playId, type },
-      select: { id: true, type: true, trackId: true, playId: true, createdAt: true },
-    });
-    if (existing) {
-      return existing;
+    try {
+      return await prisma.roomPlayEvent.create({ data });
+    } catch (error) {
+      if (
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2002"
+      ) {
+        const existing = await prisma.roomPlayEvent.findFirst({
+          where: { roomId, playId, type },
+          select: { id: true, type: true, trackId: true, playId: true, createdAt: true },
+        });
+        if (existing) return existing;
+      }
+      throw error;
     }
   }
 
-  const event = await prisma.roomPlayEvent.create({
-    data: {
-      roomId,
-      trackId,
-      type,
-      playId: playId ?? null,
-      addedByParticipantId: addedByParticipantId ?? null,
-    },
-  });
+  const event = await prisma.roomPlayEvent.create({ data });
   return event;
 }

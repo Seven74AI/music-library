@@ -459,6 +459,38 @@ describe("listLibraryUserTracks most-played sorts", () => {
     expect(page2.pagination.hasNext).toBe(false);
   });
 
+  test("rejects a malformed most-played cursor instead of replaying page 1", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("One");
+    await addToLibrary(user.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
+    await seedCompleted(user.id, track.id, new Date("2026-09-01T12:00:00.000Z"), 1);
+
+    await expect(
+      listLibraryUserTracks({
+        userId: user.id,
+        sort: "mostPlayedEver",
+        cursor: "not-a-valid-cursor",
+        limit: 10,
+      }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
+  test("rejects dateAdded cursor when userTrack id is out of scope", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const other = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("Scoped");
+    const otherUt = await addToLibrary(other.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
+
+    await expect(
+      listLibraryUserTracks({
+        userId: user.id,
+        sort: "dateAdded",
+        cursor: otherUt.id,
+        limit: 10,
+      }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
   test("mostPlayedEver respects hasAudioOnly filter", async () => {
     const user = await prisma.user.create({ data: createUser() });
     const playable = await createTrack("Playable");

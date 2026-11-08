@@ -763,6 +763,7 @@ model RoomPlayEvent {
   playId               String?
   createdAt            DateTime @default(now())
 
+  @@unique([roomId, playId, type])
   @@index([roomId, createdAt])
   @@index([trackId])
   @@index([type, createdAt])

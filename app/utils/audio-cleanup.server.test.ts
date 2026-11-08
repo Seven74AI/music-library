@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { deleteFile } from "#app/utils/storage.server.ts";
-import { deleteUnreferencedObjectKeys } from "./audio-cleanup.server.ts";
+import {
+  cleanupFailedUploadArtifacts,
+  deleteUnreferencedObjectKeys,
+} from "./audio-cleanup.server.ts";
 
 vi.mock("#app/utils/db.server.ts", () => ({
   prisma: {
@@ -22,6 +25,45 @@ beforeEach(() => {
   vi.clearAllMocks();
   findMany.mockResolvedValue([]);
   deleteFileMock.mockResolvedValue(undefined);
+});
+
+describe("cleanupFailedUploadArtifacts", () => {
+  test("deletes newly uploaded audio and cover keys, not hash-reused audio", async () => {
+    await cleanupFailedUploadArtifacts(
+      {
+        objectKey: "audio/tracks/local/new.mp3",
+        contentHash: "h",
+        audioFingerprint: null,
+        isDuplicate: false,
+      },
+      {
+        kind: "new",
+        objectKey: "covers/new.jpg",
+        contentHash: "ch",
+        width: 1,
+        height: 1,
+        format: "jpg",
+        fileSize: 1,
+      },
+    );
+
+    expect(deleteFileMock).toHaveBeenCalledWith("covers/new.jpg");
+    expect(deleteFileMock).toHaveBeenCalledWith("audio/tracks/local/new.mp3");
+  });
+
+  test("skips audio cleanup when the upload reused an existing object", async () => {
+    await cleanupFailedUploadArtifacts(
+      {
+        objectKey: "audio/tracks/local/existing.mp3",
+        contentHash: "h",
+        audioFingerprint: null,
+        isDuplicate: true,
+      },
+      null,
+    );
+    expect(findMany).not.toHaveBeenCalled();
+    expect(deleteFileMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("deleteUnreferencedObjectKeys", () => {

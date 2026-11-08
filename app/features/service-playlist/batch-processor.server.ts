@@ -664,19 +664,19 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       }
     }
 
-    // Batch upsert tracks
-    const trackPromises = trackDataBatch
-      .filter(({ serviceId: sid, externalId: eid }) => {
-        // Filter out any entries with invalid IDs (shouldn't happen, but safety check)
-        if (!sid || !eid || eid.trim() === "") {
-          console.warn(
-            `Skipping track upsert with invalid IDs: serviceId=${sid}, externalId=${eid}`,
-          );
-          return false;
-        }
-        return true;
-      })
-      .map(async ({ serviceId: sid, externalId: eid, trackData: td }) => {
+    // Batch upsert tracks — pair each upserted track with its source row so a
+    // filtered middle entry cannot shift positions/deletion flags onto the wrong track.
+    const validTrackEntries = trackDataBatch.filter(({ serviceId: sid, externalId: eid }) => {
+      // Filter out any entries with invalid IDs (shouldn't happen, but safety check)
+      if (!sid || !eid || eid.trim() === "") {
+        console.warn(`Skipping track upsert with invalid IDs: serviceId=${sid}, externalId=${eid}`);
+        return false;
+      }
+      return true;
+    });
+
+    const pairedTrackUpserts = validTrackEntries.map(
+      async ({ serviceId: sid, externalId: eid, trackData: td, position, item }) => {
         // Final validation: ensure both serviceId and externalId are non-empty strings
         // SQLite unique indexes on nullable columns require non-null, non-empty values for upsert
         if (!sid || !eid || sid.trim() === "" || eid.trim() === "") {
@@ -718,7 +718,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           }).filter(([, value]) => value !== null && value !== undefined),
         );
 
-        return tx.track.upsert({
+        const track = await tx.track.upsert({
           where: {
             serviceId_externalId: {
               serviceId: sid,
@@ -728,9 +728,16 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           update: updateData,
           create: createData,
         });
-      });
 
-    const tracks = await Promise.all(trackPromises);
+        return {
+          track,
+          trackData: { serviceId: sid, externalId: eid, trackData: td, position, item },
+        };
+      },
+    );
+
+    const pairedTracks = await Promise.all(pairedTrackUpserts);
+    const tracks = pairedTracks.map((row) => row.track);
 
     // Auto-enqueue ArchiveJobs for tracks that have a serviceUrl
     // (external service tracks, e.g. YouTube — not local uploads)
@@ -758,10 +765,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     }
 
     // Batch upsert playlist tracks with deletion status
-    const playlistTrackPromises = tracks.map(async (track, index) => {
-      const trackData = trackDataBatch[index];
-      if (!trackData) return null;
-
+    const playlistTrackPromises = pairedTracks.map(async ({ track, trackData }) => {
       // Use the item stored with trackData to avoid index mismatch when items are skipped
       const item = trackData.item;
       const isDeleted = item ? trackProcessor.isUnavailableVideo(item) : false;

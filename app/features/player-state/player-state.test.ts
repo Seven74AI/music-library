@@ -65,6 +65,31 @@ describe("player-state resource", () => {
     });
   });
 
+  test("GET sanitizes invalid stored loopMode via schema", async () => {
+    const { userId, cookie } = await createUserCookie();
+    await prisma.playerState.create({
+      data: {
+        userId,
+        playContext: null,
+        currentTrackId: null,
+        upNextIds: "[]",
+        shuffleSeed: null,
+        loopMode: "bogus",
+      },
+    });
+
+    const response = await loader({
+      request: loadRequest(cookie),
+      params: {},
+      context: {},
+    } as never);
+
+    expect((response as Response).ok).toBe(true);
+    const body = (await (response as Response).json()) as PlayerStateData;
+    expect(body.loopMode).toBe("off");
+    expect(body.upNextIds).toEqual([]);
+  });
+
   test("save/load round-trips the persisted queue", async () => {
     const { userId, cookie } = await createUserCookie();
 

@@ -27,6 +27,25 @@ describe("getEnv", () => {
 });
 
 describe("validateEnv", () => {
+  test("production rejects PLAYWRIGHT_TEST_BASE_URL", () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const env = {
+      ...process.env,
+      TOKEN_ENCRYPTION_KEY: "unit-test-production-token-encryption-key",
+      PLAYWRIGHT_TEST_BASE_URL: "http://localhost:3000/",
+    };
+
+    try {
+      expect(validateEnv(env).success).toBe(false);
+      const { PLAYWRIGHT_TEST_BASE_URL: _playwright, ...withoutPlaywright } = env;
+      expect(validateEnv(withoutPlaywright).success).toBe(true);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
   test("production requires TOKEN_ENCRYPTION_KEY and rejects the dev placeholder and short keys", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";

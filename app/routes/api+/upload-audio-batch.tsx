@@ -22,6 +22,7 @@ import {
   getOrCreateAlbumTx,
   getOrCreateAlbum,
 } from "#app/utils/cover-management.server";
+import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
@@ -396,6 +397,9 @@ async function processFilesAsync(
     async (file): Promise<{ success: boolean; trackId?: string; error?: string }> => {
       const fileId = `file-${file.sourceIndex}`;
 
+      let preparedAudio: Awaited<ReturnType<typeof prepareTrackAudioUpload>> | null = null;
+      let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+
       try {
         // Use user metadata if provided, otherwise use extracted metadata
         const title = file.userMetadata?.title || file.metadata.title;
@@ -426,7 +430,7 @@ async function processFilesAsync(
         const uploadEndProgress = 50;
         const uploadProgressRange = uploadEndProgress - uploadStartProgress;
 
-        const preparedAudio = await prepareTrackAudioUpload({
+        const audioPrepared = await prepareTrackAudioUpload({
           trackId,
           serviceName: LOCAL_SERVICE.NAME,
           buffer: file.buffer,
@@ -455,11 +459,12 @@ async function processFilesAsync(
             }
           },
         });
+        preparedAudio = audioPrepared;
 
         // Log duplicate detection
-        if (preparedAudio.isDuplicate && preparedAudio.duplicateTrack) {
+        if (audioPrepared.isDuplicate && audioPrepared.duplicateTrack) {
           console.warn(
-            `⚠️  Duplicate: "${file.fileName}" has same audio as "${preparedAudio.duplicateTrack.title}" by ${preparedAudio.duplicateTrack.artist.name}`,
+            `⚠️  Duplicate: "${file.fileName}" has same audio as "${audioPrepared.duplicateTrack.title}" by ${audioPrepared.duplicateTrack.artist.name}`,
           );
         }
 
@@ -483,7 +488,6 @@ async function processFilesAsync(
         // SQLite serializes writers, so holding the write lock across sharp + a network
         // upload can trip the transaction timeout and roll back DB writes after the
         // object was already uploaded (leaving an orphaned Tigris object).
-        let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
         if (file.metadata.coverImage) {
           try {
             preparedCover = await prepareCoverImageUpload({
@@ -582,7 +586,7 @@ async function processFilesAsync(
               uploadedBy: userId,
               buffer: file.buffer,
             },
-            preparedAudio,
+            audioPrepared,
             tx,
           );
 
@@ -604,12 +608,12 @@ async function processFilesAsync(
             fileName: file.fileName,
             title: track.title,
             artist: artistRecord.name,
-            storageSavedBytes: preparedAudio.isDuplicate ? file.buffer.length : undefined,
-            exactDuplicate: preparedAudio.isDuplicate
+            storageSavedBytes: audioPrepared.isDuplicate ? file.buffer.length : undefined,
+            exactDuplicate: audioPrepared.isDuplicate
               ? {
-                  trackId: preparedAudio.duplicateTrack!.id,
-                  title: preparedAudio.duplicateTrack!.title,
-                  artist: preparedAudio.duplicateTrack!.artist.name,
+                  trackId: audioPrepared.duplicateTrack!.id,
+                  title: audioPrepared.duplicateTrack!.title,
+                  artist: audioPrepared.duplicateTrack!.artist.name,
                   confidence: 100, // Content hash match is 100% confidence
                 }
               : undefined,
@@ -623,6 +627,7 @@ async function processFilesAsync(
 
         return result;
       } catch (error) {
+        await cleanupFailedUploadArtifacts(preparedAudio, preparedCover);
         const errorMessage = error instanceof Error ? error.message : "Failed to upload file";
         await updateFileProgress(uploadId, fileId, 0, "failed", errorMessage);
 

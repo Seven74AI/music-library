@@ -17,6 +17,7 @@ import {
 import { type PlaylistsIndexOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { assertValidIdCursor } from "#app/utils/search-validation.server.ts";
 import { cn } from "#app/utils/misc.tsx";
 import { parseSortDirection, type SortDirection } from "#app/utils/sort-direction.ts";
 import { type Prisma } from "#prisma/client.js";
@@ -82,6 +83,17 @@ export async function loader({ request, url }: Route.LoaderArgs) {
         }
       : {}),
   };
+
+  assertValidIdCursor(cursor);
+  if (cursor) {
+    const anchor = await prisma.userPlaylist.findFirst({
+      where: { id: cursor, ownerId: userId },
+      select: { id: true },
+    });
+    if (!anchor) {
+      throw data({ error: "Invalid cursor" }, { status: 400 });
+    }
+  }
 
   // Fetch one extra row to know whether another page exists without a second
   // query. Cursor pagination is keyset-style: the `id` tiebreaker keeps the

@@ -12,6 +12,10 @@ import {
 } from "#app/utils/discover.ts";
 import { type SortDirection } from "#app/utils/sort-direction.ts";
 import { getTrackPopularityStats, getTrackPlayCounts } from "#app/utils/track-popularity.server.ts";
+import {
+  assertValidIdCursor,
+  INVALID_CURSOR_FORMAT_MESSAGE,
+} from "#app/utils/search-validation.server.ts";
 
 // Re-export shared types and functions for server use
 export {
@@ -98,6 +102,17 @@ export async function listDiscoverTracks({
   }
 
   const orderBy = getOrderByForSort(sort, direction);
+
+  assertValidIdCursor(cursor);
+  if (cursor) {
+    const anchor = await prisma.track.findUnique({
+      where: { id: cursor },
+      select: { id: true },
+    });
+    if (!anchor) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+  }
 
   const tracksRaw = await prisma.track.findMany({
     select: TRACK_SELECT,
@@ -238,6 +253,17 @@ async function aggregateOrderedTrackIds({
   cursor: string | null | undefined;
   limit: number;
 }): Promise<AggregatePage> {
+  assertValidIdCursor(cursor);
+  if (cursor) {
+    const anchor = await prisma.track.findUnique({
+      where: { id: cursor },
+      select: { id: true },
+    });
+    if (!anchor) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+  }
+
   const desc = direction !== "asc";
   const cntDir = desc ? "DESC" : "ASC";
   const createdDir = desc ? "DESC" : "ASC";
