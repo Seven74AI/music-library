@@ -27,7 +27,8 @@ export function calculateSimilarity(normalized1: string, normalized2: string): n
  */
 export function isFuzzyMatch(normalized1: string, normalized2: string): boolean {
   const distance = calculateSimilarity(normalized1, normalized2);
-  const threshold = normalized1.length < 10 ? FUZZY_THRESHOLD_SHORT : FUZZY_THRESHOLD_LONG;
+  const minLen = Math.min(normalized1.length, normalized2.length);
+  const threshold = minLen < 10 ? FUZZY_THRESHOLD_SHORT : FUZZY_THRESHOLD_LONG;
   return distance > 0 && distance <= threshold;
 }
 

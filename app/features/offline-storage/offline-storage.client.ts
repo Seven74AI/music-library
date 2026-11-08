@@ -185,8 +185,15 @@ export function createOfflineStorage(
     await audioStore.delete(trackId, record?.audioFormat);
     await metadataStore.delete(trackId);
     if (record?.coverObjectKey) {
-      const { deleteCachedCover } = await import("./cover-cache.client.ts");
-      await deleteCachedCover(record.coverObjectKey);
+      const remaining = await metadataStore.list();
+      const coverStillReferenced = remaining.some(
+        (summary) =>
+          summary.trackId !== trackId && summary.coverObjectKey === record.coverObjectKey,
+      );
+      if (!coverStillReferenced) {
+        const { deleteCachedCover } = await import("./cover-cache.client.ts");
+        await deleteCachedCover(record.coverObjectKey);
+      }
     }
   }
 
@@ -233,7 +240,15 @@ export function createOfflineStorage(
           await metadataStore.touch(track.id);
           return;
         }
+        const wasPinned = existing.isPinned;
         await metadataStore.delete(track.id);
+        const buffer = await fetchAudioBytes(track.id);
+        await storeTrack(track, buffer, {
+          pin: wasPinned,
+          queue: true,
+          playlistId: existing.playlistIds[0],
+        });
+        return;
       }
       const buffer = await fetchAudioBytes(track.id);
       await storeTrack(track, buffer, { pin: false, queue: true });

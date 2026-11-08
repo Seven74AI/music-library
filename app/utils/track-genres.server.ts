@@ -148,8 +148,12 @@ export async function replaceTrackGenresFromStrings(
   if (names.length === 0) return;
 
   const genreIds: string[] = [];
+  const seenGenreIds = new Set<string>();
   for (const name of names) {
-    genreIds.push(await findOrCreateGenre(tx, name));
+    const genreId = await findOrCreateGenre(tx, name);
+    if (seenGenreIds.has(genreId)) continue;
+    seenGenreIds.add(genreId);
+    genreIds.push(genreId);
   }
 
   await tx.$executeRaw`

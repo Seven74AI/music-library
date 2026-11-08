@@ -126,6 +126,37 @@ describe("rankPlayCompletedTracks", () => {
     expect(ranked[29]?.trackId).toBe(trackIds[29]);
     expect(ranked[29]?.listenCount).toBe(6);
   }, 15000);
+
+  test("fills the cap after dropping deleted track ids", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const { windowStart, windowEndExclusive } = yearMonthToUtcWindow("2026-08");
+    const kept = await createTrack("Kept");
+    for (let i = 0; i < 31; i++) {
+      await recordCompleted({
+        userId: user.id,
+        trackId: kept.id,
+        createdAt: new Date(Date.UTC(2026, 7, 1, 0, i)),
+      });
+    }
+    for (let i = 0; i < 29; i++) {
+      await recordCompleted({
+        userId: user.id,
+        trackId: `ghost-${i}`,
+        createdAt: new Date(Date.UTC(2026, 7, 2, 0, i)),
+      });
+    }
+
+    const ranked = await rankPlayCompletedTracks({
+      userId: user.id,
+      windowStart,
+      windowEndExclusive,
+      limit: 5,
+    });
+
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]?.trackId).toBe(kept.id);
+    expect(ranked[0]?.listenCount).toBe(31);
+  });
 });
 
 describe("generateOnRepeatSnapshotForUser", () => {

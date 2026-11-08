@@ -21,6 +21,7 @@ import {
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
+import { backfillTrackMetadata } from "#app/features/track-audio-ingest/backfill-track-metadata.server.ts";
 import { pickIntField } from "#app/utils/track-metadata-int.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -254,6 +255,8 @@ export async function action({ request }: ActionFunctionArgs) {
       return { track };
     });
     transactionCommitted = true;
+
+    await backfillTrackMetadata(result.track.id, extractedMetadata);
 
     // Fetch artist name for response
     const artistRecord = await prisma.artist.findUnique({

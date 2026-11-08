@@ -93,11 +93,12 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  const { trackIds, changes, comment } = parseResult.data;
+  const { trackIds: rawTrackIds, changes, comment } = parseResult.data;
+  const uniqueTrackIds = [...new Set(rawTrackIds)];
 
   // Validate all tracks exist first (all-or-nothing approach)
   const tracks = await prisma.track.findMany({
-    where: { id: { in: trackIds } },
+    where: { id: { in: uniqueTrackIds } },
     select: {
       id: true,
       title: true,
@@ -125,9 +126,9 @@ export async function action({ request }: Route.ActionArgs) {
   });
 
   // Check if all tracks exist
-  if (tracks.length !== trackIds.length) {
+  if (tracks.length !== uniqueTrackIds.length) {
     const foundIds = new Set(tracks.map((t) => t.id));
-    const missingIds = trackIds.filter((id) => !foundIds.has(id));
+    const missingIds = uniqueTrackIds.filter((id) => !foundIds.has(id));
     return data(
       {
         error: "Some tracks not found",
@@ -250,16 +251,16 @@ export async function action({ request }: Route.ActionArgs) {
 
     // 3. Apply the uniform scalar changes in a single query.
     await tx.track.updateMany({
-      where: { id: { in: trackIds } },
+      where: { id: { in: uniqueTrackIds } },
       data: trackUpdateData,
     });
 
     // 4. Replace genre links for all tracks with set-based SQL (2 queries total).
     if (genreIdsToSet !== undefined) {
-      await replaceTrackGenreLinks(tx, trackIds, genreIdsToSet);
+      await replaceTrackGenreLinks(tx, uniqueTrackIds, genreIdsToSet);
     }
 
-    return trackIds.length;
+    return uniqueTrackIds.length;
   });
 
   return data({

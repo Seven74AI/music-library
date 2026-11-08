@@ -35,7 +35,8 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw new Response(result.error.message, { status: 400 });
   }
 
-  const { trackIds, newArtistName, comment } = result.data;
+  const { trackIds: rawTrackIds, newArtistName, comment } = result.data;
+  const trackIds = [...new Set(rawTrackIds)];
 
   // Fetch the original artist
   const originalArtist = await prisma.artist.findUnique({
@@ -116,6 +117,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       const tracksUpdated = await tx.track.updateMany({
         where: {
           id: { in: trackIds },
+          artistId: originalArtist.id,
         },
         data: {
           artistId: newArtist.id,

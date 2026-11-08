@@ -116,17 +116,59 @@ export async function loadCuratorCounts(): Promise<Map<string, CuratorCounts>> {
           IFNULL(genreIds, '') AS genreIds,
           ROW_NUMBER() OVER (PARTITION BY trackId ORDER BY editedAt ASC, id ASC) AS rn
         FROM TrackEdit
+      ),
+      latest AS (
+        SELECT o.*
+        FROM ordered o
+        INNER JOIN (
+          SELECT trackId, MAX(rn) AS max_rn FROM ordered GROUP BY trackId
+        ) mx ON mx.trackId = o.trackId AND o.rn = mx.max_rn
+      ),
+      live_genres AS (
+        SELECT
+          B AS trackId,
+          IFNULL(GROUP_CONCAT(A, ',' ORDER BY A), '') AS liveGenreIds
+        FROM _TrackGenres
+        GROUP BY B
+      ),
+      snapshot_genre_ids AS (
+        SELECT
+          le.trackId,
+          le.editedBy,
+          IFNULL(
+            (
+              SELECT GROUP_CONCAT(je.value, ',' ORDER BY je.value)
+              FROM json_each(le.genreIds) AS je
+              WHERE json_valid(le.genreIds)
+            ),
+            ''
+          ) AS snapshotGenreIds
+        FROM latest le
+        WHERE le.genreIds != '' AND le.genreIds != '[]'
       )
       SELECT curatorId, COUNT(*) AS count
       FROM (
-        SELECT
-          cur.editedBy AS curatorId
+        SELECT cur.editedBy AS curatorId
         FROM ordered cur
         LEFT JOIN ordered nxt
           ON nxt.trackId = cur.trackId AND nxt.rn = cur.rn + 1
+        LEFT JOIN ordered prv
+          ON prv.trackId = cur.trackId AND prv.rn = cur.rn - 1
         WHERE
-          nxt.id IS NOT NULL
-          AND (cur.genre != IFNULL(nxt.genre, '') OR cur.genreIds != IFNULL(nxt.genreIds, ''))
+          (nxt.id IS NOT NULL
+            AND (cur.genre != IFNULL(nxt.genre, '') OR cur.genreIds != IFNULL(nxt.genreIds, '')))
+          OR (
+            nxt.id IS NULL
+            AND prv.id IS NULL
+            AND (cur.genre != '' OR (cur.genreIds != '' AND cur.genreIds != '[]'))
+          )
+        UNION ALL
+        SELECT sg.editedBy AS curatorId
+        FROM snapshot_genre_ids sg
+        INNER JOIN live_genres lg ON lg.trackId = sg.trackId
+        WHERE
+          sg.snapshotGenreIds != lg.liveGenreIds
+          AND NOT (sg.snapshotGenreIds != '' AND lg.liveGenreIds = '')
       )
       GROUP BY curatorId
     `),
