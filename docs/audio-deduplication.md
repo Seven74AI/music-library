@@ -125,7 +125,7 @@ Done - 0MB uploaded, storage saved! ✅
 The database schema changes are ready but NOT yet applied. You need to run:
 
 ```bash
-npx prisma migrate deploy
+npm run migrate:deploy
 ```
 
 **OR** for development (resets the database):

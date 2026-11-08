@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import { linkGenresToTrack } from "#tests/track-genre-test-utils.ts";
 import { awardCuratorBadges, loadCuratorCounts, resetBadgeAwardCache } from "./badges.server.ts";
 
 const createdUserIds: string[] = [];
@@ -53,9 +54,9 @@ async function createTrack(title: string, genre = "Jazz") {
       artistId: artist.id,
       serviceId: service.id,
       externalId: `badge-${title}-${Math.random().toString(36).slice(2, 8)}`,
-      genre,
     },
   });
+  await linkGenresToTrack(track.id, genre);
   createdTrackIds.push(track.id);
   return { track, artist };
 }
@@ -171,14 +172,25 @@ describe("awardCuratorBadges", () => {
   test("counts merges, genre changes, and resolved user reports without awarding early", async () => {
     const curator = await createCurator("StatsCurator");
     const { track, artist } = await createTrack("Genre Track", "Jazz");
-    await prisma.trackEdit.create({
-      data: {
-        trackId: track.id,
-        editedBy: curator.id,
-        title: track.title,
-        artistId: artist.id,
-        genre: "Rock",
-      },
+    await prisma.trackEdit.createMany({
+      data: [
+        {
+          trackId: track.id,
+          editedBy: curator.id,
+          title: track.title,
+          artistId: artist.id,
+          genre: "Rock",
+          genreIds: JSON.stringify(["genre-rock"]),
+        },
+        {
+          trackId: track.id,
+          editedBy: curator.id,
+          title: track.title,
+          artistId: artist.id,
+          genre: "Jazz",
+          genreIds: JSON.stringify(["genre-jazz"]),
+        },
+      ],
     });
     await prisma.artistEdit.create({
       data: {
@@ -204,7 +216,7 @@ describe("awardCuratorBadges", () => {
     const counts = await loadCuratorCounts();
     const mine = counts.get(curator.id);
     expect(mine).toMatchObject({
-      edits: 2,
+      edits: 3,
       merges: 1,
       queueResolutions: 1,
       genreEdits: 1,

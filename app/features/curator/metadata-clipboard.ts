@@ -70,7 +70,6 @@ type DetailsTrack = {
   title: string;
   artist: { id: string; name: string };
   albumRecord: { id: string; name: string } | null;
-  genre: string | null;
   genres?: Array<{ id: string; name: string }>;
   year: number | null;
   albumArtist: string | null;
@@ -142,7 +141,7 @@ export function clipboardFromTrackDetails(track: DetailsTrack): MetadataClipboar
     artistName: track.artist.name,
     albumId: track.albumRecord?.id ?? null,
     albumName: track.albumRecord?.name ?? null,
-    genre: track.genre,
+    genre: track.genres?.[0]?.name ?? null,
     genreIds: track.genres?.map((genre) => genre.id) ?? [],
     year: track.year,
     albumArtist: track.albumArtist,

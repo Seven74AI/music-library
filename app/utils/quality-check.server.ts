@@ -25,7 +25,6 @@ export async function runQualityCheck() {
         title: true,
         artistId: true,
         albumId: true,
-        genre: true,
         genres: { select: { id: true } },
         duration: true,
         coverImage: {
@@ -58,9 +57,7 @@ export async function runQualityCheck() {
         });
       }
 
-      // Check for missing genre (ADR-037: multi-genre via the `genres` relation —
-      // only flag when BOTH the legacy scalar and the relation are empty).
-      if ((!track.genre || track.genre.trim() === "") && track.genres.length === 0) {
+      if (track.genres.length === 0) {
         issues.push({
           trackId: track.id,
           issueType: "missing_info",

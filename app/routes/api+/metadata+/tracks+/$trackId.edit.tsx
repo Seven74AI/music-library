@@ -7,6 +7,7 @@ import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action
 import {
   primaryGenreName,
   resolveOrderedGenres,
+  resolveOrderedGenresFromNames,
   snapshotGenreIds,
   type GenreRef,
 } from "#app/utils/track-genres.server.ts";
@@ -76,7 +77,6 @@ export async function action({ request, params }: Route.ActionArgs) {
       title: true,
       artistId: true,
       albumId: true,
-      genre: true,
       genres: {
         select: {
           id: true,
@@ -142,6 +142,16 @@ export async function action({ request, params }: Route.ActionArgs) {
       throw data({ error: "One or more genres not found" }, { status: 404 });
     }
     nextGenres = resolved.genres;
+  } else if (editData.genre !== undefined) {
+    if (editData.genre === null || editData.genre.trim() === "") {
+      nextGenres = [];
+    } else {
+      const resolved = await resolveOrderedGenresFromNames([editData.genre]);
+      if (!resolved.ok) {
+        throw data({ error: "Failed to resolve genre" }, { status: 400 });
+      }
+      nextGenres = resolved.genres;
+    }
   }
 
   // Parse dates
@@ -160,8 +170,8 @@ export async function action({ request, params }: Route.ActionArgs) {
         title: track.title,
         artistId: track.artistId,
         albumId: track.albumId,
-        genre: track.genre,
-        genreIds: snapshotGenreIds(track.genres, track.genre),
+        genre: primaryGenreName(track.genres ?? []),
+        genreIds: snapshotGenreIds(track.genres),
         year: track.year,
         trackNumber: track.trackNumber,
         albumArtist: track.albumArtist,
@@ -193,12 +203,6 @@ export async function action({ request, params }: Route.ActionArgs) {
         title: editData.title,
         artistId: editData.artistId,
         albumId: editData.albumId === undefined ? track.albumId : editData.albumId,
-        genre:
-          nextGenres !== undefined
-            ? primaryGenreName(nextGenres)
-            : editData.genre === undefined
-              ? track.genre
-              : editData.genre,
         year: editData.year === undefined ? track.year : editData.year,
         trackNumber: editData.trackNumber === undefined ? track.trackNumber : editData.trackNumber,
         albumArtist: editData.albumArtist === undefined ? track.albumArtist : editData.albumArtist,

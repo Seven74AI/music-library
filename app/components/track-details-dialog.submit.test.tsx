@@ -53,7 +53,6 @@ const track = {
   coverImage: null,
   service: null,
   serviceUrl: null,
-  genre: null,
   genres: [] as Array<{ id: string; name: string }>,
   year: null,
   trackNumber: null,

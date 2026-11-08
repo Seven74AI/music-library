@@ -67,7 +67,6 @@ const track: TrackDetails = {
   coverImage: null,
   service: null,
   serviceUrl: null,
-  genre: null,
   genres: [],
   year: 2023,
   trackNumber: null,

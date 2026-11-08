@@ -430,7 +430,6 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
         where: { id: "track-1" },
         data: expect.objectContaining({
           title: "Old Title",
-          genre: "Jazz",
           genres: { set: [{ id: "genre-jazz" }, { id: "genre-soul" }] },
         }),
       }),
@@ -438,8 +437,8 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     expect(mockTrackEditCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          genre: "Rock",
-          genreIds: JSON.stringify(["genre-rock", "genre-pop"]),
+          genre: "Pop",
+          genreIds: JSON.stringify(["genre-pop", "genre-rock"]),
         }),
       }),
     );
@@ -497,10 +496,13 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
       albumRecord: null,
     });
 
+    const mockExecuteRaw = vi.fn().mockResolvedValue(0);
     vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
       return callback({
         trackEdit: { create: vi.fn().mockResolvedValue({ id: "edit-2", user: {} }) },
-        track: { update: mockTrackUpdate },
+        track: { update: mockTrackUpdate, findUnique: vi.fn().mockResolvedValue({}) },
+        genre: { findFirst: vi.fn().mockResolvedValue({ id: "genre-jazz", name: "Jazz" }) },
+        $executeRaw: mockExecuteRaw,
       });
     });
 
@@ -512,7 +514,6 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     );
 
     const updateCall = mockTrackUpdate.mock.calls[0]?.[0];
-    expect(updateCall.data.genre).toBe("Jazz");
     expect(updateCall.data.genres).toBeUndefined();
     expect(prisma.genre.findMany).not.toHaveBeenCalled();
   });
@@ -585,7 +586,6 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     expect(mockTrackUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          genre: null,
           genres: { set: [] },
         }),
       }),

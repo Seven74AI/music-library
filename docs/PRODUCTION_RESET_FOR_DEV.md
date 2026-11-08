@@ -105,7 +105,7 @@ Destroyed volumes may show as **pending destroy** in the Fly dashboard for a whi
 
 ### 4. Start the new machine (if needed)
 
-Once the old machine and volume are gone, the clone should become the LiteFS primary, run `npx prisma migrate deploy`, and start the app.
+Once the old machine and volume are gone, the clone should become the LiteFS primary, run `npm run migrate:deploy`, and start the app.
 
 If health checks are still failing after a minute, restart the new machine:
 

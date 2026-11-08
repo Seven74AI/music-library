@@ -124,13 +124,9 @@ export async function loadCuratorCounts(): Promise<Map<string, CuratorCounts>> {
         FROM ordered cur
         LEFT JOIN ordered nxt
           ON nxt.trackId = cur.trackId AND nxt.rn = cur.rn + 1
-        LEFT JOIN Track t ON t.id = cur.trackId AND nxt.id IS NULL
         WHERE
-          (
-            nxt.id IS NOT NULL
-            AND (cur.genre != IFNULL(nxt.genre, '') OR cur.genreIds != IFNULL(nxt.genreIds, ''))
-          )
-          OR (nxt.id IS NULL AND cur.genre != IFNULL(t.genre, ''))
+          nxt.id IS NOT NULL
+          AND (cur.genre != IFNULL(nxt.genre, '') OR cur.genreIds != IFNULL(nxt.genreIds, ''))
       )
       GROUP BY curatorId
     `),

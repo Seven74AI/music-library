@@ -8,6 +8,7 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { linkGenresToTrack } from "#tests/track-genre-test-utils.ts";
 import { loader } from "./database-quality.tsx";
 
 async function createAdminSession() {
@@ -66,7 +67,6 @@ async function createTestData() {
         externalId: `complete-${uniqueId}`,
         duration: 180000,
         year: 2020,
-        genre: "Rock",
         lyrics: "Test lyrics",
       },
       {
@@ -79,6 +79,13 @@ async function createTestData() {
       },
     ],
   });
+
+  const completeTrack = await prisma.track.findFirst({
+    where: { externalId: `complete-${uniqueId}` },
+  });
+  if (completeTrack) {
+    await linkGenresToTrack(completeTrack.id, "Rock");
+  }
 
   const trackWithAudio = await prisma.track.findFirst({
     where: { externalId: `audio-${uniqueId}` },
