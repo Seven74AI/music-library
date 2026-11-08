@@ -367,9 +367,13 @@ describe("processQueueTick", () => {
         }),
       );
       expect(mockPrisma.track.update).not.toHaveBeenCalled();
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "job-1" },
+          where: expect.objectContaining({
+            id: "job-1",
+            status: "processing",
+            lastAttemptAt: expect.any(Date),
+          }),
           data: { status: "completed" },
         }),
       );
@@ -437,9 +441,12 @@ describe("processQueueTick", () => {
       await processQueueTick();
 
       expect(mockPersistTrackAudio).toHaveBeenCalled();
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "job-persist-ok" },
+          where: expect.objectContaining({
+            id: "job-persist-ok",
+            status: "processing",
+          }),
           data: { status: "completed" },
         }),
       );
@@ -1194,6 +1201,46 @@ describe("processQueueTick", () => {
         where: { id: "job-claim", status: "pending" },
         data: { status: "processing", lastAttemptAt: expect.any(Date) },
       });
+    });
+
+    it("does not mark completed when the conditional completion update matches 0 rows", async () => {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-zombie",
+          status: "pending",
+          priority: false,
+          retryCount: 0,
+          errorHistory: "[]",
+          track: {
+            id: "track-zombie",
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=zombiexxxxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: "track-zombie" });
+      mockPrisma.archiveJob.updateMany.mockImplementation((args) => {
+        if (args?.data?.status === "completed") return Promise.resolve({ count: 0 });
+        if (args?.where?.status === "pending" && args?.data?.status === "processing") {
+          return Promise.resolve({ count: 1 });
+        }
+        return Promise.resolve({ count: 1 });
+      });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockPersistTrackAudio).toHaveBeenCalled();
+      const completionCall = mockPrisma.archiveJob.updateMany.mock.calls.find(
+        (call) => call[0]?.data?.status === "completed",
+      );
+      expect(completionCall?.[0]?.where).toEqual(
+        expect.objectContaining({ id: "job-zombie", status: "processing" }),
+      );
+      expect(mockPrisma.archiveJob.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: "completed" } }),
+      );
     });
 
     it("skips the job when the atomic claim updates 0 rows (lost race)", async () => {

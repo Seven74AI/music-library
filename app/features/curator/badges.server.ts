@@ -133,6 +133,7 @@ export async function loadCuratorCounts(): Promise<Map<string, CuratorCounts>> {
       ),
       snapshot_genre_ids AS (
         SELECT
+          le.id AS editId,
           le.trackId,
           le.editedBy,
           IFNULL(
@@ -148,7 +149,7 @@ export async function loadCuratorCounts(): Promise<Map<string, CuratorCounts>> {
       )
       SELECT curatorId, COUNT(*) AS count
       FROM (
-        SELECT cur.editedBy AS curatorId
+        SELECT cur.id AS editId, cur.editedBy AS curatorId
         FROM ordered cur
         LEFT JOIN ordered nxt
           ON nxt.trackId = cur.trackId AND nxt.rn = cur.rn + 1
@@ -163,7 +164,7 @@ export async function loadCuratorCounts(): Promise<Map<string, CuratorCounts>> {
             AND (cur.genre != '' OR (cur.genreIds != '' AND cur.genreIds != '[]'))
           )
         UNION
-        SELECT sg.editedBy AS curatorId
+        SELECT sg.editId, sg.editedBy AS curatorId
         FROM snapshot_genre_ids sg
         INNER JOIN live_genres lg ON lg.trackId = sg.trackId
         WHERE

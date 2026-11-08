@@ -248,11 +248,12 @@ async function processJob(
   // Atomically claim the job. A conditional updateMany is a single SQL
   // statement, so two instances racing on the same pending job can't both
   // claim it — one gets count 0 and skips (no duplicate download/upload).
+  const claimAttemptAt = new Date();
   const claim = await prisma.archiveJob.updateMany({
     where: { id: jobId, status: "pending" },
     data: {
       status: "processing",
-      lastAttemptAt: new Date(),
+      lastAttemptAt: claimAttemptAt,
     },
   });
 
@@ -318,11 +319,13 @@ async function processJob(
       extension,
     });
 
-    // 3. Mark job as completed
-    await prisma.archiveJob.update({
-      where: { id: jobId },
+    // 3. Mark job as completed only if this worker still owns the claim.
+    const completed = await prisma.archiveJob.updateMany({
+      where: { id: jobId, status: "processing", lastAttemptAt: claimAttemptAt },
       data: { status: "completed" },
     });
+
+    if (completed.count === 0) return;
 
     recordArchiveSuccess();
 

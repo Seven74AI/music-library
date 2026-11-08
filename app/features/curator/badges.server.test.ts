@@ -169,6 +169,37 @@ describe("awardCuratorBadges", () => {
     ).toEqual(["first_edit"]);
   });
 
+  test("counts each distinct genre edit across tracks separately", async () => {
+    const curator = await createCurator("MultiGenre");
+    const trackA = await createTrack("Genre Track A", "Jazz");
+    const trackB = await createTrack("Genre Track B", "Rock");
+    const jazzGenre = await prisma.genre.findFirst({ where: { name: "Jazz" } });
+    const rockGenre = await prisma.genre.findFirst({ where: { name: "Rock" } });
+    await prisma.trackEdit.createMany({
+      data: [
+        {
+          trackId: trackA.track.id,
+          editedBy: curator.id,
+          title: trackA.track.title,
+          artistId: trackA.artist.id,
+          genre: "Electronic",
+          genreIds: JSON.stringify([jazzGenre?.id ?? "genre-electronic"]),
+        },
+        {
+          trackId: trackB.track.id,
+          editedBy: curator.id,
+          title: trackB.track.title,
+          artistId: trackB.artist.id,
+          genre: "Classical",
+          genreIds: JSON.stringify([rockGenre?.id ?? "genre-classical"]),
+        },
+      ],
+    });
+
+    const counts = await loadCuratorCounts();
+    expect(counts.get(curator.id)?.genreEdits).toBe(2);
+  });
+
   test("one-shot genre edit scores genreEdits exactly once when live genres drift", async () => {
     const curator = await createCurator("GenreOnce");
     const { track, artist } = await createTrack("Once Genre Track");

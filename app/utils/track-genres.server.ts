@@ -7,12 +7,16 @@ export type GenreRef = {
   name: string;
 };
 
-type DbLike = {
+type GenreWriteClient = {
   genre: {
     findFirst: typeof prisma.genre.findFirst;
     create: typeof prisma.genre.create;
   };
   $executeRaw: typeof prisma.$executeRaw;
+};
+
+type DbLike = GenreWriteClient & {
+  $transaction?: typeof prisma.$transaction;
 };
 
 /**
@@ -111,26 +115,8 @@ export async function resolveOrderedGenres(
   return { ok: true, genres: ordered };
 }
 
-async function findOrCreateGenre(tx: DbLike, genreName: string): Promise<string> {
-  const normalizedName = normalizeGenreName(genreName);
-  const existing = await tx.genre.findFirst({
-    where: { normalizedName },
-    select: { id: true },
-  });
-  if (existing) return existing.id;
-
-  const created = await tx.genre.create({
-    data: { name: genreName, normalizedName },
-    select: { id: true },
-  });
-  return created.id;
-}
-
-/**
- * Replace a track's genre links from human-readable genre strings (audio tags, uploads).
- */
-export async function replaceTrackGenresFromStrings(
-  tx: DbLike,
+async function replaceTrackGenreLinksOnClient(
+  tx: GenreWriteClient,
   trackId: string,
   genreInput: string | string[] | null | undefined,
 ): Promise<void> {
@@ -161,4 +147,35 @@ export async function replaceTrackGenresFromStrings(
       genreIds.map((genreId) => Prisma.sql`(${genreId}, ${trackId})`),
     )}
   `;
+}
+
+async function findOrCreateGenre(tx: GenreWriteClient, genreName: string): Promise<string> {
+  const normalizedName = normalizeGenreName(genreName);
+  const existing = await tx.genre.findFirst({
+    where: { normalizedName },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const created = await tx.genre.create({
+    data: { name: genreName, normalizedName },
+    select: { id: true },
+  });
+  return created.id;
+}
+
+/**
+ * Replace a track's genre links from human-readable genre strings (audio tags, uploads).
+ */
+export async function replaceTrackGenresFromStrings(
+  client: DbLike,
+  trackId: string,
+  genreInput: string | string[] | null | undefined,
+): Promise<void> {
+  if (client.$transaction) {
+    await client.$transaction((tx) => replaceTrackGenreLinksOnClient(tx, trackId, genreInput));
+    return;
+  }
+
+  await replaceTrackGenreLinksOnClient(client, trackId, genreInput);
 }
