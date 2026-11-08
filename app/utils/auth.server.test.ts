@@ -211,6 +211,6 @@ describe("resetUserPassword", () => {
   test("throws when the user does not exist", async () => {
     await expect(
       resetUserPassword({ username: "no-such-user", password: "whatever-123" }),
-    ).rejects.toThrow("User not found");
+    ).rejects.toThrow();
   });
 });

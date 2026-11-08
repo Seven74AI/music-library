@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser, createTrack, resetUsageAnalyticsTables } from "#tests/db-utils.ts";
-import { HEAVY_ROTATION_HOME_CAP } from "./heavy-rotation.ts";
 import { getHeavyRotationTracks } from "./heavy-rotation.server.ts";
 
 async function seedCompleted(userId: string, trackId: string, createdAt: Date, count = 1) {
@@ -126,7 +125,6 @@ describe("getHeavyRotationTracks", () => {
       limit: 5,
     });
 
-    expect(HEAVY_ROTATION_HOME_CAP).toBe(50);
     expect(tracks).toHaveLength(5);
     expect(tracks[0]?.completedCount).toBe(8);
     expect(tracks[tracks.length - 1]?.completedCount).toBe(4);

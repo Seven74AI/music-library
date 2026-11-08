@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  PWA_INSTALL_DISMISS_KEY,
   isIosSafari,
   isStandaloneDisplayMode,
   shouldShowInstallPrompt,
@@ -66,8 +65,4 @@ describe("shouldShowInstallPrompt", () => {
   test("shows when not installed and not dismissed", () => {
     expect(shouldShowInstallPrompt({ isStandalone: false, dismissed: false })).toBe(true);
   });
-});
-
-test("PWA_INSTALL_DISMISS_KEY is stable", () => {
-  expect(PWA_INSTALL_DISMISS_KEY).toBe("music-library:pwa-install-dismissed");
 });

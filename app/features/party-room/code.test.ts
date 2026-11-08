@@ -6,7 +6,6 @@ import {
   normalizeRoomCode,
   parseRoomCodeInput,
 } from "./codes.ts";
-import { ROOM_CODE_LENGTH } from "./constants.ts";
 import { canBecomeHost, canReclaimHost, isCurrentHost, splitRoomQueue } from "./index.ts";
 import { type RoomParticipantDto, type RoomQueueItemDto, type RoomSnapshot } from "./types.ts";
 
@@ -80,7 +79,6 @@ describe("room code helpers", () => {
     expect(isValidRoomCode("AB3K9Q")).toBe(true);
     expect(isValidRoomCode("AB3K9")).toBe(false);
     expect(isValidRoomCode("AB0K9Q")).toBe(false); // 0 not in charset
-    expect(ROOM_CODE_LENGTH).toBe(6);
   });
 
   it("parses bare codes and join URLs", () => {

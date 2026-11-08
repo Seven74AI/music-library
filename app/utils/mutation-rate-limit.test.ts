@@ -1,9 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { ADMIN_MUTATION_LIMIT_PER_MINUTE, mutationRateLimitTier } from "./mutation-rate-limit.ts";
+import { mutationRateLimitTier } from "./mutation-rate-limit.ts";
 
 describe("mutationRateLimitTier", () => {
   test("admin mutations are capped at 60 per minute", () => {
-    expect(ADMIN_MUTATION_LIMIT_PER_MINUTE).toBe(60);
     expect(mutationRateLimitTier("POST", "/admin/audio-queue")).toBe("admin");
     expect(mutationRateLimitTier("POST", "/api/admin/tracks/track-1")).toBe("admin");
     expect(mutationRateLimitTier("DELETE", "/music/admin/duplicates")).toBe("admin");

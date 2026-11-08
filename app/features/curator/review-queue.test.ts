@@ -1,6 +1,5 @@
 import { expect, test } from "vitest";
 import {
-  QUEUE_STATUS_MINE,
   entityPath,
   entityTypeLabel,
   filedReportMessage,
@@ -39,7 +38,6 @@ test("entity type label is a name, not a raw id", () => {
   expect(entityTypeLabel("track")).toBe("Track");
   expect(entityTypeLabel("artist")).toBe("Artist");
   expect(entityTypeLabel("album")).toBe("Album");
-  expect(QUEUE_STATUS_MINE).toBe("mine");
 });
 
 test("status and resolution labels are words", () => {

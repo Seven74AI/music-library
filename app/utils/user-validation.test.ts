@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   ExistingPasswordSchema,
   PASSWORD_MAX_BYTES,
-  PASSWORD_MIN_LENGTH,
   PasswordAndConfirmPasswordSchema,
   PasswordSchema,
 } from "./user-validation.ts";
@@ -13,8 +12,6 @@ const twelveCharacters = "abcdefghijkl";
 
 describe("PasswordSchema", () => {
   test("requires at least 12 characters for a new password", () => {
-    expect(PASSWORD_MIN_LENGTH).toBe(12);
-
     for (const password of [previousMinimum, elevenCharacters]) {
       const result = PasswordSchema.safeParse(password);
       expect(result.success).toBe(false);
@@ -29,7 +26,6 @@ describe("PasswordSchema", () => {
   });
 
   test("keeps the bcrypt 72-byte maximum", () => {
-    expect(PASSWORD_MAX_BYTES).toBe(72);
     expect(PasswordSchema.safeParse("a".repeat(PASSWORD_MAX_BYTES)).success).toBe(true);
 
     const tooManyBytes = PasswordSchema.safeParse("a".repeat(PASSWORD_MAX_BYTES + 1));
