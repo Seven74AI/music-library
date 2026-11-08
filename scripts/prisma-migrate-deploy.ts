@@ -7,12 +7,15 @@
 import "dotenv/config";
 import { execSync } from "node:child_process";
 
-async function main() {
+export async function runPrismaMigrateDeploy(
+  exec: typeof execSync = execSync,
+): Promise<void> {
   // CI and fresh checkouts run migrate before `prisma generate --sql`; the backfill needs the client.
-  execSync("npx prisma generate", { stdio: "inherit", env: process.env });
+  exec("npx prisma generate", { stdio: "inherit", env: process.env });
 
-  const { backfillLegacyTrackGenresIfNeeded } =
-    await import("../app/utils/genre-migration.server.ts");
+  const { backfillLegacyTrackGenresIfNeeded } = await import(
+    "../app/utils/genre-migration.server.ts"
+  );
   const { ran, result } = await backfillLegacyTrackGenresIfNeeded();
   if (ran) {
     console.log(
@@ -20,7 +23,11 @@ async function main() {
     );
   }
 
-  execSync("npx prisma migrate deploy", { stdio: "inherit", env: process.env });
+  exec("npx prisma migrate deploy", { stdio: "inherit", env: process.env });
+}
+
+async function main() {
+  await runPrismaMigrateDeploy();
 }
 
 main().catch((error) => {
