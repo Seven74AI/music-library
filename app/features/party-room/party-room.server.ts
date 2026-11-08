@@ -98,11 +98,13 @@ async function reactivateParticipantWithCapacityCheck({
   roomId,
   participantId,
   userId,
+  guestTokenHash,
   data,
 }: {
   roomId: string;
   participantId: string;
   userId?: string;
+  guestTokenHash?: string | null;
   data: {
     leftAt: null;
     lastSeenAt: Date;
@@ -115,6 +117,24 @@ async function reactivateParticipantWithCapacityCheck({
       const seatedElsewhere = await tx.roomParticipant.findFirst({
         where: {
           userId,
+          leftAt: null,
+          room: { status: ROOM_STATUS.open },
+          NOT: { roomId },
+        },
+        select: { id: true },
+      });
+      if (seatedElsewhere) {
+        throw new PartyRoomError(
+          "already_in_room",
+          "Leave your current room before joining another",
+          409,
+        );
+      }
+    }
+    if (guestTokenHash) {
+      const seatedElsewhere = await tx.roomParticipant.findFirst({
+        where: {
+          guestTokenHash,
           leftAt: null,
           room: { status: ROOM_STATUS.open },
           NOT: { roomId },
@@ -658,6 +678,7 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
         ? await reactivateParticipantWithCapacityCheck({
             roomId: room.id,
             participantId: existing.id,
+            guestTokenHash: tokenHash,
             data: { leftAt: null, lastSeenAt: now, displayName, role: role as RoomRole },
           })
         : await prisma.roomParticipant.update({

@@ -200,6 +200,56 @@ describe("party-room lifecycle", () => {
     expect(activeSeats).toBe(1);
   });
 
+  test("returning guest cannot hold open seats in two rooms concurrently", async () => {
+    const hostA = await makeUser("Host A");
+    const hostB = await makeUser("Host B");
+    const roomA = await createRoom({ userId: hostA.id, displayName: "Host A" });
+    const roomB = await createRoom({ userId: hostB.id, displayName: "Host B" });
+    const guestToken = "returning-guest-token";
+
+    await joinRoom({
+      code: roomA.code,
+      actor: { type: "guest", displayName: "Traveler", guestToken },
+    });
+    await leaveRoom({
+      roomId: roomA.id,
+      actor: { type: "guest", guestToken },
+    });
+    await joinRoom({
+      code: roomB.code,
+      actor: { type: "guest", displayName: "Traveler", guestToken },
+    });
+    await leaveRoom({
+      roomId: roomB.id,
+      actor: { type: "guest", guestToken },
+    });
+
+    const outcomes = await Promise.allSettled([
+      joinRoom({
+        code: roomA.code,
+        actor: { type: "guest", displayName: "Traveler", guestToken },
+      }),
+      joinRoom({
+        code: roomB.code,
+        actor: { type: "guest", displayName: "Traveler", guestToken },
+      }),
+    ]);
+
+    const fulfilled = outcomes.filter((o) => o.status === "fulfilled");
+    const rejected = outcomes.filter((o) => o.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    if (rejected[0]?.status === "rejected") {
+      expect(rejected[0].reason).toMatchObject({ code: "already_in_room" });
+    }
+
+    expect(
+      await prisma.roomParticipant.count({
+        where: { guestTokenHash: hashGuestToken(guestToken), leftAt: null },
+      }),
+    ).toBe(1);
+  });
+
   test("signed-in user rejoin after leave does not keep a concurrent seat elsewhere", async () => {
     const hostA = await makeUser("Host A");
     const hostB = await makeUser("Host B");

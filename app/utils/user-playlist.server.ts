@@ -1,5 +1,5 @@
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { type Prisma } from "#prisma/client.js";
 
 /** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
 function isUniqueConstraintViolation(error: unknown): boolean {
@@ -207,6 +207,40 @@ export async function bumpUserPlaylistUpdatedAt({
   });
 }
 
+/**
+ * Appends tracks at the next sequential positions. MAX(position) and inserts
+ * run in one `$transaction` (serialized by the SQLite adapter mutex).
+ */
+export async function appendTracksToUserPlaylistAtNextPositions({
+  playlistId,
+  trackIds,
+}: {
+  playlistId: string;
+  trackIds: string[];
+}): Promise<void> {
+  if (trackIds.length === 0) {
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const maxPosition = await tx.userPlaylistTrack.aggregate({
+      where: { playlistId },
+      _max: { position: true },
+    });
+    let nextPosition = (maxPosition._max.position ?? -1) + 1;
+
+    for (const chunk of chunkArray(trackIds)) {
+      await tx.userPlaylistTrack.createMany({
+        data: chunk.map((trackId) => ({
+          playlistId,
+          trackId,
+          position: nextPosition++,
+        })),
+      });
+    }
+  });
+}
+
 export async function addTrackToUserPlaylist({
   userId,
   playlistId,
@@ -236,23 +270,7 @@ export async function addTrackToUserPlaylist({
     }
   }
 
-  const appendTrackAtNextPosition = async (tx: Prisma.TransactionClient) => {
-    const maxPosition = await tx.userPlaylistTrack.aggregate({
-      where: { playlistId },
-      _max: { position: true },
-    });
-
-    await tx.userPlaylistTrack.create({
-      data: {
-        playlistId,
-        trackId,
-        position: (maxPosition._max.position ?? -1) + 1,
-      },
-    });
-  };
-
-  // SQLite adapter $transaction holds the process mutex — appends serialize.
-  await prisma.$transaction(async (tx) => appendTrackAtNextPosition(tx));
+  await appendTracksToUserPlaylistAtNextPositions({ playlistId, trackIds: [trackId] });
 
   await bumpUserPlaylistUpdatedAt({ playlistId, userId });
 

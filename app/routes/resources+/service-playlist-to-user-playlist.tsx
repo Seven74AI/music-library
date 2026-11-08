@@ -5,6 +5,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { createToastHeaders } from "#app/utils/toast.server.ts";
 import {
+  appendTracksToUserPlaylistAtNextPositions,
   bumpUserPlaylistUpdatedAt,
   userPlaylistTitleTaken,
 } from "#app/utils/user-playlist.server.ts";
@@ -269,24 +270,10 @@ export async function action({ request }: Route.ActionArgs) {
         );
       }
 
-      // Get the max position for appending
-      const maxPosition = await prisma.userPlaylistTrack.aggregate({
-        where: { playlistId: targetPlaylistId },
-        _max: { position: true },
+      await appendTracksToUserPlaylistAtNextPositions({
+        playlistId: targetPlaylistId,
+        trackIds: newTrackIds,
       });
-
-      let nextPosition = (maxPosition._max.position ?? -1) + 1;
-
-      // Bulk insert new tracks
-      for (const chunk of chunkArray(newTrackIds)) {
-        await prisma.userPlaylistTrack.createMany({
-          data: chunk.map((trackId) => ({
-            playlistId: targetPlaylistId,
-            trackId,
-            position: nextPosition++,
-          })),
-        });
-      }
 
       await bumpUserPlaylistUpdatedAt({
         playlistId: targetPlaylistId,
