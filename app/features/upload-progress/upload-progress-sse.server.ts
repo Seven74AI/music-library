@@ -85,14 +85,39 @@ subscribeToProgressUpdates((uploadId) => {
 });
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
-  await requireUserWithRole(request, "admin");
+  const adminUserId = await requireUserWithRole(request, "admin");
 
-  const uploadId = params.uploadId;
-  if (!uploadId) {
+  const uploadIdParam = params.uploadId;
+  if (!uploadIdParam) {
     return data({ error: "Upload ID is required" }, { status: 400 });
+  }
+  const uploadId = uploadIdParam;
+
+  const initialProgress = await getUploadProgress(uploadId);
+  if (!initialProgress) {
+    return data({ error: "Upload session not found" }, { status: 404 });
+  }
+  if (initialProgress.ownerUserId !== adminUserId) {
+    return data({ error: "Forbidden" }, { status: 403 });
   }
 
   const encoder = new TextEncoder();
+
+  function cleanupHeartbeat(
+    heartbeat: ReturnType<typeof setInterval>,
+    controller: ReadableStreamDefaultController,
+  ) {
+    clearInterval(heartbeat);
+    activeConnections.get(uploadId)?.delete(controller);
+    if (activeConnections.get(uploadId)?.size === 0) {
+      activeConnections.delete(uploadId);
+    }
+    try {
+      controller.close();
+    } catch {
+      // Stream may already be closed.
+    }
+  }
 
   // Create SSE stream with real-time updates.
   const stream = new ReadableStream({
@@ -107,11 +132,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       activeConnections.get(uploadId)?.add(controller);
 
       // Send initial progress state.
-      void getUploadProgress(uploadId).then((initialProgress) => {
-        if (initialProgress) {
-          enqueue(controller, buildProgressPayload(initialProgress));
-        }
-      });
+      enqueue(controller, buildProgressPayload(initialProgress));
 
       // Periodic heartbeat: poll the shared store so progress stays visible
       // across instances (where the immediate push is instance-local), and
@@ -122,8 +143,13 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
           if (!progress) {
             enqueue(controller, { type: "error", message: "Upload session not found" });
-            clearInterval(heartbeat);
-            controller.close();
+            cleanupHeartbeat(heartbeat, controller);
+            return;
+          }
+
+          if (progress.ownerUserId !== adminUserId) {
+            enqueue(controller, { type: "error", message: "Forbidden" });
+            cleanupHeartbeat(heartbeat, controller);
             return;
           }
 
@@ -139,7 +165,10 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
             }, 30_000);
             controller.close();
           }
-        })();
+        })().catch((error) => {
+          console.error("Upload progress SSE heartbeat failed:", error);
+          cleanupHeartbeat(heartbeat, controller);
+        });
       }, 1000);
 
       // Cleanup on client disconnect.

@@ -964,6 +964,42 @@ test("room speaker writes room_play_completed and not a personal play_completed"
   );
 });
 
+test("after host-mode exit, room play_completed still routes via roomPlayEventTargetRef", async () => {
+  vi.mocked(reportPlayEvent).mockClear();
+  vi.mocked(reportRoomPlayEvent).mockClear();
+
+  const roomPlayEventTargetRef = {
+    current: { roomId: "room-1", code: "AB3K9Q" } as { roomId: string; code: string } | null,
+  };
+
+  const { audioEl, rerender } = await renderPlayer({
+    roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+    roomPlayEventTargetRef,
+    roomPlaying: true,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+  });
+
+  rerender(
+    playerUi({
+      roomSpeaker: null,
+      roomPlayEventTargetRef,
+      roomPlaying: true,
+      audioSrcOverride: "/resources/rooms/audio/track-1",
+    }),
+  );
+
+  setProgress(audioEl, 50, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(reportPlayEvent).not.toHaveBeenCalled();
+  expect(reportRoomPlayEvent).toHaveBeenCalledWith(
+    "AB3K9Q",
+    "room_play_completed",
+    "track-1",
+    null,
+  );
+});
+
 test("blocked room autoplay stays paused and explains once", async () => {
   const onRoomAutoplayOutcome = vi.fn();
   vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => {

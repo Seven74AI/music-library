@@ -107,6 +107,10 @@ interface AudioPlayerProps {
   >;
   /** When set, emit room play events instead of personal UsageEvents. */
   roomSpeaker?: { roomId: string; code: string } | null;
+  /**
+   * Outlives transient `roomSpeaker` while room audio is still active after host-mode exit.
+   */
+  roomPlayEventTargetRef?: React.MutableRefObject<{ roomId: string; code: string } | null>;
   /** Server-driven play/pause while in room speaker mode. */
   roomPlaying?: boolean | null;
   /**
@@ -171,6 +175,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     wantsAutoPlayRef,
     unlockAutoplayRef,
     roomSpeaker = null,
+    roomPlayEventTargetRef,
     roomPlaying = null,
     onRoomAutoplayOutcome,
     audioSrcOverride,
@@ -218,9 +223,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
   const emitPlayEvent = useCallback(
     (type: "play_started" | "play_completed", id: string, playId?: string | null) => {
-      if (roomSpeaker?.code) {
+      const roomCode = roomPlayEventTargetRef?.current?.code ?? roomSpeaker?.code;
+      if (roomCode) {
         reportRoomPlayEvent(
-          roomSpeaker.code,
+          roomCode,
           type === "play_started" ? "room_play_started" : "room_play_completed",
           id,
           playId,
@@ -229,7 +235,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
       reportPlayEvent(type, id, playId);
     },
-    [roomSpeaker],
+    [roomPlayEventTargetRef, roomSpeaker],
   );
 
   // Expose a function to apply a prefetched track and play it synchronously within

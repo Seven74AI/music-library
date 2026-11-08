@@ -54,7 +54,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     // <audio src> needs bytes or a redirect — stream locally or redirect to signed URL.
     if (existsSync(localFilePath)) {
-      return serveLocalAudioFile(localFilePath, audioFile, request, "private, max-age=3600");
+      return serveLocalAudioFile(localFilePath, audioFile, request, "private, no-store");
     }
 
     try {
@@ -66,7 +66,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           "Content-Type": contentType,
           ...(contentLength ? { "Content-Length": contentLength.toString() } : {}),
           "Accept-Ranges": "bytes",
-          "Cache-Control": "private, max-age=3600",
+          "Cache-Control": "private, no-store",
         },
       });
     } catch {

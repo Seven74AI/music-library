@@ -1,14 +1,17 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { InRoomChip } from "./in-room-chip.tsx";
+import { InRoomChip, LeaveRoomButton } from "./in-room-chip.tsx";
 
 const party = vi.hoisted(() => ({
   current: null as null | {
     isHost: boolean;
+    leave: ReturnType<typeof vi.fn>;
+    refresh: ReturnType<typeof vi.fn>;
     room: {
       code: string;
       status: string;
@@ -32,6 +35,8 @@ describe("InRoomChip on a phone", () => {
   beforeEach(() => {
     party.current = {
       isHost: true,
+      leave: vi.fn().mockRejectedValue(new Error("network")),
+      refresh: vi.fn().mockResolvedValue(undefined),
       room: { code: "LSQHE8", status: "open", me: { role: "host" } },
     };
   });
@@ -48,6 +53,8 @@ describe("InRoomChip on a phone", () => {
   test("hides a listener role the same way so the header avatar stays on screen", () => {
     party.current = {
       isHost: false,
+      leave: vi.fn(),
+      refresh: vi.fn(),
       room: { code: "LSQHE8", status: "open", me: { role: "listener" } },
     };
     renderChip();
@@ -55,5 +62,31 @@ describe("InRoomChip on a phone", () => {
     const role = screen.getByText("listener");
     expect(role.className).toMatch(/(?:^|\s)hidden(?:\s|$)/);
     expect(role.className).toContain("sm:inline");
+  });
+});
+
+describe("LeaveRoomButton", () => {
+  beforeEach(() => {
+    party.current = {
+      isHost: false,
+      leave: vi.fn().mockRejectedValue(new Error("network")),
+      refresh: vi.fn().mockResolvedValue(undefined),
+      room: { code: "LSQHE8", status: "open", me: { role: "listener" } },
+    };
+  });
+
+  test("refreshes room state when leave fails", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter([{ path: "/", element: <LeaveRoomButton /> }], {
+      initialEntries: ["/"],
+    });
+    render(<RouterProvider router={router} />);
+
+    await user.click(screen.getByRole("button", { name: "Leave" }));
+
+    await waitFor(() => {
+      expect(party.current?.leave).toHaveBeenCalled();
+      expect(party.current?.refresh).toHaveBeenCalled();
+    });
   });
 });
