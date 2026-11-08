@@ -19,6 +19,7 @@ describe("serveLocalAudioFile", () => {
 
     expect(response.status).toBe(416);
     expect(response.headers.get("Content-Range")).toBe("bytes */5");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   });
 
   it("clamps an end byte past EOF and still returns 206", () => {

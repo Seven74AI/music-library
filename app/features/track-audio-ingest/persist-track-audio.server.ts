@@ -114,6 +114,12 @@ const KNOWN_AUDIO_EXTENSIONS = new Set([
   "m4b",
 ]);
 
+function normalizeAudioFormat(format: string | undefined): string {
+  const normalized = format?.toLowerCase();
+  if (normalized && KNOWN_AUDIO_EXTENSIONS.has(normalized)) return normalized;
+  return "mp3";
+}
+
 function getAudioExtension(
   metadata: ExtractedAudioMetadata,
   fileName?: string,
@@ -127,7 +133,7 @@ function getAudioExtension(
     const extFromName = fileName.split(".").pop()?.toLowerCase();
     if (extFromName && KNOWN_AUDIO_EXTENSIONS.has(extFromName)) return extFromName;
   }
-  return metadata.format || "mp3";
+  return normalizeAudioFormat(metadata.format);
 }
 
 function runBackfillBestEffort(trackId: string, metadata: ExtractedAudioMetadata): void {
@@ -355,7 +361,7 @@ export async function createTrackAudioFile(
     throw new Error(`Cannot persist audio for track ${trackId}: no serviceId on track or params`);
   }
 
-  const format = metadata.format || "mp3";
+  const format = normalizeAudioFormat(metadata.format);
 
   // Derive a fallback fileName from this track's own identity rather than the
   // objectKey leaf: on an exact-hash duplicate the objectKey is reused from a
@@ -408,7 +414,7 @@ export async function persistTrackAudio(
 ): Promise<PersistTrackAudioResult> {
   const { trackId, serviceId = null, metadata } = params;
 
-  const format = metadata.format || "mp3";
+  const format = normalizeAudioFormat(metadata.format);
 
   // Resolve serviceId from the track when the caller does not supply one.
   // TrackAudioFile.serviceId is NOT NULL after migration, so a null here would

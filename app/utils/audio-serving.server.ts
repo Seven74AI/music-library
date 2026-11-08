@@ -32,6 +32,7 @@ export function serveLocalAudioFile(
           headers: {
             "Content-Range": `bytes */${fileSize}`,
             "Accept-Ranges": "bytes",
+            "Cache-Control": cacheControl,
           },
         });
       }
@@ -65,6 +66,7 @@ export function serveLocalAudioFile(
         headers: {
           "Content-Range": `bytes */${fileSize}`,
           "Accept-Ranges": "bytes",
+          "Cache-Control": cacheControl,
         },
       });
     }
