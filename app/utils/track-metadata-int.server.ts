@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /** Coerce a value for Prisma `Int` columns: round finite numbers, drop non-finite. */
 export function coerceOptionalInt(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
@@ -14,3 +16,13 @@ export function pickIntField(...candidates: unknown[]): number | null {
   }
   return null;
 }
+
+/**
+ * Batch upload user metadata: coerce client/extractor floats to rounded ints
+ * (rejecting `.int()` would fail values like 128.6 before ingest rounding).
+ */
+export const zBatchCoerceRoundedOptionalInt = () =>
+  z
+    .union([z.undefined(), z.coerce.number()])
+    .transform((v) => (v === undefined ? undefined : coerceOptionalInt(v)))
+    .optional();

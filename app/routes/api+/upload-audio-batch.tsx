@@ -29,7 +29,11 @@ import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { replaceTrackGenresFromStrings } from "#app/utils/track-genres.server.ts";
-import { pickIntField } from "#app/utils/track-metadata-int.server.ts";
+import {
+  coerceOptionalInt,
+  pickIntField,
+  zBatchCoerceRoundedOptionalInt,
+} from "#app/utils/track-metadata-int.server.ts";
 import {
   initUploadProgress,
   updateFileProgress,
@@ -131,13 +135,33 @@ const UserMetadataSchema = z.object({
   originalDate: dateString("originalDate").optional(),
   releaseDate: dateString("releaseDate").optional(),
   lyrics: z.string().optional(),
-  year: z.coerce.number().int().optional(),
-  trackNumber: z.coerce.number().int().optional(),
-  bpm: z.coerce.number().int().optional(),
-  originalYear: z.coerce.number().int().optional(),
-  totalTracks: z.coerce.number().int().optional(),
-  totalDiscs: z.coerce.number().int().optional(),
+  year: zBatchCoerceRoundedOptionalInt(),
+  trackNumber: zBatchCoerceRoundedOptionalInt(),
+  bpm: zBatchCoerceRoundedOptionalInt(),
+  originalYear: zBatchCoerceRoundedOptionalInt(),
+  totalTracks: zBatchCoerceRoundedOptionalInt(),
+  totalDiscs: zBatchCoerceRoundedOptionalInt(),
 });
+
+function roundExtractedNumericMetadata(metadata: ExtractedAudioMetadata): ExtractedAudioMetadata {
+  const trackNo = metadata.track?.no;
+  const roundedTrackNo = trackNo === undefined ? undefined : coerceOptionalInt(trackNo);
+  return {
+    ...metadata,
+    year: coerceOptionalInt(metadata.year),
+    bpm: coerceOptionalInt(metadata.bpm),
+    originalYear: coerceOptionalInt(metadata.originalYear),
+    totalTracks: coerceOptionalInt(metadata.totalTracks),
+    totalDiscs: coerceOptionalInt(metadata.totalDiscs),
+    track:
+      metadata.track === undefined
+        ? undefined
+        : {
+            ...metadata.track,
+            no: roundedTrackNo ?? metadata.track.no,
+          },
+  };
+}
 
 function parseUserMetadata(raw: string | undefined): FileWithMetadata["userMetadata"] | undefined {
   if (!raw) return undefined;
@@ -242,9 +266,8 @@ export async function action({ request }: ActionFunctionArgs) {
 
           try {
             await updateFileProgress(uploadId, fileId, 0, "processing");
-            const metadata = await extractAudioMetadata(
-              extractedFile.buffer,
-              extractedFile.fileName,
+            const metadata = roundExtractedNumericMetadata(
+              await extractAudioMetadata(extractedFile.buffer, extractedFile.fileName),
             );
 
             // Get user-provided metadata for this file (if any)
@@ -315,7 +338,9 @@ export async function action({ request }: ActionFunctionArgs) {
           await updateFileProgress(uploadId, fileId, 0, "processing");
           const arrayBuffer = await file.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
-          const metadata = await extractAudioMetadata(buffer, file.name);
+          const metadata = roundExtractedNumericMetadata(
+            await extractAudioMetadata(buffer, file.name),
+          );
 
           // Get user-provided metadata for this file (if any)
           const parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());

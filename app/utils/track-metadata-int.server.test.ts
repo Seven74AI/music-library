@@ -1,7 +1,18 @@
 import { describe, expect, test } from "vitest";
-import { coerceOptionalInt, pickIntField } from "./track-metadata-int.server.ts";
+import {
+  coerceOptionalInt,
+  pickIntField,
+  zBatchCoerceRoundedOptionalInt,
+} from "./track-metadata-int.server.ts";
 
 describe("track-metadata-int", () => {
+  test("zBatchCoerceRoundedOptionalInt rounds fractional values", () => {
+    const field = zBatchCoerceRoundedOptionalInt();
+    expect(field.parse(128.6)).toBe(129);
+    expect(field.parse("128.6")).toBe(129);
+    expect(field.parse(undefined)).toBeUndefined();
+  });
+
   test("coerceOptionalInt rounds finite numbers and drops non-finite", () => {
     expect(coerceOptionalInt(2020.9)).toBe(2021);
     expect(coerceOptionalInt(128.4)).toBe(128);

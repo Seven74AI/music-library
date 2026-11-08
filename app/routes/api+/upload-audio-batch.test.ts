@@ -249,6 +249,37 @@ test("invalid user metadata JSON fails only that file, not the batch", async () 
   }
 }, 20_000);
 
+test("fractional bpm in user metadata is rounded and upload succeeds", async () => {
+  allowUploadConsoleErrors();
+  await seedLocalService();
+  const { userId, cookie } = await createAdminCookie();
+  const title = `QA frac-bpm ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = `QA Artist ${title}`;
+  const uploadId = `upload-frac-bpm-${Date.now()}`;
+
+  try {
+    const response = await postBatch(cookie, uploadId, [
+      ["good.mp3", JSON.stringify({ title, artist, bpm: 128.6 })],
+    ]);
+
+    expect(response.init?.status).toBe(202);
+
+    const progress = await waitForUpload(uploadId);
+    expect(progress.failedFiles).toEqual([]);
+    expect(progress.successfulTracks).toEqual([
+      expect.objectContaining({ fileName: "good.mp3", title, artist }),
+    ]);
+
+    const stored = await prisma.track.findFirst({
+      where: { title, artist: { name: artist } },
+      select: { bpm: true },
+    });
+    expect(stored?.bpm).toBe(129);
+  } finally {
+    await cleanupUploadArtist(artist, userId);
+  }
+}, 20_000);
+
 test("invalid user metadata shape fails only that file, not the batch", async () => {
   allowUploadConsoleErrors();
   await seedLocalService();
