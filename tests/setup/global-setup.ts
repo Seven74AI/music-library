@@ -61,7 +61,7 @@ export async function setup() {
     // Use migrate deploy instead of reset for more reliable test database setup
     // migrate deploy creates the database if it doesn't exist and applies all migrations
     console.log("📦 Applying database migrations...");
-    await execa("npx prisma migrate deploy", {
+    await execa("npm run migrate:deploy", {
       stdio: "inherit",
       env: {
         ...process.env,

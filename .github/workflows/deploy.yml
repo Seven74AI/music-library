@@ -34,7 +34,7 @@ jobs:
         run: cp .env.example .env
 
       - name: 🛠 Setup Database
-        run: npx prisma migrate deploy && npx prisma generate --sql
+        run: npm run migrate:deploy && npx prisma generate --sql
 
       - name: 🔬 Lint
         run: npm run lint
@@ -60,7 +60,7 @@ jobs:
         run: cp .env.example .env
 
       - name: 🛠 Setup Database
-        run: npx prisma migrate deploy && npx prisma generate --sql
+        run: npm run migrate:deploy && npx prisma generate --sql
 
       - name: 🏗 Build
         run: npm run build
@@ -88,7 +88,7 @@ jobs:
         run: cp .env.example .env
 
       - name: 🛠 Setup Database
-        run: npx prisma migrate deploy && npx prisma generate --sql
+        run: npm run migrate:deploy && npx prisma generate --sql
 
       - name: ⚡ Run vitest
         run: npm run test -- --coverage
@@ -129,7 +129,7 @@ jobs:
         run: npm run test:e2e:install
 
       - name: 🛠 Setup Database
-        run: npx prisma migrate deploy && npx prisma generate --sql
+        run: npm run migrate:deploy && npx prisma generate --sql
 
       - name: 🏦 Cache Database
         id: db-cache
@@ -179,7 +179,7 @@ jobs:
         run: cp .env.example .env
 
       - name: 🛠 Setup Database
-        run: npx prisma migrate deploy && npx prisma generate --sql
+        run: npm run migrate:deploy && npx prisma generate --sql
 
       - name: 🏗 Build
         run: npm run build
