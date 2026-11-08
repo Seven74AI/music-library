@@ -6,7 +6,7 @@ vi.mock("node:child_process", () => ({
   execSync: vi.fn(),
 }));
 
-vi.mock("../app/utils/genre-migration.server.ts", () => ({
+vi.mock("../scripts/legacy-track-genre-backfill.ts", () => ({
   backfillLegacyTrackGenresIfNeeded: vi.fn().mockResolvedValue({
     ran: false,
     result: { tracksProcessed: 0, genresCreated: 0, linksCreated: 0 },
@@ -18,18 +18,20 @@ describe("runPrismaMigrateDeploy", () => {
     vi.clearAllMocks();
   });
 
-  it("generates the Prisma client before running the legacy genre backfill", async () => {
+  it("runs the legacy genre backfill before prisma migrate deploy (no prisma generate)", async () => {
     const calls: string[] = [];
     vi.mocked(execSync).mockImplementation((command) => {
       calls.push(String(command));
       return "";
     });
 
+    const { backfillLegacyTrackGenresIfNeeded } =
+      await import("../scripts/legacy-track-genre-backfill.ts");
+
     await runPrismaMigrateDeploy();
 
-    const generateIndex = calls.findIndex((c) => c.includes("prisma generate"));
-    const deployIndex = calls.findIndex((c) => c.includes("migrate deploy"));
-    expect(generateIndex).toBeGreaterThanOrEqual(0);
-    expect(deployIndex).toBeGreaterThan(generateIndex);
+    expect(backfillLegacyTrackGenresIfNeeded).toHaveBeenCalled();
+    expect(calls.some((c) => c.includes("prisma generate"))).toBe(false);
+    expect(calls.find((c) => c.includes("migrate deploy"))).toBeDefined();
   });
 });

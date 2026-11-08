@@ -5,50 +5,15 @@
  */
 
 import { type PrismaClient } from "#prisma/client.js";
+import {
+  DROP_TRACK_GENRE_MIGRATION,
+  migrateTrackGenresWithStore,
+  normalizeGenreName,
+  parseGenreString,
+} from "./genre-migration.shared.ts";
 import { prisma } from "./db.server.ts";
 
-/**
- * Normalize a genre name for deduplication and comparison
- */
-export function normalizeGenreName(name: string): string {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, "") // Remove special chars except spaces and hyphens
-    .replace(/\s+/g, " ") // Normalize whitespace
-    .trim();
-}
-
-/**
- * Parse a genre string into an array of genre names
- * Handles various delimiters: comma, semicolon, slash, ampersand
- */
-export function parseGenreString(genreString: string | null): string[] {
-  if (!genreString || genreString.trim() === "") {
-    return [];
-  }
-
-  // Split by common delimiters and clean up. Ampersand is deliberately NOT a
-  // delimiter: it appears inside genre names ("R&B", "Drum & Bass").
-  const genres = genreString
-    .split(/[,;/]/) // Split by comma, semicolon, or slash
-    .map((g) => g.trim())
-    .filter((g) => g.length > 0)
-    .map((g) => {
-      // Capitalize first letter of each word
-      return g
-        .split(" ")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-        .join(" ");
-    });
-
-  // Remove duplicates (case-insensitive)
-  const uniqueGenres = Array.from(new Map(genres.map((g) => [normalizeGenreName(g), g])).values());
-
-  return uniqueGenres;
-}
-
-const DROP_TRACK_GENRE_MIGRATION = "20261108160000_drop_track_genre";
+export { normalizeGenreName, parseGenreString, DROP_TRACK_GENRE_MIGRATION };
 
 type DbClient = Pick<PrismaClient, "$queryRaw" | "$executeRaw" | "genre">;
 
@@ -104,69 +69,42 @@ export async function migrateTrackGenres(
     return { tracksProcessed: 0, genresCreated: 0, linksCreated: 0 };
   }
 
-  const totalRow = await client.$queryRaw<Array<{ count: bigint }>>`
-    SELECT COUNT(*) AS count FROM Track WHERE genre IS NOT NULL AND trim(genre) != ''
-  `;
-  const totalTracks = Number(totalRow[0]?.count ?? 0);
-
-  let tracksProcessed = 0;
-  let genresCreated = 0;
-  let linksCreated = 0;
-
-  const genreCache = new Map<string, string>();
-
-  while (tracksProcessed < totalTracks) {
-    const tracks = await client.$queryRaw<Array<{ id: string; genre: string }>>`
-      SELECT id, genre FROM Track
-      WHERE genre IS NOT NULL AND trim(genre) != ''
-      LIMIT ${batchSize} OFFSET ${tracksProcessed}
-    `;
-
-    if (tracks.length === 0) break;
-
-    for (const track of tracks) {
-      const genreNames = parseGenreString(track.genre);
-
-      for (const genreName of genreNames) {
-        const normalizedName = normalizeGenreName(genreName);
-
-        let genreId = genreCache.get(normalizedName);
-
-        if (!genreId) {
-          const existingGenre = await client.genre.findFirst({
-            where: { normalizedName },
-            select: { id: true },
-          });
-
-          if (existingGenre) {
-            genreId = existingGenre.id;
-          } else {
-            const newGenre = await client.genre.create({
-              data: {
-                name: genreName,
-                normalizedName,
-              },
-              select: { id: true },
-            });
-            genreId = newGenre.id;
-            genresCreated++;
-          }
-
-          genreCache.set(normalizedName, genreId);
-        }
-
-        const linkResult = await client.$executeRaw`
-          INSERT OR IGNORE INTO _TrackGenres (A, B) VALUES (${genreId}, ${track.id})
+  return migrateTrackGenresWithStore(
+    {
+      trackGenreColumnExists: () => true,
+      countTracksWithLegacyGenre: async () => {
+        const totalRow = await client.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(*) AS count FROM Track WHERE genre IS NOT NULL AND trim(genre) != ''
         `;
-        if (linkResult > 0) {
-          linksCreated++;
-        }
-      }
-    }
-
-    tracksProcessed += tracks.length;
-    onProgress?.(tracksProcessed, totalTracks);
-  }
-
-  return { tracksProcessed, genresCreated, linksCreated };
+        return Number(totalRow[0]?.count ?? 0);
+      },
+      fetchTrackGenreBatch: async (limit, offset) =>
+        client.$queryRaw<Array<{ id: string; genre: string }>>`
+          SELECT id, genre FROM Track
+          WHERE genre IS NOT NULL AND trim(genre) != ''
+          LIMIT ${limit} OFFSET ${offset}
+        `,
+      findGenreIdByNormalizedName: async (normalizedName) => {
+        const existingGenre = await client.genre.findFirst({
+          where: { normalizedName },
+          select: { id: true },
+        });
+        return existingGenre?.id;
+      },
+      createGenre: async (name, normalizedName) => {
+        const newGenre = await client.genre.create({
+          data: { name, normalizedName },
+          select: { id: true },
+        });
+        return newGenre.id;
+      },
+      insertTrackGenreLink: async (genreId, trackId) => {
+        const linkResult = await client.$executeRaw`
+          INSERT OR IGNORE INTO _TrackGenres (A, B) VALUES (${genreId}, ${trackId})
+        `;
+        return linkResult > 0;
+      },
+    },
+    { batchSize, onProgress },
+  );
 }

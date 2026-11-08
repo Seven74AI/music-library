@@ -1,21 +1,16 @@
 #!/usr/bin/env tsx
 /**
- * Applies Prisma migrations, running the legacy Track.genre TypeScript backfill
+ * Applies Prisma migrations, running the legacy Track.genre backfill
  * immediately before `20261108160000_drop_track_genre` when that migration is pending.
+ *
+ * The backfill uses node:sqlite only — safe on fresh checkouts before `prisma generate`.
  */
 
 import "dotenv/config";
 import { execSync } from "node:child_process";
+import { backfillLegacyTrackGenresIfNeeded } from "./legacy-track-genre-backfill.ts";
 
-export async function runPrismaMigrateDeploy(
-  exec: typeof execSync = execSync,
-): Promise<void> {
-  // CI and fresh checkouts run migrate before `prisma generate --sql`; the backfill needs the client.
-  exec("npx prisma generate", { stdio: "inherit", env: process.env });
-
-  const { backfillLegacyTrackGenresIfNeeded } = await import(
-    "../app/utils/genre-migration.server.ts"
-  );
+export async function runPrismaMigrateDeploy(exec: typeof execSync = execSync): Promise<void> {
   const { ran, result } = await backfillLegacyTrackGenresIfNeeded();
   if (ran) {
     console.log(

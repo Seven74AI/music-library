@@ -23,7 +23,7 @@ sqlite3 $DATABASE_URL
 
 ```bash
 # Deploy migrations (safe for production)
-fly ssh console --app [APP_NAME] -C "cd /myapp && npx prisma migrate deploy"
+fly ssh console --app [APP_NAME] -C "cd /myapp && npm run migrate:deploy"
 ```
 
 #### Backup Database
@@ -63,13 +63,13 @@ DATABASE_URL="file:./prisma/data.db" npx prisma studio
 Migrations are automatically run during deployment via the `setup` script:
 
 ```bash
-npm run setup  # Runs: build && prisma migrate deploy && prisma generate
+npm run setup  # Runs: build && migrate:deploy (backfill + prisma migrate deploy) && prisma generate
 ```
 
 To manually run migrations in production:
 
 ```bash
-fly ssh console --app [APP_NAME] -C "cd /myapp && npx prisma migrate deploy"
+fly ssh console --app [APP_NAME] -C "cd /myapp && npm run migrate:deploy"
 ```
 
 ### 2. Database Backup
@@ -259,7 +259,7 @@ fly ssh console --app [APP_NAME] -C "
 fly machine stop [MACHINE_ID] --app [APP_NAME]
 
 # 2. Wait a moment, then delete database files and recreate schema
-fly ssh console --app [APP_NAME] -C "sh -c 'rm -f /litefs/data/sqlite.db /litefs/data/sqlite.db-wal /litefs/data/sqlite.db-shm && npx prisma migrate deploy'"
+fly ssh console --app [APP_NAME] -C "sh -c 'rm -f /litefs/data/sqlite.db /litefs/data/sqlite.db-wal /litefs/data/sqlite.db-shm && npm run migrate:deploy'"
 
 # 3. (Optional) Run seed if needed
 fly ssh console --app [APP_NAME] -C "npx prisma db seed"
@@ -285,7 +285,7 @@ fly ssh console --app [APP_NAME] -C "
 npx prisma migrate dev --name your_migration_name
 
 # Apply to production
-fly ssh console --app [APP_NAME] -C "cd /myapp && npx prisma migrate deploy"
+fly ssh console --app [APP_NAME] -C "cd /myapp && npm run migrate:deploy"
 ```
 
 ## Environment Variables
@@ -435,7 +435,7 @@ The reset script may not work in production due to LiteFS disk I/O errors. Use t
 fly machine stop [MACHINE_ID] --app [APP_NAME]
 
 # 2. Delete database files and recreate schema
-fly ssh console --app [APP_NAME] -C "sh -c 'rm -f /litefs/data/sqlite.db /litefs/data/sqlite.db-wal /litefs/data/sqlite.db-shm && npx prisma migrate deploy'"
+fly ssh console --app [APP_NAME] -C "sh -c 'rm -f /litefs/data/sqlite.db /litefs/data/sqlite.db-wal /litefs/data/sqlite.db-shm && npm run migrate:deploy'"
 
 # 3. (Optional) Run seed if needed
 fly ssh console --app [APP_NAME] -C "npx prisma db seed"
