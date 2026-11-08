@@ -145,7 +145,9 @@ function parseUserMetadata(raw: string | undefined): FileWithMetadata["userMetad
   }
   const result = UserMetadataSchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error(`Invalid user metadata: ${result.error.issues.map((i) => i.message).join(", ")}`);
+    throw new Error(
+      `Invalid user metadata: ${result.error.issues.map((i) => i.message).join(", ")}`,
+    );
   }
   return result.data;
 }
@@ -225,6 +227,7 @@ export async function action({ request }: ActionFunctionArgs) {
       await initUploadProgress(
         uploadId,
         extractedFiles.map((f) => f.fileName),
+        userId,
       );
 
       // Extract metadata from each file in parallel (max 5 concurrent)
@@ -291,6 +294,7 @@ export async function action({ request }: ActionFunctionArgs) {
     await initUploadProgress(
       uploadId,
       audioFiles.map((f) => f.name),
+      userId,
     );
 
     await processWithConcurrency(

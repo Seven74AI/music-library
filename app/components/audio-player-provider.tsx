@@ -204,6 +204,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const allowRestoreWhileSuspendedRef = useRef(false);
   const roomOnEndedRef = useRef<(() => void) | null>(null);
   const roomSpeakerRef = useRef<{ roomId: string; code: string } | null>(null);
+  /** Keeps room play-event routing after host UI state clears while room audio is still active. */
+  const roomPlayEventTargetRef = useRef<{ roomId: string; code: string } | null>(null);
   const roomQueueSignatureRef = useRef<string | null>(null);
   const roomTrackIdRef = useRef<string | null>(null);
   const roomAutoplayListenersRef = useRef(new Set<(outcome: RoomAutoplayOutcome) => void>());
@@ -288,6 +290,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     allowRestoreWhileSuspendedRef.current = false;
     roomOnEndedRef.current = null;
     roomSpeakerRef.current = null;
+    roomPlayEventTargetRef.current = null;
     roomQueueSignatureRef.current = null;
     roomTrackIdRef.current = null;
     setRoomSpeaker(null);
@@ -379,8 +382,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   );
 
   const hydrateAround = useCallback(
-    async (trackId: string | null) => {
-      const ids = collectHydrationIds(navigationState, trackId);
+    async (trackId: string | null, stateOverride?: QueueNavigationState) => {
+      const ids = collectHydrationIds(stateOverride ?? navigationState, trackId);
       await playbackCacheRef.current.hydrateMissing(ids);
       setCacheVersion((version) => version + 1);
     },
@@ -409,13 +412,17 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       pendingHydrationIdsRef.current.clear();
 
       void (async () => {
-        const updated = await hydratePlaybackCacheInBatches(
-          playbackCacheRef.current,
-          needsHydration,
-          { refetchIncomplete: true },
-        );
-        if (updated > 0) {
-          setCacheVersion((version) => version + 1);
+        try {
+          const updated = await hydratePlaybackCacheInBatches(
+            playbackCacheRef.current,
+            needsHydration,
+            { refetchIncomplete: true },
+          );
+          if (updated > 0) {
+            setCacheVersion((version) => version + 1);
+          }
+        } catch (error) {
+          console.error("Scroll hydration failed:", error);
         }
       })();
     }, 300);
@@ -520,9 +527,17 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         setSpine(loadedSpine.tracks);
         setSpineTotal(loadedSpine.total);
         setSpineOrder(order);
-        setSpinePosition(resolvedPosition >= 0 ? resolvedPosition : 0);
+        const nextSpinePosition = resolvedPosition >= 0 ? resolvedPosition : 0;
+        setSpinePosition(nextSpinePosition);
 
-        await hydrateAround(track.id);
+        const navigationAfterSpine: QueueNavigationState = {
+          upNext: [],
+          spine: loadedSpine.tracks,
+          spineOrder: order,
+          spinePosition: nextSpinePosition,
+          loopMode: "off",
+        };
+        await hydrateAround(track.id, navigationAfterSpine);
       } finally {
         if (epoch === playlistFetchEpochRef.current) {
           setIsLoadingNext(false);
@@ -581,7 +596,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           beginPlayback();
         }
         setCurrentTrack(cachedFull);
-        void hydrateAround(queueTrack.id).catch(() => {});
+        void hydrateAround(queueTrack.id).catch((error) => {
+          console.error("Background track hydration failed:", error);
+          toast({
+            title: "Playback failed",
+            description: "Could not refresh track data. Check your connection and try again.",
+            variant: "destructive",
+          });
+        });
         return true;
       }
 
@@ -663,7 +685,22 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         setIsPlayerVisible(true);
         beginPlayback();
         setCurrentTrack(startTrack);
-        void hydrateAround(startTrack.id);
+        const startSpinePositionResolved = startSpinePosition >= 0 ? startSpinePosition : 0;
+        const navigationAfterPlaylist: QueueNavigationState = {
+          upNext: [],
+          spine: loadedSpine,
+          spineOrder: order,
+          spinePosition: startSpinePositionResolved,
+          loopMode: "off",
+        };
+        void hydrateAround(startTrack.id, navigationAfterPlaylist).catch((error) => {
+          console.error("Playlist hydration failed:", error);
+          toast({
+            title: "Playback failed",
+            description: "Could not load upcoming tracks. Check your connection and try again.",
+            variant: "destructive",
+          });
+        });
       } finally {
         setIsLoadingNext(false);
       }
@@ -1173,8 +1210,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     void (async () => {
       try {
         await hydrateAround(currentTrackId);
-      } catch (error) {
-        console.warn("Queue auto-cache hydration failed:", error);
+      } catch {
+        // Best-effort prefetch; play path surfaces hydration errors to the user.
         return;
       }
       if (skipPersonalAudioFetch()) return;
@@ -1238,6 +1275,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       roomSpeakerRef.current = null;
       roomQueueSignatureRef.current = null;
       roomTrackIdRef.current = null;
+      // roomPlayEventTargetRef stays set until restore completes so play events
+      // still route to the room while room audio may be playing.
       try {
         let nextSnapshot = hasPersistableQueue(snapshot)
           ? snapshot
@@ -1262,6 +1301,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         }
       } finally {
         allowRestoreWhileSuspendedRef.current = false;
+        roomPlayEventTargetRef.current = null;
         if (!roomSpeakerRef.current) {
           releasePersonalPersistence();
         }
@@ -1288,6 +1328,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       roomQueueSignatureRef.current = signature;
       const speaker = { roomId: options.roomId, code: options.code };
       roomSpeakerRef.current = speaker;
+      roomPlayEventTargetRef.current = speaker;
       setRoomSpeaker(speaker);
 
       setPlayContext(null);
@@ -1833,6 +1874,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         wantsAutoPlayRef={wantsAutoPlayRef}
         unlockAutoplayRef={unlockAutoplayRef}
         roomSpeaker={roomSpeaker}
+        roomPlayEventTargetRef={roomPlayEventTargetRef}
         roomPlaying={roomPlaying}
         onRoomAutoplayOutcome={notifyRoomAutoplayOutcome}
         onPlayingChange={setIsPlaying}

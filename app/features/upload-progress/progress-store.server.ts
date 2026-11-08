@@ -75,6 +75,8 @@ export interface UploadProgressEntry {
   startTime?: number;
   /** Timestamp of the last mutation — the TTL sweeper reclaims idle sessions. */
   lastUpdated: number;
+  /** Admin who initiated the batch — gates SSE subscription ownership. */
+  ownerUserId?: string;
   successfulTracks?: SuccessfulTrackInfo[];
   failedFiles?: FailedFileInfo[];
 }
@@ -302,7 +304,11 @@ export async function setUploadProgress(
 }
 
 /** Initialize upload progress for a session. */
-export function initUploadProgress(uploadId: string, fileNames: string[]): Promise<void> {
+export function initUploadProgress(
+  uploadId: string,
+  fileNames: string[],
+  ownerUserId: string,
+): Promise<void> {
   const files = fileNames.map((fileName, index) => ({
     fileId: `file-${index}`,
     fileName,
@@ -315,6 +321,7 @@ export function initUploadProgress(uploadId: string, fileNames: string[]): Promi
     overallProgress: 0,
     status: "active",
     startTime: Date.now(),
+    ownerUserId,
     successfulTracks: [],
     failedFiles: [],
   });

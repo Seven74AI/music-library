@@ -153,6 +153,42 @@ describe("admin user moderation", () => {
     expect(updated.roles.map((r) => r.name).sort()).toEqual(["admin", "user"]);
   });
 
+  test("promoteToAdmin revokes existing sessions", async () => {
+    const user = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: { name: "user" } },
+        sessions: {
+          create: [
+            { expirationDate: new Date(Date.now() + 86_400_000) },
+            { expirationDate: new Date(Date.now() + 86_400_000) },
+          ],
+        },
+      },
+    });
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(2);
+
+    await promoteToAdmin(user.id);
+
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  test("promoteToCurator revokes existing sessions", async () => {
+    const user = await prisma.user.create({
+      data: {
+        ...createUser(),
+        roles: { connect: { name: "user" } },
+        sessions: {
+          create: { expirationDate: new Date(Date.now() + 86_400_000) },
+        },
+      },
+    });
+
+    await promoteToCurator(user.id);
+
+    expect(await prisma.session.count({ where: { userId: user.id } })).toBe(0);
+  });
+
   test("demoteFromAdmin blocks self-demotion and last admin", async () => {
     const admin = await prisma.user.create({
       data: {

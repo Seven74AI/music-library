@@ -98,14 +98,17 @@ export async function promoteToAdmin(
   });
   if (!user) return notFound;
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      roles: {
-        connect: { name: "admin" },
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        roles: {
+          connect: { name: "admin" },
+        },
       },
-    },
-  });
+    }),
+    prisma.session.deleteMany({ where: { userId } }),
+  ]);
   await recordModeration(SECURITY_EVENT_TYPES.roleChanged, user, actorUserId, {
     role: "admin",
     action: "promote",
@@ -259,14 +262,17 @@ export async function promoteToCurator(
 
   await ensureCuratorRole();
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      roles: {
-        connect: { name: "curator" },
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        roles: {
+          connect: { name: "curator" },
+        },
       },
-    },
-  });
+    }),
+    prisma.session.deleteMany({ where: { userId } }),
+  ]);
   await recordModeration(SECURITY_EVENT_TYPES.roleChanged, user, actorUserId, {
     role: "curator",
     action: "promote",

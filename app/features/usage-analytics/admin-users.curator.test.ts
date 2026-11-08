@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { promoteToCurator } from "./admin-users.server.ts";
 
-const { permissionUpsert, roleUpsert, userFindUnique, userUpdate, securityEventCreate } =
-  vi.hoisted(() => ({
-    permissionUpsert: vi.fn(),
-    roleUpsert: vi.fn(),
-    userFindUnique: vi.fn(),
-    userUpdate: vi.fn(),
-    securityEventCreate: vi.fn(),
-  }));
+const {
+  permissionUpsert,
+  roleUpsert,
+  userFindUnique,
+  userUpdate,
+  sessionDeleteMany,
+  transaction,
+  securityEventCreate,
+} = vi.hoisted(() => ({
+  permissionUpsert: vi.fn(),
+  roleUpsert: vi.fn(),
+  userFindUnique: vi.fn(),
+  userUpdate: vi.fn(),
+  sessionDeleteMany: vi.fn(),
+  transaction: vi.fn(),
+  securityEventCreate: vi.fn(),
+}));
 
 vi.mock("#app/features/security/track-event.server.ts", () => ({
   recordSecurityEvent: vi.fn(async () => undefined),
@@ -25,6 +34,8 @@ vi.mock("#app/utils/db.server.ts", () => ({
     permission: { upsert: permissionUpsert },
     role: { upsert: roleUpsert },
     user: { findUnique: userFindUnique, update: userUpdate },
+    session: { deleteMany: sessionDeleteMany },
+    $transaction: transaction,
     securityEvent: { create: securityEventCreate },
   },
 }));
@@ -35,6 +46,12 @@ describe("promoteToCurator when the curator role is missing", () => {
     roleUpsert.mockReset();
     userFindUnique.mockReset();
     userUpdate.mockReset();
+    sessionDeleteMany.mockReset();
+    transaction.mockReset();
+    transaction.mockImplementation(async (operations: Promise<unknown>[]) => {
+      await Promise.all(operations);
+    });
+    sessionDeleteMany.mockResolvedValue({ count: 0 });
     permissionUpsert.mockImplementation(async ({ create }: { create: { action: string } }) => ({
       id: `perm-${create.action}`,
     }));
@@ -54,12 +71,14 @@ describe("promoteToCurator when the curator role is missing", () => {
         create: expect.objectContaining({ name: "curator" }),
       }),
     );
+    expect(transaction).toHaveBeenCalled();
     expect(userUpdate).toHaveBeenCalledWith({
       where: { id: "user-1" },
       data: { roles: { connect: { name: "curator" } } },
     });
+    expect(sessionDeleteMany).toHaveBeenCalledWith({ where: { userId: "user-1" } });
     const roleOrder = roleUpsert.mock.invocationCallOrder[0];
-    const updateOrder = userUpdate.mock.invocationCallOrder[0];
+    const updateOrder = transaction.mock.invocationCallOrder[0];
     if (roleOrder === undefined || updateOrder === undefined) {
       throw new Error("expected the role upsert and user update to run");
     }
