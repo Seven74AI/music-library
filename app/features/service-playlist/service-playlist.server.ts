@@ -688,6 +688,7 @@ export class ServicePlaylistService {
       where: {
         userId,
         isActive: true,
+        deletedAt: null,
         track: {
           servicePlaylistTracks: {
             some: { playlistId },

@@ -102,15 +102,16 @@ export async function listDiscoverTracks({
   const tracksRaw = await prisma.track.findMany({
     select: TRACK_SELECT,
     orderBy,
-    take: limit,
+    take: limit + 1,
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : undefined,
   });
 
-  const nextCursor =
-    tracksRaw.length === limit ? (tracksRaw[tracksRaw.length - 1]?.id ?? null) : null;
+  const hasNext = tracksRaw.length > limit;
+  const pageTracks = hasNext ? tracksRaw.slice(0, limit) : tracksRaw;
+  const nextCursor = hasNext ? (pageTracks[pageTracks.length - 1]?.id ?? null) : null;
 
-  const trackIds = tracksRaw.map((t) => t.id);
+  const trackIds = pageTracks.map((t) => t.id);
   const userTracks = await prisma.userTrack.findMany({
     where: {
       userId,
@@ -129,7 +130,7 @@ export async function listDiscoverTracks({
   // Fetch popularity stats for all tracks
   const popularityStatsMap = await getTrackPopularityStats(trackIds, userId);
 
-  const tracks: DiscoverTrack[] = tracksRaw.map((track) => ({
+  const tracks: DiscoverTrack[] = pageTracks.map((track) => ({
     ...track,
     isInUserLibrary: userTrackMap.has(track.id),
     userTrackCreatedAt: userTrackMap.get(track.id) ?? null,
@@ -140,7 +141,7 @@ export async function listDiscoverTracks({
     tracks,
     pagination: {
       limit,
-      hasNext: !!nextCursor,
+      hasNext,
       nextCursor,
     },
   };

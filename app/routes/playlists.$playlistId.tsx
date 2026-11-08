@@ -143,6 +143,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
             where: {
               userId,
               isActive: true,
+              deletedAt: null,
               trackId: { in: playlistTrackIds },
             },
             select: { trackId: true },
