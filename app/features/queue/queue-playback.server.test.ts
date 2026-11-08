@@ -93,6 +93,8 @@ describe("fetchPlaybackTracks", () => {
             {
               servicePlaylistTracks: {
                 some: {
+                  isDeleted: false,
+                  deletedAt: null,
                   playlist: {
                     ownerId: "user-1",
                     isActive: true,

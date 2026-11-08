@@ -16,7 +16,6 @@ import { sendEmail } from "#app/utils/email.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
 import { EmailSchema } from "#app/utils/user-validation.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { verifySessionStorage } from "#app/utils/verification.server.ts";
 import { type Route } from "./+types/profile.change-email.ts";
 import { EmailChangeEmail } from "./profile.change-email.server.tsx";
 import { type BreadcrumbHandle } from "./profile.tsx";
@@ -25,8 +24,6 @@ export const handle: BreadcrumbHandle & SEOHandle = {
   breadcrumb: <Icon name="envelope-closed">Change Email</Icon>,
   getSitemapEntries: () => null,
 };
-
-export const newEmailAddressSessionKey = "new-email-address";
 
 const ChangeEmailSchema = z.object({
   email: EmailSchema,
@@ -80,6 +77,7 @@ export async function action({ request }: Route.ActionArgs) {
     request,
     target: userId,
     type: "change-email",
+    pendingEmail: submission.value.email,
   });
 
   try {
@@ -93,13 +91,7 @@ export async function action({ request }: Route.ActionArgs) {
     return data({ result: submission.reply({ formErrors: [message] }) }, { status: 500 });
   }
 
-  const verifySession = await verifySessionStorage.getSession();
-  verifySession.set(newEmailAddressSessionKey, submission.value.email);
-  return redirect(redirectTo.toString(), {
-    headers: {
-      "set-cookie": await verifySessionStorage.commitSession(verifySession),
-    },
-  });
+  return redirect(redirectTo.toString());
 }
 
 export default function ChangeEmailIndex({ loaderData, actionData }: Route.ComponentProps) {

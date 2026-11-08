@@ -4,7 +4,7 @@ import { data } from "react-router";
 import { z } from "zod";
 import { handleVerification as handleChangeEmailVerification } from "#app/routes/settings+/profile.change-email.server.tsx";
 import { twoFAVerificationType } from "#app/routes/settings+/profile.two-factor.tsx";
-import { requireUserId } from "#app/utils/auth.server.ts";
+import { getUserId, requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { getDomainUrl } from "#app/utils/misc.tsx";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
@@ -33,6 +33,8 @@ export type VerifyFunctionArgs = {
   request: Request;
   submission: Submission<z.input<typeof VerifySchema>, string[], z.output<typeof VerifySchema>>;
   body: FormData | URLSearchParams;
+  /** Set for change-email verifications after loading from the Verification row. */
+  pendingNewEmail?: string;
 };
 
 export function getRedirectToUrl({
@@ -79,11 +81,13 @@ export async function prepareVerification({
   request,
   type,
   target,
+  pendingEmail,
 }: {
   period: number;
   request: Request;
   type: VerificationTypes;
   target: string;
+  pendingEmail?: string;
 }) {
   const verifyUrl = getRedirectToUrl({ request, type, target });
   const redirectTo = new URL(verifyUrl.toString());
@@ -101,6 +105,7 @@ export async function prepareVerification({
     // Store the TOTP secret encrypted at rest (AES-256-GCM, `enc1:` prefix).
     secret: encryptVerificationSecret(verificationConfig.secret),
     expiresAt: new Date(Date.now() + verificationConfig.period * 1000),
+    ...(pendingEmail !== undefined ? { pendingEmail } : {}),
   };
   await prisma.verification.upsert({
     where: { target_type: { target, type } },
@@ -191,8 +196,41 @@ export async function validateRequest(request: Request, body: URLSearchParams | 
       return handleOnboardingVerification({ request, body, submission });
     }
     case "change-email": {
+      const sessionUserId = await getUserId(request);
+      if (!sessionUserId || sessionUserId !== submissionValue[targetQueryParam]) {
+        return data(
+          {
+            result: submission.reply({
+              formErrors: ["You can only complete an email change for your own account."],
+            }),
+          },
+          { status: 403 },
+        );
+      }
+
+      const pendingVerification = await prisma.verification.findUnique({
+        where: {
+          target_type: {
+            type: submissionValue[typeQueryParam],
+            target: submissionValue[targetQueryParam],
+          },
+        },
+        select: { pendingEmail: true },
+      });
+      const pendingNewEmail = pendingVerification?.pendingEmail;
+      if (!pendingNewEmail) {
+        return data(
+          {
+            result: submission.reply({
+              formErrors: ["This email change request is no longer valid. Please start again."],
+            }),
+          },
+          { status: 400 },
+        );
+      }
+
       await deleteVerification();
-      return handleChangeEmailVerification({ request, body, submission });
+      return handleChangeEmailVerification({ request, body, submission, pendingNewEmail });
     }
     case "2fa": {
       return handleLoginTwoFactorVerification({ request, body, submission });

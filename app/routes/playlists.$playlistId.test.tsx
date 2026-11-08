@@ -56,6 +56,10 @@ describe("playlists.$playlistId action — updatedAt bump", () => {
   describe("reorder", () => {
     test("bumps playlist updatedAt after reordering tracks", async () => {
       vi.mocked(prisma.$transaction).mockResolvedValue([] as never);
+      vi.mocked(prisma.userPlaylistTrack.findMany).mockResolvedValue([
+        { id: "pt-1" },
+        { id: "pt-2" },
+      ] as never);
 
       const fd = new FormData();
       fd.append("intent", "reorder");
@@ -76,6 +80,30 @@ describe("playlists.$playlistId action — updatedAt bump", () => {
         playlistId: "playlist-1",
         userId: "user-1",
       });
+    });
+
+    test("rejects a partial reorder and does not write positions", async () => {
+      vi.mocked(prisma.userPlaylistTrack.findMany).mockResolvedValue([
+        { id: "pt-1" },
+        { id: "pt-2" },
+        { id: "pt-3" },
+      ] as never);
+
+      const fd = new FormData();
+      fd.append("intent", "reorder");
+      fd.append(
+        "trackOrder",
+        JSON.stringify([
+          { id: "pt-1", position: 0 },
+          { id: "pt-2", position: 1 },
+        ]),
+      );
+
+      const response = await callAction(fd);
+
+      expect(response).toMatchObject({ init: { status: 400 } });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(bumpUserPlaylistUpdatedAt).not.toHaveBeenCalled();
     });
   });
 
