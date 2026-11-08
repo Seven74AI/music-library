@@ -14,6 +14,7 @@ import {
   type PlayHistoryTrack,
 } from "#app/features/play-history/play-history.server.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 import { formatDuration } from "#app/utils/format-duration.ts";
 import { formatRelativeTime } from "#app/utils/format-relative-time.ts";
 import { isPlayableTrack } from "#app/utils/playable-track";
@@ -28,10 +29,18 @@ export type HistoryItem = {
 };
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  const userId = await requireUserId(request);
-  const cursor = parseHistoryCursor(url.searchParams.get("cursor"));
-  const { items, nextCursor } = await getPlayHistory({ userId, cursor });
-  return data({ items, nextCursor });
+  try {
+    const userId = await requireUserId(request);
+    const cursor = parseHistoryCursor(url.searchParams.get("cursor"));
+    const { items, nextCursor } = await getPlayHistory({ userId, cursor });
+    return data({ items, nextCursor });
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    if (isInvalidCursorError(error)) {
+      throw data({ error: "Invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 }
 
 function formatPlayedAt(playedAt: string | Date): string {

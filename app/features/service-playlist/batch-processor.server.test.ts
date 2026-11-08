@@ -1,9 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { consoleError } from "#tests/setup/setup-test-env.ts";
+import { consoleError, consoleWarn } from "#tests/setup/setup-test-env.ts";
 import { type Prisma } from "#prisma/client.js";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
 import { processTracksInBatches } from "./batch-processor.server";
-import { createYouTubeTrackSyncProcessor } from "./youtube-track-sync.server";
+import {
+  createYouTubeTrackSyncProcessor,
+  type TrackSyncProcessor,
+} from "./youtube-track-sync.server";
 
 function createTxMock() {
   const artistCreate = vi
@@ -172,6 +175,123 @@ describe("processTracksInBatches - artist naming", () => {
         data: expect.objectContaining({ name: "Unknown Artist" }),
       }),
     );
+  });
+});
+
+describe("processTracksInBatches - playlist track pairing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("keeps playlist positions aligned when the safety filter drops a middle row", async () => {
+    consoleWarn.mockImplementation(() => {});
+    const playlistTrackUpsert = vi
+      .fn()
+      .mockImplementation(
+        ({
+          create,
+          update,
+        }: {
+          create: { position: number; trackId: string; thumbnailUrl?: string | null };
+          update: { position: number; thumbnailUrl?: string | null };
+        }) =>
+          Promise.resolve({
+            id: "spt",
+            trackId: create.trackId,
+            position: create.position ?? update.position,
+            thumbnailUrl: create.thumbnailUrl ?? update.thumbnailUrl ?? null,
+          }),
+      );
+
+    const trackUpsert = vi
+      .fn()
+      .mockImplementation(({ create }: { create: { externalId: string; title: string } }) =>
+        Promise.resolve({
+          id: `track-${create.externalId}`,
+          title: create.title,
+          externalId: create.externalId,
+          serviceUrl: "https://youtube.com/watch?v=" + create.externalId,
+        }),
+      );
+
+    const tx = {
+      track: { findMany: vi.fn().mockResolvedValue([]), upsert: trackUpsert },
+      artist: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi
+          .fn()
+          .mockImplementation(({ data }: { data: { name: string } }) =>
+            Promise.resolve({ id: `artist-${data.name}`, name: data.name }),
+          ),
+      },
+      servicePlaylistTrack: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: playlistTrackUpsert,
+      },
+      archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
+    } as unknown as Prisma.TransactionClient;
+
+    const base = createYouTubeTrackSyncProcessor();
+    const processor = {
+      isUnavailableVideo: (item: never) => base.isUnavailableVideo(item),
+      shouldPreserveTrackData: (existingTrack: never, newItem: never) =>
+        base.shouldPreserveTrackData(existingTrack, newItem),
+      transformPlaylistItem(item: never, serviceId: string, artistId: string) {
+        const transformed = base.transformPlaylistItem(item, serviceId, artistId);
+        if ((item as { snippet?: { title?: string } }).snippet?.title === "B") {
+          return { ...transformed, externalId: "" };
+        }
+        return transformed;
+      },
+    } satisfies TrackSyncProcessor;
+
+    const items = [
+      {
+        snippet: {
+          title: "A",
+          resourceId: { videoId: "video-a" },
+          videoOwnerChannelTitle: "A",
+          thumbnails: { default: { url: "https://example.com/a.jpg" } },
+        },
+      },
+      {
+        snippet: {
+          title: "B",
+          resourceId: { videoId: "video-b" },
+          videoOwnerChannelTitle: "B",
+          thumbnails: { default: { url: "https://example.com/b.jpg" } },
+        },
+      },
+      {
+        snippet: {
+          title: "C",
+          resourceId: { videoId: "video-c" },
+          videoOwnerChannelTitle: "C",
+          thumbnails: { default: { url: "https://example.com/c.jpg" } },
+        },
+      },
+    ] as never[];
+
+    await processTracksInBatches(
+      items,
+      "service-1",
+      "playlist-1",
+      tx,
+      processor,
+      noopArchiveEnqueueAdapter,
+      0,
+    );
+
+    const upsertCalls = playlistTrackUpsert.mock.calls.map(
+      (call) => call[0] as { create: { position: number; thumbnailUrl?: string | null } },
+    );
+    expect(upsertCalls.map((call) => call.create.position)).toEqual([1, 3]);
+    expect(upsertCalls.map((call) => call.create.thumbnailUrl)).toEqual([
+      "https://example.com/a.jpg",
+      "https://example.com/c.jpg",
+    ]);
+    expect(trackUpsert).toHaveBeenCalledTimes(2);
   });
 });
 

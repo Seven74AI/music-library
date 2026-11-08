@@ -1,5 +1,6 @@
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { INVALID_CURSOR_FORMAT_MESSAGE } from "#app/utils/search-validation.server.ts";
 
 export const PLAY_HISTORY_PAGE_SIZE = 50;
 
@@ -70,11 +71,38 @@ export function serializeHistoryCursor(cursor: PlayHistoryCursor): string {
 export function parseHistoryCursor(raw: string | null): PlayHistoryCursor | null {
   if (!raw) return null;
   const separator = raw.indexOf("_");
-  if (separator <= 0) return null;
+  if (separator <= 0) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
   const ms = Number(raw.slice(0, separator));
   const id = raw.slice(separator + 1);
-  if (!Number.isFinite(ms) || !id) return null;
+  if (!Number.isFinite(ms) || !id) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
   return { createdAt: new Date(ms), id };
+}
+
+/**
+ * Resolve a history cursor against this user's `play_started` events. The
+ * keyset uses the anchored row's `createdAt` so a tampered timestamp cannot
+ * skew pagination.
+ */
+export async function assertPlayHistoryCursor(
+  userId: string,
+  cursor: PlayHistoryCursor,
+): Promise<PlayHistoryCursor> {
+  const anchor = await prisma.usageEvent.findFirst({
+    where: {
+      id: cursor.id,
+      userId,
+      type: USAGE_EVENT_TYPES.play_started,
+    },
+    select: { id: true, createdAt: true },
+  });
+  if (!anchor) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
+  return { id: anchor.id, createdAt: anchor.createdAt };
 }
 
 function playStartedWhere(userId: string, cursor: PlayHistoryCursor | null) {
@@ -108,7 +136,7 @@ export async function getPlayHistory({
   limit?: number;
 }): Promise<{ items: PlayHistoryItem[]; nextCursor: string | null }> {
   const collected: PlayHistoryItem[] = [];
-  let pageCursor = cursor ?? null;
+  let pageCursor = cursor ? await assertPlayHistoryCursor(userId, cursor) : null;
 
   // Keep fetching until we have `limit + 1` items (proof a next page exists)
   // or we run out of events. Dangling tracks are dropped, so a single batch

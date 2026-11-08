@@ -88,8 +88,19 @@ export async function action({ request }: Route.ActionArgs) {
       rebuildFtsIndex(
         Prisma.sql`DELETE FROM tracks_fts`,
         Prisma.sql`
-        INSERT INTO tracks_fts(track_id, title, artist_name, album_name)
-        SELECT t.id, t.title, a.name, COALESCE(alb.name, '')
+        INSERT INTO tracks_fts(track_id, title, artist_name, album_name, genres)
+        SELECT
+          t.id,
+          t.title,
+          a.name,
+          COALESCE(alb.name, ''),
+          COALESCE(
+            (SELECT GROUP_CONCAT(g.name, ' ')
+             FROM _TrackGenres tg
+             JOIN Genre g ON tg.A = g.id
+             WHERE tg.B = t.id),
+            ''
+          )
         FROM Track t
         JOIN Artist a ON t.artistId = a.id
         LEFT JOIN Album alb ON t.albumId = alb.id

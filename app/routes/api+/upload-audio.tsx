@@ -17,7 +17,9 @@ import {
   createCoverImageInTx,
   getOrCreateAlbumTx,
   getOrCreateAlbum,
+  cleanupFailedCoverUpload,
 } from "#app/utils/cover-management.server";
+import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -78,6 +80,10 @@ export async function action({ request }: ActionFunctionArgs) {
     );
   }
 
+  let preparedAudio: Awaited<ReturnType<typeof prepareTrackAudioUpload>> | null = null;
+  let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+  let transactionCommitted = false;
+
   try {
     // Get file buffer for metadata extraction
     const arrayBuffer = await audioFile.arrayBuffer();
@@ -120,7 +126,7 @@ export async function action({ request }: ActionFunctionArgs) {
     // trip the transaction timeout and roll back the DB writes after the object
     // was already uploaded (leaving an orphaned Tigris object). The transaction
     // below now contains only fast DB writes.
-    const preparedAudio = await prepareTrackAudioUpload({
+    const audioPrepared = await prepareTrackAudioUpload({
       trackId,
       serviceName: LOCAL_SERVICE.NAME,
       buffer,
@@ -135,11 +141,12 @@ export async function action({ request }: ActionFunctionArgs) {
         uploadedBy: userId,
       },
     });
+    preparedAudio = audioPrepared;
 
     // Log duplicate detection
-    if (preparedAudio.isDuplicate && preparedAudio.duplicateTrack) {
+    if (audioPrepared.isDuplicate && audioPrepared.duplicateTrack) {
       console.warn(
-        `⚠️  Duplicate: "${audioFile.name}" has same audio as "${preparedAudio.duplicateTrack.title}" by ${preparedAudio.duplicateTrack.artist.name}`,
+        `⚠️  Duplicate: "${audioFile.name}" has same audio as "${audioPrepared.duplicateTrack.title}" by ${audioPrepared.duplicateTrack.artist.name}`,
       );
     }
 
@@ -164,7 +171,6 @@ export async function action({ request }: ActionFunctionArgs) {
     // SQLite serializes writers, so holding the write lock across sharp + a network
     // upload can trip the transaction timeout and roll back DB writes after the
     // object was already uploaded (leaving an orphaned Tigris object).
-    let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
     if (extractedMetadata.coverImage) {
       try {
         preparedCover = await prepareCoverImageUpload({
@@ -174,6 +180,7 @@ export async function action({ request }: ActionFunctionArgs) {
           format: extractedMetadata.coverImage.format,
         });
       } catch (error) {
+        await cleanupFailedCoverUpload(error);
         console.warn(`⚠️  Failed to upload cover image for ${audioFile.name}:`, error);
         // Continue without cover image
       }
@@ -231,7 +238,7 @@ export async function action({ request }: ActionFunctionArgs) {
           uploadedBy: userId,
           buffer,
         },
-        preparedAudio,
+        audioPrepared,
         tx,
       );
 
@@ -245,6 +252,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
       return { track };
     });
+    transactionCommitted = true;
 
     // Fetch artist name for response
     const artistRecord = await prisma.artist.findUnique({
@@ -264,6 +272,7 @@ export async function action({ request }: ActionFunctionArgs) {
       { status: 201 },
     );
   } catch (error) {
+    await cleanupFailedUploadArtifacts(preparedAudio, preparedCover, { transactionCommitted });
     console.error("Error uploading audio file:", error);
     const errorMessage = error instanceof Error ? error.message : "Failed to upload audio file";
     return data({ success: false, error: errorMessage }, { status: 500 });

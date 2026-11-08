@@ -52,6 +52,13 @@ describe("on-repeat snapshot queries", () => {
     expect(shelf[0]?.trackCount).toBe(1);
   });
 
+  test("rejects invalid history cursor", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    await expect(
+      listOnRepeatSnapshotHistory({ userId: user.id, cursor: "not-a-month" }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
   test("history lists all snapshots newest first", async () => {
     const user = await prisma.user.create({ data: createUser() });
     const track = await createTrack("A");
@@ -62,6 +69,20 @@ describe("on-repeat snapshot queries", () => {
     const { items, nextCursor } = await listOnRepeatSnapshotHistory({ userId: user.id });
     expect(items.map((s) => s.yearMonth)).toEqual(["2026-08", "2026-07", "2026-06", "2026-05"]);
     expect(nextCursor).toBeNull();
+  });
+
+  test("rejects malformed and out-of-scope history cursors", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("A");
+    await createSnapshot({ userId: user.id, yearMonth: "2026-08", trackIds: [track.id] });
+
+    await expect(listOnRepeatSnapshotHistory({ userId: user.id, cursor: "zzzz" })).rejects.toThrow(
+      /Invalid cursor format/,
+    );
+
+    await expect(
+      listOnRepeatSnapshotHistory({ userId: user.id, cursor: "0000-00" }),
+    ).rejects.toThrow(/Invalid cursor format/);
   });
 
   test("detail returns ranked tracks with listen counts for owner only", async () => {

@@ -65,6 +65,20 @@ export type CursorSortTuple = {
 
 export const INVALID_CURSOR_FORMAT_MESSAGE = "Invalid cursor format";
 
+const ID_CURSOR_MAX_LENGTH = 200;
+
+/** Reject malformed opaque id cursors (track / userTrack / playlist ids). */
+export function assertValidIdCursor(cursor: string | null | undefined): void {
+  if (cursor == null || cursor === "") return;
+  if (typeof cursor !== "string" || cursor.length > ID_CURSOR_MAX_LENGTH) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
+}
+
+export function isInvalidCursorError(error: unknown): boolean {
+  return error instanceof Error && error.message === INVALID_CURSOR_FORMAT_MESSAGE;
+}
+
 /** Validates a single keyset pagination tuple inside a composite cursor. */
 export function isCursorSortTuple(value: unknown): value is CursorSortTuple {
   if (typeof value !== "object" || value === null) return false;

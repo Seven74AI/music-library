@@ -17,6 +17,7 @@ import {
 import { type PlaylistsIndexOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { assertValidIdCursor, isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 import { cn } from "#app/utils/misc.tsx";
 import { parseSortDirection, type SortDirection } from "#app/utils/sort-direction.ts";
 import { type Prisma } from "#prisma/client.js";
@@ -61,86 +62,105 @@ function sortOrder(
 }
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  const userId = await requireUserId(request);
+  try {
+    const userId = await requireUserId(request);
 
-  // React Router uses a naked `index` param to address this index route.
-  url.searchParams.delete("index");
+    // React Router uses a naked `index` param to address this index route.
+    url.searchParams.delete("index");
 
-  const sort = parseSort(url.searchParams.get("sort"));
-  const direction = resolveDirection(sort, url.searchParams.get("dir"));
-  const q = (url.searchParams.get("q") ?? "").trim();
-  const cursor = url.searchParams.get("cursor") || undefined;
+    const sort = parseSort(url.searchParams.get("sort"));
+    const direction = resolveDirection(sort, url.searchParams.get("dir"));
+    const q = (url.searchParams.get("q") ?? "").trim();
+    const cursor = url.searchParams.get("cursor") || undefined;
 
-  const parsedLimit = Number.parseInt(url.searchParams.get("limit") || "12", 10);
-  const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 12;
+    const parsedLimit = Number.parseInt(url.searchParams.get("limit") || "12", 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 12;
 
-  const where: Prisma.UserPlaylistWhereInput = {
-    ownerId: userId,
-    ...(q
-      ? {
-          OR: [{ title: { contains: q } }, { description: { contains: q } }],
-        }
-      : {}),
-  };
+    const where: Prisma.UserPlaylistWhereInput = {
+      ownerId: userId,
+      ...(q
+        ? {
+            OR: [{ title: { contains: q } }, { description: { contains: q } }],
+          }
+        : {}),
+    };
 
-  // Fetch one extra row to know whether another page exists without a second
-  // query. Cursor pagination is keyset-style: the `id` tiebreaker keeps the
-  // order deterministic across every sort (including by track count).
-  const playlists = await prisma.userPlaylist.findMany({
-    where,
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      createdAt: true,
-      updatedAt: true,
-      tracks: {
-        select: {
-          id: true,
-          position: true,
-          track: {
-            select: {
-              id: true,
-              title: true,
-              artist: {
-                select: {
-                  id: true,
-                  name: true,
+    assertValidIdCursor(cursor);
+    if (cursor) {
+      const anchor = await prisma.userPlaylist.findFirst({
+        where: { id: cursor, ...where },
+        select: { id: true },
+      });
+      if (!anchor) {
+        throw data({ error: "Invalid cursor" }, { status: 400 });
+      }
+    }
+
+    // Fetch one extra row to know whether another page exists without a second
+    // query. Cursor pagination is keyset-style: the `id` tiebreaker keeps the
+    // order deterministic across every sort (including by track count).
+    const playlists = await prisma.userPlaylist.findMany({
+      where,
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        createdAt: true,
+        updatedAt: true,
+        tracks: {
+          select: {
+            id: true,
+            position: true,
+            track: {
+              select: {
+                id: true,
+                title: true,
+                artist: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
                 },
-              },
-              duration: true,
-              coverImage: {
-                select: {
-                  objectKey: true,
+                duration: true,
+                coverImage: {
+                  select: {
+                    objectKey: true,
+                  },
                 },
               },
             },
           },
+          orderBy: { position: "asc" },
         },
-        orderBy: { position: "asc" },
       },
-    },
-    orderBy: sortOrder(sort, direction),
-    take: limit + 1,
-    cursor: cursor ? { id: cursor } : undefined,
-    skip: cursor ? 1 : undefined,
-  });
+      orderBy: sortOrder(sort, direction),
+      take: limit + 1,
+      cursor: cursor ? { id: cursor } : undefined,
+      skip: cursor ? 1 : undefined,
+    });
 
-  const hasNext = playlists.length > limit;
-  const page = hasNext ? playlists.slice(0, limit) : playlists;
-  const nextCursor = hasNext ? (page[page.length - 1]?.id ?? null) : null;
+    const hasNext = playlists.length > limit;
+    const page = hasNext ? playlists.slice(0, limit) : playlists;
+    const nextCursor = hasNext ? (page[page.length - 1]?.id ?? null) : null;
 
-  return data({
-    playlists: page,
-    pagination: {
-      limit,
-      hasNext,
-      nextCursor,
-    },
-    sort,
-    direction,
-    q,
-  });
+    return data({
+      playlists: page,
+      pagination: {
+        limit,
+        hasNext,
+        nextCursor,
+      },
+      sort,
+      direction,
+      q,
+    });
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    if (isInvalidCursorError(error)) {
+      throw data({ error: "Invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 }
 
 type ViewMode = "grid" | "list";

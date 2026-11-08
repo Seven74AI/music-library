@@ -14,6 +14,10 @@ import {
 } from "./heavy-rotation.ts";
 import { getPlayCompletedCountsByTrack } from "./play-completed-counts.server.ts";
 import { getUtcMonthEndExclusive, getUtcMonthStart } from "./utc-month.ts";
+import {
+  assertValidIdCursor,
+  INVALID_CURSOR_FORMAT_MESSAGE,
+} from "#app/utils/search-validation.server.ts";
 
 const QUEUE_TRACK_SELECT = {
   id: true,
@@ -184,7 +188,7 @@ function encodeMostPlayedCursor(cursor: MostPlayedCursor): string {
   return Buffer.from(JSON.stringify({ v: 1, ...cursor })).toString("base64url");
 }
 
-function decodeMostPlayedCursor(raw: string): MostPlayedCursor | null {
+function decodeMostPlayedCursor(raw: string): MostPlayedCursor {
   try {
     const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as {
       v?: unknown;
@@ -195,13 +199,20 @@ function decodeMostPlayedCursor(raw: string): MostPlayedCursor | null {
       parsed?.v !== 1 ||
       typeof parsed.count !== "number" ||
       !Number.isFinite(parsed.count) ||
-      typeof parsed.id !== "string"
+      !Number.isInteger(parsed.count) ||
+      parsed.count < 0 ||
+      typeof parsed.id !== "string" ||
+      parsed.id.length === 0 ||
+      parsed.id.length > 200
     ) {
-      return null;
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
     }
     return { count: parsed.count, id: parsed.id };
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof Error && error.message === INVALID_CURSOR_FORMAT_MESSAGE) {
+      throw error;
+    }
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
   }
 }
 
@@ -268,6 +279,33 @@ async function listMostPlayedLibraryPage({
   `;
 
   const cursorKey = cursor ? decodeMostPlayedCursor(cursor) : null;
+
+  if (cursorKey) {
+    const anchor = await prisma.userTrack.findFirst({
+      where: {
+        ...buildLibraryUserTracksWhere({ userId, hasAudioOnly, genreId }),
+        id: cursorKey.id,
+      },
+      select: { id: true },
+    });
+    if (!anchor) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+
+    const [countRow] = await prisma.$queryRaw<Array<{ cnt: number | bigint }>>`
+      SELECT COALESCE(c.cnt, 0) AS cnt
+      FROM "UserTrack" ut
+      LEFT JOIN (${countSql}) c ON c."trackId" = ut."trackId"
+      WHERE ut."id" = ${cursorKey.id}
+    `;
+    const anchoredCount = Number(countRow?.cnt ?? 0);
+    // The cursor freezes count at page time (plays may land later and raise the
+    // live count). Reject only when the cursor claims more completes than exist.
+    if (cursorKey.count > anchoredCount) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+  }
+
   const cursorWhere = cursorKey
     ? Prisma.sql`AND (
         COALESCE(c.cnt, 0) ${Prisma.raw(cntOp)} ${cursorKey.count}
@@ -331,6 +369,17 @@ export async function listLibraryUserTracks({
   const window = librarySortToWindow(sort);
 
   if (!window) {
+    assertValidIdCursor(cursor);
+    if (cursor) {
+      const anchor = await prisma.userTrack.findFirst({
+        where: { ...where, id: cursor },
+        select: { id: true },
+      });
+      if (!anchor) {
+        throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+      }
+    }
+
     const userTracksRaw = await prisma.userTrack.findMany({
       where,
       select: {

@@ -5,6 +5,7 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { serializeHistoryCursor } from "#app/features/play-history/play-history.server.ts";
 import { loader as apiHistoryLoader } from "./api+/history.tsx";
 import { loader as historyLoader } from "./history.tsx";
 
@@ -197,6 +198,42 @@ describe("play history route loaders", () => {
 
     expect(items).toHaveLength(1);
     expect(items[0]!.track.id).toBe(track.id);
+  });
+
+  test("returns 400 when cursor references a missing play_started id", async () => {
+    const { cookie } = await createUserCookie();
+    const forgedCursor = serializeHistoryCursor({
+      createdAt: new Date(9_999_999_999_999),
+      id: "missing-play-started-id",
+    });
+
+    const response = await apiHistoryLoader(
+      pageRequest(cookie, `http://localhost/api/history?cursor=${forgedCursor}`) as never,
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  test("returns 400 when cursor references another user's play_started event", async () => {
+    const { cookie } = await createUserCookie();
+    const other = await createUserCookie();
+    const track = await createTrack("Shared");
+    const otherEvent = await createPlayStarted({
+      userId: other.userId,
+      trackId: track.id,
+      playId: "other-play",
+      createdAt: at(15),
+    });
+    const stolenCursor = serializeHistoryCursor({
+      createdAt: otherEvent.createdAt,
+      id: otherEvent.id,
+    });
+
+    const response = await apiHistoryLoader(
+      pageRequest(cookie, `http://localhost/api/history?cursor=${stolenCursor}`) as never,
+    );
+
+    expect(response.status).toBe(400);
   });
 
   test("pages backward through history stably via cursor", async () => {

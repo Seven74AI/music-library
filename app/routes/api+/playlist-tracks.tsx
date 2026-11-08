@@ -1,9 +1,11 @@
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
+  assertPlaylistTrackCursorInScope,
   parsePlaylistTracksQuery,
   playlistTracksPagination,
 } from "#app/utils/playlist-tracks-pagination.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 
 export async function loader({ request, url }: { request: Request; url: URL }) {
   try {
@@ -11,6 +13,13 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
 
     const query = parsePlaylistTracksQuery(url);
     if (query.kind === "error") return query.response;
+
+    await assertPlaylistTrackCursorInScope({
+      userId,
+      playlistId: query.playlistId,
+      cursor: query.cursor,
+      kind: "user",
+    });
 
     const fields = url.searchParams.get("fields") || "full"; // 'minimal' or 'full'
     const isMinimal = fields === "minimal";
@@ -66,6 +75,9 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
     });
   } catch (error) {
     if (error instanceof Response) throw error;
+    if (isInvalidCursorError(error)) {
+      return Response.json({ error: "Invalid cursor" }, { status: 400 });
+    }
     console.error("Error fetching playlist tracks:", error);
     return Response.json({ error: "Failed to fetch tracks" }, { status: 500 });
   }
