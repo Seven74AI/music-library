@@ -22,6 +22,7 @@ import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { resolveServiceAccessToken } from "#app/features/service-connection/service-connection.server";
 import { type PlaylistWithTracks, type TrackWithUserStatus } from "#app/types/frontend";
 import { type YouTubePlaylist } from "#app/types/youtube-api";
+import { scheduleArchiveQueueTickAfterCommit } from "#app/features/audio-archive/auto-enqueue.server";
 import { chunkArray } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server";
 import {
@@ -144,6 +145,7 @@ export class ServicePlaylistService {
       deletedVideosWithoutMatch: [],
       removeSptIds: new Set(),
       leaveAloneSptIds: new Set(),
+      archiveQueueTickNeeded: false,
     };
 
     for (let batchStart = 0; batchStart < totalItems; batchStart += TRANSACTION_BATCH_SIZE) {
@@ -175,6 +177,7 @@ export class ServicePlaylistService {
           accumulated.processedIds.trackIds.add(id),
         );
         accumulated.deletedVideosWithoutMatch.push(...batchResult.deletedVideosWithoutMatch);
+        scheduleArchiveQueueTickAfterCommit(batchResult.archiveQueueTickNeeded);
       } catch (batchError) {
         console.error(
           `Error processing batch ${batchStart}-${batchStart + TRANSACTION_BATCH_SIZE}:`,

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFormAction, useNavigation } from "react-router";
 import { useSpinDelay } from "spin-delay";
 import { twMerge } from "tailwind-merge";
+import { configuredSiteUrl } from "#app/utils/site-url.ts";
 
 /**
  * Get user image source URL
@@ -71,11 +72,19 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Get domain URL from request headers
- * @param request - HTTP request object
- * @returns Domain URL string
+ * Origin for user-facing and auth URLs (verify links, WebAuthn rpID).
+ *
+ * Prefer configured SITE_URL over request Host / X-Forwarded-* headers, which
+ * can be client-influenced on reverse proxies (see trustedInternalUrl). When
+ * SITE_URL is unset (typical local dev), fall back to request headers so links
+ * match the browser origin.
  */
 export function getDomainUrl(request: Request) {
+  const configured = configuredSiteUrl();
+  if (configured) {
+    return configured;
+  }
+
   const host =
     request.headers.get("X-Forwarded-Host") ??
     request.headers.get("host") ??

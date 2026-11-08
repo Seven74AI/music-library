@@ -20,6 +20,19 @@ beforeEach(() => {
 });
 
 describe("markAllNotificationsRead", () => {
+  test("chunks large unread snapshots into multiple updateMany calls", async () => {
+    const unreadIds = Array.from({ length: 600 }, (_, i) => ({ id: `n${i}` }));
+
+    mockFindMany.mockResolvedValueOnce(unreadIds);
+    mockUpdateMany.mockResolvedValue({ count: 500 });
+
+    await markAllNotificationsRead("user-1");
+
+    expect(mockUpdateMany).toHaveBeenCalledTimes(2);
+    expect(mockUpdateMany.mock.calls[0]![0].where.id.in).toHaveLength(500);
+    expect(mockUpdateMany.mock.calls[1]![0].where.id.in).toHaveLength(100);
+  });
+
   test("marks only the specific unread notifications that were snapshotted", async () => {
     const unreadIds = [{ id: "n1" }, { id: "n2" }, { id: "n3" }];
 

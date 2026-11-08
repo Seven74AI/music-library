@@ -7,11 +7,13 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
+  PERSONAL_PLAY_BOOST_MAX_SQL_BINDS,
   PLAY_BOOST_CAP,
   PLAY_BOOST_WEIGHT,
   computePersonalPlayBoost,
   getLifetimePlayCompletedCounts,
   personalPlayBoostCaseSql,
+  playCountsForBoostSql,
 } from "#app/utils/personal-play-boost.server.ts";
 
 describe("computePersonalPlayBoost", () => {
@@ -31,6 +33,18 @@ describe("computePersonalPlayBoost", () => {
   it("caps boost so plays cannot cross a relevance_rank tier", () => {
     expect(computePersonalPlayBoost(10_000)).toBe(PLAY_BOOST_CAP);
     expect(computePersonalPlayBoost(10_000)).toBeLessThan(1000);
+  });
+
+  it("caps boost CASE binds for SQLite param budget", () => {
+    const huge = new Map<string, number>();
+    for (let i = 0; i < 1500; i++) {
+      huge.set(`track-${i}`, i + 1);
+    }
+    const capped = playCountsForBoostSql(huge);
+    expect(capped.size).toBeLessThanOrEqual(PERSONAL_PLAY_BOOST_MAX_SQL_BINDS);
+    const { params } = personalPlayBoostCaseSql(capped);
+    expect(params.length).toBe(capped.size);
+    expect(params.length).toBeLessThanOrEqual(PERSONAL_PLAY_BOOST_MAX_SQL_BINDS);
   });
 
   it("builds a CASE SQL expression from precomputed boosts", () => {

@@ -116,6 +116,8 @@ export interface ProcessTracksResult {
   removeSptIds: Set<string>;
   /** ServicePlaylistTrack ids left untouched (lookup failure / non-probeable). */
   leaveAloneSptIds: Set<string>;
+  /** Call scheduleArchiveQueueTickAfterCommit after the transaction commits. */
+  archiveQueueTickNeeded: boolean;
 }
 
 type PlaylistTrackForOrphanDetection = {
@@ -445,6 +447,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
   accumulatedProcessedIds?: ProcessedIdSets,
 ): Promise<ProcessTracksResult> {
   let processedTracks = 0;
+  let archiveQueueTickNeeded = false;
   const batchSize = 50;
   const deletedTracks: SyncTrackInfo[] = [];
   // Merge accumulated sets with new sets to track all processed items across batches
@@ -474,16 +477,24 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       id: string;
       title: string;
       artistId: string;
+      albumId: string | null;
+      releaseDate: Date | null;
+      duration: number | null;
       coverImageId: string | null;
       externalId: string | null;
+      hasTrackAudioFile: boolean;
     };
 
     const trackSelect = {
       id: true,
       title: true,
       artistId: true,
+      albumId: true,
+      releaseDate: true,
+      duration: true,
       coverImageId: true,
       externalId: true,
+      audioFiles: { select: { id: true }, take: 1 },
     } as const;
 
     const candidateKeys = new Set<string>();
@@ -505,7 +516,14 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
         select: trackSelect,
       });
       for (const row of found) {
-        if (row.externalId) existingTracksByExternalId.set(row.externalId, row);
+        if (!row.externalId) continue;
+        const audioFiles = Array.isArray(row.audioFiles) ? row.audioFiles : [];
+        const hasTrackAudioFile = audioFiles.length > 0;
+        const { audioFiles: _audioFiles, ...base } = row;
+        existingTracksByExternalId.set(row.externalId, {
+          ...base,
+          hasTrackAudioFile,
+        });
       }
     }
 
@@ -595,14 +613,26 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             existingTrack.artistId,
           );
           const { thumbnailUrl: _, externalId: ___, ...rest } = transformed;
-          trackData = {
-            ...rest,
-            serviceId, // Use serviceId directly instead of service relation
-            title: existingTrack.title,
-            artistId: existingTrack.artistId,
-            coverImageId: coverImageId || existingTrack.coverImageId || null,
-            externalId, // Use the generated/actual externalId (explicitly set, not from transformation)
-          };
+          trackData = existingTrack.hasTrackAudioFile
+            ? {
+                serviceUrl: rest.serviceUrl,
+                serviceId,
+                externalId,
+                title: existingTrack.title,
+                artistId: existingTrack.artistId,
+                albumId: existingTrack.albumId,
+                releaseDate: existingTrack.releaseDate,
+                duration: existingTrack.duration,
+                coverImageId: coverImageId || existingTrack.coverImageId || null,
+              }
+            : {
+                ...rest,
+                serviceId,
+                title: existingTrack.title,
+                artistId: existingTrack.artistId,
+                coverImageId: coverImageId || existingTrack.coverImageId || null,
+                externalId,
+              };
         } else {
           const transformed = trackProcessor.transformPlaylistItem(
             item,
@@ -706,10 +736,11 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     // (external service tracks, e.g. YouTube — not local uploads)
     // Batched: one findMany + one createMany instead of N create() calls
     // that spam unique-constraint errors on re-syncs of large playlists.
-    await archiveEnqueueAdapter.enqueueArchiveJobs(
+    const enqueued = await archiveEnqueueAdapter.enqueueArchiveJobs(
       tx,
       tracks.filter((track) => track.serviceUrl).map((track) => track.id),
     );
+    archiveQueueTickNeeded = archiveQueueTickNeeded || enqueued;
 
     // Pre-load existing playlist tracks for the batch in a single findMany
     // instead of one findUnique per track before each upsert (N+1 pattern).
@@ -815,5 +846,6 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     deletedVideosWithoutMatch,
     removeSptIds: new Set(),
     leaveAloneSptIds: new Set(),
+    archiveQueueTickNeeded,
   };
 }

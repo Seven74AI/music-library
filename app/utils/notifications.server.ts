@@ -1,3 +1,4 @@
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 
 export async function getUnreadNotificationCount(userId: string): Promise<number> {
@@ -62,12 +63,16 @@ export async function markAllNotificationsRead(userId: string): Promise<number> 
 
   if (unreadIds.length === 0) return 0;
 
-  const result = await prisma.userNotification.updateMany({
-    where: {
-      id: { in: unreadIds.map((n) => n.id) },
-    },
-    data: { readAt: new Date() },
-  });
+  const ids = unreadIds.map((n) => n.id);
+  const readAt = new Date();
+  let total = 0;
+  for (const idChunk of chunkArray(ids)) {
+    const result = await prisma.userNotification.updateMany({
+      where: { id: { in: idChunk } },
+      data: { readAt },
+    });
+    total += result.count;
+  }
 
-  return result.count;
+  return total;
 }

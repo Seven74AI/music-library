@@ -177,6 +177,21 @@ describe("YouTubeTrackSyncProcessor", () => {
       expect(trackProcessor.shouldPreserveTrackData(existingTrack, newItem)).toBe(false);
     });
 
+    test("preserves metadata when the track has archived audio", () => {
+      const existingTrack = {
+        title: "Archive Worker Title",
+        hasTrackAudioFile: true,
+      };
+      const newItem: YouTubePlaylistItem = {
+        snippet: {
+          title: "YouTube Changed Title",
+          resourceId: { videoId: "test123" },
+        },
+      };
+
+      expect(trackProcessor.shouldPreserveTrackData(existingTrack, newItem)).toBe(true);
+    });
+
     test("returns false when no existing track", () => {
       const newItem: YouTubePlaylistItem = {
         snippet: {
