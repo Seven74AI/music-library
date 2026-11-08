@@ -105,6 +105,40 @@ describe("cover image upload split (sharp/uploadFile outside the transaction)", 
     expect(mockDeleteFile).toHaveBeenCalledWith("images/covers/orphan.jpg");
   });
 
+  it("createCoverImageInTx deletes orphan object when create hits P2002", async () => {
+    const p2002 = Object.assign(new Error("Unique constraint"), { code: "P2002" });
+    const tx = {
+      coverImage: {
+        findUnique: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({
+          id: "cover-existing",
+          objectKey: "images/covers/existing.jpg",
+        }),
+        create: vi.fn().mockRejectedValue(p2002),
+      },
+      album: {
+        findUnique: vi.fn(),
+        update: vi.fn(),
+      },
+    };
+
+    const result = await createCoverImageInTx(
+      tx as never,
+      {
+        kind: "new",
+        objectKey: "images/covers/orphan.jpg",
+        contentHash: "hash-dup",
+        width: 800,
+        height: 600,
+        format: "jpeg",
+        fileSize: 1234,
+      },
+      null,
+    );
+
+    expect(mockDeleteFile).toHaveBeenCalledWith("images/covers/orphan.jpg");
+    expect(result).toEqual({ id: "cover-existing", objectKey: "images/covers/existing.jpg" });
+  });
+
   it("createCoverImageInTx writes the row via the tx client and never uploads", async () => {
     const tx = {
       coverImage: {

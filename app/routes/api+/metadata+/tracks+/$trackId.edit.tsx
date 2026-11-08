@@ -251,7 +251,12 @@ export async function action({ request, params }: Route.ActionArgs) {
   });
 
   // Release the lock on successful save (ADR-032).
-  await releaseLock("track", trackId, userId);
+  if (lock) {
+    await releaseLock("track", trackId, userId, {
+      lockId: lock.id,
+      acquiredAt: lock.acquiredAt,
+    });
+  }
 
   return data(result);
 }

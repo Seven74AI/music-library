@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { Prisma } from "#prisma/client.js";
 import { canManageRoom, isRoomRole } from "./capabilities.ts";
 import { generateRoomCode, isValidRoomCode } from "./codes.ts";
 import {
@@ -7,6 +8,7 @@ import {
   GUEST_DISPLAY_NAME_MAX,
   GUEST_DISPLAY_NAME_MIN,
   MAX_PARTICIPANTS,
+  MAX_ACTIVE_ROOMS_PER_CREATOR,
   ROOM_ROLE,
   ROOM_STATUS,
   type DefaultJoinRole,
@@ -85,6 +87,142 @@ async function bumpRoomVersion(roomId: string) {
     data: { roomVersion: { increment: 1 } },
     select: { roomVersion: true },
   });
+}
+
+const SERIALIZABLE_TX = {
+  isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+} as const;
+
+/** Commit a seat vacate inside a transaction (shared by leave and atomic room-switch). */
+async function vacateParticipantSeatInTx(
+  tx: Prisma.TransactionClient,
+  participantId: string,
+  roomId: string,
+  now: Date,
+): Promise<void> {
+  await tx.roomParticipant.update({
+    where: { id: participantId },
+    data: { leftAt: now },
+  });
+
+  const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
+  const remaining = await tx.roomParticipant.count({
+    where: { roomId, leftAt: null },
+  });
+
+  const updates: {
+    emptySince?: Date | null;
+    currentHostParticipantId?: string | null;
+    reclaimParticipantId?: string;
+    isPlaying?: boolean;
+    roomVersion: { increment: number };
+  } = { roomVersion: { increment: 1 } };
+
+  if (remaining === 0) {
+    updates.emptySince = now;
+  }
+
+  if (
+    room.reclaimParticipantId === participantId &&
+    room.currentHostParticipantId &&
+    room.currentHostParticipantId !== participantId
+  ) {
+    updates.reclaimParticipantId = room.currentHostParticipantId;
+  }
+
+  if (room.currentHostParticipantId === participantId) {
+    updates.currentHostParticipantId = null;
+    updates.isPlaying = false;
+  }
+
+  await tx.room.update({ where: { id: roomId }, data: updates });
+}
+
+/** Seat reactivation must recount capacity inside the same txn as the update (SQLite mutex). */
+async function reactivateParticipantWithCapacityCheck({
+  roomId,
+  participantId,
+  userId,
+  guestTokenHash,
+  allowGuestRoomSwitch,
+  data,
+}: {
+  roomId: string;
+  participantId: string;
+  userId?: string;
+  guestTokenHash?: string | null;
+  allowGuestRoomSwitch?: boolean;
+  data: {
+    leftAt: null;
+    lastSeenAt: Date;
+    displayName: string;
+    role: RoomRole;
+  };
+}) {
+  let vacatedRoomId: string | undefined;
+  const participant = await prisma.$transaction(async (tx) => {
+    const now = data.lastSeenAt;
+    let guestSwitchFrom: { id: string; roomId: string } | null = null;
+    if (userId) {
+      const seatedElsewhere = await tx.roomParticipant.findFirst({
+        where: {
+          userId,
+          leftAt: null,
+          room: { status: ROOM_STATUS.open },
+          NOT: { roomId },
+        },
+        select: { id: true },
+      });
+      if (seatedElsewhere) {
+        throw new PartyRoomError(
+          "already_in_room",
+          "Leave your current room before joining another",
+          409,
+        );
+      }
+    }
+    if (guestTokenHash) {
+      const seatedElsewhere = await tx.roomParticipant.findFirst({
+        where: {
+          guestTokenHash,
+          leftAt: null,
+          room: { status: ROOM_STATUS.open },
+          NOT: { roomId },
+        },
+        select: { id: true, roomId: true },
+      });
+      if (seatedElsewhere) {
+        if (allowGuestRoomSwitch) {
+          guestSwitchFrom = seatedElsewhere;
+        } else {
+          throw new PartyRoomError(
+            "already_in_room",
+            "Leave your current room before joining another",
+            409,
+          );
+        }
+      }
+    }
+    const activeCount = await tx.roomParticipant.count({
+      where: { roomId, leftAt: null },
+    });
+    if (activeCount >= MAX_PARTICIPANTS) {
+      throw new PartyRoomError("room_full", "Room is full", 409);
+    }
+    const updated = await tx.roomParticipant.update({
+      where: { id: participantId },
+      data,
+    });
+    if (guestSwitchFrom) {
+      await vacateParticipantSeatInTx(tx, guestSwitchFrom.id, guestSwitchFrom.roomId, now);
+      vacatedRoomId = guestSwitchFrom.roomId;
+    }
+    return updated;
+  }, SERIALIZABLE_TX);
+  if (vacatedRoomId) {
+    await emitRoomSnapshot(vacatedRoomId);
+  }
+  return participant;
 }
 
 async function emitRoomSnapshot(roomId: string) {
@@ -250,6 +388,37 @@ export async function createRoom({
   const now = new Date();
 
   const room = await prisma.$transaction(async (tx) => {
+    const stillSeatedElsewhere = await tx.roomParticipant.findFirst({
+      where: {
+        userId,
+        leftAt: null,
+        room: { status: ROOM_STATUS.open },
+      },
+      select: { id: true },
+    });
+    if (stillSeatedElsewhere) {
+      throw new PartyRoomError(
+        "already_in_room",
+        "Leave your current room before creating another",
+        409,
+      );
+    }
+
+    const activeHostedRooms = await tx.room.count({
+      where: {
+        originalHostUserId: userId,
+        status: ROOM_STATUS.open,
+        participants: { some: { userId, leftAt: null } },
+      },
+    });
+    if (activeHostedRooms >= MAX_ACTIVE_ROOMS_PER_CREATOR) {
+      throw new PartyRoomError(
+        "creator_has_active_room",
+        "End your current room before creating another",
+        409,
+      );
+    }
+
     const created = await tx.room.create({
       data: {
         code,
@@ -381,24 +550,6 @@ export async function claimOpenGuestSeatForUser({
   return participant;
 }
 
-async function vacateOpenGuestSeat(guestToken: string, exceptRoomId: string) {
-  const tokenHash = hashGuestToken(guestToken);
-  const leftover = await prisma.roomParticipant.findFirst({
-    where: {
-      guestTokenHash: tokenHash,
-      leftAt: null,
-      room: { status: ROOM_STATUS.open },
-      NOT: { roomId: exceptRoomId },
-    },
-    select: { roomId: true },
-  });
-  if (!leftover) return;
-  await leaveRoom({
-    roomId: leftover.roomId,
-    actor: { type: "guest", guestToken },
-  });
-}
-
 export async function joinRoom({ code, actor }: { code: string; actor: JoinActor }) {
   const room = await findOpenRoomByCode(code);
 
@@ -416,7 +567,6 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
         guestToken: null as string | null,
       };
     }
-    await vacateOpenGuestSeat(actor.guestToken, room.id);
   }
 
   const activeCount = await prisma.roomParticipant.count({
@@ -431,23 +581,6 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
   const now = new Date();
 
   if (actor.type === "user") {
-    const existingElsewhere = await prisma.roomParticipant.findFirst({
-      where: {
-        userId: actor.userId,
-        leftAt: null,
-        room: { status: ROOM_STATUS.open },
-        NOT: { roomId: room.id },
-      },
-      select: { id: true },
-    });
-    if (existingElsewhere) {
-      throw new PartyRoomError(
-        "already_in_room",
-        "Leave your current room before joining another",
-        409,
-      );
-    }
-
     const existingHere = await prisma.roomParticipant.findFirst({
       where: { roomId: room.id, userId: actor.userId },
     });
@@ -472,15 +605,22 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
         : existingHere.role === ROOM_ROLE.host && room.currentHostParticipantId !== existingHere.id
           ? joinRole
           : existingHere.role;
-      const participant = await prisma.roomParticipant.update({
-        where: { id: existingHere.id },
-        data: {
-          leftAt: null,
-          lastSeenAt: now,
-          displayName,
-          role,
-        },
-      });
+      const participant = existingHere.leftAt
+        ? await reactivateParticipantWithCapacityCheck({
+            roomId: room.id,
+            participantId: existingHere.id,
+            userId: actor.userId,
+            data: { leftAt: null, lastSeenAt: now, displayName, role: role as RoomRole },
+          })
+        : await prisma.roomParticipant.update({
+            where: { id: existingHere.id },
+            data: {
+              leftAt: null,
+              lastSeenAt: now,
+              displayName,
+              role,
+            },
+          });
       await prisma.room.update({
         where: { id: room.id },
         data: { emptySince: null },
@@ -490,21 +630,70 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
       return { roomId: room.id, code: room.code, participant, guestToken: null as string | null };
     }
 
-    const participant = await prisma.roomParticipant.create({
-      data: {
-        roomId: room.id,
-        userId: actor.userId,
-        displayName,
-        role: joinRole,
-        lastSeenAt: now,
-      },
-    });
+    let vacatedRoomId: string | undefined;
+    const participant = await prisma.$transaction(async (tx) => {
+      const seatedElsewhere = await tx.roomParticipant.findFirst({
+        where: {
+          userId: actor.userId,
+          leftAt: null,
+          room: { status: ROOM_STATUS.open },
+          NOT: { roomId: room.id },
+        },
+        select: { id: true },
+      });
+      if (seatedElsewhere) {
+        throw new PartyRoomError(
+          "already_in_room",
+          "Leave your current room before joining another",
+          409,
+        );
+      }
+      let guestSwitchFrom: { id: string; roomId: string } | null = null;
+      if (actor.guestToken) {
+        const tokenHash = hashGuestToken(actor.guestToken);
+        const guestElsewhere = await tx.roomParticipant.findFirst({
+          where: {
+            guestTokenHash: tokenHash,
+            leftAt: null,
+            room: { status: ROOM_STATUS.open },
+            NOT: { roomId: room.id },
+          },
+          select: { id: true, roomId: true },
+        });
+        if (guestElsewhere) {
+          guestSwitchFrom = guestElsewhere;
+        }
+      }
+      const activeCount = await tx.roomParticipant.count({
+        where: { roomId: room.id, leftAt: null },
+      });
+      if (activeCount >= MAX_PARTICIPANTS) {
+        throw new PartyRoomError("room_full", "Room is full", 409);
+      }
+      const created = await tx.roomParticipant.create({
+        data: {
+          roomId: room.id,
+          userId: actor.userId,
+          displayName,
+          role: joinRole,
+          lastSeenAt: now,
+        },
+      });
+      if (guestSwitchFrom) {
+        await vacateParticipantSeatInTx(tx, guestSwitchFrom.id, guestSwitchFrom.roomId, now);
+        vacatedRoomId = guestSwitchFrom.roomId;
+      }
+      return created;
+    }, SERIALIZABLE_TX);
     await prisma.room.update({
       where: { id: room.id },
       data: { emptySince: null },
     });
     await bumpRoomVersion(room.id);
     await emitRoomSnapshot(room.id);
+    if (vacatedRoomId) {
+      await emitRoomSnapshot(vacatedRoomId);
+    }
     return { roomId: room.id, code: room.code, participant, guestToken: null as string | null };
   }
 
@@ -522,29 +711,19 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
   let tokenHash = token ? hashGuestToken(token) : null;
 
   if (token && tokenHash) {
-    // Guests can walk up to a new join URL without a Leave UI for the old room.
-    // Vacate any other open seat first so we do not mint a second live seat
-    // (ghost participant → empty-room TTL never starts).
-    const elsewhere = await prisma.roomParticipant.findFirst({
-      where: {
-        guestTokenHash: tokenHash,
-        leftAt: null,
-        room: { status: ROOM_STATUS.open },
-        NOT: { roomId: room.id },
-      },
-      select: { roomId: true },
-    });
-    if (elsewhere) {
-      await leaveRoom({
-        roomId: elsewhere.roomId,
-        actor: { type: "guest", guestToken: token },
-      });
-    }
-
     const existing = await prisma.roomParticipant.findFirst({
       where: { roomId: room.id, guestTokenHash: tokenHash },
     });
     if (existing) {
+      const openSeatElsewhere = await prisma.roomParticipant.findFirst({
+        where: {
+          guestTokenHash: tokenHash,
+          leftAt: null,
+          room: { status: ROOM_STATUS.open },
+          NOT: { roomId: room.id },
+        },
+        select: { id: true },
+      });
       // Same browser (same guest token) coming back after Leave takes the
       // current defaultJoinRole and does not regain reclaimParticipantId.
       // A second join while still seated keeps the role, except a stale host
@@ -554,15 +733,23 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
         : existing.role === ROOM_ROLE.host && room.currentHostParticipantId !== existing.id
           ? joinRole
           : existing.role;
-      const participant = await prisma.roomParticipant.update({
-        where: { id: existing.id },
-        data: {
-          leftAt: null,
-          lastSeenAt: now,
-          displayName,
-          role,
-        },
-      });
+      const participant = existing.leftAt
+        ? await reactivateParticipantWithCapacityCheck({
+            roomId: room.id,
+            participantId: existing.id,
+            guestTokenHash: tokenHash,
+            allowGuestRoomSwitch: Boolean(openSeatElsewhere),
+            data: { leftAt: null, lastSeenAt: now, displayName, role: role as RoomRole },
+          })
+        : await prisma.roomParticipant.update({
+            where: { id: existing.id },
+            data: {
+              leftAt: null,
+              lastSeenAt: now,
+              displayName,
+              role,
+            },
+          });
       await prisma.room.update({ where: { id: room.id }, data: { emptySince: null } });
       await bumpRoomVersion(room.id);
       await emitRoomSnapshot(room.id);
@@ -570,22 +757,77 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
     }
   }
 
-  // A different device is a new seat. Do not copy reclaimParticipantId onto it.
-  token = createGuestToken();
-  tokenHash = hashGuestToken(token);
+  // A different device is a new seat unless the browser already sent a guest cookie.
+  if (!token) {
+    token = createGuestToken();
+    tokenHash = hashGuestToken(token);
+  }
 
-  const participant = await prisma.roomParticipant.create({
-    data: {
-      roomId: room.id,
-      guestTokenHash: tokenHash,
-      displayName,
-      role: joinRole,
-      lastSeenAt: now,
-    },
-  });
+  let vacatedRoomId: string | undefined;
+  const participant = await prisma.$transaction(async (tx) => {
+    let guestSwitchFrom: { id: string; roomId: string } | null = null;
+    if (tokenHash) {
+      const seatedElsewhere = await tx.roomParticipant.findFirst({
+        where: {
+          guestTokenHash: tokenHash,
+          leftAt: null,
+          room: { status: ROOM_STATUS.open },
+          NOT: { roomId: room.id },
+        },
+        select: { id: true, roomId: true },
+      });
+      if (seatedElsewhere) {
+        guestSwitchFrom = seatedElsewhere;
+      }
+    }
+    const activeCount = await tx.roomParticipant.count({
+      where: { roomId: room.id, leftAt: null },
+    });
+    if (activeCount >= MAX_PARTICIPANTS) {
+      throw new PartyRoomError("room_full", "Room is full", 409);
+    }
+    if (tokenHash) {
+      const duplicateGuest = await tx.roomParticipant.findFirst({
+        where: {
+          roomId: room.id,
+          guestTokenHash: tokenHash,
+          leftAt: null,
+        },
+        select: { id: true },
+      });
+      if (duplicateGuest) {
+        const updated = await tx.roomParticipant.update({
+          where: { id: duplicateGuest.id },
+          data: { lastSeenAt: now, displayName },
+        });
+        if (guestSwitchFrom) {
+          await vacateParticipantSeatInTx(tx, guestSwitchFrom.id, guestSwitchFrom.roomId, now);
+          vacatedRoomId = guestSwitchFrom.roomId;
+        }
+        return updated;
+      }
+    }
+    const created = await tx.roomParticipant.create({
+      data: {
+        roomId: room.id,
+        guestTokenHash: tokenHash,
+        displayName,
+        role: joinRole,
+        lastSeenAt: now,
+      },
+    });
+    if (guestSwitchFrom) {
+      await vacateParticipantSeatInTx(tx, guestSwitchFrom.id, guestSwitchFrom.roomId, now);
+      vacatedRoomId = guestSwitchFrom.roomId;
+    }
+    return created;
+  }, SERIALIZABLE_TX);
   await prisma.room.update({ where: { id: room.id }, data: { emptySince: null } });
   await bumpRoomVersion(room.id);
   await emitRoomSnapshot(room.id);
+  if (vacatedRoomId) {
+    await emitRoomSnapshot(vacatedRoomId);
+  }
   return { roomId: room.id, code: room.code, participant, guestToken: token };
 }
 

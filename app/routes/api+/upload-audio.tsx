@@ -21,6 +21,7 @@ import {
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
+import { backfillTrackMetadata } from "#app/features/track-audio-ingest/backfill-track-metadata.server.ts";
 import { pickIntField } from "#app/utils/track-metadata-int.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -94,9 +95,12 @@ export async function action({ request }: ActionFunctionArgs) {
     const extractedMetadata = await extractAudioMetadata(buffer, audioFile.name);
 
     // Get form data for manual overrides
-    const title = formData.get("title")?.toString() || extractedMetadata.title;
-    const artist = formData.get("artist")?.toString() || extractedMetadata.artist;
-    const album = formData.get("album")?.toString() || extractedMetadata.album;
+    const formTitle = formData.get("title")?.toString();
+    const formArtist = formData.get("artist")?.toString();
+    const formAlbum = formData.get("album")?.toString();
+    const title = formTitle || extractedMetadata.title;
+    const artist = formArtist || extractedMetadata.artist;
+    const album = formAlbum || extractedMetadata.album;
 
     // Validate required fields
     if (!title || !artist) {
@@ -254,6 +258,19 @@ export async function action({ request }: ActionFunctionArgs) {
       return { track };
     });
     transactionCommitted = true;
+
+    try {
+      await backfillTrackMetadata(result.track.id, extractedMetadata, {
+        preserveTitle: Boolean(formTitle),
+        preserveArtist: Boolean(formArtist),
+        preserveAlbum: Boolean(formAlbum),
+      });
+    } catch (backfillError) {
+      console.warn(
+        `⚠️  Track metadata backfill failed for ${result.track.id} after upload:`,
+        backfillError,
+      );
+    }
 
     // Fetch artist name for response
     const artistRecord = await prisma.artist.findUnique({

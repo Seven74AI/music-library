@@ -97,7 +97,12 @@ export async function action({ request, params }: Route.ActionArgs) {
   });
 
   // Release the lock on successful save (ADR-032).
-  await releaseLock("artist", artistId, userId);
+  if (lock) {
+    await releaseLock("artist", artistId, userId, {
+      lockId: lock.id,
+      acquiredAt: lock.acquiredAt,
+    });
+  }
 
   return data({ artist, edit });
 }

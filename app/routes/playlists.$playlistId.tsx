@@ -490,10 +490,11 @@ export async function action({ request, params }: Route.ActionArgs) {
       );
     }
 
+    let trackIdArray: string[];
     try {
-      const trackIdArray = JSON.parse(trackIds) as string[];
-
-      if (!Array.isArray(trackIdArray) || trackIdArray.length === 0) {
+      trackIdArray = JSON.parse(trackIds) as string[];
+    } catch (error) {
+      if (error instanceof SyntaxError) {
         return data(
           { error: "Invalid track IDs format" },
           {
@@ -506,7 +507,24 @@ export async function action({ request, params }: Route.ActionArgs) {
           },
         );
       }
+      throw error;
+    }
 
+    if (!Array.isArray(trackIdArray) || trackIdArray.length === 0) {
+      return data(
+        { error: "Invalid track IDs format" },
+        {
+          status: 400,
+          headers: await createToastHeaders({
+            title: "Error",
+            description: "Invalid track IDs format",
+            type: "error",
+          }),
+        },
+      );
+    }
+
+    try {
       // First verify all playlist tracks exist and belong to the user
       const playlistTracks = [];
       for (const idChunk of chunkArray(trackIdArray)) {
@@ -541,6 +559,8 @@ export async function action({ request, params }: Route.ActionArgs) {
         await prisma.userPlaylistTrack.deleteMany({
           where: {
             id: { in: idChunk },
+            playlistId: params.playlistId,
+            playlist: { ownerId: userId },
           },
         });
       }
@@ -560,14 +580,15 @@ export async function action({ request, params }: Route.ActionArgs) {
           }),
         },
       );
-    } catch {
+    } catch (error) {
+      console.error("bulk-remove-tracks failed:", error);
       return data(
-        { error: "Invalid track IDs format" },
+        { error: "Failed to remove tracks" },
         {
-          status: 400,
+          status: 500,
           headers: await createToastHeaders({
             title: "Error",
-            description: "Invalid track IDs format",
+            description: "Failed to remove tracks",
             type: "error",
           }),
         },

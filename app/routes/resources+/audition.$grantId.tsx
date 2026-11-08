@@ -49,7 +49,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   if (existsSync(localFilePath)) {
-    return serveLocalAudioFile(localFilePath, audioFile, request, "private, max-age=60");
+    return serveLocalAudioFile(localFilePath, audioFile, request, "private, no-store");
   }
 
   const { body, contentType, contentLength } = await getStorageObjectStream(audioFile.objectKey);
@@ -58,7 +58,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       "Content-Type": contentType,
       ...(contentLength ? { "Content-Length": contentLength.toString() } : {}),
       "Accept-Ranges": "bytes",
-      "Cache-Control": "private, max-age=60",
+      "Cache-Control": "private, no-store",
     },
   });
 }

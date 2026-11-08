@@ -3,6 +3,7 @@ import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
+  appendTracksToUserPlaylistAtNextPositions,
   bumpUserPlaylistUpdatedAt,
   userPlaylistTitleTaken,
 } from "#app/utils/user-playlist.server.ts";
@@ -36,6 +37,7 @@ vi.mock("#app/utils/db.server.ts", () => ({
 vi.mock("#app/utils/user-playlist.server.ts", () => ({
   userPlaylistTitleTaken: vi.fn(),
   bumpUserPlaylistUpdatedAt: vi.fn(),
+  appendTracksToUserPlaylistAtNextPositions: vi.fn(),
   normalizeUserPlaylistTitle: (t: string) => t.trim().toLowerCase(),
 }));
 
@@ -262,11 +264,7 @@ describe("service-playlist-to-user-playlist action", () => {
       vi.mocked(prisma.userPlaylistTrack.findMany).mockResolvedValueOnce([
         { trackId: "track-1" },
       ] as any);
-      vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
-        _max: { position: 5 },
-      } as any);
-
-      vi.mocked(prisma.userPlaylistTrack.createMany).mockResolvedValue({} as any);
+      vi.mocked(appendTracksToUserPlaylistAtNextPositions).mockResolvedValue(undefined);
 
       const fd = new FormData();
       fd.append("playlistId", "sp-1");
@@ -285,6 +283,10 @@ describe("service-playlist-to-user-playlist action", () => {
         },
       });
 
+      expect(appendTracksToUserPlaylistAtNextPositions).toHaveBeenCalledWith({
+        playlistId: "up-1",
+        trackIds: ["track-2", "track-3"],
+      });
       expect(bumpUserPlaylistUpdatedAt).toHaveBeenCalledWith({
         playlistId: "up-1",
         userId: "user-1",

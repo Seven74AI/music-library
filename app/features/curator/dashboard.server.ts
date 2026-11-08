@@ -442,7 +442,7 @@ export async function getDashboardCharts(now = new Date()): Promise<DashboardCha
         (
           COUNT(*) +
           SUM(CASE WHEN albumId IS NOT NULL THEN 1 ELSE 0 END) +
-          (SELECT COUNT(DISTINCT tg.B) FROM _TrackGenres tg) +
+          SUM(CASE WHEN EXISTS (SELECT 1 FROM _TrackGenres tg WHERE tg.B = Track.id) THEN 1 ELSE 0 END) +
           SUM(CASE WHEN year IS NOT NULL THEN 1 ELSE 0 END) +
           SUM(CASE WHEN bpm IS NOT NULL THEN 1 ELSE 0 END)
         ) as filled

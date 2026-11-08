@@ -82,26 +82,24 @@ export async function action({ request }: Route.ActionArgs) {
     type: "change-email",
   });
 
-  const response = await sendEmail({
-    to: submission.value.email,
-    subject: `Music Library Email Change Verification`,
-    react: <EmailChangeEmail verifyUrl={verifyUrl.toString()} otp={otp} />,
-  });
-
-  if (response.status === "success") {
-    const verifySession = await verifySessionStorage.getSession();
-    verifySession.set(newEmailAddressSessionKey, submission.value.email);
-    return redirect(redirectTo.toString(), {
-      headers: {
-        "set-cookie": await verifySessionStorage.commitSession(verifySession),
-      },
+  try {
+    await sendEmail({
+      to: submission.value.email,
+      subject: `Music Library Email Change Verification`,
+      react: <EmailChangeEmail verifyUrl={verifyUrl.toString()} otp={otp} />,
     });
-  } else {
-    return data(
-      { result: submission.reply({ formErrors: [response.error.message] }) },
-      { status: 500 },
-    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not send verification email";
+    return data({ result: submission.reply({ formErrors: [message] }) }, { status: 500 });
   }
+
+  const verifySession = await verifySessionStorage.getSession();
+  verifySession.set(newEmailAddressSessionKey, submission.value.email);
+  return redirect(redirectTo.toString(), {
+    headers: {
+      "set-cookie": await verifySessionStorage.commitSession(verifySession),
+    },
+  });
 }
 
 export default function ChangeEmailIndex({ loaderData, actionData }: Route.ComponentProps) {

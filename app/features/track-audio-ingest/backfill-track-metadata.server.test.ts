@@ -12,6 +12,7 @@ vi.mock("#app/utils/track-genres.server.ts", () => ({
 }));
 
 import { getOrCreateAlbum } from "#app/utils/cover-management.server";
+import { replaceTrackGenresFromStrings } from "#app/utils/track-genres.server.ts";
 import { backfillTrackMetadata } from "./backfill-track-metadata.server.ts";
 
 describe("backfillTrackMetadata", () => {
@@ -87,5 +88,75 @@ describe("backfillTrackMetadata", () => {
     });
 
     expect(getOrCreateAlbum).toHaveBeenCalledWith(artist.id, "Some Album", 1985);
+  });
+
+  test("preserves title, artist, and album when upload form values were provided", async () => {
+    const artist = await prisma.artist.create({
+      data: { name: "Form Artist", normalizedName: "form artist" },
+    });
+    const album = await prisma.album.create({
+      data: { name: "Form Album", artistId: artist.id },
+    });
+    const track = await prisma.track.create({
+      data: {
+        title: "Form Title",
+        externalId: "ext-form",
+        serviceId: (
+          await prisma.service.upsert({
+            where: { name: "local" },
+            update: {},
+            create: { name: "local", displayName: "Local", baseUrl: "", isActive: true },
+          })
+        ).id,
+        artistId: artist.id,
+        albumId: album.id,
+      },
+    });
+
+    await backfillTrackMetadata(
+      track.id,
+      {
+        title: "Tag Title",
+        artist: "Tag Artist",
+        album: "Tag Album",
+        genre: ["Electronic"],
+      },
+      { preserveTitle: true, preserveArtist: true, preserveAlbum: true },
+    );
+
+    const updated = await prisma.track.findUniqueOrThrow({ where: { id: track.id } });
+    expect(updated.title).toBe("Form Title");
+    expect(updated.artistId).toBe(artist.id);
+    expect(updated.albumId).toBe(album.id);
+    expect(replaceTrackGenresFromStrings).toHaveBeenCalledWith(expect.anything(), track.id, [
+      "Electronic",
+    ]);
+  });
+
+  test("runs genre backfill when scalar metadata is already complete", async () => {
+    const artist = await prisma.artist.create({
+      data: { name: "Genre Artist", normalizedName: "genre artist" },
+    });
+    const track = await prisma.track.create({
+      data: {
+        title: "Complete",
+        externalId: "ext-genre-only",
+        serviceId: (
+          await prisma.service.upsert({
+            where: { name: "local" },
+            update: {},
+            create: { name: "local", displayName: "Local", baseUrl: "", isActive: true },
+          })
+        ).id,
+        artistId: artist.id,
+      },
+    });
+
+    await backfillTrackMetadata(track.id, { genre: ["Jazz", "Fusion"] });
+
+    expect(replaceTrackGenresFromStrings).toHaveBeenCalledWith(expect.anything(), track.id, [
+      "Jazz",
+      "Fusion",
+    ]);
   });
 });

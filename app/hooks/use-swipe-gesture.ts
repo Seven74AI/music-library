@@ -4,7 +4,9 @@ const DEFAULT_THRESHOLD = 49;
 
 interface TouchState {
   startX: number;
+  startY: number;
   currentX: number;
+  currentY: number;
 }
 
 export interface UseSwipeGestureOptions {
@@ -48,7 +50,9 @@ export function useSwipeGesture(
       const touch = e.touches[0]!;
       touchStateRef.current = {
         startX: touch.clientX,
+        startY: touch.clientY,
         currentX: touch.clientX,
+        currentY: touch.clientY,
       };
     },
     [enabled],
@@ -59,9 +63,16 @@ export function useSwipeGesture(
     const state = touchStateRef.current;
     const touch = e.touches[0]!;
     state.currentX = touch.clientX;
+    state.currentY = touch.clientY;
     const deltaX = state.currentX - state.startX;
     setOffsetX(deltaX);
     setIsSwiping(true);
+  }, []);
+
+  const resetTouch = useCallback(() => {
+    setOffsetX(0);
+    setIsSwiping(false);
+    touchStateRef.current = null;
   }, []);
 
   const handleTouchEnd = useCallback(() => {
@@ -69,9 +80,11 @@ export function useSwipeGesture(
     if (!state) return;
 
     const deltaX = state.currentX - state.startX;
-    const absDelta = Math.abs(deltaX);
+    const deltaY = state.currentY - state.startY;
+    const absDeltaX = Math.abs(deltaX);
+    const absDeltaY = Math.abs(deltaY);
 
-    if (absDelta >= threshold) {
+    if (absDeltaX >= threshold && absDeltaX > absDeltaY) {
       if (deltaX < 0) {
         onSwipeLeft?.();
       } else {
@@ -79,10 +92,12 @@ export function useSwipeGesture(
       }
     }
 
-    setOffsetX(0);
-    setIsSwiping(false);
-    touchStateRef.current = null;
-  }, [threshold, onSwipeLeft, onSwipeRight]);
+    resetTouch();
+  }, [threshold, onSwipeLeft, onSwipeRight, resetTouch]);
+
+  const handleTouchCancel = useCallback(() => {
+    resetTouch();
+  }, [resetTouch]);
 
   useEffect(() => {
     const el = ref.current;
@@ -91,15 +106,15 @@ export function useSwipeGesture(
     el.addEventListener("touchstart", handleTouchStart, { passive: true });
     el.addEventListener("touchmove", handleTouchMove, { passive: true });
     el.addEventListener("touchend", handleTouchEnd);
-    el.addEventListener("touchcancel", handleTouchEnd);
+    el.addEventListener("touchcancel", handleTouchCancel);
 
     return () => {
       el.removeEventListener("touchstart", handleTouchStart);
       el.removeEventListener("touchmove", handleTouchMove);
       el.removeEventListener("touchend", handleTouchEnd);
-      el.removeEventListener("touchcancel", handleTouchEnd);
+      el.removeEventListener("touchcancel", handleTouchCancel);
     };
-  }, [ref, handleTouchStart, handleTouchMove, handleTouchEnd]);
+  }, [ref, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel]);
 
   return { offsetX, isSwiping };
 }

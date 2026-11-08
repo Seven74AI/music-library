@@ -1,6 +1,7 @@
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
+  appendTracksToUserPlaylistAtNextPositions,
   bumpUserPlaylistUpdatedAt,
   userPlaylistTitleTaken,
 } from "#app/utils/user-playlist.server.ts";
@@ -155,21 +156,10 @@ export async function promoteOnRepeatSnapshot(
     };
   }
 
-  const maxPosition = await prisma.userPlaylistTrack.aggregate({
-    where: { playlistId: targetPlaylist.id },
-    _max: { position: true },
+  await appendTracksToUserPlaylistAtNextPositions({
+    playlistId: targetPlaylist.id,
+    trackIds: newTrackIds,
   });
-  let nextPosition = (maxPosition._max.position ?? -1) + 1;
-
-  for (const chunk of chunkArray(newTrackIds)) {
-    await prisma.userPlaylistTrack.createMany({
-      data: chunk.map((trackId) => ({
-        playlistId: targetPlaylist.id,
-        trackId,
-        position: nextPosition++,
-      })),
-    });
-  }
 
   await bumpUserPlaylistUpdatedAt({
     playlistId: targetPlaylist.id,

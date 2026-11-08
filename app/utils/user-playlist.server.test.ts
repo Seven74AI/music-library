@@ -9,8 +9,8 @@ import {
   userPlaylistTitleTaken,
 } from "./user-playlist.server";
 
-vi.mock("#app/utils/db.server.ts", () => ({
-  prisma: {
+const { prismaMock } = vi.hoisted(() => {
+  const mock = {
     userPlaylist: {
       findFirst: vi.fn(),
       findMany: vi.fn(),
@@ -22,9 +22,19 @@ vi.mock("#app/utils/db.server.ts", () => ({
       findFirst: vi.fn(),
       aggregate: vi.fn(),
       create: vi.fn(),
+      createMany: vi.fn(),
       deleteMany: vi.fn(),
     },
-  },
+    $transaction: vi.fn(),
+  };
+  mock.$transaction.mockImplementation(async (callback: (tx: typeof mock) => unknown) =>
+    callback(mock),
+  );
+  return { prismaMock: mock };
+});
+
+vi.mock("#app/utils/db.server.ts", () => ({
+  prisma: prismaMock,
 }));
 
 describe("normalizeUserPlaylistTitle", () => {
@@ -155,7 +165,7 @@ describe("createUserPlaylistWithTrack", () => {
     vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
       _max: { position: null },
     } as never);
-    vi.mocked(prisma.userPlaylistTrack.create).mockResolvedValue({} as never);
+    vi.mocked(prisma.userPlaylistTrack.createMany).mockResolvedValue({ count: 1 } as never);
 
     const result = await createUserPlaylistWithTrack({
       userId: "user-1",
@@ -202,7 +212,7 @@ describe("addTrackToUserPlaylist", () => {
     vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
       _max: { position: 2 },
     } as never);
-    vi.mocked(prisma.userPlaylistTrack.create).mockResolvedValue({} as never);
+    vi.mocked(prisma.userPlaylistTrack.createMany).mockResolvedValue({ count: 1 } as never);
 
     const result = await addTrackToUserPlaylist({
       userId: "user-1",
@@ -214,6 +224,7 @@ describe("addTrackToUserPlaylist", () => {
       status: "success",
       playlistTitle: "My Playlist",
     });
+    expect(prisma.userPlaylistTrack.createMany).toHaveBeenCalled();
   });
 
   test("bumps playlist updatedAt when a track is added", async () => {
@@ -225,7 +236,7 @@ describe("addTrackToUserPlaylist", () => {
     vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
       _max: { position: 2 },
     } as never);
-    vi.mocked(prisma.userPlaylistTrack.create).mockResolvedValue({} as never);
+    vi.mocked(prisma.userPlaylistTrack.createMany).mockResolvedValue({ count: 1 } as never);
 
     const result = await addTrackToUserPlaylist({
       userId: "user-1",

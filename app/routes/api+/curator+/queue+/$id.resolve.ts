@@ -49,8 +49,8 @@ export async function action({ request, params }: Route.ActionArgs) {
     select: { username: true, name: true },
   });
 
-  await prisma.reviewQueueItem.update({
-    where: { id },
+  const resolved = await prisma.reviewQueueItem.updateMany({
+    where: { id, status: "claimed", claimedBy: userId },
     data: {
       status: "resolved",
       resolution: parsed.data.resolution,
@@ -59,6 +59,12 @@ export async function action({ request, params }: Route.ActionArgs) {
       resolvedAt: new Date(),
     },
   });
+  if (resolved.count === 0) {
+    return data(
+      { success: false, error: "Queue item is no longer claimed by you" },
+      { status: 409 },
+    );
+  }
 
   if (item.reporter && item.source === "user_report") {
     await sendReviewResolutionEmail({

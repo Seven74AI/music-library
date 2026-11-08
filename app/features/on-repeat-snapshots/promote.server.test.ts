@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser, createTrack } from "#tests/db-utils.ts";
+import { addTrackToUserPlaylist } from "#app/utils/user-playlist.server.ts";
 import { promoteOnRepeatSnapshot } from "./promote.server.ts";
 
 describe("promoteOnRepeatSnapshot", () => {
@@ -96,6 +97,58 @@ describe("promoteOnRepeatSnapshot", () => {
       orderBy: { position: "asc" },
     });
     expect(members.map((m) => m.trackId)).toEqual([trackA.id, trackB.id]);
+  });
+
+  test("promote add and direct append near-concurrently get distinct sequential positions", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const trackA = await createTrack("A");
+    const trackB = await createTrack("B");
+    const trackC = await createTrack("C");
+    const trackD = await createTrack("D");
+    const playlist = await prisma.userPlaylist.create({
+      data: {
+        title: "Target",
+        ownerId: user.id,
+        tracks: { create: [{ trackId: trackA.id, position: 0 }] },
+      },
+    });
+    const snapshot = await prisma.onRepeatSnapshot.create({
+      data: {
+        userId: user.id,
+        yearMonth: "2026-09",
+        tracks: {
+          create: [{ trackId: trackB.id, position: 0, listenCount: 1 }],
+        },
+      },
+    });
+
+    await Promise.all([
+      promoteOnRepeatSnapshot({
+        userId: user.id,
+        snapshotId: snapshot.id,
+        mode: "add",
+        targetPlaylistId: playlist.id,
+      }),
+      addTrackToUserPlaylist({
+        userId: user.id,
+        playlistId: playlist.id,
+        trackId: trackC.id,
+      }),
+      addTrackToUserPlaylist({
+        userId: user.id,
+        playlistId: playlist.id,
+        trackId: trackD.id,
+      }),
+    ]);
+
+    const members = await prisma.userPlaylistTrack.findMany({
+      where: { playlistId: playlist.id },
+      orderBy: { position: "asc" },
+      select: { trackId: true, position: true },
+    });
+    expect(members).toHaveLength(4);
+    expect(members.map((m) => m.position)).toEqual([0, 1, 2, 3]);
+    expect(new Set(members.map((m) => m.position)).size).toBe(4);
   });
 
   test("rejects promote of another user's snapshot", async () => {

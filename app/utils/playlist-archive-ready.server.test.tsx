@@ -11,6 +11,7 @@ const { mockPrisma, mockSendEmail } = vi.hoisted(() => ({
     },
     userNotification: {
       create: vi.fn(),
+      deleteMany: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -118,6 +119,52 @@ describe("checkPlaylistArchiveReadyAfterTrackArchived", () => {
 
     expect(mockPrisma.userNotification.create).not.toHaveBeenCalled();
     expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("rolls back the archive-ready claim when Resend returns an error status", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    let claimedAt: Date | undefined;
+    mockPrisma.servicePlaylist.findMany.mockResolvedValue([
+      {
+        id: "playlist-1",
+        title: "Chill Mix",
+        ownerId: "user-1",
+        owner: {
+          email: "user@example.com",
+          name: "Alex",
+          username: "alex",
+        },
+      },
+    ]);
+    mockPrisma.servicePlaylistTrack.findFirst.mockResolvedValue(null);
+    mockPrisma.userNotification.create.mockResolvedValue({ id: "notif-1" });
+    mockPrisma.userNotification.deleteMany.mockResolvedValue({ count: 1 });
+    mockSendEmail.mockRejectedValueOnce(new Error("Resend API error (429): rate limited"));
+    mockPrisma.servicePlaylist.updateMany.mockImplementation(async (args) => {
+      const data = (args as { data?: { archiveReadyNotifiedAt?: Date | null } }).data;
+      if (data?.archiveReadyNotifiedAt instanceof Date) {
+        claimedAt = data.archiveReadyNotifiedAt;
+      }
+      return { count: 1 };
+    });
+
+    await checkPlaylistArchiveReadyAfterTrackArchived("track-1");
+
+    expect(mockSendEmail).toHaveBeenCalled();
+    expect(mockPrisma.servicePlaylist.updateMany).toHaveBeenCalledTimes(2);
+    expect(claimedAt).toBeInstanceOf(Date);
+    expect(mockPrisma.servicePlaylist.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: "playlist-1", archiveReadyNotifiedAt: null },
+      data: { archiveReadyNotifiedAt: claimedAt },
+    });
+    expect(mockPrisma.servicePlaylist.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: "playlist-1", archiveReadyNotifiedAt: claimedAt },
+      data: { archiveReadyNotifiedAt: null },
+    });
+    expect(mockPrisma.userNotification.deleteMany).toHaveBeenCalledWith({
+      where: { id: "notif-1" },
+    });
+    consoleError.mockRestore();
   });
 
   it("skips notification when another worker already claimed the playlist", async () => {

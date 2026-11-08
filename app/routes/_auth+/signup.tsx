@@ -67,25 +67,23 @@ export async function action({ request }: Route.ActionArgs) {
       target: email,
     });
 
-    const response = await sendEmail({
-      to: email,
-      subject: `Welcome to Music Library!`,
-      react: <SignupEmail onboardingUrl={prepared.verifyUrl.toString()} otp={prepared.otp} />,
-    });
-
-    if (response.status === "success") {
-      await recordSecurityEvent({
-        request,
-        eventType: SECURITY_EVENT_TYPES.accountCreated,
-        perpetual: false,
-        metadata: { phase: "verification_sent" },
+    try {
+      await sendEmail({
+        to: email,
+        subject: `Welcome to Music Library!`,
+        react: <SignupEmail onboardingUrl={prepared.verifyUrl.toString()} otp={prepared.otp} />,
       });
-    } else {
-      return data(
-        { result: submission.reply({ formErrors: [response.error.message] }) },
-        { status: 500 },
-      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send verification email";
+      return data({ result: submission.reply({ formErrors: [message] }) }, { status: 500 });
     }
+
+    await recordSecurityEvent({
+      request,
+      eventType: SECURITY_EVENT_TYPES.accountCreated,
+      perpetual: false,
+      metadata: { phase: "verification_sent" },
+    });
 
     redirectTo = prepared.redirectTo;
   }

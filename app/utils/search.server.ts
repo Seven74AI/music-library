@@ -591,14 +591,15 @@ export async function searchPlaylists(
   userId: string,
   limit: number = 20,
   cursor?: string,
-  _usePrefix: boolean = true,
+  usePrefix: boolean = true,
 ): Promise<SearchResponse> {
   if (!query.trim() || !userId) {
     return emptySearchResponse(limit);
   }
 
   const normalizedQuery = query.toLowerCase().trim();
-  const likePattern = `%${escapeLikeLiterals(normalizedQuery)}%`;
+  const escaped = escapeLikeLiterals(normalizedQuery);
+  const likePattern = usePrefix ? `${escaped}%` : `%${escaped}%`;
   const cur = cursor ? decodeCursor(cursor) : null;
   const curP = cur?.p ?? null;
 

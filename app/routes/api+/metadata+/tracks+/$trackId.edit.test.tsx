@@ -501,12 +501,13 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
 
     vi.mocked(prisma.track.findUnique).mockResolvedValue(existingTrack as never);
     vi.mocked(prisma.artist.findUnique).mockResolvedValue({ id: "artist-1" } as never);
+    const acquiredAt = new Date("2026-06-01T00:00:00.000Z");
     vi.mocked(prisma.editLock.findUnique).mockResolvedValue({
       id: "lock-1",
       entityType: "track",
       entityId: "track-1",
       lockedBy: "user-1",
-      acquiredAt: new Date(),
+      acquiredAt,
       expiresAt: new Date(Date.now() + 60_000),
       user: { id: "user-1", name: "Curator User", username: "curator" },
     } as never);
@@ -514,6 +515,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
       track: { ...existingTrack, title: "New Title" },
       edit: { id: "edit-1" },
     } as never);
+    vi.mocked(prisma.editLock.deleteMany).mockResolvedValue({ count: 1 });
 
     const body = {
       title: "New Title",
@@ -522,7 +524,15 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
 
     await action(makeRequest(body, { trackId: "track-1" }) as never);
 
-    expect(prisma.editLock.delete).toHaveBeenCalledWith({ where: { id: "lock-1" } });
+    expect(prisma.editLock.deleteMany).toHaveBeenCalledWith({
+      where: {
+        id: "lock-1",
+        entityType: "track",
+        entityId: "track-1",
+        lockedBy: "user-1",
+        acquiredAt,
+      },
+    });
   });
 
   test("handles invalid JSON body", async () => {

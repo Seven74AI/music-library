@@ -7,12 +7,16 @@ export type GenreRef = {
   name: string;
 };
 
-type DbLike = {
+type GenreWriteClient = {
   genre: {
     findFirst: typeof prisma.genre.findFirst;
     create: typeof prisma.genre.create;
   };
   $executeRaw: typeof prisma.$executeRaw;
+};
+
+type DbLike = GenreWriteClient & {
+  $transaction?: typeof prisma.$transaction;
 };
 
 /**
@@ -111,7 +115,41 @@ export async function resolveOrderedGenres(
   return { ok: true, genres: ordered };
 }
 
-async function findOrCreateGenre(tx: DbLike, genreName: string): Promise<string> {
+async function replaceTrackGenreLinksOnClient(
+  tx: GenreWriteClient,
+  trackId: string,
+  genreInput: string | string[] | null | undefined,
+): Promise<void> {
+  const names =
+    typeof genreInput === "string"
+      ? parseGenreString(genreInput)
+      : Array.isArray(genreInput)
+        ? genreInput.flatMap((value) => parseGenreString(value))
+        : [];
+
+  await tx.$executeRaw`
+    DELETE FROM _TrackGenres WHERE B = ${trackId}
+  `;
+
+  if (names.length === 0) return;
+
+  const genreIds: string[] = [];
+  const seenGenreIds = new Set<string>();
+  for (const name of names) {
+    const genreId = await findOrCreateGenre(tx, name);
+    if (seenGenreIds.has(genreId)) continue;
+    seenGenreIds.add(genreId);
+    genreIds.push(genreId);
+  }
+
+  await tx.$executeRaw`
+    INSERT INTO _TrackGenres (A, B) VALUES ${Prisma.join(
+      genreIds.map((genreId) => Prisma.sql`(${genreId}, ${trackId})`),
+    )}
+  `;
+}
+
+async function findOrCreateGenre(tx: GenreWriteClient, genreName: string): Promise<string> {
   const normalizedName = normalizeGenreName(genreName);
   const existing = await tx.genre.findFirst({
     where: { normalizedName },
@@ -130,31 +168,14 @@ async function findOrCreateGenre(tx: DbLike, genreName: string): Promise<string>
  * Replace a track's genre links from human-readable genre strings (audio tags, uploads).
  */
 export async function replaceTrackGenresFromStrings(
-  tx: DbLike,
+  client: DbLike,
   trackId: string,
   genreInput: string | string[] | null | undefined,
 ): Promise<void> {
-  const names =
-    typeof genreInput === "string"
-      ? parseGenreString(genreInput)
-      : Array.isArray(genreInput)
-        ? genreInput.flatMap((value) => parseGenreString(value))
-        : [];
-
-  await tx.$executeRaw`
-    DELETE FROM _TrackGenres WHERE B = ${trackId}
-  `;
-
-  if (names.length === 0) return;
-
-  const genreIds: string[] = [];
-  for (const name of names) {
-    genreIds.push(await findOrCreateGenre(tx, name));
+  if (client.$transaction) {
+    await client.$transaction((tx) => replaceTrackGenreLinksOnClient(tx, trackId, genreInput));
+    return;
   }
 
-  await tx.$executeRaw`
-    INSERT INTO _TrackGenres (A, B) VALUES ${Prisma.join(
-      genreIds.map((genreId) => Prisma.sql`(${genreId}, ${trackId})`),
-    )}
-  `;
+  await replaceTrackGenreLinksOnClient(client, trackId, genreInput);
 }

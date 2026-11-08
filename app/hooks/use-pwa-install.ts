@@ -56,23 +56,34 @@ export function usePwaInstall() {
   }, []);
 
   const dismiss = useCallback(() => {
-    dismissInstallPrompt();
+    try {
+      dismissInstallPrompt();
+    } catch (error) {
+      console.error("Failed to persist PWA install dismiss:", error);
+    }
     setVisible(false);
   }, []);
 
   const install = useCallback(async () => {
     if (!deferredPrompt) return false;
 
-    await deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    setDeferredPrompt(null);
+    try {
+      await deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      setDeferredPrompt(null);
 
-    if (outcome === "accepted") {
+      if (outcome === "accepted") {
+        setVisible(false);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error("PWA install prompt failed:", error);
+      setDeferredPrompt(null);
       setVisible(false);
-      return true;
+      return false;
     }
-
-    return false;
   }, [deferredPrompt]);
 
   const canInstallNatively = Boolean(deferredPrompt);

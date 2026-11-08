@@ -896,7 +896,7 @@ describe("Search Utilities", () => {
         },
       });
 
-      const result = await searchPlaylists("Favorite", user.id, 10);
+      const result = await searchPlaylists("Favorite", user.id, 10, undefined, false);
 
       expect(result.results.length).toBeGreaterThan(0);
       expect(result.results[0]?.type).toBe("playlist");
@@ -933,11 +933,11 @@ describe("Search Utilities", () => {
       });
 
       // User B should not find user A's playlists
-      const resultForB = await searchPlaylists("Playlist", userB.id, 10);
+      const resultForB = await searchPlaylists("Playlist", userB.id, 10, undefined, false);
       expect(resultForB.results).toHaveLength(0);
 
       // User A should find their own playlist
-      const resultForA = await searchPlaylists("Playlist", userA.id, 10);
+      const resultForA = await searchPlaylists("Playlist", userA.id, 10, undefined, false);
       expect(resultForA.results.length).toBeGreaterThan(0);
       if (resultForA.results[0]?.type === "playlist") {
         expect(resultForA.results[0].name).toContain("User A");
@@ -994,7 +994,7 @@ describe("Search Utilities", () => {
         });
       }
 
-      const result = await searchPlaylists("Tracks", user.id, 10);
+      const result = await searchPlaylists("Tracks", user.id, 10, undefined, false);
       expect(result.results.length).toBeGreaterThan(0);
       if (result.results[0]?.type === "playlist") {
         expect(result.results[0].trackCount).toBe(3);
