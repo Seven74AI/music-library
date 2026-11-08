@@ -1,6 +1,8 @@
 import { BlockList, isIP } from "node:net";
 
 const blockedImageAddresses = new BlockList();
+blockedImageAddresses.addAddress("0.0.0.0", "ipv4");
+blockedImageAddresses.addSubnet("100.64.0.0", 10, "ipv4");
 blockedImageAddresses.addSubnet("127.0.0.0", 8, "ipv4");
 blockedImageAddresses.addSubnet("10.0.0.0", 8, "ipv4");
 blockedImageAddresses.addSubnet("172.16.0.0", 12, "ipv4");

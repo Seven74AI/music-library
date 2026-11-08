@@ -118,27 +118,38 @@ async function handleUpdate(request: Request, genreId: string) {
     );
   }
 
+  const oldName = existingGenre.name;
+
   // Update genre. The normalizedName unique constraint backstops the dedup
   // guard above against a concurrent rename race (e.g. 'Rock' -> 'rock' while
   // another request creates/renames to 'rock'); surface that as the same 409.
   let updatedGenre;
   try {
-    updatedGenre = await prisma.genre.update({
-      where: { id: genreId },
-      data: {
-        name: result.data.name,
-        normalizedName,
-      },
-      select: {
-        id: true,
-        name: true,
-        createdAt: true,
-        _count: {
-          select: {
-            tracks: true,
+    updatedGenre = await prisma.$transaction(async (tx) => {
+      const genre = await tx.genre.update({
+        where: { id: genreId },
+        data: {
+          name: result.data.name,
+          normalizedName,
+        },
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          _count: {
+            select: {
+              tracks: true,
+            },
           },
         },
-      },
+      });
+
+      await tx.track.updateMany({
+        where: { genre: oldName },
+        data: { genre: result.data.name },
+      });
+
+      return genre;
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
@@ -186,8 +197,15 @@ async function handleDelete(genreId: string) {
   }
 
   // Delete genre (cascade delete will remove join table entries)
-  await prisma.genre.delete({
-    where: { id: genreId },
+  await prisma.$transaction(async (tx) => {
+    await tx.track.updateMany({
+      where: { genre: existingGenre.name },
+      data: { genre: null },
+    });
+
+    await tx.genre.delete({
+      where: { id: genreId },
+    });
   });
 
   return Response.json({

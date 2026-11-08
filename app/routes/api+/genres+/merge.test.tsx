@@ -134,6 +134,15 @@ describe("POST /api/genres/merge", () => {
     await prisma.$executeRaw`INSERT INTO _TrackGenres (A, B) VALUES (${sourceGenre1.id}, ${track1.id})`;
     await prisma.$executeRaw`INSERT INTO _TrackGenres (A, B) VALUES (${sourceGenre2.id}, ${track2.id})`;
 
+    await prisma.track.update({
+      where: { id: track1.id },
+      data: { genre: sourceGenre1.name },
+    });
+    await prisma.track.update({
+      where: { id: track2.id },
+      data: { genre: sourceGenre2.name },
+    });
+
     // Mock request
     const request = new Request("http://localhost/api/genres/merge", {
       method: "POST",
@@ -175,6 +184,12 @@ describe("POST /api/genres/merge", () => {
       SELECT COUNT(*) as count FROM _TrackGenres WHERE A = ${targetGenre.id}
     `;
     expect(Number(targetLinks[0]?.count)).toBe(2);
+
+    const refreshedTracks = await prisma.track.findMany({
+      where: { id: { in: [track1.id, track2.id] } },
+      select: { genre: true },
+    });
+    expect(refreshedTracks.every((t) => t.genre === targetGenre.name)).toBe(true);
   });
 
   test("returns 400 if target is in sources", async () => {

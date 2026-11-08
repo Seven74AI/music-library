@@ -238,9 +238,10 @@ export function normalizeRoomSnapshot(
     };
   });
 
-  const currentIndex = Number(
-    raw.currentIndex ?? (raw.playback as { currentIndex?: number } | undefined)?.currentIndex ?? 0,
-  );
+  const rawCurrentIndex =
+    raw.currentIndex ?? (raw.playback as { currentIndex?: number } | undefined)?.currentIndex ?? 0;
+  const parsedCurrentIndex = Number(rawCurrentIndex);
+  const currentIndex = Number.isFinite(parsedCurrentIndex) ? parsedCurrentIndex : -1;
   const isPlaying = Boolean(
     raw.isPlaying ?? (raw.playback as { isPlaying?: boolean } | undefined)?.isPlaying,
   );

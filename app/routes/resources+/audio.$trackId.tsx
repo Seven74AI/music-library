@@ -65,7 +65,7 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
 
   if (wantsStream) {
     if (existsSync(localFilePath)) {
-      return serveLocalAudioFile(localFilePath, audioFile, request, "public, max-age=3600");
+      return serveLocalAudioFile(localFilePath, audioFile, request, "private, no-store");
     }
 
     const { body, contentType, contentLength } = await getStorageObjectStream(audioFile.objectKey);
@@ -75,15 +75,17 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
         "Content-Type": contentType,
         ...(contentLength ? { "Content-Length": contentLength.toString() } : {}),
         "Accept-Ranges": "bytes",
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": "private, no-store",
       },
     });
   }
 
+  const noStoreJsonHeaders = { "Cache-Control": "private, no-store" } as const;
+
   if (existsSync(localFilePath)) {
     const streamUrl = new URL(url.href);
     streamUrl.searchParams.set("stream", "1");
-    return Response.json({ url: streamUrl.toString() });
+    return Response.json({ url: streamUrl.toString() }, { headers: noStoreJsonHeaders });
   }
 
   // Generate signed URL for remote storage (Tigris/S3)
@@ -93,5 +95,5 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
   // Return presigned URL directly — client sets it on <audio src>
   // No redirect: per decision #22 in CONTEXT.md, the client talks to Tigris CDN directly.
   // CORS on the Tigris bucket enables Range-seeking.
-  return Response.json({ url: signedUrl });
+  return Response.json({ url: signedUrl }, { headers: noStoreJsonHeaders });
 }
