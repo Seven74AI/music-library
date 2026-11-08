@@ -109,7 +109,6 @@ type LoaderData = {
     artist: { id: string; name: string };
     albumRecord: { id: string; name: string } | null;
     duration: number | null;
-    genre: string | null;
     genres: Array<{ id: string; name: string }>;
     year: number | null;
     trackNumber: number | null;
@@ -184,7 +183,6 @@ function makeData(overrides: Partial<LoaderData> = {}): LoaderData {
     artist: { id: "artist-1", name: "M83" },
     albumRecord: { id: "album-1", name: "Hurry Up, We're Dreaming" },
     duration: 245,
-    genre: "Electronic",
     genres: [
       { id: "g2", name: "Synth-pop" },
       { id: "g1", name: "Electronic" },
@@ -332,13 +330,13 @@ test("related tracks prefer the album and fall back to the artist", () => {
   ).toBeNull();
 });
 
-test("primary genre leads the genre list", () => {
-  expect(orderedGenreNames([{ name: "Synth-pop" }, { name: "Electronic" }], "Electronic")).toEqual([
-    "Electronic",
+test("orderedGenreNames lists genre relation names", () => {
+  expect(orderedGenreNames([{ name: "Synth-pop" }, { name: "Electronic" }])).toEqual([
     "Synth-pop",
+    "Electronic",
   ]);
 
-  expect(orderedGenreNames([], "Jazz")).toEqual(["Jazz"]);
+  expect(orderedGenreNames([])).toEqual([]);
 });
 
 test("shows the track as a playable music page", async () => {
@@ -357,7 +355,7 @@ test("shows the track as a playable music page", async () => {
   );
   expect(screen.getByText("4:05")).toBeInTheDocument();
   expect(screen.getByText("2011")).toBeInTheDocument();
-  expect(screen.getByText("Electronic, Synth-pop")).toBeInTheDocument();
+  expect(screen.getByText("Synth-pop, Electronic")).toBeInTheDocument();
   expect(screen.getByText("FLAC")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Back" })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Track Information" })).not.toBeInTheDocument();

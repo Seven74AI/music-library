@@ -26,6 +26,7 @@ import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { replaceTrackGenresFromStrings } from "#app/utils/track-genres.server.ts";
 import {
   initUploadProgress,
   updateFileProgress,
@@ -545,8 +546,6 @@ async function processFilesAsync(
                 : file.metadata.releaseDate
                   ? new Date(file.metadata.releaseDate)
                   : null,
-              // Basic metadata
-              genre: file.userMetadata?.genre || file.metadata.genre?.[0] || null,
               year: file.userMetadata?.year || file.metadata.year || null,
               trackNumber: file.userMetadata?.trackNumber || file.metadata.track?.no || null,
               albumArtist: file.userMetadata?.albumArtist || file.metadata.albumArtist || null,
@@ -565,6 +564,11 @@ async function processFilesAsync(
               lyrics: file.userMetadata?.lyrics || file.metadata.lyrics || null,
             },
           });
+
+          const genreInput =
+            file.userMetadata?.genre ??
+            (file.metadata.genre?.length ? file.metadata.genre.join(", ") : null);
+          await replaceTrackGenresFromStrings(tx, track.id, genreInput);
 
           await updateFileProgress(uploadId, fileId, 75, "uploading");
 

@@ -1,14 +1,8 @@
 /**
  * Genre Migration Utility
  *
- * Handles migration of single genre strings to multi-genre system.
- * - Parses genre strings (handling commas, semicolons, slashes)
- * - Creates Genre records
- * - Creates join table entries
- * - Normalizes genre names
+ * Parses and normalizes genre names for the multi-genre tagging system.
  */
-
-import { prisma } from "./db.server.ts";
 
 /**
  * Normalize a genre name for deduplication and comparison
@@ -51,98 +45,11 @@ export function parseGenreString(genreString: string | null): string[] {
   return uniqueGenres;
 }
 
-/**
- * Migrate track genres from string to multi-genre system
- * Returns count of tracks migrated
- */
-export async function migrateTrackGenres(
-  options: {
-    batchSize?: number;
-    onProgress?: (current: number, total: number) => void;
-  } = {},
-): Promise<{ tracksProcessed: number; genresCreated: number; linksCreated: number }> {
-  const { batchSize = 100, onProgress } = options;
-
-  // Get all tracks with genre strings
-  const totalTracks = await prisma.track.count({
-    where: {
-      OR: [{ genre: { not: null } }, { genre: { not: "" } }],
-    },
-  });
-
-  let tracksProcessed = 0;
-  let genresCreated = 0;
-  let linksCreated = 0;
-
-  // Track which genres we've already created to avoid redundant lookups
-  const genreCache = new Map<string, string>();
-
-  // Process tracks in batches
-  while (tracksProcessed < totalTracks) {
-    const tracks = await prisma.track.findMany({
-      where: {
-        OR: [{ genre: { not: null } }, { genre: { not: "" } }],
-      },
-      select: { id: true, genre: true },
-      take: batchSize,
-      skip: tracksProcessed,
-    });
-
-    if (tracks.length === 0) break;
-
-    // Process each track
-    for (const track of tracks) {
-      const genreNames = parseGenreString(track.genre);
-
-      for (const genreName of genreNames) {
-        const normalizedName = normalizeGenreName(genreName);
-
-        // Check cache first
-        let genreId = genreCache.get(normalizedName);
-
-        if (!genreId) {
-          // Find or create genre
-          const existingGenre = await prisma.genre.findFirst({
-            where: { normalizedName },
-            select: { id: true },
-          });
-
-          if (existingGenre) {
-            genreId = existingGenre.id;
-          } else {
-            const newGenre = await prisma.genre.create({
-              data: {
-                name: genreName,
-                normalizedName,
-              },
-              select: { id: true },
-            });
-            genreId = newGenre.id;
-            genresCreated++;
-          }
-
-          genreCache.set(normalizedName, genreId);
-        }
-
-        // Check if link already exists
-        const existingLink = await prisma.$queryRaw<Array<{ count: bigint }>>`
-          SELECT COUNT(*) as count FROM _TrackGenres
-          WHERE A = ${genreId} AND B = ${track.id}
-        `;
-
-        if (Number(existingLink[0]?.count) === 0) {
-          // Create link in join table
-          await prisma.$executeRaw`
-            INSERT INTO _TrackGenres (A, B) VALUES (${genreId}, ${track.id})
-          `;
-          linksCreated++;
-        }
-      }
-    }
-
-    tracksProcessed += tracks.length;
-    onProgress?.(tracksProcessed, totalTracks);
-  }
-
-  return { tracksProcessed, genresCreated, linksCreated };
+/** @deprecated Legacy `Track.genre` was removed; use `_TrackGenres` / `replaceTrackGenresFromStrings`. */
+export async function migrateTrackGenres(): Promise<{
+  tracksProcessed: number;
+  genresCreated: number;
+  linksCreated: number;
+}> {
+  return { tracksProcessed: 0, genresCreated: 0, linksCreated: 0 };
 }

@@ -118,8 +118,6 @@ async function handleUpdate(request: Request, genreId: string) {
     );
   }
 
-  const oldName = existingGenre.name;
-
   // Update genre. The normalizedName unique constraint backstops the dedup
   // guard above against a concurrent rename race (e.g. 'Rock' -> 'rock' while
   // another request creates/renames to 'rock'); surface that as the same 409.
@@ -142,11 +140,6 @@ async function handleUpdate(request: Request, genreId: string) {
             },
           },
         },
-      });
-
-      await tx.track.updateMany({
-        where: { genre: oldName },
-        data: { genre: result.data.name },
       });
 
       return genre;
@@ -198,11 +191,6 @@ async function handleDelete(genreId: string) {
 
   // Delete genre (cascade delete will remove join table entries)
   await prisma.$transaction(async (tx) => {
-    await tx.track.updateMany({
-      where: { genre: existingGenre.name },
-      data: { genre: null },
-    });
-
     await tx.genre.delete({
       where: { id: genreId },
     });

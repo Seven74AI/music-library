@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cache } from "#app/utils/cache.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { linkGenresToTrack } from "#tests/track-genre-test-utils.ts";
 import { DASHBOARD_METRICS_CACHE_KEY, lastNDays } from "./dashboard.ts";
 import {
   computeDashboardMetrics,
@@ -65,12 +66,14 @@ async function createTrack(
       artistId: artist.id,
       serviceId: service.id,
       externalId: `dash-${title}-${Math.random().toString(36).slice(2, 8)}`,
-      genre: fields?.genre,
       year: fields?.year,
       bpm: fields?.bpm,
       albumId: fields?.albumId,
     },
   });
+  if (fields?.genre) {
+    await linkGenresToTrack(track.id, fields.genre);
+  }
   createdTrackIds.push(track.id);
   return { track, artist, service };
 }

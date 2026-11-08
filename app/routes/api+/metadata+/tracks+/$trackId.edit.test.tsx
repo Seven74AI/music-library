@@ -221,7 +221,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
       title: "Title",
       artistId: "artist-1",
       albumId: "album-1",
-      genre: "Rock",
+      genres: [{ id: "genre-rock", name: "Rock" }],
       year: 2020,
       trackNumber: 1,
       albumArtist: "Album Artist",
@@ -239,7 +239,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     const updatedTrack = {
       ...existingTrack,
       albumId: null,
-      genre: null,
+      genres: [],
       artist: { id: "artist-1", name: "Artist Name" },
       albumRecord: null,
     };
@@ -276,7 +276,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     const response: any = await action(makeRequest(body, { trackId: "track-1" }) as never);
 
     expect(response.data.track.albumId).toBeNull();
-    expect(response.data.track.genre).toBeNull();
+    expect(response.data.track.genres).toEqual([]);
   });
 
   test("writes the selected album id onto the track", async () => {
@@ -348,13 +348,12 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     expect(response.data.track.albumId).toBe("album-2");
   });
 
-  test("snapshots current genre ids and syncs the legacy genre string from genreIds", async () => {
+  test("snapshots current genre ids when updating genreIds", async () => {
     const existingTrack = {
       id: "track-1",
       title: "Old Title",
       artistId: "artist-1",
       albumId: null,
-      genre: "Rock",
       genres: [
         { id: "genre-pop", name: "Pop" },
         { id: "genre-rock", name: "Rock" },
@@ -387,7 +386,6 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     const mockTrackUpdate = vi.fn().mockResolvedValue({
       ...existingTrack,
       title: "New Title",
-      genre: "Jazz",
       artist: { id: "artist-1", name: "Artist Name" },
       albumRecord: null,
       genres: [
@@ -417,15 +415,14 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     expect(mockTrackEditCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          genre: "Rock",
-          genreIds: JSON.stringify(["genre-rock", "genre-pop"]),
+          genre: "Pop",
+          genreIds: JSON.stringify(["genre-pop", "genre-rock"]),
         }),
       }),
     );
     expect(mockTrackUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          genre: "Jazz",
           genres: { set: [{ id: "genre-jazz" }, { id: "genre-soul" }] },
         }),
       }),

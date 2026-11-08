@@ -46,7 +46,6 @@ export function ExtendedMetadataTab({ track, onSave, disabled = false }: Extende
       title: track.title,
       artistId: track.artist.id,
       albumId: track.albumRecord?.id ?? null,
-      genre: track.genre,
       year: track.year,
       trackNumber: trackNumber ? parseInt(trackNumber, 10) : null,
       albumArtist: albumArtist.trim() || null,

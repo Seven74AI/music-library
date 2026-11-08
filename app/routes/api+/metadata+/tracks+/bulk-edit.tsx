@@ -8,6 +8,7 @@ import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action
 import {
   primaryGenreName,
   resolveOrderedGenres,
+  resolveOrderedGenresFromNames,
   snapshotGenreIds,
   type GenreRef,
 } from "#app/utils/track-genres.server.ts";
@@ -102,7 +103,6 @@ export async function action({ request }: Route.ActionArgs) {
       title: true,
       artistId: true,
       albumId: true,
-      genre: true,
       genres: {
         select: {
           id: true,
@@ -168,6 +168,16 @@ export async function action({ request }: Route.ActionArgs) {
       return data({ error: "One or more genres not found" }, { status: 404 });
     }
     resolvedGenres = resolved.genres;
+  } else if (changes.genre !== undefined) {
+    if (changes.genre === null || changes.genre.trim() === "") {
+      resolvedGenres = [];
+    } else {
+      const resolved = await resolveOrderedGenresFromNames([changes.genre]);
+      if (!resolved.ok) {
+        return data({ error: "Failed to resolve genre" }, { status: 400 });
+      }
+      resolvedGenres = resolved.genres;
+    }
   }
 
   // Parse dates if provided
@@ -196,8 +206,8 @@ export async function action({ request }: Route.ActionArgs) {
         title: track.title,
         artistId: track.artistId,
         albumId: track.albumId,
-        genre: track.genre,
-        genreIds: snapshotGenreIds(track.genres, track.genre),
+        genre: primaryGenreName(track.genres ?? []),
+        genreIds: snapshotGenreIds(track.genres),
         year: track.year,
         trackNumber: track.trackNumber,
         albumArtist: track.albumArtist,
@@ -233,14 +243,9 @@ export async function action({ request }: Route.ActionArgs) {
     if (changes.totalDiscs !== undefined) trackUpdateData.totalDiscs = changes.totalDiscs;
     if (changes.lyrics !== undefined) trackUpdateData.lyrics = changes.lyrics;
 
-    // The legacy `genre` string is uniform too; the many-to-many link
-    // replacement is handled with set-based SQL below.
     let genreIdsToSet: string[] | undefined;
     if (resolvedGenres !== undefined) {
-      trackUpdateData.genre = primaryGenreName(resolvedGenres);
       genreIdsToSet = resolvedGenres.map((genre) => genre.id);
-    } else if (changes.genre !== undefined) {
-      trackUpdateData.genre = changes.genre;
     }
 
     // 3. Apply the uniform scalar changes in a single query.

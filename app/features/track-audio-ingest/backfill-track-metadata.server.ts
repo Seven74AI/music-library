@@ -2,6 +2,7 @@ import { getOrCreateArtist } from "#app/utils/artist-management.server";
 import { type ExtractedAudioMetadata } from "#app/utils/audio-metadata.server";
 import { getOrCreateAlbum } from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server.ts";
+import { replaceTrackGenresFromStrings } from "#app/utils/track-genres.server.ts";
 
 function parseOptionalDate(value?: string): Date | undefined {
   if (!value) return undefined;
@@ -34,10 +35,6 @@ export async function backfillTrackMetadata(
   if (metadata.totalDiscs !== undefined) trackUpdateData.totalDiscs = metadata.totalDiscs;
   if (metadata.lyrics) trackUpdateData.lyrics = metadata.lyrics;
   if (metadata.track?.no !== undefined) trackUpdateData.trackNumber = metadata.track.no;
-  if (metadata.genre && metadata.genre.length > 0) {
-    trackUpdateData.genre = metadata.genre[0];
-  }
-
   const releaseDate = parseOptionalDate(metadata.releaseDate);
   if (releaseDate) trackUpdateData.releaseDate = releaseDate;
 
@@ -62,8 +59,15 @@ export async function backfillTrackMetadata(
 
   if (Object.keys(trackUpdateData).length === 0) return;
 
-  await prisma.track.update({
-    where: { id: trackId },
-    data: trackUpdateData,
+  await prisma.$transaction(async (tx) => {
+    if (Object.keys(trackUpdateData).length > 0) {
+      await tx.track.update({
+        where: { id: trackId },
+        data: trackUpdateData,
+      });
+    }
+    if (metadata.genre?.length) {
+      await replaceTrackGenresFromStrings(tx, trackId, metadata.genre);
+    }
   });
 }

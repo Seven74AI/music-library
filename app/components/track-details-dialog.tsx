@@ -42,7 +42,6 @@ export interface TrackDetails {
   service: { displayName: string } | null;
   serviceUrl: string | null;
   // Additional metadata
-  genre: string | null; // Keep for backward compatibility
   genres: Array<{ id: string; name: string }>;
   year: number | null;
   trackNumber: number | null;

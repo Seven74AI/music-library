@@ -305,7 +305,6 @@ model Track {
   coverImage            CoverImage?            @relation(fields: [coverImageId], references: [id], onDelete: SetNull)
   releaseDate           DateTime?
   // Basic metadata
-  genre                 String?
   year                  Int?
   trackNumber           Int?
   albumArtist           String?

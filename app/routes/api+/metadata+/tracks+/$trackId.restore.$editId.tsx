@@ -6,6 +6,7 @@ import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action
 import {
   parseGenreIdSnapshot,
   primaryGenreName,
+  replaceTrackGenresFromStrings,
   resolveOrderedGenres,
   snapshotGenreIds,
   type GenreRef,
@@ -61,7 +62,6 @@ export async function action({ request, params }: Route.ActionArgs) {
       title: true,
       artistId: true,
       albumId: true,
-      genre: true,
       genres: {
         select: {
           id: true,
@@ -172,8 +172,8 @@ export async function action({ request, params }: Route.ActionArgs) {
         title: track.title,
         artistId: track.artistId,
         albumId: track.albumId,
-        genre: track.genre,
-        genreIds: snapshotGenreIds(track.genres, track.genre),
+        genre: primaryGenreName(track.genres ?? []),
+        genreIds: snapshotGenreIds(track.genres),
         year: track.year,
         trackNumber: track.trackNumber,
         albumArtist: track.albumArtist,
@@ -205,8 +205,6 @@ export async function action({ request, params }: Route.ActionArgs) {
         title: editToRestore.title,
         artistId: editToRestore.artistId,
         albumId: editToRestore.albumId,
-        genre:
-          restoredGenres !== undefined ? primaryGenreName(restoredGenres) : editToRestore.genre,
         ...(restoredGenres !== undefined && {
           genres: {
             set: restoredGenres.map((genre) => ({ id: genre.id })),
@@ -238,11 +236,33 @@ export async function action({ request, params }: Route.ActionArgs) {
             name: true,
           },
         },
+        genres: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 
+    if (restoredGenres === undefined && parsedGenreIds.status === "absent") {
+      await replaceTrackGenresFromStrings(tx, trackId, editToRestore.genre);
+    }
+
+    const trackWithGenres =
+      restoredGenres === undefined && parsedGenreIds.status === "absent"
+        ? await tx.track.findUnique({
+            where: { id: trackId },
+            include: {
+              artist: { select: { id: true, name: true } },
+              albumRecord: { select: { id: true, name: true } },
+              genres: { select: { id: true, name: true } },
+            },
+          })
+        : updatedTrack;
+
     return {
-      track: updatedTrack,
+      track: trackWithGenres ?? updatedTrack,
       edit: editEntry,
     };
   });

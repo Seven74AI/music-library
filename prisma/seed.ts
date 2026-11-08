@@ -556,11 +556,6 @@ async function seedAudioFiles(userId: string) {
               ? new Date(extractedMetadata.originalDate)
               : null;
 
-            // Extract genre (take first if array)
-            const genre = Array.isArray(extractedMetadata.genre)
-              ? extractedMetadata.genre[0] || null
-              : extractedMetadata.genre || null;
-
             // Extract trackNumber from track.no
             const trackNumber = extractedMetadata.track?.no || null;
 
@@ -577,8 +572,6 @@ async function seedAudioFiles(userId: string) {
                 externalId: fileId,
                 serviceUrl: null,
                 releaseDate: releaseDate,
-                // New metadata fields
-                genre: genre,
                 year: extractedMetadata.year || null,
                 trackNumber: trackNumber,
                 albumArtist: extractedMetadata.albumArtist || null,
@@ -592,6 +585,12 @@ async function seedAudioFiles(userId: string) {
                 lyrics: extractedMetadata.lyrics || null,
               },
             });
+
+            if (extractedMetadata.genre?.length) {
+              const { replaceTrackGenresFromStrings } =
+                await import("../app/utils/track-genres.server.ts");
+              await replaceTrackGenresFromStrings(tx, track.id, extractedMetadata.genre);
+            }
 
             // Create audio file record
             const contentHash = await calculateAudioHash(fileBuffer);

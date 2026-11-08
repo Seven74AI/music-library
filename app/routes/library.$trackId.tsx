@@ -69,21 +69,8 @@ export function chooseRelatedTracks<T>(input: {
   return null;
 }
 
-export function orderedGenreNames(
-  genres: ReadonlyArray<{ name: string }> | null | undefined,
-  primary: string | null | undefined,
-) {
-  const names = (genres ?? []).map((genre) => genre.name).filter((name) => name.length > 0);
-  if (!primary) return names;
-
-  const index = names.indexOf(primary);
-  if (index > 0) {
-    const [match] = names.splice(index, 1);
-    if (match) names.unshift(match);
-  } else if (index === -1) {
-    names.unshift(primary);
-  }
-  return names;
+export function orderedGenreNames(genres: ReadonlyArray<{ name: string }> | null | undefined) {
+  return (genres ?? []).map((genre) => genre.name).filter((name) => name.length > 0);
 }
 
 function formatAudioDetails(file: {
@@ -178,7 +165,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       createdAt: true,
       updatedAt: true,
       duration: true,
-      genre: true,
       genres: { select: { id: true, name: true } },
       year: true,
       trackNumber: true,
@@ -321,7 +307,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
   const album = track.albumRecord ?? null;
   const audioFiles = track.audioFiles ?? [];
   const hasAudio = isPlayableTrack({ audioFiles });
-  const genreNames = orderedGenreNames(track.genres, track.genre);
+  const genreNames = orderedGenreNames(track.genres);
   const bestAudio = selectBestAudioFile(audioFiles);
   const headerCoverUrl =
     coverImageUrl(track.coverImage?.objectKey, entityHeaderCoverPixelSize) || null;

@@ -51,7 +51,7 @@ describe("PUT/DELETE /api/genres/:id (server action)", () => {
     }
   });
 
-  test("rename updates legacy Track.genre for linked tracks", async () => {
+  test("rename keeps M2M links for linked tracks", async () => {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const oldName = `Indie ${stamp}`;
     const newName = `Independent ${stamp}`;
@@ -75,7 +75,6 @@ describe("PUT/DELETE /api/genres/:id (server action)", () => {
         artistId: artist.id,
         serviceId: youtubeService.id,
         externalId: `ext-${stamp}`,
-        genre: oldName,
       },
     });
     createdIds.tracks.push(track.id);
@@ -93,14 +92,14 @@ describe("PUT/DELETE /api/genres/:id (server action)", () => {
     } as never);
 
     expect(response.status).toBe(200);
-    const updated = await prisma.track.findUnique({
-      where: { id: track.id },
-      select: { genre: true },
-    });
-    expect(updated?.genre).toBe(newName);
+    const links = await prisma.$queryRaw<Array<{ a: string }>>`
+      SELECT A as a FROM _TrackGenres WHERE B = ${track.id}
+    `;
+    expect(links).toHaveLength(1);
+    expect(links[0]?.a).toBe(genre.id);
   });
 
-  test("delete clears legacy Track.genre when it matched the removed genre", async () => {
+  test("delete removes genre links without deleting tracks", async () => {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const genreName = `Doom ${stamp}`;
 
@@ -123,7 +122,6 @@ describe("PUT/DELETE /api/genres/:id (server action)", () => {
         artistId: artist.id,
         serviceId: youtubeService.id,
         externalId: `ext-del-${stamp}`,
-        genre: genreName,
       },
     });
     createdIds.tracks.push(track.id);
@@ -137,10 +135,14 @@ describe("PUT/DELETE /api/genres/:id (server action)", () => {
     } as never);
 
     expect(response.status).toBe(200);
-    const updated = await prisma.track.findUnique({
+    const links = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*) as count FROM _TrackGenres WHERE B = ${track.id}
+    `;
+    expect(Number(links[0]?.count)).toBe(0);
+    const stillThere = await prisma.track.findUnique({
       where: { id: track.id },
-      select: { genre: true },
+      select: { id: true },
     });
-    expect(updated?.genre).toBeNull();
+    expect(stillThere?.id).toBe(track.id);
   });
 });

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import { linkGenresToTrack } from "#tests/track-genre-test-utils.ts";
 import { getInstanceInfo } from "#app/utils/litefs.server.ts";
 import {
   QUALITY_CHECK_RETRY_DELAY_MS,
@@ -82,11 +83,14 @@ async function createTrack(fields: {
       serviceId: service.id,
       externalId: `qc-${Math.random().toString(36).slice(2, 10)}`,
       albumId: fields.albumId,
-      genre: fields.genre,
       duration: fields.duration,
       coverImageId: fields.coverImageId,
     },
   });
+  const genreName = fields.genre?.trim();
+  if (genreName) {
+    await linkGenresToTrack(track.id, genreName);
+  }
   createdTrackIds.push(track.id);
   return track;
 }
@@ -142,7 +146,7 @@ describe("runQualityCheck", () => {
     const cover = await createCover(200, 100);
     const track = await createTrack({
       albumId: null,
-      genre: "   ",
+      genre: "",
       duration: 0,
       coverImageId: cover.id,
     });
