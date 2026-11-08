@@ -8,11 +8,7 @@
  * full set is an SSRF + credential-leak vector on admin/curator-gated pages.
  */
 
-/** Configured SITE_URL without trailing slash, if set. */
-export function configuredSiteUrl(): string | null {
-  const configured = process.env.SITE_URL?.trim();
-  return configured ? configured.replace(/\/$/, "") : null;
-}
+import { configuredSiteUrl } from "#app/utils/site-url.ts";
 
 export function trustedOrigin(): string {
   return configuredSiteUrl() ?? `http://127.0.0.1:${process.env.PORT || "3000"}`;

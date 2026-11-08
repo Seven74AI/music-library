@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFormAction, useNavigation } from "react-router";
 import { useSpinDelay } from "spin-delay";
 import { twMerge } from "tailwind-merge";
-import { configuredSiteUrl } from "#app/utils/internal-fetch.server.ts";
+import { configuredSiteUrl } from "#app/utils/site-url.ts";
 
 /**
  * Get user image source URL
