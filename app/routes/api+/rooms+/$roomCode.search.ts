@@ -15,6 +15,7 @@ import {
 } from "#app/features/party-room/room-search.server.ts";
 import {
   CursorSchema,
+  INVALID_CURSOR_FORMAT_MESSAGE,
   SearchLimitSchema,
   SearchQuerySchema,
 } from "#app/utils/search-validation.server.ts";
@@ -29,7 +30,11 @@ function empty(limit: number) {
 }
 
 function isMalformedSearchQuery(error: unknown): boolean {
-  return error instanceof Error && /syntax error|malformed match|fts5/i.test(error.message);
+  return (
+    error instanceof Error &&
+    (error.message === INVALID_CURSOR_FORMAT_MESSAGE ||
+      /syntax error|malformed match|fts5/i.test(error.message))
+  );
 }
 
 export async function loader({

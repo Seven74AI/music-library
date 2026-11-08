@@ -63,6 +63,8 @@ export type CursorSortTuple = {
   id: string;
 };
 
+export const INVALID_CURSOR_FORMAT_MESSAGE = "Invalid cursor format";
+
 /** Validates a single keyset pagination tuple inside a composite cursor. */
 export function isCursorSortTuple(value: unknown): value is CursorSortTuple {
   if (typeof value !== "object" || value === null) return false;
@@ -73,6 +75,19 @@ export function isCursorSortTuple(value: unknown): value is CursorSortTuple {
     typeof v.n === "string" &&
     typeof v.id === "string"
   );
+}
+
+/** Decodes one composite-cursor arm; absent or null arms are allowed, invalid shapes are not. */
+export function decodeCursorArm(
+  parsed: Record<string, unknown>,
+  key: string,
+): CursorSortTuple | null {
+  if (!(key in parsed) || parsed[key] == null) return null;
+  const arm = parsed[key];
+  if (!isCursorSortTuple(arm)) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
+  return arm;
 }
 
 const COMPOSITE_CURSOR_ARM_KEYS = ["t", "a", "ar", "p"] as const;

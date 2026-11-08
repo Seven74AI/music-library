@@ -93,6 +93,32 @@ describe("search API loader", () => {
     consoleError.mockRestore();
   });
 
+  test("returns 400 with results shape when search fails due to invalid cursor", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(searchWithCache).mockRejectedValue(new Error("Invalid cursor format"));
+
+    const validCursor = Buffer.from(
+      JSON.stringify({ t: null, a: null, ar: null, p: null }),
+    ).toString("base64");
+    const response = await loader({
+      ...makeRequest(
+        `http://localhost/api/search?q=test&cursor=${encodeURIComponent(validCursor)}`,
+      ),
+    } as never);
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as {
+      error: string;
+      results: unknown[];
+      pagination: { limit: number };
+    };
+    expect(body.error).toBe("Invalid search query");
+    expect(body.results).toEqual([]);
+    expect(body.pagination.limit).toBe(20);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   test("returns 500 for non-syntax internal search failures", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(searchWithCache).mockRejectedValue(new Error("database is locked"));
