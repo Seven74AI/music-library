@@ -1,5 +1,21 @@
-import { describe, expect, it } from "vitest";
-import { normalizeGenreName, parseGenreString } from "./genre-migration.server.ts";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { prisma } from "#app/utils/db.server.ts";
+import {
+  migrateTrackGenres,
+  normalizeGenreName,
+  parseGenreString,
+} from "./genre-migration.server.ts";
+
+vi.mock("#app/utils/db.server.ts", () => ({
+  prisma: {
+    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
+    genre: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+    },
+  },
+}));
 
 describe("Genre Migration Utility", () => {
   describe("normalizeGenreName", () => {
@@ -101,6 +117,39 @@ describe("Genre Migration Utility", () => {
         "Post-rock",
         "Neo-soul",
       ]);
+    });
+  });
+
+  describe("migrateTrackGenres", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("returns zero when the legacy genre column is absent", async () => {
+      vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ name: "id" }, { name: "title" }]);
+
+      await expect(migrateTrackGenres()).resolves.toEqual({
+        tracksProcessed: 0,
+        genresCreated: 0,
+        linksCreated: 0,
+      });
+    });
+
+    it("splits delimited legacy strings and links each genre", async () => {
+      vi.mocked(prisma.$queryRaw)
+        .mockResolvedValueOnce([{ name: "genre" }])
+        .mockResolvedValueOnce([{ count: 1n }])
+        .mockResolvedValueOnce([{ id: "track-1", genre: "Rock, Jazz" }]);
+      vi.mocked(prisma.genre.findFirst).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+      vi.mocked(prisma.genre.create)
+        .mockResolvedValueOnce({ id: "g-rock" } as never)
+        .mockResolvedValueOnce({ id: "g-jazz" } as never);
+      vi.mocked(prisma.$executeRaw).mockResolvedValue(1);
+
+      const result = await migrateTrackGenres();
+
+      expect(result).toEqual({ tracksProcessed: 1, genresCreated: 2, linksCreated: 2 });
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
     });
   });
 });
