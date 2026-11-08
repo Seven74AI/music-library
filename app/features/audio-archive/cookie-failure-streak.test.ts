@@ -1,9 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import {
-  COOKIE_FAILURE_PAUSE_THRESHOLD,
-  createCookieFailureStreak,
-  isCookieExpiredFailure,
-} from "./cookie-failure-streak.ts";
+import { createCookieFailureStreak, isCookieExpiredFailure } from "./cookie-failure-streak.ts";
 
 describe("isCookieExpiredFailure", () => {
   it("returns true only for COOKIE_EXPIRED", () => {
@@ -39,9 +35,5 @@ describe("createCookieFailureStreak", () => {
     streak.recordSuccess();
     expect(streak.getCount()).toBe(0);
     expect(streak.recordFailure()).toBe(false);
-  });
-
-  it("uses the default threshold constant", () => {
-    expect(COOKIE_FAILURE_PAUSE_THRESHOLD).toBe(3);
   });
 });

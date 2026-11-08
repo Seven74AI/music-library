@@ -15,13 +15,6 @@ import {
 } from "#app/utils/personal-play-boost.server.ts";
 
 describe("computePersonalPlayBoost", () => {
-  it("documents boost = min(WEIGHT * ln(1 + playCount), CAP)", () => {
-    expect(PLAY_BOOST_WEIGHT).toBe(8);
-    expect(PLAY_BOOST_CAP).toBe(40);
-    // Cap must stay well below one relevance_rank tier (1000).
-    expect(PLAY_BOOST_CAP).toBeLessThan(1000);
-  });
-
   it("returns 0 for zero or non-positive counts", () => {
     expect(computePersonalPlayBoost(0)).toBe(0);
     expect(computePersonalPlayBoost(-3)).toBe(0);

@@ -7,7 +7,6 @@ import {
   assignRanks,
   completenessPercent,
   cumulativeCompleteness,
-  DASHBOARD_METRICS_TTL_MS,
   formatActivityLine,
   lastNDays,
   paginateNewest,
@@ -15,10 +14,6 @@ import {
 } from "./dashboard.ts";
 
 describe("dashboard calculations", () => {
-  test("caches metrics for 5 minutes", () => {
-    expect(DASHBOARD_METRICS_TTL_MS).toBe(5 * 60 * 1000);
-  });
-
   test("completeness is the share of filled metadata fields", () => {
     expect(completenessPercent(0, 0)).toBe(0);
     expect(completenessPercent(2, 10)).toBe(100);

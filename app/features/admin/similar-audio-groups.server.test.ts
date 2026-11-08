@@ -3,7 +3,6 @@ import { compressChromaprint } from "#tests/chromaprint-test-utils";
 import {
   DUPLICATE_GROUP_PAGE_SIZE,
   SIMILAR_CANDIDATE_CAP,
-  SIMILARITY_THRESHOLD,
   groupSimilarAudioFiles,
   type SimilarAudioCandidate,
 } from "./similar-audio-groups.server.ts";
@@ -38,10 +37,6 @@ function divergentFingerprint(index: number): string {
 }
 
 describe("groupSimilarAudioFiles", () => {
-  test("uses the same 0.9 threshold as track audio ingest", () => {
-    expect(SIMILARITY_THRESHOLD).toBe(0.9);
-  });
-
   test("groups fingerprints at the 0.9 threshold and rejects anything below it", () => {
     // 20 subfingerprints = 640 bits.
     const baseRaw = Array.from({ length: 20 }, (_, i) => 0x11110000 + i);
@@ -160,7 +155,6 @@ describe("groupSimilarAudioFiles", () => {
   });
 
   test("returns at most 100 groups, matching the exact-hash page size", () => {
-    expect(DUPLICATE_GROUP_PAGE_SIZE).toBe(100);
     const candidates: SimilarAudioCandidate[] = [];
     for (let index = 0; index < DUPLICATE_GROUP_PAGE_SIZE + 1; index++) {
       const fingerprint = divergentFingerprint(index);

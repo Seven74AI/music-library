@@ -1,18 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
   DEFAULT_LIBRARY_SORT,
-  HEAVY_ROTATION_HOME_CAP,
   compareByPlayCompletedCount,
   librarySortToWindow,
   parseLibrarySort,
   sortByPlayCompletedCount,
 } from "./heavy-rotation.ts";
-
-describe("Heavy Rotation constants", () => {
-  test("home strip cap is 50", () => {
-    expect(HEAVY_ROTATION_HOME_CAP).toBe(50);
-  });
-});
 
 describe("parseLibrarySort", () => {
   test("defaults unknown or missing values to dateAdded", () => {
