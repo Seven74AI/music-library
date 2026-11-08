@@ -74,6 +74,8 @@ export async function handleVerification({ request, submission }: VerifyFunction
     to: preUpdateUser.email,
     subject: "Music Library email changed",
     react: <EmailChangeNoticeEmail userId={user.id} />,
+  }).catch((error) => {
+    console.warn("Failed to send email-changed notice:", error);
   });
 
   return redirectWithToast(
