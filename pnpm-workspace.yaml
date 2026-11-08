@@ -2,7 +2,10 @@
 minimumReleaseAge: 10080
 
 overrides:
+  minimatch: ">=11.0.1"
   shell-quote: ">=1.11.0"
+  turbo-stream: ">=3.0.0"
+  uuid: ">=11.1.1"
 
 allowBuilds:
   "@prisma/engines": true
