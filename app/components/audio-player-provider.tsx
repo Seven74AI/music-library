@@ -627,9 +627,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         if (playableTracks.length === 0) return;
 
         const requestedTrack = tracks[startIndex];
-        const resolvedStartIndex = requestedTrack
-          ? playableTracks.findIndex((track) => track.id === requestedTrack.id)
-          : 0;
+        let startTrack: Track | undefined;
+        if (requestedTrack && isPlayableTrack(requestedTrack)) {
+          startTrack = requestedTrack;
+        } else {
+          startTrack =
+            tracks.slice(startIndex).find(isPlayableTrack) ?? tracks.find(isPlayableTrack);
+        }
+        if (!startTrack) return;
 
         if (playContext && !isSamePlayContext(playContext, context)) {
           resetQueueState();
@@ -637,8 +642,6 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
         const loadedSpine = playableTracks.map(queueTrackFromFullTrack);
         const order = buildShuffledOrder(loadedSpine.length);
-        const startTrack = playableTracks[resolvedStartIndex >= 0 ? resolvedStartIndex : 0];
-        if (!startTrack) return;
 
         for (const track of playableTracks) {
           playbackCacheRef.current.set(track);

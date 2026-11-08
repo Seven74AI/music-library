@@ -219,6 +219,36 @@ describe("party-room api.client (backend #294 contract)", () => {
     expect(room.me?.role).toBe("host");
   });
 
+  it("maps non-finite currentIndex to -1 for safe queue splitting", () => {
+    const room = normalizeRoomSnapshot(
+      {
+        roomId: "room-1",
+        code: "AB3K9Q",
+        status: "open",
+        defaultJoinRole: "listener",
+        roomVersion: 1,
+        currentIndex: "nope",
+        isPlaying: false,
+        currentHostParticipantId: "host-1",
+        participants: [],
+        queue: [
+          {
+            id: "q0",
+            trackId: "t0",
+            position: 0,
+            addedByParticipantId: "host-1",
+            createdAt: new Date().toISOString(),
+            track: { id: "t0", title: "One", artist: { name: "A" } },
+          },
+        ],
+        createdAt: new Date().toISOString(),
+        endedAt: null,
+      },
+      null,
+    );
+    expect(room.playback.currentIndex).toBe(-1);
+  });
+
   it("copies reclaimParticipantId onto the snapshot", () => {
     const room = normalizeRoomSnapshot(
       {

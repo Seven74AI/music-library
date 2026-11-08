@@ -116,6 +116,7 @@ test("returns download URL JSON for a track accessible only via user-created pla
     pattern: { path: "/resources/audio/:trackId/download-url" },
   } as any);
 
+  expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   const data = (await response.json()) as {
     url: string;
     fileName: string;

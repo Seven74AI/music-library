@@ -77,7 +77,8 @@ export function splitRoomQueue(room: Pick<RoomSnapshot, "queue" | "playback">): 
   nowPlaying: RoomQueueItemDto | null;
 } {
   const queue = room.queue ?? [];
-  const idx = room.playback?.currentIndex ?? -1;
+  const rawIdx = room.playback?.currentIndex ?? -1;
+  const idx = Number.isFinite(rawIdx) ? rawIdx : -1;
   if (queue.length === 0 || idx < 0) {
     return { history: [], upcoming: queue, nowPlaying: null };
   }

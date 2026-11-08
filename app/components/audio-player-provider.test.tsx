@@ -281,6 +281,46 @@ test("exposes isPlaying and updates it when the audio player reports playback", 
   expect(screen.getByTestId("hook-is-playing").textContent).toBe("false");
 });
 
+test("playPlaylist starts at the next playable track when startIndex is not playable", async () => {
+  const user = userEvent.setup();
+
+  const unplayable: FullTrack = {
+    ...playableTrack,
+    id: "track-missing-audio",
+    title: "No Audio",
+    audioFiles: [],
+  };
+  const secondPlayable: FullTrack = {
+    ...playableTrack,
+    id: "track-2",
+    title: "Playable Second",
+  };
+
+  function Probe() {
+    const { playPlaylist, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => playPlaylist([unplayable, secondPlayable], { type: "library" }, 0)}
+        >
+          Play list from blocked start
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: /play list from blocked start/i }));
+  expect(screen.getByTestId("current-track-id").textContent).toBe("track-2");
+});
+
 test("speaker mode replaces a personal queue with the room queue", async () => {
   const user = userEvent.setup();
   const personalNext: FullTrack = {

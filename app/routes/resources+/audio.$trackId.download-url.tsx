@@ -61,10 +61,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     .replace(/_+/g, "_")
     .replace(/^_|_$/g, "")}.${format}`;
 
-  return Response.json({
-    url,
-    fileName,
-    mimeType: audioFile.mimeType || `audio/${format}`,
-    format,
-  });
+  return Response.json(
+    {
+      url,
+      fileName,
+      mimeType: audioFile.mimeType || `audio/${format}`,
+      format,
+    },
+    { headers: { "Cache-Control": "private, no-store" } },
+  );
 }

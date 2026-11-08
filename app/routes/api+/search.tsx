@@ -94,6 +94,16 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   // My Library toggle silently returns the full catalog.
   const userId = (await getUserId(request)) ?? undefined;
 
+  if (scopeResult.data === "library" && !userId) {
+    return Response.json(
+      {
+        ...emptySearchResponse(limit),
+        error: "Library scope requires authentication",
+      },
+      { status: 400 },
+    );
+  }
+
   try {
     const results = await searchWithCache(
       queryResult.data,

@@ -110,6 +110,18 @@ describe("splitRoomQueue", () => {
     expect(upcoming.map((i) => i.position)).toEqual([2, 3]);
   });
 
+  it("treats non-finite currentIndex as safe empty split", () => {
+    const room = baseRoom({
+      queue: [item(0), item(1), item(2)],
+      playback: { isPlaying: false, currentIndex: Number.NaN, currentTrackId: null },
+    });
+    expect(splitRoomQueue(room)).toEqual({
+      history: [],
+      upcoming: room.queue,
+      nowPlaying: null,
+    });
+  });
+
   it("tolerates missing queue or playback without throwing", () => {
     expect(
       splitRoomQueue({

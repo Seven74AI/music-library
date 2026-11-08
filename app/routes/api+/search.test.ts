@@ -165,6 +165,17 @@ describe("search API loader", () => {
     expect(body).toHaveProperty("pagination");
   });
 
+  test("returns 400 when guest requests scope=library", async () => {
+    const response = await loader({
+      ...makeRequest("http://localhost/api/search?q=beatles&scope=library"),
+    } as never);
+
+    expect(response.status).toBe(400);
+    expect(searchWithCache).not.toHaveBeenCalled();
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("Library scope requires authentication");
+  });
+
   test("passes scope=library and authenticated userId to searchWithCache", async () => {
     const { getUserId } = await import("#app/utils/auth.server.ts");
     vi.mocked(getUserId).mockResolvedValueOnce("user-kody");

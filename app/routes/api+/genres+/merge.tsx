@@ -118,6 +118,12 @@ export async function action({ request }: Route.ActionArgs) {
         DELETE FROM _TrackGenres WHERE A = ${sourceGenre.id}
       `;
 
+      // Keep legacy Track.genre aligned with M2M after the source genre goes away.
+      await tx.track.updateMany({
+        where: { genre: sourceGenre.name },
+        data: { genre: targetGenre.name },
+      });
+
       // Delete source genre (should have no more links now)
       await tx.genre.delete({
         where: { id: sourceGenre.id },
