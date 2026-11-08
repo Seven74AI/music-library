@@ -28,6 +28,10 @@ function empty(limit: number) {
   };
 }
 
+function isMalformedSearchQuery(error: unknown): boolean {
+  return error instanceof Error && /syntax error|malformed match|fts5/i.test(error.message);
+}
+
 export async function loader({
   request,
   params,
@@ -80,20 +84,31 @@ export async function loader({
 
   await touchParticipant(participant.id);
 
-  const results = await searchRoomCatalog({
-    query: queryResult.data,
-    limit,
-    cursor: cursorResult.data,
-    type: typeResult.data as RoomSearchType,
-  });
+  try {
+    const results = await searchRoomCatalog({
+      query: queryResult.data,
+      limit,
+      cursor: cursorResult.data,
+      type: typeResult.data as RoomSearchType,
+    });
 
-  return Response.json({
-    ...results,
-    meta: {
-      participantId: participant.id,
-      role: participant.role,
-      canAddTracks: canAddTracks(participant.role),
-      hasAudioOnly: true,
-    },
-  });
+    return Response.json({
+      ...results,
+      meta: {
+        participantId: participant.id,
+        role: participant.role,
+        canAddTracks: canAddTracks(participant.role),
+        hasAudioOnly: true,
+      },
+    });
+  } catch (error) {
+    if (isMalformedSearchQuery(error)) {
+      return Response.json({ error: "Invalid search query", ...empty(limit) }, { status: 400 });
+    }
+    console.error("[ROOM SEARCH API] Unexpected error searching:", error);
+    if (error instanceof Error) {
+      console.error("[ROOM SEARCH API] Error stack:", error.stack);
+    }
+    return Response.json({ error: "Failed to perform search", ...empty(limit) }, { status: 500 });
+  }
 }

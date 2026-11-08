@@ -12,6 +12,7 @@ import {
 } from "#app/types/search.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { escapeLikeLiterals, toLiteralFts5Query } from "#app/utils/fts5-query.server.ts";
+import { type CursorSortTuple, isCursorSortTuple } from "#app/utils/search-validation.server.ts";
 
 function emptySearchResponse(limit: number): SearchResponse {
   return {
@@ -20,29 +21,11 @@ function emptySearchResponse(limit: number): SearchResponse {
   };
 }
 
-type CursorSortTuple = {
-  rk: number;
-  fr: number;
-  n: string;
-  id: string;
-};
-
 type HasAudioCursor = {
   t: CursorSortTuple | null;
   a: CursorSortTuple | null;
   ar: CursorSortTuple | null;
 };
-
-function isCursorSortTuple(value: unknown): value is CursorSortTuple {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.rk === "number" &&
-    typeof v.fr === "number" &&
-    typeof v.n === "string" &&
-    typeof v.id === "string"
-  );
-}
 
 /**
  * Decodes the user-supplied cursor query param. Malformed input — invalid base64,

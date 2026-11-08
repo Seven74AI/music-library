@@ -21,9 +21,13 @@ export function useOfflineCoverUrl(objectKey: string | null | undefined, pixelSi
     }
 
     let cancelled = false;
-    void resolveCachedCoverUrl(objectKey).then((cachedUrl) => {
-      if (!cancelled) setUrl(cachedUrl);
-    });
+    void resolveCachedCoverUrl(objectKey)
+      .then((cachedUrl) => {
+        if (!cancelled) setUrl(cachedUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setUrl(null);
+      });
 
     return () => {
       cancelled = true;

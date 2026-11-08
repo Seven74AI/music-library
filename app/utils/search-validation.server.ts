@@ -56,6 +56,43 @@ export const SearchTypeSchema = z.enum(["all", "tracks", "albums", "artists", "p
  */
 export const SearchScopeSchema = z.enum(["all", "library"]);
 
+export type CursorSortTuple = {
+  rk: number;
+  fr: number;
+  n: string;
+  id: string;
+};
+
+/** Validates a single keyset pagination tuple inside a composite cursor. */
+export function isCursorSortTuple(value: unknown): value is CursorSortTuple {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.rk === "number" &&
+    typeof v.fr === "number" &&
+    typeof v.n === "string" &&
+    typeof v.id === "string"
+  );
+}
+
+const COMPOSITE_CURSOR_ARM_KEYS = ["t", "a", "ar", "p"] as const;
+
+/**
+ * Each cursor arm that is present (not undefined) must be null or a valid sort tuple.
+ */
+export function compositeCursorArmsValid(
+  parsed: Record<string, unknown>,
+  armKeys: readonly string[] = COMPOSITE_CURSOR_ARM_KEYS,
+): boolean {
+  for (const key of armKeys) {
+    if (!(key in parsed)) continue;
+    const arm = parsed[key];
+    if (arm === null || arm === undefined) continue;
+    if (!isCursorSortTuple(arm)) return false;
+  }
+  return true;
+}
+
 /**
  * Cursor validation schema
  * Validates composite cursor: base64-encoded JSON with optional per-type sort tuples
@@ -72,7 +109,8 @@ export const CursorSchema = z
       try {
         const decoded = Buffer.from(cursor, "base64").toString("utf-8");
         const parsed = JSON.parse(decoded) as unknown;
-        return typeof parsed === "object" && parsed !== null;
+        if (typeof parsed !== "object" || parsed === null) return false;
+        return compositeCursorArmsValid(parsed as Record<string, unknown>);
       } catch {
         return false;
       }

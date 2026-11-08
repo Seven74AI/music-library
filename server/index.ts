@@ -280,6 +280,11 @@ ${styleText("bold", "Press Ctrl+C to stop")}
 });
 
 closeWithGrace(async ({ err }) => {
+  const { stopBackupScheduler } = await import("../app/features/db-backup/scheduler.server.ts");
+  stopBackupScheduler();
+  const { stopEmptyRoomSweeper } =
+    await import("../app/features/party-room/empty-room-sweeper.server.ts");
+  stopEmptyRoomSweeper();
   await new Promise((resolve, reject) => {
     server.close((e) => (e ? reject(e) : resolve("ok")));
   });

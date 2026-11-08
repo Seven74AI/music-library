@@ -18,15 +18,9 @@ import {
   personalPlayBoostCaseSql,
 } from "#app/utils/personal-play-boost.server.ts";
 import { getTrackPopularityStats } from "#app/utils/track-popularity.server.ts";
+import { type CursorSortTuple, isCursorSortTuple } from "#app/utils/search-validation.server.ts";
 
 // ── Cursor pagination helpers ──
-
-type CursorSortTuple = {
-  rk: number; // relevance_rank
-  fr: number; // fts_rank (0 for playlists)
-  n: string; // name or title
-  id: string; // entity id
-};
 
 type CompositeCursor = {
   t: CursorSortTuple | null;
@@ -35,16 +29,31 @@ type CompositeCursor = {
   p: CursorSortTuple | null;
 };
 
+function decodeCursorArm(
+  parsed: Record<string, unknown>,
+  key: "t" | "a" | "ar" | "p",
+): CursorSortTuple | null {
+  if (!(key in parsed) || parsed[key] == null) return null;
+  const arm = parsed[key];
+  if (!isCursorSortTuple(arm)) {
+    throw new Error("Invalid cursor format");
+  }
+  return arm;
+}
+
 function decodeCursor(cursor: string): CompositeCursor {
   const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<
     string,
     unknown
   >;
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("Invalid cursor format");
+  }
   return {
-    t: (parsed.t as CursorSortTuple) ?? null,
-    a: (parsed.a as CursorSortTuple) ?? null,
-    ar: (parsed.ar as CursorSortTuple) ?? null,
-    p: (parsed.p as CursorSortTuple) ?? null,
+    t: decodeCursorArm(parsed, "t"),
+    a: decodeCursorArm(parsed, "a"),
+    ar: decodeCursorArm(parsed, "ar"),
+    p: decodeCursorArm(parsed, "p"),
   };
 }
 
