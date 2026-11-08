@@ -562,6 +562,62 @@ describe("Search Utilities", () => {
       expect(trackIdsB).not.toContain(trackA.id);
     });
 
+    it("scope='library' ignores soft-deleted user tracks", async () => {
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const timestamp = Date.now();
+      const user = await prisma.user.create({
+        data: {
+          email: `soft-del-search-${timestamp}@test.com`,
+          username: `soft-del-search-${timestamp}`,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Soft Del Artist",
+          normalizedName: "soft del artist",
+        },
+      });
+
+      const track = await prisma.track.create({
+        data: {
+          title: "Soft Deleted Library Track",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `soft-del-track-${timestamp}`,
+        },
+      });
+
+      await prisma.userTrack.create({
+        data: {
+          userId: user.id,
+          trackId: track.id,
+          isActive: true,
+          deletedAt: new Date(),
+        },
+      });
+
+      const result = await searchTracks("Soft Deleted", 10, undefined, true, user.id, "library");
+      const trackIds = result.results.filter((r) => r.type === "track").map((r) => r.id);
+      expect(trackIds).not.toContain(track.id);
+      const allScope = await searchTracks("Soft Deleted", 10, undefined, true, user.id, "all");
+      const enriched = allScope.results.find(
+        (r): r is Extract<(typeof allScope.results)[number], { type: "track" }> =>
+          r.type === "track" && r.id === track.id,
+      );
+      expect(enriched?.addedAt).toBeUndefined();
+    });
+
     it("scope='all' should return all tracks even with userId", async () => {
       const localService = await prisma.service.upsert({
         where: { name: "local" },

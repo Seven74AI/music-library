@@ -187,7 +187,7 @@ async function enrichTrackSearchResults(
       },
       userTracks: userId
         ? {
-            where: { userId, isActive: true },
+            where: { userId, isActive: true, deletedAt: null },
             select: { createdAt: true },
             take: 1,
           }
@@ -273,7 +273,7 @@ export async function searchTracks(
 
   const userTrackJoin =
     userId && scope === "library"
-      ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = ? AND ut."isActive" = true`
+      ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = ? AND ut."isActive" = true AND ut."deletedAt" IS NULL`
       : "";
 
   // Personal Play Boost (ADR-028): load/cache lifetime play_completed counts for
@@ -400,7 +400,7 @@ export async function searchAlbums(
 
   const albumUserJoin =
     userId && scope === "library"
-      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."albumId" = alb.id AND ut2."userId" = ? AND ut2."isActive" = true)`
+      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."albumId" = alb.id AND ut2."userId" = ? AND ut2."isActive" = true AND ut2."deletedAt" IS NULL)`
       : "";
 
   const cursorFilter = curA
@@ -505,7 +505,7 @@ export async function searchArtists(
 
   const artistUserJoin =
     userId && scope === "library"
-      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."artistId" = a.id AND ut2."userId" = ? AND ut2."isActive" = true)`
+      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."artistId" = a.id AND ut2."userId" = ? AND ut2."isActive" = true AND ut2."deletedAt" IS NULL)`
       : "";
 
   const cursorFilter = curAr
