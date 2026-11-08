@@ -274,6 +274,7 @@ async function processJob(
         ErrorCategory.UNKNOWN,
         "Refusing to download a URL that is not an allowed YouTube watch URL",
         url,
+        { claimAttemptAt },
       );
       return;
     }
@@ -291,6 +292,7 @@ async function processJob(
             ? "Refusing to read a download path outside the output directory"
             : null),
         url,
+        { claimAttemptAt },
       );
       return;
     }
@@ -302,6 +304,7 @@ async function processJob(
         ErrorCategory.FILE_NOT_FOUND,
         "Refusing to read a download path outside the output directory",
         url,
+        { claimAttemptAt },
       );
       return;
     }
@@ -336,7 +339,7 @@ async function processJob(
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await handleJobError(jobId, categorizeJobError(error), message, url);
+    await handleJobError(jobId, categorizeJobError(error), message, url, { claimAttemptAt });
   } finally {
     currentlyProcessingSet.delete(jobId);
   }
@@ -355,7 +358,7 @@ async function handleJobError(
   category: ErrorCategoryType,
   message: string | null,
   trackUrl: string,
-  options?: { staleBefore?: Date },
+  options?: { staleBefore?: Date; claimAttemptAt?: Date },
 ): Promise<void> {
   const job = await prisma.archiveJob.findUnique({
     where: { id: jobId },
@@ -388,18 +391,21 @@ async function handleJobError(
   const nextAttemptAt = shouldFail ? null : new Date(Date.now() + retryBackoffMs(newRetryCount));
 
   const staleBefore = options?.staleBefore;
+  const claimAttemptAt = options?.claimAttemptAt;
   const updated = await prisma.archiveJob.updateMany({
     where: {
       id: jobId,
       status: "processing",
-      ...(staleBefore
-        ? {
-            OR: [
-              { lastAttemptAt: { lt: staleBefore } },
-              { lastAttemptAt: null, updatedAt: { lt: staleBefore } },
-            ],
-          }
-        : {}),
+      ...(claimAttemptAt
+        ? { lastAttemptAt: claimAttemptAt }
+        : staleBefore
+          ? {
+              OR: [
+                { lastAttemptAt: { lt: staleBefore } },
+                { lastAttemptAt: null, updatedAt: { lt: staleBefore } },
+              ],
+            }
+          : {}),
     },
     data: {
       status: shouldFail ? "failed" : "pending",

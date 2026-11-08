@@ -24,9 +24,14 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const { entityType, entityId, lockId, acquiredAt } = result.data;
 
-  const expected = lockId && acquiredAt ? { lockId, acquiredAt: new Date(acquiredAt) } : undefined;
+  if (!lockId || !acquiredAt) {
+    throw data({ error: "lockId and acquiredAt are required to release a lock" }, { status: 409 });
+  }
 
-  const outcome = await releaseLock(entityType as EntityType, entityId, userId, expected);
+  const outcome = await releaseLock(entityType as EntityType, entityId, userId, {
+    lockId,
+    acquiredAt: new Date(acquiredAt),
+  });
 
   if (outcome === "not_found") {
     throw data({ error: "Lock not found" }, { status: 404 });

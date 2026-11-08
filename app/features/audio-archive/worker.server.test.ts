@@ -587,7 +587,11 @@ describe("processQueueTick", () => {
 
       expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ id: "job-2", status: "processing" }),
+          where: expect.objectContaining({
+            id: "job-2",
+            status: "processing",
+            lastAttemptAt: expect.any(Date),
+          }),
           data: expect.objectContaining({
             status: "failed",
             retryCount: 1,
@@ -1241,6 +1245,67 @@ describe("processQueueTick", () => {
       expect(mockPrisma.archiveJob.update).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: "completed" } }),
       );
+    });
+
+    it("does not apply error handling when lastAttemptAt no longer matches the claim", async () => {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-stale-worker",
+          status: "pending",
+          priority: false,
+          retryCount: 0,
+          errorHistory: "[]",
+          track: {
+            id: "track-stale-worker",
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=staleworkerxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: "[]" });
+      mockExecuteYtDlp.mockResolvedValue({
+        exitCode: 1,
+        stdout: "",
+        stderr: "ERROR: transient",
+        filePath: undefined,
+        errorCategory: "UNKNOWN",
+        errorMessage: "transient",
+      });
+
+      let claimAttemptAt: Date | undefined;
+      mockPrisma.archiveJob.updateMany.mockImplementation((args) => {
+        if (args?.where?.status === "pending" && args?.data?.status === "processing") {
+          claimAttemptAt = args.data.lastAttemptAt as Date;
+          return Promise.resolve({ count: 1 });
+        }
+        if (
+          args?.where?.lastAttemptAt &&
+          (args?.data?.status === "pending" || args?.data?.status === "failed")
+        ) {
+          // Job was re-claimed after stale recovery; this worker no longer owns the row.
+          return Promise.resolve({ count: 0 });
+        }
+        return Promise.resolve({ count: 1 });
+      });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(claimAttemptAt).toBeInstanceOf(Date);
+      const errorUpdate = mockPrisma.archiveJob.updateMany.mock.calls.find(
+        (call) =>
+          call[0]?.where?.id === "job-stale-worker" &&
+          (call[0]?.data?.status === "pending" || call[0]?.data?.status === "failed"),
+      );
+      expect(errorUpdate?.[0]?.where).toEqual(
+        expect.objectContaining({
+          id: "job-stale-worker",
+          status: "processing",
+          lastAttemptAt: claimAttemptAt,
+        }),
+      );
+      expect(mockPrisma.youtubeCookie.updateMany).not.toHaveBeenCalled();
     });
 
     it("skips the job when the atomic claim updates 0 rows (lost race)", async () => {

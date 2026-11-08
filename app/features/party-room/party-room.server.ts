@@ -496,23 +496,6 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
   const now = new Date();
 
   if (actor.type === "user") {
-    const existingElsewhere = await prisma.roomParticipant.findFirst({
-      where: {
-        userId: actor.userId,
-        leftAt: null,
-        room: { status: ROOM_STATUS.open },
-        NOT: { roomId: room.id },
-      },
-      select: { id: true },
-    });
-    if (existingElsewhere) {
-      throw new PartyRoomError(
-        "already_in_room",
-        "Leave your current room before joining another",
-        409,
-      );
-    }
-
     const existingHere = await prisma.roomParticipant.findFirst({
       where: { roomId: room.id, userId: actor.userId },
     });
@@ -562,6 +545,22 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
     }
 
     const participant = await prisma.$transaction(async (tx) => {
+      const seatedElsewhere = await tx.roomParticipant.findFirst({
+        where: {
+          userId: actor.userId,
+          leftAt: null,
+          room: { status: ROOM_STATUS.open },
+          NOT: { roomId: room.id },
+        },
+        select: { id: true },
+      });
+      if (seatedElsewhere) {
+        throw new PartyRoomError(
+          "already_in_room",
+          "Leave your current room before joining another",
+          409,
+        );
+      }
       const activeCount = await tx.roomParticipant.count({
         where: { roomId: room.id, leftAt: null },
       });
@@ -662,6 +661,24 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
   }
 
   const participant = await prisma.$transaction(async (tx) => {
+    if (tokenHash) {
+      const seatedElsewhere = await tx.roomParticipant.findFirst({
+        where: {
+          guestTokenHash: tokenHash,
+          leftAt: null,
+          room: { status: ROOM_STATUS.open },
+          NOT: { roomId: room.id },
+        },
+        select: { id: true },
+      });
+      if (seatedElsewhere) {
+        throw new PartyRoomError(
+          "already_in_room",
+          "Leave your current room before joining another",
+          409,
+        );
+      }
+    }
     const activeCount = await tx.roomParticipant.count({
       where: { roomId: room.id, leftAt: null },
     });

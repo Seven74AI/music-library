@@ -119,7 +119,10 @@ function getAudioExtension(
   fileName?: string,
   extension?: string,
 ): string {
-  if (extension) return extension.replace(/^\./, "").toLowerCase();
+  if (extension) {
+    const normalized = extension.replace(/^\./, "").toLowerCase();
+    if (KNOWN_AUDIO_EXTENSIONS.has(normalized)) return normalized;
+  }
   if (fileName && fileName.includes(".")) {
     const extFromName = fileName.split(".").pop()?.toLowerCase();
     if (extFromName && KNOWN_AUDIO_EXTENSIONS.has(extFromName)) return extFromName;
