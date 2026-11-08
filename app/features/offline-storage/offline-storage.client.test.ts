@@ -191,6 +191,31 @@ describe("createOfflineStorage", () => {
     expect(deleteCachedCover).toHaveBeenCalledWith(coverKey);
   });
 
+  test("cacheQueueTrack keeps pinned metadata when re-download fails", async () => {
+    const fetchAudioBytes = vi
+      .fn()
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]).buffer)
+      .mockRejectedValue(new Error("network down"));
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true, playlistId: "pl-keep" });
+    await audioStore.delete(track.id, "mp3");
+
+    await expect(storage.cacheQueueTrack(track)).rejects.toThrow(/network down/);
+
+    const record = await storage.getRecord(track.id);
+    expect(record?.isPinned).toBe(true);
+    expect(record?.playlistIds).toContain("pl-keep");
+  });
+
   test("cacheQueueTrack re-downloads when metadata exists without OPFS bytes", async () => {
     const fetchAudioBytes = vi.fn().mockResolvedValue(new Uint8Array([4, 5, 6]).buffer);
     const audioStore = createMemoryOfflineAudioStore();

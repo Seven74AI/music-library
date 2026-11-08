@@ -259,11 +259,18 @@ export async function action({ request }: ActionFunctionArgs) {
     });
     transactionCommitted = true;
 
-    await backfillTrackMetadata(result.track.id, extractedMetadata, {
-      preserveTitle: Boolean(formTitle),
-      preserveArtist: Boolean(formArtist),
-      preserveAlbum: Boolean(formAlbum),
-    });
+    try {
+      await backfillTrackMetadata(result.track.id, extractedMetadata, {
+        preserveTitle: Boolean(formTitle),
+        preserveArtist: Boolean(formArtist),
+        preserveAlbum: Boolean(formAlbum),
+      });
+    } catch (backfillError) {
+      console.warn(
+        `⚠️  Track metadata backfill failed for ${result.track.id} after upload:`,
+        backfillError,
+      );
+    }
 
     // Fetch artist name for response
     const artistRecord = await prisma.artist.findUnique({

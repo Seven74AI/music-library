@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { type Prisma } from "#prisma/client.js";
 
 /** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
 function isUniqueConstraintViolation(error: unknown): boolean {
@@ -235,7 +236,7 @@ export async function addTrackToUserPlaylist({
     }
   }
 
-  await prisma.$transaction(async (tx) => {
+  const appendTrackAtNextPosition = async (tx: Prisma.TransactionClient) => {
     const maxPosition = await tx.userPlaylistTrack.aggregate({
       where: { playlistId },
       _max: { position: true },
@@ -248,7 +249,18 @@ export async function addTrackToUserPlaylist({
         position: (maxPosition._max.position ?? -1) + 1,
       },
     });
-  });
+  };
+
+  try {
+    await prisma.$transaction(async (tx) => appendTrackAtNextPosition(tx));
+  } catch (error) {
+    // Concurrent adds can race on the same next position; the unique
+    // (playlistId, position) index turns that into P2002 — re-read max once.
+    if (!isUniqueConstraintViolation(error)) {
+      throw error;
+    }
+    await prisma.$transaction(async (tx) => appendTrackAtNextPosition(tx));
+  }
 
   await bumpUserPlaylistUpdatedAt({ playlistId, userId });
 

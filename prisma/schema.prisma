@@ -394,7 +394,7 @@ model UserPlaylistTrack {
   track      Track        @relation(fields: [trackId], references: [id], onDelete: Cascade)
   playlist   UserPlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
-  @@index([playlistId, position])
+  @@unique([playlistId, position])
 }
 
 model Service {

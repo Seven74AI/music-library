@@ -261,6 +261,29 @@ describe("addTrackToUserPlaylist", () => {
     expect(result).toEqual({ status: "not_found" });
   });
 
+  test("retries once when create hits duplicate position (P2002)", async () => {
+    vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
+      id: "playlist-1",
+      title: "My Playlist",
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.userPlaylistTrack.aggregate)
+      .mockResolvedValueOnce({ _max: { position: 2 } } as never)
+      .mockResolvedValueOnce({ _max: { position: 3 } } as never);
+    vi.mocked(prisma.userPlaylistTrack.create)
+      .mockRejectedValueOnce({ code: "P2002" })
+      .mockResolvedValueOnce({} as never);
+
+    const result = await addTrackToUserPlaylist({
+      userId: "user-1",
+      playlistId: "playlist-1",
+      trackId: "track-1",
+    });
+
+    expect(result).toEqual({ status: "success", playlistTitle: "My Playlist" });
+    expect(prisma.userPlaylistTrack.create).toHaveBeenCalledTimes(2);
+  });
+
   test("returns duplicate when track already exists in playlist", async () => {
     vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
       id: "playlist-1",

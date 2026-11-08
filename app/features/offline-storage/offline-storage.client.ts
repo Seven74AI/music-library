@@ -241,12 +241,12 @@ export function createOfflineStorage(
           return;
         }
         const wasPinned = existing.isPinned;
-        await metadataStore.delete(track.id);
+        const playlistId = existing.playlistIds[0];
         const buffer = await fetchAudioBytes(track.id);
         await storeTrack(track, buffer, {
           pin: wasPinned,
           queue: true,
-          playlistId: existing.playlistIds[0],
+          playlistId,
         });
         return;
       }

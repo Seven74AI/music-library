@@ -292,6 +292,55 @@ describe("party-room lifecycle", () => {
     ).rejects.toMatchObject({ code: "room_full" });
   }, 30_000);
 
+  test("seat return reactivation respects capacity under concurrent new joins", async () => {
+    const host = await makeUser("Host");
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+
+    const returner = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Returner", guestToken: "returner-guest-token" },
+    });
+
+    for (let i = 0; i < MAX_PARTICIPANTS - 2; i++) {
+      await joinRoom({
+        code: room.code,
+        actor: { type: "guest", displayName: `Fill${String(i).padStart(2, "0")}` },
+      });
+    }
+
+    await leaveRoom({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: returner.guestToken! },
+    });
+    expect(await prisma.roomParticipant.count({ where: { roomId: room.id, leftAt: null } })).toBe(
+      MAX_PARTICIPANTS - 1,
+    );
+
+    const outcomes = await Promise.allSettled([
+      joinRoom({
+        code: room.code,
+        actor: {
+          type: "guest",
+          displayName: "Returner",
+          guestToken: returner.guestToken!,
+        },
+      }),
+      joinRoom({
+        code: room.code,
+        actor: { type: "guest", displayName: "Concurrent Newcomer" },
+      }),
+    ]);
+
+    const rejected = outcomes.filter(
+      (outcome) => outcome.status === "rejected" && outcome.reason instanceof PartyRoomError,
+    );
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: "room_full" });
+    expect(await prisma.roomParticipant.count({ where: { roomId: room.id, leftAt: null } })).toBe(
+      MAX_PARTICIPANTS,
+    );
+  }, 30_000);
+
   test("reuses the caller guest cookie instead of minting a new token for a first seat", async () => {
     const host = await makeUser("Host");
     const room = await createRoom({
