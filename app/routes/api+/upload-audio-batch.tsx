@@ -21,6 +21,7 @@ import {
   createCoverImageInTx,
   getOrCreateAlbumTx,
   getOrCreateAlbum,
+  CoverImageUploadError,
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
@@ -399,6 +400,7 @@ async function processFilesAsync(
 
       let preparedAudio: Awaited<ReturnType<typeof prepareTrackAudioUpload>> | null = null;
       let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+      let transactionCommitted = false;
 
       try {
         // Use user metadata if provided, otherwise use extracted metadata
@@ -497,6 +499,17 @@ async function processFilesAsync(
               format: file.metadata.coverImage.format,
             });
           } catch (error) {
+            if (error instanceof CoverImageUploadError && error.uploadedObjectKey) {
+              preparedCover = {
+                kind: "new",
+                objectKey: error.uploadedObjectKey,
+                contentHash: "",
+                width: 0,
+                height: 0,
+                format: "jpeg",
+                fileSize: 0,
+              };
+            }
             console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error);
             // Continue without cover image
           }
@@ -621,13 +634,14 @@ async function processFilesAsync(
 
           return { success: true, trackId: track.id };
         });
+        transactionCommitted = true;
 
         // Update to 100% after transaction completes successfully
         await updateFileProgress(uploadId, fileId, 100, "completed", undefined, file.buffer.length);
 
         return result;
       } catch (error) {
-        await cleanupFailedUploadArtifacts(preparedAudio, preparedCover);
+        await cleanupFailedUploadArtifacts(preparedAudio, preparedCover, { transactionCommitted });
         const errorMessage = error instanceof Error ? error.message : "Failed to upload file";
         await updateFileProgress(uploadId, fileId, 0, "failed", errorMessage);
 

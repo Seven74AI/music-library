@@ -64,6 +64,20 @@ describe("on-repeat snapshot queries", () => {
     expect(nextCursor).toBeNull();
   });
 
+  test("rejects malformed and out-of-scope history cursors", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("A");
+    await createSnapshot({ userId: user.id, yearMonth: "2026-08", trackIds: [track.id] });
+
+    await expect(listOnRepeatSnapshotHistory({ userId: user.id, cursor: "zzzz" })).rejects.toThrow(
+      /Invalid cursor format/,
+    );
+
+    await expect(
+      listOnRepeatSnapshotHistory({ userId: user.id, cursor: "0000-00" }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
   test("detail returns ranked tracks with listen counts for owner only", async () => {
     const owner = await prisma.user.create({ data: createUser() });
     const other = await prisma.user.create({ data: createUser() });

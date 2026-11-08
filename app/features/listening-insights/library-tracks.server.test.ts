@@ -459,6 +459,26 @@ describe("listLibraryUserTracks most-played sorts", () => {
     expect(page2.pagination.hasNext).toBe(false);
   });
 
+  test("rejects a forged play count on an in-scope most-played cursor", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("One");
+    const userTrack = await addToLibrary(user.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
+    await seedCompleted(user.id, track.id, new Date("2026-09-01T12:00:00.000Z"), 3);
+
+    const forged = Buffer.from(JSON.stringify({ v: 1, count: 99, id: userTrack.id })).toString(
+      "base64url",
+    );
+
+    await expect(
+      listLibraryUserTracks({
+        userId: user.id,
+        sort: "mostPlayedEver",
+        cursor: forged,
+        limit: 10,
+      }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
   test("rejects a malformed most-played cursor instead of replaying page 1", async () => {
     const user = await prisma.user.create({ data: createUser() });
     const track = await createTrack("One");

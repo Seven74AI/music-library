@@ -428,6 +428,17 @@ export type PreparedCoverImage =
       fileSize: number;
     };
 
+/** Thrown when cover preparation fails after a new object was uploaded to storage. */
+export class CoverImageUploadError extends Error {
+  readonly uploadedObjectKey: string | undefined;
+
+  constructor(message: string, uploadedObjectKey?: string) {
+    super(message);
+    this.name = "CoverImageUploadError";
+    this.uploadedObjectKey = uploadedObjectKey;
+  }
+}
+
 /**
  * Resolve the Tigris cover object for an image, uploading it when it is new.
  *
@@ -502,16 +513,21 @@ export async function prepareCoverImageUpload(
     ? `images/tracks/${trackId}/cover/${timestamp}-${fileId}.jpg`
     : `images/covers/${timestamp}-${fileId}.jpg`;
 
-  await uploadFile({
-    file: processedImage,
-    key: objectKey,
-    contentType: "image/jpeg",
-    metadata: {
-      ...(trackId && { trackId }),
-      type: "album-art",
-      contentHash,
-    },
-  });
+  try {
+    await uploadFile({
+      file: processedImage,
+      key: objectKey,
+      contentType: "image/jpeg",
+      metadata: {
+        ...(trackId && { trackId }),
+        type: "album-art",
+        contentHash,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Cover upload failed";
+    throw new CoverImageUploadError(message, objectKey);
+  }
 
   return {
     kind: "new",

@@ -1,5 +1,6 @@
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { INVALID_CURSOR_FORMAT_MESSAGE } from "#app/utils/search-validation.server.ts";
 
 export const PLAY_HISTORY_PAGE_SIZE = 50;
 
@@ -70,10 +71,14 @@ export function serializeHistoryCursor(cursor: PlayHistoryCursor): string {
 export function parseHistoryCursor(raw: string | null): PlayHistoryCursor | null {
   if (!raw) return null;
   const separator = raw.indexOf("_");
-  if (separator <= 0) return null;
+  if (separator <= 0) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
   const ms = Number(raw.slice(0, separator));
   const id = raw.slice(separator + 1);
-  if (!Number.isFinite(ms) || !id) return null;
+  if (!Number.isFinite(ms) || !id) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
   return { createdAt: new Date(ms), id };
 }
 

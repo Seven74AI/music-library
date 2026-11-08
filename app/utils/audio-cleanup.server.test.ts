@@ -11,6 +11,9 @@ vi.mock("#app/utils/db.server.ts", () => ({
     trackAudioFile: {
       findMany: vi.fn(),
     },
+    coverImage: {
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -19,11 +22,13 @@ vi.mock("#app/utils/storage.server.ts", () => ({
 }));
 
 const findMany = vi.mocked(prisma.trackAudioFile.findMany);
+const coverFindFirst = vi.mocked(prisma.coverImage.findFirst);
 const deleteFileMock = vi.mocked(deleteFile);
 
 beforeEach(() => {
   vi.clearAllMocks();
   findMany.mockResolvedValue([]);
+  coverFindFirst.mockResolvedValue(null);
   deleteFileMock.mockResolvedValue(undefined);
 });
 
@@ -49,6 +54,24 @@ describe("cleanupFailedUploadArtifacts", () => {
 
     expect(deleteFileMock).toHaveBeenCalledWith("covers/new.jpg");
     expect(deleteFileMock).toHaveBeenCalledWith("audio/tracks/local/new.mp3");
+  });
+
+  test("does not delete a cover after the upload transaction committed", async () => {
+    coverFindFirst.mockResolvedValue({ id: "cover-1" } as never);
+    await cleanupFailedUploadArtifacts(
+      null,
+      {
+        kind: "new",
+        objectKey: "covers/live.jpg",
+        contentHash: "ch",
+        width: 1,
+        height: 1,
+        format: "jpg",
+        fileSize: 1,
+      },
+      { transactionCommitted: true },
+    );
+    expect(deleteFileMock).not.toHaveBeenCalledWith("covers/live.jpg");
   });
 
   test("skips audio cleanup when the upload reused an existing object", async () => {

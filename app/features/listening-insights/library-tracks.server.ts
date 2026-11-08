@@ -289,6 +289,19 @@ async function listMostPlayedLibraryPage({
     if (!anchor) {
       throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
     }
+
+    const [countRow] = await prisma.$queryRaw<Array<{ cnt: number | bigint }>>`
+      SELECT COALESCE(c.cnt, 0) AS cnt
+      FROM "UserTrack" ut
+      LEFT JOIN (${countSql}) c ON c."trackId" = ut."trackId"
+      WHERE ut."id" = ${cursorKey.id}
+    `;
+    const anchoredCount = Number(countRow?.cnt ?? 0);
+    // The cursor freezes count at page time (plays may land later and raise the
+    // live count). Reject only when the cursor claims more completes than exist.
+    if (cursorKey.count > anchoredCount) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
   }
 
   const cursorWhere = cursorKey

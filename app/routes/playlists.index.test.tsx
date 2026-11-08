@@ -316,6 +316,47 @@ describe("playlists index loader", () => {
     expect(indexed.pagination).toEqual(plain.pagination);
   });
 
+  test("returns 400 when the cursor id is too long", async () => {
+    const { cookie } = await createUserCookie();
+    const longCursor = "x".repeat(201);
+
+    await expect(
+      playlistsLoader(
+        pageRequest(cookie, `http://localhost/playlists?cursor=${longCursor}`) as never,
+      ),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        typeof err === "object" &&
+        err !== null &&
+        "init" in err &&
+        (err as { init?: { status?: number } }).init?.status === 400,
+    );
+  });
+
+  test("rejects a cursor that does not match the active search filter", async () => {
+    const { userId, cookie } = await createUserCookie();
+    const match = await createPlaylist({ userId, title: "Rock Alpha" });
+    await createPlaylist({ userId, title: "Pop Beta" });
+
+    await expect(
+      playlistsLoader(
+        pageRequest(cookie, `http://localhost/playlists?q=rock&cursor=${match.id}`) as never,
+      ),
+    ).resolves.toBeDefined();
+
+    await expect(
+      playlistsLoader(
+        pageRequest(cookie, `http://localhost/playlists?q=pop&cursor=${match.id}`) as never,
+      ),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        typeof err === "object" &&
+        err !== null &&
+        "init" in err &&
+        (err as { init?: { status?: number } }).init?.status === 400,
+    );
+  });
+
   test("cursor pagination respects an active filter", async () => {
     const { userId, cookie } = await createUserCookie();
     await createPlaylist({ userId, title: "Keep A" });

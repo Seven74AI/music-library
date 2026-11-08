@@ -152,6 +152,20 @@ describe("library index genre filter", () => {
     expect(body.userTracks).toEqual([]);
   });
 
+  test("returns 400 for a malformed library cursor", async () => {
+    const { cookie } = await createUserCookie();
+
+    await expect(
+      loader(pageRequest(cookie, "http://localhost/library?cursor=" + "x".repeat(201)) as never),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        typeof err === "object" &&
+        err !== null &&
+        "init" in err &&
+        (err as { init?: { status?: number } }).init?.status === 400,
+    );
+  });
+
   test("ignores a blank genre param", async () => {
     const { userId, cookie } = await createUserCookie();
     userIds.push(userId);

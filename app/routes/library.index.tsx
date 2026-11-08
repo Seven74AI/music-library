@@ -29,6 +29,7 @@ import {
 import { listLibraryUserTracks } from "#app/features/listening-insights/library-tracks.server.ts";
 import { type LibraryOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
 import {
@@ -134,67 +135,75 @@ function LibraryTrackListItem({
 }
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  const userId = await requireUserId(request);
+  try {
+    const userId = await requireUserId(request);
 
-  const cursor = url.searchParams.get("cursor");
-  const parsedLimit = Number.parseInt(
-    url.searchParams.get("limit") || String(LIBRARY_TRACKS_PAGE_SIZE),
-    10,
-  );
-  const limit = Number.isFinite(parsedLimit)
-    ? Math.min(100, Math.max(1, parsedLimit))
-    : LIBRARY_TRACKS_PAGE_SIZE;
-  const hasAudioOnly = parseHasAudioOnlyParam(url.searchParams);
-  const genreId = parseLibraryGenreParam(url.searchParams);
-  const sort = parseLibrarySort(url.searchParams.get("sort"));
-  const direction = parseSortDirection(
-    url.searchParams.get("dir"),
-    defaultLibrarySortDirection(sort),
-  );
+    const cursor = url.searchParams.get("cursor");
+    const parsedLimit = Number.parseInt(
+      url.searchParams.get("limit") || String(LIBRARY_TRACKS_PAGE_SIZE),
+      10,
+    );
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(100, Math.max(1, parsedLimit))
+      : LIBRARY_TRACKS_PAGE_SIZE;
+    const hasAudioOnly = parseHasAudioOnlyParam(url.searchParams);
+    const genreId = parseLibraryGenreParam(url.searchParams);
+    const sort = parseLibrarySort(url.searchParams.get("sort"));
+    const direction = parseSortDirection(
+      url.searchParams.get("dir"),
+      defaultLibrarySortDirection(sort),
+    );
 
-  const { userTracks, pagination } = await listLibraryUserTracks({
-    userId,
-    sort,
-    direction,
-    hasAudioOnly,
-    genreId,
-    cursor,
-    limit,
-  });
+    const { userTracks, pagination } = await listLibraryUserTracks({
+      userId,
+      sort,
+      direction,
+      hasAudioOnly,
+      genreId,
+      cursor,
+      limit,
+    });
 
-  // Add playlists to loader
-  const playlists = await prisma.userPlaylist.findMany({
-    where: { ownerId: userId },
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      _count: {
-        select: { tracks: true },
+    // Add playlists to loader
+    const playlists = await prisma.userPlaylist.findMany({
+      where: { ownerId: userId },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        _count: {
+          select: { tracks: true },
+        },
       },
-    },
-    orderBy: { updatedAt: "desc" },
-  });
+      orderBy: { updatedAt: "desc" },
+    });
 
-  const isCurator = await userIsCuratorOrAdmin(userId);
-  const genre = genreId
-    ? await prisma.genre.findUnique({
-        where: { id: genreId },
-        select: { id: true, name: true },
-      })
-    : null;
+    const isCurator = await userIsCuratorOrAdmin(userId);
+    const genre = genreId
+      ? await prisma.genre.findUnique({
+          where: { id: genreId },
+          select: { id: true, name: true },
+        })
+      : null;
 
-  return data({
-    userTracks,
-    pagination,
-    hasAudioOnly,
-    sort,
-    direction,
-    playlists,
-    isCurator,
-    genreId,
-    genre,
-  });
+    return data({
+      userTracks,
+      pagination,
+      hasAudioOnly,
+      sort,
+      direction,
+      playlists,
+      isCurator,
+      genreId,
+      genre,
+    });
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    if (isInvalidCursorError(error)) {
+      throw data({ error: "Invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 }
 
 export default function LibraryIndexRoute({

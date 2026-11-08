@@ -17,6 +17,7 @@ import {
   createCoverImageInTx,
   getOrCreateAlbumTx,
   getOrCreateAlbum,
+  CoverImageUploadError,
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
@@ -81,6 +82,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   let preparedAudio: Awaited<ReturnType<typeof prepareTrackAudioUpload>> | null = null;
   let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+  let transactionCommitted = false;
 
   try {
     // Get file buffer for metadata extraction
@@ -178,6 +180,17 @@ export async function action({ request }: ActionFunctionArgs) {
           format: extractedMetadata.coverImage.format,
         });
       } catch (error) {
+        if (error instanceof CoverImageUploadError && error.uploadedObjectKey) {
+          preparedCover = {
+            kind: "new",
+            objectKey: error.uploadedObjectKey,
+            contentHash: "",
+            width: 0,
+            height: 0,
+            format: "jpeg",
+            fileSize: 0,
+          };
+        }
         console.warn(`⚠️  Failed to upload cover image for ${audioFile.name}:`, error);
         // Continue without cover image
       }
@@ -249,6 +262,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
       return { track };
     });
+    transactionCommitted = true;
 
     // Fetch artist name for response
     const artistRecord = await prisma.artist.findUnique({
@@ -268,7 +282,7 @@ export async function action({ request }: ActionFunctionArgs) {
       { status: 201 },
     );
   } catch (error) {
-    await cleanupFailedUploadArtifacts(preparedAudio, preparedCover);
+    await cleanupFailedUploadArtifacts(preparedAudio, preparedCover, { transactionCommitted });
     console.error("Error uploading audio file:", error);
     const errorMessage = error instanceof Error ? error.message : "Failed to upload audio file";
     return data({ success: false, error: errorMessage }, { status: 500 });

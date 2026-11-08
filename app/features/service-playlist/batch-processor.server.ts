@@ -639,12 +639,12 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             serviceId,
             artistRecord.id,
           );
-          const { thumbnailUrl: _, externalId: ___, ...rest } = transformed;
+          const { thumbnailUrl: _, externalId: transformedExternalId, ...rest } = transformed;
           trackData = {
             ...rest,
             serviceId, // Use serviceId directly instead of service relation
             coverImageId,
-            externalId, // Override with the generated/actual externalId (explicitly set, not from transformation)
+            externalId: transformedExternalId ?? externalId,
           };
         }
 
@@ -666,9 +666,10 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
 
     // Batch upsert tracks — pair each upserted track with its source row so a
     // filtered middle entry cannot shift positions/deletion flags onto the wrong track.
-    const validTrackEntries = trackDataBatch.filter(({ serviceId: sid, externalId: eid }) => {
+    const validTrackEntries = trackDataBatch.filter(({ serviceId: sid, trackData: td }) => {
+      const eid = td.externalId;
       // Filter out any entries with invalid IDs (shouldn't happen, but safety check)
-      if (!sid || !eid || eid.trim() === "") {
+      if (!sid || typeof eid !== "string" || eid.trim() === "") {
         console.warn(`Skipping track upsert with invalid IDs: serviceId=${sid}, externalId=${eid}`);
         return false;
       }

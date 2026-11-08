@@ -1,9 +1,11 @@
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
+  assertPlaylistTrackCursorInScope,
   parsePlaylistTracksQuery,
   playlistTracksPagination,
 } from "#app/utils/playlist-tracks-pagination.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 
 export async function loader({ request, url }: { request: Request; url: URL }) {
   try {
@@ -11,6 +13,13 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
 
     const query = parsePlaylistTracksQuery(url);
     if (query.kind === "error") return query.response;
+
+    await assertPlaylistTrackCursorInScope({
+      userId,
+      playlistId: query.playlistId,
+      cursor: query.cursor,
+      kind: "service",
+    });
 
     // Fetch tracks from service playlist (YouTube playlist)
     const playlistTracks = await prisma.servicePlaylistTrack.findMany({
@@ -51,6 +60,9 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
     });
   } catch (error) {
     if (error instanceof Response) throw error;
+    if (isInvalidCursorError(error)) {
+      return Response.json({ error: "Invalid cursor" }, { status: 400 });
+    }
     console.error("Error fetching service playlist tracks:", error);
     return Response.json({ error: "Failed to fetch tracks" }, { status: 500 });
   }

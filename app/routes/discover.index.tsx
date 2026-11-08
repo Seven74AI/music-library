@@ -14,6 +14,7 @@ import {
 } from "#app/components/ui/select.tsx";
 import { TrackListSkeleton } from "#app/components/ui/track-list-skeleton";
 import { requireUserId } from "#app/utils/auth.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   DISCOVER_TRACKS_PAGE_SIZE,
@@ -33,50 +34,58 @@ import {
 import { type Route } from "./+types/discover.index.ts";
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  const userId = await requireUserId(request);
+  try {
+    const userId = await requireUserId(request);
 
-  const cursor = url.searchParams.get("cursor");
-  const parsedLimit = Number.parseInt(
-    url.searchParams.get("limit") || String(DISCOVER_TRACKS_PAGE_SIZE),
-    10,
-  );
-  const limit = Number.isFinite(parsedLimit)
-    ? Math.min(100, Math.max(1, parsedLimit))
-    : DISCOVER_TRACKS_PAGE_SIZE;
-  const sort = parseDiscoverSort(url.searchParams.get("sort"));
-  const direction = parseSortDirection(
-    url.searchParams.get("dir"),
-    defaultDiscoverSortDirection(sort),
-  );
+    const cursor = url.searchParams.get("cursor");
+    const parsedLimit = Number.parseInt(
+      url.searchParams.get("limit") || String(DISCOVER_TRACKS_PAGE_SIZE),
+      10,
+    );
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(100, Math.max(1, parsedLimit))
+      : DISCOVER_TRACKS_PAGE_SIZE;
+    const sort = parseDiscoverSort(url.searchParams.get("sort"));
+    const direction = parseSortDirection(
+      url.searchParams.get("dir"),
+      defaultDiscoverSortDirection(sort),
+    );
 
-  const { tracks, pagination } = await listDiscoverTracks({
-    userId,
-    sort,
-    direction,
-    cursor,
-    limit,
-  });
+    const { tracks, pagination } = await listDiscoverTracks({
+      userId,
+      sort,
+      direction,
+      cursor,
+      limit,
+    });
 
-  const playlists = await prisma.userPlaylist.findMany({
-    where: { ownerId: userId },
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      _count: {
-        select: { tracks: true },
+    const playlists = await prisma.userPlaylist.findMany({
+      where: { ownerId: userId },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        _count: {
+          select: { tracks: true },
+        },
       },
-    },
-    orderBy: { updatedAt: "desc" },
-  });
+      orderBy: { updatedAt: "desc" },
+    });
 
-  return data({
-    tracks,
-    pagination,
-    sort,
-    direction,
-    playlists,
-  });
+    return data({
+      tracks,
+      pagination,
+      sort,
+      direction,
+      playlists,
+    });
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    if (isInvalidCursorError(error)) {
+      throw data({ error: "Invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 }
 
 type DiscoverTrackListItemProps = {
