@@ -539,44 +539,6 @@ export async function deleteFile(key: string, _timings?: Timings): Promise<void>
  * @param timings - Optional timing object for performance tracking
  * @returns Promise resolving to the uploaded object key
  */
-/**
- * Upload album art/cover image for a track
- * Uses cover management system with deduplication (hash + album grouping)
- *
- * @deprecated Use findOrCreateCoverImage from cover-management.server.ts directly
- * This function is kept for backward compatibility but now uses the new system
- */
-export async function uploadAlbumArt(params: {
-  file: File | FileUpload | Buffer;
-  trackId: string;
-  albumId?: string | null;
-  timings?: Timings;
-}): Promise<string> {
-  const { file, trackId, albumId } = params;
-
-  let imageBuffer: Buffer;
-
-  if (Buffer.isBuffer(file)) {
-    imageBuffer = file;
-  } else if (file instanceof File) {
-    const arrayBuffer = await file.arrayBuffer();
-    imageBuffer = Buffer.from(arrayBuffer);
-  } else {
-    // FileUpload extends File, handled above
-    throw new Error("Unsupported file type for album art");
-  }
-
-  // Use new cover management system
-  const { findOrCreateCoverImage } = await import("./cover-management.server");
-  const coverImage = await findOrCreateCoverImage({
-    imageBuffer,
-    albumId,
-    trackId,
-  });
-
-  return coverImage.objectKey;
-}
-
 export async function uploadProfileImage(
   userId: string,
   file: File | FileUpload,

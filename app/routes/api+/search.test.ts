@@ -80,6 +80,27 @@ describe("search API loader", () => {
       ...makeRequest("http://localhost/api/search?q=test"),
     } as never);
 
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as {
+      error: string;
+      results: unknown[];
+      pagination: { limit: number };
+    };
+    expect(body.error).toBe("Invalid search query");
+    expect(body.results).toEqual([]);
+    expect(body.pagination.limit).toBe(20);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  test("returns 500 for non-syntax internal search failures", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(searchWithCache).mockRejectedValue(new Error("database is locked"));
+
+    const response = await loader({
+      ...makeRequest("http://localhost/api/search?q=test"),
+    } as never);
+
     expect(response.status).toBe(500);
     const body = (await response.json()) as {
       error: string;
@@ -89,6 +110,7 @@ describe("search API loader", () => {
     expect(body.error).toBe("Failed to perform search");
     expect(body.results).toEqual([]);
     expect(body.pagination.limit).toBe(20);
+    expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });
 

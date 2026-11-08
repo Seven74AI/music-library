@@ -137,6 +137,17 @@ describe("GET /resources/images filesystem confinement", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
+  test("rejects audio storage keys via src or objectKey", async () => {
+    const audioKey = "audio/tracks/youtube/track-1.mp3";
+
+    const srcResponse = await load({ src: audioKey });
+    expect(srcResponse.status).toBe(400);
+
+    const keyResponse = await load({ objectKey: audioKey });
+    expect(keyResponse.status).toBe(400);
+    expect(getFileUrl).not.toHaveBeenCalled();
+  });
+
   test("still signs a valid storage key", async () => {
     vi.mocked(getFileUrl).mockResolvedValue({
       url: "https://i.ytimg.com/fixture.png",

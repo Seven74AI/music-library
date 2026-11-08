@@ -238,7 +238,7 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 9. **Cookie upload UI** — Both file upload (drag-drop `cookies.txt`) and textarea paste on the admin panel. Both write to `/data/youtube-cookies.txt` and update the `YoutubeCookie` audit record.
 
-10. **Cookie upload does not auto-reset jobs** — Uploading new cookies writes the cookie file, updates the `YoutubeCookie` audit records, and resets the cookie failure streak (`resetCookieFailureStreak`), but does NOT touch `ArchiveJob`s. Failed jobs whose latest error is recoverable (COOKIE_EXPIRED or FORMAT_UNAVAILABLE) are re-queued only via the admin queue's explicit "Retry cookie & format failures" action (`audio-queue.tsx`), which sets them back to `pending` with `priority: true`. Jobs with non-recoverable errors are left alone.
+10. **Cookie upload auto-resets auth/cookie-failed jobs** — Uploading new cookies writes the cookie file, updates the `YoutubeCookie` audit record, resets the cookie failure streak (`resetCookieFailureStreak`), and re-queues failed jobs whose latest error is AUTH or COOKIE_EXPIRED via `resetAuthFailedJobs()` (back to `pending` with zeroed retry count). Jobs with other errors are left alone. The admin queue's **Retry cookie & format failures** action additionally re-queues FORMAT_UNAVAILABLE jobs.
 
 ### Storage
 
@@ -274,7 +274,7 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 ### Audio Serving
 
-22. **No redirect — direct presigned URL** — The audio resource route returns the presigned Tigris URL directly (no 302 redirect). Client fetches it and sets `<audio src>` to the S3 URL. Presigned URL exposes only the access key ID + signature — can only GET that single MP3 until expiry. CORS config on Tigris bucket enables Range-seeking directly against the CDN. S3 client uses **virtual-hosted-style** URLs (`https://{bucket}.fly.storage.tigris.dev/{key}`) — required for buckets created after 2025-02-19 and matches the `*.fly.storage.tigris.dev` TLS cert. CSP `media-src` must include `https://*.fly.storage.tigris.dev`.
+22. **No redirect — direct presigned URL** — The audio resource route returns the presigned Tigris URL directly (no 302 redirect). Client fetches it and sets `<audio src>` to the S3 URL. Presigned URL exposes only the access key ID + signature — can only GET that single object until expiry. Presigned TTL is **3600s (1 hour)** repo-wide via `DEFAULT_EXPIRY_SECONDS` in `storage.server.ts` — long enough for uninterrupted playback and short enough to bound a leaked URL's exposure. CORS config on Tigris bucket enables Range-seeking directly against the CDN. S3 client uses **virtual-hosted-style** URLs (`https://{bucket}.fly.storage.tigris.dev/{key}`) — required for buckets created after 2025-02-19 and matches the `*.fly.storage.tigris.dev` TLS cert. CSP `media-src` must include `https://*.fly.storage.tigris.dev`.
 
 ### Display & Navigation
 

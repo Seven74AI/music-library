@@ -29,15 +29,14 @@ async function getCacheDir() {
 
 /**
  * Check if a string is a storage key (not a URL)
- * Storage keys typically start with 'images/' or 'audio/' and don't contain '://'
+ * Storage keys start with 'images/' and don't contain '://'
  */
 function isStorageKey(value: string): boolean {
   // If it's a valid URL, it's not a storage key
   if (URL.canParse(value)) {
     return false;
   }
-  // Storage keys typically start with 'images/' or 'audio/'
-  return value.startsWith("images/") || value.startsWith("audio/");
+  return value.startsWith("images/");
 }
 
 function invalidImagePath(): Response {
@@ -100,6 +99,9 @@ async function resolveStorageKeySource(
   context: { logLabel: string; fetchErrorMessage: string },
 ) {
   rejectDisallowedImagePath(storageKey, "storage");
+  if (!storageKey.startsWith("images/")) {
+    throw invalidImagePath();
+  }
   // Validate and sanitize the storage key to prevent path traversal
   let validatedKey: string;
   try {
@@ -174,6 +176,10 @@ export async function loader({ request, url }: Route.LoaderArgs) {
           logLabel: "storage key",
           fetchErrorMessage: "Failed to generate image URL from storage key",
         });
+      }
+
+      if (src.startsWith("audio/")) {
+        throw invalidImagePath();
       }
 
       if (URL.canParse(src)) {

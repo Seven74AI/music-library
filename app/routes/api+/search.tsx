@@ -36,6 +36,10 @@ function emptySearchResponse(limit: number): SearchResponse {
   };
 }
 
+function isMalformedSearchQuery(error: unknown): boolean {
+  return error instanceof Error && /syntax error|malformed match|fts5/i.test(error.message);
+}
+
 function invalidSearchParameters(error: z.ZodError, limit = 20) {
   return Response.json(
     {
@@ -97,6 +101,15 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     );
     return Response.json(results);
   } catch (error) {
+    if (isMalformedSearchQuery(error)) {
+      return Response.json(
+        {
+          ...emptySearchResponse(limitResult.data),
+          error: "Invalid search query",
+        },
+        { status: 400 },
+      );
+    }
     console.error("🚨 [SEARCH API] Unexpected error searching:", error);
     if (error instanceof Error) {
       console.error("🚨 [SEARCH API] Error stack:", error.stack);
