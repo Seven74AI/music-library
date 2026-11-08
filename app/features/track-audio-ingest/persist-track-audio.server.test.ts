@@ -167,6 +167,25 @@ describe("persistTrackAudio", () => {
     expect(mockBackfillTrackMetadata).not.toHaveBeenCalled();
   });
 
+  it("uses metadata format when fileName has no recognized extension", async () => {
+    mockCalculateAudioHash.mockResolvedValue("hash-1");
+    mockGenerateAudioFingerprint.mockResolvedValue(null);
+    mockBuildAudioObjectKey.mockReturnValue("audio/tracks/youtube/track-1.mp3");
+    mockUploadFile.mockResolvedValue("audio/tracks/youtube/track-1.mp3");
+    mockPrisma.trackAudioFile.findFirst.mockResolvedValue(null);
+
+    const { prepareTrackAudioUpload } = await import("./persist-track-audio.server.ts");
+    await prepareTrackAudioUpload({
+      trackId: "track-1",
+      serviceName: "youtube",
+      buffer: sampleBuffer,
+      metadata: sampleMetadata,
+      fileName: "song",
+    });
+
+    expect(mockBuildAudioObjectKey).toHaveBeenCalledWith("youtube", "track-1", "mp3");
+  });
+
   it("prepareTrackAudioUpload uploads without creating a TrackAudioFile row", async () => {
     const { prepareTrackAudioUpload } = await import("./persist-track-audio.server.ts");
     const prepared = await prepareTrackAudioUpload({

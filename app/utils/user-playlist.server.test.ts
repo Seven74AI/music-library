@@ -9,8 +9,8 @@ import {
   userPlaylistTitleTaken,
 } from "./user-playlist.server";
 
-vi.mock("#app/utils/db.server.ts", () => ({
-  prisma: {
+const { prismaMock } = vi.hoisted(() => {
+  const mock = {
     userPlaylist: {
       findFirst: vi.fn(),
       findMany: vi.fn(),
@@ -24,7 +24,16 @@ vi.mock("#app/utils/db.server.ts", () => ({
       create: vi.fn(),
       deleteMany: vi.fn(),
     },
-  },
+    $transaction: vi.fn(),
+  };
+  mock.$transaction.mockImplementation(async (callback: (tx: typeof mock) => unknown) =>
+    callback(mock),
+  );
+  return { prismaMock: mock };
+});
+
+vi.mock("#app/utils/db.server.ts", () => ({
+  prisma: prismaMock,
 }));
 
 describe("normalizeUserPlaylistTitle", () => {

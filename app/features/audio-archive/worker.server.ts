@@ -107,6 +107,7 @@ export async function recoverStaleProcessingJobs(): Promise<number> {
       ErrorCategory.UNKNOWN,
       "Processing timed out (worker recovered stale job)",
       "",
+      { staleBefore: cutoff },
     );
   }
 
@@ -351,6 +352,7 @@ async function handleJobError(
   category: ErrorCategoryType,
   message: string | null,
   trackUrl: string,
+  options?: { staleBefore?: Date },
 ): Promise<void> {
   const job = await prisma.archiveJob.findUnique({
     where: { id: jobId },
@@ -382,8 +384,20 @@ async function handleJobError(
   // Only retriable failures get a scheduled next attempt (Decision #5).
   const nextAttemptAt = shouldFail ? null : new Date(Date.now() + retryBackoffMs(newRetryCount));
 
-  await prisma.archiveJob.update({
-    where: { id: jobId },
+  const staleBefore = options?.staleBefore;
+  const updated = await prisma.archiveJob.updateMany({
+    where: {
+      id: jobId,
+      status: "processing",
+      ...(staleBefore
+        ? {
+            OR: [
+              { lastAttemptAt: { lt: staleBefore } },
+              { lastAttemptAt: null, updatedAt: { lt: staleBefore } },
+            ],
+          }
+        : {}),
+    },
     data: {
       status: shouldFail ? "failed" : "pending",
       retryCount: newRetryCount,
@@ -391,6 +405,8 @@ async function handleJobError(
       errorHistory: JSON.stringify(errorHistory),
     },
   });
+
+  if (updated.count === 0) return;
 
   // Cookie-related errors: flag all cookies as invalid + notify admin
   if (category === ErrorCategory.AUTH || category === ErrorCategory.COOKIE_EXPIRED) {

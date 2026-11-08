@@ -99,15 +99,30 @@ type CreateTrackAudioFileParams = {
 
 type TrackAudioFileDb = Prisma.TransactionClient | typeof prisma;
 
+const KNOWN_AUDIO_EXTENSIONS = new Set([
+  "mp3",
+  "flac",
+  "m4a",
+  "wav",
+  "ogg",
+  "aac",
+  "opus",
+  "webm",
+  "wma",
+  "aiff",
+  "ape",
+  "m4b",
+]);
+
 function getAudioExtension(
   metadata: ExtractedAudioMetadata,
   fileName?: string,
   extension?: string,
 ): string {
   if (extension) return extension.replace(/^\./, "").toLowerCase();
-  if (fileName) {
+  if (fileName && fileName.includes(".")) {
     const extFromName = fileName.split(".").pop()?.toLowerCase();
-    if (extFromName) return extFromName;
+    if (extFromName && KNOWN_AUDIO_EXTENSIONS.has(extFromName)) return extFromName;
   }
   return metadata.format || "mp3";
 }

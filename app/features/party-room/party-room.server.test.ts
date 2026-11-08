@@ -130,9 +130,9 @@ describe("party-room lifecycle", () => {
       actor: { type: "user", userId: user.id },
     });
 
-    const second = await createRoom({ userId: user.id, displayName: "Host" });
-    expect(second.id).not.toBe(first.id);
-    expect(second.status).toBe("open");
+    await expect(createRoom({ userId: user.id, displayName: "Host" })).rejects.toMatchObject({
+      code: "creator_has_active_room",
+    });
 
     const oldRoom = await prisma.room.findUniqueOrThrow({ where: { id: first.id } });
     expect(oldRoom.status).toBe("open");

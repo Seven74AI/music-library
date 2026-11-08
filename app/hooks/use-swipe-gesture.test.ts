@@ -170,6 +170,19 @@ describe("useSwipeGesture", () => {
     expect(result.current.isSwiping).toBe(false);
   });
 
+  test("touch cancel does not fire swipe callbacks even past threshold", () => {
+    const onSwipeRight = vi.fn();
+    const { ref } = setupHook({ onSwipeRight, threshold: 49 });
+
+    act(() => {
+      ref.current!.dispatchEvent(createTouchEvent("touchstart", 100));
+      ref.current!.dispatchEvent(createTouchEvent("touchmove", 149));
+      ref.current!.dispatchEvent(createTouchEvent("touchcancel", 149));
+    });
+
+    expect(onSwipeRight).not.toHaveBeenCalled();
+  });
+
   test("resets offsetX and isSwiping after touch cancel", () => {
     const { ref, result } = setupHook({ threshold: 50 });
 

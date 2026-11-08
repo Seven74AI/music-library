@@ -131,6 +131,64 @@ describe("useLock", () => {
     });
   });
 
+  test("releases the owned lock when autoAcquire becomes false", async () => {
+    const mine: LockInfo = { ...adaLock, lockedBy: "me", lockedByName: "Me" };
+    const released: Array<{ entityId: string; lockId?: string }> = [];
+    server.use(
+      http.post("/api/locks/acquire", () => HttpResponse.json({ lock: mine })),
+      http.post("/api/locks/release", async ({ request }) => {
+        const body = (await request.json()) as { entityId: string; lockId?: string };
+        released.push({ entityId: body.entityId, lockId: body.lockId });
+        return HttpResponse.json({ success: true });
+      }),
+    );
+
+    const { result, rerender, unmount } = renderHook(
+      ({ autoAcquire }) => useLock("track", "track-1", { autoAcquire, autoRelease: true }),
+      { initialProps: { autoAcquire: true } },
+    );
+
+    await waitFor(() => {
+      expect(result.current.lock?.lockedBy).toBe("me");
+    });
+
+    rerender({ autoAcquire: false });
+
+    await waitFor(() => {
+      expect(released.length).toBeGreaterThanOrEqual(1);
+    });
+    expect(released[0]?.lockId).toBe(mine.id);
+
+    await act(async () => {
+      unmount();
+    });
+  });
+
+  test("does not auto-acquire when refresh status read fails", async () => {
+    let acquireCalls = 0;
+    server.use(
+      http.get("/api/locks/status", () => HttpResponse.json({ error: "boom" }, { status: 500 })),
+      http.post("/api/locks/acquire", () => {
+        acquireCalls += 1;
+        return HttpResponse.json({ lock: adaLock });
+      }),
+    );
+
+    const { result, unmount } = renderHook(() =>
+      useLock("track", "track-1", { autoAcquire: false }),
+    );
+
+    result.current.refresh();
+    await waitFor(() => {
+      expect(result.current.error).toBeTruthy();
+    });
+    expect(acquireCalls).toBe(0);
+
+    await act(async () => {
+      unmount();
+    });
+  });
+
   test("releases the previous entity and locks the new id when the entity changes", async () => {
     const acquired: string[] = [];
     const released: string[] = [];

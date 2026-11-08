@@ -22,7 +22,7 @@ function resolveSiteOrigin(origin?: string): string {
   return raw.replace(/\/$/, "");
 }
 
-function sendPlaylistArchiveReadyEmail({
+async function sendPlaylistArchiveReadyEmail({
   email,
   userName,
   playlistTitle,
@@ -33,7 +33,7 @@ function sendPlaylistArchiveReadyEmail({
   playlistTitle: string;
   playlistUrl: string;
 }) {
-  void sendEmail({
+  await sendEmail({
     to: email,
     subject: `Your playlist "${playlistTitle}" is ready to play`,
     react: (
@@ -84,7 +84,7 @@ export async function checkPlaylistArchiveReadyAfterTrackArchived(
     const playlistPath = `/music/services/youtube/playlist/${playlist.id}`;
     const playlistUrl = `${siteOrigin}${playlistPath}`;
 
-    const notified = await prisma.$transaction(async (tx) => {
+    const claimedAt = await prisma.$transaction(async (tx) => {
       const claimResult = await tx.servicePlaylist.updateMany({
         where: {
           id: playlist.id,
@@ -93,7 +93,7 @@ export async function checkPlaylistArchiveReadyAfterTrackArchived(
         data: { archiveReadyNotifiedAt: new Date() },
       });
 
-      if (claimResult.count === 0) return false;
+      if (claimResult.count === 0) return null;
 
       await tx.userNotification.create({
         data: {
@@ -105,16 +105,27 @@ export async function checkPlaylistArchiveReadyAfterTrackArchived(
         },
       });
 
-      return true;
+      return new Date();
     });
 
-    if (!notified) continue;
+    if (!claimedAt) continue;
 
-    sendPlaylistArchiveReadyEmail({
-      email: playlist.owner.email,
-      userName: playlist.owner.name ?? playlist.owner.username,
-      playlistTitle: playlist.title,
-      playlistUrl,
-    });
+    try {
+      await sendPlaylistArchiveReadyEmail({
+        email: playlist.owner.email,
+        userName: playlist.owner.name ?? playlist.owner.username,
+        playlistTitle: playlist.title,
+        playlistUrl,
+      });
+    } catch (error) {
+      console.error(
+        `Failed to send playlist archive ready email for playlist ${playlist.id}:`,
+        error,
+      );
+      await prisma.servicePlaylist.updateMany({
+        where: { id: playlist.id, archiveReadyNotifiedAt: claimedAt },
+        data: { archiveReadyNotifiedAt: null },
+      });
+    }
   }
 }

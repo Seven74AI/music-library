@@ -514,6 +514,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
       track: { ...existingTrack, title: "New Title" },
       edit: { id: "edit-1" },
     } as never);
+    vi.mocked(prisma.editLock.deleteMany).mockResolvedValue({ count: 1 });
 
     const body = {
       title: "New Title",
@@ -522,7 +523,9 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
 
     await action(makeRequest(body, { trackId: "track-1" }) as never);
 
-    expect(prisma.editLock.delete).toHaveBeenCalledWith({ where: { id: "lock-1" } });
+    expect(prisma.editLock.deleteMany).toHaveBeenCalledWith({
+      where: { id: "lock-1", lockedBy: "user-1" },
+    });
   });
 
   test("handles invalid JSON body", async () => {
