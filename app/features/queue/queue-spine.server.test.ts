@@ -1,6 +1,8 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { buildUserTrackAccessWhere } from "./queue-playback.server.ts";
+import { ARTIST_TRACK_PAGE_SIZE } from "#app/features/artist/artist-tracks.server.ts";
+import { USER_PLAYLIST_TRACK_PAGE_SIZE } from "#app/features/user-playlist/user-playlist-track-queries.server.ts";
 import {
   fetchQueueSpine,
   parseQueueSpineParams,
@@ -330,6 +332,7 @@ describe("fetchQueueSpine", () => {
         },
         orderBy: [{ position: "asc" }, { id: "asc" }],
         select: {
+          id: true,
           position: true,
           createdAt: true,
           track: {
@@ -384,6 +387,51 @@ describe("fetchQueueSpine", () => {
     expect(result.tracks.map((track) => track.id)).toEqual(["track-a", "track-z"]);
   });
 
+  test("paginates playlist spine without looping when a page is full", async () => {
+    const firstPage = Array.from({ length: USER_PLAYLIST_TRACK_PAGE_SIZE }, (_, i) => ({
+      id: `upt-${i}`,
+      position: i,
+      createdAt: new Date("2024-01-01"),
+      track: {
+        id: `track-${i}`,
+        title: `Song ${i}`,
+        artist: { id: "artist-1", name: "Artist" },
+        duration: 120,
+      },
+    }));
+    const secondPage = [
+      {
+        id: "upt-last",
+        position: USER_PLAYLIST_TRACK_PAGE_SIZE,
+        createdAt: new Date("2024-01-02"),
+        track: {
+          id: "track-last",
+          title: "Last Song",
+          artist: { id: "artist-1", name: "Artist" },
+          duration: 120,
+        },
+      },
+    ];
+    vi.mocked(prisma.userPlaylistTrack.findMany)
+      .mockResolvedValueOnce(firstPage as never)
+      .mockResolvedValueOnce(secondPage as never);
+
+    const result = await fetchQueueSpine("user-1", {
+      context: "playlist",
+      playlistId: "pl-big",
+      sort: "custom",
+      direction: "asc",
+    });
+
+    expect(prisma.userPlaylistTrack.findMany).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(prisma.userPlaylistTrack.findMany).mock.calls[1]?.[0]).toMatchObject({
+      skip: 1,
+      cursor: { id: `upt-${USER_PLAYLIST_TRACK_PAGE_SIZE - 1}` },
+    });
+    expect(result.total).toBe(USER_PLAYLIST_TRACK_PAGE_SIZE + 1);
+    expect(result.tracks.at(-1)?.id).toBe("track-last");
+  });
+
   test("returns the full artist discography (no 50-track cap)", async () => {
     vi.mocked(prisma.track.findMany).mockResolvedValue([
       {
@@ -405,13 +453,9 @@ describe("fetchQueueSpine", () => {
         ...buildUserTrackAccessWhere("user-1"),
       },
       select: QUEUE_TRACK_SELECT,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: ARTIST_TRACK_PAGE_SIZE,
     });
-    // Regression guard: the artist context must return the full discography,
-    // not cap the spine at 50 tracks (library/playlist/album return every track).
-    expect(prisma.track.findMany).toHaveBeenCalledWith(
-      expect.not.objectContaining({ take: expect.anything() }),
-    );
     expect(result).toEqual({
       tracks: [
         {
@@ -445,7 +489,8 @@ describe("fetchQueueSpine", () => {
         ...buildUserTrackAccessWhere("user-1"),
       },
       select: QUEUE_TRACK_SELECT,
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: ARTIST_TRACK_PAGE_SIZE,
     });
     expect(result).toEqual({
       tracks: [
@@ -457,6 +502,36 @@ describe("fetchQueueSpine", () => {
       ],
       total: 1,
     });
+  });
+
+  test("paginates album spine across multiple pages", async () => {
+    const firstPage = Array.from({ length: ARTIST_TRACK_PAGE_SIZE }, (_, i) => ({
+      id: `track-${i}`,
+      title: `Song ${i}`,
+      artist: { id: "artist-4", name: "Artist Four" },
+    }));
+    const secondPage = [
+      {
+        id: "track-overflow",
+        title: "Overflow Track",
+        artist: { id: "artist-4", name: "Artist Four" },
+      },
+    ];
+    vi.mocked(prisma.track.findMany)
+      .mockResolvedValueOnce(firstPage as never)
+      .mockResolvedValueOnce(secondPage as never);
+
+    const result = await fetchQueueSpine("user-1", {
+      context: "album",
+      albumId: "album-huge",
+    });
+
+    expect(prisma.track.findMany).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(prisma.track.findMany).mock.calls[1]?.[0]).toMatchObject({
+      skip: 1,
+      cursor: { id: `track-${ARTIST_TRACK_PAGE_SIZE - 1}` },
+    });
+    expect(result.total).toBe(ARTIST_TRACK_PAGE_SIZE + 1);
   });
 
   test("returns the playable discover catalog without a page cap", async () => {

@@ -126,6 +126,40 @@ describe("party-room api.client (backend #294 contract)", () => {
     expect(room.code).toBe("AB3K9Q");
   });
 
+  it("joinRoom normalizes join payload when GET by code and current both fail", async () => {
+    const joinPayload = {
+      roomId: "room-1",
+      code: "AB3K9Q",
+      status: "open",
+      defaultJoinRole: "listener",
+      roomVersion: 1,
+      currentIndex: 0,
+      isPlaying: false,
+      currentHostParticipantId: "host-1",
+      participants: [],
+      queue: [],
+      createdAt: new Date().toISOString(),
+      endedAt: null,
+    };
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(joinPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 }),
+      );
+    const room = await joinRoom({ code: "AB3K9Q", displayName: "Guest" }, "user-2");
+    expect(sessionStorage.getItem(ACTIVE_ROOM_CODE_KEY)).toBe("AB3K9Q");
+    expect(room.code).toBe("AB3K9Q");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+  });
+
   it("joinRoom falls back to current or join payload when GET by code fails", async () => {
     const joinPayload = {
       roomId: "room-1",

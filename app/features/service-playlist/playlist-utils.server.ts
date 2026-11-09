@@ -41,10 +41,14 @@ export async function getActiveSyncedPlaylistTrackIds(
 
   const playlistIds = syncedPlaylists.map((p) => p.id);
 
-  const playlistTracks = await prisma.servicePlaylistTrack.findMany({
-    where: { playlistId: { in: playlistIds }, isDeleted: false },
-    select: { trackId: true },
-  });
+  const playlistTracks: { trackId: string }[] = [];
+  for (const playlistIdChunk of chunkArray(playlistIds)) {
+    const batch = await prisma.servicePlaylistTrack.findMany({
+      where: { playlistId: { in: playlistIdChunk }, isDeleted: false },
+      select: { trackId: true },
+    });
+    playlistTracks.push(...batch);
+  }
 
   const trackIds = [...new Set(playlistTracks.map((pt) => pt.trackId))];
 

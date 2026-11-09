@@ -356,8 +356,12 @@ export async function joinRoom(
   try {
     return await fetchRoomByCode(joinedCode, meUserId);
   } catch {
-    const current = await fetchCurrentRoom(meUserId);
-    if (current) return current;
+    try {
+      const current = await fetchCurrentRoom(meUserId);
+      if (current) return current;
+    } catch {
+      // Fall through to join payload.
+    }
     return normalizeRoomSnapshot(raw, meUserId);
   }
 }
