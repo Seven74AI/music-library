@@ -1,17 +1,45 @@
 import { readFileSync } from "node:fs";
 import AdmZip from "adm-zip";
 import { parseString } from "set-cookie-parser";
-import { expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { LOCAL_SERVICE } from "#app/constants/services.ts";
 import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
-import { consoleError } from "#tests/setup/setup-test-env.ts";
+import { consoleError, consoleWarn } from "#tests/setup/setup-test-env.ts";
 import { action } from "./upload-audio-batch.tsx";
 import { getUploadProgress } from "#app/features/upload-progress/progress-store.server.ts";
 
 const tinyMp3 = readFileSync(new URL("../../../tests/fixtures/tiny-tone.mp3", import.meta.url));
+
+const { mockPrepareCoverImageUpload, mockCreateCoverImageInTx, mockDeleteFile } = vi.hoisted(
+  () => ({
+    mockPrepareCoverImageUpload: vi.fn(),
+    mockCreateCoverImageInTx: vi.fn(),
+    mockDeleteFile: vi.fn().mockResolvedValue(undefined),
+  }),
+);
+
+vi.mock("#app/utils/storage.server.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("#app/utils/storage.server.ts")>();
+  return { ...original, deleteFile: mockDeleteFile };
+});
+
+vi.mock("#app/utils/cover-management.server", async (importOriginal) => {
+  const original = await importOriginal<typeof import("#app/utils/cover-management.server.ts")>();
+  return {
+    ...original,
+    prepareCoverImageUpload: mockPrepareCoverImageUpload,
+    createCoverImageInTx: mockCreateCoverImageInTx,
+  };
+});
+
+beforeEach(() => {
+  mockPrepareCoverImageUpload.mockReset();
+  mockCreateCoverImageInTx.mockReset();
+  mockDeleteFile.mockClear();
+});
 
 async function createAdminCookie() {
   const user = await prisma.user.create({
@@ -305,6 +333,61 @@ test("invalid user metadata shape fails only that file, not the batch", async ()
       expect.objectContaining({ fileName: "good.mp3", title, artist }),
     ]);
   } finally {
+    await cleanupUploadArtist(artist, userId);
+  }
+}, 20_000);
+
+test("batch upload succeeds without a cover when cover persistence fails and deletes the object", async () => {
+  allowUploadConsoleErrors();
+  consoleWarn.mockImplementation(() => {});
+  await seedLocalService();
+
+  const coverObjectKey = `images/covers/batch-abandon-${Date.now()}.jpg`;
+  mockPrepareCoverImageUpload.mockResolvedValue({
+    kind: "new",
+    objectKey: coverObjectKey,
+    contentHash: `hash-${Date.now()}`,
+    width: 100,
+    height: 100,
+    format: "jpeg",
+    fileSize: 1000,
+  });
+  mockCreateCoverImageInTx.mockRejectedValue(new Error("db write failed"));
+
+  const { extractAudioMetadata: baseExtract } = await vi.importActual<
+    typeof import("#app/utils/audio-metadata.server.ts")
+  >("#app/utils/audio-metadata.server.ts");
+  const metadataModule = await import("#app/utils/audio-metadata.server.ts");
+  const extractSpy = vi.spyOn(metadataModule, "extractAudioMetadata");
+  extractSpy.mockImplementation(async (buffer, fileName) => {
+    const metadata = await baseExtract(buffer, fileName);
+    return { ...metadata, coverImage: { data: Buffer.from("fake"), format: "jpeg" } };
+  });
+
+  const { userId, cookie } = await createAdminCookie();
+  const title = `Batch cover abandon ${Date.now()}`;
+  const artist = `QA Artist ${title}`;
+  const uploadId = `upload-cover-abandon-${Date.now()}`;
+
+  try {
+    const response = await postBatch(cookie, uploadId, [
+      ["good.mp3", JSON.stringify({ title, artist })],
+    ]);
+    expect(response.init?.status).toBe(202);
+
+    const progress = await waitForUpload(uploadId);
+    expect(progress.successfulTracks).toEqual([
+      expect.objectContaining({ fileName: "good.mp3", title, artist }),
+    ]);
+    expect(mockDeleteFile).toHaveBeenCalledWith(coverObjectKey);
+
+    const stored = await prisma.track.findFirst({
+      where: { title },
+      select: { coverImageId: true },
+    });
+    expect(stored?.coverImageId).toBeNull();
+  } finally {
+    extractSpy.mockRestore();
     await cleanupUploadArtist(artist, userId);
   }
 }, 20_000);
