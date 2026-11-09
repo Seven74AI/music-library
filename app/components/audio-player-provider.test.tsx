@@ -3211,7 +3211,7 @@ test("playTrack skips queue spine when navigator is offline before React isOnlin
   vi.unstubAllGlobals();
 });
 
-test("playTrack starts downloaded track when offline spine is empty but hasTrack is true", async () => {
+test("playTrack starts queue-cached track from empty offline artist spine when hasTrack is true", async () => {
   const user = userEvent.setup();
   const fetchMock = vi.mocked(fetch);
   const offlineTrack: FullTrack = {
@@ -3250,7 +3250,10 @@ test("playTrack starts downloaded track when offline spine is empty but hasTrack
     const { playTrack, isPlayerVisible, currentTrack } = useAudioPlayer();
     return (
       <>
-        <button type="button" onClick={() => playTrack(offlineTrack, { type: "library" })}>
+        <button
+          type="button"
+          onClick={() => playTrack(offlineTrack, { type: "artist", artistId: "artist-1" })}
+        >
           Play downloaded
         </button>
         <span data-testid="player-visible">{String(isPlayerVisible)}</span>
@@ -3417,6 +3420,68 @@ test("playTrack while offline builds spine from pinned downloads instead of queu
   expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/queue-spine"))).toBe(
     false,
   );
+});
+
+test("offline library spine excludes queue-cached-only tracks", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const pinned = downloadedSummary("pinned-1", "Pinned One");
+  const queueOnly = {
+    ...downloadedSummary("queue-only", "Queue Only"),
+    isPinned: false,
+    isQueueCached: true,
+  };
+  const listPinned = vi.fn().mockResolvedValue([pinned]);
+  const listDownloaded = vi.fn().mockResolvedValue([pinned, queueOnly]);
+
+  vi.mocked(getOfflineStorage).mockReturnValue({
+    cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
+    listDownloaded,
+    listPinned,
+    listForPlaylist: vi.fn().mockResolvedValue([]),
+    getRecord: vi.fn().mockResolvedValue({
+      isPinned: true,
+      isQueueCached: false,
+    }),
+  } as unknown as ReturnType<typeof getOfflineStorage>);
+
+  vi.stubGlobal("navigator", { ...(navigator as Navigator), onLine: false });
+  await act(async () => {
+    window.dispatchEvent(new Event("offline"));
+  });
+
+  function OfflineLibrarySpineProbe() {
+    const { playLibrary, spineTotal, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => void playLibrary()}>
+          Play library offline
+        </button>
+        <span data-testid="spine-total">{spineTotal}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <OfflineLibrarySpineProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play library offline" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("pinned-1");
+    expect(screen.getByTestId("spine-total").textContent).toBe("1");
+  });
+  expect(listPinned).toHaveBeenCalled();
+  expect(listDownloaded).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/queue-spine"))).toBe(
+    false,
+  );
+
+  vi.unstubAllGlobals();
 });
 
 test("failed offline restore is retried on the next mount", async () => {
