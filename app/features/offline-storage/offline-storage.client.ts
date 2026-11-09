@@ -181,7 +181,9 @@ export function createOfflineStorage(
         }),
       );
     } catch (error) {
-      await audioStore.delete(track.id, audioFormat);
+      if (!existing) {
+        await audioStore.delete(track.id, audioFormat);
+      }
       throw error;
     }
   }

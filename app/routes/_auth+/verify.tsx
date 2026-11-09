@@ -10,6 +10,7 @@ import { Spacer } from "#app/components/spacer.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
 import { checkHoneypot } from "#app/utils/honeypot.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
+import { getVerifySearchParam } from "#app/utils/sensitive-url-scrub.client.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/verify.ts";
 import { validateRequest } from "./verify.server.ts";
@@ -46,7 +47,8 @@ export async function clientAction(args: Route.ClientActionArgs) {
 export default function VerifyRoute({ actionData }: Route.ComponentProps) {
   const [searchParams] = useSearchParams();
   const isPending = useIsPending();
-  const parseWithZoddType = VerificationTypeSchema.safeParse(searchParams.get(typeQueryParam));
+  const typeParam = getVerifySearchParam(typeQueryParam, searchParams);
+  const parseWithZoddType = VerificationTypeSchema.safeParse(typeParam);
   const type = parseWithZoddType.success ? parseWithZoddType.data : null;
 
   const checkEmail = (
@@ -80,10 +82,10 @@ export default function VerifyRoute({ actionData }: Route.ComponentProps) {
       return parseWithZod(formData, { schema: VerifySchema });
     },
     defaultValue: {
-      code: searchParams.get(codeQueryParam),
+      code: getVerifySearchParam(codeQueryParam, searchParams) ?? undefined,
       type: type,
-      target: searchParams.get(targetQueryParam),
-      redirectTo: searchParams.get(redirectToQueryParam),
+      target: getVerifySearchParam(targetQueryParam, searchParams) ?? undefined,
+      redirectTo: getVerifySearchParam(redirectToQueryParam, searchParams) ?? undefined,
     },
   });
 
