@@ -11,13 +11,43 @@ import { action } from "./upload-audio.tsx";
 
 const tinyMp3 = readFileSync(new URL("../../../tests/fixtures/tiny-tone.mp3", import.meta.url));
 
-const { mockBackfillTrackMetadata } = vi.hoisted(() => ({
+const {
+  mockBackfillTrackMetadata,
+  mockPrepareCoverImageUpload,
+  mockCreateCoverImageInTx,
+  mockDeleteFile,
+} = vi.hoisted(() => ({
   mockBackfillTrackMetadata: vi.fn().mockResolvedValue(undefined),
+  mockPrepareCoverImageUpload: vi.fn(),
+  mockCreateCoverImageInTx: vi.fn(),
+  mockDeleteFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("#app/features/track-audio-ingest/backfill-track-metadata.server.ts", () => ({
   backfillTrackMetadata: (...args: unknown[]) => mockBackfillTrackMetadata(...args),
 }));
+
+vi.mock("#app/utils/storage.server.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("#app/utils/storage.server.ts")>();
+  return { ...original, deleteFile: mockDeleteFile };
+});
+
+vi.mock("#app/utils/cover-management.server", async (importOriginal) => {
+  const original = await importOriginal<typeof import("#app/utils/cover-management.server.ts")>();
+  return {
+    ...original,
+    prepareCoverImageUpload: mockPrepareCoverImageUpload,
+    createCoverImageInTx: mockCreateCoverImageInTx,
+  };
+});
+
+vi.mock("#app/utils/audio-metadata.server", async (importOriginal) => {
+  const original = await importOriginal<typeof import("#app/utils/audio-metadata.server.ts")>();
+  return {
+    ...original,
+    extractAudioMetadata: vi.fn(original.extractAudioMetadata),
+  };
+});
 
 async function createAdminCookie() {
   const user = await prisma.user.create({
@@ -53,6 +83,9 @@ describe("upload-audio action", () => {
   beforeEach(() => {
     mockBackfillTrackMetadata.mockReset();
     mockBackfillTrackMetadata.mockResolvedValue(undefined);
+    mockPrepareCoverImageUpload.mockReset();
+    mockCreateCoverImageInTx.mockReset();
+    mockDeleteFile.mockClear();
     consoleError.mockImplementation(() => {});
     consoleWarn.mockImplementation(() => {});
   });
@@ -76,6 +109,67 @@ describe("upload-audio action", () => {
 
     expect(response.init?.status).toBe(400);
     expect(response.data).toMatchObject({ success: false, error: /empty/i });
+  });
+
+  test("upload succeeds without a cover when cover persistence fails and deletes the object", async () => {
+    const { extractAudioMetadata } = await import("#app/utils/audio-metadata.server");
+    vi.mocked(extractAudioMetadata).mockResolvedValueOnce({
+      title: "Cover Fail Title",
+      artist: "Cover Fail Artist",
+      duration: 180,
+      coverImage: { data: Buffer.from("fake-cover"), format: "jpeg" },
+    } as never);
+
+    const coverObjectKey = `images/covers/abandon-${Date.now()}.jpg`;
+    mockPrepareCoverImageUpload.mockResolvedValue({
+      kind: "new",
+      objectKey: coverObjectKey,
+      contentHash: `hash-${Date.now()}`,
+      width: 100,
+      height: 100,
+      format: "jpeg",
+      fileSize: 1000,
+    });
+    mockCreateCoverImageInTx.mockRejectedValue(new Error("db write failed"));
+
+    await prisma.service.upsert({
+      where: { name: LOCAL_SERVICE.NAME },
+      update: {},
+      create: {
+        name: LOCAL_SERVICE.NAME,
+        displayName: LOCAL_SERVICE.DISPLAY_NAME,
+        baseUrl: LOCAL_SERVICE.BASE_URL,
+      },
+    });
+
+    const title = `Cover abandon ${Date.now()}`;
+    const artist = `Artist ${title}`;
+    const { cookie } = await createAdminCookie();
+
+    const formData = new FormData();
+    formData.append("audioFile", new File([tinyMp3], "good.mp3", { type: "audio/mpeg" }));
+    formData.append("title", title);
+    formData.append("artist", artist);
+
+    const response = await action({
+      request: new Request("http://localhost/api/upload-audio", {
+        method: "POST",
+        headers: { cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.init?.status).toBe(201);
+    expect(mockDeleteFile).toHaveBeenCalledWith(coverObjectKey);
+
+    const stored = await prisma.track.findFirst({
+      where: { title },
+      select: { id: true, coverImageId: true },
+    });
+    expect(stored?.coverImageId).toBeNull();
+    expect(await prisma.coverImage.findFirst({ where: { objectKey: coverObjectKey } })).toBeNull();
   });
 
   test("returns success when metadata backfill fails after the track commit", async () => {

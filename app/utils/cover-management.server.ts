@@ -464,6 +464,26 @@ export class CoverImageUploadError extends Error {
   }
 }
 
+/**
+ * Delete a prepared "new" cover object when persistence failed after the Tigris
+ * upload but the track upload will continue without a cover image.
+ */
+export async function abandonUnpersistedPreparedCover(prepared: PreparedCoverImage): Promise<void> {
+  if (prepared.kind !== "new") return;
+
+  const coverPersisted = await prisma.coverImage.findFirst({
+    where: { objectKey: prepared.objectKey },
+    select: { id: true },
+  });
+  if (coverPersisted) return;
+
+  try {
+    await deleteFile(prepared.objectKey);
+  } catch (error) {
+    console.error(`Failed to delete cover object ${prepared.objectKey}:`, error);
+  }
+}
+
 /** Best-effort delete of a cover object left in storage after a failed upload. */
 export async function cleanupFailedCoverUpload(error: unknown): Promise<void> {
   if (!(error instanceof CoverImageUploadError) || !error.uploadedObjectKey) return;
