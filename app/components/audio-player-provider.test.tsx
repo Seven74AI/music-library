@@ -1845,6 +1845,74 @@ test("restores the saved queue on mount, paused, without autoplay", async () => 
   expect(screen.getByTestId("wants-autoplay").textContent).toBe("false");
 });
 
+test("online restore preserves Up Next longer than a single playback batch", async () => {
+  const fetchMock = vi.mocked(fetch);
+  const upNextIds = Array.from({ length: 205 }, (_, index) => `up-next-${index}`);
+
+  fetchMock.mockImplementation((input, init) => {
+    const url = String(input);
+    const method = (init as RequestInit | undefined)?.method ?? "GET";
+    if (url === PLAYER_STATE_ROUTE && method === "GET") {
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          playContext: { type: "library" },
+          currentTrackId: "track-1",
+          upNextIds,
+          shuffleSeed: null,
+          loopMode: "off",
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "https://example.com").searchParams.get("ids")!.split(",");
+      const tracks = ids.map((id) => ({
+        ...playableTrack,
+        id,
+        title: `Song ${id}`,
+      }));
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => ({ tracks }),
+      } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => ({ tracks: [spineTrack], total: 1 }),
+      } as Response);
+    }
+    return Promise.resolve({ status: 200, ok: true, json: async () => ({}) } as Response);
+  });
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <QueueProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("up-next-count").textContent).toBe("205");
+  });
+
+  const playbackCalls = fetchMock.mock.calls.filter((call) =>
+    String(call[0]).includes("/api/tracks/playback"),
+  );
+  expect(playbackCalls.length).toBeGreaterThanOrEqual(2);
+
+  window.dispatchEvent(new Event("pagehide"));
+
+  const puts = persistPutCalls(fetchMock);
+  expect(puts.length).toBeGreaterThan(0);
+  const body = JSON.parse(String((puts[0]?.[1] as RequestInit | undefined)?.body)) as {
+    upNextIds: string[];
+  };
+  expect(body.upNextIds).toEqual(upNextIds);
+});
+
 function mockOfflineStorage(downloadedSummaries: Array<Record<string, unknown>>) {
   vi.mocked(getOfflineStorage).mockReturnValue({
     cacheQueueTrack: vi.fn().mockResolvedValue(undefined),

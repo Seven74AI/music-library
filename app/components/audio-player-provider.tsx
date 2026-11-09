@@ -1929,20 +1929,19 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         ...(saved.currentTrackId ? [saved.currentTrackId] : []),
         ...saved.upNextIds,
       ];
-      let resolvedTracks: FullTrack[] = [];
       if (idsToResolve.length > 0) {
         try {
-          resolvedTracks = await fetchPlaybackBatch(idsToResolve);
+          await hydratePlaybackCacheInBatches(playbackCacheRef.current, idsToResolve);
         } catch (error) {
           console.error("Failed to resolve player state tracks:", error);
-          resolvedTracks = [];
         }
       }
       if (shouldAbortRestore()) return;
 
-      const byId = new Map(resolvedTracks.map((track) => [track.id, track]));
-      for (const track of resolvedTracks) {
-        playbackCacheRef.current.set(track);
+      const byId = new Map<string, FullTrack>();
+      for (const id of idsToResolve) {
+        const track = playbackCacheRef.current.get(id);
+        if (track) byId.set(id, track);
       }
 
       // Re-derive the spine from the play context (never snapshotted).
