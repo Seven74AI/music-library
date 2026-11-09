@@ -20,11 +20,11 @@ export function useIsMobile() {
 
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.matchMedia("(max-width: 768px)").matches);
+      setIsMobile(window.matchMedia("(max-width: 767px)").matches);
     };
 
     checkMobile();
-    const mediaQuery = window.matchMedia("(max-width: 768px)");
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
     mediaQuery.addEventListener("change", checkMobile);
 
     return () => mediaQuery.removeEventListener("change", checkMobile);
