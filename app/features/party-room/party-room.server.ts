@@ -642,11 +642,32 @@ export async function joinRoom({ code, actor }: { code: string; actor: JoinActor
     }
   }
 
-  const activeCount = await prisma.roomParticipant.count({
-    where: { roomId: room.id, leftAt: null },
-  });
-  if (activeCount >= MAX_PARTICIPANTS) {
-    throw new PartyRoomError("room_full", "Room is full", 409);
+  const holdsLiveSeatInRoom = await (async () => {
+    if (actor.type === "user") {
+      const seated = await prisma.roomParticipant.findFirst({
+        where: { roomId: room.id, userId: actor.userId, leftAt: null },
+        select: { id: true },
+      });
+      return Boolean(seated);
+    }
+    if (actor.guestToken) {
+      const tokenHash = hashGuestToken(actor.guestToken);
+      const seated = await prisma.roomParticipant.findFirst({
+        where: { roomId: room.id, guestTokenHash: tokenHash, leftAt: null },
+        select: { id: true },
+      });
+      return Boolean(seated);
+    }
+    return false;
+  })();
+
+  if (!holdsLiveSeatInRoom) {
+    const activeCount = await prisma.roomParticipant.count({
+      where: { roomId: room.id, leftAt: null },
+    });
+    if (activeCount >= MAX_PARTICIPANTS) {
+      throw new PartyRoomError("room_full", "Room is full", 409);
+    }
   }
 
   const joinRole =

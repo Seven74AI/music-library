@@ -359,13 +359,17 @@ export default function LibraryIndexRoute({
         params.set("dir", direction);
       }
       const res = await fetch(`/api/user-tracks?${params}`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `Failed to fetch library tracks: ${res.status}`);
+      }
       const json = (await res.json()) as {
         userTracks: UserTrack[];
         pagination: { hasNext: boolean; nextCursor: string | null };
       };
       return json;
     },
-    getNextPageParam: (lastPage) => lastPage.pagination.nextCursor || undefined,
+    getNextPageParam: (lastPage) => lastPage.pagination?.nextCursor || undefined,
     initialPageParam: undefined as string | undefined,
     initialData:
       sort === loaderSort && direction === loaderDirection

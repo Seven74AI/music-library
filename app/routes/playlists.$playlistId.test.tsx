@@ -131,14 +131,21 @@ describe("playlists.$playlistId action — updatedAt bump", () => {
   });
 
   describe("bulk-remove-tracks", () => {
-    test("bumps playlist updatedAt after bulk-removing tracks", async () => {
+    test("bulk-removes tracks and bumps updatedAt inside one transaction", async () => {
       vi.mocked(prisma.userPlaylistTrack.findMany).mockResolvedValue([
         { id: "pt-1" },
         { id: "pt-2" },
       ] as never);
-      vi.mocked(prisma.userPlaylistTrack.deleteMany).mockResolvedValue({
-        count: 2,
-      } as never);
+
+      const txDeleteMany = vi.fn().mockResolvedValue({ count: 2 });
+      const txPlaylistUpdate = vi.fn().mockResolvedValue({} as never);
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback) => {
+        const tx = {
+          userPlaylistTrack: { deleteMany: txDeleteMany },
+          userPlaylist: { update: txPlaylistUpdate },
+        };
+        return callback(tx as never);
+      });
 
       const fd = new FormData();
       fd.append("intent", "bulk-remove-tracks");
@@ -149,10 +156,13 @@ describe("playlists.$playlistId action — updatedAt bump", () => {
       expect(response).toMatchObject({
         data: { success: true },
       });
-      expect(bumpUserPlaylistUpdatedAt).toHaveBeenCalledWith({
-        playlistId: "playlist-1",
-        userId: "user-1",
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(txDeleteMany).toHaveBeenCalled();
+      expect(txPlaylistUpdate).toHaveBeenCalledWith({
+        where: { id: "playlist-1", ownerId: "user-1" },
+        data: { updatedAt: expect.any(Date) },
       });
+      expect(bumpUserPlaylistUpdatedAt).not.toHaveBeenCalled();
     });
   });
 });
