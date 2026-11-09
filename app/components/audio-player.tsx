@@ -218,16 +218,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
   // User intends playback; not cleared by incidental pause from network/src swaps.
   const keepPlayingRef = useRef(false);
   const playStartedForTrackRef = useRef<string | null>(null);
-  const playCompletedForTrackRef = useRef<string | null>(null);
+  /** Play pass that already emitted `play_completed` at 50% (keyed by playId, not track id). */
+  const playCompletedForPlayIdRef = useRef<string | null>(null);
   const playIdRef = useRef<string | null>(null);
-  /** Previous timeupdate position — used to detect repeat-one wrap without an `ended` event. */
-  const loopOneProgressRef = useRef(0);
-  /** Consumed by whichever repeat-one restart signal wins (`timeupdate` wrap vs `ended`). */
-  const repeatOneRestartLatchRef = useRef(false);
-  /** Playhead position when the current repeat-one pass was opened — latch clears after forward progress. */
-  const repeatOneRestartAtTimeRef = useRef<number | null>(null);
-  const repeatOneRestartSourceRef = useRef<"ended" | "wrap" | null>(null);
-  const REPEAT_ONE_LATCH_ADVANCE_DELTA = 0.25;
+  /** Previous `timeupdate` playhead — detects repeat-one wrap by backward jump. */
+  const prevCurrentTimeRef = useRef(0);
   // Playback-progress presence for a locked speaker. Page timers are throttled
   // while the screen is hidden; timeupdate keeps lastSeenAt fresh only while
   // the playhead is actually moving.
@@ -268,46 +263,6 @@ export function AudioPlayer(props: AudioPlayerProps) {
     [roomPlayEventTargetRef, roomSpeaker],
   );
 
-  const beginRepeatOnePlayPass = useCallback(
-    (id: string) => {
-      if (playCompletedForTrackRef.current !== id) {
-        playCompletedForTrackRef.current = id;
-        emitPlayEvent("play_completed", id, playIdRef.current);
-      }
-      playCompletedForTrackRef.current = null;
-      playStartedForTrackRef.current = null;
-      playIdRef.current = generatePlayId();
-      playStartedForTrackRef.current = id;
-      emitPlayEvent("play_started", id, playIdRef.current);
-    },
-    [emitPlayEvent],
-  );
-
-  const handleRepeatOneRestart = useCallback(
-    (id: string, atTime: number, source: "ended" | "wrap") => {
-      // Anchor latch clearing on the post-wrap playhead, not the pre-wrap position
-      // at `ended` (often duration), which can never advance past anchor + delta.
-      const latchAnchorTime = source === "ended" ? 0 : atTime;
-      if (repeatOneRestartLatchRef.current) {
-        const priorSource = repeatOneRestartSourceRef.current;
-        if (priorSource !== null && priorSource !== source) {
-          return;
-        }
-        if (source === "ended") {
-          return;
-        }
-        repeatOneRestartAtTimeRef.current = latchAnchorTime;
-        beginRepeatOnePlayPass(id);
-        return;
-      }
-      repeatOneRestartLatchRef.current = true;
-      repeatOneRestartSourceRef.current = source;
-      repeatOneRestartAtTimeRef.current = latchAnchorTime;
-      beginRepeatOnePlayPass(id);
-    },
-    [beginRepeatOnePlayPass],
-  );
-
   // Expose a function to apply a prefetched track and play it synchronously within
   // a user gesture. This maintains autoplay permission across track changes.
   // Returns true if the track was applied and play() was initiated successfully.
@@ -341,7 +296,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
               keepPlayingRef.current = true;
               if (playStartedForTrackRef.current !== trackId) {
                 playStartedForTrackRef.current = trackId;
-                playCompletedForTrackRef.current = null;
+                playCompletedForPlayIdRef.current = null;
                 playIdRef.current = generatePlayId();
                 emitPlayEvent("play_started", trackId, playIdRef.current);
               }
@@ -517,7 +472,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const trackId = track?.id;
 
   useEffect(() => {
-    loopOneProgressRef.current = 0;
+    prevCurrentTimeRef.current = 0;
+    playCompletedForPlayIdRef.current = null;
   }, [trackId]);
 
   useEffect(() => {
@@ -701,7 +657,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
               keepPlayingRef.current = true;
               if (track && playStartedForTrackRef.current !== track.id) {
                 playStartedForTrackRef.current = track.id;
-                playCompletedForTrackRef.current = null;
+                playCompletedForPlayIdRef.current = null;
                 playIdRef.current = generatePlayId();
                 emitPlayEvent("play_started", track.id, playIdRef.current);
               }
@@ -763,7 +719,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         await audioRef.current.play();
         if (track && playStartedForTrackRef.current !== track.id) {
           playStartedForTrackRef.current = track.id;
-          playCompletedForTrackRef.current = null;
+          playCompletedForPlayIdRef.current = null;
           playIdRef.current = generatePlayId();
           emitPlayEvent("play_started", track.id, playIdRef.current);
         }
@@ -850,7 +806,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       keepPlayingRef.current = true;
       if (next.reportPlaying && track && playStartedForTrackRef.current !== track.id) {
         playStartedForTrackRef.current = track.id;
-        playCompletedForTrackRef.current = null;
+        playCompletedForPlayIdRef.current = null;
         playIdRef.current = generatePlayId();
         emitPlayEvent("play_started", track.id, playIdRef.current);
       }
@@ -1061,13 +1017,6 @@ export function AudioPlayer(props: AudioPlayerProps) {
   }, [loopMode]);
 
   useEffect(() => {
-    repeatOneRestartLatchRef.current = false;
-    repeatOneRestartAtTimeRef.current = null;
-    repeatOneRestartSourceRef.current = null;
-    loopOneProgressRef.current = 0;
-  }, [trackId]);
-
-  useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
@@ -1092,40 +1041,26 @@ export function AudioPlayer(props: AudioPlayerProps) {
         sample.sentAt = Date.now();
         void sendHostHeartbeat(roomSpeaker.code).catch(() => {});
       }
-      const previousLoopTime = loopOneProgressRef.current;
-      if (
-        loopMode === "one" &&
-        trackId &&
-        !audio.seeking &&
-        audio.duration > 0 &&
-        previousLoopTime > 1 &&
-        audio.currentTime + 0.5 < previousLoopTime &&
-        audio.currentTime < 2
-      ) {
-        handleRepeatOneRestart(trackId, audio.currentTime, "wrap");
-        loopOneProgressRef.current = audio.currentTime;
-      } else {
-        loopOneProgressRef.current = audio.currentTime;
+      const currentTime = audio.currentTime;
+      if (loopMode === "one" && trackId && !audio.seeking) {
+        const prevTime = prevCurrentTimeRef.current;
+        if (prevTime - currentTime > 0.5) {
+          playIdRef.current = generatePlayId();
+          playCompletedForPlayIdRef.current = null;
+          playStartedForTrackRef.current = trackId;
+          emitPlayEvent("play_started", trackId, playIdRef.current);
+        }
+        prevCurrentTimeRef.current = currentTime;
       }
-      const repeatOneLatchForward =
-        repeatOneRestartLatchRef.current &&
-        repeatOneRestartAtTimeRef.current !== null &&
-        audio.currentTime > repeatOneRestartAtTimeRef.current + REPEAT_ONE_LATCH_ADVANCE_DELTA;
-      const repeatOneLatchInNewPass =
-        repeatOneRestartSourceRef.current !== "ended" || audio.currentTime < 2;
-      if (repeatOneLatchForward && repeatOneLatchInNewPass) {
-        repeatOneRestartLatchRef.current = false;
-        repeatOneRestartAtTimeRef.current = null;
-        repeatOneRestartSourceRef.current = null;
-      }
+      const playCompletionKey = playIdRef.current ?? (trackId ? `track:${trackId}` : null);
       if (
         trackId &&
-        playCompletedForTrackRef.current !== trackId &&
+        playCompletionKey &&
+        playCompletedForPlayIdRef.current !== playCompletionKey &&
         audio.duration > 0 &&
-        audio.currentTime / audio.duration >= 0.5 &&
-        !(loopMode === "one" && repeatOneRestartLatchRef.current)
+        currentTime / audio.duration >= 0.5
       ) {
-        playCompletedForTrackRef.current = trackId;
+        playCompletedForPlayIdRef.current = playCompletionKey;
         emitPlayEvent("play_completed", trackId, playIdRef.current);
       }
     };
@@ -1161,16 +1096,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
     };
     const handleEnded = () => {
-      // Only auto-advance if not looping one track
       if (loopMode === "one") {
-        // Native `loop` may still emit `ended` in some environments; count a new pass.
-        if (trackId) {
-          handleRepeatOneRestart(trackId, audio.currentTime, "ended");
-        }
+        // Single-track loop: the `loop` attribute restarts it automatically.
         return;
       }
-      if (trackId && playCompletedForTrackRef.current !== trackId) {
-        playCompletedForTrackRef.current = trackId;
+      const playCompletionKey = playIdRef.current ?? (trackId ? `track:${trackId}` : null);
+      if (trackId && playCompletionKey && playCompletedForPlayIdRef.current !== playCompletionKey) {
+        playCompletedForPlayIdRef.current = playCompletionKey;
         emitPlayEvent("play_completed", trackId, playIdRef.current);
       }
       if (hasNext) {
@@ -1278,7 +1210,6 @@ export function AudioPlayer(props: AudioPlayerProps) {
     audioSrc,
     hasNext,
     emitPlayEvent,
-    handleRepeatOneRestart,
     roomSpeaker,
     audioSrcOverride,
     stopFailedPlayback,
