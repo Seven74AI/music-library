@@ -285,6 +285,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
   const handleRepeatOneRestart = useCallback(
     (id: string, atTime: number, source: "ended" | "wrap") => {
+      // Anchor latch clearing on the post-wrap playhead, not the pre-wrap position
+      // at `ended` (often duration), which can never advance past anchor + delta.
+      const latchAnchorTime = source === "ended" ? 0 : atTime;
       if (repeatOneRestartLatchRef.current) {
         const priorSource = repeatOneRestartSourceRef.current;
         if (priorSource !== null && priorSource !== source) {
@@ -293,13 +296,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
         if (source === "ended") {
           return;
         }
-        repeatOneRestartAtTimeRef.current = atTime;
+        repeatOneRestartAtTimeRef.current = latchAnchorTime;
         beginRepeatOnePlayPass(id);
         return;
       }
       repeatOneRestartLatchRef.current = true;
       repeatOneRestartSourceRef.current = source;
-      repeatOneRestartAtTimeRef.current = atTime;
+      repeatOneRestartAtTimeRef.current = latchAnchorTime;
       beginRepeatOnePlayPass(id);
     },
     [beginRepeatOnePlayPass],
@@ -1104,11 +1107,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
       } else {
         loopOneProgressRef.current = audio.currentTime;
       }
-      if (
+      const repeatOneLatchForward =
         repeatOneRestartLatchRef.current &&
         repeatOneRestartAtTimeRef.current !== null &&
-        audio.currentTime > repeatOneRestartAtTimeRef.current + REPEAT_ONE_LATCH_ADVANCE_DELTA
-      ) {
+        audio.currentTime > repeatOneRestartAtTimeRef.current + REPEAT_ONE_LATCH_ADVANCE_DELTA;
+      const repeatOneLatchInNewPass =
+        repeatOneRestartSourceRef.current !== "ended" || audio.currentTime < 2;
+      if (repeatOneLatchForward && repeatOneLatchInNewPass) {
         repeatOneRestartLatchRef.current = false;
         repeatOneRestartAtTimeRef.current = null;
         repeatOneRestartSourceRef.current = null;

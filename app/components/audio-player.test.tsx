@@ -1708,6 +1708,80 @@ test("gapless unlock handoff emits play_started with a distinct playId for the a
   expect(track2PlayId).not.toBe(track1PlayId);
 });
 
+test("repeat-one long track: two full passes each count after ended-opened restart", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  // Pass A: ended wins; stale end timeupdate then wrap clears latch via post-wrap anchor.
+  setProgress(audioEl, 95, 100);
+  fireEvent.timeUpdate(audioEl);
+  fireEvent.ended(audioEl);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.5, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  // Pass B: latch clear; second cycle via timeupdate end then ended then wrap.
+  setProgress(audioEl, 50, 100);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 95, 100);
+  fireEvent.timeUpdate(audioEl);
+  fireEvent.ended(audioEl);
+  setProgress(audioEl, 0.5, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(2);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(2);
+});
+
+test("repeat-one: ended at duration then wrap and a second full cycle both count", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 100, 100);
+  fireEvent.ended(audioEl);
+  setProgress(audioEl, 0.5, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  setProgress(audioEl, 55, 100);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 100, 100);
+  fireEvent.timeUpdate(audioEl);
+  fireEvent.ended(audioEl);
+  setProgress(audioEl, 0.5, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(2);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(2);
+});
+
 test("repeat-one long track: ended then stale timeupdate then wrap counts one restart only", async () => {
   const user = userEvent.setup();
   mockPlay();
