@@ -3,6 +3,7 @@ import { data } from "react-router";
 import { z } from "zod";
 import { chunkArray } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server.ts";
+import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import {
@@ -95,6 +96,20 @@ export async function action({ request }: Route.ActionArgs) {
 
   const { trackIds: rawTrackIds, changes, comment } = parseResult.data;
   const uniqueTrackIds = [...new Set(rawTrackIds)];
+
+  const blockedLock = await findWriteBlockedLock(
+    userId,
+    uniqueTrackIds.map((entityId) => ({ entityType: "track" as const, entityId })),
+  );
+  if (blockedLock) {
+    return data(
+      {
+        error: "Locked",
+        message: `${blockedLock.lockedByName} is currently editing this track`,
+      },
+      { status: 409 },
+    );
+  }
 
   // Validate all tracks exist first (all-or-nothing approach)
   const tracks = await prisma.track.findMany({

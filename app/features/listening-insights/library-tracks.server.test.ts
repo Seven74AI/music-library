@@ -459,6 +459,41 @@ describe("listLibraryUserTracks most-played sorts", () => {
     expect(page2.pagination.hasNext).toBe(false);
   });
 
+  test("mostPlayedEver keeps later-page tracks when live count rises above the frozen cursor", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+
+    const tracks: Array<{ id: string; title: string }> = [];
+    for (let i = 0; i < 5; i++) {
+      const track = await createTrack(`R${i}`);
+      tracks.push({ id: track.id, title: track.title });
+      await addToLibrary(user.id, track.id, new Date(`2026-02-0${i + 1}T00:00:00.000Z`));
+      await seedCompleted(user.id, track.id, new Date("2025-06-01T12:00:00.000Z"), 5 - i);
+    }
+
+    const page1 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedEver",
+      limit: 2,
+    });
+    expect(page1.userTracks.map((ut) => ut.track.title)).toEqual(["R0", "R1"]);
+
+    // R3 was on the next page with count 2; gains plays and jumps above the frozen cursor (3).
+    // Raise the anchor live count too so crossed rows stay within the anchored ceiling.
+    await seedCompleted(user.id, tracks[1]!.id, new Date("2025-06-02T12:00:00.000Z"), 1);
+    await seedCompleted(user.id, tracks[3]!.id, new Date("2025-06-02T12:00:00.000Z"), 3);
+
+    const page2 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedEver",
+      limit: 10,
+      cursor: page1.pagination.nextCursor,
+    });
+
+    expect(page2.userTracks.map((ut) => ut.track.title)).toContain("R3");
+    const titles = page2.userTracks.map((ut) => ut.track.title);
+    expect(titles).toEqual(expect.arrayContaining(["R2", "R3", "R4"]));
+  });
+
   test("rejects a forged play count on an in-scope most-played cursor", async () => {
     const user = await prisma.user.create({ data: createUser() });
     const track = await createTrack("One");

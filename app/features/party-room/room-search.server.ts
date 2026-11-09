@@ -177,7 +177,7 @@ async function searchHasAudioTracks(
     WHERE tracks_fts MATCH ?
       AND ${HAS_AUDIO_TRACK}
       ${cursorFilter.sql}
-    ORDER BY relevance_rank, fts_rank, t.title
+    ORDER BY relevance_rank, fts_rank, t.title, t.id
     LIMIT ?`,
     normalizedQuery,
     prefixPattern,
@@ -287,7 +287,7 @@ async function searchHasAudioAlbums(
     WHERE albums_fts MATCH ?
       AND ${HAS_AUDIO_ALBUM}
       ${cursorFilter.sql}
-    ORDER BY relevance_rank, fts_rank, alb.name
+    ORDER BY relevance_rank, fts_rank, alb.name, alb.id
     LIMIT ?`,
     normalizedQuery,
     prefixPattern,
@@ -371,7 +371,7 @@ async function searchHasAudioArtists(
     WHERE artists_fts MATCH ?
       AND ${HAS_AUDIO_ARTIST}
       ${cursorFilter.sql}
-    ORDER BY relevance_rank, fts_rank, a.name
+    ORDER BY relevance_rank, fts_rank, a.name, a.id
     LIMIT ?`,
     normalizedQuery,
     prefixPattern,

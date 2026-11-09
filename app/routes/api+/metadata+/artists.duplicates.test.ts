@@ -13,6 +13,8 @@ describe("GET /api/metadata/artists/duplicates", () => {
   beforeEach(async () => {
     mockUserId = "test-user-id";
     vi.mocked(requireUserId).mockResolvedValue(mockUserId);
+    await prisma.duplicateDetection.deleteMany();
+    await prisma.normalizedName.deleteMany();
     await prisma.track.deleteMany();
     await prisma.artist.deleteMany();
     await prisma.user.deleteMany();

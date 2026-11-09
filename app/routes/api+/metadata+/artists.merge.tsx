@@ -8,6 +8,7 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/artists.merge.ts";
 
@@ -29,6 +30,20 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const { sourceId, targetId, comment } = result.data;
+
+  const blockedLock = await findWriteBlockedLock(userId, [
+    { entityType: "artist", entityId: sourceId },
+    { entityType: "artist", entityId: targetId },
+  ]);
+  if (blockedLock) {
+    throw new Response(
+      JSON.stringify({
+        error: "Locked",
+        message: `${blockedLock.lockedByName} is currently editing this artist`,
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  }
 
   // Validate: cannot merge artist into itself
   if (sourceId === targetId) {

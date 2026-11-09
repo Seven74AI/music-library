@@ -187,6 +187,22 @@ export async function forceUnlock(
 /**
  * Get lock status for an entity
  */
+/**
+ * First lock held by someone other than `userId` among the given entities (ADR-032).
+ */
+export async function findWriteBlockedLock(
+  userId: string,
+  targets: Array<{ entityType: EntityType; entityId: string }>,
+): Promise<LockInfo | null> {
+  for (const { entityType, entityId } of targets) {
+    const lock = await getLockStatus(entityType, entityId);
+    if (lock && lock.lockedBy !== userId) {
+      return lock;
+    }
+  }
+  return null;
+}
+
 export async function getLockStatus(
   entityType: EntityType,
   entityId: string,

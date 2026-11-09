@@ -279,6 +279,7 @@ async function listMostPlayedLibraryPage({
   `;
 
   const cursorKey = cursor ? decodeMostPlayedCursor(cursor) : null;
+  let anchoredCount: number | undefined;
 
   if (cursorKey) {
     const anchor = await prisma.userTrack.findFirst({
@@ -298,7 +299,7 @@ async function listMostPlayedLibraryPage({
       LEFT JOIN (${countSql}) c ON c."trackId" = ut."trackId"
       WHERE ut."id" = ${cursorKey.id}
     `;
-    const anchoredCount = Number(countRow?.cnt ?? 0);
+    anchoredCount = Number(countRow?.cnt ?? 0);
     // The cursor freezes count at page time (plays may land later and raise the
     // live count). Reject only when the cursor claims more completes than exist.
     if (cursorKey.count > anchoredCount) {
@@ -306,8 +307,28 @@ async function listMostPlayedLibraryPage({
     }
   }
 
-  const cursorWhere = cursorKey
-    ? Prisma.sql`AND (
+  const crossedCountOp = desc ? ">" : "<";
+  const cursorWhere =
+    cursorKey && anchoredCount !== undefined
+      ? Prisma.sql`AND (
+        COALESCE(c.cnt, 0) ${Prisma.raw(cntOp)} ${cursorKey.count}
+        OR (
+          COALESCE(c.cnt, 0) = ${cursorKey.count}
+          AND ut."createdAt" < (SELECT u2."createdAt" FROM "UserTrack" u2 WHERE u2."id" = ${cursorKey.id})
+        )
+        OR (
+          COALESCE(c.cnt, 0) = ${cursorKey.count}
+          AND ut."createdAt" = (SELECT u2."createdAt" FROM "UserTrack" u2 WHERE u2."id" = ${cursorKey.id})
+          AND ut."id" > ${cursorKey.id}
+        )
+        OR (
+          COALESCE(c.cnt, 0) ${Prisma.raw(crossedCountOp)} ${cursorKey.count}
+          AND ut."id" > ${cursorKey.id}
+          AND COALESCE(c.cnt, 0) <= ${anchoredCount}
+        )
+      )`
+      : cursorKey
+        ? Prisma.sql`AND (
         COALESCE(c.cnt, 0) ${Prisma.raw(cntOp)} ${cursorKey.count}
         OR (
           COALESCE(c.cnt, 0) = ${cursorKey.count}
@@ -319,7 +340,7 @@ async function listMostPlayedLibraryPage({
           AND ut."id" > ${cursorKey.id}
         )
       )`
-    : Prisma.empty;
+        : Prisma.empty;
 
   const rows = await prisma.$queryRaw<Array<{ id: string; cnt: number | bigint; createdAt: Date }>>`
     SELECT ut."id", COALESCE(c.cnt, 0) AS cnt, ut."createdAt" AS "createdAt"

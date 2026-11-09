@@ -280,3 +280,52 @@ test("saveDuplicateDetectionResults bulk-inserts exact and fuzzy pairs", async (
   expect(rows[0]?.matchType).toBe("exact");
   expect(rows[0]?.similarity).toBe(0);
 });
+
+test("cold duplicate load caches normalized names and preserves merged pairs on reload", async () => {
+  const token = randomBytes(4).toString("hex");
+  const name = `Cold Cache ${token}`;
+  const a1 = await prisma.artist.create({
+    data: { name, normalizedName: name.toLowerCase() },
+  });
+  const a2 = await prisma.artist.create({
+    data: { name, normalizedName: name.toLowerCase() },
+  });
+  artistIds.push(a1.id, a2.id);
+
+  await prisma.normalizedName.deleteMany({ where: { entityType: "artist" } });
+  await prisma.duplicateDetection.deleteMany({ where: { entityType: "artist" } });
+
+  const { getArtistDuplicateGroups } = await import("./duplicate-detection.server.ts");
+
+  await getArtistDuplicateGroups();
+
+  const authoritative = await prisma.normalizedName.findFirst({
+    where: { entityType: "artist", entityId: a1.id },
+  });
+  expect(authoritative).not.toBeNull();
+
+  const pair = await prisma.duplicateDetection.findFirst({
+    where: {
+      entityType: "artist",
+      OR: [
+        { entityId1: a1.id, entityId2: a2.id },
+        { entityId1: a2.id, entityId2: a1.id },
+      ],
+    },
+  });
+  expect(pair?.status).toBe("pending");
+
+  if (pair) {
+    await prisma.duplicateDetection.update({
+      where: { id: pair.id },
+      data: { status: "merged" },
+    });
+  }
+
+  await getArtistDuplicateGroups();
+
+  const mergedRow = await prisma.duplicateDetection.findFirst({
+    where: { id: pair?.id },
+  });
+  expect(mergedRow?.status).toBe("merged");
+});
