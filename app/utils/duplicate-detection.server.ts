@@ -481,8 +481,9 @@ export async function findFuzzyAlbumDuplicates(): Promise<AlbumDuplicateGroup[]>
         // Same artist is handled in branch 1
         if (a1.artistId === a2.artistId) continue;
         if (!a1.normalized || !a2.normalized) continue;
-        if (isExactMatch(a1.normalized, a2.normalized)) continue;
-        if (!isFuzzyMatch(a1.normalized, a2.normalized)) continue;
+        const albumMatches =
+          isFuzzyMatch(a1.normalized, a2.normalized) || isExactMatch(a1.normalized, a2.normalized);
+        if (!albumMatches) continue;
         if (!a1.artistNormalized || !a2.artistNormalized) continue;
         if (!isFuzzyMatch(a1.artistNormalized, a2.artistNormalized)) continue;
         // Year must be within ±2 (both present)

@@ -11,7 +11,7 @@ import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { ARTIST_TRACK_PAGE_SIZE } from "#app/features/artist/artist-tracks.server.ts";
-import { getUserId } from "#app/utils/auth.server.ts";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { getAlbumTitle } from "#app/utils/breadcrumb-utils.ts";
 import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { prisma } from "#app/utils/db.server.ts";
@@ -55,7 +55,9 @@ async function resolvePublicAlbumId(startId: string): Promise<string> {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const userId = await getUserId(request);
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
+  const loaderHeaders = staleCookie ? { headers: { "set-cookie": staleCookie } } : undefined;
   const canonicalId = await resolvePublicAlbumId(params.albumId);
   if (canonicalId !== params.albumId) {
     throw redirect(`/albums/${canonicalId}`);
@@ -133,13 +135,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       userTrackCreatedAtByTrackId.get(track.id)?.toISOString() ?? track.createdAt.toISOString(),
   }));
 
-  return data({
-    album: {
-      ...album,
-      tracks,
+  return data(
+    {
+      album: {
+        ...album,
+        tracks,
+      },
+      playlists,
     },
-    playlists,
-  });
+    loaderHeaders,
+  );
 }
 
 export default function AlbumRoute({ loaderData }: Route.ComponentProps) {

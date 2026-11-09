@@ -18,7 +18,7 @@ import {
   getWeeklyWrap,
   type WeeklyWrapSummary,
 } from "#app/features/weekly-wrap/weekly-wrap.server.ts";
-import { getUserId } from "#app/utils/auth.server.ts";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { buildLibraryUserTracksWhere } from "#app/utils/library-user-tracks.server.ts";
 
@@ -206,10 +206,12 @@ export function accumulatePlaylistDurations(
 }
 
 export async function loadHomeData(request: Request) {
-  const userId = await getUserId(request);
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
+  const homeHeaders = staleCookie ? { headers: { "set-cookie": staleCookie } } : undefined;
 
   if (!userId) {
-    return data<HomeMarketingData>({ mode: "marketing" });
+    return data<HomeMarketingData>({ mode: "marketing" }, homeHeaders);
   }
 
   const baseWhere = buildLibraryUserTracksWhere({ userId, hasAudioOnly: false });
@@ -230,11 +232,14 @@ export async function loadHomeData(request: Request) {
         where: { id: userId, roles: { some: { name: "admin" } } },
       }),
     ]);
-    return data<HomeOnboardingData>({
-      mode: "onboarding",
-      youtubeConnected,
-      isAdmin: adminUser !== null,
-    });
+    return data<HomeOnboardingData>(
+      {
+        mode: "onboarding",
+        youtubeConnected,
+        isAdmin: adminUser !== null,
+      },
+      homeHeaders,
+    );
   }
 
   const [
@@ -325,30 +330,33 @@ export async function loadHomeData(request: Request) {
     tracks: playlist.tracks,
   }));
 
-  return data<HomeListeningData>({
-    mode,
-    totalTracks,
-    playableTracks,
-    archivingCount: totalTracks - playableTracks,
-    stats: {
+  return data<HomeListeningData>(
+    {
+      mode,
       totalTracks,
-      totalPlaylists,
+      playableTracks,
+      archivingCount: totalTracks - playableTracks,
+      stats: {
+        totalTracks,
+        totalPlaylists,
+      },
+      recentTracks,
+      recentlyPlayed,
+      heavyRotationMonth,
+      heavyRotationEver,
+      recentPlaylists: recentPlaylistsWithCount,
+      onRepeatSnapshots,
+      weeklyWrap,
+      // YouTube data is only needed for the listening-hub view (not gray zone)
+      youtubeData:
+        mode === "listening"
+          ? loadYoutubeData(userId)
+          : Promise.resolve({
+              hasYouTubeConnection: false,
+              youtubeStats: null,
+              youtubePlaylists: [],
+            }),
     },
-    recentTracks,
-    recentlyPlayed,
-    heavyRotationMonth,
-    heavyRotationEver,
-    recentPlaylists: recentPlaylistsWithCount,
-    onRepeatSnapshots,
-    weeklyWrap,
-    // YouTube data is only needed for the listening-hub view (not gray zone)
-    youtubeData:
-      mode === "listening"
-        ? loadYoutubeData(userId)
-        : Promise.resolve({
-            hasYouTubeConnection: false,
-            youtubeStats: null,
-            youtubePlaylists: [],
-          }),
-  });
+    homeHeaders,
+  );
 }

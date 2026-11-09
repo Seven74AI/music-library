@@ -18,7 +18,7 @@
 
 import { type z } from "zod";
 import { type SearchResponse } from "#app/types/search.ts";
-import { getUserId } from "#app/utils/auth.server.ts";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import {
   CursorSchema,
   INVALID_CURSOR_FORMAT_MESSAGE,
@@ -45,8 +45,12 @@ function isMalformedSearchQuery(error: unknown): boolean {
   );
 }
 
-function invalidSearchParameters(error: z.ZodError, limit = 20) {
-  return Response.json(
+function invalidSearchParameters(
+  error: z.ZodError,
+  json: (body: unknown, init?: ResponseInit) => Response,
+  limit = 20,
+) {
+  return json(
     {
       ...emptySearchResponse(limit),
       error: "Invalid search parameters",
@@ -57,33 +61,42 @@ function invalidSearchParameters(error: z.ZodError, limit = 20) {
 }
 
 export async function loader({ request, url }: Route.LoaderArgs) {
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
+  const json = (body: unknown, init?: ResponseInit) => {
+    if (!staleCookie) return Response.json(body, init);
+    const headers = new Headers(init?.headers);
+    headers.set("set-cookie", staleCookie);
+    return Response.json(body, { ...init, headers });
+  };
+
   const limitParam = url.searchParams.get("limit");
   const limitResult = SearchLimitSchema.safeParse(limitParam ? parseInt(limitParam, 10) : 20);
   const limit = limitResult.success ? limitResult.data : 20;
 
   const queryResult = SearchQuerySchema.safeParse(url.searchParams.get("q") ?? "");
   if (!queryResult.success) {
-    return invalidSearchParameters(queryResult.error, limit);
+    return invalidSearchParameters(queryResult.error, json, limit);
   }
 
   const typeResult = SearchTypeSchema.safeParse(url.searchParams.get("type") ?? "all");
   if (!typeResult.success) {
-    return invalidSearchParameters(typeResult.error, limit);
+    return invalidSearchParameters(typeResult.error, json, limit);
   }
 
   if (!limitResult.success) {
-    return invalidSearchParameters(limitResult.error, 20);
+    return invalidSearchParameters(limitResult.error, json, 20);
   }
 
   const rawCursor = url.searchParams.get("cursor");
   const cursorResult = CursorSchema.safeParse(rawCursor === null ? undefined : rawCursor);
   if (!cursorResult.success) {
-    return invalidSearchParameters(cursorResult.error, limit);
+    return invalidSearchParameters(cursorResult.error, json, limit);
   }
 
   const scopeResult = SearchScopeSchema.safeParse(url.searchParams.get("scope") ?? "all");
   if (!scopeResult.success) {
-    return invalidSearchParameters(scopeResult.error, limit);
+    return invalidSearchParameters(scopeResult.error, json, limit);
   }
 
   const usePrefix = url.searchParams.get("prefix") !== "false";
@@ -92,10 +105,10 @@ export async function loader({ request, url }: Route.LoaderArgs) {
   // requested scope separately. searchTracks only applies the UserTrack JOIN
   // when scope === "library"; omitting scope defaults it to "all" and the
   // My Library toggle silently returns the full catalog.
-  const userId = (await getUserId(request)) ?? undefined;
+  const userIdForSearch = userId ?? undefined;
 
-  if (scopeResult.data === "library" && !userId) {
-    return Response.json(
+  if (scopeResult.data === "library" && !userIdForSearch) {
+    return json(
       {
         ...emptySearchResponse(limit),
         error: "Library scope requires authentication",
@@ -111,13 +124,13 @@ export async function loader({ request, url }: Route.LoaderArgs) {
       cursorResult.data,
       typeResult.data,
       usePrefix,
-      userId,
+      userIdForSearch,
       scopeResult.data,
     );
-    return Response.json(results);
+    return json(results);
   } catch (error) {
     if (isMalformedSearchQuery(error)) {
-      return Response.json(
+      return json(
         {
           ...emptySearchResponse(limitResult.data),
           error: "Invalid search query",
@@ -129,7 +142,7 @@ export async function loader({ request, url }: Route.LoaderArgs) {
     if (error instanceof Error) {
       console.error("🚨 [SEARCH API] Error stack:", error.stack);
     }
-    return Response.json(
+    return json(
       {
         ...emptySearchResponse(limitResult.data),
         error: "Failed to perform search",

@@ -61,6 +61,21 @@ export async function getUserIdOrNull(request: Request): Promise<string | null> 
   return session.userId;
 }
 
+/**
+ * Guest-capable loaders: when a session cookie is present but not valid, return
+ * the Set-Cookie header value that clears it (without redirecting).
+ */
+export async function getStaleAuthSessionDestroyCookie(
+  request: Request,
+  userId: string | null,
+): Promise<string | null> {
+  if (userId) return null;
+  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
+  const sessionId = authSession.get(sessionKey);
+  if (!sessionId) return null;
+  return authSessionStorage.destroySession(authSession);
+}
+
 export async function getUserId(request: Request) {
   const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
   const sessionId = authSession.get(sessionKey);

@@ -8,6 +8,7 @@ import {
   getPasswordHash,
   getPasswordHashParts,
   getSessionExpirationDate,
+  getStaleAuthSessionDestroyCookie,
   getUserIdOrNull,
   login,
   requireAnonymous,
@@ -193,6 +194,9 @@ describe("getUserIdOrNull", () => {
     });
 
     await expect(getUserIdOrNull(request)).resolves.toBeNull();
+
+    const destroyCookie = await getStaleAuthSessionDestroyCookie(request, null);
+    expect(destroyCookie).toBeTruthy();
 
     const { loader: loginLoader } = await import("#app/routes/_auth+/login.tsx");
     await expect(

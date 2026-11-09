@@ -66,6 +66,36 @@ test("exact duplicate detection ignores artists and albums that were already mer
   expect(albums.some((group) => group.normalizedName === `merge album ${token}`)).toBe(false);
 });
 
+test("findFuzzyAlbumDuplicates detects cross-artist exact album title with fuzzy artists and year within ±2", async () => {
+  const token = randomBytes(4).toString("hex");
+
+  const artist1 = await prisma.artist.create({
+    data: { name: `The Pink ${token}`, normalizedName: `pink ${token}` },
+  });
+  const artist2 = await prisma.artist.create({
+    data: { name: `Pynk ${token}`, normalizedName: `pynk ${token}` },
+  });
+  artistIds.push(artist1.id, artist2.id);
+
+  const sharedTitle = `The Wall ${token}`;
+  const album1 = await prisma.album.create({
+    data: { name: sharedTitle, artistId: artist1.id, year: 1979 },
+  });
+  const album2 = await prisma.album.create({
+    data: { name: sharedTitle, artistId: artist2.id, year: 1980 },
+  });
+
+  const groups = await findFuzzyAlbumDuplicates();
+
+  const group = groups.find(
+    (g) => g.albums.some((a) => a.id === album1.id) && g.albums.some((a) => a.id === album2.id),
+  );
+
+  expect(group).toBeDefined();
+  expect(group?.matchType).toBe("fuzzy");
+  expect(group?.artistId).toBeNull();
+});
+
 test("findFuzzyAlbumDuplicates detects cross-artist duplicates with similar names and year within ±2", async () => {
   const token = randomBytes(4).toString("hex");
 
