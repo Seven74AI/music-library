@@ -157,10 +157,6 @@ describe("createUserPlaylistWithTrack", () => {
       title: "Road Trip",
       description: null,
     } as never);
-    vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
-      id: "playlist-1",
-      title: "Road Trip",
-    } as never);
     vi.mocked(prisma.userPlaylistTrack.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
       _max: { position: null },
@@ -173,6 +169,11 @@ describe("createUserPlaylistWithTrack", () => {
       trackId: "track-1",
     });
 
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.userPlaylist.update).toHaveBeenCalledWith({
+      where: { id: "playlist-1", ownerId: "user-1" },
+      data: { updatedAt: expect.any(Date) },
+    });
     expect(result).toEqual({
       status: "success",
       playlist: {
@@ -182,6 +183,30 @@ describe("createUserPlaylistWithTrack", () => {
         _count: { tracks: 1 },
       },
     });
+  });
+
+  test("does not leave an empty playlist when track insert throws", async () => {
+    vi.mocked(prisma.userPlaylist.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.userPlaylist.create).mockResolvedValue({
+      id: "playlist-1",
+      title: "Road Trip",
+      description: null,
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
+      _max: { position: null },
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.createMany).mockRejectedValue({ code: "P2003" });
+
+    await expect(
+      createUserPlaylistWithTrack({
+        userId: "user-1",
+        title: "Road Trip",
+        trackId: "missing-track",
+      }),
+    ).rejects.toEqual({ code: "P2003" });
+
+    expect(prisma.userPlaylist.delete).not.toHaveBeenCalled();
   });
 
   test("returns duplicate_title when create hits the unique index (P2002)", async () => {

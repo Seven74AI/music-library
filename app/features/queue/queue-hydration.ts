@@ -97,6 +97,13 @@ export function collectHydrationIds(
     if (tryAdd(track.id)) return ids;
   }
 
+  if (state.loopMode === "all" && ids.length < target) {
+    for (let index = 0; index < state.spinePosition; index++) {
+      const track = state.spine[state.spineOrder[index]!]!;
+      if (tryAdd(track.id)) return ids;
+    }
+  }
+
   return ids;
 }
 

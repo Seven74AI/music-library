@@ -122,6 +122,62 @@ describe("processTracksInBatches - unavailable placeholders", () => {
     const { update } = trackUpsert.mock.calls[0]![0] as { update: { title?: string } };
     expect(update.title).toBe("Original Title");
   });
+
+  it("does not bind id-less unavailable rows to a real video occupying the same position after reorder", async () => {
+    const trackUpsert = vi.fn().mockResolvedValue({ id: "track-real" });
+
+    const tx = {
+      track: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: trackUpsert,
+      },
+      artist: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+      },
+      servicePlaylistTrack: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            position: 1,
+            track: {
+              id: "track-real",
+              title: "Real Song",
+              artistId: "artist-real",
+              albumId: null,
+              releaseDate: null,
+              duration: 120,
+              coverImageId: null,
+              externalId: "dQw4w9WgXcQ",
+              audioFiles: [{ id: "af-1" }],
+            },
+          },
+        ]),
+        upsert: vi.fn(),
+      },
+      archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
+    } as unknown as Prisma.TransactionClient;
+
+    await processTracksInBatches(
+      [
+        {
+          snippet: {
+            title: "Deleted video",
+            resourceId: {},
+            videoOwnerChannelTitle: "Uploader",
+            thumbnails: { default: { url: "https://example.com/t.jpg" } },
+          },
+        },
+      ],
+      "service-1",
+      "playlist-1",
+      tx,
+      createYouTubeTrackSyncProcessor(),
+      noopArchiveEnqueueAdapter,
+    );
+
+    expect(trackUpsert).not.toHaveBeenCalled();
+  });
 });
 
 describe("processTracksInBatches - archived metadata", () => {

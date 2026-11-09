@@ -150,42 +150,55 @@ export async function createUserPlaylistWithTrack({
     };
   }
 
-  let playlist: { id: string; title: string; description: string | null };
   try {
-    playlist = await prisma.userPlaylist.create({
-      data: {
-        title: trimmedTitle,
-        description: null,
-        ownerId: userId,
-      },
-      select: { id: true, title: true, description: true },
+    const playlist = await prisma.$transaction(async (tx) => {
+      const created = await tx.userPlaylist.create({
+        data: {
+          title: trimmedTitle,
+          description: null,
+          ownerId: userId,
+        },
+        select: { id: true, title: true, description: true },
+      });
+
+      const existing = await tx.userPlaylistTrack.findFirst({
+        where: { playlistId: created.id, trackId },
+      });
+      if (existing) {
+        throw new Error(`Failed to add track after playlist create: duplicate`);
+      }
+
+      const maxPosition = await tx.userPlaylistTrack.aggregate({
+        where: { playlistId: created.id },
+        _max: { position: true },
+      });
+      const nextPosition = (maxPosition._max.position ?? -1) + 1;
+
+      await tx.userPlaylistTrack.createMany({
+        data: [{ playlistId: created.id, trackId, position: nextPosition }],
+      });
+
+      await tx.userPlaylist.update({
+        where: { id: created.id, ownerId: userId },
+        data: { updatedAt: new Date() },
+      });
+
+      return created;
     });
+
+    return {
+      status: "success",
+      playlist: {
+        ...playlist,
+        _count: { tracks: 1 },
+      },
+    };
   } catch (error) {
-    // Atomic guard via the DB unique index on (ownerId, lower(trim(title))).
     if (isUniqueConstraintViolation(error)) {
       return { status: "duplicate_title", existingTitle: trimmedTitle };
     }
     throw error;
   }
-
-  const addResult = await addTrackToUserPlaylist({
-    userId,
-    playlistId: playlist.id,
-    trackId,
-  });
-
-  if (addResult.status !== "success") {
-    await prisma.userPlaylist.delete({ where: { id: playlist.id } });
-    throw new Error(`Failed to add track after playlist create: ${addResult.status}`);
-  }
-
-  return {
-    status: "success",
-    playlist: {
-      ...playlist,
-      _count: { tracks: 1 },
-    },
-  };
 }
 
 /**

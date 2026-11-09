@@ -11,7 +11,10 @@ import {
 import { type ArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
 import { type ResolveVideoExistence } from "./playlist-sync-provider.server";
 import { findAllServicePlaylistTracks } from "./service-playlist-track-queries.server";
-import { planUnavailableItemProcessing } from "./unavailable-item-plan.server";
+import {
+  isSyntheticUnavailableExternalIdForPlaylist,
+  planUnavailableItemProcessing,
+} from "./unavailable-item-plan.server";
 import { type TrackSyncProcessor } from "./youtube-track-sync.server";
 
 /**
@@ -578,7 +581,13 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       }
 
       if (isUnavailable && !existingTrack && !item.id && !videoId) {
-        existingTrack = existingTracksByPlaylistPosition.get(position) ?? null;
+        const positionHit = existingTracksByPlaylistPosition.get(position) ?? null;
+        if (
+          positionHit?.externalId &&
+          isSyntheticUnavailableExternalIdForPlaylist(positionHit.externalId, playlistId)
+        ) {
+          existingTrack = positionHit;
+        }
         if (!existingTrack) {
           const pendingKey = `pending-${playlistId}-${position}`;
           existingTrack = existingTracksByExternalId.get(pendingKey) ?? null;
