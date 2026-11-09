@@ -249,6 +249,7 @@ describe("fetchQueueSpine", () => {
   test("returns library spine with minimal projection and total", async () => {
     vi.mocked(prisma.userTrack.findMany).mockResolvedValue([
       {
+        id: "ut-1",
         track: {
           id: "track-1",
           title: "Song One",
@@ -266,7 +267,8 @@ describe("fetchQueueSpine", () => {
 
     expect(prisma.userTrack.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        select: { track: { select: QUEUE_TRACK_SELECT } },
+        select: { id: true, track: { select: QUEUE_TRACK_SELECT } },
+        take: 50,
       }),
     );
     expect(result).toEqual({
@@ -326,7 +328,7 @@ describe("fetchQueueSpine", () => {
             ...buildUserTrackAccessWhere("user-1"),
           },
         },
-        orderBy: { position: "asc" },
+        orderBy: [{ position: "asc" }, { id: "asc" }],
         select: {
           position: true,
           createdAt: true,

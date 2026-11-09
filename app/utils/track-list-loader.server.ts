@@ -1,3 +1,4 @@
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 
 export async function loadUserPlaylists(userId: string | null) {
@@ -25,15 +26,19 @@ export async function loadLibraryStatusByTrackId(userId: string | null, trackIds
     };
   }
 
-  const userTracks = await prisma.userTrack.findMany({
-    where: {
-      userId,
-      isActive: true,
-      deletedAt: null,
-      trackId: { in: trackIds },
-    },
-    select: { trackId: true, createdAt: true },
-  });
+  const userTracks: Array<{ trackId: string; createdAt: Date }> = [];
+  for (const trackIdChunk of chunkArray(trackIds)) {
+    const batch = await prisma.userTrack.findMany({
+      where: {
+        userId,
+        isActive: true,
+        deletedAt: null,
+        trackId: { in: trackIdChunk },
+      },
+      select: { trackId: true, createdAt: true },
+    });
+    userTracks.push(...batch);
+  }
 
   return {
     libraryTrackIds: new Set(userTracks.map((userTrack) => userTrack.trackId)),

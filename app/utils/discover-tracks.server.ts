@@ -17,6 +17,7 @@ import {
   INVALID_CURSOR_FORMAT_MESSAGE,
 } from "#app/utils/search-validation.server.ts";
 import { buildUserTrackAccessWhere } from "#app/features/queue/queue-playback.server.ts";
+import { chunkArray } from "#app/utils/chunk-array.ts";
 
 // Re-export shared types and functions for server use
 export {
@@ -429,10 +430,16 @@ export async function listDiscoverSpineTracks({
 
 async function discoverLibraryCounts(trackIds: string[]) {
   if (trackIds.length === 0) return new Map<string, number>();
-  const userCounts = await prisma.userTrack.groupBy({
-    by: ["trackId"],
-    where: { trackId: { in: trackIds }, isActive: true, deletedAt: null },
-    _count: { userId: true },
-  });
-  return new Map(userCounts.map((row) => [row.trackId, row._count.userId]));
+  const counts = new Map<string, number>();
+  for (const idChunk of chunkArray(trackIds)) {
+    const userCounts = await prisma.userTrack.groupBy({
+      by: ["trackId"],
+      where: { trackId: { in: idChunk }, isActive: true, deletedAt: null },
+      _count: { userId: true },
+    });
+    for (const row of userCounts) {
+      counts.set(row.trackId, row._count.userId);
+    }
+  }
+  return counts;
 }

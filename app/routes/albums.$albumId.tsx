@@ -1,3 +1,4 @@
+import { type Prisma } from "#prisma/client.js";
 import { data, Link, redirect } from "react-router";
 import { useState } from "react";
 import { AlbumEditDialog } from "#app/components/album-edit-dialog.tsx";
@@ -9,6 +10,7 @@ import { OfflineRouteBlocker } from "#app/components/offline/offline-route-block
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
+import { ARTIST_TRACK_PAGE_SIZE } from "#app/features/artist/artist-tracks.server.ts";
 import { getUserId } from "#app/utils/auth.server.ts";
 import { getAlbumTitle } from "#app/utils/breadcrumb-utils.ts";
 import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
@@ -59,7 +61,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw redirect(`/albums/${canonicalId}`);
   }
 
-  const album = await prisma.album.findUnique({
+  const albumMeta = await prisma.album.findUnique({
     where: { id: canonicalId },
     select: {
       id: true,
@@ -71,35 +73,52 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         select: { id: true, name: true },
       },
       coverImage: { select: { objectKey: true } },
-      tracks: {
-        select: {
-          id: true,
-          title: true,
-          duration: true,
-          createdAt: true,
-          serviceUrl: true,
-          artist: {
-            select: { id: true, name: true },
-          },
-          coverImage: { select: { objectKey: true } },
-          service: {
-            select: {
-              displayName: true,
-              logoUrl: true,
-            },
-          },
-          audioFiles: {
-            select: { id: true, format: true, objectKey: true },
-          },
-        },
-        orderBy: { createdAt: "asc" },
-      },
     },
   });
 
-  if (!album) {
+  if (!albumMeta) {
     throw new Response("Album not found", { status: 404 });
   }
+
+  const albumTrackSelect = {
+    id: true,
+    title: true,
+    duration: true,
+    createdAt: true,
+    serviceUrl: true,
+    artist: {
+      select: { id: true, name: true },
+    },
+    coverImage: { select: { objectKey: true } },
+    service: {
+      select: {
+        displayName: true,
+        logoUrl: true,
+      },
+    },
+    audioFiles: {
+      select: { id: true, format: true, objectKey: true },
+    },
+  } as const;
+
+  const albumTracks: Array<Prisma.TrackGetPayload<{ select: typeof albumTrackSelect }>> = [];
+  let trackCursor: string | undefined;
+  while (true) {
+    const page = await prisma.track.findMany({
+      where: { albumId: canonicalId },
+      select: albumTrackSelect,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: ARTIST_TRACK_PAGE_SIZE,
+      ...(trackCursor ? { skip: 1, cursor: { id: trackCursor } } : {}),
+    });
+    albumTracks.push(...page);
+    if (page.length < ARTIST_TRACK_PAGE_SIZE) {
+      break;
+    }
+    trackCursor = page[page.length - 1]?.id;
+  }
+
+  const album = { ...albumMeta, tracks: albumTracks };
 
   const trackIds = album.tracks.map((track) => track.id);
   const [{ libraryTrackIds, userTrackCreatedAtByTrackId }, playlists] = await Promise.all([

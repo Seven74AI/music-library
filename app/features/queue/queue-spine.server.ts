@@ -20,6 +20,7 @@ import {
   type PlaylistTrackSortOption,
 } from "#app/utils/playlist-track-sort.ts";
 import { parseSortDirection, type SortDirection } from "#app/utils/sort-direction.ts";
+import { findAllUserPlaylistTracks } from "#app/features/user-playlist/user-playlist-track-queries.server.ts";
 import { buildUserTrackAccessWhere } from "./queue-playback.server.ts";
 
 export const QUEUE_TRACK_SELECT = {
@@ -203,7 +204,7 @@ export async function fetchQueueSpine(
   }
 
   if (params.context === "playlist") {
-    const playlistTracks = await prisma.userPlaylistTrack.findMany({
+    const playlistTracks = await findAllUserPlaylistTracks(prisma, {
       where: {
         playlistId: params.playlistId,
         playlist: { ownerId: userId },
@@ -222,7 +223,6 @@ export async function fetchQueueSpine(
           },
         },
       },
-      orderBy: { position: "asc" },
     });
 
     const sorted = sortPlaylistTracks(playlistTracks, params.sort, params.direction);

@@ -1,4 +1,5 @@
 import { cachified } from "#app/utils/cache.server.ts";
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { lruCache } from "./cache.server.ts";
 import { type TrackPopularityStats } from "#app/utils/discover.ts";
@@ -35,23 +36,23 @@ export async function getTrackPlayCounts(trackIds: string[]): Promise<Map<string
     cache: lruCache,
     ttl: POPULARITY_CACHE_TTL,
     async getFreshValue() {
-      // Query play_completed events grouped by trackId
-      const results = await prisma.usageEvent.groupBy({
-        by: ["trackId"],
-        where: {
-          type: "play_completed",
-          trackId: { in: trackIds },
-        },
-        _count: {
-          id: true,
-        },
-      });
-
-      // Convert to Map for O(1) lookups
       const countMap = new Map<string, number>();
-      for (const result of results) {
-        if (result.trackId) {
-          countMap.set(result.trackId, result._count.id);
+      for (const idChunk of chunkArray(trackIds)) {
+        const results = await prisma.usageEvent.groupBy({
+          by: ["trackId"],
+          where: {
+            type: "play_completed",
+            trackId: { in: idChunk },
+          },
+          _count: {
+            id: true,
+          },
+        });
+
+        for (const result of results) {
+          if (result.trackId) {
+            countMap.set(result.trackId, result._count.id);
+          }
         }
       }
 
@@ -77,23 +78,23 @@ export async function getTrackLikeCounts(trackIds: string[]): Promise<Map<string
     cache: lruCache,
     ttl: POPULARITY_CACHE_TTL,
     async getFreshValue() {
-      // Query active UserTrack records grouped by trackId
-      const results = await prisma.userTrack.groupBy({
-        by: ["trackId"],
-        where: {
-          trackId: { in: trackIds },
-          isActive: true,
-          deletedAt: null,
-        },
-        _count: {
-          userId: true,
-        },
-      });
-
-      // Convert to Map for O(1) lookups
       const countMap = new Map<string, number>();
-      for (const result of results) {
-        countMap.set(result.trackId, result._count.userId);
+      for (const idChunk of chunkArray(trackIds)) {
+        const results = await prisma.userTrack.groupBy({
+          by: ["trackId"],
+          where: {
+            trackId: { in: idChunk },
+            isActive: true,
+            deletedAt: null,
+          },
+          _count: {
+            userId: true,
+          },
+        });
+
+        for (const result of results) {
+          countMap.set(result.trackId, result._count.userId);
+        }
       }
 
       return countMap;
@@ -121,24 +122,24 @@ export async function getUserTrackPlayCounts(
     cache: lruCache,
     ttl: POPULARITY_CACHE_TTL,
     async getFreshValue() {
-      // Query play_completed events for this user grouped by trackId
-      const results = await prisma.usageEvent.groupBy({
-        by: ["trackId"],
-        where: {
-          type: "play_completed",
-          userId,
-          trackId: { in: trackIds },
-        },
-        _count: {
-          id: true,
-        },
-      });
-
-      // Convert to Map for O(1) lookups
       const countMap = new Map<string, number>();
-      for (const result of results) {
-        if (result.trackId) {
-          countMap.set(result.trackId, result._count.id);
+      for (const idChunk of chunkArray(trackIds)) {
+        const results = await prisma.usageEvent.groupBy({
+          by: ["trackId"],
+          where: {
+            type: "play_completed",
+            userId,
+            trackId: { in: idChunk },
+          },
+          _count: {
+            id: true,
+          },
+        });
+
+        for (const result of results) {
+          if (result.trackId) {
+            countMap.set(result.trackId, result._count.id);
+          }
         }
       }
 
