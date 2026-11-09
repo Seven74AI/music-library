@@ -99,6 +99,34 @@ describe("inferAudibleSourceForRestore", () => {
       inferAudibleSourceForRestore(false, "upNext", 2, navigation, "track-up", ["track-up"]),
     ).toEqual({ audibleSourceZone: "upNext", spinePosition: 2 });
   });
+
+  test("re-anchors explicit spine zone from currentTrackId when saved index is stale", () => {
+    expect(inferAudibleSourceForRestore(false, "spine", 0, navigation, "track-3", [])).toEqual({
+      audibleSourceZone: "spine",
+      spinePosition: 2,
+    });
+  });
+
+  test("clamps stale spine index when currentTrackId is no longer on the spine", () => {
+    expect(inferAudibleSourceForRestore(false, "spine", 99, navigation, "track-gone", [])).toEqual({
+      audibleSourceZone: "spine",
+      spinePosition: 2,
+    });
+  });
+
+  test("clamps re-anchored spine position into an empty spine order", () => {
+    const emptySpine: QueueNavigationState = {
+      upNext: [],
+      spine: [],
+      spineOrder: [],
+      spinePosition: 0,
+      loopMode: "off",
+    };
+    expect(inferAudibleSourceForRestore(false, "spine", 5, emptySpine, "track-gone", [])).toEqual({
+      audibleSourceZone: "spine",
+      spinePosition: 0,
+    });
+  });
 });
 
 describe("withPlayerStateDefaults", () => {
