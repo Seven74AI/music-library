@@ -26,7 +26,7 @@ import {
   useOptionalPartyRoom,
   usePartyRoom,
 } from "#app/features/party-room/party-room-provider.tsx";
-import { resolveOptionalUserId } from "#app/features/party-room/request.server.ts";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { cn } from "#app/utils/misc.tsx";
 import { type Route } from "./+types/rooms.$code.ts";
@@ -73,10 +73,15 @@ type UserLoaderData = {
   code: string;
 };
 
+function guestLoaderResponse(payload: GuestLoaderData, staleCookie: string | null) {
+  return data(payload, staleCookie ? { headers: { "set-cookie": staleCookie } } : undefined);
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const raw = params.code ?? "";
   const code = parseRoomCodeInput(raw);
-  const userId = await resolveOptionalUserId(request);
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
 
   if (!code) {
     if (userId) {
@@ -86,17 +91,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         code: raw.toUpperCase(),
       } satisfies UserLoaderData);
     }
-    return data({
-      mode: "guest",
-      guestShell: true,
-      code: raw.toUpperCase(),
-      room: null,
-      ended: false,
-      invalidCode: true,
-      participant: null,
-      canAddTracks: false,
-      queue: [],
-    } satisfies GuestLoaderData);
+    return guestLoaderResponse(
+      {
+        mode: "guest",
+        guestShell: true,
+        code: raw.toUpperCase(),
+        room: null,
+        ended: false,
+        invalidCode: true,
+        participant: null,
+        canAddTracks: false,
+        queue: [],
+      },
+      staleCookie,
+    );
   }
 
   if (userId) {
@@ -121,17 +129,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       where: { code, status: ROOM_STATUS.ended },
       select: { id: true },
     });
-    return data({
-      mode: "guest",
-      guestShell: true,
-      code,
-      room: null,
-      ended: Boolean(endedRoom),
-      invalidCode: false,
-      participant: null,
-      canAddTracks: false,
-      queue: [],
-    } satisfies GuestLoaderData);
+    return guestLoaderResponse(
+      {
+        mode: "guest",
+        guestShell: true,
+        code,
+        room: null,
+        ended: Boolean(endedRoom),
+        invalidCode: false,
+        participant: null,
+        canAddTracks: false,
+        queue: [],
+      },
+      staleCookie,
+    );
   }
 
   const actor = await resolveActorOptional(request);
@@ -140,29 +151,32 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       ? await getRoomSnapshot(openRoom.id, actor)
       : null;
 
-  return data({
-    mode: "guest",
-    guestShell: true,
-    code: openRoom.code,
-    room: {
-      id: openRoom.id,
+  return guestLoaderResponse(
+    {
+      mode: "guest",
+      guestShell: true,
       code: openRoom.code,
-      status: openRoom.status,
-      defaultJoinRole: openRoom.defaultJoinRole,
-      ...(participant
-        ? {
-            currentIndex: openRoom.currentIndex,
-            roomVersion: openRoom.roomVersion,
-            isPlaying: openRoom.isPlaying,
-          }
-        : {}),
+      room: {
+        id: openRoom.id,
+        code: openRoom.code,
+        status: openRoom.status,
+        defaultJoinRole: openRoom.defaultJoinRole,
+        ...(participant
+          ? {
+              currentIndex: openRoom.currentIndex,
+              roomVersion: openRoom.roomVersion,
+              isPlaying: openRoom.isPlaying,
+            }
+          : {}),
+      },
+      ended: openRoom.status === ROOM_STATUS.ended,
+      invalidCode: false,
+      participant,
+      canAddTracks: participant ? canAddTracks(participant.role) : false,
+      queue: snapshot?.queue ?? [],
     },
-    ended: openRoom.status === ROOM_STATUS.ended,
-    invalidCode: false,
-    participant,
-    canAddTracks: participant ? canAddTracks(participant.role) : false,
-    queue: snapshot?.queue ?? [],
-  } satisfies GuestLoaderData);
+    staleCookie,
+  );
 }
 
 export default function RoomByCodeRoute() {

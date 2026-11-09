@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { createRoom } from "#app/features/party-room/party-room.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { authSessionStorage } from "#app/utils/session.server.ts";
+import { sessionKey } from "#app/utils/auth.server.ts";
+import { action } from "./rooms.$code._index.tsx";
 import { loader } from "./rooms.$code.tsx";
 
 async function cleanupRooms() {
@@ -149,6 +152,48 @@ describe("guest /rooms/:code loader", () => {
     const serialized = JSON.stringify(result.data);
     expect(serialized).not.toContain("addedByParticipantId");
     expect(serialized).not.toMatch(/"userId"\s*:\s*"[^"]+"/);
+  });
+
+  test("stale session cookie on guest loader clears auth cookie without redirect", async () => {
+    const deletedSessionId = `stale-${Math.random().toString(36).slice(2, 12)}`;
+    const authSession = await authSessionStorage.getSession();
+    authSession.set(sessionKey, deletedSessionId);
+    const cookie = await authSessionStorage.commitSession(authSession);
+
+    const response = await loader({
+      request: new Request("http://localhost/rooms/AB3K9Q", {
+        headers: { cookie },
+      }),
+      params: { code: "AB3K9Q" },
+    } as never);
+
+    expect(response.data).toMatchObject({ mode: "guest" });
+    expect(new Headers(response.init?.headers).get("set-cookie")).toBeTruthy();
+  });
+
+  test("stale session cookie on guest join action clears auth cookie", async () => {
+    const host = await createHost();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const deletedSessionId = `stale-${Math.random().toString(36).slice(2, 12)}`;
+    const authSession = await authSessionStorage.getSession();
+    authSession.set(sessionKey, deletedSessionId);
+    const cookie = await authSessionStorage.commitSession(authSession);
+
+    const formData = new FormData();
+    formData.set("displayName", "Guest Player");
+
+    const response = await action({
+      request: new Request(`http://localhost/rooms/${room.code}`, {
+        method: "POST",
+        headers: { cookie },
+        body: formData,
+      }),
+      params: { code: room.code },
+    });
+
+    expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) throw new Error("expected redirect Response");
+    expect(response.headers.get("set-cookie")).toBeTruthy();
   });
 
   test("codes that use 0, O, or I are invalid room codes", async () => {

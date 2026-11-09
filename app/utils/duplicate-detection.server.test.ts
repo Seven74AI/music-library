@@ -186,6 +186,108 @@ test("findFuzzyAlbumDuplicates ignores cross-artist pairs with dissimilar artist
   expect(group).toBeUndefined();
 });
 
+test("findFuzzyAlbumDuplicates keeps separate cross-artist groups when only the title matches", async () => {
+  const token = randomBytes(4).toString("hex");
+  const sharedTitle = `Greatest Hits ${token}`;
+
+  const queen = await prisma.artist.create({
+    data: { name: `Queen ${token}`, normalizedName: `queen ${token}` },
+  });
+  const queens = await prisma.artist.create({
+    data: { name: `Queens ${token}`, normalizedName: `queens ${token}` },
+  });
+  const beatles = await prisma.artist.create({
+    data: { name: `Beatles ${token}`, normalizedName: `beatles ${token}` },
+  });
+  const beatlez = await prisma.artist.create({
+    data: { name: `Beatlez ${token}`, normalizedName: `beatlez ${token}` },
+  });
+  artistIds.push(queen.id, queens.id, beatles.id, beatlez.id);
+
+  const queenAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: queen.id, year: 2000 },
+  });
+  const queensAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: queens.id, year: 2001 },
+  });
+  const beatlesAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: beatles.id, year: 2000 },
+  });
+  const beatlezAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: beatlez.id, year: 2001 },
+  });
+
+  const groups = await findFuzzyAlbumDuplicates();
+  const albumIds = new Set([queenAlbum.id, queensAlbum.id, beatlesAlbum.id, beatlezAlbum.id]);
+  const relevant = groups.filter((group) => group.albums.some((album) => albumIds.has(album.id)));
+
+  expect(relevant).toHaveLength(2);
+  for (const group of relevant) {
+    expect(group.albums).toHaveLength(2);
+    expect(group.artistId).toBeNull();
+  }
+  expect(
+    relevant.some(
+      (group) =>
+        group.albums.some((album) => album.id === queenAlbum.id) &&
+        group.albums.some((album) => album.id === queensAlbum.id),
+    ),
+  ).toBe(true);
+  expect(
+    relevant.some(
+      (group) =>
+        group.albums.some((album) => album.id === beatlesAlbum.id) &&
+        group.albums.some((album) => album.id === beatlezAlbum.id),
+    ),
+  ).toBe(true);
+});
+
+test("readAlbumDuplicateGroupsFromCache keeps separate cross-artist groups for shared titles", async () => {
+  const token = randomBytes(4).toString("hex");
+  const sharedTitle = `Greatest Hits ${token}`;
+
+  const queen = await prisma.artist.create({
+    data: { name: `Queen ${token}`, normalizedName: `queen ${token}` },
+  });
+  const queens = await prisma.artist.create({
+    data: { name: `Queens ${token}`, normalizedName: `queens ${token}` },
+  });
+  const beatles = await prisma.artist.create({
+    data: { name: `Beatles ${token}`, normalizedName: `beatles ${token}` },
+  });
+  const beatlez = await prisma.artist.create({
+    data: { name: `Beatlez ${token}`, normalizedName: `beatlez ${token}` },
+  });
+  artistIds.push(queen.id, queens.id, beatles.id, beatlez.id);
+
+  const queenAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: queen.id, year: 2000 },
+  });
+  const queensAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: queens.id, year: 2001 },
+  });
+  const beatlesAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: beatles.id, year: 2000 },
+  });
+  const beatlezAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: beatlez.id, year: 2001 },
+  });
+
+  const fuzzy = await findFuzzyAlbumDuplicates();
+  await saveDuplicateDetectionResults("album", [], fuzzy);
+
+  const { fuzzy: cachedFuzzy } = await readAlbumDuplicateGroupsFromCache();
+  const albumIds = new Set([queenAlbum.id, queensAlbum.id, beatlesAlbum.id, beatlezAlbum.id]);
+  const relevant = cachedFuzzy.filter((group) =>
+    group.albums.some((album) => albumIds.has(album.id)),
+  );
+
+  expect(relevant).toHaveLength(2);
+  for (const group of relevant) {
+    expect(group.albums).toHaveLength(2);
+  }
+});
+
 test("findFuzzyAlbumDuplicates still detects same-artist fuzzy duplicates", async () => {
   const token = randomBytes(4).toString("hex");
 
