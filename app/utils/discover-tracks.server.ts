@@ -16,6 +16,7 @@ import {
   assertValidIdCursor,
   INVALID_CURSOR_FORMAT_MESSAGE,
 } from "#app/utils/search-validation.server.ts";
+import { buildUserTrackAccessWhere } from "#app/features/queue/queue-playback.server.ts";
 
 // Re-export shared types and functions for server use
 export {
@@ -385,15 +386,21 @@ const SPINE_TRACK_SELECT = {
  * Tracks without audio are omitted so playback can continue through the list.
  */
 export async function listDiscoverSpineTracks({
+  userId,
   sort,
   direction = defaultDiscoverSortDirection(sort),
 }: {
+  userId: string;
   sort: DiscoverSortOption;
   direction?: SortDirection;
 }) {
+  const ownedPlayableWhere = {
+    ...PLAYABLE_TRACK_WHERE,
+    ...buildUserTrackAccessWhere(userId),
+  };
   if (sort === "mostPlayed" || sort === "mostLiked") {
     const tracks = await prisma.track.findMany({
-      where: PLAYABLE_TRACK_WHERE,
+      where: ownedPlayableWhere,
       select: SPINE_TRACK_SELECT,
     });
     const ids = tracks.map((track) => track.id);
@@ -413,7 +420,7 @@ export async function listDiscoverSpineTracks({
   }
 
   const tracks = await prisma.track.findMany({
-    where: PLAYABLE_TRACK_WHERE,
+    where: ownedPlayableWhere,
     select: SPINE_TRACK_SELECT,
     orderBy: getOrderByForSort(sort, direction),
   });

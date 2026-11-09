@@ -28,6 +28,7 @@ import {
   resolveFullTrack,
   resolveFullTracks,
 } from "#app/features/queue/queue-hydration.ts";
+import { PLAYBACK_SPINE_SKIP_MAX } from "#app/features/queue/constants.ts";
 import {
   advanceAfterPlay,
   buildFlatQueueView,
@@ -94,6 +95,8 @@ interface AudioPlayerContextType {
   isPlayerVisible: boolean;
   playlist: Track[];
   upNext: Track[];
+  /** How many leading Up Next rows came from Play next (FIFO play-next prefix). */
+  upNextPlayNextCount: number;
   spine: Track[];
   spineTotal: number;
   spinePosition: number;
@@ -548,25 +551,29 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   );
 
   const resolvePlayableTrack = useCallback(
-    async (queueTrack: QueueTrack): Promise<FullTrack | null> => {
+    async (queueTrack: QueueTrack, options?: { silent?: boolean }): Promise<FullTrack | null> => {
       try {
         await hydrateAround(queueTrack.id);
       } catch {
-        toast({
-          title: "Playback failed",
-          description: "Could not load the next track. Check your connection and try again.",
-          variant: "destructive",
-        });
+        if (!options?.silent) {
+          toast({
+            title: "Playback failed",
+            description: "Could not load the next track. Check your connection and try again.",
+            variant: "destructive",
+          });
+        }
         return null;
       }
 
       const fullTrack = resolveFullTrack(playbackCacheRef.current, queueTrack);
       if (!isPlayableTrack(fullTrack)) {
-        toast({
-          title: "Playback failed",
-          description: "This track is unavailable. Try another track.",
-          variant: "destructive",
-        });
+        if (!options?.silent) {
+          toast({
+            title: "Playback failed",
+            description: "This track is unavailable. Try another track.",
+            variant: "destructive",
+          });
+        }
         return null;
       }
 
@@ -994,6 +1001,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           target: QueueTarget,
         ) => QueueNavigationState;
         discardPlayNextCount: (target: QueueTarget, playNextCount: number) => number;
+        /** When computeNextState drops through the skipped index in one step (jump). */
+        playNextPrefixRemovedOnSkip?: (target: QueueTarget, playNextCount: number) => number;
       },
     ) => {
       if (roomSpeakerRef.current) return;
@@ -1022,24 +1031,60 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       // Resolve the full track and update queue state. Even if we played synchronously,
       // we still need the full track metadata for the UI.
       void (async () => {
-        const fullTrack = await resolvePlayableTrack(queueTrack);
-        if (!fullTrack) {
-          // Hydration failed - clear autoplay intent
+        let workingState = navigationState;
+        let attemptTarget: QueueTarget | null = target;
+        let fullTrack: FullTrack | null = null;
+        let playedTarget: QueueTarget | null = null;
+        let attempts = 0;
+        let skippedPlayNextPrefix = 0;
+        const initialPlayNextCount = upNextPlayNextCountRef.current;
+
+        while (attemptTarget && attempts < PLAYBACK_SPINE_SKIP_MAX) {
+          attempts += 1;
+          const candidate = getTrackAtTarget(workingState, attemptTarget);
+          if (!candidate) break;
+
+          const hasMoreTargets =
+            resolveNextTrack(options.computeNextState(workingState, attemptTarget)) !== null;
+          const silent = hasMoreTargets && attempts < PLAYBACK_SPINE_SKIP_MAX;
+          const resolved = await resolvePlayableTrack(candidate, { silent });
+          if (resolved) {
+            fullTrack = resolved;
+            playedTarget = attemptTarget;
+            break;
+          }
+
+          if (attemptTarget.zone === "upNext") {
+            const playNextCountAtSkip = Math.max(0, initialPlayNextCount - skippedPlayNextPrefix);
+            const removed =
+              options.playNextPrefixRemovedOnSkip?.(attemptTarget, playNextCountAtSkip) ??
+              (attemptTarget.index < playNextCountAtSkip ? 1 : 0);
+            skippedPlayNextPrefix += removed;
+          }
+
+          workingState = options.computeNextState(workingState, attemptTarget);
+          attemptTarget = resolveNextTrack(workingState);
+        }
+
+        if (!fullTrack || !playedTarget) {
           wantsAutoPlayRef.current = false;
           return;
         }
 
-        const nextState = options.computeNextState(navigationState, target);
+        const nextState = options.computeNextState(workingState, playedTarget);
         setUpNext(nextState.upNext);
-        if (target.zone === "upNext") {
-          const discard = options.discardPlayNextCount(target, upNextPlayNextCount);
-          if (discard > 0) {
-            setUpNextPlayNextCount((count) => {
-              const next = Math.max(0, count - discard);
-              upNextPlayNextCountRef.current = next;
-              return next;
-            });
-          }
+        const effectivePlayNextCount = Math.max(0, upNextPlayNextCount - skippedPlayNextPrefix);
+        const discard =
+          skippedPlayNextPrefix +
+          (playedTarget.zone === "upNext"
+            ? options.discardPlayNextCount(playedTarget, effectivePlayNextCount)
+            : 0);
+        if (discard > 0) {
+          setUpNextPlayNextCount((count) => {
+            const next = Math.max(0, count - discard);
+            upNextPlayNextCountRef.current = next;
+            return next;
+          });
         }
         setSpinePosition(nextState.spinePosition);
 
@@ -1091,6 +1136,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         noteMutation: true,
         computeNextState: jumpToTarget,
         discardPlayNextCount: (t, playNextCount) =>
+          t.zone === "upNext" ? Math.min(t.index + 1, playNextCount) : 0,
+        playNextPrefixRemovedOnSkip: (t, playNextCount) =>
           t.zone === "upNext" ? Math.min(t.index + 1, playNextCount) : 0,
       });
     },
@@ -1412,6 +1459,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       isPlayerVisible,
       playlist,
       upNext: upNextView,
+      upNextPlayNextCount,
       spine: spineView,
       spineTotal,
       spinePosition,
@@ -1458,6 +1506,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       isPlayerVisible,
       playlist,
       upNextView,
+      upNextPlayNextCount,
       spineView,
       spineTotal,
       spinePosition,

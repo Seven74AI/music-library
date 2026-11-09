@@ -459,15 +459,67 @@ describe("listLibraryUserTracks most-played sorts", () => {
     expect(page2.pagination.hasNext).toBe(false);
   });
 
+  test("mostPlayedEver returns crossed boundary track exactly once after snapshot", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const snapshotAt = new Date("2026-03-15T12:00:00.000Z");
+
+    const rows: Array<{ userTrackId: string; trackId: string; title: string }> = [];
+    for (let i = 0; i < 5; i++) {
+      const track = await createTrack(`R${i}`);
+      const userTrack = await addToLibrary(
+        user.id,
+        track.id,
+        new Date(`2026-02-0${i + 1}T00:00:00.000Z`),
+      );
+      rows.push({ userTrackId: userTrack.id, trackId: track.id, title: track.title });
+      await seedCompleted(user.id, track.id, new Date("2025-06-01T12:00:00.000Z"), 5 - i);
+    }
+
+    const page1 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedEver",
+      limit: 2,
+      now: snapshotAt,
+    });
+    expect(page1.userTracks.map((ut) => ut.id)).toEqual([
+      rows[0]!.userTrackId,
+      rows[1]!.userTrackId,
+    ]);
+
+    // R3 was on page 2 with frozen count 2; plays after snapshot raise its live count above the cursor.
+    await seedCompleted(user.id, rows[3]!.trackId, new Date("2026-03-16T12:00:00.000Z"), 5);
+    // Cursor anchor R1 also gains live plays — must not re-emit page-1 rows whose ids sort after the cursor.
+    await seedCompleted(user.id, rows[1]!.trackId, new Date("2026-03-16T12:00:00.000Z"), 2);
+
+    const page2 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedEver",
+      limit: 10,
+      cursor: page1.pagination.nextCursor,
+      now: snapshotAt,
+    });
+
+    const page2Ids = page2.userTracks.map((ut) => ut.id);
+    expect(page2Ids).toEqual([rows[2]!.userTrackId, rows[3]!.userTrackId, rows[4]!.userTrackId]);
+    expect(new Set(page2Ids).size).toBe(page2Ids.length);
+    expect(page2Ids).not.toContain(rows[0]!.userTrackId);
+    expect(page2Ids).not.toContain(rows[1]!.userTrackId);
+  });
+
   test("rejects a forged play count on an in-scope most-played cursor", async () => {
     const user = await prisma.user.create({ data: createUser() });
     const track = await createTrack("One");
     const userTrack = await addToLibrary(user.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
     await seedCompleted(user.id, track.id, new Date("2026-09-01T12:00:00.000Z"), 3);
 
-    const forged = Buffer.from(JSON.stringify({ v: 1, count: 99, id: userTrack.id })).toString(
-      "base64url",
-    );
+    const forged = Buffer.from(
+      JSON.stringify({
+        v: 2,
+        count: 99,
+        id: userTrack.id,
+        snapshotAt: new Date().toISOString(),
+      }),
+    ).toString("base64url");
 
     await expect(
       listLibraryUserTracks({
@@ -506,9 +558,14 @@ describe("listLibraryUserTracks most-played sorts", () => {
     const userTrack = await addToLibrary(user.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
     await seedCompleted(user.id, track.id, new Date("2026-09-01T12:00:00.000Z"), 2);
 
-    const cursor = Buffer.from(JSON.stringify({ v: 1, count, id: userTrack.id })).toString(
-      "base64url",
-    );
+    const cursor = Buffer.from(
+      JSON.stringify({
+        v: 2,
+        count,
+        id: userTrack.id,
+        snapshotAt: new Date().toISOString(),
+      }),
+    ).toString("base64url");
 
     await expect(
       listLibraryUserTracks({

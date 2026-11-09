@@ -81,6 +81,76 @@ describe("guest /rooms/:code loader", () => {
     expect(result.data.room?.status).toBe("open");
   });
 
+  test("a non-seated guest load omits playback and room-version fields", async () => {
+    const host = await createHost();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { currentIndex: 2, isPlaying: true, roomVersion: 9 },
+    });
+
+    const result = await loader({
+      request: new Request(`http://localhost/rooms/${room.code}`),
+      params: { code: room.code },
+    } as never);
+
+    expect(result.data.mode).toBe("guest");
+    if (result.data.mode !== "guest") {
+      throw new Error("expected guest loader");
+    }
+    expect(result.data.participant).toBeNull();
+    expect(result.data.room).toMatchObject({
+      code: room.code,
+      status: "open",
+    });
+    expect(result.data.room).not.toHaveProperty("currentIndex");
+    expect(result.data.room).not.toHaveProperty("isPlaying");
+    expect(result.data.room).not.toHaveProperty("roomVersion");
+  });
+
+  test("a non-seated guest load never exposes queue rows or participant ids", async () => {
+    const host = await createHost();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const suffix = `${Date.now()}-loader`;
+    const service = await prisma.service.upsert({
+      where: { name: "local" },
+      update: {},
+      create: { name: "local", displayName: "Local", baseUrl: "", isActive: true },
+    });
+    const track = await prisma.track.create({
+      data: {
+        title: "Queued",
+        externalId: `queued-${suffix}`,
+        service: { connect: { id: service.id } },
+        artist: {
+          create: { name: `Artist ${suffix}`, normalizedName: `artist ${suffix}` },
+        },
+      },
+    });
+    await prisma.roomQueueItem.create({
+      data: {
+        roomId: room.id,
+        trackId: track.id,
+        position: 0,
+        addedByParticipantId: room.participants[0]!.id,
+      },
+    });
+
+    const result = await loader({
+      request: new Request(`http://localhost/rooms/${room.code}`),
+      params: { code: room.code },
+    } as never);
+
+    expect(result.data.mode).toBe("guest");
+    if (result.data.mode !== "guest") {
+      throw new Error("expected guest loader");
+    }
+    expect(result.data.queue).toEqual([]);
+    const serialized = JSON.stringify(result.data);
+    expect(serialized).not.toContain("addedByParticipantId");
+    expect(serialized).not.toMatch(/"userId"\s*:\s*"[^"]+"/);
+  });
+
   test("codes that use 0, O, or I are invalid room codes", async () => {
     for (const code of ["AB3K0Q", "OOOOOO", "IIIIII"]) {
       const result = await loader({

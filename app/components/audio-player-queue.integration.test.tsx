@@ -12,6 +12,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vi
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { toast } from "#app/components/ui/use-toast.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
+import * as playableTrackModule from "#app/utils/playable-track";
 import { AudioPlayerProvider, useAudioPlayer } from "./audio-player-provider";
 import { TrackListItem } from "./track-list-item";
 
@@ -237,7 +238,7 @@ function buildPlayableTracks(count: number, titlePrefix: string): FullTrack[] {
 }
 
 function QueueStateProbe() {
-  const { upNext, spine, currentTrack, hasNext } = useAudioPlayer();
+  const { upNext, spine, currentTrack, hasNext, upNextPlayNextCount } = useAudioPlayer();
   return (
     <div
       data-testid="queue-state-probe"
@@ -245,6 +246,7 @@ function QueueStateProbe() {
       data-spine-ids={spine.map((track) => track.id).join(",")}
       data-current-track-id={currentTrack?.id ?? ""}
       data-has-next={String(hasNext)}
+      data-up-next-play-next-count={String(upNextPlayNextCount)}
     />
   );
 }
@@ -798,18 +800,23 @@ describe("queue sheet integration", () => {
     ).not.toBeDisabled();
   });
 
-  test("omitted next-track hydration keeps hasNext and surfaces an error toast", async () => {
+  test("Next advances past a non-playable spine row within a bounded skip", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.mocked(fetch);
+    const spineTrackCharlie = {
+      id: "track-c-playable",
+      title: "Spine-Charlie-Upcoming",
+      artist: trackC.artist,
+    };
+    const threeTrackSpine = [spineTracks[0]!, spineTracks[1]!, spineTrackCharlie];
     let playbackCalls = 0;
-    const twoTrackSpine = spineTracks.slice(0, 2);
 
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/queue-spine")) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({ tracks: twoTrackSpine, total: twoTrackSpine.length }),
+          json: async () => ({ tracks: threeTrackSpine, total: threeTrackSpine.length }),
         } as Response);
       }
       if (url.includes("/api/tracks/playback")) {
@@ -820,10 +827,23 @@ describe("queue sheet integration", () => {
             json: async () => ({ tracks: [trackA] }),
           } as Response);
         }
-        // Access revoked / stale spine: 200 but next track omitted.
+        if (playbackCalls === 2) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ tracks: [] }),
+          } as Response);
+        }
         return Promise.resolve({
           ok: true,
-          json: async () => ({ tracks: [] }),
+          json: async () => ({
+            tracks: [
+              {
+                ...trackA,
+                id: "track-c-playable",
+                title: "Spine-Charlie-Upcoming",
+              },
+            ],
+          }),
         } as Response);
       }
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
@@ -840,11 +860,9 @@ describe("queue sheet integration", () => {
     await clickNextTrack(user);
 
     await waitFor(() => {
-      expect(vi.mocked(toast)).toHaveBeenCalled();
+      expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-c-playable");
     });
-
-    expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-a");
-    expect(queueProbe().getAttribute("data-has-next")).toBe("true");
+    expect(playbackCalls).toBeGreaterThanOrEqual(3);
   });
 
   test("add to queue appends after the spine and shows in the queue sheet", async () => {
@@ -992,6 +1010,235 @@ describe("queue sheet integration", () => {
     });
     // Charlie was the last upcoming spine track — nothing remains.
     expect(within(sheet).getByText("No more tracks in this queue.")).toBeTruthy();
+  });
+
+  test("skipping unplayable play-next rows decrements play-next count by each skipped row", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    const noPlay1: FullTrack = { ...trackD, id: "no-play-1", title: "NoPlay-1" };
+    const noPlay2: FullTrack = { ...trackE, id: "no-play-2", title: "NoPlay-2" };
+    const noPlay3: FullTrack = { ...trackD, id: "no-play-3", title: "NoPlay-3" };
+    const extendedKnown = [...allKnownTracks, noPlay1, noPlay2, noPlay3];
+    const blocked = new Set(["no-play-1", "no-play-2", "no-play-3"]);
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/queue-spine")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks: spineTracks, total: spineTracks.length }),
+        } as Response);
+      }
+      if (url.includes("/api/tracks/playback")) {
+        const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+        const tracks = extendedKnown.filter(
+          (track) => ids.includes(track.id) && !blocked.has(track.id),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+
+    function UnplayablePlayNextControls() {
+      const { playTrack, playNextTrack, addToUpNext, playQueueTrack } = useAudioPlayer();
+      return (
+        <QueueControls
+          actions={[
+            {
+              label: "Start library playback",
+              onClick: () => playTrack(trackA, { type: "library" }, 0),
+            },
+            { label: "Play next NoPlay-1", onClick: () => playNextTrack(noPlay1) },
+            { label: "Play next NoPlay-2", onClick: () => playNextTrack(noPlay2) },
+            { label: "Play next NoPlay-3", onClick: () => playNextTrack(noPlay3) },
+            { label: "Add Delta to up next", onClick: () => addToUpNext(trackD) },
+            {
+              label: "Jump to Delta",
+              onClick: () => playQueueTrack({ zone: "upNext", index: 3 }),
+            },
+          ]}
+        />
+      );
+    }
+
+    renderQueueApp(<UnplayablePlayNextControls />);
+    await startWarmLibraryPlayback(user);
+    await user.click(screen.getByRole("button", { name: "Play next NoPlay-1" }));
+    await user.click(screen.getByRole("button", { name: "Play next NoPlay-2" }));
+    await user.click(screen.getByRole("button", { name: "Play next NoPlay-3" }));
+    await user.click(screen.getByRole("button", { name: "Add Delta to up next" }));
+    expect(queueProbe().getAttribute("data-up-next-play-next-count")).toBe("3");
+
+    await user.click(screen.getByRole("button", { name: "Jump to Delta" }));
+
+    await waitFor(() => {
+      expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-d");
+    });
+    expect(queueProbe().getAttribute("data-up-next-play-next-count")).toBe("0");
+  });
+
+  test("jumping onto an unplayable up next row drops the play-next prefix and zeroes the count", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    const noPlay1: FullTrack = { ...trackD, id: "no-play-1", title: "NoPlay-1" };
+    const noPlay2: FullTrack = { ...trackE, id: "no-play-2", title: "NoPlay-2" };
+    const noPlay3: FullTrack = { ...trackD, id: "no-play-3", title: "NoPlay-3" };
+    const extendedKnown = [...allKnownTracks, noPlay1, noPlay2, noPlay3];
+    const blocked = new Set(["no-play-1", "no-play-2", "no-play-3"]);
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/queue-spine")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks: spineTracks, total: spineTracks.length }),
+        } as Response);
+      }
+      if (url.includes("/api/tracks/playback")) {
+        const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+        const tracks = extendedKnown.filter(
+          (track) => ids.includes(track.id) && !blocked.has(track.id),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+
+    function JumpUnplayableUpNextControls() {
+      const { playTrack, playNextTrack, addToUpNext, playQueueTrack } = useAudioPlayer();
+      return (
+        <QueueControls
+          actions={[
+            {
+              label: "Start library playback",
+              onClick: () => playTrack(trackA, { type: "library" }, 0),
+            },
+            { label: "Play next NoPlay-1", onClick: () => playNextTrack(noPlay1) },
+            { label: "Play next NoPlay-2", onClick: () => playNextTrack(noPlay2) },
+            { label: "Play next NoPlay-3", onClick: () => playNextTrack(noPlay3) },
+            { label: "Add Delta to up next", onClick: () => addToUpNext(trackD) },
+            {
+              label: "Jump to NoPlay-1",
+              onClick: () => playQueueTrack({ zone: "upNext", index: 2 }),
+            },
+          ]}
+        />
+      );
+    }
+
+    renderQueueApp(<JumpUnplayableUpNextControls />);
+    await startWarmLibraryPlayback(user);
+    await user.click(screen.getByRole("button", { name: "Play next NoPlay-1" }));
+    await user.click(screen.getByRole("button", { name: "Play next NoPlay-2" }));
+    await user.click(screen.getByRole("button", { name: "Play next NoPlay-3" }));
+    await user.click(screen.getByRole("button", { name: "Add Delta to up next" }));
+    expect(queueProbe().getAttribute("data-up-next-play-next-count")).toBe("3");
+
+    const { isPlayableTrack: isPlayableTrackActual } = await vi.importActual<
+      typeof import("#app/utils/playable-track")
+    >("#app/utils/playable-track");
+    const isPlayableSpy = vi
+      .spyOn(playableTrackModule, "isPlayableTrack")
+      .mockImplementation((track) => {
+        if ("id" in track && typeof track.id === "string" && blocked.has(track.id)) {
+          return false;
+        }
+        return isPlayableTrackActual(track);
+      });
+
+    await user.click(screen.getByRole("button", { name: "Jump to NoPlay-1" }));
+
+    await waitFor(() => {
+      expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-d");
+    });
+    expect(queueProbe().getAttribute("data-up-next-play-next-count")).toBe("0");
+    isPlayableSpy.mockRestore();
+  });
+
+  test("jumping onto an unplayable up next row clears play-next count when playback continues on the spine", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    const noPlay1: FullTrack = { ...trackD, id: "no-play-1", title: "NoPlay-1" };
+    const noPlay2: FullTrack = { ...trackE, id: "no-play-2", title: "NoPlay-2" };
+    const noPlay3: FullTrack = { ...trackD, id: "no-play-3", title: "NoPlay-3" };
+    const extendedKnown = [...allKnownTracks, noPlay1, noPlay2, noPlay3];
+    const blocked = new Set(["no-play-1", "no-play-2", "no-play-3"]);
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/queue-spine")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks: spineTracks, total: spineTracks.length }),
+        } as Response);
+      }
+      if (url.includes("/api/tracks/playback")) {
+        const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+        const tracks = extendedKnown.filter(
+          (track) => ids.includes(track.id) && !blocked.has(track.id),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+
+    function JumpUnplayableToSpineControls() {
+      const { playTrack, playNextTrack, playQueueTrack } = useAudioPlayer();
+      return (
+        <QueueControls
+          actions={[
+            {
+              label: "Start library playback",
+              onClick: () => playTrack(trackA, { type: "library" }, 0),
+            },
+            { label: "Play next NoPlay-1", onClick: () => playNextTrack(noPlay1) },
+            { label: "Play next NoPlay-2", onClick: () => playNextTrack(noPlay2) },
+            { label: "Play next NoPlay-3", onClick: () => playNextTrack(noPlay3) },
+            {
+              label: "Jump to NoPlay-1",
+              onClick: () => playQueueTrack({ zone: "upNext", index: 2 }),
+            },
+          ]}
+        />
+      );
+    }
+
+    renderQueueApp(<JumpUnplayableToSpineControls />);
+    await startWarmLibraryPlayback(user);
+    await user.click(screen.getByRole("button", { name: "Play next NoPlay-1" }));
+    await user.click(screen.getByRole("button", { name: "Play next NoPlay-2" }));
+    await user.click(screen.getByRole("button", { name: "Play next NoPlay-3" }));
+    expect(queueProbe().getAttribute("data-up-next-play-next-count")).toBe("3");
+
+    const { isPlayableTrack: isPlayableTrackActual } = await vi.importActual<
+      typeof import("#app/utils/playable-track")
+    >("#app/utils/playable-track");
+    const isPlayableSpy = vi
+      .spyOn(playableTrackModule, "isPlayableTrack")
+      .mockImplementation((track) => {
+        if ("id" in track && typeof track.id === "string" && blocked.has(track.id)) {
+          return false;
+        }
+        return isPlayableTrackActual(track);
+      });
+
+    await user.click(screen.getByRole("button", { name: "Jump to NoPlay-1" }));
+
+    await waitFor(() => {
+      expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-b");
+    });
+    expect(queueProbe().getAttribute("data-up-next-play-next-count")).toBe("0");
+    expect(queueProbe().getAttribute("data-up-next-ids")).toBe("");
+    isPlayableSpy.mockRestore();
   });
 
   test("clicking an up next row plays it and drops it and everything before it", async () => {

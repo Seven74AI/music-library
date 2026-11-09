@@ -162,9 +162,14 @@ describe("GET /api/user-tracks most-played cursor validation", () => {
       const track = await createTrack("API Paged");
       trackIds.push(track.id);
       const userTrack = await prisma.userTrack.create({ data: { userId, trackId: track.id } });
-      const cursor = Buffer.from(JSON.stringify({ v: 1, count, id: userTrack.id })).toString(
-        "base64url",
-      );
+      const cursor = Buffer.from(
+        JSON.stringify({
+          v: 2,
+          count,
+          id: userTrack.id,
+          snapshotAt: new Date().toISOString(),
+        }),
+      ).toString("base64url");
 
       const response = await loader(
         apiRequest(

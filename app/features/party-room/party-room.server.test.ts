@@ -11,6 +11,7 @@ import {
 import { hashGuestToken } from "./guest-token.server.ts";
 import {
   becomeHost,
+  claimOpenGuestSeatForUser,
   createRoom,
   endRoom,
   getRoomSnapshot,
@@ -329,6 +330,40 @@ describe("party-room lifecycle", () => {
     );
   });
 
+  test("claiming a guest seat while already seated in the same room vacates the guest seat", async () => {
+    const host = await makeUser("Host");
+    const member = await makeUser("Member");
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const guest = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Walkup" },
+    });
+
+    await joinRoom({
+      code: room.code,
+      actor: { type: "user", userId: member.id, displayName: "Member" },
+    });
+
+    await claimOpenGuestSeatForUser({
+      userId: member.id,
+      guestToken: guest.guestToken!,
+      roomId: room.id,
+    });
+
+    const openForMember = await prisma.roomParticipant.findMany({
+      where: { roomId: room.id, leftAt: null, userId: member.id },
+      select: { id: true },
+    });
+    expect(openForMember).toHaveLength(1);
+
+    const guestSeat = await prisma.roomParticipant.findUnique({
+      where: { id: guest.participant.id },
+      select: { leftAt: true, guestTokenHash: true },
+    });
+    expect(guestSeat?.leftAt).not.toBeNull();
+    expect(guestSeat?.guestTokenHash).not.toBeNull();
+  });
+
   test("login can claim a guest host seat in a full room", async () => {
     const host = await makeUser("Host");
     const room = await createRoom({ userId: host.id, displayName: "Host" });
@@ -589,6 +624,97 @@ describe("party-room lifecycle", () => {
     expect(stillSeated).not.toBeNull();
     expect(stillSeated?.roomId).toBe(roomA.id);
   }, 30_000);
+
+  test("concurrent guest claim and user join cannot seat the same user twice", async () => {
+    const hostA = await makeUser("Host A");
+    const hostB = await makeUser("Host B");
+    const member = await makeUser("Member");
+    const roomA = await createRoom({ userId: hostA.id, displayName: "Host A" });
+    const roomB = await createRoom({ userId: hostB.id, displayName: "Host B" });
+    const guest = await joinRoom({
+      code: roomA.code,
+      actor: { type: "guest", displayName: "Walkup" },
+    });
+
+    await Promise.allSettled([
+      claimOpenGuestSeatForUser({
+        userId: member.id,
+        guestToken: guest.guestToken!,
+        roomId: roomA.id,
+      }),
+      joinRoom({
+        code: roomB.code,
+        actor: { type: "user", userId: member.id, displayName: "Member" },
+      }),
+    ]);
+
+    const openSeats = await prisma.roomParticipant.count({
+      where: { userId: member.id, leftAt: null },
+    });
+    expect(openSeats).toBeLessThanOrEqual(1);
+  });
+
+  test("concurrent room switch and stale refresh leave the old guest seat vacated", async () => {
+    const hostA = await makeUser("Host A");
+    const hostB = await makeUser("Host B");
+    const roomA = await createRoom({ userId: hostA.id, displayName: "Host A" });
+    const roomB = await createRoom({ userId: hostB.id, displayName: "Host B" });
+    const guest = await joinRoom({
+      code: roomA.code,
+      actor: { type: "guest", displayName: "Walkup" },
+    });
+    const token = guest.guestToken!;
+
+    await Promise.allSettled([
+      joinRoom({
+        code: roomB.code,
+        actor: { type: "guest", displayName: "Walkup", guestToken: token },
+      }),
+      joinRoom({
+        code: roomA.code,
+        actor: { type: "guest", displayName: "Walkup", guestToken: token },
+      }),
+    ]);
+
+    const seatA = await prisma.roomParticipant.findUnique({
+      where: { id: guest.participant.id },
+      select: { leftAt: true },
+    });
+    expect(seatA?.leftAt).not.toBeNull();
+
+    const openWithToken = await prisma.roomParticipant.count({
+      where: { guestTokenHash: hashGuestToken(token), leftAt: null },
+    });
+    expect(openWithToken).toBe(1);
+  });
+
+  test("guest refresh does not heal a duplicate open seat in another room", async () => {
+    const hostA = await makeUser("Host A");
+    const hostB = await makeUser("Host B");
+    const roomA = await createRoom({ userId: hostA.id, displayName: "Host A" });
+    const roomB = await createRoom({ userId: hostB.id, displayName: "Host B" });
+    const guest = await joinRoom({
+      code: roomA.code,
+      actor: { type: "guest", displayName: "Walkup" },
+    });
+    const tokenHash = hashGuestToken(guest.guestToken!);
+    await prisma.roomParticipant.create({
+      data: {
+        roomId: roomB.id,
+        guestTokenHash: tokenHash,
+        displayName: "Phantom",
+        role: ROOM_ROLE.listener,
+        lastSeenAt: new Date(),
+      },
+    });
+
+    await expect(
+      joinRoom({
+        code: roomA.code,
+        actor: { type: "guest", displayName: "Walkup", guestToken: guest.guestToken },
+      }),
+    ).rejects.toMatchObject({ code: "already_in_room" });
+  });
 
   test("guest joining a second room vacates the previous open seat", async () => {
     const hostA = await makeUser("Host A");

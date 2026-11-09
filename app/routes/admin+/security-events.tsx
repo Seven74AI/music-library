@@ -98,9 +98,9 @@ export async function action({ request }: Route.ActionArgs) {
   const intent = String(formData.get("intent") ?? "");
 
   if (intent === "logout-session") {
-    const sessionId = String(formData.get("sessionId") ?? "");
-    if (!sessionId) return data({ error: "Session id required" }, { status: 400 });
-    const result = await forceLogoutSession({ sessionId, actorUserId: actorId, request });
+    const sessionHandle = String(formData.get("sessionHandle") ?? "");
+    if (!sessionHandle) return data({ error: "Session handle required" }, { status: 400 });
+    const result = await forceLogoutSession({ sessionHandle, actorUserId: actorId, request });
     if (!result.ok) return data({ error: result.error }, { status: 404 });
     return redirectWithToast("/admin/security-events?tab=sessions", {
       type: "success",
@@ -384,7 +384,7 @@ function ActiveSessions({
           </TableRow>
         ) : (
           rows.map((row) => (
-            <TableRow key={row.id}>
+            <TableRow key={row.handle}>
               <TableCell>{row.username}</TableCell>
               <TableCell className="font-mono">{row.ipHash ?? "—"}</TableCell>
               <TableCell className="max-w-xs truncate">{row.device ?? "—"}</TableCell>
@@ -393,7 +393,7 @@ function ActiveSessions({
                 <div className="flex flex-wrap gap-2">
                   <Form method="POST">
                     <input type="hidden" name="intent" value="logout-session" />
-                    <input type="hidden" name="sessionId" value={row.id} />
+                    <input type="hidden" name="sessionHandle" value={row.handle} />
                     <Button type="submit" variant="outline" size="sm">
                       Force logout
                     </Button>

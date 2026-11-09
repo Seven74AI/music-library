@@ -17,10 +17,11 @@ import {
   parseRoomCodeInput,
 } from "#app/features/party-room/codes.ts";
 import {
+  resolveActorOptional,
   resolveRoomParticipantByCode,
   type SeatedParticipant,
 } from "#app/features/party-room/participant-seat.server.ts";
-import { getRoomSnapshotByCode } from "#app/features/party-room/party-room.server.ts";
+import { findOpenRoomByCode, getRoomSnapshot } from "#app/features/party-room/party-room.server.ts";
 import {
   useOptionalPartyRoom,
   usePartyRoom,
@@ -51,9 +52,9 @@ type GuestLoaderData = {
     code: string;
     status: string;
     defaultJoinRole: string;
-    currentIndex: number;
-    roomVersion: number;
-    isPlaying: boolean;
+    currentIndex?: number;
+    roomVersion?: number;
+    isPlaying?: boolean;
   } | null;
   ended: boolean;
   invalidCode: boolean;
@@ -106,14 +107,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     } satisfies UserLoaderData);
   }
 
-  let snapshot: Awaited<ReturnType<typeof getRoomSnapshotByCode>> | null = null;
+  const participant = await resolveRoomParticipantByCode(request, code);
+
+  let openRoom: Awaited<ReturnType<typeof findOpenRoomByCode>> | null = null;
   try {
-    snapshot = await getRoomSnapshotByCode(code);
+    openRoom = await findOpenRoomByCode(code);
   } catch {
-    snapshot = null;
+    openRoom = null;
   }
 
-  if (!snapshot) {
+  if (!openRoom) {
     const endedRoom = await prisma.room.findFirst({
       where: { code, status: ROOM_STATUS.ended },
       select: { id: true },
@@ -131,25 +134,34 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     } satisfies GuestLoaderData);
   }
 
-  const participant = await resolveRoomParticipantByCode(request, snapshot.code);
+  const actor = await resolveActorOptional(request);
+  const snapshot =
+    participant && actor && actor.type !== "system"
+      ? await getRoomSnapshot(openRoom.id, actor)
+      : null;
+
   return data({
     mode: "guest",
     guestShell: true,
-    code: snapshot.code,
+    code: openRoom.code,
     room: {
-      id: snapshot.roomId,
-      code: snapshot.code,
-      status: snapshot.status,
-      defaultJoinRole: snapshot.defaultJoinRole,
-      currentIndex: snapshot.currentIndex,
-      roomVersion: snapshot.roomVersion,
-      isPlaying: snapshot.isPlaying,
+      id: openRoom.id,
+      code: openRoom.code,
+      status: openRoom.status,
+      defaultJoinRole: openRoom.defaultJoinRole,
+      ...(participant
+        ? {
+            currentIndex: openRoom.currentIndex,
+            roomVersion: openRoom.roomVersion,
+            isPlaying: openRoom.isPlaying,
+          }
+        : {}),
     },
-    ended: snapshot.status === ROOM_STATUS.ended,
+    ended: openRoom.status === ROOM_STATUS.ended,
     invalidCode: false,
     participant,
     canAddTracks: participant ? canAddTracks(participant.role) : false,
-    queue: snapshot.queue,
+    queue: snapshot?.queue ?? [],
   } satisfies GuestLoaderData);
 }
 

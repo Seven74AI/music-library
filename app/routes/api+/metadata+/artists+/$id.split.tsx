@@ -8,6 +8,7 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
 import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/$id.split.ts";
@@ -37,6 +38,21 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   const { trackIds: rawTrackIds, newArtistName, comment } = result.data;
   const trackIds = [...new Set(rawTrackIds)];
+
+  const blockedLock = await findWriteBlockedLock(userId, [
+    { entityType: "artist", entityId: artistId },
+    ...trackIds.map((entityId) => ({ entityType: "track" as const, entityId })),
+  ]);
+  if (blockedLock) {
+    const entityLabel = blockedLock.entityType === "track" ? "track" : "artist";
+    throw new Response(
+      JSON.stringify({
+        error: "Locked",
+        message: `${blockedLock.lockedByName} is currently editing this ${entityLabel}`,
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  }
 
   // Fetch the original artist
   const originalArtist = await prisma.artist.findUnique({

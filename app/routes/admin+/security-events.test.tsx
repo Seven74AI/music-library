@@ -3,6 +3,7 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { sessionAdminHandle } from "#app/features/security/session-handle.server.ts";
 import { action, loader } from "./security-events.tsx";
 import { parseString } from "set-cookie-parser";
 
@@ -72,9 +73,13 @@ test("admin loader returns the five tab datasets and force-logout removes a sess
   expect(timeline.tab).toBe("timeline");
   expect(timeline.timeline?.events).toEqual(expect.any(Array));
 
+  const sessions = await callLoader(admin.cookie, "?tab=sessions");
+  expect(sessions.sessions).toEqual(expect.any(Array));
+  expect(JSON.stringify(sessions.sessions)).not.toContain(session.id);
+
   const form = new FormData();
   form.set("intent", "logout-session");
-  form.set("sessionId", session.id);
+  form.set("sessionHandle", sessionAdminHandle(session.id));
   const request = new Request("http://localhost/admin/security-events?tab=sessions", {
     method: "POST",
     body: form,

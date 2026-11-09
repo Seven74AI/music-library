@@ -1,6 +1,7 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
+import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -63,6 +64,19 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (!artist) {
     throw data({ error: "Artist not found" }, { status: 404 });
+  }
+
+  const blockedLock = await findWriteBlockedLock(userId, [
+    { entityType: "artist", entityId: artistId },
+  ]);
+  if (blockedLock) {
+    throw data(
+      {
+        error: "Locked",
+        message: `${blockedLock.lockedByName} is currently editing this artist`,
+      },
+      { status: 409 },
+    );
   }
 
   // Verify edit exists and belongs to this artist

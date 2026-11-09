@@ -327,7 +327,7 @@ export async function searchTracks(
 		LEFT JOIN "Album" alb ON t."albumId" = alb.id
 		${userTrackJoin}
 		WHERE tracks_fts MATCH ?${cursorFilter.sql}
-		ORDER BY relevance_rank, fts_rank, t.title
+		ORDER BY relevance_rank, fts_rank, t.title, t.id
 		LIMIT ?`,
     normalizedQuery,
     prefixPattern,
@@ -438,7 +438,7 @@ export async function searchAlbums(
 		JOIN "Album" alb ON albums_fts.album_id = alb.id
 		JOIN "Artist" a ON alb."artistId" = a.id
 		WHERE albums_fts MATCH ?${albumUserJoin}${cursorFilter.sql}
-		ORDER BY relevance_rank, fts_rank, alb.name
+		ORDER BY relevance_rank, fts_rank, alb.name, alb.id
 		LIMIT ?`,
     normalizedQuery,
     prefixPattern,
@@ -537,7 +537,7 @@ export async function searchArtists(
 		JOIN "Artist" a ON artists_fts.artist_id = a.id
 		WHERE artists_fts MATCH ?
 			AND a."mergedIntoId" IS NULL ${artistUserJoin}${cursorFilter.sql}
-		ORDER BY relevance_rank, fts_rank, a.name
+		ORDER BY relevance_rank, fts_rank, a.name, a.id
 		LIMIT ?`,
     normalizedQuery,
     prefixPattern,
@@ -643,7 +643,7 @@ export async function searchPlaylists(
 		) uptc ON uptc."playlistId" = up.id
 		WHERE up."ownerId" = ?
 		AND LOWER(up.title) LIKE ? ESCAPE '\\'${cursorFilter.sql}
-		ORDER BY relevance_rank, up.title
+		ORDER BY relevance_rank, up.title, up.id
 		LIMIT ?`,
     normalizedQuery,
     likePattern,
