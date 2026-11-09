@@ -20,3 +20,8 @@ export {
   handleTransactionalConsistency,
   appendTxNumberCookie,
 } from "litefs-js/remix";
+
+export {
+  assertReplayInstanceAllowed,
+  ensureAllowedInstance,
+} from "./litefs-replay-instance.server.ts";

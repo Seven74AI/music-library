@@ -6,7 +6,11 @@ import { OfflineAwareErrorBoundary } from "#app/components/offline/offline-aware
 import { Spacer } from "#app/components/spacer.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { cache, getAllCacheKeys, lruCache, searchCacheKeys } from "#app/utils/cache.server.ts";
-import { ensureInstance, getAllInstances, getInstanceInfo } from "#app/utils/litefs.server.ts";
+import {
+  ensureAllowedInstance,
+  getAllInstances,
+  getInstanceInfo,
+} from "#app/utils/litefs.server.ts";
 import { useDebounce, useDoubleCheck } from "#app/utils/misc.tsx";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -32,7 +36,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const currentInstanceInfo = await getInstanceInfo();
   const instance = searchParams.get("instance") ?? currentInstanceInfo.currentInstance;
   const instances = await getAllInstances();
-  await ensureInstance(instance);
+  await ensureAllowedInstance(instance, instances);
 
   let cacheKeys: { sqlite: Array<string>; lru: Array<string> };
   if (typeof query === "string") {
@@ -54,7 +58,8 @@ export async function action({ request }: Route.ActionArgs) {
   invariantResponse(typeof key === "string", "cacheKey must be a string");
   invariantResponse(typeof type === "string", "type must be a string");
   invariantResponse(typeof instance === "string", "instance must be a string");
-  await ensureInstance(instance);
+  const instances = await getAllInstances();
+  await ensureAllowedInstance(instance, instances);
 
   switch (type) {
     case "sqlite": {
