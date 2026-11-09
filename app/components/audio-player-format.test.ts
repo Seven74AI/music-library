@@ -106,6 +106,21 @@ describe("swapPlaybackSource", () => {
     expect(audio.play).toHaveBeenCalledOnce();
   });
 
+  test("invokes onProgrammaticSeek before restoring savedTime", () => {
+    const audio = fakeAudio({ currentTime: 0, readyState: 2 });
+    const onProgrammaticSeek = vi.fn();
+    swapPlaybackSource(audio as never, "https://x/a.mp3", 0.4, false, onProgrammaticSeek);
+    expect(onProgrammaticSeek).toHaveBeenCalledOnce();
+    expect(audio.currentTime).toBe(0.4);
+  });
+
+  test("does not invoke onProgrammaticSeek when savedTime is zero", () => {
+    const audio = fakeAudio({ currentTime: 5, readyState: 2 });
+    const onProgrammaticSeek = vi.fn();
+    swapPlaybackSource(audio as never, "https://x/a.mp3", 0, false, onProgrammaticSeek);
+    expect(onProgrammaticSeek).not.toHaveBeenCalled();
+  });
+
   test("does not resume when shouldResume is false", () => {
     const audio = fakeAudio({ currentTime: 30, readyState: 0 });
     swapPlaybackSource(audio as never, "https://x/a.mp3", 30, false);

@@ -262,6 +262,24 @@ export function flatIndexForSpinePosition(
   return state.upNext.length + Math.max(0, spinePosition - state.spinePosition);
 }
 
+/** True when the queue sheet spine list includes the row at `spinePosition` (not upcoming-only). */
+export function queueSpineDisplayIncludesHead(
+  hasCurrentTrack: boolean,
+  audibleIsSpineHead: boolean,
+): boolean {
+  if (!hasCurrentTrack) return true;
+  return !audibleIsSpineHead;
+}
+
+/** Map a spine section row index to a spine order index for play/remove. */
+export function spineOrderIndexFromDisplayIndex(
+  spinePosition: number,
+  displayIndex: number,
+  includesHead: boolean,
+): number {
+  return spinePosition + (includesHead ? 0 : 1) + displayIndex;
+}
+
 /** Spine tracks shown in the queue sheet (excludes now playing only). */
 export function getQueueSpineDisplayTracks(
   state: QueueNavigationState,

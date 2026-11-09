@@ -4,6 +4,7 @@ import {
   collectHydrationIds,
   collectQueueDisplayHydrationIds,
   hydratePlaybackCacheInBatches,
+  isRoomSpeakerHydrationStub,
   PlaybackHydrationCache,
   resolveFullTrack,
 } from "./queue-hydration.ts";
@@ -26,6 +27,30 @@ afterEach(() => {
 });
 
 describe("PlaybackHydrationCache", () => {
+  test("evictRoomSpeakerStubs removes synthetic room speaker entries", () => {
+    const cache = new PlaybackHydrationCache();
+    cache.set(fullTrack);
+    cache.set({
+      ...fullTrack,
+      id: "room-track",
+      artist: { id: "room-artist", name: "Room" },
+      audioFiles: [{ id: "room-af", format: "mp3", objectKey: "room" }],
+    });
+
+    const evicted = cache.evictRoomSpeakerStubs();
+
+    expect(evicted).toEqual(["room-track"]);
+    expect(cache.has("room-track")).toBe(false);
+    expect(cache.has("track-1")).toBe(true);
+    expect(
+      isRoomSpeakerHydrationStub({
+        ...fullTrack,
+        artist: { id: "room-artist", name: "Room" },
+        audioFiles: [{ id: "af", format: "mp3", objectKey: "room" }],
+      }),
+    ).toBe(true);
+  });
+
   test("hydrateMissing fetches only uncached ids", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({

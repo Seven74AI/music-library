@@ -221,17 +221,10 @@ export async function retryFetchCover(
     }
 
     if (track.albumId) {
-      const album = await prisma.album.findUnique({
-        where: { id: track.albumId },
-        select: { coverImageId: true },
+      await prisma.album.updateMany({
+        where: { id: track.albumId, coverImageId: null },
+        data: { coverImageId: coverImage.id },
       });
-
-      if (album && !album.coverImageId) {
-        await prisma.album.update({
-          where: { id: track.albumId },
-          data: { coverImageId: coverImage.id },
-        });
-      }
     }
 
     return { success: true };
@@ -268,17 +261,10 @@ export async function uploadTrackCover(
     });
 
     if (track.albumId) {
-      const album = await prisma.album.findUnique({
-        where: { id: track.albumId },
-        select: { coverImageId: true },
+      await prisma.album.updateMany({
+        where: { id: track.albumId, coverImageId: null },
+        data: { coverImageId: coverImage.id },
       });
-
-      if (album && !album.coverImageId) {
-        await prisma.album.update({
-          where: { id: track.albumId },
-          data: { coverImageId: coverImage.id },
-        });
-      }
     }
 
     return { success: true };
@@ -352,8 +338,8 @@ export async function inheritCoverFromTrack(
   }
 
   try {
-    await prisma.album.update({
-      where: { id: albumId },
+    await prisma.album.updateMany({
+      where: { id: albumId, coverImageId: null },
       data: { coverImageId: track.coverImageId },
     });
 
@@ -379,15 +365,8 @@ export async function smartAlbumInheritance(trackId: string, tx?: Prisma.Transac
     return;
   }
 
-  const album = await db.album.findUnique({
-    where: { id: track.albumId },
-    select: { coverImageId: true },
+  await db.album.updateMany({
+    where: { id: track.albumId, coverImageId: null },
+    data: { coverImageId: track.coverImageId },
   });
-
-  if (album && !album.coverImageId) {
-    await db.album.update({
-      where: { id: track.albumId },
-      data: { coverImageId: track.coverImageId },
-    });
-  }
 }

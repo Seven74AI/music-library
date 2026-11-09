@@ -29,7 +29,7 @@ describe("createOfflineStorage", () => {
     await metadataStore.clear();
   });
 
-  test("failed metadata put leaves no orphan blob", async () => {
+  test("failed metadata put leaves prior metadata and rolls back the new blob", async () => {
     const audioStore = createMemoryOfflineAudioStore();
     const metadataStore = createOfflineMetadataStore();
     const storage = createOfflineStorage({
@@ -83,6 +83,77 @@ describe("createOfflineStorage", () => {
     const afterBytes = await audioStore.read(track.id, "mp3");
     expect(new Uint8Array(afterBytes!)).toEqual(new Uint8Array(originalBytes!));
     expect(await metadataStore.get(track.id)).toEqual(before);
+  });
+
+  test("failed old-format delete leaves record pointing at the original file", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([9, 9, 9]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+    const before = await metadataStore.get(track.id);
+    expect(before).toBeTruthy();
+    const originalBytes = await audioStore.read(track.id, "mp3");
+    expect(originalBytes).not.toBeNull();
+
+    const originalDelete = audioStore.delete.bind(audioStore);
+    vi.spyOn(audioStore, "delete").mockImplementation(async (trackId, format) => {
+      if (trackId === track.id && format === "mp3") {
+        throw new Error("old format delete failed");
+      }
+      return originalDelete(trackId, format);
+    });
+
+    await expect(
+      storage.downloadTrack(
+        {
+          ...track,
+          audioFiles: [{ id: "af-flac", format: "flac", objectKey: "k-flac" }],
+        },
+        { pin: true },
+      ),
+    ).rejects.toThrow(/old format delete failed/);
+
+    expect(await metadataStore.get(track.id)).toEqual(before);
+    expect(await audioStore.has(track.id, "mp3")).toBe(true);
+    expect(await audioStore.has(track.id, "flac")).toBe(false);
+    expect(new Uint8Array((await audioStore.read(track.id, "mp3"))!)).toEqual(
+      new Uint8Array(originalBytes!),
+    );
+  });
+
+  test("re-download with a new audio format removes the previous format blob", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+    expect(await audioStore.has(track.id, "mp3")).toBe(true);
+
+    await storage.downloadTrack(
+      {
+        ...track,
+        audioFiles: [{ id: "af-flac", format: "flac", objectKey: "k-flac" }],
+      },
+      { pin: true },
+    );
+
+    expect(await audioStore.has(track.id, "mp3")).toBe(false);
+    expect(await audioStore.has(track.id, "flac")).toBe(true);
+    const record = await metadataStore.get(track.id);
+    expect(record?.audioFormat).toBe("flac");
   });
 
   test("downloads and resolves pinned playback blobs", async () => {

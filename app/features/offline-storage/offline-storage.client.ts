@@ -153,9 +153,26 @@ export function createOfflineStorage(
     const audioFormat = getOfflineAudioFormat(track);
     const stagingTrackId = offlineAudioStagingTrackId(track.id);
 
+    const previousFormat = existing?.audioFormat ?? null;
+    const previousRecord = existing ? { ...existing } : null;
+    const previousBytes =
+      existing && previousFormat ? await audioStore.read(track.id, previousFormat) : null;
+
     await audioStore.write(stagingTrackId, buffer, audioFormat);
 
+    let committed = false;
     try {
+      await audioStore.commitStagingWrite(stagingTrackId, track.id, audioFormat);
+      committed = true;
+
+      if (
+        previousFormat &&
+        previousFormat !== audioFormat &&
+        (await audioStore.has(track.id, previousFormat))
+      ) {
+        await audioStore.delete(track.id, previousFormat);
+      }
+
       if (existing) {
         await metadataStore.put(
           mergeOfflineTrackRecord(existing, {
@@ -180,9 +197,19 @@ export function createOfflineStorage(
           }),
         );
       }
-      await audioStore.commitStagingWrite(stagingTrackId, track.id, audioFormat);
     } catch (error) {
       await audioStore.delete(stagingTrackId, audioFormat);
+      if (committed) {
+        await audioStore.delete(track.id, audioFormat);
+        if (previousBytes && previousFormat) {
+          await audioStore.write(track.id, previousBytes, previousFormat);
+        }
+        if (previousRecord) {
+          await metadataStore.put(previousRecord);
+        } else {
+          await metadataStore.delete(track.id);
+        }
+      }
       throw error;
     }
   }

@@ -109,15 +109,33 @@ describe("user-library", () => {
       expect(result.error).toBe("DB connection failed");
       consoleError.mockRestore();
     });
+
+    test("treats a concurrent create (P2002) as success when the row is active", async () => {
+      vi.mocked(prisma.userTrack.findUnique)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: "ut-race",
+          userId,
+          trackId,
+          isActive: true,
+          deletedAt: null,
+        } as never);
+      vi.mocked(prisma.userTrack.create).mockRejectedValue({ code: "P2002" });
+
+      const result = await addTrackToUserLibrary(trackId, userId);
+
+      expect(result).toEqual({ success: true, message: "Track already in library" });
+    });
   });
 
   describe("addTracksToUserLibrary", () => {
     test("creates many UserTracks in one transaction", async () => {
-      vi.mocked(prisma.userTrack.findMany).mockResolvedValue([]);
+      const findMany = vi.fn().mockResolvedValue([]);
       const createMany = vi.fn().mockResolvedValue({ count: 3 });
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
         (fn as (tx: unknown) => Promise<unknown>)({
           userTrack: {
+            findMany,
             createMany,
           },
           $executeRaw: vi.fn().mockResolvedValue(0),
@@ -128,7 +146,7 @@ describe("user-library", () => {
 
       expect(result.success).toBe(true);
       expect(result.addedCount).toBe(3);
-      expect(prisma.userTrack.findMany).toHaveBeenCalledWith({
+      expect(findMany).toHaveBeenCalledWith({
         where: { userId, trackId: { in: ["track1", "track2", "track3"] } },
       });
       // Library sorts by createdAt desc — first playlist track must get the newest stamp
@@ -142,7 +160,7 @@ describe("user-library", () => {
     });
 
     test("reactivates inactive tracks in one batched raw UPDATE and creates only missing ones", async () => {
-      vi.mocked(prisma.userTrack.findMany).mockResolvedValue([
+      const findMany = vi.fn().mockResolvedValue([
         { id: "ut1", userId, trackId: "track1", isActive: true, deletedAt: null },
         { id: "ut2", userId, trackId: "track2", isActive: false, deletedAt: new Date() },
         { id: "ut3", userId, trackId: "track3", isActive: false, deletedAt: new Date() },
@@ -151,7 +169,7 @@ describe("user-library", () => {
       const createMany = vi.fn().mockResolvedValue({ count: 1 });
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
         (fn as (tx: unknown) => Promise<unknown>)({
-          userTrack: { createMany },
+          userTrack: { findMany, createMany },
           $executeRaw: executeRaw,
         }),
       );
@@ -177,29 +195,31 @@ describe("user-library", () => {
     });
 
     test("deduplicates track ids", async () => {
-      vi.mocked(prisma.userTrack.findMany).mockResolvedValue([]);
+      const findMany = vi.fn().mockResolvedValue([]);
       const createMany = vi.fn().mockResolvedValue({ count: 1 });
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
         (fn as (tx: unknown) => Promise<unknown>)({
-          userTrack: { createMany },
+          userTrack: { findMany, createMany },
           $executeRaw: vi.fn().mockResolvedValue(0),
         }),
       );
 
       await addTracksToUserLibrary(["track1", "track1"], userId);
 
-      expect(prisma.userTrack.findMany).toHaveBeenCalledWith({
+      expect(findMany).toHaveBeenCalledWith({
         where: { userId, trackId: { in: ["track1"] } },
       });
     });
 
     test("chunks large bulk add queries to stay under SQLite bind limits", async () => {
       const largeTrackIds = Array.from({ length: 1200 }, (_, i) => `track${i}`);
-      vi.mocked(prisma.userTrack.findMany).mockResolvedValue([]);
-      const createMany = vi.fn().mockResolvedValue({ count: 500 });
+      const findMany = vi.fn().mockResolvedValue([]);
+      const createMany = vi.fn().mockImplementation(async (args: { data: unknown[] }) => ({
+        count: args.data.length,
+      }));
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) =>
         (fn as (tx: unknown) => Promise<unknown>)({
-          userTrack: { createMany },
+          userTrack: { findMany, createMany },
           $executeRaw: vi.fn().mockResolvedValue(0),
         }),
       );
@@ -208,7 +228,7 @@ describe("user-library", () => {
 
       expect(result.success).toBe(true);
       expect(result.addedCount).toBe(1200);
-      expect(prisma.userTrack.findMany).toHaveBeenCalledTimes(3);
+      expect(findMany).toHaveBeenCalledTimes(3);
       expect(createMany).toHaveBeenCalledTimes(3);
       expect(createMany.mock.calls[0]?.[0]?.data).toHaveLength(500);
       expect(createMany.mock.calls[2]?.[0]?.data).toHaveLength(200);

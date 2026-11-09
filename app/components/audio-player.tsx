@@ -218,8 +218,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
   // User intends playback; not cleared by incidental pause from network/src swaps.
   const keepPlayingRef = useRef(false);
   const playStartedForTrackRef = useRef<string | null>(null);
-  const playCompletedForTrackRef = useRef<string | null>(null);
+  /** Play pass that already emitted `play_completed` at 50% (keyed by playId, not track id). */
+  const playCompletedForPlayIdRef = useRef<string | null>(null);
   const playIdRef = useRef<string | null>(null);
+  /** Previous `timeupdate` playhead — detects repeat-one wrap by backward jump. */
+  const prevCurrentTimeRef = useRef(0);
+  /** Set when the user seeks; suppresses wrap detection on the next `timeupdate`. */
+  const userSeekRef = useRef(false);
   // Playback-progress presence for a locked speaker. Page timers are throttled
   // while the screen is hidden; timeupdate keeps lastSeenAt fresh only while
   // the playhead is actually moving.
@@ -279,6 +284,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
           setDuration(0);
           setCurrentTime(0);
         }
+        userSeekRef.current = true;
         audio.currentTime = 0;
         audio.volume = isMuted ? 0 : volume;
 
@@ -293,7 +299,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
               keepPlayingRef.current = true;
               if (playStartedForTrackRef.current !== trackId) {
                 playStartedForTrackRef.current = trackId;
-                playCompletedForTrackRef.current = null;
+                playCompletedForPlayIdRef.current = null;
                 playIdRef.current = generatePlayId();
                 emitPlayEvent("play_started", trackId, playIdRef.current);
               }
@@ -469,6 +475,12 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const trackId = track?.id;
 
   useEffect(() => {
+    prevCurrentTimeRef.current = 0;
+    userSeekRef.current = false;
+    playCompletedForPlayIdRef.current = null;
+  }, [trackId]);
+
+  useEffect(() => {
     if (!audioFile || !trackId) {
       loadedTrackIdRef.current = null;
       pendingAudioSrcRef.current = null;
@@ -581,7 +593,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
         // No blob — let handleError deal with it when buffer runs out
         return;
       }
-      swapPlaybackSource(audioRef.current, offlineUrl, savedTime, shouldResume);
+      swapPlaybackSource(audioRef.current, offlineUrl, savedTime, shouldResume, () => {
+        userSeekRef.current = true;
+      });
       setAudioSrc(offlineUrl);
       setPlaybackError(null);
     });
@@ -630,6 +644,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       audioRef.current.volume = isMuted ? 0 : volume;
       if (shouldAutoPlay) {
         keepPlayingRef.current = true;
+        userSeekRef.current = true;
         audioRef.current.currentTime = 0;
         let playPromise: Promise<void> | undefined;
         try {
@@ -649,7 +664,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
               keepPlayingRef.current = true;
               if (track && playStartedForTrackRef.current !== track.id) {
                 playStartedForTrackRef.current = track.id;
-                playCompletedForTrackRef.current = null;
+                playCompletedForPlayIdRef.current = null;
                 playIdRef.current = generatePlayId();
                 emitPlayEvent("play_started", track.id, playIdRef.current);
               }
@@ -711,7 +726,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         await audioRef.current.play();
         if (track && playStartedForTrackRef.current !== track.id) {
           playStartedForTrackRef.current = track.id;
-          playCompletedForTrackRef.current = null;
+          playCompletedForPlayIdRef.current = null;
           playIdRef.current = generatePlayId();
           emitPlayEvent("play_started", track.id, playIdRef.current);
         }
@@ -772,6 +787,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     keepPlayingRef.current = true;
     if (isNewSource) {
       try {
+        userSeekRef.current = true;
         audio.currentTime = 0;
       } catch {
         // The element may not be seekable until metadata arrives.
@@ -798,7 +814,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       keepPlayingRef.current = true;
       if (next.reportPlaying && track && playStartedForTrackRef.current !== track.id) {
         playStartedForTrackRef.current = track.id;
-        playCompletedForTrackRef.current = null;
+        playCompletedForPlayIdRef.current = null;
         playIdRef.current = generatePlayId();
         emitPlayEvent("play_started", track.id, playIdRef.current);
       }
@@ -896,6 +912,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
 
       audio.currentTime = clampMediaSessionSeekTime(details.seekTime, trackDuration);
+      userSeekRef.current = true;
       updateMediaSessionPositionState(audio);
     });
     navigator.mediaSession.setActionHandler("stop", () => {
@@ -1033,13 +1050,37 @@ export function AudioPlayer(props: AudioPlayerProps) {
         sample.sentAt = Date.now();
         void sendHostHeartbeat(roomSpeaker.code).catch(() => {});
       }
+      const currentTime = audio.currentTime;
+      if (loopMode === "one" && trackId) {
+        if (userSeekRef.current) {
+          prevCurrentTimeRef.current = currentTime;
+          userSeekRef.current = false;
+        } else {
+          const prevTime = prevCurrentTimeRef.current;
+          const trackDuration = audio.duration;
+          if (trackDuration > 0 && isFinite(trackDuration)) {
+            const head = Math.min(1, trackDuration * 0.3);
+            const delta = prevTime - currentTime;
+            const minJump = Math.min(0.5, head);
+            if (currentTime < head && delta > minJump) {
+              playIdRef.current = generatePlayId();
+              playCompletedForPlayIdRef.current = null;
+              playStartedForTrackRef.current = trackId;
+              emitPlayEvent("play_started", trackId, playIdRef.current);
+            }
+          }
+          prevCurrentTimeRef.current = currentTime;
+        }
+      }
+      const playCompletionKey = playIdRef.current ?? (trackId ? `track:${trackId}` : null);
       if (
         trackId &&
-        playCompletedForTrackRef.current !== trackId &&
+        playCompletionKey &&
+        playCompletedForPlayIdRef.current !== playCompletionKey &&
         audio.duration > 0 &&
-        audio.currentTime / audio.duration >= 0.5
+        currentTime / audio.duration >= 0.5
       ) {
-        playCompletedForTrackRef.current = trackId;
+        playCompletedForPlayIdRef.current = playCompletionKey;
         emitPlayEvent("play_completed", trackId, playIdRef.current);
       }
     };
@@ -1075,14 +1116,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
     };
     const handleEnded = () => {
-      if (trackId && playCompletedForTrackRef.current !== trackId) {
-        playCompletedForTrackRef.current = trackId;
-        emitPlayEvent("play_completed", trackId, playIdRef.current);
-      }
-      // Only auto-advance if not looping one track
       if (loopMode === "one") {
         // Single-track loop: the `loop` attribute restarts it automatically.
         return;
+      }
+      const playCompletionKey = playIdRef.current ?? (trackId ? `track:${trackId}` : null);
+      if (trackId && playCompletionKey && playCompletedForPlayIdRef.current !== playCompletionKey) {
+        playCompletedForPlayIdRef.current = playCompletionKey;
+        emitPlayEvent("play_completed", trackId, playIdRef.current);
       }
       if (hasNext) {
         // Auto-advance: keep the "playing" state (and Media Session) continuous
@@ -1119,7 +1160,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
           const retryUrl = withRecoveryNonce(audioSrcOverride);
           if (audioRef.current && loadedTrackIdRef.current === trackId) {
             pendingAudioSrcRef.current = { trackId, url: retryUrl };
-            swapPlaybackSource(audioRef.current, retryUrl, savedTime || 0, shouldResume);
+            swapPlaybackSource(audioRef.current, retryUrl, savedTime || 0, shouldResume, () => {
+              userSeekRef.current = true;
+            });
             setAudioSrc(retryUrl);
             setPlaybackError(null);
           } else {
@@ -1138,7 +1181,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
               audioRef.current &&
               loadedTrackIdRef.current === trackId
             ) {
-              swapPlaybackSource(audioRef.current, freshUrl, savedTime || 0, shouldResume);
+              swapPlaybackSource(audioRef.current, freshUrl, savedTime || 0, shouldResume, () => {
+                userSeekRef.current = true;
+              });
               setAudioSrc(freshUrl);
               setPlaybackError(null);
               return;
@@ -1146,7 +1191,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
             return resolvePlaybackAudioUrl(trackId).then((offlineUrl) => {
               if (offlineUrl && audioRef.current && loadedTrackIdRef.current === trackId) {
-                swapPlaybackSource(audioRef.current, offlineUrl, savedTime || 0, shouldResume);
+                swapPlaybackSource(
+                  audioRef.current,
+                  offlineUrl,
+                  savedTime || 0,
+                  shouldResume,
+                  () => {
+                    userSeekRef.current = true;
+                  },
+                );
                 setAudioSrc(offlineUrl);
                 setPlaybackError(null);
               } else {
@@ -1238,6 +1291,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     try {
       // Optimistic update for smooth UI - seeked event will correct if needed
       audio.currentTime = clampedTime;
+      userSeekRef.current = true;
       setCurrentTime(clampedTime);
       updateMediaSessionPositionState(audio);
     } catch (error) {
