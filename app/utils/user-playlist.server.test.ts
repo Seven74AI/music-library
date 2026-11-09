@@ -308,6 +308,32 @@ describe("addTrackToUserPlaylist", () => {
       playlistId: "playlist-1",
       playlistTitle: "My Playlist",
     });
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.userPlaylistTrack.createMany).not.toHaveBeenCalled();
+  });
+
+  test("checks duplicates inside the same transaction as the insert", async () => {
+    vi.mocked(prisma.userPlaylist.findFirst).mockResolvedValue({
+      id: "playlist-1",
+      title: "My Playlist",
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.userPlaylistTrack.aggregate).mockResolvedValue({
+      _max: { position: 0 },
+    } as never);
+    vi.mocked(prisma.userPlaylistTrack.createMany).mockResolvedValue({ count: 1 } as never);
+
+    await addTrackToUserPlaylist({
+      userId: "user-1",
+      playlistId: "playlist-1",
+      trackId: "track-1",
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.userPlaylistTrack.findFirst).toHaveBeenCalledWith({
+      where: { playlistId: "playlist-1", trackId: "track-1" },
+    });
+    expect(prisma.userPlaylistTrack.createMany).toHaveBeenCalled();
   });
 });
 

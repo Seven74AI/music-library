@@ -330,6 +330,10 @@ type CoverClient = {
       select: { coverImageId: true };
     }) => Promise<{ coverImageId: string | null } | null>;
     update: (args: { where: { id: string }; data: { coverImageId: string } }) => Promise<unknown>;
+    updateMany: (args: {
+      where: { id: string; coverImageId: null };
+      data: { coverImageId: string };
+    }) => Promise<{ count: number }>;
   };
 };
 
@@ -382,8 +386,8 @@ async function createOrReuseCoverImage(
     }
 
     if (albumId) {
-      await client.album.update({
-        where: { id: albumId },
+      await client.album.updateMany({
+        where: { id: albumId, coverImageId: null },
         data: { coverImageId: coverImage.id },
       });
     }
@@ -394,16 +398,10 @@ async function createOrReuseCoverImage(
   // Reusing an existing cover (by content hash): associate the album only when
   // it still has no cover.
   if (prepared.kind === "existing" && albumId) {
-    const album = await client.album.findUnique({
-      where: { id: albumId },
-      select: { coverImageId: true },
+    await client.album.updateMany({
+      where: { id: albumId, coverImageId: null },
+      data: { coverImageId: prepared.id },
     });
-    if (album && !album.coverImageId) {
-      await client.album.update({
-        where: { id: albumId },
-        data: { coverImageId: prepared.id },
-      });
-    }
   }
 
   return { id: prepared.id, objectKey: prepared.objectKey };
