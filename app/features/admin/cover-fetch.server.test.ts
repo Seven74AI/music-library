@@ -368,3 +368,102 @@ test("retryFetchCover does not overwrite a cover assigned during download", asyn
     downloadSpy.mockRestore();
   }
 });
+
+test("retryFetchCover does not overwrite an album cover assigned during download", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const service = await prisma.service.upsert({
+    where: { name: "local" },
+    update: {},
+    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
+  });
+  const owner = await prisma.user.create({
+    data: {
+      email: `album-toctou-${suffix}@example.com`,
+      username: `albtct${suffix}`.slice(0, 20),
+    },
+  });
+  createdUserIds.push(owner.id);
+  const artist = await prisma.artist.create({
+    data: {
+      name: `Album TOCTOU Artist ${suffix}`,
+      normalizedName: `album toctou artist ${suffix}`,
+    },
+  });
+  createdArtistIds.push(artist.id);
+  const album = await prisma.album.create({
+    data: {
+      name: `Bare Album ${suffix}`,
+      artistId: artist.id,
+      coverImageId: null,
+    },
+  });
+  createdAlbumIds.push(album.id);
+  const playlist = await prisma.servicePlaylist.create({
+    data: {
+      serviceId: service.id,
+      externalId: `pl-album-toctou-${suffix}`,
+      title: `Playlist ${suffix}`,
+      itemCount: 1,
+      ownerId: owner.id,
+    },
+  });
+  createdPlaylistIds.push(playlist.id);
+  const track = await prisma.track.create({
+    data: {
+      title: `Album TOCTOU track ${suffix}`,
+      externalId: `album-toctou-${suffix}`,
+      artistId: artist.id,
+      serviceId: service.id,
+      albumId: album.id,
+      servicePlaylistTracks: {
+        create: {
+          playlistId: playlist.id,
+          position: 0,
+          thumbnailUrl: `https://example.com/thumb-${suffix}.jpg`,
+        },
+      },
+    },
+  });
+  createdTrackIds.push(track.id);
+  const curatorCover = await prisma.coverImage.create({
+    data: {
+      contentHash: `album-curator-${suffix}`,
+      objectKey: `covers/album-curator-${suffix}.jpg`,
+    },
+  });
+  createdCoverIds.push(curatorCover.id);
+
+  const youtubeBytes = await sharp({
+    create: {
+      width: 8,
+      height: 8,
+      channels: 3,
+      background: { r: 10, g: 200, b: 50 },
+    },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const downloadSpy = vi
+    .spyOn(coverManagement, "downloadExternalImage")
+    .mockImplementation(async () => {
+      await prisma.album.update({
+        where: { id: album.id },
+        data: { coverImageId: curatorCover.id },
+      });
+      return youtubeBytes;
+    });
+
+  try {
+    const result = await retryFetchCover(track.id);
+    expect(result).toEqual({ success: true });
+
+    const albumAfter = await prisma.album.findUniqueOrThrow({
+      where: { id: album.id },
+      select: { coverImageId: true },
+    });
+    expect(albumAfter.coverImageId).toBe(curatorCover.id);
+  } finally {
+    downloadSpy.mockRestore();
+  }
+});

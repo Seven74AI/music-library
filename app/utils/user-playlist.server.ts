@@ -269,21 +269,37 @@ export async function addTrackToUserPlaylist({
     return { status: "not_found" };
   }
 
-  if (!forceDuplicate) {
-    const existing = await prisma.userPlaylistTrack.findFirst({
-      where: { playlistId, trackId },
+  const insertResult = await prisma.$transaction(async (tx) => {
+    if (!forceDuplicate) {
+      const existing = await tx.userPlaylistTrack.findFirst({
+        where: { playlistId, trackId },
+      });
+
+      if (existing) {
+        return { status: "duplicate" as const };
+      }
+    }
+
+    const maxPosition = await tx.userPlaylistTrack.aggregate({
+      where: { playlistId },
+      _max: { position: true },
+    });
+    const nextPosition = (maxPosition._max.position ?? -1) + 1;
+
+    await tx.userPlaylistTrack.createMany({
+      data: [{ playlistId, trackId, position: nextPosition }],
     });
 
-    if (existing) {
-      return {
-        status: "duplicate",
-        playlistId,
-        playlistTitle: playlist.title,
-      };
-    }
-  }
+    return { status: "success" as const };
+  });
 
-  await appendTracksToUserPlaylistAtNextPositions({ playlistId, trackIds: [trackId] });
+  if (insertResult.status === "duplicate") {
+    return {
+      status: "duplicate",
+      playlistId,
+      playlistTitle: playlist.title,
+    };
+  }
 
   await bumpUserPlaylistUpdatedAt({ playlistId, userId });
 
