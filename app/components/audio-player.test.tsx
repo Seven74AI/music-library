@@ -1708,7 +1708,7 @@ test("gapless unlock handoff emits play_started with a distinct playId for the a
   expect(track2PlayId).not.toBe(track1PlayId);
 });
 
-test("repeat-one dedupes timeupdate wrap and ended firing in the same tick", async () => {
+test("repeat-one long track: ended then stale timeupdate then wrap counts one restart only", async () => {
   const user = userEvent.setup();
   mockPlay();
   vi.mocked(reportPlayEvent).mockClear();
@@ -1724,8 +1724,69 @@ test("repeat-one dedupes timeupdate wrap and ended firing in the same tick", asy
 
   setProgress(audioEl, 95, 100);
   fireEvent.timeUpdate(audioEl);
+  fireEvent.ended(audioEl);
+  fireEvent.timeUpdate(audioEl);
   setProgress(audioEl, 0.5, 100);
   fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(1);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(1);
+});
+
+test("repeat-one short track: two successive wraps each emit play_completed and play_started", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+  const initialStarted = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.filter(([type]) => type === "play_started").length;
+  expect(initialStarted).toBe(1);
+
+  setProgress(audioEl, 1.2, 1.5);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.5, 1.5);
+  fireEvent.timeUpdate(audioEl);
+
+  setProgress(audioEl, 1.2, 1.5);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.5, 1.5);
+  fireEvent.timeUpdate(audioEl);
+
+  const started = vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started");
+  const completed = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.filter(([type]) => type === "play_completed");
+  expect(started).toHaveLength(3);
+  expect(completed).toHaveLength(2);
+  expect(started.map((c) => c[2])).toEqual([...new Set(started.map((c) => c[2]))]);
+});
+
+test("repeat-one ended-only restart with no wrap still emits exactly one completed and started pair", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 100, 100);
   fireEvent.ended(audioEl);
 
   expect(
