@@ -12,6 +12,7 @@ import {
   persistSchedulerState,
   type PersistedSchedulerState,
 } from "./scheduler-state.server.ts";
+import { notifyBackupFailed } from "./notification.server.ts";
 
 const DEFAULT_HOUR_UTC = 3;
 export const BACKUP_SCHEDULER_MAX_ATTEMPTS = 3;
@@ -173,7 +174,13 @@ export async function processBackupSchedulerTick(options?: {
     }
   } catch (error) {
     console.error("Backup scheduler tick failed", error);
-    if (state.attemptsToday < BACKUP_SCHEDULER_MAX_ATTEMPTS) {
+    const attemptCount = state.attemptsToday + 1;
+    state.attemptsToday = attemptCount;
+    if (attemptCount >= BACKUP_SCHEDULER_MAX_ATTEMPTS) {
+      const message = error instanceof Error ? error.message : String(error);
+      void notifyBackupFailed(message, attemptCount);
+      state.nextRetryAt = null;
+    } else {
       state.nextRetryAt = now.getTime() + BACKUP_SCHEDULER_RETRY_DELAY_MS;
     }
     if (!options?.skipPersistence) {

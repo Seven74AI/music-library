@@ -1,6 +1,7 @@
 import { Prisma } from "#prisma/client.js";
 import { normalizeGenreName, parseGenreString } from "#app/utils/genre-migration.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 export type GenreRef = {
   id: string;
@@ -73,8 +74,17 @@ export async function resolveOrderedGenresFromNames(
         select: { id: true, name: true },
       });
       genres.push(created);
-    } catch {
-      return { ok: false };
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        const winner = await prisma.genre.findFirst({
+          where: { normalizedName },
+          select: { id: true, name: true },
+        });
+        if (!winner) throw error;
+        genres.push(winner);
+        continue;
+      }
+      throw error;
     }
   }
   return { ok: true, genres };

@@ -406,7 +406,22 @@ describe("processQueueTick", () => {
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPersistTrackAudio).toHaveBeenCalled();
+      expect(mockPersistTrackAudio).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trackId: "track-keep",
+          serviceName: "youtube",
+          metadata: expect.objectContaining({
+            format: "mp3",
+            mimeType: "audio/mpeg",
+          }),
+        }),
+      );
+      const persistArgs = mockPersistTrackAudio.mock.calls[0]![0] as {
+        metadata: Record<string, unknown>;
+      };
+      expect(persistArgs.metadata).not.toHaveProperty("title");
+      expect(persistArgs.metadata).not.toHaveProperty("duration");
+      expect(mockPrisma.track.update).not.toHaveBeenCalled();
     });
 
     it("completes the job when persistTrackAudio succeeds", async () => {
