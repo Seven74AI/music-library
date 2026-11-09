@@ -3,7 +3,7 @@ import { coverImageUrl, trackThumbnailPixelSizes } from "#app/utils/cover-image-
 import { cacheCoverImage } from "./cover-cache.client.ts";
 import { createMemoryOfflineAudioStore, type OfflineAudioStore } from "./memory-audio-store.ts";
 import { getOfflineMetadataStore } from "./metadata-store.client.ts";
-import { offlineAudioOpfsPath } from "./offline-audio-path.ts";
+import { offlineAudioOpfsPath, offlineAudioStagingTrackId } from "./offline-audio-path.ts";
 import { getOfflineAudioFormat, mimeTypeForAudioFormat } from "./offline-track-summary.client.ts";
 import {
   createOpfsOfflineAudioStore,
@@ -151,8 +151,9 @@ export function createOfflineStorage(
 
     const existing = await metadataStore.get(track.id);
     const audioFormat = getOfflineAudioFormat(track);
+    const stagingTrackId = offlineAudioStagingTrackId(track.id);
 
-    await audioStore.write(track.id, buffer, audioFormat);
+    await audioStore.write(stagingTrackId, buffer, audioFormat);
 
     try {
       if (existing) {
@@ -167,23 +168,21 @@ export function createOfflineStorage(
             audioFormat,
           }),
         );
-        return;
+      } else {
+        await metadataStore.put(
+          toOfflineTrackRecord(track, {
+            opfsPath: offlineAudioOpfsPath(track.id, audioFormat),
+            fileSizeBytes,
+            isPinned: options.pin,
+            isQueueCached: options.queue,
+            playlistId: options.playlistId,
+            audioFormat,
+          }),
+        );
       }
-
-      await metadataStore.put(
-        toOfflineTrackRecord(track, {
-          opfsPath: offlineAudioOpfsPath(track.id, audioFormat),
-          fileSizeBytes,
-          isPinned: options.pin,
-          isQueueCached: options.queue,
-          playlistId: options.playlistId,
-          audioFormat,
-        }),
-      );
+      await audioStore.commitStagingWrite(stagingTrackId, track.id, audioFormat);
     } catch (error) {
-      if (!existing) {
-        await audioStore.delete(track.id, audioFormat);
-      }
+      await audioStore.delete(stagingTrackId, audioFormat);
       throw error;
     }
   }

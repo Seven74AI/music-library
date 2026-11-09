@@ -64,6 +64,8 @@ describe("createOfflineStorage", () => {
     await storage.downloadTrack(track, { pin: true });
     const before = await metadataStore.get(track.id);
     expect(before).toBeTruthy();
+    const originalBytes = await audioStore.read(track.id, "mp3");
+    expect(originalBytes).not.toBeNull();
 
     vi.spyOn(metadataStore, "put").mockRejectedValue(new Error("metadata update failed"));
 
@@ -78,6 +80,8 @@ describe("createOfflineStorage", () => {
     ).rejects.toThrow();
 
     expect(await audioStore.has(track.id, "mp3")).toBe(true);
+    const afterBytes = await audioStore.read(track.id, "mp3");
+    expect(new Uint8Array(afterBytes!)).toEqual(new Uint8Array(originalBytes!));
     expect(await metadataStore.get(track.id)).toEqual(before);
   });
 

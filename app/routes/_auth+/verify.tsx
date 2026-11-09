@@ -2,6 +2,8 @@ import { getFormProps, getInputProps, useForm } from "@conform-to/react";
 import { getZodConstraint, parseWithZod } from "@conform-to/zod/v4";
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
 import { Form, useSearchParams } from "react-router";
+import { authSessionStorage } from "#app/utils/session.server.ts";
+import { combineResponseInits } from "#app/utils/misc.tsx";
 import { z } from "zod";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { ErrorList, OTPField } from "#app/components/forms.tsx";
@@ -10,7 +12,12 @@ import { Spacer } from "#app/components/spacer.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
 import { checkHoneypot } from "#app/utils/honeypot.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
-import { getVerifySearchParam } from "#app/utils/sensitive-url-scrub.client.ts";
+import {
+  clearPendingVerification,
+  getPendingVerification,
+  handleVerifyLoader,
+  mergePendingVerificationIntoFormData,
+} from "./verify-pending.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/verify.ts";
 import { validateRequest } from "./verify.server.ts";
@@ -24,7 +31,7 @@ export const targetQueryParam = "target";
 export const typeQueryParam = "type";
 export const redirectToQueryParam = "redirectTo";
 const types = ["onboarding", "reset-password", "change-email", "2fa"] as const;
-const VerificationTypeSchema = z.enum(types);
+export const VerificationTypeSchema = z.enum(types);
 export type VerificationTypes = z.infer<typeof VerificationTypeSchema>;
 
 export const VerifySchema = z.object({
@@ -34,20 +41,42 @@ export const VerifySchema = z.object({
   [redirectToQueryParam]: z.string().optional(),
 });
 
+export async function loader({ request }: Route.LoaderArgs) {
+  return handleVerifyLoader(request);
+}
+
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   await checkHoneypot(formData);
-  return validateRequest(request, formData);
+  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
+  const pending = getPendingVerification(authSession);
+  if (pending) {
+    mergePendingVerificationIntoFormData(formData, pending);
+  }
+  const response = await validateRequest(request, formData);
+  if (response instanceof Response && response.status >= 300 && response.status < 400) {
+    clearPendingVerification(authSession);
+    return new Response(
+      response.body,
+      combineResponseInits(response, {
+        headers: {
+          "Set-Cookie": await authSessionStorage.commitSession(authSession),
+        },
+      }),
+    );
+  }
+  return response;
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
 }
 
-export default function VerifyRoute({ actionData }: Route.ComponentProps) {
+export default function VerifyRoute({ actionData, loaderData }: Route.ComponentProps) {
   const [searchParams] = useSearchParams();
   const isPending = useIsPending();
-  const typeParam = getVerifySearchParam(typeQueryParam, searchParams);
+  const pending = loaderData.pendingVerification;
+  const typeParam = pending?.type ?? searchParams.get(typeQueryParam);
   const parseWithZoddType = VerificationTypeSchema.safeParse(typeParam);
   const type = parseWithZoddType.success ? parseWithZoddType.data : null;
 
@@ -82,10 +111,10 @@ export default function VerifyRoute({ actionData }: Route.ComponentProps) {
       return parseWithZod(formData, { schema: VerifySchema });
     },
     defaultValue: {
-      code: getVerifySearchParam(codeQueryParam, searchParams) ?? undefined,
+      code: pending?.code ?? undefined,
       type: type,
-      target: getVerifySearchParam(targetQueryParam, searchParams) ?? undefined,
-      redirectTo: getVerifySearchParam(redirectToQueryParam, searchParams) ?? undefined,
+      target: pending?.target ?? searchParams.get(targetQueryParam) ?? undefined,
+      redirectTo: pending?.redirectTo ?? searchParams.get(redirectToQueryParam) ?? undefined,
     },
   });
 

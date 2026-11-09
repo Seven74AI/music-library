@@ -2,7 +2,8 @@ import { type OfflineAudioStore } from "./memory-audio-store.ts";
 
 type WorkerRequest = {
   type: string;
-  trackId: string;
+  trackId?: string;
+  stagingTrackId?: string;
   buffer?: ArrayBuffer;
   format?: string | null;
 };
@@ -55,6 +56,15 @@ export function createOpfsOfflineAudioStore(): OfflineAudioStore {
     async write(trackId, data, format) {
       const response = await callWorker({ type: "write", trackId, buffer: data, format });
       if (!response.ok) throw new Error("write failed");
+    },
+    async commitStagingWrite(stagingTrackId, trackId, format) {
+      const response = await callWorker({
+        type: "commitStaging",
+        stagingTrackId,
+        trackId,
+        format,
+      });
+      if (!response.ok) throw new Error("commitStaging failed");
     },
     async read(trackId, format) {
       const response = await callWorker({ type: "read", trackId, format });

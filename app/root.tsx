@@ -59,7 +59,6 @@ import { type Theme, getTheme } from "./utils/theme.server.ts";
 import { makeTimings, time } from "./utils/timing.server.ts";
 import { getToast } from "./utils/toast.server.ts";
 import { useOptionalUser } from "./utils/user.ts";
-import { buildSensitiveUrlScrubInlineScript } from "./utils/sensitive-url-query-params.shared.ts";
 
 // Lazy-loaded components — reduces initial bundle by deferring non-critical UI
 // UserDropdown: ~87KB (dropdown-menu 66KB + select 21KB from Radix primitives)
@@ -217,11 +216,6 @@ function Document({
   return (
     <html lang="en" className={`${theme} h-full overflow-x-hidden`}>
       <head>
-        <script
-          // Synchronous: strip OTP/OAuth params from the URL before Sentry replay snapshots.
-          suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: buildSensitiveUrlScrubInlineScript() }}
-        />
         <ClientHintCheck nonce={nonce} />
         <Meta />
         <meta charSet="utf-8" />

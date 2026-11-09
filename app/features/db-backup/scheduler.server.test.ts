@@ -92,6 +92,7 @@ test("scheduler runs once per day and retries on failure then notifies on last a
   });
 
   // Exhausted
+  mockNotifyBackupFailed.mockClear();
   await processBackupSchedulerTick({
     now: new Date(t0.getTime() + 3 * BACKUP_SCHEDULER_RETRY_DELAY_MS + 1),
     skipPrimaryCheck: true,
@@ -99,6 +100,43 @@ test("scheduler runs once per day and retries on failure then notifies on last a
     run,
   });
   expect(run).toHaveBeenCalledTimes(3);
+  expect(mockNotifyBackupFailed).not.toHaveBeenCalled();
+});
+
+test("after attempt cap, further ticks do not run backup or notify", async () => {
+  process.env.BACKUP_BUCKET_NAME = "b";
+  process.env.BACKUP_HOUR_UTC = "3";
+  resetBackupSchedulerStateForTests();
+  mockNotifyBackupFailed.mockClear();
+
+  const run = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, error: "fail-1" })
+    .mockResolvedValueOnce({ ok: false, error: "fail-2" })
+    .mockResolvedValueOnce({ ok: false, error: "fail-3" });
+
+  const t0 = new Date("2026-09-28T03:00:00.000Z");
+  for (let i = 0; i < 3; i++) {
+    await processBackupSchedulerTick({
+      now: new Date(t0.getTime() + i * BACKUP_SCHEDULER_RETRY_DELAY_MS + (i === 0 ? 0 : 1)),
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+  }
+  expect(run).toHaveBeenCalledTimes(3);
+
+  mockNotifyBackupFailed.mockClear();
+  run.mockClear();
+
+  await processBackupSchedulerTick({
+    now: new Date(t0.getTime() + 4 * BACKUP_SCHEDULER_RETRY_DELAY_MS),
+    skipPrimaryCheck: true,
+    skipPersistence: true,
+    run,
+  });
+  expect(run).not.toHaveBeenCalled();
+  expect(mockNotifyBackupFailed).not.toHaveBeenCalled();
 });
 
 test("scheduler stops after success for the UTC day", async () => {

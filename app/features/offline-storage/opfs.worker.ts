@@ -9,7 +9,14 @@ type WorkerRequest =
   | { id: number; type: "write"; trackId: string; buffer: ArrayBuffer; format?: string | null }
   | { id: number; type: "read"; trackId: string; format?: string | null }
   | { id: number; type: "delete"; trackId: string; format?: string | null }
-  | { id: number; type: "has"; trackId: string; format?: string | null };
+  | { id: number; type: "has"; trackId: string; format?: string | null }
+  | {
+      id: number;
+      type: "commitStaging";
+      stagingTrackId: string;
+      trackId: string;
+      format?: string | null;
+    };
 
 type WorkerResponse =
   | { id: number; ok: true; buffer?: ArrayBuffer; exists?: boolean; supported?: boolean }
@@ -59,6 +66,16 @@ async function deleteTrack(trackId: string, format: string | null | undefined) {
   await deleteOfflineAudioEntry(root, trackId, format);
 }
 
+async function commitStagingWrite(
+  stagingTrackId: string,
+  trackId: string,
+  format: string | null | undefined,
+) {
+  const buffer = await readTrack(stagingTrackId, format);
+  await writeTrack(trackId, buffer, format);
+  await deleteTrack(stagingTrackId, format);
+}
+
 async function hasTrack(trackId: string, format: string | null | undefined) {
   try {
     await getFileHandle(trackId, format, false);
@@ -98,6 +115,10 @@ self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
           self.postMessage({ id: message.id, ok: true, exists } satisfies WorkerResponse);
           break;
         }
+        case "commitStaging":
+          await commitStagingWrite(message.stagingTrackId, message.trackId, message.format);
+          self.postMessage({ id: message.id, ok: true } satisfies WorkerResponse);
+          break;
         default:
           throw new Error("Unknown worker message");
       }

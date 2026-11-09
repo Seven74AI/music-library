@@ -1,7 +1,5 @@
 export const SENSITIVE_URL_QUERY_PARAMS = ["code", "state", "target"] as const;
 
-export const SENSITIVE_URL_SESSION_STORAGE_KEY = "__SENSITIVE_PARAMS__";
-
 export function stripSensitiveUrlQueryParams(href: string): string {
   try {
     const parsed = new URL(href, "http://localhost");
@@ -44,11 +42,4 @@ export function stripSensitiveUrlQueryParams(href: string): string {
     if (hashStart >= 0) end = Math.min(end, hashStart);
     return href.slice(0, end);
   }
-}
-
-/** Inline script for document `<head>` — must live outside `.client` modules for SSR. */
-export function buildSensitiveUrlScrubInlineScript(): string {
-  const sensitiveKeysJson = JSON.stringify([...SENSITIVE_URL_QUERY_PARAMS]);
-  const storageKey = JSON.stringify(SENSITIVE_URL_SESSION_STORAGE_KEY);
-  return `(function(){try{var sensitive=${sensitiveKeysJson};var search=window.location.search;if(!search||search==="?")return;var params=new URLSearchParams(search);var hasSensitive=false;for(var i=0;i<sensitive.length;i++){if(params.has(sensitive[i])){hasSensitive=true;break;}}if(!hasSensitive)return;var stored={};params.forEach(function(v,k){stored[k]=v;});window.__SENSITIVE_PARAMS__=stored;try{sessionStorage.setItem(${storageKey},JSON.stringify(stored));}catch(e){}history.replaceState(history.state,"",window.location.pathname);}catch(e){}})();`;
 }
