@@ -21,7 +21,7 @@ import { isCurrentHost, splitRoomQueue } from "#app/features/party-room/index.ts
 import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
 import { type RoomSnapshot } from "#app/features/party-room/types.ts";
 import { type SearchResponse, type SearchResult, isSearchResponse } from "#app/types/search.ts";
-import { getUserId } from "#app/utils/auth.server.ts";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { cn } from "#app/utils/misc.tsx";
 import { type Route } from "./+types/search.ts";
@@ -93,9 +93,11 @@ const TYPE_FILTERS = [
 ] as const;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const userId = await getUserId(request);
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
+  const loaderHeaders = staleCookie ? { headers: { "set-cookie": staleCookie } } : undefined;
   if (!userId) {
-    return data({ playlists: [] });
+    return data({ playlists: [] }, loaderHeaders);
   }
 
   const playlists = await prisma.userPlaylist.findMany({
@@ -111,7 +113,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     orderBy: { updatedAt: "desc" },
   });
 
-  return data({ playlists });
+  return data({ playlists }, loaderHeaders);
 }
 
 export default function SearchPage() {

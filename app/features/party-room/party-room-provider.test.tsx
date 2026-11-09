@@ -256,8 +256,12 @@ function RoomProbe() {
       <button type="button" onClick={() => void party.create().catch(() => {})}>
         Create
       </button>
+      <button type="button" onClick={() => void party.refresh()}>
+        Refresh
+      </button>
       <span data-testid="qr">{party.room?.qrDataUrl ?? ""}</span>
       <span data-testid="version">{String(party.room?.roomVersion ?? "")}</span>
+      <span data-testid="playing">{party.room?.playback.isPlaying ? "yes" : "no"}</span>
       <span data-testid="error">{party.error ?? ""}</span>
       <span data-testid="api">{party.apiUnavailable ? "yes" : "no"}</span>
       <span data-testid="code">{party.room?.code ?? ""}</span>
@@ -280,6 +284,64 @@ describe("PartyRoomProvider join errors and QR", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     sessionStorage.clear();
+  });
+
+  it("ignores a stale current-room refresh after a newer SSE snapshot", async () => {
+    let releaseStaleRefresh: () => void = () => {};
+    const staleRefreshGate = new Promise<void>((resolve) => {
+      releaseStaleRefresh = resolve;
+    });
+    let currentCalls = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/current")) {
+        currentCalls += 1;
+        if (currentCalls === 1) {
+          return jsonResponse(roomPayload({ roomVersion: 1, isPlaying: true }));
+        }
+        await staleRefreshGate;
+        return jsonResponse(roomPayload({ roomVersion: 2, isPlaying: true }));
+      }
+      return jsonResponse({}, init?.method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <RoomProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("version").textContent).toBe("1");
+      expect(MockEventSource.latest?.onmessage).toBeTypeOf("function");
+    });
+
+    await import("./api.client.ts");
+
+    await act(async () => {
+      MockEventSource.latest!.onmessage!({
+        data: JSON.stringify({
+          type: "room_snapshot",
+          room: roomPayload({ roomVersion: 3, isPlaying: false }),
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("version").textContent).toBe("3");
+      expect(screen.getByTestId("playing").textContent).toBe("no");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    releaseStaleRefresh();
+
+    await waitFor(() => {
+      expect(currentCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(screen.getByTestId("version").textContent).toBe("3");
+    expect(screen.getByTestId("playing").textContent).toBe("no");
   });
 
   it("keeps qrDataUrl when a later snapshot omits it", async () => {

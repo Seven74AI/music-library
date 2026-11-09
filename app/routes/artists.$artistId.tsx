@@ -13,7 +13,7 @@ import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { getArtistTracksPage } from "#app/features/artist/artist-tracks.server.ts";
-import { getUserId } from "#app/utils/auth.server.ts";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { getArtistTitle } from "#app/utils/breadcrumb-utils.ts";
 import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { prisma } from "#app/utils/db.server.ts";
@@ -54,7 +54,9 @@ async function resolvePublicArtistId(startId: string): Promise<string> {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const userId = await getUserId(request);
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
+  const loaderHeaders = staleCookie ? { headers: { "set-cookie": staleCookie } } : undefined;
   const canonicalId = await resolvePublicArtistId(params.artistId);
   if (canonicalId !== params.artistId) {
     throw redirect(`/artists/${canonicalId}`);
@@ -97,12 +99,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     loadUserPlaylists(userId),
   ]);
 
-  return data({
-    artist: { ...artistData, trackCount: _count.tracks },
-    initialTracks: tracks,
-    pagination,
-    playlists,
-  });
+  return data(
+    {
+      artist: { ...artistData, trackCount: _count.tracks },
+      initialTracks: tracks,
+      pagination,
+      playlists,
+    },
+    loaderHeaders,
+  );
 }
 
 function formatArtistSummary(albumCount: number, trackCount: number) {

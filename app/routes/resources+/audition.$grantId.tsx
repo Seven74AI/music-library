@@ -51,5 +51,5 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     return serveLocalAudioFile(localFilePath, audioFile, request, "private, no-store");
   }
 
-  return serveStorageAudioFile(audioFile.objectKey, audioFile, request, "private, no-store");
+  return await serveStorageAudioFile(audioFile.objectKey, audioFile, request, "private, no-store");
 }

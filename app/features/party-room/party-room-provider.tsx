@@ -169,24 +169,33 @@ export function PartyRoomProvider({
   const roomCodeRef = useRef<string | null>(null);
   const qrByCodeRef = useRef<{ code: string; qrDataUrl: string } | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const roomVersionRef = useRef(0);
 
   const applyRoom = useCallback((next: RoomSnapshot | null) => {
-    let snapshot = next;
-    if (!snapshot) {
+    if (!next) {
+      roomVersionRef.current = 0;
       qrByCodeRef.current = null;
       setQrLoadError(null);
-    } else if (snapshot.qrDataUrl) {
-      qrByCodeRef.current = { code: snapshot.code, qrDataUrl: snapshot.qrDataUrl };
-      setQrLoadError(null);
-    } else if (qrByCodeRef.current?.code === snapshot.code) {
-      snapshot = { ...snapshot, qrDataUrl: qrByCodeRef.current.qrDataUrl };
-      setQrLoadError(null);
-    } else {
-      qrByCodeRef.current = null;
+      setRoom(null);
+      roomCodeRef.current = null;
+      return;
     }
 
     setRoom((prev) => {
-      if (!snapshot) return null;
+      const appliedVersion = Math.max(roomVersionRef.current, prev?.roomVersion ?? 0);
+      if (next.roomVersion < appliedVersion) return prev;
+      roomVersionRef.current = next.roomVersion;
+
+      let snapshot = next;
+      if (!snapshot.qrDataUrl) {
+        if (qrByCodeRef.current?.code === snapshot.code) {
+          snapshot = { ...snapshot, qrDataUrl: qrByCodeRef.current.qrDataUrl };
+        } else if (prev?.qrDataUrl && prev.code === snapshot.code) {
+          snapshot = { ...snapshot, qrDataUrl: prev.qrDataUrl };
+          qrByCodeRef.current = { code: snapshot.code, qrDataUrl: prev.qrDataUrl };
+        }
+      }
+
       // SSE / shared snapshots often omit `me`. Keep the local seat when still present.
       if (!snapshot.me && prev?.me) {
         const stillHere = snapshot.participants.find((p) => p.id === prev.me!.id);
@@ -203,8 +212,20 @@ export function PartyRoomProvider({
       }
       return snapshot;
     });
-    roomCodeRef.current = snapshot?.code ?? null;
-    if (snapshot?.code) writeActiveRoomCode(snapshot.code);
+
+    if (roomVersionRef.current !== next.roomVersion) return;
+
+    if (next.qrDataUrl) {
+      qrByCodeRef.current = { code: next.code, qrDataUrl: next.qrDataUrl };
+      setQrLoadError(null);
+    } else if (qrByCodeRef.current?.code === next.code) {
+      setQrLoadError(null);
+    } else {
+      qrByCodeRef.current = null;
+    }
+
+    roomCodeRef.current = next.code;
+    writeActiveRoomCode(next.code);
   }, []);
 
   const ensureQr = useCallback(async (snapshot: RoomSnapshot) => {
