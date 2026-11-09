@@ -95,6 +95,8 @@ interface AudioPlayerContextType {
   isPlayerVisible: boolean;
   playlist: Track[];
   upNext: Track[];
+  /** How many leading Up Next rows came from Play next (FIFO play-next prefix). */
+  upNextPlayNextCount: number;
   spine: Track[];
   spineTotal: number;
   spinePosition: number;
@@ -1032,6 +1034,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         let fullTrack: FullTrack | null = null;
         let playedTarget: QueueTarget | null = null;
         let attempts = 0;
+        let skippedPlayNextPrefix = 0;
+        const initialPlayNextCount = upNextPlayNextCountRef.current;
 
         while (attemptTarget && attempts < PLAYBACK_SPINE_SKIP_MAX) {
           attempts += 1;
@@ -1048,6 +1052,13 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             break;
           }
 
+          if (attemptTarget.zone === "upNext") {
+            const playNextCountAtSkip = Math.max(0, initialPlayNextCount - skippedPlayNextPrefix);
+            if (attemptTarget.index < playNextCountAtSkip) {
+              skippedPlayNextPrefix += 1;
+            }
+          }
+
           workingState = options.computeNextState(workingState, attemptTarget);
           attemptTarget = resolveNextTrack(workingState);
         }
@@ -1060,7 +1071,10 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         const nextState = options.computeNextState(workingState, playedTarget);
         setUpNext(nextState.upNext);
         if (playedTarget.zone === "upNext") {
-          const discard = options.discardPlayNextCount(playedTarget, upNextPlayNextCount);
+          const effectivePlayNextCount = Math.max(0, upNextPlayNextCount - skippedPlayNextPrefix);
+          const discard =
+            skippedPlayNextPrefix +
+            options.discardPlayNextCount(playedTarget, effectivePlayNextCount);
           if (discard > 0) {
             setUpNextPlayNextCount((count) => {
               const next = Math.max(0, count - discard);
@@ -1440,6 +1454,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       isPlayerVisible,
       playlist,
       upNext: upNextView,
+      upNextPlayNextCount,
       spine: spineView,
       spineTotal,
       spinePosition,
@@ -1486,6 +1501,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       isPlayerVisible,
       playlist,
       upNextView,
+      upNextPlayNextCount,
       spineView,
       spineTotal,
       spinePosition,

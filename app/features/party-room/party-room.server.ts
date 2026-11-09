@@ -523,24 +523,15 @@ export async function claimOpenGuestSeatForUser({
       if (userOpen.id === guestSeat.id) {
         return userOpen;
       }
-      return userOpen.roomId === guestSeat.roomId ? userOpen : null;
-    }
-
-    const seatedElsewhere = await tx.roomParticipant.findFirst({
-      where: {
-        userId,
-        leftAt: null,
-        room: { status: ROOM_STATUS.open },
-        NOT: { id: guestSeat.id },
-      },
-      select: { id: true },
-    });
-    if (seatedElsewhere) {
-      throw new PartyRoomError(
-        "already_in_room",
-        "Leave your current room before joining another",
-        409,
-      );
+      if (userOpen.roomId !== guestSeat.roomId) {
+        throw new PartyRoomError(
+          "already_in_room",
+          "Leave your current room before joining another",
+          409,
+        );
+      }
+      await vacateParticipantSeatInTx(tx, guestSeat.id, guestSeat.roomId, now);
+      return userOpen;
     }
 
     const leftover = await tx.roomParticipant.findFirst({

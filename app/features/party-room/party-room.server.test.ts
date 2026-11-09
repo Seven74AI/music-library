@@ -330,6 +330,40 @@ describe("party-room lifecycle", () => {
     );
   });
 
+  test("claiming a guest seat while already seated in the same room vacates the guest seat", async () => {
+    const host = await makeUser("Host");
+    const member = await makeUser("Member");
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const guest = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Walkup" },
+    });
+
+    await joinRoom({
+      code: room.code,
+      actor: { type: "user", userId: member.id, displayName: "Member" },
+    });
+
+    await claimOpenGuestSeatForUser({
+      userId: member.id,
+      guestToken: guest.guestToken!,
+      roomId: room.id,
+    });
+
+    const openForMember = await prisma.roomParticipant.findMany({
+      where: { roomId: room.id, leftAt: null, userId: member.id },
+      select: { id: true },
+    });
+    expect(openForMember).toHaveLength(1);
+
+    const guestSeat = await prisma.roomParticipant.findUnique({
+      where: { id: guest.participant.id },
+      select: { leftAt: true, guestTokenHash: true },
+    });
+    expect(guestSeat?.leftAt).not.toBeNull();
+    expect(guestSeat?.guestTokenHash).not.toBeNull();
+  });
+
   test("login can claim a guest host seat in a full room", async () => {
     const host = await makeUser("Host");
     const room = await createRoom({ userId: host.id, displayName: "Host" });
