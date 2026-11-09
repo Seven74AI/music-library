@@ -3,6 +3,8 @@ import { type QueueTrack } from "#app/types/frontend/shared.ts";
 import {
   advanceAfterPlay,
   getQueueSpineDisplayTracks,
+  queueSpineDisplayIncludesHead,
+  spineOrderIndexFromDisplayIndex,
   getSpinePlayOrder,
   getUpcomingSpinePlayOrder,
   hasNextTrack,
@@ -395,5 +397,26 @@ describe("getQueueSpineDisplayTracks", () => {
       "s2",
       "s3",
     ]);
+  });
+});
+
+describe("spineOrderIndexFromDisplayIndex", () => {
+  test("maps display rows to spine order when the list includes the head", () => {
+    expect(spineOrderIndexFromDisplayIndex(2, 0, queueSpineDisplayIncludesHead(true, false))).toBe(
+      2,
+    );
+    expect(spineOrderIndexFromDisplayIndex(2, 1, true)).toBe(3);
+  });
+
+  test("skips the head row when only upcoming spine tracks are shown", () => {
+    expect(spineOrderIndexFromDisplayIndex(0, 0, queueSpineDisplayIncludesHead(true, true))).toBe(
+      1,
+    );
+  });
+
+  test("includes spine position when nothing is playing", () => {
+    expect(spineOrderIndexFromDisplayIndex(1, 0, queueSpineDisplayIncludesHead(false, true))).toBe(
+      1,
+    );
   });
 });

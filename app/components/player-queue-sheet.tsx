@@ -25,6 +25,10 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "#app/components/ui/sheet";
+import {
+  queueSpineDisplayIncludesHead,
+  spineOrderIndexFromDisplayIndex,
+} from "#app/features/queue/queue-navigation.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
 
 type Track = FullTrack;
@@ -226,6 +230,7 @@ function QueueSheet({
     spine,
     spineTotal,
     spinePosition,
+    audibleSourceZone,
     currentTrack,
     playContext,
     removeTrackFromPlaylist,
@@ -257,6 +262,11 @@ function QueueSheet({
   const sheetTitle = formatQueueSheetTitle(upNext.length, spineTotal, spineLabel);
   const spineHeading = getSpineSectionHeading(playContext);
   const isEmpty = !currentTrack && upNext.length === 0 && spine.length === 0 && spineTotal === 0;
+  const audibleIsSpineHead = currentTrack !== null && audibleSourceZone === "spine";
+  const spineDisplayIncludesHead = queueSpineDisplayIncludesHead(
+    currentTrack !== null,
+    audibleIsSpineHead,
+  );
 
   const removeUpNextTrack = useCallback(
     (index: number) => {
@@ -269,10 +279,14 @@ function QueueSheet({
     (displayIndex: number) => {
       removeTrackFromPlaylist({
         zone: "spine",
-        index: spinePosition + 1 + displayIndex,
+        index: spineOrderIndexFromDisplayIndex(
+          spinePosition,
+          displayIndex,
+          spineDisplayIncludesHead,
+        ),
       });
     },
-    [removeTrackFromPlaylist, spinePosition],
+    [removeTrackFromPlaylist, spineDisplayIncludesHead, spinePosition],
   );
 
   const playUpNextTrack = useCallback(
@@ -284,9 +298,16 @@ function QueueSheet({
 
   const playSpineTrack = useCallback(
     (displayIndex: number) => {
-      playQueueTrack({ zone: "spine", index: spinePosition + 1 + displayIndex });
+      playQueueTrack({
+        zone: "spine",
+        index: spineOrderIndexFromDisplayIndex(
+          spinePosition,
+          displayIndex,
+          spineDisplayIncludesHead,
+        ),
+      });
     },
-    [playQueueTrack, spinePosition],
+    [playQueueTrack, spineDisplayIncludesHead, spinePosition],
   );
 
   const removeCurrentTrack = useCallback(() => {

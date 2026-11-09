@@ -37,7 +37,6 @@ import {
   flatIndexForSpinePosition,
   getTrackAtTarget,
   getQueueSpineDisplayTracks,
-  isAudibleTrackSpineHead,
   hasNextTrack,
   hasPreviousTrack,
   jumpToTarget,
@@ -47,6 +46,7 @@ import {
   type LoopMode,
   type QueueNavigationState,
   type QueueTarget,
+  type QueueZone,
 } from "#app/features/queue/queue-navigation.ts";
 import {
   createShuffledOrder,
@@ -126,6 +126,8 @@ interface AudioPlayerContextType {
   spine: Track[];
   spineTotal: number;
   spinePosition: number;
+  /** Queue zone the current audible track was started from (spine vs up next). */
+  audibleSourceZone: QueueZone | null;
   currentIndex: number;
   playContext: PlaylistContext | null;
   loopMode: LoopMode;
@@ -237,6 +239,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const [isLoadingNext, setIsLoadingNext] = useState(false);
   const [playbackToken, setPlaybackToken] = useState(0);
   const [cacheVersion, setCacheVersion] = useState(0);
+  const [audibleSourceZone, setAudibleSourceZone] = useState<QueueZone | null>(null);
+  const audibleSourceZoneRef = useRef<QueueZone | null>(null);
   const [roomSpeaker, setRoomSpeaker] = useState<{ roomId: string; code: string } | null>(null);
   const [roomPlaying, setRoomPlaying] = useState<boolean | null>(null);
   const [roomPlaybackTick, setRoomPlaybackTick] = useState(0);
@@ -391,8 +395,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     return resolveFullTracks(playbackCacheRef.current, upNext);
   }, [upNext, cacheVersion]);
 
-  const audibleIsSpineHead =
-    currentTrack !== null && isAudibleTrackSpineHead(navigationState, currentTrack.id);
+  const audibleIsSpineHead = currentTrack !== null && audibleSourceZone === "spine";
 
   const spineView = useMemo(() => {
     void cacheVersion;
@@ -455,6 +458,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     setSpineTotal(0);
     setSpineOrder([]);
     setSpinePosition(0);
+    audibleSourceZoneRef.current = null;
+    setAudibleSourceZone(null);
     playbackCacheRef.current.clear();
     setCacheVersion((version) => version + 1);
     // Cancel any pending scroll hydration from the old queue
@@ -475,6 +480,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         upNextPlayNextCount?: number;
         playContext?: PlaylistContext | null;
         isPlayerVisible?: boolean;
+        audibleSourceZone?: QueueZone | null;
       },
       effects?: {
         armAutoplay?: boolean;
@@ -518,6 +524,13 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       }
       if (patch.track !== undefined) {
         setCurrentTrack(patch.track);
+        if (patch.audibleSourceZone !== undefined) {
+          audibleSourceZoneRef.current = patch.audibleSourceZone;
+          setAudibleSourceZone(patch.audibleSourceZone);
+        } else if (patch.track === null) {
+          audibleSourceZoneRef.current = null;
+          setAudibleSourceZone(null);
+        }
       }
 
       if (effects?.armAutoplay) {
@@ -729,6 +742,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
               upNextPlayNextCount: 0,
               playContext: context,
               isPlayerVisible: true,
+              audibleSourceZone: "spine",
             },
             {
               armAutoplay: true,
@@ -811,6 +825,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         upNextPlayNextCount?: number;
         playNextCountDiscard?: number;
         navigationScope?: NavigationCommitScope;
+        audibleSourceZone?: QueueZone;
         /** Recompute queue navigation from the latest committed state at commit time. */
         applyNavigation?: (latest: QueueNavigationState) => QueueNavigationState;
       },
@@ -859,6 +874,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         navigation: navigationForCommit(),
         spineTotal: options.spineTotal,
         upNextPlayNextCount: resolveUpNextPlayNextCount(),
+        audibleSourceZone: options.audibleSourceZone,
       });
       const commitEffects = (extra?: { armAutoplay?: boolean; bumpPlaybackToken?: boolean }) => ({
         ...extra,
@@ -976,6 +992,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             upNextPlayNextCount: 0,
             playContext: context,
             isPlayerVisible: true,
+            audibleSourceZone: "spine",
           },
           {
             armAutoplay: true,
@@ -1041,6 +1058,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             upNextPlayNextCount: 0,
             playContext: context,
             isPlayerVisible: true,
+            audibleSourceZone: "spine",
           },
           {
             armAutoplay: true,
@@ -1192,6 +1210,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           spineTotal: Math.max(0, spineTotal - 1),
           playNextCountDiscard: playNextDiscard > 0 ? playNextDiscard : undefined,
           navigationScope: "full",
+          audibleSourceZone: result.consumedUpNextIndex !== null ? "upNext" : "spine",
         });
         return;
       }
@@ -1214,15 +1233,18 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     if (roomSpeakerRef.current) return;
     if (!currentTrack) return;
 
-    const upNextIndex = upNext.findIndex((track) => track.id === currentTrack.id);
-    if (upNextIndex >= 0) {
-      removeTrackFromPlaylist({ zone: "upNext", index: upNextIndex });
-      return;
-    }
-
-    if (findSpinePositionForTrackId(navigationState, currentTrack.id) === spinePosition) {
-      removeTrackFromPlaylist({ zone: "spine", index: spinePosition });
-      return;
+    const sourceZone = audibleSourceZoneRef.current;
+    if (sourceZone === "upNext") {
+      const upNextIndex = upNext.findIndex((track) => track.id === currentTrack.id);
+      if (upNextIndex >= 0) {
+        removeTrackFromPlaylist({ zone: "upNext", index: upNextIndex });
+        return;
+      }
+    } else if (sourceZone === "spine") {
+      if (findSpinePositionForTrackId(navigationState, currentTrack.id) === spinePosition) {
+        removeTrackFromPlaylist({ zone: "spine", index: spinePosition });
+        return;
+      }
     }
 
     const navigationEpoch = ++queueJumpEpochRef.current;
@@ -1241,6 +1263,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         applyNavigation: (latest) => advanceAfterPlay(latest, nextTarget),
         playNextCountDiscard: playNextDiscard > 0 ? playNextDiscard : undefined,
         navigationScope: "position",
+        audibleSourceZone: nextTarget.zone,
       });
       return;
     }
@@ -1283,6 +1306,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
       rememberTrack(track);
       wantsAutoPlayRef.current = false;
+      audibleSourceZoneRef.current = null;
+      setAudibleSourceZone(null);
       setCurrentTrack(track);
       setIsPlayerVisible(true);
     },
@@ -1452,6 +1477,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             track: fullTrack,
             upNextPlayNextCount: nextPlayNextCount,
             isPlayerVisible: true,
+            audibleSourceZone: playedTarget.zone,
           },
           {
             navigationScope: "position",
@@ -1518,7 +1544,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       index: spinePosition,
     });
     if (queueTrack) {
-      void playResolvedTrack(queueTrack, { navigationEpoch });
+      void playResolvedTrack(queueTrack, { navigationEpoch, audibleSourceZone: "spine" });
     }
   }, [
     advanceToTarget,
@@ -1532,8 +1558,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const playPrevious = useCallback(() => {
     if (roomSpeakerRef.current) return;
     const target = resolvePreviousTrack(navigationState, {
-      audibleIsSpineHead:
-        currentTrack === null || isAudibleTrackSpineHead(navigationState, currentTrack.id),
+      audibleIsSpineHead: currentTrack === null || audibleSourceZone === "spine",
     });
     if (!target) return;
 
@@ -1546,8 +1571,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       navigationEpoch: jumpEpoch,
       navigation: { ...navigationState, spinePosition: target.index },
       navigationScope: "spine-position",
+      audibleSourceZone: "spine",
     });
-  }, [navigationState, playResolvedTrack, currentTrack]);
+  }, [audibleSourceZone, navigationState, playResolvedTrack, currentTrack]);
 
   const toggleLoop = useCallback(() => {
     setLoopMode((prev) => {
@@ -1605,8 +1631,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     getTrackAtTarget(navigationState, { zone: "spine", index: spinePosition }) !== null;
   const hasNext = hasNextTrack(navigationState);
   const hasPrevious = hasPreviousTrack(navigationState, {
-    audibleIsSpineHead:
-      currentTrack === null || isAudibleTrackSpineHead(navigationState, currentTrack.id),
+    audibleIsSpineHead: currentTrack === null || audibleSourceZone === "spine",
   });
 
   const currentTrackId = currentTrack?.id;
@@ -1664,6 +1689,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     persistenceSuspendedRef.current = true;
   }, []);
 
+  const evictRoomSpeakerHydrationStubs = useCallback(async () => {
+    const evicted = playbackCacheRef.current.evictRoomSpeakerStubs();
+    if (evicted.length === 0) return;
+    setCacheVersion((version) => version + 1);
+  }, []);
+
   const resumePersonalPersistence = useCallback(() => {
     // Leave persistence suspended until the personal snapshot is applied.
     // Clearing it here would let this render's room queue be saved as PlayerState.
@@ -1673,7 +1704,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     roomOnEndedRef.current = null;
     setRoomSpeaker(null);
     setRoomPlaying(null);
-  }, []);
+    void evictRoomSpeakerHydrationStubs();
+  }, [evictRoomSpeakerHydrationStubs]);
 
   const releasePersonalPersistence = useCallback(() => {
     queueMicrotask(() => {
@@ -1696,6 +1728,16 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       // roomPlayEventTargetRef stays set until restore completes so play events
       // still route to the room while room audio may be playing.
       try {
+        const evicted = playbackCacheRef.current.evictRoomSpeakerStubs();
+        if (evicted.length > 0) {
+          setCacheVersion((version) => version + 1);
+          try {
+            await hydratePlaybackCacheInBatches(playbackCacheRef.current, evicted);
+            setCacheVersion((version) => version + 1);
+          } catch (error) {
+            console.error("Failed to refetch tracks after leaving room speaker:", error);
+          }
+        }
         let nextSnapshot = hasPersistableQueue(snapshot)
           ? snapshot
           : deferredPersonalRestoreRef.current;
@@ -1835,6 +1877,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       spine: spineView,
       spineTotal,
       spinePosition,
+      audibleSourceZone,
       currentIndex,
       playContext,
       loopMode,
@@ -1885,6 +1928,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       spineView,
       spineTotal,
       spinePosition,
+      audibleSourceZone,
       currentIndex,
       playContext,
       loopMode,
@@ -2034,7 +2078,17 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           },
           currentFullTrack.id,
         );
-        if (position !== null) setSpinePosition(position);
+        if (position !== null) {
+          setSpinePosition(position);
+          audibleSourceZoneRef.current = "spine";
+          setAudibleSourceZone("spine");
+        } else if (resolvedUpNext.some((track) => track.id === currentFullTrack.id)) {
+          audibleSourceZoneRef.current = "upNext";
+          setAudibleSourceZone("upNext");
+        } else {
+          audibleSourceZoneRef.current = null;
+          setAudibleSourceZone(null);
+        }
 
         setCurrentTrack(currentFullTrack);
         setCacheVersion((version) => version + 1);

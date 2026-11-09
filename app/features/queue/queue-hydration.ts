@@ -9,6 +9,13 @@ import { fullTrackStubFromQueueTrack } from "./queue-spine.ts";
 
 export const PLAYBACK_LOOKAHEAD = 4;
 
+export function isRoomSpeakerHydrationStub(track: FullTrack): boolean {
+  return (
+    track.artist.id === "room-artist" &&
+    (track.audioFiles?.some((file) => file.objectKey === "room") ?? false)
+  );
+}
+
 export type PlaybackBatchResponse = {
   tracks: FullTrack[];
 };
@@ -46,6 +53,18 @@ export class PlaybackHydrationCache {
 
   clear(): void {
     this.cache.clear();
+  }
+
+  /** Drop room-speaker synthetic FullTracks so catalog hydration can refetch. */
+  evictRoomSpeakerStubs(): string[] {
+    const evicted: string[] = [];
+    for (const [id, track] of this.cache) {
+      if (isRoomSpeakerHydrationStub(track)) {
+        this.cache.delete(id);
+        evicted.push(id);
+      }
+    }
+    return evicted;
   }
 
   toMap(): Map<string, FullTrack> {
@@ -111,6 +130,7 @@ export function collectHydrationIds(
 export function collectQueueDisplayHydrationIds(
   state: QueueNavigationState,
   currentTrackId: string | null,
+  options?: { audibleIsSpineHead?: boolean },
 ): string[] {
   const ids: string[] = [];
 
@@ -121,7 +141,8 @@ export function collectQueueDisplayHydrationIds(
   }
 
   const audibleIsSpineHead =
-    currentTrackId !== null && isAudibleTrackSpineHead(state, currentTrackId);
+    options?.audibleIsSpineHead ??
+    (currentTrackId !== null && isAudibleTrackSpineHead(state, currentTrackId));
   for (const track of getQueueSpineDisplayTracks(
     state,
     currentTrackId !== null,

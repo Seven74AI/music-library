@@ -5118,3 +5118,177 @@ test("play next during slow removeTrackFromPlaylist successor hydration survives
   });
   expect(screen.getByTestId("up-next-has-pnc").textContent).toBe("true");
 });
+
+test("remove current while playing the spine head removes spine not play-next duplicate", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE)) {
+      return Promise.resolve({ status: 204, ok: true, json: async () => null } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: [spineTrack], total: 1 }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: [playableTrack] }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function Probe() {
+    const { playTrack, playNextTrack, removeCurrentFromQueue, audibleSourceZone } =
+      useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play spine
+        </button>
+        <button type="button" onClick={() => playNextTrack(playableTrack)}>
+          Play next duplicate
+        </button>
+        <button type="button" onClick={() => removeCurrentFromQueue()}>
+          Remove current
+        </button>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play spine" }));
+  await user.click(screen.getByRole("button", { name: "Play next duplicate" }));
+  await user.click(screen.getByRole("button", { name: "Remove current" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("audible-zone").textContent).toBe("upNext");
+  });
+});
+
+test("leaving room speaker refetches catalog tracks evicted from the hydration cache", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const sharedId = "shared-catalog-track";
+  const roomStub: FullTrack = {
+    ...playableTrack,
+    id: sharedId,
+    title: "Room Title",
+    artist: { id: "room-artist", name: "Room Artist" },
+    audioFiles: [{ id: "room-af", format: "mp3", objectKey: "room" }],
+  };
+  const catalogTrack: FullTrack = {
+    ...playableTrack,
+    id: sharedId,
+    title: "Catalog Title",
+    artist: { id: "artist-catalog", name: "Catalog Artist" },
+  };
+  const savedPlayerState = {
+    playContext: { type: "library" as const },
+    currentTrackId: sharedId,
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off" as const,
+  };
+
+  fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE) && (!init?.method || init.method === "GET")) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => savedPlayerState,
+      } as Response);
+    }
+    if (url.includes(PLAYER_STATE_ROUTE) && init?.method === "PUT") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: [], total: 0 }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: ids.includes(sharedId) ? [catalogTrack] : [],
+        }),
+      } as Response);
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    } as Response);
+  });
+
+  function Probe() {
+    const audio = useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            audio.suspendPersonalPersistence();
+            audio.syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: roomStub,
+              upcoming: [roomStub],
+            });
+          }}
+        >
+          Enter speaker
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            audio.resumePersonalPersistence();
+            void audio.restorePersonalPlayerSnapshot(savedPlayerState, true);
+          }}
+        >
+          Leave speaker
+        </button>
+        <span data-testid="current-artist-id">{audio.currentTrack?.artist.id ?? ""}</span>
+        <span data-testid="current-title">{audio.currentTrack?.title ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Enter speaker" }));
+  expect(screen.getByTestId("current-artist-id").textContent).toBe("room-artist");
+
+  await user.click(screen.getByRole("button", { name: "Leave speaker" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-artist-id").textContent).toBe("artist-catalog");
+  });
+  expect(screen.getByTestId("current-title").textContent).toBe("Catalog Title");
+  const refetchCalls = fetchMock.mock.calls.filter((call) =>
+    String(call[0]).includes("/api/tracks/playback"),
+  );
+  expect(refetchCalls.some((call) => String(call[0]).includes(sharedId))).toBe(true);
+});
