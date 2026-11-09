@@ -52,7 +52,11 @@ describe("handleVerifyLoader", () => {
     const clean = new Request("http://localhost/verify", {
       headers: { cookie: setCookie! },
     });
-    const data = await handleVerifyLoader(clean);
+    const loaderResult = await handleVerifyLoader(clean);
+    const data =
+      loaderResult && typeof loaderResult === "object" && "data" in loaderResult
+        ? (loaderResult as { data: { pendingVerification: unknown } }).data
+        : loaderResult;
     expect(data.pendingVerification).toEqual({
       code: "111111",
       type: "2fa",

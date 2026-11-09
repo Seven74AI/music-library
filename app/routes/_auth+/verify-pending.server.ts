@@ -1,4 +1,4 @@
-import { redirect } from "react-router";
+import { data, redirect } from "react-router";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import {
   VerificationTypeSchema,
@@ -55,7 +55,7 @@ export function mergePendingVerificationIntoFormData(
   formData: FormData,
   pending: PendingVerification,
 ): void {
-  formData.set(codeQueryParam, pending.code);
+  // Type/target/redirectTo are not trustworthy from hidden fields; code comes from the OTP input.
   formData.set(typeQueryParam, pending.type);
   formData.set(targetQueryParam, pending.target);
   if (pending.redirectTo) {
@@ -66,6 +66,8 @@ export function mergePendingVerificationIntoFormData(
 export async function handleVerifyLoader(request: Request) {
   const url = new URL(request.url);
   const session = await authSessionStorage.getSession(request.headers.get("cookie"));
+
+  let commitSession = false;
 
   if (url.searchParams.has(codeQueryParam)) {
     const typeResult = VerificationTypeSchema.safeParse(url.searchParams.get(typeQueryParam));
@@ -79,15 +81,35 @@ export async function handleVerifyLoader(request: Request) {
         target,
         redirectTo,
       });
+      commitSession = true;
     }
     throw redirect("/verify", {
-      headers: {
-        "Set-Cookie": await authSessionStorage.commitSession(session),
-      },
+      headers: commitSession
+        ? {
+            "Set-Cookie": await authSessionStorage.commitSession(session),
+          }
+        : undefined,
     });
   }
 
-  return {
-    pendingVerification: getPendingVerification(session),
-  };
+  // Signup / forgot-password send users here with type+target only — drop stale OTP-in-URL session.
+  if (url.searchParams.has(typeQueryParam) && session.has(pendingVerificationSessionKey)) {
+    clearPendingVerification(session);
+    commitSession = true;
+  }
+
+  const pendingVerification = getPendingVerification(session);
+
+  if (commitSession) {
+    return data(
+      { pendingVerification },
+      {
+        headers: {
+          "Set-Cookie": await authSessionStorage.commitSession(session),
+        },
+      },
+    );
+  }
+
+  return data({ pendingVerification });
 }

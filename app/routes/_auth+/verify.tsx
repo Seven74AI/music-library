@@ -1,7 +1,8 @@
+import { invariant } from "@epic-web/invariant";
 import { getFormProps, getInputProps, useForm } from "@conform-to/react";
 import { getZodConstraint, parseWithZod } from "@conform-to/zod/v4";
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
-import { Form, useSearchParams } from "react-router";
+import { Form, redirect, useSearchParams } from "react-router";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { combineResponseInits } from "#app/utils/misc.tsx";
 import { z } from "zod";
@@ -56,8 +57,10 @@ export async function action({ request }: Route.ActionArgs) {
   const response = await validateRequest(request, formData);
   if (response instanceof Response && response.status >= 300 && response.status < 400) {
     clearPendingVerification(authSession);
-    return new Response(
-      response.body,
+    const location = response.headers.get("Location");
+    invariant(location, "Expected redirect Location header");
+    return redirect(
+      location,
       combineResponseInits(response, {
         headers: {
           "Set-Cookie": await authSessionStorage.commitSession(authSession),

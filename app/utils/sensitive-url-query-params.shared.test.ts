@@ -1,15 +1,20 @@
 import { describe, expect, test } from "vitest";
 import {
   SENSITIVE_URL_QUERY_PARAMS,
-  buildSensitiveUrlScrubInlineScript,
+  stripSensitiveUrlQueryParams,
 } from "./sensitive-url-query-params.shared.ts";
 
-describe("buildSensitiveUrlScrubInlineScript", () => {
-  test("returns an IIFE string that references all sensitive query param keys", () => {
-    const script = buildSensitiveUrlScrubInlineScript();
-    expect(script.startsWith("(function(){")).toBe(true);
+describe("stripSensitiveUrlQueryParams", () => {
+  test("removes sensitive query keys from verify URLs", () => {
+    const scrubbed = stripSensitiveUrlQueryParams(
+      "/verify?code=654321&type=onboarding&target=user-1&foo=bar",
+    );
+    expect(scrubbed).not.toContain("code=");
+    expect(scrubbed).not.toContain("target=");
+    expect(scrubbed).toContain("type=onboarding");
+    expect(scrubbed).toContain("foo=bar");
     for (const key of SENSITIVE_URL_QUERY_PARAMS) {
-      expect(script).toContain(JSON.stringify(key));
+      expect(scrubbed).not.toContain(`${key}=`);
     }
   });
 });

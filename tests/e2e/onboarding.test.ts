@@ -65,7 +65,12 @@ test("onboarding with link", { tag: "@slow" }, async ({ page, navigate, getOnboa
   invariant(onboardingUrl, "Onboarding URL not found");
   await navigate(onboardingUrl);
 
-  await expect(page).toHaveURL(/\/verify/);
+  await expect(page).toHaveURL(/\/verify(?:\?|$)/);
+
+  const codeMatch = email.text.match(CODE_REGEX);
+  const code = codeMatch?.groups?.code;
+  invariant(code, "Onboarding code not found");
+  await page.getByRole("textbox", { name: /code/i }).fill(code);
 
   await page
     .getByRole("main")
