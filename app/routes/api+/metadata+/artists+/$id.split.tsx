@@ -8,7 +8,13 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  findWriteBlockedLock,
+  getLockStatus,
+  type LockInfo,
+} from "#app/utils/locks.server.ts";
 import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/$id.split.ts";
@@ -88,9 +94,22 @@ export async function action({ request, params }: Route.ActionArgs) {
     );
   }
 
+  const artistLock = await getLockStatus("artist", artistId);
+  const trackLocks: Array<{ entityId: string; lock: LockInfo | null }> = await Promise.all(
+    trackIds.map(async (entityId) => ({
+      entityId,
+      lock: await getLockStatus("track", entityId),
+    })),
+  );
+
   try {
     // Perform split in transaction
     const result = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "artist", artistId, userId, artistLock);
+      for (const { entityId, lock } of trackLocks) {
+        await assertEditLockInTransaction(tx, "track", entityId, userId, lock);
+      }
+
       // Create audit entry before split
       await tx.artistEdit.create({
         data: {
@@ -155,6 +174,16 @@ export async function action({ request, params }: Route.ActionArgs) {
       tracksUpdated: result.tracksUpdated,
     });
   } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      const message =
+        error.violation.kind === "other"
+          ? `${error.violation.lockedByName} is currently editing this entity`
+          : "Your edit lock is no longer active";
+      throw new Response(JSON.stringify({ error: "Locked", message }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     console.error("Error splitting artist:", error);
     throw new Response("Failed to split artist", { status: 500 });
   }

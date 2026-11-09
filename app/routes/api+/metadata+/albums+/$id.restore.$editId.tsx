@@ -1,7 +1,12 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
-import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  findWriteBlockedLock,
+  getLockStatus,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/$id.restore.$editId.ts";
@@ -107,47 +112,76 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Artist from restored version no longer exists" }, { status: 404 });
   }
 
-  // Perform restore: create history entry with current state, then update album
-  const result = await prisma.$transaction(async (tx) => {
-    // Create history entry with current state (before restore)
-    const editEntry = await tx.albumEdit.create({
-      data: {
-        albumId: album.id,
-        editedBy: userId,
-        comment: `Restore to version ${editId}: ${comment}`,
-        // Snapshot current state
-        name: album.name,
-        artistId: album.artistId,
-        year: album.year,
-        coverImageId: album.coverImageId,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            name: true,
+  const lock = await getLockStatus("album", albumId);
+
+  let result: {
+    album: Awaited<ReturnType<typeof prisma.album.update>>;
+    edit: Awaited<ReturnType<typeof prisma.albumEdit.create>>;
+  };
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "album", albumId, userId, lock);
+
+      // Create history entry with current state (before restore)
+      const editEntry = await tx.albumEdit.create({
+        data: {
+          albumId: album.id,
+          editedBy: userId,
+          comment: `Restore to version ${editId}: ${comment}`,
+          // Snapshot current state
+          name: album.name,
+          artistId: album.artistId,
+          year: album.year,
+          coverImageId: album.coverImageId,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              name: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    // Update album with restored data
-    const updatedAlbum = await tx.album.update({
-      where: { id: albumId },
-      data: {
-        name: editToRestore.name,
-        artistId: editToRestore.artistId,
-        year: editToRestore.year,
-        coverImageId: editToRestore.coverImageId,
-      },
-    });
+      // Update album with restored data
+      const updatedAlbum = await tx.album.update({
+        where: { id: albumId },
+        data: {
+          name: editToRestore.name,
+          artistId: editToRestore.artistId,
+          year: editToRestore.year,
+          coverImageId: editToRestore.coverImageId,
+        },
+      });
 
-    return {
-      album: updatedAlbum,
-      edit: editEntry,
-    };
-  });
+      return {
+        album: updatedAlbum,
+        edit: editEntry,
+      };
+    });
+  } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      if (error.violation.kind === "other") {
+        throw data(
+          {
+            error: "Locked",
+            message: `${error.violation.lockedByName} is currently editing this album`,
+          },
+          { status: 409 },
+        );
+      }
+      throw data(
+        {
+          error: "Locked",
+          message: "Your edit lock on this album is no longer active",
+        },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
   return data(result);
 }
