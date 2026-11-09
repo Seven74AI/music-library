@@ -72,6 +72,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       website: true,
       createdAt: true,
       albums: {
+        where: { mergedIntoId: null },
         select: {
           id: true,
           name: true,

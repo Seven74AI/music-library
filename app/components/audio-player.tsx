@@ -275,6 +275,12 @@ export function AudioPlayer(props: AudioPlayerProps) {
             .then(() => {
               setIsPlaying(true);
               keepPlayingRef.current = true;
+              if (playStartedForTrackRef.current !== trackId) {
+                playStartedForTrackRef.current = trackId;
+                playCompletedForTrackRef.current = null;
+                playIdRef.current = generatePlayId();
+                emitPlayEvent("play_started", trackId, playIdRef.current);
+              }
               // The audioSrc React state is intentionally not synced here to avoid
               // triggering a re-render that would reset the audio element mid-playback.
               // The state will naturally sync when the track fully loads via the effect.
@@ -300,7 +306,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         unlockAutoplayRef.current = null;
       }
     };
-  }, [unlockAutoplayRef, isMuted, volume]);
+  }, [unlockAutoplayRef, isMuted, volume, emitPlayEvent]);
 
   useEffect(() => {
     if (pausePlaybackRef) {

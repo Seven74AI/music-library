@@ -1631,6 +1631,36 @@ test("does not report play_completed twice when a track ends after passing halfw
   ).toHaveLength(1);
 });
 
+test("gapless unlock handoff emits play_started with a distinct playId for the advanced track", async () => {
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const unlockAutoplayRef: AudioPlayerTestProps["unlockAutoplayRef"] = { current: null };
+  const user = userEvent.setup();
+  await renderPlayer({ unlockAutoplayRef });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+  const track1PlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(track1PlayId).toBeTypeOf("string");
+
+  vi.mocked(reportPlayEvent).mockClear();
+  expect(unlockAutoplayRef.current?.("track-2", "https://cdn.example/track-2.mp3")).toBe(true);
+
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-2", expect.any(String));
+  });
+  const track2PlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(track2PlayId).toBeTypeOf("string");
+  expect(track2PlayId).not.toBe(track1PlayId);
+});
+
 test("correlates a track's play_started and play_completed with the same playId", async () => {
   const user = userEvent.setup();
   mockPlay();
