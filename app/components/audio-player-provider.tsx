@@ -1001,6 +1001,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           target: QueueTarget,
         ) => QueueNavigationState;
         discardPlayNextCount: (target: QueueTarget, playNextCount: number) => number;
+        /** When computeNextState drops through the skipped index in one step (jump). */
+        playNextPrefixRemovedOnSkip?: (target: QueueTarget, playNextCount: number) => number;
       },
     ) => {
       if (roomSpeakerRef.current) return;
@@ -1054,9 +1056,10 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
           if (attemptTarget.zone === "upNext") {
             const playNextCountAtSkip = Math.max(0, initialPlayNextCount - skippedPlayNextPrefix);
-            if (attemptTarget.index < playNextCountAtSkip) {
-              skippedPlayNextPrefix += 1;
-            }
+            const removed =
+              options.playNextPrefixRemovedOnSkip?.(attemptTarget, playNextCountAtSkip) ??
+              (attemptTarget.index < playNextCountAtSkip ? 1 : 0);
+            skippedPlayNextPrefix += removed;
           }
 
           workingState = options.computeNextState(workingState, attemptTarget);
@@ -1070,18 +1073,18 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
         const nextState = options.computeNextState(workingState, playedTarget);
         setUpNext(nextState.upNext);
-        if (playedTarget.zone === "upNext") {
-          const effectivePlayNextCount = Math.max(0, upNextPlayNextCount - skippedPlayNextPrefix);
-          const discard =
-            skippedPlayNextPrefix +
-            options.discardPlayNextCount(playedTarget, effectivePlayNextCount);
-          if (discard > 0) {
-            setUpNextPlayNextCount((count) => {
-              const next = Math.max(0, count - discard);
-              upNextPlayNextCountRef.current = next;
-              return next;
-            });
-          }
+        const effectivePlayNextCount = Math.max(0, upNextPlayNextCount - skippedPlayNextPrefix);
+        const discard =
+          skippedPlayNextPrefix +
+          (playedTarget.zone === "upNext"
+            ? options.discardPlayNextCount(playedTarget, effectivePlayNextCount)
+            : 0);
+        if (discard > 0) {
+          setUpNextPlayNextCount((count) => {
+            const next = Math.max(0, count - discard);
+            upNextPlayNextCountRef.current = next;
+            return next;
+          });
         }
         setSpinePosition(nextState.spinePosition);
 
@@ -1133,6 +1136,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         noteMutation: true,
         computeNextState: jumpToTarget,
         discardPlayNextCount: (t, playNextCount) =>
+          t.zone === "upNext" ? Math.min(t.index + 1, playNextCount) : 0,
+        playNextPrefixRemovedOnSkip: (t, playNextCount) =>
           t.zone === "upNext" ? Math.min(t.index + 1, playNextCount) : 0,
       });
     },
