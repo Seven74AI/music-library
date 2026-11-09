@@ -64,6 +64,8 @@ function buildUserTrackAccessWhere(userId: string) {
       {
         servicePlaylistTracks: {
           some: {
+            isDeleted: false,
+            deletedAt: null,
             playlist: {
               ownerId: userId,
               isActive: true,

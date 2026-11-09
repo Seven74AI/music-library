@@ -180,6 +180,8 @@ model Verification {
   charSet   String
   /// When it's safe to delete this verification
   expiresAt DateTime?
+  /// Pending email address for change-email verifications (set at request time).
+  pendingEmail String?
 
   @@unique([target, type])
 }

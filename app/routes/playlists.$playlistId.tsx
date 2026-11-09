@@ -205,7 +205,20 @@ function isTrackOrderData(value: unknown): value is TrackOrderEntry[] {
     }
   }
   const positions = value.map((entry) => (entry as { position: number }).position);
-  return new Set(positions).size === value.length;
+  if (new Set(positions).size !== value.length) return false;
+  const ids = value.map((entry) => (entry as { id: string }).id);
+  return new Set(ids).size === value.length;
+}
+
+function sortedStringArray(values: string[]) {
+  return [...values].sort();
+}
+
+function areSameStringSets(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+  const sortedA = sortedStringArray(a);
+  const sortedB = sortedStringArray(b);
+  return sortedA.every((value, index) => value === sortedB[index]);
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -360,6 +373,31 @@ export async function action({ request, params }: Route.ActionArgs) {
     // payload must not be able to write negative/duplicate positions to the
     // caller's own playlist.
     if (!isTrackOrderData(parsed)) {
+      return data(
+        { error: "Invalid track order data" },
+        {
+          status: 400,
+          headers: await createToastHeaders({
+            title: "Error",
+            description: "Invalid track order data",
+            type: "error",
+          }),
+        },
+      );
+    }
+
+    const playlistTracks = await prisma.userPlaylistTrack.findMany({
+      where: {
+        playlist: {
+          id: params.playlistId,
+          ownerId: userId,
+        },
+      },
+      select: { id: true },
+    });
+    const playlistTrackIds = playlistTracks.map((track) => track.id);
+    const payloadTrackIds = parsed.map((entry) => entry.id);
+    if (!areSameStringSets(playlistTrackIds, payloadTrackIds)) {
       return data(
         { error: "Invalid track order data" },
         {
