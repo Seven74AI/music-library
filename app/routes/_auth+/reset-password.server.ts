@@ -1,8 +1,12 @@
 import { invariant } from "@epic-web/invariant";
 import { data, redirect } from "react-router";
 import { prisma } from "#app/utils/db.server.ts";
+import { createPasswordResetGrantForUser } from "#app/utils/password-reset-grant.server.ts";
 import { verifySessionStorage } from "#app/utils/verification.server.ts";
-import { resetPasswordUsernameSessionKey } from "./reset-password.tsx";
+import {
+  resetPasswordGrantTokenSessionKey,
+  resetPasswordUsernameSessionKey,
+} from "./reset-password.tsx";
 import { type VerifyFunctionArgs } from "./verify.server.ts";
 
 export async function handleVerification({ submission }: VerifyFunctionArgs) {
@@ -10,7 +14,7 @@ export async function handleVerification({ submission }: VerifyFunctionArgs) {
   const target = submission.value.target;
   const user = await prisma.user.findFirst({
     where: { OR: [{ email: target }, { username: target }] },
-    select: { email: true, username: true },
+    select: { id: true, email: true, username: true },
   });
   // we don't want to say the user is not found if the email is not found
   // because that would allow an attacker to check if an email is registered
@@ -21,8 +25,11 @@ export async function handleVerification({ submission }: VerifyFunctionArgs) {
     );
   }
 
+  const { token: grantToken } = await createPasswordResetGrantForUser(user.id);
+
   const verifySession = await verifySessionStorage.getSession();
   verifySession.set(resetPasswordUsernameSessionKey, user.username);
+  verifySession.set(resetPasswordGrantTokenSessionKey, grantToken);
   return redirect("/reset-password", {
     headers: {
       "set-cookie": await verifySessionStorage.commitSession(verifySession),

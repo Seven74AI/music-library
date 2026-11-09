@@ -177,9 +177,11 @@ export async function login({
 export async function resetUserPassword({
   username,
   password,
+  grantToken,
 }: {
   username: User["username"];
   password: string;
+  grantToken: string;
 }) {
   const hashedPassword = await getPasswordHash(password);
 
@@ -193,9 +195,27 @@ export async function resetUserPassword({
     throw new Error("User not found");
   }
 
-  // Rotate the password AND invalidate every existing session in a single
-  // transaction, so a stolen session cookie does not survive a password reset.
+  const { hashPasswordResetGrantToken, InvalidPasswordResetGrantError } =
+    await import("#app/utils/password-reset-grant.server.ts");
+  const tokenHash = hashPasswordResetGrantToken(grantToken);
+
+  // Rotate the password, consume the one-time reset grant, and invalidate every
+  // existing session in a single transaction.
   return prisma.$transaction(async ($tx) => {
+    const grant = await $tx.passwordResetGrant.findUnique({
+      where: { tokenHash },
+      select: { id: true, userId: true, expiresAt: true },
+    });
+    if (!grant || grant.userId !== user.id || grant.expiresAt <= new Date()) {
+      throw new InvalidPasswordResetGrantError();
+    }
+    const consumed = await $tx.passwordResetGrant.deleteMany({
+      where: { id: grant.id, userId: user.id },
+    });
+    if (consumed.count !== 1) {
+      throw new InvalidPasswordResetGrantError();
+    }
+
     await $tx.session.deleteMany({ where: { userId: user.id } });
     return $tx.password.upsert({
       where: { userId: user.id },

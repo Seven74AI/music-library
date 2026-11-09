@@ -25,26 +25,32 @@ export const handle: SEOHandle = {
 };
 
 export const resetPasswordUsernameSessionKey = "resetPasswordUsername";
+export const resetPasswordGrantTokenSessionKey = "resetPasswordGrantToken";
 
 const ResetPasswordSchema = PasswordAndConfirmPasswordSchema;
 
-async function requireResetPasswordUsername(request: Request) {
+async function requireResetPasswordSession(request: Request) {
   await requireAnonymous(request);
   const verifySession = await verifySessionStorage.getSession(request.headers.get("cookie"));
   const resetPasswordUsername = verifySession.get(resetPasswordUsernameSessionKey);
+  const resetPasswordGrantToken = verifySession.get(resetPasswordGrantTokenSessionKey);
   if (typeof resetPasswordUsername !== "string" || !resetPasswordUsername) {
     throw redirect("/login");
   }
-  return resetPasswordUsername;
+  if (typeof resetPasswordGrantToken !== "string" || !resetPasswordGrantToken) {
+    throw redirect("/login");
+  }
+  return { username: resetPasswordUsername, grantToken: resetPasswordGrantToken };
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const resetPasswordUsername = await requireResetPasswordUsername(request);
+  const { username: resetPasswordUsername } = await requireResetPasswordSession(request);
   return { resetPasswordUsername };
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const resetPasswordUsername = await requireResetPasswordUsername(request);
+  const { username: resetPasswordUsername, grantToken } =
+    await requireResetPasswordSession(request);
   const formData = await request.formData();
   const submission = await parseWithZod(formData, {
     schema: ResetPasswordSchema.superRefine(async ({ password }, ctx) => {
@@ -67,7 +73,28 @@ export async function action({ request }: Route.ActionArgs) {
   }
   const { password } = submission.value;
 
-  const updatedPassword = await resetUserPassword({ username: resetPasswordUsername, password });
+  const { InvalidPasswordResetGrantError } =
+    await import("#app/utils/password-reset-grant.server.ts");
+  let updatedPassword;
+  try {
+    updatedPassword = await resetUserPassword({
+      username: resetPasswordUsername,
+      password,
+      grantToken,
+    });
+  } catch (error) {
+    if (error instanceof InvalidPasswordResetGrantError) {
+      return data(
+        {
+          result: submission.reply({
+            formErrors: ["This password reset link has already been used or has expired."],
+          }),
+        },
+        { status: 400 },
+      );
+    }
+    throw error;
+  }
   await recordSecurityEvent({
     request,
     eventType: SECURITY_EVENT_TYPES.passwordReset,
@@ -75,7 +102,7 @@ export async function action({ request }: Route.ActionArgs) {
     targetUserId: updatedPassword.userId,
     metadata: { username: resetPasswordUsername },
   });
-  const verifySession = await verifySessionStorage.getSession();
+  const verifySession = await verifySessionStorage.getSession(request.headers.get("cookie"));
   return redirect("/login", {
     headers: {
       "set-cookie": await verifySessionStorage.destroySession(verifySession),
