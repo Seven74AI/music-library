@@ -577,11 +577,11 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     async (context: PlaylistContext): Promise<{ tracks: QueueTrack[]; total: number }> => {
       const spineContext = toQueueSpineContext(context);
 
-      if (isOfflineEnvironment() && !isOnline) {
+      if (!isOnline || isOfflineEnvironment()) {
         return buildOfflineSpine(context, { libraryUsesDownloads: true });
       }
 
-      if (isOnline && !isOfflineEnvironment() && spineContext) {
+      if (isOnline && spineContext) {
         try {
           const result = await fetchQueueSpine(spineContext);
           if (result.tracks.length > 0) return result;
@@ -650,6 +650,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             return false;
           }
         }
+
+        if (fetchEpoch !== playlistFetchEpochRef.current) return false;
 
         const needsQueueReset = Boolean(playContext && !isSamePlayContext(playContext, context));
 

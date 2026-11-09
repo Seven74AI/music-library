@@ -203,6 +203,9 @@ test.describe("Offline mode", () => {
     // Stay on the playlist page so offline spine uses listForPlaylist(playlistId).
     await page.context().setOffline(true);
     await dispatchOffline(page);
+    await expect(page.getByRole("status").getByText(/You're offline/i)).toBeVisible({
+      timeout: 10000,
+    });
 
     await trackRow.click();
 
