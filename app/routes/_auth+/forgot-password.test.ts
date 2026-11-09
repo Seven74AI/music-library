@@ -152,8 +152,9 @@ describe("forgot password action", () => {
     expect(email.to).toBe(user.email);
     expect(email.subject).toMatch(/password reset/i);
     expect(email.text).toMatch(/verification code/i);
-    const code = email.text.match(/code=([A-Z0-9]+)/)?.[1];
+    const code = email.text.match(/Here's your verification code: (?<code>[\d\w]+)/)?.groups?.code;
     expect(code).toBeTruthy();
+    expect(email.text).not.toMatch(/code=[A-Z0-9]+/);
     expect(response.headers.get("location")).not.toContain(`code=${code}`);
 
     expect(await verificationCount()).toBe(before + 1);
