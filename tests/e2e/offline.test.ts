@@ -194,26 +194,17 @@ test.describe("Offline mode", () => {
     });
     await page.waitForTimeout(1500);
 
-    // Navigate to library to play while offline
-    await page.goto("/library", { timeout: 30000 });
-    await page.waitForLoadState("domcontentloaded", { timeout: 15000 });
-
     const trackRow = page.getByRole("listitem", {
       name: /Offline Playback Track by Offline Artist/i,
     });
     await trackRow.scrollIntoViewIfNeeded();
     await expect(trackRow).toBeVisible({ timeout: 10000 });
 
-    // Go offline using Playwright context (block network + sync React online state)
+    // Stay on the playlist page so offline spine uses listForPlaylist(playlistId).
     await page.context().setOffline(true);
     await dispatchOffline(page);
 
-    // Click the track to play it while offline
-    await page
-      .getByRole("listitem", {
-        name: /Offline Playback Track by Offline Artist/i,
-      })
-      .click();
+    await trackRow.click();
 
     // Verify the player bar appears with track info
     const playerBar = page.locator(
