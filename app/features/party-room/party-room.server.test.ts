@@ -1377,6 +1377,41 @@ describe("party-room lifecycle", () => {
     expect(snapshot?.participants).toHaveLength(1);
   });
 
+  test("kicked reclaim holder cannot reclaim host after rejoining", async () => {
+    const hostUser = await makeUser("Original");
+    const room = await createRoom({ userId: hostUser.id, displayName: "Original" });
+    const creatorSeatId = room.participants[0]!.id;
+
+    const standIn = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "StandIn" },
+    });
+
+    await agePastGrace(creatorSeatId);
+    await becomeHost({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: standIn.guestToken! },
+    });
+    expect(reclaimSeatId(await loadRoom(room.id))).toBe(creatorSeatId);
+
+    await kickParticipant({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: standIn.guestToken! },
+      targetParticipantId: creatorSeatId,
+    });
+    expect(reclaimSeatId(await loadRoom(room.id))).toBe(standIn.participant.id);
+
+    const rejoined = await joinRoom({
+      code: room.code,
+      actor: { type: "user", userId: hostUser.id, displayName: "Original" },
+    });
+    expect(rejoined.participant.id).toBe(creatorSeatId);
+
+    await expect(
+      reclaimHost({ roomId: room.id, actor: { type: "user", userId: hostUser.id } }),
+    ).rejects.toMatchObject({ code: "not_original_host" });
+  });
+
   test("queue row keeps the adder display name after the host kicks them", async () => {
     const host = await makeUser("Host");
     const room = await createRoom({

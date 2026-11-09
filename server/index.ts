@@ -15,6 +15,7 @@ import {
   mutationRateLimitTier,
 } from "../app/utils/mutation-rate-limit.ts";
 import { createRouterLoadContext } from "../app/utils/router-context.server.ts";
+import { requestUrlForAccessLog } from "./request-log-url.ts";
 
 const MODE = process.env.NODE_ENV ?? "development";
 const IS_PROD = MODE === "production";
@@ -129,13 +130,7 @@ app.get(["/img/{*imgPath}", "/favicons/{*favPath}"], (_req, res) => {
   return res.status(404).send("Not found");
 });
 
-morgan.token("url", (req) => {
-  try {
-    return decodeURIComponent(req.url ?? "");
-  } catch {
-    return req.url ?? "";
-  }
-});
+morgan.token("url", (req) => requestUrlForAccessLog(req.url));
 app.use(
   morgan("tiny", {
     skip: (req, res) =>
