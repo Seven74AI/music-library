@@ -111,12 +111,7 @@ export const offlineClientMiddleware: MiddlewareFunction<
         const shell = rootResult.result as OfflineRootShell;
         persistOfflineRootShell({
           user: shell.user,
-          requestInfo: {
-            ...shell.requestInfo,
-            userPrefs: {
-              theme: shell.requestInfo.userPrefs.theme ?? "light",
-            },
-          },
+          requestInfo: shell.requestInfo,
           ENV: shell.ENV,
         });
       } catch (error) {

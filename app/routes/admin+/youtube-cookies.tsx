@@ -127,7 +127,6 @@ export async function action({ request }: Route.ActionArgs) {
     cookiesImported: cookies.length,
     parseErrors,
     recordId: record.id,
-    fileWritten: true,
     resetJobs,
   });
 }
@@ -150,7 +149,6 @@ export default function YoutubeCookiesAdminRoute({ loaderData }: Route.Component
             {actionData.parseErrors > 0
               ? ` (${actionData.parseErrors} line${actionData.parseErrors !== 1 ? "s" : ""} skipped)`
               : ""}
-            {actionData.fileWritten === false ? " Warning: cookies were not written to disk." : ""}
           </AlertDescription>
         </Alert>
       ) : null}

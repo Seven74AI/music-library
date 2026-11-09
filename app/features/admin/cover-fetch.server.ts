@@ -212,10 +212,13 @@ export async function retryFetchCover(
       trackId: track.id,
     });
 
-    await prisma.track.update({
-      where: { id: track.id },
+    const assigned = await prisma.track.updateMany({
+      where: { id: track.id, coverImageId: null },
       data: { coverImageId: coverImage.id },
     });
+    if (assigned.count === 0) {
+      return { success: true };
+    }
 
     if (track.albumId) {
       const album = await prisma.album.findUnique({
@@ -299,9 +302,10 @@ export async function uploadAlbumCover(
   }
 
   try {
+    // Do not pass albumId. findOrCreateCoverImage reuses an album's current
+    // cover and would drop the file chosen on this upload.
     const coverImage = await findOrCreateCoverImage({
       imageBuffer,
-      albumId: album.id,
     });
 
     await prisma.album.update({

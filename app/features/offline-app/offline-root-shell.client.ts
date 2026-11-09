@@ -47,6 +47,18 @@ export function persistOfflineRootShell(data: {
   );
 }
 
+/** Mirrors `useTheme` / `useOptionalTheme`: preference, else client color-scheme hint. */
+export function resolveOfflineEffectiveTheme(requestInfo: {
+  userPrefs: OfflineRootShell["requestInfo"]["userPrefs"];
+  hints: OfflineRootShell["requestInfo"]["hints"];
+}): "light" | "dark" | null {
+  const preference = requestInfo.userPrefs.theme;
+  if (preference === "light" || preference === "dark") return preference;
+  const hint = requestInfo.hints.theme;
+  if (hint === "light" || hint === "dark") return hint;
+  return null;
+}
+
 export function readOfflineRootShell(): OfflineRootShell | null {
   if (typeof localStorage === "undefined") return null;
 
@@ -62,16 +74,18 @@ export function readOfflineRootShell(): OfflineRootShell | null {
 
 export function createFallbackOfflineRootShell(): OfflineRootShell {
   const persisted = readOfflineRootShell();
-  const theme = persisted?.requestInfo.userPrefs.theme;
+  const requestInfo = persisted?.requestInfo;
+  const hints = requestInfo?.hints ?? {};
+  const userPrefs = { theme: requestInfo?.userPrefs.theme ?? null };
   return {
     user: persisted?.user ?? null,
     notifications: [],
     unreadNotificationCount: 0,
     requestInfo: {
-      hints: {},
+      hints,
       origin: typeof window !== "undefined" ? window.location.origin : "",
       path: typeof window !== "undefined" ? window.location.pathname : "/",
-      userPrefs: { theme: theme === "dark" || theme === "light" ? theme : "light" },
+      userPrefs,
     },
     ENV: persisted?.ENV ?? {},
     toast: null,
