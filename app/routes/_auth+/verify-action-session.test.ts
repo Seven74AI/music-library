@@ -10,6 +10,7 @@ import { verifySessionStorage } from "#app/utils/verification.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { convertSetCookieToCookie } from "#tests/utils.ts";
 import { setPendingVerification } from "./verify-pending.server.ts";
+import { isLinkConsumedVerificationValid } from "./verify.server.ts";
 import { action } from "./verify.tsx";
 
 const createdUserIds: string[] = [];
@@ -29,6 +30,7 @@ async function enableTwoFA(userId: string) {
       secret: encryptVerificationSecret(config.secret),
       type: twoFAVerificationType,
       target: userId,
+      linkConsumedAt: new Date(),
     },
   });
   return otp;
@@ -82,10 +84,13 @@ describe("verify action session cookies", () => {
       type: "2fa",
       target: user.id,
       redirectTo: "/library",
+      linkExchanged: true,
     });
     const authCookie = convertSetCookieToCookie(
       await authSessionStorage.commitSession(authSession),
     );
+
+    expect(await isLinkConsumedVerificationValid({ type: "2fa", target: user.id })).toBe(true);
 
     const response = await action({
       request: new Request("http://localhost/verify", {

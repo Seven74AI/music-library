@@ -64,7 +64,9 @@ export async function action({ request }: Route.ActionArgs) {
     formData.set(codeQueryParam, pending.code);
   }
   try {
-    const response = await validateRequest(request, formData);
+    const response = await validateRequest(request, formData, {
+      sessionBacked: pending?.linkExchanged === true,
+    });
     if (response instanceof Response && response.status >= 300 && response.status < 400) {
       const location = response.headers.get("Location");
       invariant(location, "Expected redirect Location header");

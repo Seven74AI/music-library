@@ -1,6 +1,7 @@
 import { parseString } from "set-cookie-parser";
 import { data, redirect } from "react-router";
 import { authSessionStorage } from "#app/utils/session.server.ts";
+import { consumeVerificationLink } from "./verify.server.ts";
 import {
   VerificationTypeSchema,
   codeQueryParam,
@@ -17,6 +18,8 @@ export type PendingVerification = {
   type: VerificationTypes;
   target: string;
   redirectTo?: string;
+  /** OTP was validated and consumed on the emailed link GET exchange. */
+  linkExchanged?: boolean;
 };
 
 export type VerifyLoaderData =
@@ -42,11 +45,13 @@ export function getPendingVerification(
   const target = candidate[targetQueryParam];
   if (typeof code !== "string" || typeof target !== "string") return null;
   const redirectTo = candidate[redirectToQueryParam];
+  const linkExchanged = candidate.linkExchanged === true;
   return {
     code,
     type: typeResult.data,
     target,
     redirectTo: typeof redirectTo === "string" ? redirectTo : undefined,
+    ...(linkExchanged ? { linkExchanged: true as const } : {}),
   };
 }
 
@@ -137,13 +142,21 @@ export async function handleVerifyLoader(request: Request) {
     const code = url.searchParams.get(codeQueryParam);
     if (typeResult.success && target && code) {
       const redirectTo = url.searchParams.get(redirectToQueryParam) ?? undefined;
-      setPendingVerification(session, {
+      const exchanged = await consumeVerificationLink({
         code,
         type: typeResult.data,
         target,
-        redirectTo,
       });
-      commitSession = true;
+      if (exchanged.ok) {
+        setPendingVerification(session, {
+          code,
+          type: typeResult.data,
+          target,
+          redirectTo,
+          linkExchanged: true,
+        });
+        commitSession = true;
+      }
     }
     throw redirect("/verify", {
       headers: commitSession

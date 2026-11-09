@@ -87,6 +87,30 @@ describe("resolveOrderedGenresFromNames", () => {
 });
 
 describe("replaceTrackGenresFromStrings", () => {
+  test("two concurrent writes of the same new genre both succeed", async () => {
+    const genreName = `ConcurrentLink-${Math.random().toString(36).slice(2, 10)}`;
+    const normalizedName = normalizeGenreName(genreName);
+    await prisma.genre.deleteMany({ where: { normalizedName } });
+
+    const trackA = await createTrackWithGenre("Placeholder-A");
+    const trackB = await createTrackWithGenre("Placeholder-B");
+
+    await Promise.all([
+      replaceTrackGenresFromStrings(prisma, trackA.id, [genreName]),
+      replaceTrackGenresFromStrings(prisma, trackB.id, [genreName]),
+    ]);
+
+    const namesA = await trackGenreNames(trackA.id);
+    const namesB = await trackGenreNames(trackB.id);
+    expect(namesA).toHaveLength(1);
+    expect(namesB).toHaveLength(1);
+    expect(namesA[0]).toBe(namesB[0]);
+    expect(normalizeGenreName(namesA[0]!)).toBe(normalizedName);
+    expect(await prisma.genre.count({ where: { normalizedName } })).toBe(1);
+
+    await prisma.genre.deleteMany({ where: { normalizedName } });
+  });
+
   test("keeps prior genres when the insert step fails mid-write", async () => {
     const track = await createTrackWithGenre("Jazz");
     expect(await trackGenreNames(track.id)).toEqual(["Jazz"]);

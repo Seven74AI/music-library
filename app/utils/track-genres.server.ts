@@ -167,11 +167,23 @@ async function findOrCreateGenre(tx: GenreWriteClient, genreName: string): Promi
   });
   if (existing) return existing.id;
 
-  const created = await tx.genre.create({
-    data: { name: genreName, normalizedName },
-    select: { id: true },
-  });
-  return created.id;
+  try {
+    const created = await tx.genre.create({
+      data: { name: genreName, normalizedName },
+      select: { id: true },
+    });
+    return created.id;
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      const winner = await tx.genre.findFirst({
+        where: { normalizedName },
+        select: { id: true },
+      });
+      if (!winner) throw error;
+      return winner.id;
+    }
+    throw error;
+  }
 }
 
 /**

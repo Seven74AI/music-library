@@ -3,7 +3,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { isEncryptedVerificationSecret } from "#app/utils/token-cipher.server.ts";
 import { generateTOTP } from "#app/utils/totp.server.ts";
 import { createUser } from "#tests/db-utils.ts";
-import { isCodeValid, prepareVerification } from "./verify.server.ts";
+import { consumeVerificationLink, isCodeValid, prepareVerification } from "./verify.server.ts";
 
 const createdUserIds: string[] = [];
 
@@ -49,6 +49,23 @@ describe("verification secret encryption at rest", () => {
 
     // The OTP we just generated validates through the same decrypt path.
     expect(await isCodeValid({ code: otp, type: "onboarding", target: user.id })).toBe(true);
+  });
+
+  test("re-submitting a consumed OTP fails validation", async () => {
+    const user = await createAccount();
+    const { otp } = await prepareVerification({
+      period: 30,
+      request: request(),
+      type: "onboarding",
+      target: user.id,
+    });
+    expect(
+      await consumeVerificationLink({ code: otp, type: "onboarding", target: user.id }),
+    ).toEqual({ ok: true });
+    expect(await isCodeValid({ code: otp, type: "onboarding", target: user.id })).toBe(false);
+    expect(
+      await consumeVerificationLink({ code: otp, type: "onboarding", target: user.id }),
+    ).toEqual({ ok: false });
   });
 
   test("reads a legacy plaintext secret so pre-migration rows still verify", async () => {
