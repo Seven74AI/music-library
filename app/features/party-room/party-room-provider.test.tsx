@@ -300,14 +300,14 @@ describe("PartyRoomProvider join errors and QR", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("qr").textContent).toBe(QR);
-      expect(MockEventSource.latest).not.toBeNull();
+      expect(MockEventSource.latest?.onmessage).toBeTypeOf("function");
     });
 
     // Preload so the SSE handler's dynamic import does not race waitFor under CI load.
     await import("./api.client.ts");
 
     await act(async () => {
-      MockEventSource.latest!.onmessage?.({
+      MockEventSource.latest!.onmessage!({
         data: JSON.stringify({
           type: "room_snapshot",
           room: roomPayload({ roomVersion: 2 }),
