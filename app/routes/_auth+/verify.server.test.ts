@@ -51,6 +51,46 @@ describe("verification secret encryption at rest", () => {
     expect(await isCodeValid({ code: otp, type: "onboarding", target: user.id })).toBe(true);
   });
 
+  test("after a link is consumed, a newly issued code for the same target+type validates", async () => {
+    const user = await createAccount();
+    const { otp: firstOtp } = await prepareVerification({
+      period: 30,
+      request: request(),
+      type: "onboarding",
+      target: user.id,
+    });
+    expect(
+      await consumeVerificationLink({ code: firstOtp, type: "onboarding", target: user.id }),
+    ).toEqual({ ok: true });
+
+    const { otp: secondOtp } = await prepareVerification({
+      period: 30,
+      request: request(),
+      type: "onboarding",
+      target: user.id,
+    });
+    expect(await isCodeValid({ code: secondOtp, type: "onboarding", target: user.id })).toBe(true);
+  });
+
+  test("two parallel consumes of the same code allow exactly one success", async () => {
+    const user = await createAccount();
+    const { otp } = await prepareVerification({
+      period: 30,
+      request: request(),
+      type: "onboarding",
+      target: user.id,
+    });
+
+    const [first, second] = await Promise.all([
+      consumeVerificationLink({ code: otp, type: "onboarding", target: user.id }),
+      consumeVerificationLink({ code: otp, type: "onboarding", target: user.id }),
+    ]);
+
+    const successes = [first, second].filter((r) => r.ok);
+    expect(successes).toHaveLength(1);
+    expect(await isCodeValid({ code: otp, type: "onboarding", target: user.id })).toBe(false);
+  });
+
   test("re-submitting a consumed OTP fails validation", async () => {
     const user = await createAccount();
     const { otp } = await prepareVerification({

@@ -105,6 +105,7 @@ export async function prepareVerification({
     // Store the TOTP secret encrypted at rest (AES-256-GCM, `enc1:` prefix).
     secret: encryptVerificationSecret(verificationConfig.secret),
     expiresAt: new Date(Date.now() + verificationConfig.period * 1000),
+    linkConsumedAt: null,
     ...(pendingEmail !== undefined ? { pendingEmail } : {}),
   };
   await prisma.verification.upsert({
@@ -190,10 +191,17 @@ export async function consumeVerificationLink({
   if (!valid) {
     return { ok: false };
   }
-  await prisma.verification.update({
-    where: { target_type: { target, type } },
+  const consumed = await prisma.verification.updateMany({
+    where: {
+      target,
+      type,
+      linkConsumedAt: null,
+    },
     data: { linkConsumedAt: new Date() },
   });
+  if (consumed.count !== 1) {
+    return { ok: false };
+  }
   return { ok: true };
 }
 
