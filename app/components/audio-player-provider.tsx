@@ -128,6 +128,8 @@ interface AudioPlayerContextType {
   spinePosition: number;
   /** Queue zone the current audible track was started from (spine vs up next). */
   audibleSourceZone: QueueZone | null;
+  /** Raw queue navigation state (spine order, Up Next rows, loop). */
+  queueNavigationState: QueueNavigationState;
   currentIndex: number;
   playContext: PlaylistContext | null;
   loopMode: LoopMode;
@@ -1878,6 +1880,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       spineTotal,
       spinePosition,
       audibleSourceZone,
+      queueNavigationState: navigationState,
       currentIndex,
       playContext,
       loopMode,
@@ -1929,6 +1932,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       spineTotal,
       spinePosition,
       audibleSourceZone,
+      navigationState,
       currentIndex,
       playContext,
       loopMode,
