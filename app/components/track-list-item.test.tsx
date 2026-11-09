@@ -43,6 +43,7 @@ vi.mock("#app/utils/user.ts", async (importOriginal) => {
 
 const mockPlayTrack = vi.fn();
 const mockPauseTrack = vi.fn();
+const mockResumeTrack = vi.fn();
 const mockPlayNextTrack = vi.fn();
 const mockAddToUpNext = vi.fn();
 const mockAddToQueue = vi.fn();
@@ -81,6 +82,7 @@ vi.mock("./audio-player-provider", () => ({
     isPlaying: mockPlayerState.isPlaying,
     playTrack: mockPlayTrack,
     pauseTrack: mockPauseTrack,
+    resumeTrack: mockResumeTrack,
     playNextTrack: mockPlayNextTrack,
     addToUpNext: mockAddToUpNext,
     addToQueue: mockAddToQueue,
@@ -229,6 +231,7 @@ beforeEach(() => {
   };
   mockPlayTrack.mockReset();
   mockPauseTrack.mockReset();
+  mockResumeTrack.mockReset();
   mockPlayNextTrack.mockReset();
   mockAddToUpNext.mockReset();
   mockAddToQueue.mockReset();
@@ -843,6 +846,23 @@ test("clicking Pause on the current playing row pauses instead of restarting pla
   await user.click(screen.getByRole("button", { name: "Pause track" }));
 
   expect(mockPauseTrack).toHaveBeenCalledTimes(1);
+  expect(mockPlayTrack).not.toHaveBeenCalled();
+});
+
+test("clicking Play on a paused current row resumes instead of restarting playback", async () => {
+  const user = userEvent.setup();
+  mockPlayerState = {
+    currentTrack: playableTrack,
+    currentIndex: 0,
+    isPlayerVisible: true,
+    isPlaying: false,
+  };
+
+  renderTrackListItem({ track: playableTrack });
+
+  await user.click(screen.getByRole("button", { name: "Play Test Song" }));
+
+  expect(mockResumeTrack).toHaveBeenCalledTimes(1);
   expect(mockPlayTrack).not.toHaveBeenCalled();
 });
 

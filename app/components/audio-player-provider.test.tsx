@@ -29,6 +29,7 @@ vi.mock("./audio-player", () => ({
     wantsAutoPlayRef,
     unlockAutoplayRef,
     pausePlaybackRef,
+    resumePlaybackRef,
     playbackToken,
     roomPlaying,
     onRoomAutoplayOutcome,
@@ -39,6 +40,7 @@ vi.mock("./audio-player", () => ({
       ((trackId: string, cachedUrl: string) => boolean) | null
     >;
     pausePlaybackRef?: React.MutableRefObject<(() => void) | null>;
+    resumePlaybackRef?: React.MutableRefObject<(() => void) | null>;
     playbackToken?: number;
     roomPlaying?: boolean | null;
     onRoomAutoplayOutcome?: (outcome: RoomAutoplayOutcome) => void;
@@ -60,6 +62,11 @@ vi.mock("./audio-player", () => ({
     if (pausePlaybackRef) {
       pausePlaybackRef.current = () => {
         onPlayingChange?.(false);
+      };
+    }
+    if (resumePlaybackRef) {
+      resumePlaybackRef.current = () => {
+        onPlayingChange?.(true);
       };
     }
     return (
@@ -2619,6 +2626,77 @@ test("room speaker playback does not fetch the personal audio stream", async () 
   expect(cacheQueueTrack.mock.calls.map((call) => call[0]?.id)).toEqual(["track-1"]);
 });
 
+test("resumeTrack resumes without bumping playback token or clearing Up Next", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        tracks: [spineTrack, { ...spineTrack, id: "track-2", title: "Other" }],
+        total: 2,
+      }),
+    } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tracks: [playableTrack] }),
+    } as Response);
+
+  const queued: FullTrack = {
+    ...playableTrack,
+    id: "queued-track",
+    title: "Queued",
+    audioFiles: [{ id: "af-q", format: "mp3", objectKey: "audio/queued.mp3" }],
+  };
+
+  function ResumeProbe() {
+    const { playTrack, pauseTrack, resumeTrack, isPlaying, upNext, addToUpNext } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play library track
+        </button>
+        <button type="button" onClick={() => addToUpNext(queued)}>
+          Add queued track
+        </button>
+        <button type="button" onClick={() => pauseTrack()}>
+          Pause track
+        </button>
+        <button type="button" onClick={() => resumeTrack()}>
+          Resume track
+        </button>
+        <span data-testid="hook-is-playing">{String(isPlaying)}</span>
+        <span data-testid="up-next-count">{upNext.length}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <ResumeProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play library track" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("playback-token").textContent).not.toBe("0");
+  });
+  const tokenAfterPlay = screen.getByTestId("playback-token").textContent;
+
+  await user.click(screen.getByRole("button", { name: "Add queued track" }));
+  expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+
+  await user.click(screen.getByRole("button", { name: "Pause track" }));
+  expect(screen.getByTestId("hook-is-playing").textContent).toBe("false");
+  expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+
+  await user.click(screen.getByRole("button", { name: "Resume track" }));
+  expect(screen.getByTestId("playback-token").textContent).toBe(tokenAfterPlay);
+  expect(screen.getByTestId("hook-is-playing").textContent).toBe("true");
+  expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+});
+
 test("pauseTrack pauses without bumping playback token", async () => {
   const user = userEvent.setup();
   const fetchMock = vi.mocked(fetch);
@@ -2710,6 +2788,102 @@ test("clicking a catalog row absent from the ownership-filtered spine does not s
 
   expect(screen.getByTestId("player-visible").textContent).toBe("false");
   expect(screen.getByTestId("current-track-id").textContent).toBe("");
+});
+
+test("playLibrary with empty ownership spine does not clear Up Next", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+
+  const queued: FullTrack = {
+    ...playableTrack,
+    id: "queued-track",
+    title: "Queued",
+    audioFiles: [{ id: "af-q", format: "mp3", objectKey: "audio/queued.mp3" }],
+  };
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE)) {
+      return Promise.resolve({
+        status: 204,
+        ok: true,
+        json: async () => null,
+      } as Response);
+    }
+    if (url.includes("/resources/audio/")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ url: "https://cdn.example/stream.mp3" }),
+      } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      if (url.includes("context=artist")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks: [spineTrack], total: 1 }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: [], total: 0 }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const tracks = [playableTrack, queued].filter((track) => ids.includes(track.id));
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function Probe() {
+    const { playTrack, playLibrary, addToUpNext, currentTrack, upNext } = useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => playTrack(playableTrack, { type: "artist", artistId: "artist-1" }, 0)}
+        >
+          Play artist track
+        </button>
+        <button type="button" onClick={() => addToUpNext(queued)}>
+          Add queued track
+        </button>
+        <button type="button" onClick={() => void playLibrary()}>
+          Play library all
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+        <span data-testid="up-next-count">{upNext.length}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play artist track" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  await user.click(screen.getByRole("button", { name: "Add queued track" }));
+  expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+
+  await user.click(screen.getByRole("button", { name: "Play library all" }));
+  await waitFor(() => {
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("context=library"))).toBe(
+      true,
+    );
+  });
+
+  expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  expect(screen.getByTestId("up-next-count").textContent).toBe("1");
 });
 
 test("clicking an unowned catalog row while another context plays does not clear Up Next", async () => {

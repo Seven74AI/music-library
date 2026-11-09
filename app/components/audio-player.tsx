@@ -107,6 +107,8 @@ interface AudioPlayerProps {
   >;
   /** Provider-driven pause (e.g. track row) without restarting queue state. */
   pausePlaybackRef?: React.MutableRefObject<(() => void) | null>;
+  /** Resume the current element from its paused position without a playback-token bump. */
+  resumePlaybackRef?: React.MutableRefObject<(() => void) | null>;
   /** When set, emit room play events instead of personal UsageEvents. */
   roomSpeaker?: { roomId: string; code: string } | null;
   /**
@@ -177,6 +179,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     wantsAutoPlayRef,
     unlockAutoplayRef,
     pausePlaybackRef,
+    resumePlaybackRef,
     roomSpeaker = null,
     roomPlayEventTargetRef,
     roomPlaying = null,
@@ -315,6 +318,31 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
     };
   }, [pausePlaybackRef]);
+
+  useEffect(() => {
+    if (resumePlaybackRef) {
+      resumePlaybackRef.current = () => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        keepPlayingRef.current = true;
+        void audio
+          .play()
+          .then(() => {
+            setIsPlaying(true);
+            keepPlayingRef.current = true;
+          })
+          .catch(() => {
+            setIsPlaying(false);
+            keepPlayingRef.current = false;
+          });
+      };
+    }
+    return () => {
+      if (resumePlaybackRef) {
+        resumePlaybackRef.current = null;
+      }
+    };
+  }, [resumePlaybackRef]);
 
   useEffect(() => {
     setVolume(readStoredVolume());

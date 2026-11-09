@@ -249,6 +249,7 @@ export const TrackListItem = memo(function TrackListItem({
     isPlaying,
     playTrack,
     pauseTrack,
+    resumeTrack,
     playNextTrack,
     addToUpNext,
     addToQueue,
@@ -377,8 +378,12 @@ export const TrackListItem = memo(function TrackListItem({
     if (!hasAudioFiles) {
       return;
     }
-    if (showPauseIcon) {
+    if (isCurrentTrack && isPlaying) {
       pauseTrack();
+      return;
+    }
+    if (isCurrentTrack && !isPlaying) {
+      resumeTrack();
       return;
     }
     const context = playlistContext || { type: "library" as const };
@@ -389,8 +394,10 @@ export const TrackListItem = memo(function TrackListItem({
     playTrack(track, context);
   }, [
     hasAudioFiles,
-    showPauseIcon,
+    isCurrentTrack,
+    isPlaying,
     pauseTrack,
+    resumeTrack,
     track,
     playlistContext,
     index,
