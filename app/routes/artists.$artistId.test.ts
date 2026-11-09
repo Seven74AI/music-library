@@ -11,6 +11,9 @@ describe("artist page merge redirect", () => {
 
   afterEach(async () => {
     if (createdIds.length === 0) return;
+    await prisma.album.deleteMany({
+      where: { id: { in: createdIds } },
+    });
     await prisma.artist.deleteMany({ where: { id: { in: createdIds } } });
     createdIds.length = 0;
   });
@@ -104,6 +107,33 @@ describe("artist page merge redirect", () => {
 
     expect(response).toBeInstanceOf(Response);
     expect((response as Response).status).toBe(404);
+  });
+
+  test("hides merged albums from the artist album grid", async () => {
+    const mark = stamp();
+    const artist = await prisma.artist.create({
+      data: { name: `Album Grid ${mark}`, normalizedName: `album grid ${mark}` },
+    });
+    const target = await prisma.album.create({
+      data: { name: `Canonical Album ${mark}`, artistId: artist.id },
+    });
+    const source = await prisma.album.create({
+      data: {
+        name: `Merged Album ${mark}`,
+        artistId: artist.id,
+        mergedIntoId: target.id,
+        mergedAt: new Date(),
+      },
+    });
+    createdIds.push(artist.id, source.id, target.id);
+
+    const living = await load(artist.id);
+    expect(living).not.toBeInstanceOf(Response);
+    const albumIds = (
+      living as { data: { artist: { albums: Array<{ id: string }> } } }
+    ).data.artist.albums.map((album) => album.id);
+    expect(albumIds).toContain(target.id);
+    expect(albumIds).not.toContain(source.id);
   });
 
   test("404s when the merge target is missing", async () => {

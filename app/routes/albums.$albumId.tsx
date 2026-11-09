@@ -1,4 +1,4 @@
-import { data, Link } from "react-router";
+import { data, Link, redirect } from "react-router";
 import { useState } from "react";
 import { AlbumEditDialog } from "#app/components/album-edit-dialog.tsx";
 import { CuratorNotes } from "#app/components/curator-notes.tsx";
@@ -24,11 +24,43 @@ export const handle: BreadcrumbHandle = {
   breadcrumb: ({ loaderData }) => getAlbumTitle(loaderData),
 };
 
+/**
+ * Follow mergedIntoId, including a chain, to the living album.
+ * A cycle or a missing target is a 404. Merged rows stay in the database.
+ */
+async function resolvePublicAlbumId(startId: string): Promise<string> {
+  const seen = new Set<string>();
+  let currentId = startId;
+
+  for (;;) {
+    if (seen.has(currentId)) {
+      throw new Response("Album not found", { status: 404 });
+    }
+    seen.add(currentId);
+
+    const row = await prisma.album.findUnique({
+      where: { id: currentId },
+      select: { id: true, mergedIntoId: true },
+    });
+    if (!row) {
+      throw new Response("Album not found", { status: 404 });
+    }
+    if (!row.mergedIntoId) {
+      return row.id;
+    }
+    currentId = row.mergedIntoId;
+  }
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const userId = await getUserId(request);
+  const canonicalId = await resolvePublicAlbumId(params.albumId);
+  if (canonicalId !== params.albumId) {
+    throw redirect(`/albums/${canonicalId}`);
+  }
 
   const album = await prisma.album.findUnique({
-    where: { id: params.albumId },
+    where: { id: canonicalId },
     select: {
       id: true,
       name: true,
