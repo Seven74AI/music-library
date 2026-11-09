@@ -117,6 +117,37 @@ describe("offlineClientMiddleware", () => {
     vi.unstubAllGlobals();
   });
 
+  test("online path: persists system theme as null with client hints", async () => {
+    localStorage.clear();
+    const mw = await loadMiddleware();
+
+    const next = makeNext({
+      root: {
+        type: "data",
+        result: {
+          user: null,
+          requestInfo: {
+            hints: { theme: "dark", timeZone: "UTC" },
+            origin: "https://example.com",
+            path: "/",
+            userPrefs: { theme: null },
+          },
+          ENV: {},
+        },
+      },
+    });
+
+    await mw(makeArgs(), next);
+
+    const stored = JSON.parse(
+      localStorage.getItem("music-library:offline-root-shell") ?? "null",
+    ) as {
+      requestInfo: { userPrefs: { theme: null }; hints: { theme: string } };
+    };
+    expect(stored.requestInfo.userPrefs.theme).toBeNull();
+    expect(stored.requestInfo.hints.theme).toBe("dark");
+  });
+
   test("online path: runs next() and passes results through", async () => {
     // jsdom defaults: document exists, navigator.onLine is true
     const mw = await loadMiddleware();

@@ -5,15 +5,19 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub } from "react-router";
 import { expect, test } from "vitest";
+import { createSessionCookie } from "#tests/api-admin-test-utils.ts";
 import OrphanedTracksRoute from "./orphaned-tracks.tsx";
 
-test("renders 403 error for non-admin users", async () => {
-  const request = new Request("http://localhost:3000/admin/orphaned-tracks");
-  const params = {};
-  const context = {};
+test("returns 403 for logged-in non-admin users", async () => {
+  const { cookie } = await createSessionCookie();
+  const request = new Request("http://localhost:3000/admin/orphaned-tracks", {
+    headers: { cookie },
+  });
 
   const { loader } = await import("./orphaned-tracks.tsx");
-  await expect(loader({ request, params, context } as any)).rejects.toMatchObject({ status: 302 });
+  await expect(loader({ request, params: {}, context: {} } as any)).rejects.toMatchObject({
+    init: { status: 403 },
+  });
 });
 
 const emptyStats = {
