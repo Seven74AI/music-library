@@ -49,8 +49,10 @@ export async function sendEmail({
     }
 
     console.error(
-      `RESEND_API_KEY not set — email not sent (redacted): to=${options.to} subject=${options.subject}`,
+      `RESEND_API_KEY not set — email not sent (dev only): to=${options.to} subject=${options.subject}`,
     );
+    // Development only: print the full rendered email so the OTP/link is visible in the console.
+    console.error(JSON.stringify(email, null, 2));
     return {
       status: "success",
       data: { id: "mocked" },
