@@ -2922,6 +2922,63 @@ test("resumeTrack resumes without bumping playback token or clearing Up Next", a
   expect(screen.getByTestId("up-next-count").textContent).toBe("1");
 });
 
+test("pauseTrack and resumeTrack route through room transport while hosting", async () => {
+  const user = userEvent.setup();
+
+  const roomTrack: FullTrack = {
+    ...playableTrack,
+    id: "room-track",
+    title: "Room Song",
+  };
+
+  function SpeakerPauseProbe() {
+    const { pauseTrack, resumeTrack, isPlaying, suspendPersonalPersistence, syncRoomSpeakerQueue } =
+      useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            suspendPersonalPersistence();
+            syncRoomSpeakerQueue({
+              roomId: "room-1",
+              code: "AB3K9Q",
+              nowPlaying: roomTrack,
+              upcoming: [],
+            });
+          }}
+        >
+          Enter speaker
+        </button>
+        <button type="button" onClick={() => pauseTrack()}>
+          Pause track
+        </button>
+        <button type="button" onClick={() => resumeTrack()}>
+          Resume track
+        </button>
+        <span data-testid="hook-is-playing">{String(isPlaying)}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <SpeakerPauseProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Enter speaker" }));
+
+  await user.click(screen.getByRole("button", { name: "Resume track" }));
+  expect(screen.getByTestId("hook-is-playing").textContent).toBe("true");
+
+  await user.click(screen.getByRole("button", { name: "Pause track" }));
+  expect(screen.getByTestId("hook-is-playing").textContent).toBe("false");
+
+  await user.click(screen.getByRole("button", { name: "Resume track" }));
+  expect(screen.getByTestId("hook-is-playing").textContent).toBe("true");
+});
+
 test("pauseTrack pauses without bumping playback token", async () => {
   const user = userEvent.setup();
   const fetchMock = vi.mocked(fetch);

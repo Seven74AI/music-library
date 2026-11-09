@@ -37,6 +37,7 @@ import {
   flatIndexForSpinePosition,
   getTrackAtTarget,
   getQueueSpineDisplayTracks,
+  isAudibleTrackSpineHead,
   hasNextTrack,
   hasPreviousTrack,
   jumpToTarget,
@@ -390,13 +391,20 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     return resolveFullTracks(playbackCacheRef.current, upNext);
   }, [upNext, cacheVersion]);
 
+  const audibleIsSpineHead =
+    currentTrack !== null && isAudibleTrackSpineHead(navigationState, currentTrack.id);
+
   const spineView = useMemo(() => {
     void cacheVersion;
     return resolveFullTracks(
       playbackCacheRef.current,
-      getQueueSpineDisplayTracks(navigationState, currentTrack !== null),
+      getQueueSpineDisplayTracks(
+        navigationState,
+        currentTrack !== null,
+        currentTrack === null || audibleIsSpineHead,
+      ),
     );
-  }, [navigationState, cacheVersion, currentTrack]);
+  }, [navigationState, cacheVersion, currentTrack, audibleIsSpineHead]);
 
   const currentIndex = useMemo(() => {
     if (!currentTrack) return -1;
@@ -412,13 +420,19 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   }, [currentTrack, upNext, navigationState, spinePosition]);
 
   const pauseTrack = useCallback(() => {
-    if (roomSpeakerRef.current) return;
+    if (roomSpeakerRef.current) {
+      pausePlaybackRef.current?.();
+      return;
+    }
     wantsAutoPlayRef.current = false;
     pausePlaybackRef.current?.();
   }, []);
 
   const resumeTrack = useCallback(() => {
-    if (roomSpeakerRef.current) return;
+    if (roomSpeakerRef.current) {
+      resumePlaybackRef.current?.();
+      return;
+    }
     resumePlaybackRef.current?.();
   }, []);
 
@@ -1517,7 +1531,10 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const playPrevious = useCallback(() => {
     if (roomSpeakerRef.current) return;
-    const target = resolvePreviousTrack(navigationState);
+    const target = resolvePreviousTrack(navigationState, {
+      audibleIsSpineHead:
+        currentTrack === null || isAudibleTrackSpineHead(navigationState, currentTrack.id),
+    });
     if (!target) return;
 
     const queueTrack = getTrackAtTarget(navigationState, target);
@@ -1530,7 +1547,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       navigation: { ...navigationState, spinePosition: target.index },
       navigationScope: "spine-position",
     });
-  }, [navigationState, playResolvedTrack]);
+  }, [navigationState, playResolvedTrack, currentTrack]);
 
   const toggleLoop = useCallback(() => {
     setLoopMode((prev) => {
@@ -1587,7 +1604,10 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     upNext.length > 0 ||
     getTrackAtTarget(navigationState, { zone: "spine", index: spinePosition }) !== null;
   const hasNext = hasNextTrack(navigationState);
-  const hasPrevious = hasPreviousTrack(navigationState);
+  const hasPrevious = hasPreviousTrack(navigationState, {
+    audibleIsSpineHead:
+      currentTrack === null || isAudibleTrackSpineHead(navigationState, currentTrack.id),
+  });
 
   const currentTrackId = currentTrack?.id;
 

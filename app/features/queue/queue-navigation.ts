@@ -52,8 +52,30 @@ export function resolveNextTrack(state: QueueNavigationState): QueueTarget | nul
   return null;
 }
 
-export function resolvePreviousTrack(state: QueueNavigationState): QueueTarget | null {
+export type ResolvePreviousOptions = {
+  /** False when the audible track is Up Next (or otherwise not the spine row at spinePosition). */
+  audibleIsSpineHead?: boolean;
+};
+
+export function isAudibleTrackSpineHead(
+  state: QueueNavigationState,
+  currentTrackId: string,
+): boolean {
+  const head = getTrackAtTarget(state, { zone: "spine", index: state.spinePosition });
+  return head?.id === currentTrackId;
+}
+
+export function resolvePreviousTrack(
+  state: QueueNavigationState,
+  options: ResolvePreviousOptions = {},
+): QueueTarget | null {
+  const audibleIsSpineHead = options.audibleIsSpineHead ?? true;
+
   if (state.loopMode === "one") {
+    return { zone: "spine", index: state.spinePosition };
+  }
+
+  if (!audibleIsSpineHead) {
     return { zone: "spine", index: state.spinePosition };
   }
 
@@ -73,8 +95,11 @@ export function hasNextTrack(state: QueueNavigationState): boolean {
   return resolveNextTrack(state) !== null;
 }
 
-export function hasPreviousTrack(state: QueueNavigationState): boolean {
-  return resolvePreviousTrack(state) !== null;
+export function hasPreviousTrack(
+  state: QueueNavigationState,
+  options: ResolvePreviousOptions = {},
+): boolean {
+  return resolvePreviousTrack(state, options) !== null;
 }
 
 export function advanceAfterPlay(
@@ -241,6 +266,15 @@ export function flatIndexForSpinePosition(
 export function getQueueSpineDisplayTracks(
   state: QueueNavigationState,
   hasCurrentTrack: boolean,
+  audibleIsSpineHead = true,
 ): QueueTrack[] {
-  return hasCurrentTrack ? getUpcomingSpinePlayOrder(state) : getSpinePlayOrder(state);
+  if (!hasCurrentTrack) {
+    return getSpinePlayOrder(state);
+  }
+  if (!audibleIsSpineHead) {
+    const head = getTrackAtTarget(state, { zone: "spine", index: state.spinePosition });
+    const upcoming = getUpcomingSpinePlayOrder(state);
+    return head ? [head, ...upcoming] : upcoming;
+  }
+  return getUpcomingSpinePlayOrder(state);
 }
