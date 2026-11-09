@@ -85,6 +85,26 @@ describe("collectHydrationIds", () => {
     expect(ids).toHaveLength(4); // lookahead = 4
   });
 
+  test("wraps to spine head in loop-all when lookahead is not full", () => {
+    const ids = collectHydrationIds(
+      {
+        upNext: [],
+        spine: [
+          { id: "s0", title: "S0", artist: { id: "a", name: "A" } },
+          { id: "s1", title: "S1", artist: { id: "a", name: "A" } },
+          { id: "s2", title: "S2", artist: { id: "a", name: "A" } },
+          { id: "s3", title: "S3", artist: { id: "a", name: "A" } },
+        ],
+        spineOrder: [0, 1, 2, 3],
+        spinePosition: 3,
+        loopMode: "all",
+      },
+      "s3",
+    );
+
+    expect(ids).toEqual(["s3", "s0", "s1", "s2"]);
+  });
+
   test("early-terminates on large queues without materializing full array", () => {
     // Simulate a 15K+ library: one upNext + 15K spine tracks
     const largeSpine = Array.from({ length: 15_000 }, (_, i) => ({

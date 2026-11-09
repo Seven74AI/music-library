@@ -1,4 +1,6 @@
 import { openSync, readFileSync, readSync, closeSync, statSync } from "node:fs";
+import { parseByteRangeHeader } from "#app/utils/http-byte-range.server.ts";
+import { getStorageObjectStream } from "#app/utils/storage.server.ts";
 
 /**
  * Serve a local audio file with naive HTTP Range support.
@@ -20,55 +22,39 @@ export function serveLocalAudioFile(
   const fileStats = statSync(localFilePath);
   const fileSize = fileStats.size;
 
-  const rangeHeader = request.headers.get("Range");
+  const parsedRange = parseByteRangeHeader(request.headers.get("Range"), fileSize);
 
-  if (rangeHeader) {
-    const rangeMatch = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-    if (rangeMatch && rangeMatch[1]) {
-      const start = parseInt(rangeMatch[1], 10);
-      if (start >= fileSize || start < 0) {
-        return new Response("Requested range not satisfiable", {
-          status: 416,
-          headers: {
-            "Content-Range": `bytes */${fileSize}`,
-            "Accept-Ranges": "bytes",
-            "Cache-Control": cacheControl,
-          },
-        });
-      }
-      const requestedEnd = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1;
-      const end = Math.min(requestedEnd, fileSize - 1);
-      const chunkSize = end - start + 1;
+  if (parsedRange.kind === "unsatisfiable") {
+    return new Response("Requested range not satisfiable", {
+      status: 416,
+      headers: {
+        "Content-Range": `bytes */${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": cacheControl,
+      },
+    });
+  }
 
-      if (start <= end) {
-        const fileBuffer = Buffer.alloc(chunkSize);
-        const fd = openSync(localFilePath, "r");
-        try {
-          const bytesRead = readSync(fd, fileBuffer, 0, chunkSize, start);
-          const body = bytesRead === chunkSize ? fileBuffer : fileBuffer.subarray(0, bytesRead);
-          return new Response(body, {
-            status: 206,
-            headers: {
-              "Content-Type": mimeType,
-              "Content-Length": bytesRead.toString(),
-              "Content-Range": `bytes ${start}-${start + bytesRead - 1}/${fileSize}`,
-              "Accept-Ranges": "bytes",
-              "Cache-Control": cacheControl,
-            },
-          });
-        } finally {
-          closeSync(fd);
-        }
-      }
-
-      return new Response("Requested range not satisfiable", {
-        status: 416,
+  if (parsedRange.kind === "partial") {
+    const { start, end } = parsedRange;
+    const chunkSize = end - start + 1;
+    const fileBuffer = Buffer.alloc(chunkSize);
+    const fd = openSync(localFilePath, "r");
+    try {
+      const bytesRead = readSync(fd, fileBuffer, 0, chunkSize, start);
+      const body = bytesRead === chunkSize ? fileBuffer : fileBuffer.subarray(0, bytesRead);
+      return new Response(body, {
+        status: 206,
         headers: {
-          "Content-Range": `bytes */${fileSize}`,
+          "Content-Type": mimeType,
+          "Content-Length": bytesRead.toString(),
+          "Content-Range": `bytes ${start}-${start + bytesRead - 1}/${fileSize}`,
           "Accept-Ranges": "bytes",
           "Cache-Control": cacheControl,
         },
       });
+    } finally {
+      closeSync(fd);
     }
   }
 
@@ -78,6 +64,41 @@ export function serveLocalAudioFile(
     headers: {
       "Content-Type": mimeType,
       "Content-Length": fileSize.toString(),
+      "Accept-Ranges": "bytes",
+      "Cache-Control": cacheControl,
+    },
+  });
+}
+
+/** Stream an object from remote storage with the same Range rules as {@link serveLocalAudioFile}. */
+export async function serveStorageAudioFile(
+  key: string,
+  audioFile: { mimeType: string | null },
+  request: Request,
+  cacheControl: string,
+): Promise<Response> {
+  const mimeType = audioFile.mimeType || "audio/flac";
+  const stream = await getStorageObjectStream(key, request);
+
+  if (stream.status === 416) {
+    return new Response("Requested range not satisfiable", {
+      status: 416,
+      headers: {
+        "Content-Range": `bytes */${stream.fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": cacheControl,
+      },
+    });
+  }
+
+  return new Response(stream.body, {
+    status: stream.status,
+    headers: {
+      "Content-Type": stream.contentType || mimeType,
+      ...(stream.contentLength != null
+        ? { "Content-Length": stream.contentLength.toString() }
+        : {}),
+      ...(stream.contentRange ? { "Content-Range": stream.contentRange } : {}),
       "Accept-Ranges": "bytes",
       "Cache-Control": cacheControl,
     },

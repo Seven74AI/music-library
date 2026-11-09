@@ -301,7 +301,12 @@ export async function maybeAutoCloseEmptyRoom(roomId: string, now = new Date()) 
   });
   if (!room || room.status !== ROOM_STATUS.open || !room.emptySince) return null;
   if (now.getTime() - room.emptySince.getTime() < EMPTY_ROOM_TTL_MS) return null;
-  return endRoom({ roomId, actor: { type: "system" } });
+  return endRoom({
+    roomId,
+    actor: { type: "system" },
+    emptyExpiryCutoff: new Date(now.getTime() - EMPTY_ROOM_TTL_MS),
+    now,
+  });
 }
 
 type RoomPresence = {
@@ -400,7 +405,12 @@ export async function sweepExpiredEmptyRooms(now = new Date()) {
 
   const closed: Array<Awaited<ReturnType<typeof endRoom>>> = [];
   for (const room of expired) {
-    const ended = await endRoom({ roomId: room.id, actor: { type: "system" } });
+    const ended = await endRoom({
+      roomId: room.id,
+      actor: { type: "system" },
+      emptyExpiryCutoff: cutoff,
+      now,
+    });
     closed.push(ended);
   }
   return closed;
@@ -977,49 +987,29 @@ export async function leaveRoom({ roomId, actor }: { roomId: string; actor: Part
     throw new PartyRoomError("room_ended", "Room has ended", 410);
   }
 
-  await prisma.roomParticipant.update({
-    where: { id: participant.id },
-    data: { leftAt: now },
+  const remaining = await prisma.$transaction(async (tx) => {
+    await vacateParticipantSeatInTx(tx, participant.id, roomId, now);
+    return tx.roomParticipant.count({
+      where: { roomId, leftAt: null },
+    });
   });
 
-  const remaining = await prisma.roomParticipant.count({
-    where: { roomId, leftAt: null },
-  });
-
-  const updates: {
-    emptySince?: Date | null;
-    currentHostParticipantId?: string | null;
-    reclaimParticipantId?: string;
-    isPlaying?: boolean;
-    roomVersion: { increment: number };
-  } = { roomVersion: { increment: 1 } };
-
-  if (remaining === 0) {
-    updates.emptySince = now;
-  }
-
-  // The pass follows the speaker when the holder Leaves and is not the host.
-  // Do not clear it. A current host who Leaves through this API is out of scope
-  // (the UI ends the room) and does not move the pass.
-  if (
-    room.reclaimParticipantId === participant.id &&
-    room.currentHostParticipantId &&
-    room.currentHostParticipantId !== participant.id
-  ) {
-    updates.reclaimParticipantId = room.currentHostParticipantId;
-  }
-
-  if (room.currentHostParticipantId === participant.id) {
-    updates.currentHostParticipantId = null;
-    updates.isPlaying = false;
-  }
-
-  await prisma.room.update({ where: { id: roomId }, data: updates });
   await emitRoomSnapshot(roomId);
   return { left: true, remaining };
 }
 
-export async function endRoom({ roomId, actor }: { roomId: string; actor: ParticipantActor }) {
+export async function endRoom({
+  roomId,
+  actor,
+  emptyExpiryCutoff,
+  now = new Date(),
+}: {
+  roomId: string;
+  actor: ParticipantActor;
+  /** When set (system expiry), re-validate emptySince and live presence inside the txn. */
+  emptyExpiryCutoff?: Date;
+  now?: Date;
+}) {
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   if (!room) throw new PartyRoomError("not_found", "Room not found", 404);
   if (room.status !== ROOM_STATUS.open) {
@@ -1033,8 +1023,32 @@ export async function endRoom({ roomId, actor }: { roomId: string; actor: Partic
     }
   }
 
-  const now = new Date();
-  const ended = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
+    const fresh = await tx.room.findUnique({ where: { id: roomId } });
+    if (!fresh || fresh.status !== ROOM_STATUS.open) {
+      return fresh;
+    }
+
+    if (emptyExpiryCutoff !== undefined) {
+      if (!fresh.emptySince || fresh.emptySince.getTime() > emptyExpiryCutoff.getTime()) {
+        return fresh;
+      }
+
+      const participants = await tx.roomParticipant.findMany({
+        where: { roomId, leftAt: null },
+        select: { id: true, lastSeenAt: true },
+      });
+
+      const nowMs = now.getTime();
+      const anyoneHere = participants.some(
+        (seat) =>
+          !isParticipantAway(seat.lastSeenAt, seat.id === fresh.currentHostParticipantId, nowMs),
+      );
+      if (anyoneHere) {
+        return fresh;
+      }
+    }
+
     await tx.roomParticipant.updateMany({
       where: { roomId, leftAt: null },
       data: { leftAt: now },
@@ -1052,12 +1066,18 @@ export async function endRoom({ roomId, actor }: { roomId: string; actor: Partic
     });
   });
 
-  publishRoomEvent(roomId, {
-    type: "room_ended",
-    roomId,
-    roomVersion: ended.roomVersion,
-  });
-  return ended;
+  if (!result) {
+    throw new PartyRoomError("not_found", "Room not found", 404);
+  }
+
+  if (result.status === ROOM_STATUS.ended) {
+    publishRoomEvent(roomId, {
+      type: "room_ended",
+      roomId,
+      roomVersion: result.roomVersion,
+    });
+  }
+  return result;
 }
 
 export async function setDefaultJoinRole({
@@ -1215,38 +1235,44 @@ export async function becomeHost({
 }
 
 export async function reclaimHost({ roomId, actor }: { roomId: string; actor: ParticipantActor }) {
-  const room = await prisma.room.findUnique({ where: { id: roomId } });
-  if (!room || room.status !== ROOM_STATUS.open) {
-    throw new PartyRoomError("not_found", "Room not found", 404);
-  }
-
   const participant = await requireParticipant(roomId, actor);
-  if (participant.id !== room.reclaimParticipantId) {
-    throw new PartyRoomError("not_original_host", "Only the reclaim holder can reclaim", 403);
-  }
   const now = new Date();
 
-  if (room.currentHostParticipantId && room.currentHostParticipantId !== participant.id) {
-    await prisma.roomParticipant.update({
-      where: { id: room.currentHostParticipantId },
-      data: { role: ROOM_ROLE.dj },
-    });
-  }
+  await prisma.$transaction(async (tx) => {
+    const room = await tx.room.findUnique({ where: { id: roomId } });
+    if (!room || room.status !== ROOM_STATUS.open) {
+      throw new PartyRoomError("not_found", "Room not found", 404);
+    }
 
-  await prisma.$transaction([
-    prisma.roomParticipant.update({
+    if (participant.id !== room.reclaimParticipantId) {
+      throw new PartyRoomError("not_original_host", "Only the reclaim holder can reclaim", 403);
+    }
+
+    if (room.currentHostParticipantId && room.currentHostParticipantId !== participant.id) {
+      const currentHost = await tx.roomParticipant.findUnique({
+        where: { id: room.currentHostParticipantId },
+      });
+      if (currentHost && !currentHost.leftAt) {
+        await tx.roomParticipant.update({
+          where: { id: currentHost.id },
+          data: { role: ROOM_ROLE.dj },
+        });
+      }
+    }
+
+    await tx.roomParticipant.update({
       where: { id: participant.id },
       data: { role: ROOM_ROLE.host, lastSeenAt: now },
-    }),
-    prisma.room.update({
+    });
+    await tx.room.update({
       where: { id: roomId },
       data: {
         currentHostParticipantId: participant.id,
         isPlaying: false,
         roomVersion: { increment: 1 },
       },
-    }),
-  ]);
+    });
+  });
 
   return emitRoomSnapshot(roomId);
 }

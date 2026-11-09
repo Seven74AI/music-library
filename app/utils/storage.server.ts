@@ -3,9 +3,11 @@ import { dirname, join } from "node:path";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { parseByteRangeHeader } from "#app/utils/http-byte-range.server.ts";
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { type FileUpload } from "@mjackson/form-data-parser";
@@ -403,11 +405,25 @@ export async function uploadFile(params: {
  * @param timings - Optional timing object for performance tracking
  * @returns Promise resolving to signed URL and headers
  */
-export async function getStorageObjectStream(key: string): Promise<{
-  body: ReadableStream<Uint8Array>;
-  contentType: string;
-  contentLength: number | undefined;
-}> {
+export type StorageObjectStreamResult =
+  | {
+      status: 200 | 206;
+      body: ReadableStream<Uint8Array>;
+      contentType: string;
+      contentLength: number | undefined;
+      contentRange?: string;
+    }
+  | {
+      status: 416;
+      body: null;
+      contentType: string;
+      fileSize: number;
+    };
+
+export async function getStorageObjectStream(
+  key: string,
+  request?: Request,
+): Promise<StorageObjectStreamResult> {
   if (!key || typeof key !== "string") {
     throw new Error("Invalid key: must be a non-empty string");
   }
@@ -418,6 +434,53 @@ export async function getStorageObjectStream(key: string): Promise<{
 
   const s3Client = getS3Client();
   const config = getStorageConfig();
+  const rangeHeader = request?.headers.get("Range") ?? null;
+  const defaultContentType = "application/octet-stream";
+
+  if (rangeHeader) {
+    const head = await s3Client.send(
+      new HeadObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+      }),
+    );
+    const fileSize = head.ContentLength ?? 0;
+    const parsed = parseByteRangeHeader(rangeHeader, fileSize);
+
+    if (parsed.kind === "unsatisfiable") {
+      return {
+        status: 416,
+        body: null,
+        contentType: head.ContentType ?? defaultContentType,
+        fileSize,
+      };
+    }
+
+    if (parsed.kind === "partial") {
+      const { start, end } = parsed;
+      const response = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: config.bucket,
+          Key: key,
+          Range: `bytes=${start}-${end}`,
+        }),
+      );
+
+      if (!response.Body) {
+        throw new Error(`Empty storage body for ${key}`);
+      }
+
+      const chunkSize = end - start + 1;
+      return {
+        status: 206,
+        body: response.Body.transformToWebStream(),
+        contentType: response.ContentType ?? defaultContentType,
+        contentLength: response.ContentLength ?? chunkSize,
+        contentRange: response.ContentRange ?? `bytes ${start}-${end}/${fileSize}`,
+      };
+    }
+  }
+
   const response = await s3Client.send(
     new GetObjectCommand({
       Bucket: config.bucket,
@@ -430,8 +493,9 @@ export async function getStorageObjectStream(key: string): Promise<{
   }
 
   return {
+    status: 200,
     body: response.Body.transformToWebStream(),
-    contentType: response.ContentType ?? "application/octet-stream",
+    contentType: response.ContentType ?? defaultContentType,
     contentLength: response.ContentLength,
   };
 }

@@ -1534,4 +1534,99 @@ describe("party-room lifecycle", () => {
     );
     expect(snapshot?.queue[0]?.addedByDisplayName).toBe("Riley");
   });
+
+  describe("round 18 — host/presence transaction atomicity", () => {
+    test("reclaimHost demotes the live speaker pointer inside one transaction", async () => {
+      const hostUser = await makeUser("Original");
+      const room = await createRoom({ userId: hostUser.id, displayName: "Original" });
+      const creatorSeatId = room.participants[0]!.id;
+      const standIn = await joinRoom({
+        code: room.code,
+        actor: { type: "guest", displayName: "StandIn" },
+      });
+
+      await agePastGrace(creatorSeatId);
+      await becomeHost({
+        roomId: room.id,
+        actor: { type: "guest", guestToken: standIn.guestToken! },
+      });
+
+      await prisma.roomParticipant.update({
+        where: { id: creatorSeatId },
+        data: { role: ROOM_ROLE.host },
+      });
+
+      await reclaimHost({
+        roomId: room.id,
+        actor: { type: "user", userId: hostUser.id },
+      });
+
+      const seats = await prisma.roomParticipant.findMany({
+        where: { roomId: room.id, leftAt: null, role: ROOM_ROLE.host },
+      });
+      expect(seats).toHaveLength(1);
+      expect(seats[0]?.id).toBe(creatorSeatId);
+      expect((await loadRoom(room.id)).currentHostParticipantId).toBe(creatorSeatId);
+
+      const standInSeat = await prisma.roomParticipant.findUniqueOrThrow({
+        where: { id: standIn.participant.id },
+      });
+      expect(standInSeat.role).toBe(ROOM_ROLE.dj);
+    });
+
+    test("leaveRoom clears the speaker pointer only when the leaver still holds it", async () => {
+      const hostUser = await makeUser("Original");
+      const room = await createRoom({ userId: hostUser.id, displayName: "Original" });
+      const creatorSeatId = room.participants[0]!.id;
+      const member = await makeUser("Alice");
+      const alice = await joinRoom({
+        code: room.code,
+        actor: { type: "user", userId: member.id, displayName: "Alice" },
+      });
+
+      await agePastGrace(creatorSeatId);
+      await becomeHost({
+        roomId: room.id,
+        actor: { type: "user", userId: member.id },
+      });
+
+      await leaveRoom({
+        roomId: room.id,
+        actor: { type: "user", userId: hostUser.id },
+      });
+
+      const after = await loadRoom(room.id);
+      expect(after.currentHostParticipantId).toBe(alice.participant.id);
+
+      const hosts = await prisma.roomParticipant.findMany({
+        where: { roomId: room.id, leftAt: null, role: ROOM_ROLE.host },
+      });
+      expect(hosts).toHaveLength(1);
+      expect(hosts[0]?.id).toBe(alice.participant.id);
+    });
+
+    test("system endRoom aborts when someone is present despite stale emptySince", async () => {
+      const host = await makeUser("Speaker");
+      const room = await createRoom({ userId: host.id, displayName: "Speaker" });
+      const cutoff = new Date(Date.now() - EMPTY_ROOM_TTL_MS);
+
+      await prisma.room.update({
+        where: { id: room.id },
+        data: { emptySince: new Date(cutoff.getTime() - 60_000) },
+      });
+
+      const stillOpen = await endRoom({
+        roomId: room.id,
+        actor: { type: "system" },
+        emptyExpiryCutoff: cutoff,
+      });
+      expect(stillOpen.status).toBe("open");
+      expect(stillOpen.endedAt).toBeNull();
+
+      const seat = await prisma.roomParticipant.findFirstOrThrow({
+        where: { roomId: room.id, leftAt: null },
+      });
+      expect(seat.leftAt).toBeNull();
+    });
+  });
 });
