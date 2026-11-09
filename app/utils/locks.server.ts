@@ -203,6 +203,58 @@ export async function findWriteBlockedLock(
   return null;
 }
 
+export type EditLockTxViolation = { kind: "other"; lockedByName: string } | { kind: "not_held" };
+
+export class EditLockTransactionError extends Error {
+  readonly violation: EditLockTxViolation;
+
+  constructor(violation: EditLockTxViolation) {
+    super("Edit lock check failed");
+    this.name = "EditLockTransactionError";
+    this.violation = violation;
+  }
+}
+
+/**
+ * Re-read the edit lock inside a write transaction (ADR-032). Aborts the write
+ * when another curator holds the lock, or when this curator's lock expired or
+ * was released after the pre-transaction check.
+ */
+export async function assertEditLockInTransaction(
+  tx: Prisma.TransactionClient,
+  entityType: EntityType,
+  entityId: string,
+  userId: string,
+  heldBeforeWrite: LockInfo | null,
+): Promise<void> {
+  const row = await tx.editLock.findUnique({
+    where: { entityType_entityId: { entityType, entityId } },
+    include: lockInclude,
+  });
+  const now = new Date();
+
+  if (heldBeforeWrite?.lockedBy === userId) {
+    if (
+      !row ||
+      row.id !== heldBeforeWrite.id ||
+      row.lockedBy !== userId ||
+      row.acquiredAt.getTime() !== heldBeforeWrite.acquiredAt.getTime() ||
+      row.expiresAt <= now
+    ) {
+      throw new EditLockTransactionError({ kind: "not_held" });
+    }
+    return;
+  }
+
+  if (row && row.lockedBy !== userId) {
+    const info = toLockInfo(row);
+    throw new EditLockTransactionError({
+      kind: "other",
+      lockedByName: info.lockedByName,
+    });
+  }
+}
+
 export async function getLockStatus(
   entityType: EntityType,
   entityId: string,

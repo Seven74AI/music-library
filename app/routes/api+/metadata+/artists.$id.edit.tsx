@@ -4,7 +4,12 @@ import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { getLockStatus, releaseLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  getLockStatus,
+  releaseLock,
+} from "#app/utils/locks.server.ts";
 import { type Route } from "./+types/artists.$id.edit.ts";
 
 const EditArtistSchema = z.object({
@@ -64,37 +69,70 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 
   // Snapshot the current artist first so restore can recover the pre-edit values.
-  const { artist, edit } = await prisma.$transaction(async (tx) => {
-    const artistEdit = await tx.artistEdit.create({
-      data: {
-        artistId,
-        editedBy: userId,
-        comment: comment || null,
-        name: existingArtist.name,
-        bio: existingArtist.bio,
-        imageUrl: existingArtist.imageUrl,
-        website: existingArtist.website,
-        genre: existingArtist.genre,
-        country: existingArtist.country,
-      },
-    });
+  let artist: Awaited<ReturnType<typeof prisma.artist.update>>;
+  let edit: Awaited<ReturnType<typeof prisma.artistEdit.create>>;
+  try {
+    ({ artist, edit } = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "artist", artistId, userId, lock);
 
-    const normalizedName = normalizeArtistName(name);
-    const updatedArtist = await tx.artist.update({
-      where: { id: artistId },
-      data: {
-        name: name.trim(),
-        normalizedName,
-        bio: bio !== undefined ? bio : undefined,
-        genre: genre !== undefined ? genre : undefined,
-        country: country !== undefined ? country : undefined,
-        imageUrl: imageUrl !== undefined ? imageUrl : undefined,
-        website: website !== undefined ? website : undefined,
-      },
-    });
+      const artistBeforeWrite = await tx.artist.findUnique({
+        where: { id: artistId },
+      });
+      if (!artistBeforeWrite) {
+        throw data({ error: "Artist not found" }, { status: 404 });
+      }
 
-    return { artist: updatedArtist, edit: artistEdit };
-  });
+      const artistEdit = await tx.artistEdit.create({
+        data: {
+          artistId,
+          editedBy: userId,
+          comment: comment || null,
+          name: artistBeforeWrite.name,
+          bio: artistBeforeWrite.bio,
+          imageUrl: artistBeforeWrite.imageUrl,
+          website: artistBeforeWrite.website,
+          genre: artistBeforeWrite.genre,
+          country: artistBeforeWrite.country,
+        },
+      });
+
+      const normalizedName = normalizeArtistName(name);
+      const updatedArtist = await tx.artist.update({
+        where: { id: artistId },
+        data: {
+          name: name.trim(),
+          normalizedName,
+          bio: bio !== undefined ? bio : undefined,
+          genre: genre !== undefined ? genre : undefined,
+          country: country !== undefined ? country : undefined,
+          imageUrl: imageUrl !== undefined ? imageUrl : undefined,
+          website: website !== undefined ? website : undefined,
+        },
+      });
+
+      return { artist: updatedArtist, edit: artistEdit };
+    }));
+  } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      if (error.violation.kind === "other") {
+        throw data(
+          {
+            error: "Locked",
+            message: `${error.violation.lockedByName} is currently editing this artist`,
+          },
+          { status: 409 },
+        );
+      }
+      throw data(
+        {
+          error: "Locked",
+          message: "Your edit lock on this artist is no longer active",
+        },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
   // Release the lock on successful save (ADR-032).
   if (lock) {

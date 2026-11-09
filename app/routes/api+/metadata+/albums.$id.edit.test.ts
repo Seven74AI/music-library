@@ -526,6 +526,56 @@ describe("POST /api/metadata/albums/:id/edit", () => {
     });
   });
 
+  test("rejects save when the edit lock was released before the write transaction", async () => {
+    await prisma.role.upsert({
+      where: { name: "curator" },
+      update: {},
+      create: { name: "curator", description: "Curator" },
+    });
+
+    await prisma.user.create({
+      data: {
+        id: mockUserId,
+        email: "curator@test.com",
+        username: "curator",
+        roles: { connect: { name: "curator" } },
+      },
+    });
+
+    const artist = await prisma.artist.create({
+      data: { name: "Artist", normalizedName: "artist" },
+    });
+
+    const album = await prisma.album.create({
+      data: { name: "Original Album", artistId: artist.id },
+    });
+
+    const acquiredAt = new Date("2026-06-01T00:00:00.000Z");
+    const locks = await import("#app/utils/locks.server.ts");
+    vi.spyOn(locks, "getLockStatus").mockResolvedValue({
+      id: "lock-ghost",
+      entityType: "album",
+      entityId: album.id,
+      lockedBy: mockUserId,
+      lockedByName: "curator",
+      acquiredAt,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const request = new Request(`http://localhost/api/metadata/albums/${album.id}/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Overwrite", artistId: artist.id }),
+    });
+
+    await expect(action({ request, params: { id: album.id } } as any)).rejects.toMatchObject({
+      init: { status: 409 },
+    });
+
+    const unchanged = await prisma.album.findUnique({ where: { id: album.id } });
+    expect(unchanged?.name).toBe("Original Album");
+  });
+
   test("releases the lock after a successful save", async () => {
     await prisma.role.upsert({
       where: { name: "curator" },
