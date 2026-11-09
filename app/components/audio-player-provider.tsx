@@ -581,7 +581,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         return buildOfflineSpine(context, { libraryUsesDownloads: true });
       }
 
-      if (isOnline && spineContext) {
+      if (isOnline && !isOfflineEnvironment() && spineContext) {
         try {
           const result = await fetchQueueSpine(spineContext);
           if (result.tracks.length > 0) return result;

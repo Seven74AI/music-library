@@ -1872,7 +1872,8 @@ test("late offline restore does not clobber a completed online restore or persis
     listForPlaylist: vi.fn().mockResolvedValue([]),
   } as unknown as ReturnType<typeof getOfflineStorage>);
 
-  vi.stubGlobal("navigator", { onLine: false });
+  const navigatorState = { onLine: false };
+  vi.stubGlobal("navigator", navigatorState);
 
   render(
     <AudioPlayerProvider userId="user-1">
@@ -1922,6 +1923,7 @@ test("late offline restore does not clobber a completed online restore or persis
     return Promise.resolve({ status: 200, ok: true, json: async () => ({}) } as Response);
   });
 
+  navigatorState.onLine = true;
   window.dispatchEvent(new Event("online"));
 
   await waitFor(() => {
