@@ -58,11 +58,12 @@ import {
   queueTrackFromFullTrack,
 } from "#app/features/queue/queue-spine.ts";
 import {
-  readCachedPlayerState,
+  readCachedPlayerStateWithMeta,
   writeCachedPlayerState,
 } from "#app/features/player-state/player-state-cache.client.ts";
 import {
   fetchPlayerState,
+  inferAudibleSourceForRestore,
   isAudibleSourceZoneUnknown,
   persistPlayerState,
   withPlayerStateDefaults,
@@ -2071,32 +2072,26 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         : null;
 
       if (currentFullTrack && isPlayableTrack(currentFullTrack)) {
-        let zone: typeof saved.audibleSourceZone = saved.audibleSourceZone;
-
-        if (zoneUnknown) {
-          const position = findSpinePositionForTrackId(
-            {
-              upNext: resolvedUpNext,
-              spine: spineTracks,
-              spineOrder: order,
-              spinePosition: saved.spinePosition,
-              loopMode: saved.loopMode,
-            },
-            currentFullTrack.id,
-          );
-          if (position !== null) {
-            zone = "spine";
-            setSpinePosition(position);
-          } else if (resolvedUpNext.some((track) => track.id === currentFullTrack.id)) {
-            zone = "upNext";
-          } else {
-            zone = null;
-          }
+        const inferred = inferAudibleSourceForRestore(
+          zoneUnknown,
+          saved.audibleSourceZone,
+          saved.spinePosition,
+          {
+            upNext: resolvedUpNext,
+            spine: spineTracks,
+            spineOrder: order,
+            spinePosition: saved.spinePosition,
+            loopMode: saved.loopMode,
+          },
+          currentFullTrack.id,
+          resolvedUpNext.map((track) => track.id),
+        );
+        if (inferred.spinePosition !== saved.spinePosition) {
+          setSpinePosition(inferred.spinePosition);
         }
-
-        if (zone !== null) {
-          audibleSourceZoneRef.current = zone;
-          setAudibleSourceZone(zone);
+        if (inferred.audibleSourceZone !== null) {
+          audibleSourceZoneRef.current = inferred.audibleSourceZone;
+          setAudibleSourceZone(inferred.audibleSourceZone);
         } else {
           audibleSourceZoneRef.current = null;
           setAudibleSourceZone(null);
@@ -2124,9 +2119,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   // returns. A client-side spine snapshot is never cached.
   const restoreQueueOffline = useCallback(async (restoreUserId: string) => {
     const epoch = restoreEpochRef.current;
-    const cached = readCachedPlayerState(restoreUserId);
-    if (!cached) return;
-    const saved = withPlayerStateDefaults(cached);
+    const cachedRead = readCachedPlayerStateWithMeta(restoreUserId);
+    if (!cachedRead) return;
+    const { saved, zoneUnknown } = cachedRead;
     if (
       userMutatedQueueRef.current ||
       roomSpeakerRef.current !== null ||
@@ -2182,7 +2177,10 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     setSpinePosition(saved.spinePosition);
 
     if (currentFullTrack && isPlayableTrack(currentFullTrack)) {
-      if (saved.audibleSourceZone) {
+      if (zoneUnknown) {
+        audibleSourceZoneRef.current = null;
+        setAudibleSourceZone(null);
+      } else {
         audibleSourceZoneRef.current = saved.audibleSourceZone;
         setAudibleSourceZone(saved.audibleSourceZone);
       }
@@ -2195,6 +2193,40 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       setIsPlayerVisible(true);
     }
   }, []);
+
+  // Migrated/local-cache rows may omit zone + pin spinePosition 0. Once a spine
+  // exists, re-infer before the debounced persist can write the wrong index.
+  useEffect(() => {
+    const track = currentTrack;
+    if (!track?.id || !isPlayableTrack(track)) return;
+    if (!isAudibleSourceZoneUnknown(audibleSourceZone)) return;
+    if (spine.length === 0 || spineOrder.length === 0) return;
+
+    const inferred = inferAudibleSourceForRestore(
+      true,
+      null,
+      spinePosition,
+      navigationState,
+      track.id,
+      upNext.map((queueTrack) => queueTrack.id),
+    );
+    if (inferred.audibleSourceZone === null) return;
+
+    if (inferred.spinePosition !== spinePosition) {
+      setSpinePosition(inferred.spinePosition);
+    }
+    audibleSourceZoneRef.current = inferred.audibleSourceZone;
+    setAudibleSourceZone(inferred.audibleSourceZone);
+  }, [
+    currentTrack,
+    audibleSourceZone,
+    spine.length,
+    spineOrder,
+    upNext,
+    loopMode,
+    spinePosition,
+    navigationState,
+  ]);
 
   // Keep the serializable-state mirror in sync for the debounced write + flush.
   useEffect(() => {

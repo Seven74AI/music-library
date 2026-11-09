@@ -6,8 +6,14 @@ import {
   type PlayContextJson,
   type PlayerStateData,
   type ResolvedPlayerStateData,
+  isAudibleSourceZoneUnknown,
   withPlayerStateDefaults,
 } from "./player-state.ts";
+
+export type CachedPlayerStateRead = {
+  saved: ResolvedPlayerStateData;
+  zoneUnknown: boolean;
+};
 
 /**
  * localStorage mirror of the server-persisted `PlayerState`. This is NOT a
@@ -107,6 +113,15 @@ function isPlayerStateData(value: unknown): value is PlayerStateData {
 
 /** Read the locally mirrored player state, or `null` when absent or corrupt. */
 export function readCachedPlayerState(userId: string): PlayerStateData | null {
+  return readCachedPlayerStateWithMeta(userId)?.saved ?? null;
+}
+
+/**
+ * Read the local mirror and whether `audibleSourceZone` was omitted or null on
+ * disk (legacy/migrated). Callers must treat `zoneUnknown` rows as needing
+ * re-inference once a spine is available — not as spine index 0 + concrete zone.
+ */
+export function readCachedPlayerStateWithMeta(userId: string): CachedPlayerStateRead | null {
   if (typeof window === "undefined" || !userId) return null;
 
   try {
@@ -114,7 +129,11 @@ export function readCachedPlayerState(userId: string): PlayerStateData | null {
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!isPlayerStateData(parsed)) return null;
-    return withPlayerStateDefaults(parsed as PlayerStateData) as ResolvedPlayerStateData;
+    const data = parsed as PlayerStateData;
+    return {
+      saved: withPlayerStateDefaults(data),
+      zoneUnknown: isAudibleSourceZoneUnknown(data.audibleSourceZone),
+    };
   } catch {
     return null;
   }

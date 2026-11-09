@@ -5472,6 +5472,120 @@ test("restore resumes spine position and zone while an Up Next track is audible"
   expect(screen.getByTestId("audible-zone").textContent).toBe("upNext");
 });
 
+test("local cache mirror re-infers spine position after reconnect backfills the spine", async () => {
+  const fetchMock = vi.mocked(fetch);
+  window.localStorage.clear();
+
+  writeCachedPlayerState("user-1", {
+    playContext: { type: "library" },
+    currentTrackId: "track-3",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: null,
+    upNextPlayNextCount: 0,
+  });
+
+  mockOfflineStorage([downloadedSummary("track-3", "Spine Three")]);
+  const navigatorState = { onLine: false };
+  vi.stubGlobal("navigator", navigatorState);
+
+  function RestoreProbe() {
+    const { spinePosition, audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="spine-position">{spinePosition}</span>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
+  });
+  expect(screen.getByTestId("audible-zone").textContent).toBe("");
+  expect(screen.getByTestId("spine-position").textContent).toBe("0");
+  expect(fetchMock).not.toHaveBeenCalled();
+
+  installQueueSpineFetchMock(fetchMock, {
+    playContext: { type: "library" },
+    currentTrackId: "track-3",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: null,
+    upNextPlayNextCount: 0,
+  });
+
+  navigatorState.onLine = true;
+  window.dispatchEvent(new Event("online"));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("spine-position").textContent).toBe("2");
+  });
+  expect(screen.getByTestId("audible-zone").textContent).toBe("spine");
+
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const persistPut = fetchMock.mock.calls.find((call) => {
+    const init = call[1] as RequestInit | undefined;
+    return String(call[0]) === PLAYER_STATE_ROUTE && init?.method === "PUT";
+  });
+  expect(persistPut).toBeDefined();
+  const body = JSON.parse(String((persistPut![1] as RequestInit).body)) as {
+    spinePosition: number;
+    audibleSourceZone: string | null;
+  };
+  expect(body.spinePosition).toBe(2);
+  expect(body.audibleSourceZone).toBe("spine");
+});
+
+test("offline restore keeps unknown audibleSourceZone without inventing a concrete zone", async () => {
+  window.localStorage.clear();
+
+  writeCachedPlayerState("user-1", {
+    playContext: { type: "library" },
+    currentTrackId: "track-1",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: null,
+  });
+
+  mockOfflineStorage([downloadedSummary("track-1", "Test Song")]);
+  vi.stubGlobal("navigator", { onLine: false });
+
+  function RestoreProbe() {
+    const { audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+  expect(screen.getByTestId("audible-zone").textContent).toBe("");
+});
+
 function installQueueSpineFetchMock(
   fetchMock: ReturnType<typeof vi.mocked<typeof fetch>>,
   playerStateBody: Record<string, unknown>,

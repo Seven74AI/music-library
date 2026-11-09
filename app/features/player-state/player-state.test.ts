@@ -5,7 +5,9 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { type QueueNavigationState } from "#app/features/queue/queue-navigation.ts";
 import {
+  inferAudibleSourceForRestore,
   isAudibleSourceZoneUnknown,
   withPlayerStateDefaults,
   type PlayerStateData,
@@ -69,6 +71,33 @@ describe("isAudibleSourceZoneUnknown", () => {
   test("treats explicit spine and upNext as known", () => {
     expect(isAudibleSourceZoneUnknown("spine")).toBe(false);
     expect(isAudibleSourceZoneUnknown("upNext")).toBe(false);
+  });
+});
+
+describe("inferAudibleSourceForRestore", () => {
+  const navigation: QueueNavigationState = {
+    upNext: [],
+    spine: [
+      { id: "track-1", title: "One" } as never,
+      { id: "track-2", title: "Two" } as never,
+      { id: "track-3", title: "Three" } as never,
+    ],
+    spineOrder: [0, 1, 2],
+    spinePosition: 0,
+    loopMode: "off",
+  };
+
+  test("re-infers spine zone + position when zone is unknown", () => {
+    expect(inferAudibleSourceForRestore(true, null, 0, navigation, "track-3", [])).toEqual({
+      audibleSourceZone: "spine",
+      spinePosition: 2,
+    });
+  });
+
+  test("keeps explicit upNext zone without re-inferring spine", () => {
+    expect(
+      inferAudibleSourceForRestore(false, "upNext", 2, navigation, "track-up", ["track-up"]),
+    ).toEqual({ audibleSourceZone: "upNext", spinePosition: 2 });
   });
 });
 

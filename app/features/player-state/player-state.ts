@@ -1,4 +1,9 @@
-import { type LoopMode, type QueueZone } from "#app/features/queue/queue-navigation.ts";
+import {
+  findSpinePositionForTrackId,
+  type LoopMode,
+  type QueueNavigationState,
+  type QueueZone,
+} from "#app/features/queue/queue-navigation.ts";
 import { type DiscoverSortOption } from "#app/utils/discover.ts";
 
 /**
@@ -75,6 +80,34 @@ export type ResolvedPlayerStateData = PlayerStateData & {
 /** True when persisted queue data does not record which zone is audible (legacy or migrated). */
 export function isAudibleSourceZoneUnknown(zone: QueueZone | null | undefined): boolean {
   return zone === null || zone === undefined;
+}
+
+export type InferredAudibleSource = {
+  audibleSourceZone: QueueZone | null;
+  spinePosition: number;
+};
+
+/** Re-derive zone + spine position once a spine exists for migrated/legacy rows. */
+export function inferAudibleSourceForRestore(
+  zoneUnknown: boolean,
+  knownZone: QueueZone | null,
+  savedSpinePosition: number,
+  navigation: QueueNavigationState,
+  currentTrackId: string,
+  upNextTrackIds: string[],
+): InferredAudibleSource {
+  if (!zoneUnknown) {
+    return { audibleSourceZone: knownZone, spinePosition: savedSpinePosition };
+  }
+
+  const position = findSpinePositionForTrackId(navigation, currentTrackId);
+  if (position !== null) {
+    return { audibleSourceZone: "spine", spinePosition: position };
+  }
+  if (upNextTrackIds.includes(currentTrackId)) {
+    return { audibleSourceZone: "upNext", spinePosition: savedSpinePosition };
+  }
+  return { audibleSourceZone: null, spinePosition: savedSpinePosition };
 }
 
 /** Apply defaults for queue-position fields omitted by older persisted rows. */
