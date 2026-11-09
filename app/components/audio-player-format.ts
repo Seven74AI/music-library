@@ -64,9 +64,11 @@ export function swapPlaybackSource(
   nextUrl: string,
   savedTime: number,
   shouldResume: boolean,
+  onProgrammaticSeek?: () => void,
 ) {
   const restore = () => {
     if (Number.isFinite(savedTime) && savedTime > 0) {
+      onProgrammaticSeek?.();
       audio.currentTime = savedTime;
     }
     if (shouldResume) {

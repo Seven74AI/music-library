@@ -1724,6 +1724,180 @@ test("gapless unlock handoff emits play_started with a distinct playId for the a
   expect(track2PlayId).not.toBe(track1PlayId);
 });
 
+test("repeat-one: swapPlaybackSource head restore after offline swap emits no spurious play_started", async () => {
+  const { resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+
+  let resolveOfflineUrl: ((url: string | null) => void) | undefined;
+  vi.mocked(resolvePlaybackAudioUrl).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveOfflineUrl = resolve;
+      }),
+  );
+
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+  window.dispatchEvent(new Event("online"));
+
+  const track = { ...mockTrack, duration: 1.2 };
+  const user = userEvent.setup();
+  const { audioEl } = await renderPlayer({
+    loopMode: "one",
+    track,
+  });
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "https://cdn.example/track-1.mp3");
+  });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 0.9, 1.2);
+  fireEvent.timeUpdate(audioEl);
+
+  let currentTime = 0.25;
+  Object.defineProperty(audioEl, "currentTime", {
+    configurable: true,
+    get: () => currentTime,
+    set: (value: number) => {
+      currentTime = value;
+    },
+  });
+
+  setPaused(audioEl, false);
+  vi.mocked(reportPlayEvent).mockClear();
+
+  window.dispatchEvent(new Event("offline"));
+
+  await waitFor(() => {
+    expect(resolveOfflineUrl).toBeTypeOf("function");
+  });
+
+  resolveOfflineUrl?.("blob:cached-repeat-one");
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "blob:cached-repeat-one");
+  });
+  expect(currentTime).toBe(0.25);
+
+  setProgress(audioEl, 0.25, 1.2);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(0);
+});
+
+test("repeat-one: media error offline swap restore emits no spurious play_started", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  const { resolveTrackPlaybackSource, resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(resolveTrackPlaybackSource).mockResolvedValue("https://cdn.example/track-1.mp3");
+  vi.mocked(resolvePlaybackAudioUrl).mockResolvedValue("blob:media-head-restore");
+
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const track = { ...mockTrack, duration: 1.2 };
+  const user = userEvent.setup();
+  const { audioEl } = await renderPlayer({ loopMode: "one", track });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 0.9, 1.2);
+  fireEvent.timeUpdate(audioEl);
+  vi.mocked(reportPlayEvent).mockClear();
+
+  let currentTime = 0.25;
+  Object.defineProperty(audioEl, "currentTime", {
+    configurable: true,
+    get: () => currentTime,
+    set: (value: number) => {
+      currentTime = value;
+    },
+  });
+  Object.defineProperty(audioEl, "error", {
+    configurable: true,
+    value: { code: 2, message: "Network error" },
+  });
+  audioEl.dispatchEvent(new Event("error"));
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "blob:media-head-restore");
+  });
+  expect(currentTime).toBe(0.25);
+
+  vi.mocked(reportPlayEvent).mockClear();
+  setProgress(audioEl, 0.25, 1.2);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(0);
+
+  consoleSpy.mockRestore();
+});
+
+test("repeat-one: natural wrap still counts once after offline format swap", async () => {
+  const { resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+
+  vi.mocked(resolvePlaybackAudioUrl).mockResolvedValue("blob:cached-repeat-one-wrap");
+
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+  window.dispatchEvent(new Event("online"));
+
+  const track = { ...mockTrack, duration: 1.2 };
+  const user = userEvent.setup();
+  const { audioEl } = await renderPlayer({
+    loopMode: "one",
+    track,
+  });
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "https://cdn.example/track-1.mp3");
+  });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  let currentTime = 0.5;
+  Object.defineProperty(audioEl, "currentTime", {
+    configurable: true,
+    get: () => currentTime,
+    set: (value: number) => {
+      currentTime = value;
+    },
+  });
+  setPaused(audioEl, false);
+  window.dispatchEvent(new Event("offline"));
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "blob:cached-repeat-one-wrap");
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 1.1, 1.2);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.05, 1.2);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(1);
+});
+
 test("repeat-one: playback-token seek to 0 after cache miss emits no spurious play_started", async () => {
   const user = userEvent.setup();
   mockPlay();

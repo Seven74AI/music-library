@@ -593,7 +593,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
         // No blob — let handleError deal with it when buffer runs out
         return;
       }
-      swapPlaybackSource(audioRef.current, offlineUrl, savedTime, shouldResume);
+      swapPlaybackSource(audioRef.current, offlineUrl, savedTime, shouldResume, () => {
+        userSeekRef.current = true;
+      });
       setAudioSrc(offlineUrl);
       setPlaybackError(null);
     });
@@ -785,6 +787,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     keepPlayingRef.current = true;
     if (isNewSource) {
       try {
+        userSeekRef.current = true;
         audio.currentTime = 0;
       } catch {
         // The element may not be seekable until metadata arrives.
@@ -1157,7 +1160,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
           const retryUrl = withRecoveryNonce(audioSrcOverride);
           if (audioRef.current && loadedTrackIdRef.current === trackId) {
             pendingAudioSrcRef.current = { trackId, url: retryUrl };
-            swapPlaybackSource(audioRef.current, retryUrl, savedTime || 0, shouldResume);
+            swapPlaybackSource(audioRef.current, retryUrl, savedTime || 0, shouldResume, () => {
+              userSeekRef.current = true;
+            });
             setAudioSrc(retryUrl);
             setPlaybackError(null);
           } else {
@@ -1176,7 +1181,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
               audioRef.current &&
               loadedTrackIdRef.current === trackId
             ) {
-              swapPlaybackSource(audioRef.current, freshUrl, savedTime || 0, shouldResume);
+              swapPlaybackSource(audioRef.current, freshUrl, savedTime || 0, shouldResume, () => {
+                userSeekRef.current = true;
+              });
               setAudioSrc(freshUrl);
               setPlaybackError(null);
               return;
@@ -1184,7 +1191,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
             return resolvePlaybackAudioUrl(trackId).then((offlineUrl) => {
               if (offlineUrl && audioRef.current && loadedTrackIdRef.current === trackId) {
-                swapPlaybackSource(audioRef.current, offlineUrl, savedTime || 0, shouldResume);
+                swapPlaybackSource(
+                  audioRef.current,
+                  offlineUrl,
+                  savedTime || 0,
+                  shouldResume,
+                  () => {
+                    userSeekRef.current = true;
+                  },
+                );
                 setAudioSrc(offlineUrl);
                 setPlaybackError(null);
               } else {
