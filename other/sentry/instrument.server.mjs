@@ -20,4 +20,7 @@ Sentry.init({
   // follows each trace instead.
   profileSessionSampleRate: isProduction ? 0.1 : 1.0,
   profileLifecycle: "trace",
+  dataCollection: {
+    urlQueryParams: { deny: ["code", "state", "target"] },
+  },
 });
