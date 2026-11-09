@@ -32,8 +32,10 @@ import { cachePlaylistMetadata } from "#app/features/offline-storage/offline-pla
 import { type FullTrack } from "#app/types/frontend/shared.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { getPlaylistTitle } from "#app/utils/breadcrumb-utils.ts";
+import { findAllUserPlaylistTracks } from "#app/features/user-playlist/user-playlist-track-queries.server.ts";
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { loadLibraryStatusByTrackId } from "#app/utils/track-list-loader.server.ts";
 import { filterPlayableTracks } from "#app/utils/playable-track.ts";
 
 /** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
@@ -66,7 +68,7 @@ export const handle: BreadcrumbHandle = {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
-  const playlist = await prisma.userPlaylist.findFirst({
+  const playlistMeta = await prisma.userPlaylist.findFirst({
     where: {
       id: params.playlistId,
       ownerId: userId,
@@ -77,80 +79,67 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       description: true,
       createdAt: true,
       updatedAt: true,
-      tracks: {
+    },
+  });
+
+  if (!playlistMeta) {
+    throw new Response("Playlist not found", { status: 404 });
+  }
+
+  const playlistTracks = await findAllUserPlaylistTracks(prisma, {
+    where: { playlistId: params.playlistId },
+    select: {
+      id: true,
+      position: true,
+      createdAt: true,
+      track: {
         select: {
           id: true,
-          position: true,
-          createdAt: true,
-          track: {
+          title: true,
+          artist: {
             select: {
               id: true,
-              title: true,
-              artist: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-              duration: true,
-              coverImage: {
-                select: {
-                  objectKey: true,
-                },
-              },
-              albumRecord: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-              serviceUrl: true,
-              createdAt: true,
-              releaseDate: true,
-              originalDate: true,
-              service: {
-                select: {
-                  displayName: true,
-                  logoUrl: true,
-                },
-              },
-              audioFiles: {
-                select: {
-                  id: true,
-                  format: true,
-                  objectKey: true,
-                },
-              },
+              name: true,
+            },
+          },
+          duration: true,
+          coverImage: {
+            select: {
+              objectKey: true,
+            },
+          },
+          albumRecord: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          serviceUrl: true,
+          createdAt: true,
+          releaseDate: true,
+          originalDate: true,
+          service: {
+            select: {
+              displayName: true,
+              logoUrl: true,
+            },
+          },
+          audioFiles: {
+            select: {
+              id: true,
+              format: true,
+              objectKey: true,
             },
           },
         },
-        orderBy: { position: "asc" },
       },
     },
   });
 
-  if (!playlist) {
-    throw new Response("Playlist not found", { status: 404 });
-  }
+  const playlist = { ...playlistMeta, tracks: playlistTracks };
 
-  // Get user's library track IDs for isInUserLibrary status
-  // Scoped to only the track IDs in this playlist (not the entire library)
   const playlistTrackIds = playlist.tracks.map((pt) => pt.track.id);
-  const libraryTrackIds = new Set(
-    playlistTrackIds.length > 0
-      ? (
-          await prisma.userTrack.findMany({
-            where: {
-              userId,
-              isActive: true,
-              deletedAt: null,
-              trackId: { in: playlistTrackIds },
-            },
-            select: { trackId: true },
-          })
-        ).map((ut) => ut.trackId)
-      : [],
-  );
+  const { libraryTrackIds } = await loadLibraryStatusByTrackId(userId, playlistTrackIds);
 
   // Add isInUserLibrary to each track
   const tracksWithLibraryStatus = playlist.tracks.map((pt) => ({

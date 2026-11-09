@@ -20,7 +20,35 @@ import {
   type PlaylistTrackSortOption,
 } from "#app/utils/playlist-track-sort.ts";
 import { parseSortDirection, type SortDirection } from "#app/utils/sort-direction.ts";
+import { ARTIST_TRACK_PAGE_SIZE } from "#app/features/artist/artist-tracks.server.ts";
+import { findAllUserPlaylistTracks } from "#app/features/user-playlist/user-playlist-track-queries.server.ts";
+import { type Prisma } from "#prisma/client.js";
 import { buildUserTrackAccessWhere } from "./queue-playback.server.ts";
+
+async function findAllPlayableTracksForSpine(
+  where: Prisma.TrackWhereInput,
+  orderBy: Prisma.TrackOrderByWithRelationInput[],
+): Promise<QueueTrack[]> {
+  const tracks: QueueTrack[] = [];
+  let cursor: string | undefined;
+
+  while (true) {
+    const page = await prisma.track.findMany({
+      where,
+      select: QUEUE_TRACK_SELECT,
+      orderBy,
+      take: ARTIST_TRACK_PAGE_SIZE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    });
+    tracks.push(...page);
+    if (page.length < ARTIST_TRACK_PAGE_SIZE) {
+      break;
+    }
+    cursor = page[page.length - 1]?.id;
+  }
+
+  return tracks;
+}
 
 export const QUEUE_TRACK_SELECT = {
   id: true,
@@ -203,7 +231,7 @@ export async function fetchQueueSpine(
   }
 
   if (params.context === "playlist") {
-    const playlistTracks = await prisma.userPlaylistTrack.findMany({
+    const playlistTracks = await findAllUserPlaylistTracks(prisma, {
       where: {
         playlistId: params.playlistId,
         playlist: { ownerId: userId },
@@ -213,6 +241,7 @@ export async function fetchQueueSpine(
         },
       },
       select: {
+        id: true,
         position: true,
         createdAt: true,
         track: {
@@ -222,7 +251,6 @@ export async function fetchQueueSpine(
           },
         },
       },
-      orderBy: { position: "asc" },
     });
 
     const sorted = sortPlaylistTracks(playlistTracks, params.sort, params.direction);
@@ -235,28 +263,26 @@ export async function fetchQueueSpine(
   }
 
   if (params.context === "artist") {
-    const tracks = await prisma.track.findMany({
-      where: {
+    const tracks = await findAllPlayableTracksForSpine(
+      {
         artistId: params.artistId,
         audioFiles: { some: {} },
         ...buildUserTrackAccessWhere(userId),
       },
-      select: QUEUE_TRACK_SELECT,
-      orderBy: { createdAt: "desc" },
-    });
+      [{ createdAt: "desc" }, { id: "desc" }],
+    );
     return { tracks, total: tracks.length };
   }
 
   if (params.context === "album") {
-    const tracks = await prisma.track.findMany({
-      where: {
+    const tracks = await findAllPlayableTracksForSpine(
+      {
         albumId: params.albumId,
         audioFiles: { some: {} },
         ...buildUserTrackAccessWhere(userId),
       },
-      select: QUEUE_TRACK_SELECT,
-      orderBy: { createdAt: "asc" },
-    });
+      [{ createdAt: "asc" }, { id: "asc" }],
+    );
     return { tracks, total: tracks.length };
   }
 

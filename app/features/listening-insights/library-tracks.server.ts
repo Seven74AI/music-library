@@ -8,16 +8,15 @@ import { type SortDirection } from "#app/utils/sort-direction.ts";
 import {
   defaultLibrarySortDirection,
   librarySortToWindow,
-  sortByPlayCompletedCount,
   type HeavyRotationWindow,
   type LibrarySortOption,
 } from "./heavy-rotation.ts";
-import { getPlayCompletedCountsByTrack } from "./play-completed-counts.server.ts";
 import { getUtcMonthEndExclusive, getUtcMonthStart } from "./utc-month.ts";
 import {
   assertValidIdCursor,
   INVALID_CURSOR_FORMAT_MESSAGE,
 } from "#app/utils/search-validation.server.ts";
+import { chunkArray } from "#app/utils/chunk-array.ts";
 
 const QUEUE_TRACK_SELECT = {
   id: true,
@@ -157,28 +156,69 @@ export async function listLibraryQueueSpineTracks({
   const window = librarySortToWindow(sort);
 
   if (!window) {
-    const userTracks = await prisma.userTrack.findMany({
-      where,
-      select: {
-        track: { select: QUEUE_TRACK_SELECT },
-      },
-      orderBy: [{ createdAt: direction }, { id: direction }],
-    });
-    return userTracks.map((userTrack) => userTrack.track);
+    const tracks: QueueTrack[] = [];
+    let cursor: string | undefined;
+    while (true) {
+      const page = await prisma.userTrack.findMany({
+        where,
+        select: {
+          id: true,
+          track: { select: QUEUE_TRACK_SELECT },
+        },
+        orderBy: [{ createdAt: direction }, { id: direction }],
+        take: LIBRARY_TRACKS_PAGE_SIZE,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      });
+      tracks.push(...page.map((userTrack) => userTrack.track));
+      if (page.length < LIBRARY_TRACKS_PAGE_SIZE) {
+        break;
+      }
+      cursor = page[page.length - 1]?.id;
+    }
+    return tracks;
   }
 
-  const counts = await getPlayCompletedCountsByTrack({ userId, window, now });
-  const sortable = await prisma.userTrack.findMany({
-    where,
-    select: {
-      id: true,
-      trackId: true,
-      createdAt: true,
-      track: { select: QUEUE_TRACK_SELECT },
-    },
-  });
+  const orderedUserTrackIds: string[] = [];
+  let pageCursor: string | null | undefined = undefined;
+  while (true) {
+    const page = await listMostPlayedLibraryPage({
+      userId,
+      window,
+      direction,
+      hasAudioOnly,
+      genreId: null,
+      cursor: pageCursor,
+      limit: LIBRARY_TRACKS_PAGE_SIZE,
+      now,
+    });
+    orderedUserTrackIds.push(...page.ids);
+    if (!page.hasNext) {
+      break;
+    }
+    pageCursor = page.nextCursor;
+  }
 
-  return sortByPlayCompletedCount(sortable, counts, direction).map((row) => row.track);
+  if (orderedUserTrackIds.length === 0) {
+    return [];
+  }
+
+  const trackByUserTrackId = new Map<string, QueueTrack>();
+  for (const idChunk of chunkArray(orderedUserTrackIds)) {
+    const rows = await prisma.userTrack.findMany({
+      where: { id: { in: idChunk } },
+      select: {
+        id: true,
+        track: { select: QUEUE_TRACK_SELECT },
+      },
+    });
+    for (const row of rows) {
+      trackByUserTrackId.set(row.id, row.track);
+    }
+  }
+
+  return orderedUserTrackIds
+    .map((id) => trackByUserTrackId.get(id))
+    .filter((track): track is QueueTrack => Boolean(track));
 }
 
 /** Most-played cursor: frozen play count, stable userTrack id, and snapshot cutoff. */

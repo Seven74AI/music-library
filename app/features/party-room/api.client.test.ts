@@ -7,6 +7,7 @@ import {
   addTrackToRoomQueue,
   createRoom,
   fetchCurrentRoom,
+  joinRoom,
   normalizeRoomSnapshot,
   reorderRoomQueue,
   RoomApiError,
@@ -123,6 +124,90 @@ describe("party-room api.client (backend #294 contract)", () => {
     const room = await createRoom({ defaultJoinRole: "dj" });
     expect(sessionStorage.getItem(ACTIVE_ROOM_CODE_KEY)).toBe("AB3K9Q");
     expect(room.code).toBe("AB3K9Q");
+  });
+
+  it("joinRoom normalizes join payload when GET by code and current both fail", async () => {
+    const joinPayload = {
+      roomId: "room-1",
+      code: "AB3K9Q",
+      status: "open",
+      defaultJoinRole: "listener",
+      roomVersion: 1,
+      currentIndex: 0,
+      isPlaying: false,
+      currentHostParticipantId: "host-1",
+      participants: [],
+      queue: [],
+      createdAt: new Date().toISOString(),
+      endedAt: null,
+    };
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(joinPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 }),
+      );
+    const room = await joinRoom({ code: "AB3K9Q", displayName: "Guest" }, "user-2");
+    expect(sessionStorage.getItem(ACTIVE_ROOM_CODE_KEY)).toBe("AB3K9Q");
+    expect(room.code).toBe("AB3K9Q");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("joinRoom falls back to current or join payload when GET by code fails", async () => {
+    const joinPayload = {
+      roomId: "room-1",
+      code: "AB3K9Q",
+      status: "open",
+      defaultJoinRole: "listener",
+      roomVersion: 1,
+      currentIndex: 0,
+      isPlaying: false,
+      currentHostParticipantId: "host-1",
+      participants: [],
+      queue: [],
+      createdAt: new Date().toISOString(),
+      endedAt: null,
+    };
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(joinPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ...joinPayload,
+            participants: [
+              {
+                id: "p1",
+                userId: "user-2",
+                displayName: "Guest",
+                role: "listener",
+                lastSeenAt: new Date().toISOString(),
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const room = await joinRoom({ code: "AB3K9Q", displayName: "Guest" }, "user-2");
+    expect(sessionStorage.getItem(ACTIVE_ROOM_CODE_KEY)).toBe("AB3K9Q");
+    expect(room.code).toBe("AB3K9Q");
+    expect(room.me?.role).toBe("listener");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
   });
 
   it("adds tracks with intent add_track", async () => {

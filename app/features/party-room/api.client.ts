@@ -353,7 +353,17 @@ export async function joinRoom(
   if (!raw) throw new RoomApiError("Empty join response", 500);
   const joinedCode = String(raw.code ?? code);
   writeActiveRoomCode(joinedCode);
-  return fetchRoomByCode(joinedCode, meUserId);
+  try {
+    return await fetchRoomByCode(joinedCode, meUserId);
+  } catch {
+    try {
+      const current = await fetchCurrentRoom(meUserId);
+      if (current) return current;
+    } catch {
+      // Fall through to join payload.
+    }
+    return normalizeRoomSnapshot(raw, meUserId);
+  }
 }
 
 export async function leaveRoom(code: string): Promise<void> {

@@ -1,3 +1,4 @@
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server";
 
 export class ServiceNotFoundError extends Error {
@@ -40,10 +41,14 @@ export async function getActiveSyncedPlaylistTrackIds(
 
   const playlistIds = syncedPlaylists.map((p) => p.id);
 
-  const playlistTracks = await prisma.servicePlaylistTrack.findMany({
-    where: { playlistId: { in: playlistIds }, isDeleted: false },
-    select: { trackId: true },
-  });
+  const playlistTracks: { trackId: string }[] = [];
+  for (const playlistIdChunk of chunkArray(playlistIds)) {
+    const batch = await prisma.servicePlaylistTrack.findMany({
+      where: { playlistId: { in: playlistIdChunk }, isDeleted: false },
+      select: { trackId: true },
+    });
+    playlistTracks.push(...batch);
+  }
 
   const trackIds = [...new Set(playlistTracks.map((pt) => pt.trackId))];
 
@@ -68,12 +73,16 @@ export async function getSyncedPlaylistsTrackStats(
     return { totalTracks: 0, missingTracks: 0 };
   }
 
-  const libraryTrackIds = await prisma.userTrack.findMany({
-    where: { userId, trackId: { in: trackIds }, isActive: true, deletedAt: null },
-    select: { trackId: true },
-  });
+  const libraryRows: { trackId: string }[] = [];
+  for (const trackIdChunk of chunkArray(trackIds)) {
+    const batch = await prisma.userTrack.findMany({
+      where: { userId, trackId: { in: trackIdChunk }, isActive: true, deletedAt: null },
+      select: { trackId: true },
+    });
+    libraryRows.push(...batch);
+  }
 
-  const librarySet = new Set(libraryTrackIds.map((ut) => ut.trackId));
+  const librarySet = new Set(libraryRows.map((ut) => ut.trackId));
   const missingTracks = trackIds.filter((id) => !librarySet.has(id)).length;
 
   return { totalTracks, missingTracks };

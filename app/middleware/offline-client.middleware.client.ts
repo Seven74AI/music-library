@@ -42,10 +42,14 @@ async function patchOfflineDataStrategyResults(
     if (shouldSkipOfflineMiddlewareRoute(routeId)) continue;
     if (!shouldSubstituteOfflineResult(result)) continue;
 
-    patched[routeId] = {
-      type: "data",
-      result: await resolveOfflineData(routeId, request),
-    };
+    try {
+      patched[routeId] = {
+        type: "data",
+        result: await resolveOfflineData(routeId, request),
+      };
+    } catch (error) {
+      console.error(`Failed to resolve offline data for route ${routeId}:`, error);
+    }
   }
 
   return patched;
