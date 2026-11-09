@@ -168,13 +168,15 @@ describe("POST /api/genres", () => {
       }),
     });
 
-    await expect(async () => {
-      await action({
+    await expect(
+      action({
         request,
         params: {},
         context: {},
-      } as never);
-    }).rejects.toThrow();
+      } as never),
+    ).rejects.toMatchObject({
+      init: { status: 409 },
+    });
   });
 
   test("returns 400 for invalid genre name", async () => {
@@ -188,13 +190,15 @@ describe("POST /api/genres", () => {
       }),
     });
 
-    await expect(async () => {
-      await action({
+    await expect(
+      action({
         request,
         params: {},
         context: {},
-      } as never);
-    }).rejects.toThrow();
+      } as never),
+    ).rejects.toMatchObject({
+      init: { status: 400 },
+    });
   });
 });
 

@@ -8,7 +8,12 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  findWriteBlockedLock,
+  getLockStatus,
+} from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/albums.merge.ts";
 
@@ -96,9 +101,17 @@ export async function action({ request }: Route.ActionArgs) {
     });
   }
 
+  const [sourceLock, targetLock] = await Promise.all([
+    getLockStatus("album", sourceId),
+    getLockStatus("album", targetId),
+  ]);
+
   try {
     // Perform merge in transaction
     const result = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "album", sourceId, userId, sourceLock);
+      await assertEditLockInTransaction(tx, "album", targetId, userId, targetLock);
+
       // Create audit entry before merge
       await tx.albumEdit.create({
         data: {
@@ -156,6 +169,16 @@ export async function action({ request }: Route.ActionArgs) {
       },
     });
   } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      const message =
+        error.violation.kind === "other"
+          ? `${error.violation.lockedByName} is currently editing this album`
+          : "Your edit lock on this album is no longer active";
+      throw new Response(JSON.stringify({ error: "Locked", message }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     console.error("Error merging albums:", error);
     throw new Response("Failed to merge albums", { status: 500 });
   }

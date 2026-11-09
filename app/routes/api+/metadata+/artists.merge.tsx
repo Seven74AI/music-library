@@ -8,7 +8,12 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  findWriteBlockedLock,
+  getLockStatus,
+} from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/artists.merge.ts";
 
@@ -88,9 +93,17 @@ export async function action({ request }: Route.ActionArgs) {
     throw new Response("Source artist is already merged", { status: 400 });
   }
 
+  const [sourceLock, targetLock] = await Promise.all([
+    getLockStatus("artist", sourceId),
+    getLockStatus("artist", targetId),
+  ]);
+
   try {
     // Perform merge in transaction
     const result = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "artist", sourceId, userId, sourceLock);
+      await assertEditLockInTransaction(tx, "artist", targetId, userId, targetLock);
+
       // Create audit entry before merge
       await tx.artistEdit.create({
         data: {
@@ -158,6 +171,16 @@ export async function action({ request }: Route.ActionArgs) {
       },
     });
   } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      const message =
+        error.violation.kind === "other"
+          ? `${error.violation.lockedByName} is currently editing this artist`
+          : "Your edit lock on this artist is no longer active";
+      throw new Response(JSON.stringify({ error: "Locked", message }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     console.error("Error merging artists:", error);
     throw new Response("Failed to merge artists", { status: 500 });
   }

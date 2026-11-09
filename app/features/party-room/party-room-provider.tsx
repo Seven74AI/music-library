@@ -286,7 +286,10 @@ export function PartyRoomProvider({
     try {
       const current = await fetchCurrentRoom(meUserId);
       if (refreshGeneration !== syncGenerationRef.current) {
-        if (current) writeActiveRoomCode(null);
+        // fetchCurrentRoom updates sessionStorage; restore the seat that won the race.
+        if (current) {
+          writeActiveRoomCode(roomCodeRef.current);
+        }
         return;
       }
       applyRoom(current, current ? undefined : { freshSeat: true });
@@ -295,6 +298,9 @@ export function PartyRoomProvider({
       // wipe it when the open seat arrives — the room page needs that sentence.
       if (current) await ensureQr(current);
     } catch (err) {
+      if (refreshGeneration !== syncGenerationRef.current) {
+        return;
+      }
       if (isApiUnavailableError(err)) {
         setApiUnavailable(true);
         setError(errorMessage(err));

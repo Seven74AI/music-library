@@ -62,6 +62,24 @@ if (process.env.NODE_ENV !== "test") {
   });
 }
 
+// Duplicate-detection cache refresh (ADR-034). Daily at 02:00 UTC on the primary.
+if (process.env.NODE_ENV !== "test") {
+  void import("./utils/duplicate-detection-scheduler.server.ts").then(
+    ({ scheduleDuplicateDetection }) => {
+      scheduleDuplicateDetection();
+    },
+  );
+}
+
+// On-repeat snapshots for the previous UTC month (ADR-024). 1st at 02:00 UTC on the primary.
+if (process.env.NODE_ENV !== "test") {
+  void import("./features/on-repeat-snapshots/scheduler.server.ts").then(
+    ({ scheduleOnRepeatSnapshots }) => {
+      scheduleOnRepeatSnapshots();
+    },
+  );
+}
+
 // Security-event retention: drop non-perpetual rows older than 90 days.
 if (process.env.NODE_ENV !== "test") {
   void import("./features/security/retention-sweeper.server.ts").then(

@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { validateStorageKey } from "#app/utils/path-validation.server.ts";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -143,17 +144,40 @@ function handleStorageError(
  */
 async function uploadFileLocal(file: Buffer, key: string): Promise<string> {
   const localStorageDir = join(process.cwd(), "tests", "fixtures", "uploaded");
-  const filePath = join(localStorageDir, key);
+  const safeKey = validateStorageKey(key);
+  const basePath = resolve(localStorageDir);
+  const filePath = resolve(basePath, safeKey);
+
+  if (filePath !== basePath && !filePath.startsWith(`${basePath}${sep}`)) {
+    throw new Error("Storage key resolves outside the upload directory");
+  }
+
   const fileDir = dirname(filePath);
 
-  // Create directory structure if it doesn't exist
   mkdirSync(fileDir, { recursive: true });
-
-  // Write file to local filesystem
   writeFileSync(filePath, file);
 
   console.log(`📁 Saved file locally: ${filePath}`);
-  return key;
+  return safeKey;
+}
+
+const PROFILE_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+
+function assertSafeProfileImageFilename(filename: string): string {
+  if (!filename || typeof filename !== "string") {
+    throw new Error("Invalid profile image filename");
+  }
+
+  if (filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+    throw new Error("Profile image filename is not allowed");
+  }
+
+  const fileExtension = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (!PROFILE_IMAGE_EXTENSIONS.has(fileExtension)) {
+    throw new Error("Profile image extension is not allowed");
+  }
+
+  return fileExtension;
 }
 
 /**
@@ -618,7 +642,7 @@ export async function uploadProfileImage(
   }
 
   const fileId = createId();
-  const fileExtension = file.name.split(".").pop() || "jpg";
+  const fileExtension = assertSafeProfileImageFilename(file.name);
   const timestamp = Date.now();
   const key = `images/profile-images/${userId}/${timestamp}-${fileId}.${fileExtension}`;
 

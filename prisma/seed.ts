@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync, readdirSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, resolve, sep } from "path";
+import { validateStorageKey } from "#app/utils/path-validation.server.ts";
 import { createId } from "@paralleldrive/cuid2";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { LOCAL_SERVICE, YOUTUBE_SERVICE } from "#app/constants/services";
@@ -344,17 +345,20 @@ function isStorageConfigured(): boolean {
  */
 async function uploadFileLocal(file: Buffer, key: string): Promise<string> {
   const localStorageDir = join(process.cwd(), "tests", "fixtures", "uploaded");
-  const filePath = join(localStorageDir, key);
+  const safeKey = validateStorageKey(key);
+  const basePath = resolve(localStorageDir);
+  const filePath = resolve(basePath, safeKey);
+
+  if (filePath !== basePath && !filePath.startsWith(`${basePath}${sep}`)) {
+    throw new Error("Storage key resolves outside the upload directory");
+  }
+
   const fileDir = dirname(filePath);
-
-  // Create directory structure if it doesn't exist
   mkdirSync(fileDir, { recursive: true });
-
-  // Write file to local filesystem
   writeFileSync(filePath, file);
 
   console.log(`📁 Saved file locally: ${filePath}`);
-  return key;
+  return safeKey;
 }
 
 /**

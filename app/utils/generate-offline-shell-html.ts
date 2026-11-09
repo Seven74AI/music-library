@@ -43,9 +43,14 @@ export const OFFLINE_SHELL_THEME_SCRIPT = `(function(){
       var shell = localStorage.getItem('music-library:offline-root-shell');
       if (shell) {
         var parsed = JSON.parse(shell);
-        theme = parsed && parsed.requestInfo && parsed.requestInfo.userPrefs
-          ? parsed.requestInfo.userPrefs.theme
-          : null;
+        var ri = parsed && parsed.requestInfo;
+        var pref = ri && ri.userPrefs ? ri.userPrefs.theme : null;
+        if (pref === 'light' || pref === 'dark') {
+          theme = pref;
+        } else {
+          var hint = ri && ri.hints ? ri.hints.theme : null;
+          if (hint === 'light' || hint === 'dark') theme = hint;
+        }
       }
     }
     if (theme === 'light' || theme === 'dark') {
