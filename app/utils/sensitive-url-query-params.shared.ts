@@ -1,5 +1,7 @@
 export const SENSITIVE_URL_QUERY_PARAMS = ["code", "state", "target"] as const;
 
+const SENSITIVE_QUERY_SNIPPET = /\?[^#\s]*\bcode=/i;
+
 export function stripSensitiveUrlQueryParams(href: string): string {
   try {
     const parsed = new URL(href, "http://localhost");
@@ -42,4 +44,22 @@ export function stripSensitiveUrlQueryParams(href: string): string {
     if (hashStart >= 0) end = Math.min(end, hashStart);
     return href.slice(0, end);
   }
+}
+
+export function shouldRedactSensitiveHeaderValue(value: string): boolean {
+  if (SENSITIVE_QUERY_SNIPPET.test(value)) return true;
+  return SENSITIVE_URL_QUERY_PARAMS.some((key) => new RegExp(`[?&#]${key}=`, "i").test(value));
+}
+
+export function redactSensitiveSentryRequestHeaders(
+  headers: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!headers) return headers;
+  const next: Record<string, string> = { ...headers };
+  for (const [key, value] of Object.entries(next)) {
+    if (key.toLowerCase() === "referer" || shouldRedactSensitiveHeaderValue(value)) {
+      next[key] = stripSensitiveUrlQueryParams(value);
+    }
+  }
+  return next;
 }

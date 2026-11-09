@@ -1,6 +1,54 @@
 import * as Sentry from "@sentry/react-router";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 
+const SENSITIVE_QUERY_PARAM_KEYS = ["code", "state", "target"];
+
+function stripSensitiveUrlQueryParams(href) {
+  try {
+    const parsed = new URL(href, "http://localhost");
+    for (const key of SENSITIVE_QUERY_PARAM_KEYS) {
+      parsed.searchParams.delete(key);
+    }
+    if (/^https?:\/\//i.test(href)) {
+      return parsed.toString();
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    const queryStart = href.indexOf("?");
+    const hashStart = href.indexOf("#");
+    let end = href.length;
+    if (queryStart >= 0) end = Math.min(end, queryStart);
+    if (hashStart >= 0) end = Math.min(end, hashStart);
+    return href.slice(0, end);
+  }
+}
+
+function shouldRedactSensitiveHeaderValue(value) {
+  if (/\?[^#\s]*\bcode=/i.test(value)) return true;
+  return SENSITIVE_QUERY_PARAM_KEYS.some((key) => new RegExp(`[?&#]${key}=`, "i").test(value));
+}
+
+function redactSensitiveSentryRequestHeaders(headers) {
+  if (!headers) return headers;
+  const next = { ...headers };
+  for (const [key, value] of Object.entries(next)) {
+    if (key.toLowerCase() === "referer" || shouldRedactSensitiveHeaderValue(value)) {
+      next[key] = stripSensitiveUrlQueryParams(value);
+    }
+  }
+  return next;
+}
+
+function scrubSensitiveSentryEvent(event) {
+  if (event.request?.headers) {
+    event.request.headers = redactSensitiveSentryRequestHeaders(event.request.headers);
+  }
+  if (event.request?.url) {
+    event.request.url = stripSensitiveUrlQueryParams(event.request.url);
+  }
+  return event;
+}
+
 const environment = process.env.NODE_ENV ?? process.env.SENTRY_ENVIRONMENT ?? "development";
 const isProduction = environment === "production";
 
@@ -23,4 +71,5 @@ Sentry.init({
   dataCollection: {
     urlQueryParams: { deny: ["code", "state", "target"] },
   },
+  beforeSend: scrubSensitiveSentryEvent,
 });

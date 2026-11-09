@@ -1,3 +1,4 @@
+import { parseString } from "set-cookie-parser";
 import { data, redirect } from "react-router";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import {
@@ -71,6 +72,46 @@ export function mergePendingVerificationIntoFormData(
   if (pending.redirectTo) {
     formData.set(redirectToQueryParam, pending.redirectTo);
   }
+}
+
+function getSetCookieList(headers: Headers): string[] {
+  if (typeof headers.getSetCookie === "function") {
+    return headers.getSetCookie();
+  }
+  const single = headers.get("Set-Cookie");
+  return single ? [single] : [];
+}
+
+/**
+ * Clear pending verification on the auth session without clobbering a fresher
+ * `en_session` Set-Cookie from the verify handler (e.g. 2FA session promotion).
+ */
+export async function mergeVerifyActionRedirectCookies(
+  request: Request,
+  verificationResponse: Response,
+): Promise<Headers> {
+  const headers = new Headers();
+  for (const [key, value] of verificationResponse.headers.entries()) {
+    if (key.toLowerCase() !== "set-cookie") {
+      headers.append(key, value);
+    }
+  }
+  const setCookies = getSetCookieList(verificationResponse.headers);
+  for (const cookie of setCookies) {
+    if (parseString(cookie)?.name !== "en_session") {
+      headers.append("Set-Cookie", cookie);
+    }
+  }
+
+  const sessionCookie = setCookies.find((cookie) => parseString(cookie)?.name === "en_session");
+  const authSession = sessionCookie
+    ? await authSessionStorage.getSession(sessionCookie)
+    : await authSessionStorage.getSession(request.headers.get("cookie"));
+
+  clearPendingVerification(authSession);
+  headers.append("Set-Cookie", await authSessionStorage.commitSession(authSession));
+
+  return headers;
 }
 
 function toPublicVerifyLoaderData(pending: PendingVerification | null): VerifyLoaderData {

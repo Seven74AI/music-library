@@ -433,6 +433,21 @@ describe("processQueueTick", () => {
       const extractedMeta = await extracted;
       expect(extractedMeta).not.toHaveProperty("title");
       expect(extractedMeta).not.toHaveProperty("duration");
+      expect(mockPersistTrackAudio).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trackId: "track-keep",
+          metadata: expect.objectContaining({
+            format: "mp3",
+            mimeType: "audio/mpeg",
+          }),
+        }),
+      );
+      const persistArgs = mockPersistTrackAudio.mock.calls[0]?.[0] as
+        | { metadata?: Record<string, unknown> }
+        | undefined;
+      expect(persistArgs?.metadata).toBeDefined();
+      expect(persistArgs?.metadata).not.toHaveProperty("title");
+      expect(persistArgs?.metadata).not.toHaveProperty("duration");
       expect(mockPrisma.track.update).not.toHaveBeenCalled();
     });
 

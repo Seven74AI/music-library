@@ -2,6 +2,7 @@
 
 import { deleteOfflineAudioEntry } from "./opfs-delete.ts";
 import { offlineAudioOpfsPath } from "./offline-audio-path.ts";
+import { commitStagingOpfsFile, opfsAudioLeafName } from "./opfs-commit-staging.ts";
 import { isOpfsSupportedInWorkerScope } from "./opfs-worker-support.ts";
 
 type WorkerRequest =
@@ -24,10 +25,8 @@ type WorkerResponse =
 
 declare const self: DedicatedWorkerGlobalScope;
 
-/** Leaf file name inside the OPFS `audio/` directory, format-aware. */
 function opfsFileName(trackId: string, format: string | null | undefined): string {
-  const path = offlineAudioOpfsPath(trackId, format);
-  return path.slice(path.lastIndexOf("/") + 1);
+  return opfsAudioLeafName(trackId, format);
 }
 
 async function getFileHandle(trackId: string, format: string | null | undefined, create: boolean) {
@@ -71,9 +70,7 @@ async function commitStagingWrite(
   trackId: string,
   format: string | null | undefined,
 ) {
-  const buffer = await readTrack(stagingTrackId, format);
-  await writeTrack(trackId, buffer, format);
-  await deleteTrack(stagingTrackId, format);
+  await commitStagingOpfsFile(stagingTrackId, trackId, format);
 }
 
 async function hasTrack(trackId: string, format: string | null | undefined) {

@@ -4,7 +4,6 @@ import { getZodConstraint, parseWithZod } from "@conform-to/zod/v4";
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
 import { Form, redirect, useSearchParams } from "react-router";
 import { authSessionStorage } from "#app/utils/session.server.ts";
-import { combineHeaders } from "#app/utils/misc.tsx";
 import { z } from "zod";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { ErrorList, OTPField } from "#app/components/forms.tsx";
@@ -14,10 +13,10 @@ import { StatusButton } from "#app/components/ui/status-button.tsx";
 import { checkHoneypot } from "#app/utils/honeypot.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
 import {
-  clearPendingVerification,
   getPendingVerification,
   handleVerifyLoader,
   mergePendingVerificationIntoFormData,
+  mergeVerifyActionRedirectCookies,
 } from "./verify-pending.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/verify.ts";
@@ -42,7 +41,7 @@ export const VerifySchema = z.object({
   [redirectToQueryParam]: z.string().optional(),
 });
 
-/** Session-held OTP: client form must not require `code` (server reads session). */
+/** Session-held OTP: client form must not require `code` or `target` (server reads session). */
 export const SessionBackedVerifySchema = VerifySchema.omit({
   [codeQueryParam]: true,
   [targetQueryParam]: true,
@@ -69,30 +68,18 @@ export async function action({ request }: Route.ActionArgs) {
     if (response instanceof Response && response.status >= 300 && response.status < 400) {
       const location = response.headers.get("Location");
       invariant(location, "Expected redirect Location header");
-      if (pending) {
-        clearPendingVerification(authSession);
-        return redirect(location, {
-          headers: combineHeaders(response.headers, {
-            "Set-Cookie": await authSessionStorage.commitSession(authSession),
-          }),
-        });
-      }
-      return redirect(location, { headers: response.headers });
+      return redirect(location, {
+        headers: await mergeVerifyActionRedirectCookies(request, response),
+      });
     }
     return response;
   } catch (error) {
     if (error instanceof Response && error.status >= 300 && error.status < 400) {
       const location = error.headers.get("Location");
       invariant(location, "Expected redirect Location header");
-      if (pending) {
-        clearPendingVerification(authSession);
-        return redirect(location, {
-          headers: combineHeaders(error.headers, {
-            "Set-Cookie": await authSessionStorage.commitSession(authSession),
-          }),
-        });
-      }
-      return redirect(location, { headers: error.headers });
+      return redirect(location, {
+        headers: await mergeVerifyActionRedirectCookies(request, error),
+      });
     }
     throw error;
   }
@@ -133,14 +120,14 @@ export default function VerifyRoute({ actionData, loaderData }: Route.ComponentP
     ),
   };
 
+  const verifySchema = sessionBacked ? SessionBackedVerifySchema : VerifySchema;
+
   const [form, fields] = useForm({
     id: "verify-form",
-    constraint: getZodConstraint(sessionBacked ? SessionBackedVerifySchema : VerifySchema),
+    constraint: getZodConstraint(verifySchema),
     lastResult: actionData?.result,
     onValidate({ formData }) {
-      return parseWithZod(formData, {
-        schema: sessionBacked ? SessionBackedVerifySchema : VerifySchema,
-      });
+      return parseWithZod(formData, { schema: verifySchema });
     },
     defaultValue: {
       type: type ?? undefined,

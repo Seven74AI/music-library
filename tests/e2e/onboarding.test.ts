@@ -67,6 +67,7 @@ test("onboarding with link", { tag: "@slow" }, async ({ page, navigate, getOnboa
   await navigate(onboardingUrl);
 
   await expect(page).toHaveURL(/\/verify(?:\?|$)/);
+  invariant(email.text.match(CODE_REGEX)?.groups?.code, "Onboarding code not found");
   await submitVerification(page);
 
   await expect(page).toHaveURL(`/onboarding`);
