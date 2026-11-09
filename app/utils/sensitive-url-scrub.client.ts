@@ -65,9 +65,3 @@ export function getVerifySearchParam(name: string, searchParams: URLSearchParams
   }
   return searchParams.get(name);
 }
-
-export function buildSensitiveUrlScrubInlineScript(): string {
-  const sensitiveKeysJson = JSON.stringify([...SENSITIVE_URL_QUERY_PARAMS]);
-  const storageKey = JSON.stringify(SENSITIVE_URL_SESSION_STORAGE_KEY);
-  return `(function(){try{var sensitive=${sensitiveKeysJson};var search=window.location.search;if(!search||search==="?")return;var params=new URLSearchParams(search);var hasSensitive=false;for(var i=0;i<sensitive.length;i++){if(params.has(sensitive[i])){hasSensitive=true;break;}}if(!hasSensitive)return;var stored={};params.forEach(function(v,k){stored[k]=v;});window.__SENSITIVE_PARAMS__=stored;try{sessionStorage.setItem(${storageKey},JSON.stringify(stored));}catch(e){}history.replaceState(history.state,"",window.location.pathname);}catch(e){}})();`;
-}
