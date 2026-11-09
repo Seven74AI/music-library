@@ -191,7 +191,7 @@ function renderShell(entry: string, parentLoader: unknown, indexLoader?: unknown
 describe("guest room shell", () => {
   beforeEach(async () => {
     leave.mockReset();
-    leave.mockResolvedValue(undefined);
+    leave.mockResolvedValue(true);
     end.mockReset();
     refresh.mockReset();
     mockParty = {
@@ -320,6 +320,7 @@ describe("guest room shell", () => {
   test("Leave room leaves instead of treating the tab as ended", async () => {
     leave.mockImplementation(async () => {
       mockParty = { ...mockParty, room: null, loading: false };
+      return true;
     });
     mockParty = { ...mockParty, room: openRoom("listener"), leave };
     renderShell("/rooms/AB3K9Q", seatedLoader);

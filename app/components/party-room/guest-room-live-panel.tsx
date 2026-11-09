@@ -97,20 +97,24 @@ export function GuestRoomLivePanel({
           <EndRoomButton
             onConfirm={() => {
               void (async () => {
-                try {
-                  if (!party) {
-                    throw new Error("Not in a room");
-                  }
-                  await party.end();
-                  toast({ title: "Room ended" });
-                  void navigate("/");
-                } catch (err: unknown) {
+                if (!party) {
                   toast({
                     title: "Could not end room",
-                    description: err instanceof Error ? err.message : undefined,
                     variant: "destructive",
                   });
+                  return;
                 }
+                const ended = await party.end();
+                if (ended) {
+                  toast({ title: "Room ended" });
+                  void navigate("/");
+                  return;
+                }
+                toast({
+                  title: "Could not end room",
+                  description: party.error ?? undefined,
+                  variant: "destructive",
+                });
               })();
             }}
           />
@@ -121,23 +125,33 @@ export function GuestRoomLivePanel({
             size="sm"
             onClick={() => {
               void (async () => {
-                try {
-                  onLeaveStart?.();
-                  if (party) {
-                    await party.leave(code);
-                  } else {
-                    const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/leave`, {
-                      method: "POST",
-                      credentials: "same-origin",
-                    });
-                    if (!res.ok) {
-                      const body = (await res.json().catch(() => null)) as {
-                        error?: string;
-                      } | null;
-                      throw new Error(body?.error ?? "Could not leave");
-                    }
-                    writeActiveRoomCode(null);
+                onLeaveStart?.();
+                if (party) {
+                  const left = await party.leave(code);
+                  if (left) {
+                    toast({ title: "Left room" });
+                    void navigate("/");
+                    return;
                   }
+                  toast({
+                    title: "Could not leave",
+                    description: party.error ?? undefined,
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                try {
+                  const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/leave`, {
+                    method: "POST",
+                    credentials: "same-origin",
+                  });
+                  if (!res.ok) {
+                    const body = (await res.json().catch(() => null)) as {
+                      error?: string;
+                    } | null;
+                    throw new Error(body?.error ?? "Could not leave");
+                  }
+                  writeActiveRoomCode(null);
                   toast({ title: "Left room" });
                   void navigate("/");
                 } catch (err: unknown) {
