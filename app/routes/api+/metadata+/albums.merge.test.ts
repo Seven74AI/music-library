@@ -13,10 +13,72 @@ describe("POST /api/metadata/albums/merge", () => {
   beforeEach(async () => {
     mockUserId = "test-user-id";
     vi.mocked(requireUserId).mockResolvedValue(mockUserId);
+    await prisma.editLock.deleteMany();
     await prisma.track.deleteMany();
     await prisma.album.deleteMany();
     await prisma.artist.deleteMany();
     await prisma.user.deleteMany();
+  });
+
+  test("returns 409 when a merge target is locked by another curator", async () => {
+    await prisma.role.upsert({
+      where: { name: "curator" },
+      update: {},
+      create: { name: "curator", description: "Curator" },
+    });
+    await prisma.user.create({
+      data: {
+        id: mockUserId,
+        email: "curator@test.com",
+        username: "curator",
+        roles: { connect: { name: "curator" } },
+      },
+    });
+    const locker = await prisma.user.create({
+      data: {
+        email: "locker@test.com",
+        username: "locker",
+        roles: { connect: { name: "curator" } },
+      },
+    });
+    const artist = await prisma.artist.create({
+      data: { name: "Artist", normalizedName: "artist" },
+    });
+    const sourceAlbum = await prisma.album.create({
+      data: { name: "Source", artistId: artist.id },
+    });
+    const targetAlbum = await prisma.album.create({
+      data: { name: "Target", artistId: artist.id },
+    });
+    await prisma.editLock.create({
+      data: {
+        entityType: "album",
+        entityId: targetAlbum.id,
+        lockedBy: locker.id,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const request = new Request("http://localhost/api/metadata/albums/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceId: sourceAlbum.id,
+        targetId: targetAlbum.id,
+        comment: "Should not run",
+      }),
+    });
+
+    let response: Response | undefined;
+    try {
+      await action({ request, params: {} } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+    expect(response?.status).toBe(409);
+
+    const untouched = await prisma.album.findUnique({ where: { id: sourceAlbum.id } });
+    expect(untouched?.mergedIntoId).toBeNull();
   });
 
   test("curator can merge albums", async () => {

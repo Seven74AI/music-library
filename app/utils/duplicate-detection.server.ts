@@ -539,32 +539,7 @@ async function replaceNormalizedNames(
  * Cache artist normalized names in the database
  */
 export async function cacheArtistNormalizedNames(): Promise<void> {
-  const artists = await prisma.artist.findMany({
-    select: {
-      id: true,
-      name: true,
-    },
-  });
-
-  const rows: Array<{
-    entityType: string;
-    entityId: string;
-    originalName: string;
-    normalizedName: string;
-  }> = [];
-
-  for (const artist of artists) {
-    const normalizedName = normalizeArtistName(artist.name);
-    if (!normalizedName) continue;
-
-    rows.push({
-      entityType: "artist",
-      entityId: artist.id,
-      originalName: artist.name,
-      normalizedName,
-    });
-  }
-
+  const rows = await collectArtistNormalizedNameRows();
   await replaceNormalizedNames("artist", rows);
 }
 
@@ -572,43 +547,26 @@ export async function cacheArtistNormalizedNames(): Promise<void> {
  * Cache album normalized names in the database
  */
 export async function cacheAlbumNormalizedNames(): Promise<void> {
-  const albums = await prisma.album.findMany({
-    select: {
-      id: true,
-      name: true,
-    },
-  });
-
-  const rows: Array<{
-    entityType: string;
-    entityId: string;
-    originalName: string;
-    normalizedName: string;
-  }> = [];
-
-  for (const album of albums) {
-    const normalizedName = normalizeAlbumName(album.name);
-    if (!normalizedName) continue;
-
-    rows.push({
-      entityType: "album",
-      entityId: album.id,
-      originalName: album.name,
-      normalizedName,
-    });
-  }
-
+  const rows = await collectAlbumNormalizedNameRows();
   await replaceNormalizedNames("album", rows);
 }
 
 /**
  * Save duplicate detection results to database
  */
-export async function saveDuplicateDetectionResults(
+function buildDuplicateDetectionPairRows(
   entityType: "artist" | "album",
   exactGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
   fuzzyGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
-): Promise<void> {
+): Array<{
+  entityType: string;
+  entityId1: string;
+  entityId2: string;
+  matchType: string;
+  similarity: number;
+  normalizedName: string;
+  status: string;
+}> {
   const rows: Array<{
     entityType: string;
     entityId1: string;
@@ -680,10 +638,102 @@ export async function saveDuplicateDetectionResults(
     }
   }
 
-  // Clear previous results and bulk-insert all pairs in chunked createMany calls.
+  return rows;
+}
+
+export async function saveDuplicateDetectionResults(
+  entityType: "artist" | "album",
+  exactGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
+  fuzzyGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
+): Promise<void> {
+  const rows = buildDuplicateDetectionPairRows(entityType, exactGroups, fuzzyGroups);
+
+  // Replace pending pairs only; preserve merged/dismissed rows from curator actions.
   await prisma.$transaction([
-    prisma.duplicateDetection.deleteMany({ where: { entityType } }),
+    prisma.duplicateDetection.deleteMany({ where: { entityType, status: "pending" } }),
     ...chunkArray(rows).map((chunk) => prisma.duplicateDetection.createMany({ data: chunk })),
+  ]);
+}
+
+async function collectArtistNormalizedNameRows(): Promise<
+  Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }>
+> {
+  const artists = await prisma.artist.findMany({
+    select: { id: true, name: true },
+  });
+  const rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }> = [];
+  for (const artist of artists) {
+    const normalizedName = normalizeArtistName(artist.name);
+    if (!normalizedName) continue;
+    rows.push({
+      entityType: "artist",
+      entityId: artist.id,
+      originalName: artist.name,
+      normalizedName,
+    });
+  }
+  return rows;
+}
+
+async function collectAlbumNormalizedNameRows(): Promise<
+  Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }>
+> {
+  const albums = await prisma.album.findMany({
+    select: { id: true, name: true },
+  });
+  const rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }> = [];
+  for (const album of albums) {
+    const normalizedName = normalizeAlbumName(album.name);
+    if (!normalizedName) continue;
+    rows.push({
+      entityType: "album",
+      entityId: album.id,
+      originalName: album.name,
+      normalizedName,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Cold-path bootstrap: normalized-name cache + pending duplicate pairs in one transaction.
+ */
+async function commitDuplicateDetectionCache(
+  entityType: "artist" | "album",
+  exactGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
+  fuzzyGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
+): Promise<void> {
+  const normalizedRows =
+    entityType === "artist"
+      ? await collectArtistNormalizedNameRows()
+      : await collectAlbumNormalizedNameRows();
+  const pairRows = buildDuplicateDetectionPairRows(entityType, exactGroups, fuzzyGroups);
+
+  await prisma.$transaction([
+    prisma.normalizedName.deleteMany({ where: { entityType } }),
+    ...chunkArray(normalizedRows).map((chunk) => prisma.normalizedName.createMany({ data: chunk })),
+    prisma.duplicateDetection.deleteMany({ where: { entityType, status: "pending" } }),
+    ...chunkArray(pairRows).map((chunk) => prisma.duplicateDetection.createMany({ data: chunk })),
   ]);
 }
 
@@ -904,7 +954,7 @@ export async function getAlbumDuplicateGroups(): Promise<{
     findExactAlbumDuplicates(),
     findFuzzyAlbumDuplicates(),
   ]);
-  await saveDuplicateDetectionResults("album", exact, fuzzy);
+  await commitDuplicateDetectionCache("album", exact, fuzzy);
   return { exact, fuzzy };
 }
 
@@ -924,6 +974,6 @@ export async function getArtistDuplicateGroups(): Promise<{
     findExactArtistDuplicates(),
     findFuzzyArtistDuplicates(),
   ]);
-  await saveDuplicateDetectionResults("artist", exact, fuzzy);
+  await commitDuplicateDetectionCache("artist", exact, fuzzy);
   return { exact, fuzzy };
 }

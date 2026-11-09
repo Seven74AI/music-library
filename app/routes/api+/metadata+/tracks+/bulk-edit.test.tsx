@@ -1,10 +1,15 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { action, clientAction } from "./bulk-edit.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
   requireCuratorRole: vi.fn(),
+}));
+
+vi.mock("#app/utils/locks.server.ts", () => ({
+  findWriteBlockedLock: vi.fn(),
 }));
 
 vi.mock("#app/utils/db.server.ts", () => ({
@@ -79,6 +84,31 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
+    vi.mocked(findWriteBlockedLock).mockResolvedValue(null);
+  });
+
+  test("returns 409 when any target track is locked by another curator", async () => {
+    vi.mocked(findWriteBlockedLock).mockResolvedValue({
+      id: "lock-1",
+      entityType: "track",
+      entityId: "track-1",
+      lockedBy: "other",
+      lockedByName: "Ada",
+      acquiredAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    await expectReturnedError(
+      {
+        trackIds: ["track-1", "track-2"],
+        changes: { title: "New Title" },
+        comment: "Blocked",
+      },
+      409,
+      "Locked",
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   test("requires curator or admin role", async () => {
