@@ -1251,6 +1251,139 @@ test("slow playNext completion does not overwrite a newer playPrevious", async (
   expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
 });
 
+test("play next during a slow playPrevious keeps the queued play-next track", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const track2: FullTrack = {
+    ...playableTrack,
+    id: "track-2",
+    title: "Second Track",
+    audioFiles: [{ id: "af-2", format: "mp3", objectKey: "audio/test2.mp3" }],
+  };
+  const playNextExtra: FullTrack = {
+    ...playableTrack,
+    id: "track-play-next",
+    title: "Play Next Extra",
+    audioFiles: [{ id: "af-pn", format: "mp3", objectKey: "audio/play-next.mp3" }],
+  };
+
+  let releaseTrack1Playback!: () => void;
+  let track1Released = false;
+  const track1PlaybackGate = new Promise<void>((resolve) => {
+    releaseTrack1Playback = () => {
+      track1Released = true;
+      resolve();
+    };
+  });
+  let deferTrack1Playback = false;
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2", title: "Second Track" }],
+          total: 2,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      if (deferTrack1Playback && ids.includes("track-1") && !track1Released) {
+        return track1PlaybackGate.then(
+          () =>
+            ({
+              ok: true,
+              json: async () => ({
+                tracks: [playableTrack, track2, playNextExtra].filter((track) =>
+                  ids.includes(track.id),
+                ),
+              }),
+            }) as Response,
+        );
+      }
+      const all = [playableTrack, track2, playNextExtra];
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: all.filter(
+            (track) =>
+              ids.includes(track.id) &&
+              (!deferTrack1Playback || track.id !== "track-1" || track1Released),
+          ),
+        }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function Probe() {
+    const {
+      playTrack,
+      playNext,
+      playPrevious,
+      playNextTrack,
+      upNext,
+      upNextPlayNextCount,
+      currentTrack,
+    } = useAudioPlayer();
+    return (
+      <div>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play first track
+        </button>
+        <button type="button" onClick={playNext}>
+          Play next
+        </button>
+        <button type="button" onClick={playPrevious}>
+          Play previous
+        </button>
+        <button type="button" onClick={() => playNextTrack(playNextExtra)}>
+          Play next extra
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+        <span data-testid="play-next-count">{upNextPlayNextCount}</span>
+        <span data-testid="up-next-has-extra">
+          {String(upNext.some((track) => track?.id === "track-play-next"))}
+        </span>
+      </div>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play first track" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  await user.click(screen.getByRole("button", { name: "Play next" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-2");
+  });
+
+  deferTrack1Playback = true;
+  void user.click(screen.getByRole("button", { name: "Play previous" }));
+  await user.click(screen.getByRole("button", { name: "Play next extra" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("play-next-count").textContent).toBe("1");
+    expect(screen.getByTestId("up-next-has-extra").textContent).toBe("true");
+  });
+
+  releaseTrack1Playback();
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+  expect(screen.getByTestId("play-next-count").textContent).toBe("1");
+  expect(screen.getByTestId("up-next-has-extra").textContent).toBe("true");
+});
+
 test("playNext advances to a queue-cached track while offline", async () => {
   const user = userEvent.setup();
   const fetchMock = vi.mocked(fetch);

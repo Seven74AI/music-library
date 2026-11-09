@@ -108,7 +108,7 @@ async function userOwnsLibraryTrack(trackId: string, isOnline: boolean): Promise
 
 type Track = FullTrack;
 
-type NavigationCommitScope = "full" | "position" | "track-only";
+type NavigationCommitScope = "full" | "position" | "spine-position" | "track-only";
 
 interface AudioPlayerContextType {
   currentTrack: Track | null;
@@ -359,6 +359,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     [upNext, spine, spineOrder, spinePosition, loopMode],
   );
 
+  const navigationStateRef = useRef(navigationState);
+  navigationStateRef.current = navigationState;
+
   const playlist = useMemo(() => {
     void cacheVersion;
     return resolveFullTracks(playbackCacheRef.current, buildFlatQueueView(navigationState));
@@ -457,7 +460,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       }
 
       const scope = effects?.navigationScope ?? "full";
-      if (scope !== "track-only") {
+      if (scope === "spine-position") {
+        setSpinePosition(patch.navigation.spinePosition);
+      } else if (scope !== "track-only") {
         setUpNext(patch.navigation.upNext);
         setSpinePosition(patch.navigation.spinePosition);
         if (scope === "full") {
@@ -799,6 +804,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         upNextPlayNextCount?: number;
         playNextCountDiscard?: number;
         navigationScope?: NavigationCommitScope;
+        /** Recompute queue navigation from the latest committed state at commit time. */
+        applyNavigation?: (latest: QueueNavigationState) => QueueNavigationState;
       },
     ): Promise<boolean> => {
       const navigationEpoch = options.navigationEpoch;
@@ -823,11 +830,26 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         wantsAutoPlayRef.current = true;
       }
 
-      const navigationPatch = options.navigation ?? navigationState;
       const navigationScope =
-        options.navigationScope ?? (options.navigation ? "position" : "track-only");
+        options.navigationScope ??
+        (options.navigation || options.applyNavigation ? "position" : "track-only");
+
+      const navigationForCommit = (): QueueNavigationState => {
+        const latest = navigationStateRef.current;
+        if (options.applyNavigation) {
+          return options.applyNavigation(latest);
+        }
+        if (options.navigation) {
+          if (navigationScope === "spine-position") {
+            return { ...latest, spinePosition: options.navigation.spinePosition };
+          }
+          return options.navigation;
+        }
+        return latest;
+      };
+
       const commitPatch = () => ({
-        navigation: navigationPatch,
+        navigation: navigationForCommit(),
         spineTotal: options.spineTotal,
         upNextPlayNextCount: resolveUpNextPlayNextCount(),
       });
@@ -1199,7 +1221,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
       void playResolvedTrack(queueTrack, {
         navigationEpoch,
-        navigation: nextState,
+        applyNavigation: (latest) => advanceAfterPlay(latest, nextTarget),
         playNextCountDiscard: playNextDiscard > 0 ? playNextDiscard : undefined,
         navigationScope: "position",
       });
@@ -1335,6 +1357,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
       // Resolve the full track and update queue state. Even if we played synchronously,
       // we still need the full track metadata for the UI.
+      const initialUpNextLength = navigationState.upNext.length;
+
       void (async () => {
         let workingState = navigationState;
         let attemptTarget: QueueTarget | null = target;
@@ -1382,7 +1406,16 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           return;
         }
 
-        const nextState = options.computeNextState(workingState, playedTarget);
+        const latestAtCommit = navigationStateRef.current;
+        const upNextPrefixRemoved = Math.max(0, initialUpNextLength - workingState.upNext.length);
+        const baseState: QueueNavigationState = {
+          ...latestAtCommit,
+          upNext:
+            upNextPrefixRemoved > 0
+              ? latestAtCommit.upNext.slice(upNextPrefixRemoved)
+              : latestAtCommit.upNext,
+        };
+        const nextState = options.computeNextState(baseState, playedTarget);
         const effectivePlayNextCount = Math.max(
           0,
           upNextPlayNextCountRef.current - skippedPlayNextPrefix,
@@ -1492,7 +1525,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     void playResolvedTrack(queueTrack, {
       navigationEpoch: jumpEpoch,
       navigation: { ...navigationState, spinePosition: target.index },
-      navigationScope: "position",
+      navigationScope: "spine-position",
     });
   }, [navigationState, playResolvedTrack]);
 

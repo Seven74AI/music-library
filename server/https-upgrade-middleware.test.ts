@@ -33,14 +33,14 @@ describe("HTTPS upgrade middleware", () => {
     expect(next).toHaveBeenCalled();
   });
 
-  test("redirects to SITE_URL host when Fly-Forwarded-Proto is http", () => {
+  test("redirects to SITE_URL host when Fly-Forwarded-Port is 80", () => {
     process.env.SITE_URL = "https://music.example.com";
     const middleware = createHttpsUpgradeMiddleware();
     const req = {
       method: "GET",
       originalUrl: "/library?q=1",
       get: (name: string) => {
-        if (name === "Fly-Forwarded-Proto") return "http";
+        if (name === "Fly-Forwarded-Port") return "80";
         if (name === "X-Forwarded-Host") return "evil.example";
         return undefined;
       },
