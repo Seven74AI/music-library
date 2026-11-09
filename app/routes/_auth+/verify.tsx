@@ -63,24 +63,30 @@ export async function action({ request }: Route.ActionArgs) {
     if (response instanceof Response && response.status >= 300 && response.status < 400) {
       const location = response.headers.get("Location");
       invariant(location, "Expected redirect Location header");
-      clearPendingVerification(authSession);
-      return redirect(location, {
-        headers: combineHeaders(response.headers, {
-          "Set-Cookie": await authSessionStorage.commitSession(authSession),
-        }),
-      });
+      if (pending) {
+        clearPendingVerification(authSession);
+        return redirect(location, {
+          headers: combineHeaders(response.headers, {
+            "Set-Cookie": await authSessionStorage.commitSession(authSession),
+          }),
+        });
+      }
+      return redirect(location, { headers: response.headers });
     }
     return response;
   } catch (error) {
     if (error instanceof Response && error.status >= 300 && error.status < 400) {
       const location = error.headers.get("Location");
       invariant(location, "Expected redirect Location header");
-      clearPendingVerification(authSession);
-      return redirect(location, {
-        headers: combineHeaders(error.headers, {
-          "Set-Cookie": await authSessionStorage.commitSession(authSession),
-        }),
-      });
+      if (pending) {
+        clearPendingVerification(authSession);
+        return redirect(location, {
+          headers: combineHeaders(error.headers, {
+            "Set-Cookie": await authSessionStorage.commitSession(authSession),
+          }),
+        });
+      }
+      return redirect(location, { headers: error.headers });
     }
     throw error;
   }
