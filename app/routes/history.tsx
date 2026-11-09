@@ -51,13 +51,22 @@ function formatPlayedAt(playedAt: string | Date): string {
 }
 
 function HistoryRow({ item }: { item: HistoryItem }) {
-  const { playTrack, currentTrack } = useAudioPlayer();
+  const { playTrack, pauseTrack, resumeTrack, currentTrack, isPlaying } = useAudioPlayer();
   const track = item.track;
   const playable = isPlayableTrack({ audioFiles: track.audioFiles });
   const isCurrent = currentTrack?.id === track.id;
+  const showPauseIcon = isCurrent && isPlaying;
 
   const handlePlay = () => {
     if (!playable) return;
+    if (isCurrent && isPlaying) {
+      pauseTrack();
+      return;
+    }
+    if (isCurrent && !isPlaying) {
+      resumeTrack();
+      return;
+    }
     playTrack(track, { type: "track", trackId: track.id });
   };
 
@@ -67,11 +76,19 @@ function HistoryRow({ item }: { item: HistoryItem }) {
         variant="ghost"
         size="sm"
         className="h-10 w-10 shrink-0 p-0"
-        aria-label={playable ? `Play ${track.title}` : `${track.title} is not playable`}
+        aria-label={
+          playable
+            ? showPauseIcon
+              ? `Pause ${track.title}`
+              : isCurrent
+                ? `Resume ${track.title}`
+                : `Play ${track.title}`
+            : `${track.title} is not playable`
+        }
         disabled={!playable}
         onClick={handlePlay}
       >
-        <Icon name={isCurrent ? "pause" : "play"} className="h-5 w-5" />
+        <Icon name={showPauseIcon ? "pause" : "play"} className="h-5 w-5" />
       </Button>
 
       <div className="min-w-0 flex-1">

@@ -4660,3 +4660,121 @@ test("play-next added during remove-current await does not drift play-next count
   });
   expect(screen.getByTestId("current-track-id").textContent).not.toBe("track-1");
 });
+
+test("play next during slow removeTrackFromPlaylist successor hydration survives in Up Next", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const track2 = {
+    ...playableTrack,
+    id: "track-2",
+    title: "Second Track",
+    audioFiles: [{ id: "af-2", format: "mp3", objectKey: "audio/test2.mp3" }],
+  };
+  const playNextC = {
+    ...playableTrack,
+    id: "track-pnc",
+    title: "Play Next C",
+    audioFiles: [{ id: "af-pnc", format: "mp3", objectKey: "audio/pnc.mp3" }],
+  };
+
+  let releaseSlow!: () => void;
+  let slowReleased = false;
+  const slowGate = new Promise<void>((resolve) => {
+    releaseSlow = () => {
+      slowReleased = true;
+      resolve();
+    };
+  });
+  let deferSlow = false;
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE)) {
+      return Promise.resolve({ status: 204, ok: true, json: async () => null } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2", title: "Second Track" }],
+          total: 2,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      if (deferSlow && !slowReleased && ids.includes("track-2") && !ids.includes("track-1")) {
+        return slowGate.then(() =>
+          Promise.resolve({
+            ok: true,
+            json: async () => ({
+              tracks: [playableTrack, track2, playNextC].filter((t) => ids.includes(t.id)),
+            }),
+          } as Response),
+        );
+      }
+      const all = [playableTrack, track2, playNextC];
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: all.filter((track) => ids.includes(track.id)) }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function RemoveSpineProbe() {
+    const { playTrack, playNextTrack, removeTrackFromPlaylist, upNext, currentTrack } =
+      useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play first
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            deferSlow = true;
+            removeTrackFromPlaylist({ zone: "spine", index: 0 });
+          }}
+        >
+          Remove spine current
+        </button>
+        <button type="button" onClick={() => playNextTrack(playNextC)}>
+          Play next C
+        </button>
+        <button type="button" onClick={releaseSlow}>
+          Release slow
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+        <span data-testid="up-next-has-pnc">
+          {String(upNext.some((track) => track?.id === "track-pnc"))}
+        </span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <RemoveSpineProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play first" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  void user.click(screen.getByRole("button", { name: "Remove spine current" }));
+  await user.click(screen.getByRole("button", { name: "Play next C" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("up-next-has-pnc").textContent).toBe("true");
+  });
+
+  await user.click(screen.getByRole("button", { name: "Release slow" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-2");
+  });
+  expect(screen.getByTestId("up-next-has-pnc").textContent).toBe("true");
+});

@@ -1127,7 +1127,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       const playNextCountAtStart = upNextPlayNextCountRef.current;
 
       if (target.zone === "upNext") {
-        const nextUpNext = upNext.filter((_, itemIndex) => itemIndex !== target.index);
+        const latest = navigationStateRef.current;
+        const nextUpNext = latest.upNext.filter((_, itemIndex) => itemIndex !== target.index);
         const nextPlayNextCount =
           target.index < playNextCountAtStart
             ? Math.max(0, playNextCountAtStart - 1)
@@ -1135,7 +1136,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         commitNavigation(
           navigationEpoch,
           {
-            navigation: { ...navigationState, upNext: nextUpNext },
+            navigation: { ...latest, upNext: nextUpNext },
             upNextPlayNextCount: nextPlayNextCount,
           },
           { navigationScope: "position" },
@@ -1143,7 +1144,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         return;
       }
 
-      const result = removeSpineAtOrderIndex(navigationState, target.index);
+      const orderIndex = target.index;
+      const result = removeSpineAtOrderIndex(navigationStateRef.current, orderIndex);
       if (!result) return;
 
       const playNextDiscard =
@@ -1155,11 +1157,19 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           ? Math.max(0, playNextCountAtStart - playNextDiscard)
           : playNextCountAtStart;
 
+      const applySpineRemoval = (latest: QueueNavigationState): QueueNavigationState => {
+        const removed = removeSpineAtOrderIndex(latest, orderIndex);
+        return removed?.state ?? latest;
+      };
+
       if (!result.removedCurrent) {
+        const latest = navigationStateRef.current;
+        const fresh = removeSpineAtOrderIndex(latest, orderIndex);
+        if (!fresh) return;
         commitNavigation(
           navigationEpoch,
           {
-            navigation: result.state,
+            navigation: fresh.state,
             spineTotal: Math.max(0, spineTotal - 1),
             upNextPlayNextCount: nextPlayNextCount,
           },
@@ -1171,7 +1181,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       if (result.playTrack) {
         void playResolvedTrack(result.playTrack, {
           navigationEpoch,
-          navigation: result.state,
+          applyNavigation: applySpineRemoval,
           spineTotal: Math.max(0, spineTotal - 1),
           playNextCountDiscard: playNextDiscard > 0 ? playNextDiscard : undefined,
           navigationScope: "full",
@@ -1182,7 +1192,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       commitNavigation(
         navigationEpoch,
         {
-          navigation: result.state,
+          navigation: applySpineRemoval(navigationStateRef.current),
           track: null,
           spineTotal: Math.max(0, spineTotal - 1),
           upNextPlayNextCount: nextPlayNextCount,
@@ -1190,7 +1200,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         { navigationScope: "full" },
       );
     },
-    [commitNavigation, navigationState, playResolvedTrack, spineTotal, upNext],
+    [commitNavigation, playResolvedTrack, spineTotal],
   );
 
   const removeCurrentFromQueue = useCallback(() => {
