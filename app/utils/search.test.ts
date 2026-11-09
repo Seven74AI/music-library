@@ -23,6 +23,7 @@ describe("Search Utilities", () => {
     await prisma.track.deleteMany();
     await prisma.album.deleteMany();
     await prisma.artist.deleteMany();
+    await prisma.genre.deleteMany();
     await prisma.user.deleteMany();
   });
 
@@ -482,6 +483,125 @@ describe("Search Utilities", () => {
       if (resultByNewName.results[0]?.type === "album") {
         expect(resultByNewName.results[0].artistName).toContain("Album Artist New");
       }
+    });
+  });
+
+  describe("album rename FTS cascade", () => {
+    it("should update tracks_fts.album_name when album is renamed", async () => {
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Album Cascade Artist",
+          normalizedName: "album cascade artist",
+        },
+      });
+
+      const album = await prisma.album.create({
+        data: {
+          name: "Original Album FTS Name",
+          artistId: artist.id,
+        },
+      });
+
+      await prisma.track.create({
+        data: {
+          title: "Song On Renamed Album",
+          artistId: artist.id,
+          albumId: album.id,
+          serviceId: localService.id,
+          externalId: `test-track-album-rename-${Date.now()}`,
+        },
+      });
+
+      await prisma.album.update({
+        where: { id: album.id },
+        data: { name: "Renamed Album FTS Name" },
+      });
+
+      const resultByNewName = await searchTracks("Renamed Album FTS Name", 10);
+      expect(resultByNewName.results.length).toBeGreaterThan(0);
+      const newNameMatches = resultByNewName.results.filter(
+        (r) => r.type === "track" && r.albumName?.includes("Renamed Album FTS Name"),
+      );
+      expect(newNameMatches.length).toBeGreaterThan(0);
+
+      const resultByOldName = await searchTracks("Original Album FTS Name", 10);
+      const oldNameMatches = resultByOldName.results.filter(
+        (r) => r.type === "track" && r.albumName?.includes("Original Album FTS Name"),
+      );
+      expect(oldNameMatches).toHaveLength(0);
+    });
+  });
+
+  describe("genre rename FTS cascade", () => {
+    it("should update tracks_fts.genres when genre is renamed", async () => {
+      const stamp = Date.now();
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const oldGenreName = `OldGenreFtsTag${stamp}`;
+      const newGenreName = `NewGenreFtsTag${stamp}`;
+
+      const genre = await prisma.genre.create({
+        data: {
+          name: oldGenreName,
+          normalizedName: oldGenreName.toLowerCase(),
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Genre Cascade Artist",
+          normalizedName: "genre cascade artist",
+        },
+      });
+
+      const track = await prisma.track.create({
+        data: {
+          title: "Genre Tagged Song",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `test-track-genre-rename-${stamp}`,
+        },
+      });
+
+      await prisma.$executeRaw`INSERT INTO _TrackGenres (A, B) VALUES (${genre.id}, ${track.id})`;
+
+      await prisma.genre.update({
+        where: { id: genre.id },
+        data: {
+          name: newGenreName,
+          normalizedName: newGenreName.toLowerCase(),
+        },
+      });
+
+      const resultByNewName = await searchTracks(newGenreName, 10);
+      expect(resultByNewName.results.some((r) => r.type === "track" && r.id === track.id)).toBe(
+        true,
+      );
+
+      const resultByOldName = await searchTracks(oldGenreName, 10);
+      expect(resultByOldName.results.some((r) => r.type === "track" && r.id === track.id)).toBe(
+        false,
+      );
     });
   });
 

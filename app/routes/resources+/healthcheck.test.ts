@@ -26,6 +26,18 @@ describe("healthcheck loader", () => {
     vi.restoreAllMocks();
   });
 
+  test("does not self-fetch when X-Healthcheck header is set", async () => {
+    const response = await loader({
+      request: new Request("http://127.0.0.1:3000/resources/healthcheck", {
+        headers: { "X-Healthcheck": "true" },
+      }),
+    } as never);
+
+    expect(response.status).toBe(200);
+    const headCalls = vi.mocked(fetch).mock.calls.filter((call) => call[1]?.method === "HEAD");
+    expect(headCalls).toHaveLength(0);
+  });
+
   test("self-HEAD uses trusted loopback origin, not forwarded host", async () => {
     await loader({
       request: new Request("http://evil.internal/resources/healthcheck", {
