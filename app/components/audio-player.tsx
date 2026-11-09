@@ -222,6 +222,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const playIdRef = useRef<string | null>(null);
   /** Previous timeupdate position — used to detect repeat-one wrap without an `ended` event. */
   const loopOneProgressRef = useRef(0);
+  /** Consumed by whichever repeat-one restart signal wins (`timeupdate` wrap vs `ended`). */
+  const repeatOneRestartLatchRef = useRef(false);
   // Playback-progress presence for a locked speaker. Page timers are throttled
   // while the screen is hidden; timeupdate keeps lastSeenAt fresh only while
   // the playhead is actually moving.
@@ -275,6 +277,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
       emitPlayEvent("play_started", id, playIdRef.current);
     },
     [emitPlayEvent],
+  );
+
+  const tryBeginRepeatOnePlayPass = useCallback(
+    (id: string) => {
+      if (repeatOneRestartLatchRef.current) return;
+      repeatOneRestartLatchRef.current = true;
+      beginRepeatOnePlayPass(id);
+    },
+    [beginRepeatOnePlayPass],
   );
 
   // Expose a function to apply a prefetched track and play it synchronously within
@@ -1030,6 +1041,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
   }, [loopMode]);
 
   useEffect(() => {
+    repeatOneRestartLatchRef.current = false;
+    loopOneProgressRef.current = 0;
+  }, [trackId]);
+
+  useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
@@ -1064,10 +1080,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
         audio.currentTime + 0.5 < previousLoopTime &&
         audio.currentTime < 2
       ) {
-        beginRepeatOnePlayPass(trackId);
+        tryBeginRepeatOnePlayPass(trackId);
         loopOneProgressRef.current = audio.currentTime;
       } else {
         loopOneProgressRef.current = audio.currentTime;
+      }
+      if (repeatOneRestartLatchRef.current && audio.currentTime > 2) {
+        repeatOneRestartLatchRef.current = false;
       }
       if (
         trackId &&
@@ -1111,17 +1130,17 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
     };
     const handleEnded = () => {
-      if (trackId && playCompletedForTrackRef.current !== trackId) {
-        playCompletedForTrackRef.current = trackId;
-        emitPlayEvent("play_completed", trackId, playIdRef.current);
-      }
       // Only auto-advance if not looping one track
       if (loopMode === "one") {
         // Native `loop` may still emit `ended` in some environments; count a new pass.
         if (trackId) {
-          beginRepeatOnePlayPass(trackId);
+          tryBeginRepeatOnePlayPass(trackId);
         }
         return;
+      }
+      if (trackId && playCompletedForTrackRef.current !== trackId) {
+        playCompletedForTrackRef.current = trackId;
+        emitPlayEvent("play_completed", trackId, playIdRef.current);
       }
       if (hasNext) {
         // Auto-advance: keep the "playing" state (and Media Session) continuous
@@ -1228,7 +1247,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     audioSrc,
     hasNext,
     emitPlayEvent,
-    beginRepeatOnePlayPass,
+    tryBeginRepeatOnePlayPass,
     roomSpeaker,
     audioSrcOverride,
     stopFailedPlayback,

@@ -154,10 +154,9 @@ export function createOfflineStorage(
     const stagingTrackId = offlineAudioStagingTrackId(track.id);
 
     const previousFormat = existing?.audioFormat ?? null;
+    const previousRecord = existing ? { ...existing } : null;
     const previousBytes =
-      existing && previousFormat === audioFormat
-        ? await audioStore.read(track.id, previousFormat)
-        : null;
+      existing && previousFormat ? await audioStore.read(track.id, previousFormat) : null;
 
     await audioStore.write(stagingTrackId, buffer, audioFormat);
 
@@ -165,6 +164,14 @@ export function createOfflineStorage(
     try {
       await audioStore.commitStagingWrite(stagingTrackId, track.id, audioFormat);
       committed = true;
+
+      if (
+        previousFormat &&
+        previousFormat !== audioFormat &&
+        (await audioStore.has(track.id, previousFormat))
+      ) {
+        await audioStore.delete(track.id, previousFormat);
+      }
 
       if (existing) {
         await metadataStore.put(
@@ -190,21 +197,17 @@ export function createOfflineStorage(
           }),
         );
       }
-
-      if (
-        previousFormat &&
-        previousFormat !== audioFormat &&
-        (await audioStore.has(track.id, previousFormat))
-      ) {
-        await audioStore.delete(track.id, previousFormat);
-      }
     } catch (error) {
       await audioStore.delete(stagingTrackId, audioFormat);
       if (committed) {
-        if (previousBytes) {
-          await audioStore.write(track.id, previousBytes, audioFormat);
+        await audioStore.delete(track.id, audioFormat);
+        if (previousBytes && previousFormat) {
+          await audioStore.write(track.id, previousBytes, previousFormat);
+        }
+        if (previousRecord) {
+          await metadataStore.put(previousRecord);
         } else {
-          await audioStore.delete(track.id, audioFormat);
+          await metadataStore.delete(track.id);
         }
       }
       throw error;

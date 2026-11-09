@@ -1708,6 +1708,34 @@ test("gapless unlock handoff emits play_started with a distinct playId for the a
   expect(track2PlayId).not.toBe(track1PlayId);
 });
 
+test("repeat-one dedupes timeupdate wrap and ended firing in the same tick", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 95, 100);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.5, 100);
+  fireEvent.timeUpdate(audioEl);
+  fireEvent.ended(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(1);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(1);
+});
+
 test("repeat-one counts each loop as a new play_started and play_completed", async () => {
   const user = userEvent.setup();
   mockPlay();
