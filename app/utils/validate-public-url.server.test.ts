@@ -44,6 +44,11 @@ describe("validatePublicHttpsUrl", () => {
     await expect(validatePublicHttpsUrl("https://[2002:7f00:1::]/image.png")).resolves.toBeNull();
   });
 
+  test("rejects IPv4 multicast 224.0.0.0/4", async () => {
+    await expect(validatePublicHttpsUrl("https://224.0.0.1/image.png")).resolves.toBeNull();
+    await expect(validatePublicHttpsUrl("https://239.255.255.255/image.png")).resolves.toBeNull();
+  });
+
   test("rejects entire NAT64 64:ff9b::/96 prefix", async () => {
     await expect(validatePublicHttpsUrl("https://[64:ff9b::7f00:1]/image.png")).resolves.toBeNull();
     await expect(validatePublicHttpsUrl("https://[64:ff9b::a00:1]/image.png")).resolves.toBeNull();

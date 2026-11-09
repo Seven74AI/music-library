@@ -654,6 +654,40 @@ describe("party-room lifecycle", () => {
     expect(openSeats).toBeLessThanOrEqual(1);
   });
 
+  test("concurrent room switch and stale refresh leave the old guest seat vacated", async () => {
+    const hostA = await makeUser("Host A");
+    const hostB = await makeUser("Host B");
+    const roomA = await createRoom({ userId: hostA.id, displayName: "Host A" });
+    const roomB = await createRoom({ userId: hostB.id, displayName: "Host B" });
+    const guest = await joinRoom({
+      code: roomA.code,
+      actor: { type: "guest", displayName: "Walkup" },
+    });
+    const token = guest.guestToken!;
+
+    await Promise.allSettled([
+      joinRoom({
+        code: roomB.code,
+        actor: { type: "guest", displayName: "Walkup", guestToken: token },
+      }),
+      joinRoom({
+        code: roomA.code,
+        actor: { type: "guest", displayName: "Walkup", guestToken: token },
+      }),
+    ]);
+
+    const seatA = await prisma.roomParticipant.findUnique({
+      where: { id: guest.participant.id },
+      select: { leftAt: true },
+    });
+    expect(seatA?.leftAt).not.toBeNull();
+
+    const openWithToken = await prisma.roomParticipant.count({
+      where: { guestTokenHash: hashGuestToken(token), leftAt: null },
+    });
+    expect(openWithToken).toBe(1);
+  });
+
   test("guest refresh does not heal a duplicate open seat in another room", async () => {
     const hostA = await makeUser("Host A");
     const hostB = await makeUser("Host B");

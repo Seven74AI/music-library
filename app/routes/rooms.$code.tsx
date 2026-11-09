@@ -52,9 +52,9 @@ type GuestLoaderData = {
     code: string;
     status: string;
     defaultJoinRole: string;
-    currentIndex: number;
-    roomVersion: number;
-    isPlaying: boolean;
+    currentIndex?: number;
+    roomVersion?: number;
+    isPlaying?: boolean;
   } | null;
   ended: boolean;
   invalidCode: boolean;
@@ -149,9 +149,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       code: openRoom.code,
       status: openRoom.status,
       defaultJoinRole: openRoom.defaultJoinRole,
-      currentIndex: openRoom.currentIndex,
-      roomVersion: openRoom.roomVersion,
-      isPlaying: openRoom.isPlaying,
+      ...(participant
+        ? {
+            currentIndex: openRoom.currentIndex,
+            roomVersion: openRoom.roomVersion,
+            isPlaying: openRoom.isPlaying,
+          }
+        : {}),
     },
     ended: openRoom.status === ROOM_STATUS.ended,
     invalidCode: false,

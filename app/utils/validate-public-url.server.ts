@@ -7,6 +7,7 @@ blockedImageAddresses.addSubnet("127.0.0.0", 8, "ipv4");
 blockedImageAddresses.addSubnet("10.0.0.0", 8, "ipv4");
 blockedImageAddresses.addSubnet("172.16.0.0", 12, "ipv4");
 blockedImageAddresses.addSubnet("192.168.0.0", 16, "ipv4");
+blockedImageAddresses.addSubnet("224.0.0.0", 4, "ipv4");
 // Link-local, including cloud metadata (169.254.169.254 and 169.254.170.2).
 blockedImageAddresses.addSubnet("169.254.0.0", 16, "ipv4");
 blockedImageAddresses.addAddress("::1", "ipv6");

@@ -81,6 +81,33 @@ describe("guest /rooms/:code loader", () => {
     expect(result.data.room?.status).toBe("open");
   });
 
+  test("a non-seated guest load omits playback and room-version fields", async () => {
+    const host = await createHost();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { currentIndex: 2, isPlaying: true, roomVersion: 9 },
+    });
+
+    const result = await loader({
+      request: new Request(`http://localhost/rooms/${room.code}`),
+      params: { code: room.code },
+    } as never);
+
+    expect(result.data.mode).toBe("guest");
+    if (result.data.mode !== "guest") {
+      throw new Error("expected guest loader");
+    }
+    expect(result.data.participant).toBeNull();
+    expect(result.data.room).toMatchObject({
+      code: room.code,
+      status: "open",
+    });
+    expect(result.data.room).not.toHaveProperty("currentIndex");
+    expect(result.data.room).not.toHaveProperty("isPlaying");
+    expect(result.data.room).not.toHaveProperty("roomVersion");
+  });
+
   test("a non-seated guest load never exposes queue rows or participant ids", async () => {
     const host = await createHost();
     const room = await createRoom({ userId: host.id, displayName: "Host" });
