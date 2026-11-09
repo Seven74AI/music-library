@@ -97,10 +97,6 @@ export async function processBackupSchedulerTick(options?: {
   if (!isBackupBucketConfigured()) return;
   if (state.inFlight) return;
 
-  if (state.attemptsToday >= BACKUP_SCHEDULER_MAX_ATTEMPTS) {
-    return;
-  }
-
   state.inFlight = true;
   const now = options?.now ?? new Date();
   try {
@@ -111,10 +107,6 @@ export async function processBackupSchedulerTick(options?: {
         console.error("Failed to hydrate backup scheduler state", hydrateError);
         return;
       }
-    }
-
-    if (state.attemptsToday >= BACKUP_SCHEDULER_MAX_ATTEMPTS) {
-      return;
     }
 
     const day = formatUtcDate(now);

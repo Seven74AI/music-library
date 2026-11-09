@@ -18,6 +18,17 @@ export type PendingVerification = {
   redirectTo?: string;
 };
 
+export type VerifyLoaderData =
+  | {
+      hasPendingVerification: false;
+      type: null;
+    }
+  | {
+      hasPendingVerification: true;
+      type: VerificationTypes;
+      redirectTo?: string;
+    };
+
 export function getPendingVerification(
   session: Awaited<ReturnType<typeof authSessionStorage.getSession>>,
 ): PendingVerification | null {
@@ -55,12 +66,22 @@ export function mergePendingVerificationIntoFormData(
   formData: FormData,
   pending: PendingVerification,
 ): void {
-  // Type/target/redirectTo are not trustworthy from hidden fields; code comes from the OTP input.
   formData.set(typeQueryParam, pending.type);
   formData.set(targetQueryParam, pending.target);
   if (pending.redirectTo) {
     formData.set(redirectToQueryParam, pending.redirectTo);
   }
+}
+
+function toPublicVerifyLoaderData(pending: PendingVerification | null): VerifyLoaderData {
+  if (!pending) {
+    return { hasPendingVerification: false, type: null };
+  }
+  return {
+    hasPendingVerification: true,
+    type: pending.type,
+    redirectTo: pending.redirectTo,
+  };
 }
 
 export async function handleVerifyLoader(request: Request) {
@@ -98,18 +119,15 @@ export async function handleVerifyLoader(request: Request) {
     commitSession = true;
   }
 
-  const pendingVerification = getPendingVerification(session);
+  const loaderBody = toPublicVerifyLoaderData(getPendingVerification(session));
 
   if (commitSession) {
-    return data(
-      { pendingVerification },
-      {
-        headers: {
-          "Set-Cookie": await authSessionStorage.commitSession(session),
-        },
+    return data(loaderBody, {
+      headers: {
+        "Set-Cookie": await authSessionStorage.commitSession(session),
       },
-    );
+    });
   }
 
-  return data({ pendingVerification });
+  return data(loaderBody);
 }

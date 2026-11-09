@@ -402,25 +402,37 @@ describe("processQueueTick", () => {
         format: "mp3",
         mimeType: "audio/mpeg",
       });
+      mockPrisma.track.findUnique.mockResolvedValue({
+        id: "track-keep",
+        artistId: "artist-existing",
+        title: "Playlist Title",
+        duration: 212,
+      });
+      mockPersistTrackAudio.mockImplementation(async ({ trackId, metadata }) => {
+        const { backfillTrackMetadata } =
+          await import("#app/features/track-audio-ingest/backfill-track-metadata.server.ts");
+        await backfillTrackMetadata(trackId, metadata);
+        return {
+          audioFile: {
+            id: "audio-keep",
+            trackId,
+            objectKey: "audio/tracks/youtube/track-keep.mp3",
+          },
+          objectKey: "audio/tracks/youtube/track-keep.mp3",
+          created: true,
+        };
+      });
 
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPersistTrackAudio).toHaveBeenCalledWith(
-        expect.objectContaining({
-          trackId: "track-keep",
-          serviceName: "youtube",
-          metadata: expect.objectContaining({
-            format: "mp3",
-            mimeType: "audio/mpeg",
-          }),
-        }),
-      );
-      const persistArgs = mockPersistTrackAudio.mock.calls[0]![0] as {
-        metadata: Record<string, unknown>;
-      };
-      expect(persistArgs.metadata).not.toHaveProperty("title");
-      expect(persistArgs.metadata).not.toHaveProperty("duration");
+      expect(mockExtractAudioMetadata).toHaveBeenCalled();
+      const extracted = mockExtractAudioMetadata.mock.results[0]?.value as Promise<
+        Record<string, unknown>
+      >;
+      const extractedMeta = await extracted;
+      expect(extractedMeta).not.toHaveProperty("title");
+      expect(extractedMeta).not.toHaveProperty("duration");
       expect(mockPrisma.track.update).not.toHaveBeenCalled();
     });
 

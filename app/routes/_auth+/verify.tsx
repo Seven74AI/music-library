@@ -52,7 +52,11 @@ export async function action({ request }: Route.ActionArgs) {
   const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
   const pending = getPendingVerification(authSession);
   if (pending) {
+    for (const key of [codeQueryParam, typeQueryParam, targetQueryParam, redirectToQueryParam]) {
+      formData.delete(key);
+    }
     mergePendingVerificationIntoFormData(formData, pending);
+    formData.set(codeQueryParam, pending.code);
   }
   try {
     const response = await validateRequest(request, formData);
@@ -89,8 +93,8 @@ export async function clientAction(args: Route.ClientActionArgs) {
 export default function VerifyRoute({ actionData, loaderData }: Route.ComponentProps) {
   const [searchParams] = useSearchParams();
   const isPending = useIsPending();
-  const pending = loaderData.pendingVerification;
-  const typeParam = pending?.type ?? searchParams.get(typeQueryParam);
+  const sessionBacked = loaderData.hasPendingVerification === true;
+  const typeParam = loaderData.type ?? searchParams.get(typeQueryParam);
   const parseWithZoddType = VerificationTypeSchema.safeParse(typeParam);
   const type = parseWithZoddType.success ? parseWithZoddType.data : null;
 
@@ -124,12 +128,16 @@ export default function VerifyRoute({ actionData, loaderData }: Route.ComponentP
     onValidate({ formData }) {
       return parseWithZod(formData, { schema: VerifySchema });
     },
-    defaultValue: {
-      code: pending?.code ?? undefined,
-      type: type,
-      target: pending?.target ?? searchParams.get(targetQueryParam) ?? undefined,
-      redirectTo: pending?.redirectTo ?? searchParams.get(redirectToQueryParam) ?? undefined,
-    },
+    defaultValue: sessionBacked
+      ? {
+          type: type ?? undefined,
+          redirectTo: loaderData.redirectTo,
+        }
+      : {
+          type: type,
+          target: searchParams.get(targetQueryParam) ?? undefined,
+          redirectTo: searchParams.get(redirectToQueryParam) ?? undefined,
+        },
   });
 
   return (
@@ -145,27 +153,37 @@ export default function VerifyRoute({ actionData, loaderData }: Route.ComponentP
         <div className="flex w-full gap-2">
           <Form method="POST" {...getFormProps(form)} className="flex-1">
             <HoneypotInputs />
-            <div className="flex items-center justify-center">
-              <OTPField
-                labelProps={{
-                  htmlFor: fields[codeQueryParam].id,
-                  children: "Code",
-                }}
-                inputProps={{
-                  ...getInputProps(fields[codeQueryParam], { type: "text" }),
-                  autoComplete: "one-time-code",
-                  autoFocus: true,
-                }}
-                errors={fields[codeQueryParam].errors}
-              />
-            </div>
-            <input {...getInputProps(fields[typeQueryParam], { type: "hidden" })} />
-            <input {...getInputProps(fields[targetQueryParam], { type: "hidden" })} />
-            <input
-              {...getInputProps(fields[redirectToQueryParam], {
-                type: "hidden",
-              })}
-            />
+            {sessionBacked ? (
+              <p className="text-body-sm text-muted-foreground text-center mb-3">
+                Confirm to continue with your pending verification.
+              </p>
+            ) : (
+              <div className="flex items-center justify-center">
+                <OTPField
+                  labelProps={{
+                    htmlFor: fields[codeQueryParam].id,
+                    children: "Code",
+                  }}
+                  inputProps={{
+                    ...getInputProps(fields[codeQueryParam], { type: "text" }),
+                    autoComplete: "one-time-code",
+                    autoFocus: true,
+                  }}
+                  errors={fields[codeQueryParam].errors}
+                />
+              </div>
+            )}
+            {!sessionBacked ? (
+              <>
+                <input {...getInputProps(fields[typeQueryParam], { type: "hidden" })} />
+                <input {...getInputProps(fields[targetQueryParam], { type: "hidden" })} />
+                <input
+                  {...getInputProps(fields[redirectToQueryParam], {
+                    type: "hidden",
+                  })}
+                />
+              </>
+            ) : null}
             <StatusButton
               className="w-full"
               status={isPending ? "pending" : (form.status ?? "idle")}

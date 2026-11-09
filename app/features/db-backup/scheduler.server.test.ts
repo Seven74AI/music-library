@@ -139,6 +139,41 @@ test("after attempt cap, further ticks do not run backup or notify", async () =>
   expect(mockNotifyBackupFailed).not.toHaveBeenCalled();
 });
 
+test("resets the attempt cap on a new UTC day and runs backup again", async () => {
+  process.env.BACKUP_BUCKET_NAME = "b";
+  process.env.BACKUP_HOUR_UTC = "3";
+  resetBackupSchedulerStateForTests();
+  mockNotifyBackupFailed.mockClear();
+
+  const run = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, error: "fail-1" })
+    .mockResolvedValueOnce({ ok: false, error: "fail-2" })
+    .mockResolvedValueOnce({ ok: false, error: "fail-3" })
+    .mockResolvedValueOnce({ ok: true as const, dailyKey: "d", weeklyKey: "w" });
+
+  const dayOne = new Date("2026-09-28T03:00:00.000Z");
+  for (let i = 0; i < 3; i++) {
+    await processBackupSchedulerTick({
+      now: new Date(dayOne.getTime() + i * BACKUP_SCHEDULER_RETRY_DELAY_MS + (i === 0 ? 0 : 1)),
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+  }
+  expect(run).toHaveBeenCalledTimes(3);
+
+  const dayTwo = new Date("2026-09-29T03:05:00.000Z");
+  await processBackupSchedulerTick({
+    now: dayTwo,
+    skipPrimaryCheck: true,
+    skipPersistence: true,
+    run,
+  });
+  expect(run).toHaveBeenCalledTimes(4);
+  expect(run.mock.calls[3]![0]).toMatchObject({ attemptCount: 1, notifyOnFailure: false });
+});
+
 test("scheduler stops after success for the UTC day", async () => {
   process.env.BACKUP_BUCKET_NAME = "b";
   resetBackupSchedulerStateForTests();

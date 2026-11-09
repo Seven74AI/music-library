@@ -8,6 +8,7 @@ import {
   getPasswordHash,
   getPasswordHashParts,
   getSessionExpirationDate,
+  getUserIdOrNull,
   login,
   requireAnonymous,
   resetUserPassword,
@@ -177,6 +178,30 @@ describe("verifyUserPassword", () => {
 
   test("returns null for a non-existent user", async () => {
     expect(await verifyUserPassword({ username: "no-such-user" }, "whatever")).toBeNull();
+  });
+});
+
+describe("getUserIdOrNull", () => {
+  test("GET /login loader with a stale session cookie returns without redirect", async () => {
+    const deletedSessionId = `stale-${Math.random().toString(36).slice(2, 12)}`;
+    const authSession = await authSessionStorage.getSession();
+    authSession.set(sessionKey, deletedSessionId);
+    const setCookieHeader = await authSessionStorage.commitSession(authSession);
+    const request = new Request("http://localhost/login", {
+      method: "GET",
+      headers: { cookie: setCookieHeader },
+    });
+
+    await expect(getUserIdOrNull(request)).resolves.toBeNull();
+
+    const { loader: loginLoader } = await import("#app/routes/_auth+/login.tsx");
+    await expect(
+      loginLoader({
+        request,
+        params: {},
+        context: {},
+      } as Parameters<typeof loginLoader>[0]),
+    ).resolves.toEqual({});
   });
 });
 
