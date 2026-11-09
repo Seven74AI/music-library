@@ -223,6 +223,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const playIdRef = useRef<string | null>(null);
   /** Previous `timeupdate` playhead — detects repeat-one wrap by backward jump. */
   const prevCurrentTimeRef = useRef(0);
+  /** Set when the user seeks; suppresses wrap detection on the next `timeupdate`. */
+  const userSeekRef = useRef(false);
   // Playback-progress presence for a locked speaker. Page timers are throttled
   // while the screen is hidden; timeupdate keeps lastSeenAt fresh only while
   // the playhead is actually moving.
@@ -473,6 +475,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
 
   useEffect(() => {
     prevCurrentTimeRef.current = 0;
+    userSeekRef.current = false;
     playCompletedForPlayIdRef.current = null;
   }, [trackId]);
 
@@ -904,6 +907,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
 
       audio.currentTime = clampMediaSessionSeekTime(details.seekTime, trackDuration);
+      userSeekRef.current = true;
       updateMediaSessionPositionState(audio);
     });
     navigator.mediaSession.setActionHandler("stop", () => {
@@ -1042,15 +1046,27 @@ export function AudioPlayer(props: AudioPlayerProps) {
         void sendHostHeartbeat(roomSpeaker.code).catch(() => {});
       }
       const currentTime = audio.currentTime;
-      if (loopMode === "one" && trackId && !audio.seeking) {
-        const prevTime = prevCurrentTimeRef.current;
-        if (prevTime - currentTime > 0.5) {
-          playIdRef.current = generatePlayId();
-          playCompletedForPlayIdRef.current = null;
-          playStartedForTrackRef.current = trackId;
-          emitPlayEvent("play_started", trackId, playIdRef.current);
+      if (loopMode === "one" && trackId) {
+        if (userSeekRef.current) {
+          prevCurrentTimeRef.current = currentTime;
+          userSeekRef.current = false;
+        } else {
+          const prevTime = prevCurrentTimeRef.current;
+          const trackDuration = audio.duration;
+          if (trackDuration > 0 && isFinite(trackDuration)) {
+            const head = Math.min(1, trackDuration * 0.3);
+            const tail = Math.max(trackDuration - head, trackDuration * 0.6);
+            const delta = prevTime - currentTime;
+            const minJump = Math.min(0.5, head);
+            if (currentTime < head && prevTime > tail && delta > minJump) {
+              playIdRef.current = generatePlayId();
+              playCompletedForPlayIdRef.current = null;
+              playStartedForTrackRef.current = trackId;
+              emitPlayEvent("play_started", trackId, playIdRef.current);
+            }
+          }
+          prevCurrentTimeRef.current = currentTime;
         }
-        prevCurrentTimeRef.current = currentTime;
       }
       const playCompletionKey = playIdRef.current ?? (trackId ? `track:${trackId}` : null);
       if (
@@ -1259,6 +1275,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     try {
       // Optimistic update for smooth UI - seeked event will correct if needed
       audio.currentTime = clampedTime;
+      userSeekRef.current = true;
       setCurrentTime(clampedTime);
       updateMediaSessionPositionState(audio);
     } catch (error) {
