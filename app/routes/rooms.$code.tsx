@@ -133,8 +133,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   let openRoom: Awaited<ReturnType<typeof findOpenRoomByCode>> | null = null;
   try {
     openRoom = await findOpenRoomByCode(code);
-  } catch {
-    openRoom = null;
+  } catch (error) {
+    if (error instanceof PartyRoomError) {
+      openRoom = null;
+    } else {
+      throw error;
+    }
   }
 
   if (!openRoom) {
