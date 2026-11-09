@@ -72,6 +72,11 @@ export type ResolvedPlayerStateData = PlayerStateData & {
   upNextPlayNextCount: number;
 };
 
+/** True when persisted queue data does not record which zone is audible (legacy or migrated). */
+export function isAudibleSourceZoneUnknown(zone: QueueZone | null | undefined): boolean {
+  return zone === null || zone === undefined;
+}
+
 /** Apply defaults for queue-position fields omitted by older persisted rows. */
 export function withPlayerStateDefaults(data: PlayerStateData): ResolvedPlayerStateData {
   return {

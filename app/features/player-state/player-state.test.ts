@@ -5,7 +5,11 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
-import { type PlayerStateData } from "./player-state.ts";
+import {
+  isAudibleSourceZoneUnknown,
+  withPlayerStateDefaults,
+  type PlayerStateData,
+} from "./player-state.ts";
 
 async function createUserCookie() {
   const user = await prisma.user.create({
@@ -55,6 +59,34 @@ function loadRequest(cookie: string) {
     headers: { cookie },
   });
 }
+
+describe("isAudibleSourceZoneUnknown", () => {
+  test("treats null and undefined as unknown", () => {
+    expect(isAudibleSourceZoneUnknown(null)).toBe(true);
+    expect(isAudibleSourceZoneUnknown(undefined)).toBe(true);
+  });
+
+  test("treats explicit spine and upNext as known", () => {
+    expect(isAudibleSourceZoneUnknown("spine")).toBe(false);
+    expect(isAudibleSourceZoneUnknown("upNext")).toBe(false);
+  });
+});
+
+describe("withPlayerStateDefaults", () => {
+  test("keeps null audibleSourceZone as unknown (not a concrete zone)", () => {
+    const resolved = withPlayerStateDefaults({
+      playContext: null,
+      currentTrackId: "track-1",
+      upNextIds: [],
+      shuffleSeed: null,
+      loopMode: "off",
+      audibleSourceZone: null,
+      spinePosition: 0,
+    });
+    expect(resolved.audibleSourceZone).toBeNull();
+    expect(isAudibleSourceZoneUnknown(resolved.audibleSourceZone)).toBe(true);
+  });
+});
 
 describe("player-state resource", () => {
   beforeEach(async () => {

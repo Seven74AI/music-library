@@ -63,6 +63,7 @@ import {
 } from "#app/features/player-state/player-state-cache.client.ts";
 import {
   fetchPlayerState,
+  isAudibleSourceZoneUnknown,
   persistPlayerState,
   withPlayerStateDefaults,
   type PlayerStateData,
@@ -1994,6 +1995,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   // player paused (restore-and-wait — no autoplay).
   const restoreQueueFromServer = useCallback(
     async (rawSaved: PlayerStateData) => {
+      const zoneUnknown = isAudibleSourceZoneUnknown(rawSaved.audibleSourceZone);
       const saved = withPlayerStateDefaults(rawSaved);
       const epoch = restoreEpochRef.current;
       const shouldAbortRestore = () =>
@@ -2069,9 +2071,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         : null;
 
       if (currentFullTrack && isPlayableTrack(currentFullTrack)) {
-        let zone = saved.audibleSourceZone;
+        let zone: typeof saved.audibleSourceZone = saved.audibleSourceZone;
 
-        if (zone === null) {
+        if (zoneUnknown) {
           const position = findSpinePositionForTrackId(
             {
               upNext: resolvedUpNext,
@@ -2084,24 +2086,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           );
           if (position !== null) {
             zone = "spine";
-            if (rawSaved.audibleSourceZone === undefined) {
-              setSpinePosition(position);
-            }
+            setSpinePosition(position);
           } else if (resolvedUpNext.some((track) => track.id === currentFullTrack.id)) {
             zone = "upNext";
+          } else {
+            zone = null;
           }
-        } else if (zone === "spine" && rawSaved.audibleSourceZone === undefined) {
-          const position = findSpinePositionForTrackId(
-            {
-              upNext: resolvedUpNext,
-              spine: spineTracks,
-              spineOrder: order,
-              spinePosition: saved.spinePosition,
-              loopMode: saved.loopMode,
-            },
-            currentFullTrack.id,
-          );
-          if (position !== null) setSpinePosition(position);
         }
 
         if (zone !== null) {
