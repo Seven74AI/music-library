@@ -4,7 +4,7 @@ import { getZodConstraint, parseWithZod } from "@conform-to/zod/v4";
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
 import { Form, redirect, useSearchParams } from "react-router";
 import { authSessionStorage } from "#app/utils/session.server.ts";
-import { combineResponseInits } from "#app/utils/misc.tsx";
+import { combineHeaders } from "#app/utils/misc.tsx";
 import { z } from "zod";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { ErrorList, OTPField } from "#app/components/forms.tsx";
@@ -54,21 +54,32 @@ export async function action({ request }: Route.ActionArgs) {
   if (pending) {
     mergePendingVerificationIntoFormData(formData, pending);
   }
-  const response = await validateRequest(request, formData);
-  if (response instanceof Response && response.status >= 300 && response.status < 400) {
-    clearPendingVerification(authSession);
-    const location = response.headers.get("Location");
-    invariant(location, "Expected redirect Location header");
-    return redirect(
-      location,
-      combineResponseInits(response, {
-        headers: {
+  try {
+    const response = await validateRequest(request, formData);
+    if (response instanceof Response && response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("Location");
+      invariant(location, "Expected redirect Location header");
+      clearPendingVerification(authSession);
+      return redirect(location, {
+        headers: combineHeaders(response.headers, {
           "Set-Cookie": await authSessionStorage.commitSession(authSession),
-        },
-      }),
-    );
+        }),
+      });
+    }
+    return response;
+  } catch (error) {
+    if (error instanceof Response && error.status >= 300 && error.status < 400) {
+      const location = error.headers.get("Location");
+      invariant(location, "Expected redirect Location header");
+      clearPendingVerification(authSession);
+      return redirect(location, {
+        headers: combineHeaders(error.headers, {
+          "Set-Cookie": await authSessionStorage.commitSession(authSession),
+        }),
+      });
+    }
+    throw error;
   }
-  return response;
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {

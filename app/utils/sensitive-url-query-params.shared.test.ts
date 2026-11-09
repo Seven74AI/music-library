@@ -11,10 +11,10 @@ describe("stripSensitiveUrlQueryParams", () => {
     );
     expect(scrubbed).not.toContain("code=");
     expect(scrubbed).not.toContain("target=");
-    expect(scrubbed).toContain("type=onboarding");
-    expect(scrubbed).toContain("foo=bar");
     for (const key of SENSITIVE_URL_QUERY_PARAMS) {
       expect(scrubbed).not.toContain(`${key}=`);
     }
+    expect(scrubbed).toContain("type=onboarding");
+    expect(scrubbed).toContain("foo=bar");
   });
 });
