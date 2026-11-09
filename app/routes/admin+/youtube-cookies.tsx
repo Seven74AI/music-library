@@ -95,14 +95,11 @@ export async function action({ request }: Route.ActionArgs) {
 
   invariantResponse(cookies.length > 0, "No valid cookies found in the provided content");
 
-  // Write to cookie file (may fail on platforms without writable filesystem)
-  let fileWritten = false;
   try {
     writeCookies(cookies);
-    fileWritten = true;
   } catch (err) {
-    // Log but continue — DB record is the source of truth
     console.error("Failed to write cookie file:", err);
+    invariantResponse(false, "Failed to write cookie file to disk");
   }
 
   // Record in the database
@@ -130,7 +127,7 @@ export async function action({ request }: Route.ActionArgs) {
     cookiesImported: cookies.length,
     parseErrors,
     recordId: record.id,
-    fileWritten,
+    fileWritten: true,
     resetJobs,
   });
 }
@@ -153,6 +150,7 @@ export default function YoutubeCookiesAdminRoute({ loaderData }: Route.Component
             {actionData.parseErrors > 0
               ? ` (${actionData.parseErrors} line${actionData.parseErrors !== 1 ? "s" : ""} skipped)`
               : ""}
+            {actionData.fileWritten === false ? " Warning: cookies were not written to disk." : ""}
           </AlertDescription>
         </Alert>
       ) : null}

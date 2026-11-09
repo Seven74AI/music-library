@@ -1,6 +1,7 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
+import { resolveDeletedVideosAfterSync } from "./batch-processor.server";
 import {
   createServicePlaylistService,
   type ServicePlaylistService,
@@ -19,6 +20,7 @@ vi.mock("#app/utils/db.server", () => ({
       findFirst: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      upsert: vi.fn(),
     },
     servicePlaylistTrack: {
       findMany: vi.fn(),
@@ -76,6 +78,14 @@ vi.mock("#app/utils/cover-management.server", () => ({
   }),
   downloadExternalImage: vi.fn().mockRejectedValue(new Error("Invalid URL")),
 }));
+
+vi.mock("./batch-processor.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./batch-processor.server")>();
+  return {
+    ...actual,
+    resolveDeletedVideosAfterSync: vi.fn(actual.resolveDeletedVideosAfterSync),
+  };
+});
 
 describe("ServicePlaylistService - Sync Logic", () => {
   let service: ServicePlaylistService;
@@ -933,6 +943,144 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
         },
       });
+    });
+  });
+
+  describe("sync timeout integrity", () => {
+    const makeTransactionTx = (playlistId: string) => ({
+      track: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue({
+          id: "track1",
+          title: "Video 1",
+          externalId: "vid00000001",
+        }),
+      },
+      artist: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: "artist1", name: "Test Channel" }),
+      },
+      servicePlaylistTrack: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue({
+          id: "pt1",
+          playlistId,
+          trackId: "track1",
+          position: 1,
+          isDeleted: false,
+        }),
+      },
+    });
+
+    test("still runs absence resolution when a batch transaction times out", async () => {
+      consoleError.mockImplementation(() => {});
+      const userId = "user123";
+      const playlistId = "playlist123";
+      const serviceId = "youtube-service";
+
+      vi.mocked(prisma.service.findUnique).mockResolvedValue({
+        id: serviceId,
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+
+      vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue({
+        id: playlistId,
+        serviceId,
+        externalId: "external123",
+        title: "Test Playlist",
+        itemCount: 0,
+        ownerId: userId,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+
+      const playlistItems = Array.from({ length: 16 }, (_, i) => ({
+        snippet: {
+          title: `Video ${i + 1}`,
+          resourceId: { videoId: `vid${String(i + 1).padStart(8, "0")}` },
+          thumbnails: { default: { url: "https://example.com/thumb.jpg" } },
+          videoOwnerChannelTitle: "Test Channel",
+        },
+      }));
+      mockGetPlaylistItems.mockResolvedValue(playlistItems);
+
+      let transactionCalls = 0;
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        transactionCalls += 1;
+        if (transactionCalls > 1) {
+          throw new Error("Transaction expired due to timeout");
+        }
+        return callback(makeTransactionTx(playlistId));
+      });
+
+      vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
+
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
+
+      expect(result.success).toBe(false);
+      expect(vi.mocked(resolveDeletedVideosAfterSync)).toHaveBeenCalledTimes(1);
+    });
+
+    test("register sync does not set lastSyncedAt when processing times out", async () => {
+      consoleError.mockImplementation(() => {});
+      const userId = "user123";
+      const internalPlaylistId = "playlist-new";
+      const serviceId = "youtube-service";
+      const externalPlaylistId = "external-new";
+
+      vi.mocked(prisma.service.findUnique).mockResolvedValue({
+        id: serviceId,
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+
+      vi.mocked(prisma.servicePlaylist.findFirst).mockResolvedValue(null);
+
+      mockGetPlaylist.mockResolvedValue({
+        id: externalPlaylistId,
+        snippet: { title: "New Playlist" },
+      });
+      mockGetPlaylistItems.mockResolvedValue([
+        {
+          snippet: {
+            title: "Video 1",
+            resourceId: { videoId: "vid00000001" },
+            thumbnails: { default: { url: "https://example.com/thumb.jpg" } },
+            videoOwnerChannelTitle: "Test Channel",
+          },
+        },
+      ]);
+
+      vi.mocked(prisma.servicePlaylist.upsert).mockResolvedValue({
+        id: internalPlaylistId,
+        serviceId,
+        externalId: externalPlaylistId,
+        ownerId: userId,
+      } as any);
+
+      vi.mocked(prisma.$transaction).mockRejectedValue(
+        new Error("Transaction expired due to timeout"),
+      );
+
+      const result = await service.syncServicePlaylist("youtube", externalPlaylistId, userId);
+
+      expect(result.success).toBe(false);
+      const upsertCall = vi.mocked(prisma.servicePlaylist.upsert).mock.calls[0]?.[0];
+      expect(upsertCall?.create?.lastSyncedAt).toBeUndefined();
+      expect(upsertCall?.update?.lastSyncedAt).toBeUndefined();
+      expect(prisma.servicePlaylist.update).not.toHaveBeenCalled();
     });
   });
 
