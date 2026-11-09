@@ -908,6 +908,155 @@ describe("PartyRoomProvider join errors and QR", () => {
     expect(screen.getByTestId("code").textContent).toBe("");
   });
 
+  it("failed leave sets provider error and does not reject fire-and-forget callers", async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      rejections.push(event.reason);
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+
+    writeActiveRoomCode("AB3K9Q");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/current")) return jsonResponse(roomPayload());
+      if (method === "POST" && url.includes("/leave")) {
+        return jsonResponse({ error: "Server error" }, 500);
+      }
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    function LeaveFireAndForget() {
+      const { leave } = usePartyRoom();
+      return (
+        <button type="button" onClick={() => void leave().then(() => {})}>
+          Leave noop
+        </button>
+      );
+    }
+
+    render(
+      <PartyRoomProvider>
+        <RoomProbe />
+        <LeaveFireAndForget />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave noop" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).not.toBe("");
+    });
+    expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    expect(rejections).toHaveLength(0);
+
+    window.removeEventListener("unhandledrejection", onUnhandled);
+  });
+
+  it("failed end sets provider error and does not reject fire-and-forget callers", async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      rejections.push(event.reason);
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+
+    writeActiveRoomCode("AB3K9Q");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/current")) return jsonResponse(roomPayload());
+      if (method === "POST" && url.includes("/end")) {
+        return jsonResponse({ error: "Server error" }, 500);
+      }
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    function EndFireAndForget() {
+      const { end } = usePartyRoom();
+      return (
+        <button type="button" onClick={() => void end().then(() => {})}>
+          End noop
+        </button>
+      );
+    }
+
+    render(
+      <PartyRoomProvider>
+        <RoomProbe />
+        <EndFireAndForget />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "End noop" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).not.toBe("");
+    });
+    expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    expect(rejections).toHaveLength(0);
+
+    window.removeEventListener("unhandledrejection", onUnhandled);
+  });
+
+  it("failed setDefaultJoinRole sets provider error without rejecting", async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      rejections.push(event.reason);
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+
+    writeActiveRoomCode("AB3K9Q");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/current")) return jsonResponse(roomPayload());
+      if (method === "POST" && url.includes("/settings")) {
+        return jsonResponse({ error: "Server error" }, 500);
+      }
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    function RoleFireAndForget() {
+      const { setDefaultJoinRole } = usePartyRoom();
+      return (
+        <button type="button" onClick={() => void setDefaultJoinRole("dj").then(() => {})}>
+          Set DJ default
+        </button>
+      );
+    }
+
+    render(
+      <PartyRoomProvider>
+        <RoomProbe />
+        <RoleFireAndForget />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Set DJ default" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).not.toBe("");
+    });
+    expect(rejections).toHaveLength(0);
+
+    window.removeEventListener("unhandledrejection", onUnhandled);
+  });
+
   it("still marks the API unavailable for a 501", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

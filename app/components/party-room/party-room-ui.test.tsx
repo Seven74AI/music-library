@@ -501,7 +501,7 @@ describe("Party Room UI affordances", () => {
   });
 
   it("guest Leave room posts using the known join code even before snapshot sync", async () => {
-    leave.mockResolvedValue(undefined);
+    leave.mockResolvedValue(true);
     mockParty = {
       ...mockParty,
       room: null,
@@ -600,7 +600,7 @@ describe("Party Room UI affordances", () => {
   });
 
   it("asks the Host to confirm before ending the room for everyone", async () => {
-    end.mockResolvedValue(undefined);
+    end.mockResolvedValue(true);
     renderOpenHub({ role: "host", isOriginalHost: true });
     const dialog = openEndRoomConfirmation();
     fireEvent.click(within(dialog).getByRole("button", { name: /^end room$/i }));
@@ -621,7 +621,7 @@ describe("Party Room UI affordances", () => {
   });
 
   it("ends the room when a replacement Host confirms, including for the creator", async () => {
-    end.mockResolvedValue(undefined);
+    end.mockResolvedValue(true);
     const creator = seat({
       id: "p-creator",
       displayName: "Kody",
@@ -653,7 +653,7 @@ describe("Party Room UI affordances", () => {
   });
 
   it("DJ Leave only removes that seat and does not end the room", async () => {
-    leave.mockResolvedValue(undefined);
+    leave.mockResolvedValue(true);
     renderOpenHub({ role: "dj", isOriginalHost: true });
     expect(screen.queryByRole("button", { name: /^end room$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
@@ -665,7 +665,7 @@ describe("Party Room UI affordances", () => {
   });
 
   it("Listener Leave only removes that seat and does not end the room", async () => {
-    leave.mockResolvedValue(undefined);
+    leave.mockResolvedValue(true);
     renderOpenHub({ role: "listener" });
     fireEvent.click(screen.getByRole("button", { name: /^leave$/i }));
     await waitFor(() => expect(leave).toHaveBeenCalledTimes(1));
@@ -674,7 +674,7 @@ describe("Party Room UI affordances", () => {
   });
 
   it("guest Host confirms End room instead of a quiet Leave", async () => {
-    end.mockResolvedValue(undefined);
+    end.mockResolvedValue(true);
     mockParty = {
       ...mockParty,
       isHost: true,
@@ -737,7 +737,7 @@ describe("Party Room UI affordances", () => {
   });
 
   it("guest DJ Leave room only removes that seat", async () => {
-    leave.mockResolvedValue(undefined);
+    leave.mockResolvedValue(true);
     mockParty = {
       ...mockParty,
       refresh: vi.fn(),

@@ -883,14 +883,36 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
       if (audioRef.current?.paused) {
         keepPlayingRef.current = true;
-        void audioRef.current.play().then(() => {
-          if (track && playStartedForTrackRef.current !== track.id) {
-            playStartedForTrackRef.current = track.id;
-            playCompletedForPlayIdRef.current = null;
-            playIdRef.current = generatePlayId();
-            emitPlayEvent("play_started", track.id, playIdRef.current);
-          }
-        });
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          void playPromise
+            .then(() => {
+              if (audioRef.current?.error) {
+                setIsPlaying(false);
+                keepPlayingRef.current = false;
+                return;
+              }
+              setIsPlaying(true);
+              keepPlayingRef.current = true;
+              if (track && playStartedForTrackRef.current !== track.id) {
+                playStartedForTrackRef.current = track.id;
+                playCompletedForPlayIdRef.current = null;
+                playIdRef.current = generatePlayId();
+                emitPlayEvent("play_started", track.id, playIdRef.current);
+              }
+            })
+            .catch(() => {
+              if (!audioRef.current) return;
+              setIsPlaying(!audioRef.current.paused);
+              keepPlayingRef.current = !audioRef.current.paused;
+              setPlaybackError("Unable to play this track. Try again or check your connection.");
+              toast({
+                title: "Playback failed",
+                description: "Could not start playback. Please try again.",
+                variant: "destructive",
+              });
+            });
+        }
       }
     });
     navigator.mediaSession.setActionHandler("pause", () => {
