@@ -220,13 +220,15 @@ describe("POST /api/genres/merge", () => {
       }),
     });
 
-    await expect(async () => {
-      await action({
+    await expect(
+      action({
         request,
         params: {},
         context: {},
-      } as never);
-    }).rejects.toThrow();
+      } as never),
+    ).rejects.toMatchObject({
+      init: { status: 404 },
+    });
   });
 
   test("handles tracks already linked to target", async () => {

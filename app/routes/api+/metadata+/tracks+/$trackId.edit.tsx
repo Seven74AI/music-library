@@ -18,6 +18,11 @@ import {
 } from "#app/utils/track-genres.server.ts";
 import { type Route } from "./+types/$trackId.edit.ts";
 
+const dateString = (label: string) =>
+  z.string().refine((v) => !Number.isNaN(Date.parse(v)), `${label} must be a valid date`);
+
+const optionalNullableDate = (label: string) => z.union([dateString(label), z.null()]).optional();
+
 // Validation schema for track edit
 const EditTrackSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -31,8 +36,8 @@ const EditTrackSchema = z.object({
   bpm: z.number().int().nullable().optional(),
   label: z.string().nullable().optional(),
   isrc: z.string().nullable().optional(),
-  releaseDate: z.string().nullable().optional(), // ISO date string
-  originalDate: z.string().nullable().optional(),
+  releaseDate: optionalNullableDate("releaseDate"),
+  originalDate: optionalNullableDate("originalDate"),
   originalYear: z.number().int().nullable().optional(),
   totalTracks: z.number().int().nullable().optional(),
   totalDiscs: z.number().int().nullable().optional(),

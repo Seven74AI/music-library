@@ -111,6 +111,38 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     }
   });
 
+  test("rejects invalid releaseDate and originalDate with 400", async () => {
+    for (const releaseDate of ["not-a-date", " "]) {
+      const body = {
+        title: "Title",
+        artistId: "artist-1",
+        releaseDate,
+      };
+
+      try {
+        await action(makeRequest(body, { trackId: "track-1" }) as never);
+        expect.unreachable("action should have thrown");
+      } catch (e: any) {
+        expect(e.init.status).toBe(400);
+        expect(e.data.error).toBe("Validation failed");
+      }
+    }
+
+    const bodyWithBadOriginal = {
+      title: "Title",
+      artistId: "artist-1",
+      originalDate: "not-a-date",
+    };
+
+    try {
+      await action(makeRequest(bodyWithBadOriginal, { trackId: "track-1" }) as never);
+      expect.unreachable("action should have thrown");
+    } catch (e: any) {
+      expect(e.init.status).toBe(400);
+      expect(e.data.error).toBe("Validation failed");
+    }
+  });
+
   test("validates track exists", async () => {
     vi.mocked(prisma.track.findUnique).mockResolvedValue(null);
 
