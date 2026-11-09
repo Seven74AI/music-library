@@ -119,6 +119,40 @@ describe("resolvePreviousTrack", () => {
 
     expect(resolvePreviousTrack(state)).toBeNull();
   });
+
+  test("returns spine head at spinePosition when an Up Next item is playing", () => {
+    const state = baseState({
+      upNext: [track("u1")],
+      spinePosition: 1,
+    });
+
+    expect(resolvePreviousTrack(state, { audibleIsSpineHead: false })).toEqual({
+      zone: "spine",
+      index: 1,
+    });
+  });
+
+  test("returns spinePosition minus one when the audible track is the spine head", () => {
+    const state = baseState({ spinePosition: 2 });
+
+    expect(resolvePreviousTrack(state, { audibleIsSpineHead: true })).toEqual({
+      zone: "spine",
+      index: 1,
+    });
+  });
+
+  test("enables Previous at spine position zero while Up Next is playing", () => {
+    const state = baseState({
+      upNext: [track("u1")],
+      spinePosition: 0,
+    });
+
+    expect(resolvePreviousTrack(state, { audibleIsSpineHead: false })).toEqual({
+      zone: "spine",
+      index: 0,
+    });
+    expect(hasPreviousTrack(state, { audibleIsSpineHead: false })).toBe(true);
+  });
 });
 
 describe("hasNextTrack / hasPreviousTrack", () => {
@@ -348,5 +382,18 @@ describe("getQueueSpineDisplayTracks", () => {
     });
 
     expect(getQueueSpineDisplayTracks(state, true).map((t) => t.id)).toEqual(["s2", "s3"]);
+  });
+
+  test("includes spine head when audible track is Up Next", () => {
+    const state = baseState({
+      upNext: [track("u1")],
+      spinePosition: 0,
+    });
+
+    expect(getQueueSpineDisplayTracks(state, true, false).map((t) => t.id)).toEqual([
+      "s1",
+      "s2",
+      "s3",
+    ]);
   });
 });

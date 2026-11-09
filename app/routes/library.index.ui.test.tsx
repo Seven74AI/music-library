@@ -4,7 +4,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { beforeAll, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import LibraryIndexRoute from "./library.index.tsx";
 
 vi.mock("#app/components/track-list-item", () => ({
@@ -14,6 +14,10 @@ vi.mock("#app/components/track-list-item", () => ({
 vi.mock("#app/components/bulk-edit-dialog", () => ({
   BulkEditDialog: () => null,
 }));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -155,6 +159,22 @@ function libraryUserTrack(id: string, title: string) {
     },
   };
 }
+
+test("surfaces an error when the user-tracks API fails", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: "Server error" }),
+    }),
+  );
+
+  renderLibrary(baseLoaderData, "/library?sort=mostPlayedMonth");
+
+  expect(await screen.findByRole("heading", { name: "Error loading tracks" })).toBeInTheDocument();
+  expect(screen.getByText("Server error")).toBeInTheDocument();
+});
 
 test("scrolls library tracks with the page and keeps row spacing at the real row height", async () => {
   renderLibrary({

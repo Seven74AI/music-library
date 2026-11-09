@@ -367,10 +367,8 @@ export async function resolveDeletedVideosAfterSync(
         where: {
           serviceId_externalId: { serviceId, externalId },
         },
-        update: {
-          title: "Deleted video",
-          artistId: artistRecord.id,
-        },
+        // ADR-005: preserve existing title/artist on re-sync; only mark deletion on SPT.
+        update: {},
         create: {
           id: createId(),
           title: "Deleted video",
@@ -498,12 +496,43 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     } as const;
 
     const candidateKeys = new Set<string>();
-    for (const item of batch) {
+    for (let i = 0; i < batch.length; i++) {
+      const item = batch[i];
       if (!item) continue;
       const videoId = item.snippet?.resourceId?.videoId || "";
+      const position = globalStartPosition + batchStart + i + 1;
       const isUnavailable = trackProcessor.isUnavailableVideo(item);
       if (isUnavailable && item.id) candidateKeys.add(item.id);
       if (videoId) candidateKeys.add(videoId);
+      if (isUnavailable && !item.id && !videoId) {
+        candidateKeys.add(`pending-${playlistId}-${position}`);
+      }
+    }
+
+    const batchPositions: number[] = [];
+    for (let i = 0; i < batch.length; i++) {
+      batchPositions.push(globalStartPosition + batchStart + i + 1);
+    }
+
+    const existingTracksByPlaylistPosition = new Map<number, ExistingTrackRow>();
+    if (batchPositions.length > 0) {
+      const sptRows = await tx.servicePlaylistTrack.findMany({
+        where: { playlistId, position: { in: batchPositions } },
+        select: {
+          position: true,
+          track: { select: trackSelect },
+        },
+      });
+      for (const row of sptRows) {
+        const track = row.track;
+        if (!track?.externalId) continue;
+        const audioFiles = Array.isArray(track.audioFiles) ? track.audioFiles : [];
+        const { audioFiles: _audioFiles, ...base } = track;
+        existingTracksByPlaylistPosition.set(row.position, {
+          ...base,
+          hasTrackAudioFile: audioFiles.length > 0,
+        });
+      }
     }
 
     const existingTracksByExternalId = new Map<string, ExistingTrackRow>();
@@ -546,6 +575,14 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       // If not found, try matching by videoId (externalId)
       if (!existingTrack && videoId) {
         existingTrack = existingTracksByExternalId.get(videoId) ?? null;
+      }
+
+      if (isUnavailable && !existingTrack && !item.id && !videoId) {
+        existingTrack = existingTracksByPlaylistPosition.get(position) ?? null;
+        if (!existingTrack) {
+          const pendingKey = `pending-${playlistId}-${position}`;
+          existingTrack = existingTracksByExternalId.get(pendingKey) ?? null;
+        }
       }
 
       const plan = planUnavailableItemProcessing({

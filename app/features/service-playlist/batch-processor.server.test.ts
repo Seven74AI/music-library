@@ -43,6 +43,87 @@ function createTxMock() {
   };
 }
 
+describe("processTracksInBatches - unavailable placeholders", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("preserves existing title for item-id-less unavailable rows matched by pending externalId", async () => {
+    const trackUpsert = vi
+      .fn()
+      .mockImplementation(
+        ({
+          update,
+          create,
+        }: {
+          update: Record<string, unknown>;
+          create: Record<string, unknown>;
+        }) =>
+          Promise.resolve({
+            id: "track-pending",
+            title: (update.title as string | undefined) ?? create.title,
+            externalId: create.externalId,
+            serviceUrl: null,
+          }),
+      );
+
+    const tx = {
+      track: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: "track-pending",
+            title: "Original Title",
+            artistId: "artist-real",
+            albumId: null,
+            releaseDate: null,
+            duration: null,
+            coverImageId: null,
+            externalId: "pending-playlist-1-1",
+            audioFiles: [],
+          },
+        ]),
+        upsert: trackUpsert,
+      },
+      artist: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi
+          .fn()
+          .mockImplementation(({ data }: { data: { name: string } }) =>
+            Promise.resolve({ id: `artist-${data.name}`, name: data.name }),
+          ),
+      },
+      servicePlaylistTrack: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue({ id: "spt-1", trackId: "track-pending" }),
+      },
+      archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
+    } as unknown as Prisma.TransactionClient;
+
+    await processTracksInBatches(
+      [
+        {
+          snippet: {
+            title: "Deleted video",
+            resourceId: {},
+            videoOwnerChannelTitle: "Uploader",
+            thumbnails: { default: { url: "https://example.com/t.jpg" } },
+          },
+        },
+      ],
+      "service-1",
+      "playlist-1",
+      tx,
+      createYouTubeTrackSyncProcessor(),
+      noopArchiveEnqueueAdapter,
+    );
+
+    expect(trackUpsert).toHaveBeenCalled();
+    const { update } = trackUpsert.mock.calls[0]![0] as { update: { title?: string } };
+    expect(update.title).toBe("Original Title");
+  });
+});
+
 describe("processTracksInBatches - archived metadata", () => {
   beforeEach(() => {
     vi.clearAllMocks();

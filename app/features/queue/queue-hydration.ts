@@ -1,6 +1,10 @@
 import { type FullTrack, type QueueTrack } from "#app/types/frontend/shared.ts";
 import { PLAYBACK_BATCH_MAX_IDS } from "./constants.ts";
-import { getQueueSpineDisplayTracks, type QueueNavigationState } from "./queue-navigation.ts";
+import {
+  getQueueSpineDisplayTracks,
+  isAudibleTrackSpineHead,
+  type QueueNavigationState,
+} from "./queue-navigation.ts";
 import { fullTrackStubFromQueueTrack } from "./queue-spine.ts";
 
 export const PLAYBACK_LOOKAHEAD = 4;
@@ -109,7 +113,13 @@ export function collectQueueDisplayHydrationIds(
     ids.push(track.id);
   }
 
-  for (const track of getQueueSpineDisplayTracks(state, currentTrackId !== null)) {
+  const audibleIsSpineHead =
+    currentTrackId !== null && isAudibleTrackSpineHead(state, currentTrackId);
+  for (const track of getQueueSpineDisplayTracks(
+    state,
+    currentTrackId !== null,
+    currentTrackId === null || audibleIsSpineHead,
+  )) {
     ids.push(track.id);
   }
 
