@@ -121,7 +121,7 @@ describe("planUnavailableItemProcessing", () => {
       }),
     ).toEqual({
       kind: "process",
-      externalId: "deleted-pl-1-4",
+      externalId: "video-1",
       existingTrack,
     });
   });

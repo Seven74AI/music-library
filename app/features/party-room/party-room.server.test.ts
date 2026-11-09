@@ -437,6 +437,63 @@ describe("party-room lifecycle", () => {
   });
 
   // 49 sequential joins exceed Vitest's 5s default when the suite is under CI load.
+  test("still-seated user can rejoin a full room from another device", async () => {
+    const host = await makeUser();
+    const member = await makeUser("Member");
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+
+    const first = await joinRoom({
+      code: room.code,
+      actor: { type: "user", userId: member.id, displayName: "Member" },
+    });
+
+    for (let i = 0; i < MAX_PARTICIPANTS - 2; i++) {
+      await joinRoom({
+        code: room.code,
+        actor: { type: "guest", displayName: `G${String(i).padStart(2, "0")}` },
+      });
+    }
+
+    const second = await joinRoom({
+      code: room.code,
+      actor: { type: "user", userId: member.id, displayName: "Member Again" },
+    });
+
+    expect(second.participant.id).toBe(first.participant.id);
+    expect(second.participant.displayName).toBe("Member Again");
+    expect(await prisma.roomParticipant.count({ where: { roomId: room.id, leftAt: null } })).toBe(
+      MAX_PARTICIPANTS,
+    );
+  }, 30_000);
+
+  test("still-seated guest can rejoin a full room with the same token", async () => {
+    const host = await makeUser();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const cookieToken = "still-seated-guest-token";
+
+    const first = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Guest", guestToken: cookieToken },
+    });
+
+    for (let i = 0; i < MAX_PARTICIPANTS - 2; i++) {
+      await joinRoom({
+        code: room.code,
+        actor: { type: "guest", displayName: `G${String(i).padStart(2, "0")}` },
+      });
+    }
+
+    const second = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "Guest", guestToken: cookieToken },
+    });
+
+    expect(second.participant.id).toBe(first.participant.id);
+    expect(await prisma.roomParticipant.count({ where: { roomId: room.id, leftAt: null } })).toBe(
+      MAX_PARTICIPANTS,
+    );
+  }, 30_000);
+
   test("enforces max participants", async () => {
     const host = await makeUser();
     const room = await createRoom({ userId: host.id, displayName: "Host" });

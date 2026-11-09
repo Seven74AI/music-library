@@ -581,20 +581,21 @@ export async function action({ request, params }: Route.ActionArgs) {
         );
       }
 
-      // Delete all playlist tracks
-      for (const idChunk of chunkArray(trackIdArray)) {
-        await prisma.userPlaylistTrack.deleteMany({
-          where: {
-            id: { in: idChunk },
-            playlistId: params.playlistId,
-            playlist: { ownerId: userId },
-          },
-        });
-      }
+      await prisma.$transaction(async (tx) => {
+        for (const idChunk of chunkArray(trackIdArray)) {
+          await tx.userPlaylistTrack.deleteMany({
+            where: {
+              id: { in: idChunk },
+              playlistId: params.playlistId,
+              playlist: { ownerId: userId },
+            },
+          });
+        }
 
-      await bumpUserPlaylistUpdatedAt({
-        playlistId: params.playlistId,
-        userId,
+        await tx.userPlaylist.update({
+          where: { id: params.playlistId, ownerId: userId },
+          data: { updatedAt: new Date() },
+        });
       });
 
       return data(

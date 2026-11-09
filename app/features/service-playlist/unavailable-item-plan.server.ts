@@ -39,7 +39,7 @@ export function planUnavailableItemProcessing<TTrack extends ExistingTrackForPla
 
   let externalId = videoId;
   if (isUnavailable && !externalId) {
-    externalId = itemId || `deleted-${playlistId}-${position}`;
+    externalId = itemId || existingTrack?.externalId || `deleted-${playlistId}-${position}`;
   }
 
   if (!externalId || externalId.trim() === "") {
