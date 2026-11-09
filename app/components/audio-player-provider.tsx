@@ -386,6 +386,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const hydrateAround = useCallback(
     async (trackId: string | null, stateOverride?: QueueNavigationState) => {
+      if (isOfflineEnvironment()) return;
       const ids = collectHydrationIds(stateOverride ?? navigationState, trackId);
       await playbackCacheRef.current.hydrateMissing(ids);
       setCacheVersion((version) => version + 1);
@@ -552,6 +553,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const resolvePlayableTrack = useCallback(
     async (queueTrack: QueueTrack, options?: { silent?: boolean }): Promise<FullTrack | null> => {
+      const cachedFull = resolveFullTrack(playbackCacheRef.current, queueTrack);
+      if (isPlayableTrack(cachedFull)) {
+        void hydrateAround(queueTrack.id).catch((error) => {
+          console.error("Background track hydration failed:", error);
+        });
+        return cachedFull;
+      }
+
       try {
         await hydrateAround(queueTrack.id);
       } catch {
