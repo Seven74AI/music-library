@@ -468,7 +468,9 @@ describe("POST /api/metadata/albums/:id/edit", () => {
       }),
     });
 
-    await expect(action({ request, params: { id: "nonexistent" } } as any)).rejects.toThrow();
+    await expect(action({ request, params: { id: "nonexistent" } } as any)).rejects.toMatchObject({
+      init: { status: 404 },
+    });
   });
 
   test("rejects edit when another curator holds the lock", async () => {
