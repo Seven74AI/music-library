@@ -28,6 +28,7 @@ vi.mock("./audio-player", () => ({
   AudioPlayer: ({
     wantsAutoPlayRef,
     unlockAutoplayRef,
+    pausePlaybackRef,
     playbackToken,
     roomPlaying,
     onRoomAutoplayOutcome,
@@ -37,6 +38,7 @@ vi.mock("./audio-player", () => ({
     unlockAutoplayRef?: React.MutableRefObject<
       ((trackId: string, cachedUrl: string) => boolean) | null
     >;
+    pausePlaybackRef?: React.MutableRefObject<(() => void) | null>;
     playbackToken?: number;
     roomPlaying?: boolean | null;
     onRoomAutoplayOutcome?: (outcome: RoomAutoplayOutcome) => void;
@@ -53,6 +55,11 @@ vi.mock("./audio-player", () => ({
           wantsAutoPlayRef.current = true;
         }
         return true;
+      };
+    }
+    if (pausePlaybackRef) {
+      pausePlaybackRef.current = () => {
+        onPlayingChange?.(false);
       };
     }
     return (
@@ -2497,4 +2504,304 @@ test("room speaker playback does not fetch the personal audio stream", async () 
     expect(cacheQueueTrack).toHaveBeenCalled();
   });
   expect(cacheQueueTrack.mock.calls.map((call) => call[0]?.id)).toEqual(["track-1"]);
+});
+
+test("pauseTrack pauses without bumping playback token", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        tracks: [spineTrack, { ...spineTrack, id: "track-2", title: "Other" }],
+        total: 2,
+      }),
+    } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tracks: [playableTrack] }),
+    } as Response);
+
+  function PauseProbe() {
+    const { playTrack, pauseTrack, isPlaying } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play library track
+        </button>
+        <button type="button" onClick={() => pauseTrack()}>
+          Pause track
+        </button>
+        <span data-testid="hook-is-playing">{String(isPlaying)}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <PauseProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play library track" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("playback-token").textContent).not.toBe("0");
+  });
+  const tokenAfterPlay = screen.getByTestId("playback-token").textContent;
+
+  await user.click(screen.getByRole("button", { name: "Pause track" }));
+  expect(screen.getByTestId("playback-token").textContent).toBe(tokenAfterPlay);
+  expect(screen.getByTestId("hook-is-playing").textContent).toBe("false");
+});
+
+test("clicking a catalog row absent from the ownership-filtered spine does not start playback", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      tracks: [{ ...spineTrack, id: "track-owned-only", title: "Owned" }],
+      total: 1,
+    }),
+  } as Response);
+
+  function AbsentSpineProbe() {
+    const { playTrack, isPlayerVisible, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => playTrack(playableTrack, { type: "artist", artistId: "artist-1" }, 0)}
+        >
+          Play artist track
+        </button>
+        <span data-testid="player-visible">{String(isPlayerVisible)}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <AbsentSpineProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play artist track" }));
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  expect(screen.getByTestId("player-visible").textContent).toBe("false");
+  expect(screen.getByTestId("current-track-id").textContent).toBe("");
+});
+
+test("failed offline restore is retried on the next mount", async () => {
+  consoleError.mockImplementation(() => {});
+  window.localStorage.clear();
+
+  writeCachedPlayerState("user-1", {
+    playContext: { type: "library" },
+    currentTrackId: "track-1",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+  });
+
+  const listDownloaded = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("idb read failed"))
+    .mockResolvedValueOnce([downloadedSummary("track-1", "Test Song")]);
+
+  vi.mocked(getOfflineStorage).mockReturnValue({
+    cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
+    listDownloaded,
+    listPinned: vi.fn().mockResolvedValue([]),
+    listForPlaylist: vi.fn().mockResolvedValue([]),
+  } as unknown as ReturnType<typeof getOfflineStorage>);
+  vi.stubGlobal("navigator", { onLine: false });
+
+  const { unmount } = render(
+    <AudioPlayerProvider userId="user-1">
+      <QueueProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(listDownloaded).toHaveBeenCalledTimes(1);
+  });
+  expect(screen.getByTestId("current-track-id").textContent).toBe("");
+
+  unmount();
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <QueueProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+  expect(listDownloaded).toHaveBeenCalledTimes(2);
+});
+
+test("a slow jump completing after a newer jump does not overwrite the newer choice", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const track2 = { ...playableTrack, id: "track-2", title: "Second Track" };
+  const track3 = { ...playableTrack, id: "track-3", title: "Third Track" };
+
+  let releaseSlow: () => void = () => {};
+  const slowGate = new Promise<void>((resolve) => {
+    releaseSlow = resolve;
+  });
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2" }, { ...spineTrack, id: "track-3" }],
+          total: 3,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const respond = () => {
+        const tracks = [playableTrack, track2, track3].filter((track) => ids.includes(track.id));
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks }),
+        } as Response);
+      };
+      if (ids.includes("track-2") && !ids.includes("track-3")) {
+        return slowGate.then(respond);
+      }
+      return respond();
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function DoubleJumpProbe() {
+    const { playTrack, playQueueTrack, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play first
+        </button>
+        <button type="button" onClick={() => playQueueTrack({ zone: "spine", index: 1 })}>
+          Jump to second
+        </button>
+        <button type="button" onClick={() => playQueueTrack({ zone: "spine", index: 2 })}>
+          Jump to third
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <DoubleJumpProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play first" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  await user.click(screen.getByRole("button", { name: "Jump to second" }));
+  await user.click(screen.getByRole("button", { name: "Jump to third" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
+  });
+
+  releaseSlow();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
+});
+
+test("jump onto a play-next row discards the prefix using ref-backed play-next count", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const playNextA = { ...playableTrack, id: "track-pna", title: "Play Next A" };
+  const playNextB = { ...playableTrack, id: "track-pnb", title: "Play Next B" };
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2", title: "Second" }],
+          total: 2,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const all = [playableTrack, playNextA, playNextB];
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: all.filter((track) => ids.includes(track.id)) }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function PlayNextJumpProbe() {
+    const { playTrack, playNextTrack, playQueueTrack, upNextPlayNextCount, currentTrack } =
+      useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play first
+        </button>
+        <button type="button" onClick={() => playNextTrack(playNextA)}>
+          Play next A
+        </button>
+        <button type="button" onClick={() => playNextTrack(playNextB)}>
+          Play next B
+        </button>
+        <button type="button" onClick={() => playQueueTrack({ zone: "upNext", index: 1 })}>
+          Jump to A
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+        <span data-testid="play-next-count">{upNextPlayNextCount}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <PlayNextJumpProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play first" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  await user.click(screen.getByRole("button", { name: "Play next A" }));
+  await user.click(screen.getByRole("button", { name: "Play next B" }));
+  expect(screen.getByTestId("play-next-count").textContent).toBe("2");
+
+  await user.click(screen.getByRole("button", { name: "Jump to A" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-pna");
+  });
+  expect(screen.getByTestId("play-next-count").textContent).toBe("0");
 });

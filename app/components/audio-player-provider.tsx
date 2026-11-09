@@ -120,6 +120,8 @@ interface AudioPlayerContextType {
   isLoadingNext: boolean;
   /** True only while the media element is actually playing. */
   isPlaying: boolean;
+  /** Pause the current track without restarting spine playback or clearing Up Next. */
+  pauseTrack: () => void;
   addTrackToPlaylist: (track: Track, position?: "next" | "end") => void;
   removeTrackFromPlaylist: (target: QueueTarget) => void;
   removeCurrentFromQueue: () => void;
@@ -217,8 +219,10 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const playbackCacheRef = useRef(new PlaybackHydrationCache());
   const playlistFetchEpochRef = useRef(0);
+  const queueJumpEpochRef = useRef(0);
   const wantsAutoPlayRef = useRef(false);
   const unlockAutoplayRef = useRef<((trackId: string, cachedUrl: string) => boolean) | null>(null);
+  const pausePlaybackRef = useRef<(() => void) | null>(null);
   const upNextPlayNextCountRef = useRef(0);
 
   // Throttle scroll-driven hydration: accumulate IDs during rapid scrolling,
@@ -362,6 +366,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     return -1;
   }, [currentTrack, upNext, navigationState, spinePosition]);
 
+  const pauseTrack = useCallback(() => {
+    if (roomSpeakerRef.current) return;
+    wantsAutoPlayRef.current = false;
+    pausePlaybackRef.current?.();
+  }, []);
+
   const beginPlayback = useCallback(() => {
     wantsAutoPlayRef.current = true;
     setPlaybackToken((token) => token + 1);
@@ -494,11 +504,6 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     async (track: Track, context: PlaylistContext, explicitIndex?: number) => {
       rememberTrack(track);
 
-      beginPlayback();
-      setPlayContext(context);
-      setIsPlayerVisible(true);
-      setCurrentTrack(track);
-
       const epoch = ++playlistFetchEpochRef.current;
       setIsLoadingNext(true);
 
@@ -507,23 +512,28 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         if (epoch !== playlistFetchEpochRef.current) return;
 
         const order = buildShuffledOrder(loadedSpine.tracks.length);
+        const navigationPreview: QueueNavigationState = {
+          upNext: [],
+          spine: loadedSpine.tracks,
+          spineOrder: order,
+          spinePosition: 0,
+          loopMode: "off",
+        };
         const resolvedPosition = (() => {
           if (explicitIndex !== undefined && loadedSpine.tracks[explicitIndex]?.id === track.id) {
             return order.findIndex((index) => index === explicitIndex);
           }
-          return (
-            findSpinePositionForTrackId(
-              {
-                upNext: [],
-                spine: loadedSpine.tracks,
-                spineOrder: order,
-                spinePosition: 0,
-                loopMode: "off",
-              },
-              track.id,
-            ) ?? 0
-          );
+          return findSpinePositionForTrackId(navigationPreview, track.id);
         })();
+
+        if (resolvedPosition === null || resolvedPosition < 0) {
+          return;
+        }
+
+        beginPlayback();
+        setPlayContext(context);
+        setIsPlayerVisible(true);
+        setCurrentTrack(track);
 
         setUpNext([]);
         setUpNextPlayNextCount(0);
@@ -531,14 +541,13 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         setSpine(loadedSpine.tracks);
         setSpineTotal(loadedSpine.total);
         setSpineOrder(order);
-        const nextSpinePosition = resolvedPosition >= 0 ? resolvedPosition : 0;
-        setSpinePosition(nextSpinePosition);
+        setSpinePosition(resolvedPosition);
 
         const navigationAfterSpine: QueueNavigationState = {
           upNext: [],
           spine: loadedSpine.tracks,
           spineOrder: order,
-          spinePosition: nextSpinePosition,
+          spinePosition: resolvedPosition,
           loopMode: "off",
         };
         await hydrateAround(track.id, navigationAfterSpine);
@@ -1022,6 +1031,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         noteUserQueueMutation();
       }
 
+      const jumpEpoch = ++queueJumpEpochRef.current;
+
       // Try to get the prefetched URL synchronously. If it exists, we can apply
       // it and call play() within the user gesture, satisfying autoplay policy.
       const cachedUrl = peekCachedPlaybackUrl(queueTrack.id);
@@ -1080,9 +1091,17 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           return;
         }
 
+        if (jumpEpoch !== queueJumpEpochRef.current) {
+          wantsAutoPlayRef.current = false;
+          return;
+        }
+
         const nextState = options.computeNextState(workingState, playedTarget);
         setUpNext(nextState.upNext);
-        const effectivePlayNextCount = Math.max(0, upNextPlayNextCount - skippedPlayNextPrefix);
+        const effectivePlayNextCount = Math.max(
+          0,
+          upNextPlayNextCountRef.current - skippedPlayNextPrefix,
+        );
         const discard =
           skippedPlayNextPrefix +
           (playedTarget.zone === "upNext"
@@ -1110,7 +1129,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         setCurrentTrack(fullTrack);
       })();
     },
-    [navigationState, noteUserQueueMutation, resolvePlayableTrack, upNextPlayNextCount],
+    [navigationState, noteUserQueueMutation, resolvePlayableTrack],
   );
 
   const advanceToTarget = useCallback(
@@ -1491,6 +1510,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       hasPrevious,
       isLoadingNext,
       isPlaying,
+      pauseTrack,
       addTrackToPlaylist,
       removeTrackFromPlaylist,
       removeCurrentFromQueue,
@@ -1538,6 +1558,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       hasPrevious,
       isLoadingNext,
       isPlaying,
+      pauseTrack,
       addTrackToPlaylist,
       removeTrackFromPlaylist,
       removeCurrentFromQueue,
@@ -1898,12 +1919,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     }
 
     const epoch = restoreEpochRef.current;
-    offlineRestoreDoneRef.current = true;
     void (async () => {
       try {
         await restoreQueueOffline(userId);
+        if (epoch !== restoreEpochRef.current) return;
+        offlineRestoreDoneRef.current = true;
       } catch (error) {
         if (epoch === restoreEpochRef.current) {
+          offlineRestoreDoneRef.current = false;
           console.error("Failed to restore player state offline:", error);
         }
       }
@@ -1931,6 +1954,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         playbackToken={playbackToken}
         wantsAutoPlayRef={wantsAutoPlayRef}
         unlockAutoplayRef={unlockAutoplayRef}
+        pausePlaybackRef={pausePlaybackRef}
         roomSpeaker={roomSpeaker}
         roomPlayEventTargetRef={roomPlayEventTargetRef}
         roomPlaying={roomPlaying}
