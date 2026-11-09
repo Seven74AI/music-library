@@ -522,7 +522,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     async (context: PlaylistContext): Promise<{ tracks: QueueTrack[]; total: number }> => {
       const spineContext = toQueueSpineContext(context);
 
-      const navigatorOnline = typeof navigator === "undefined" ? true : navigator.onLine !== false;
+      const navigatorOnline = !isOfflineEnvironment();
 
       if (isOnline && navigatorOnline && spineContext) {
         try {
@@ -578,23 +578,41 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         const loadedSpine = await loadSpineForContext(context);
         if (fetchEpoch !== playlistFetchEpochRef.current) return false;
 
-        const order = buildShuffledOrder(loadedSpine.tracks.length);
+        let spineTracks = loadedSpine.tracks;
+        let spineTotal = loadedSpine.total;
+        if (spineTracks.length === 0) {
+          if (isOfflineEnvironment() && (await getOfflineStorage().hasTrack(track.id))) {
+            spineTracks = [queueTrackFromFullTrack(track)];
+            spineTotal = 1;
+          } else {
+            return false;
+          }
+        }
+
+        let order = buildShuffledOrder(spineTracks.length);
         const navigationPreview: QueueNavigationState = {
           upNext: [],
-          spine: loadedSpine.tracks,
+          spine: spineTracks,
           spineOrder: order,
           spinePosition: 0,
           loopMode: "off",
         };
-        const resolvedPosition = (() => {
-          if (explicitIndex !== undefined && loadedSpine.tracks[explicitIndex]?.id === track.id) {
+        let resolvedPosition = (() => {
+          if (explicitIndex !== undefined && spineTracks[explicitIndex]?.id === track.id) {
             return order.findIndex((index) => index === explicitIndex);
           }
           return findSpinePositionForTrackId(navigationPreview, track.id);
         })();
 
         if (resolvedPosition === null || resolvedPosition < 0) {
-          return false;
+          if (isOfflineEnvironment() && (await getOfflineStorage().hasTrack(track.id))) {
+            spineTracks = [queueTrackFromFullTrack(track)];
+            spineTotal = 1;
+            order = buildShuffledOrder(1);
+            resolvedPosition = 0;
+          } else {
+            return false;
+          }
         }
 
         if (playContext && !isSamePlayContext(playContext, context)) {
@@ -603,7 +621,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
         const navigationAfterSpine: QueueNavigationState = {
           upNext: [],
-          spine: loadedSpine.tracks,
+          spine: spineTracks,
           spineOrder: order,
           spinePosition: resolvedPosition,
           loopMode: "off",
@@ -615,7 +633,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             {
               navigation: navigationAfterSpine,
               track,
-              spineTotal: loadedSpine.total,
+              spineTotal,
               upNextPlayNextCount: 0,
               playContext: context,
               isPlayerVisible: true,

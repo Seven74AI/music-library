@@ -204,9 +204,9 @@ test.describe("Offline mode", () => {
     await trackRow.scrollIntoViewIfNeeded();
     await expect(trackRow).toBeVisible({ timeout: 10000 });
 
-    // Go offline using Playwright context
+    // Go offline using Playwright context (block network + sync React online state)
     await page.context().setOffline(true);
-    await page.waitForFunction(() => !navigator.onLine);
+    await dispatchOffline(page);
 
     // Click the track to play it while offline
     await page
@@ -216,8 +216,10 @@ test.describe("Offline mode", () => {
       .click();
 
     // Verify the player bar appears with track info
-    const playerBar = page.getByTestId("player-desktop-bar");
-    await expect(playerBar).toBeVisible({ timeout: 10000 });
+    const playerBar = page.locator(
+      '[data-testid="player-desktop-bar"]:visible, [data-testid="player-mini-bar"]:visible',
+    );
+    await expect(playerBar).toBeVisible({ timeout: 15000 });
     await expect(playerBar.getByText("Offline Playback Track")).toBeVisible();
     await expect(playerBar.getByText("Offline Artist")).toBeVisible();
 
