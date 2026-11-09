@@ -243,6 +243,18 @@ function qrLoadErrorOf(party: object): string {
   return value ?? "";
 }
 
+function RoomCodeProbe() {
+  const { room, leave } = usePartyRoom();
+  return (
+    <div>
+      <span data-testid="code">{room?.code ?? ""}</span>
+      <button type="button" onClick={() => void leave()}>
+        Leave
+      </button>
+    </div>
+  );
+}
+
 function RoomProbe() {
   const party = usePartyRoom();
   return (
@@ -284,6 +296,117 @@ describe("PartyRoomProvider join errors and QR", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     sessionStorage.clear();
+  });
+
+  it("does not re-enter the room when an SSE snapshot resolves after leave", async () => {
+    writeActiveRoomCode("AB3K9Q");
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/leave")) {
+        return jsonResponse({ left: true, remaining: 0 });
+      }
+      if (url.includes("/current")) {
+        return jsonResponse(roomPayload({ roomVersion: 2 }));
+      }
+      return jsonResponse({}, method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <RoomCodeProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+      expect(MockEventSource.latest?.onmessage).toBeTypeOf("function");
+    });
+
+    await act(async () => {
+      MockEventSource.latest!.onmessage!({
+        data: JSON.stringify({
+          type: "room_snapshot",
+          room: roomPayload({ roomVersion: 2 }),
+        }),
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+
+    await waitFor(() => {
+      expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
+      expect(screen.getByTestId("code").textContent).toBe("");
+    });
+
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByTestId("code").textContent).toBe("");
+    expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
+  });
+
+  it("does not re-enter when a version refresh completes after leave", async () => {
+    writeActiveRoomCode("AB3K9Q");
+
+    let releaseRefresh: () => void = () => {};
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let refreshCalls = 0;
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/leave")) {
+        return jsonResponse({ left: true, remaining: 0 });
+      }
+      if (url.includes("/current")) {
+        refreshCalls += 1;
+        if (refreshCalls === 1) {
+          return jsonResponse(roomPayload({ roomVersion: 1 }));
+        }
+        await refreshGate;
+        return jsonResponse(roomPayload({ roomVersion: 3 }));
+      }
+      return jsonResponse({}, method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <RoomCodeProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+      expect(MockEventSource.latest?.onmessage).toBeTypeOf("function");
+    });
+
+    await act(async () => {
+      MockEventSource.latest!.onmessage!({
+        data: JSON.stringify({ type: "version" }),
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+
+    await waitFor(() => {
+      expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
+      expect(screen.getByTestId("code").textContent).toBe("");
+    });
+
+    releaseRefresh();
+    await waitFor(() => {
+      expect(refreshCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(screen.getByTestId("code").textContent).toBe("");
+    expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
   });
 
   it("ignores a stale current-room refresh after a newer SSE snapshot", async () => {

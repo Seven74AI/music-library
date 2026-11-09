@@ -170,10 +170,17 @@ export function PartyRoomProvider({
   const qrByCodeRef = useRef<{ code: string; qrDataUrl: string } | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const roomVersionRef = useRef(0);
+  /** Max room version applied while seated; kept after leave so stale snapshots cannot re-enter. */
+  const maxAppliedRoomVersionRef = useRef(0);
+  /** Bumped on leave/end/clear so in-flight refresh/SSE completions are ignored. */
+  const syncGenerationRef = useRef(0);
 
-  const applyRoom = useCallback((next: RoomSnapshot | null) => {
+  const applyRoom = useCallback((next: RoomSnapshot | null, options?: { freshSeat?: boolean }) => {
     if (!next) {
-      roomVersionRef.current = 0;
+      if (roomCodeRef.current !== null) {
+        syncGenerationRef.current += 1;
+      }
+      roomVersionRef.current = maxAppliedRoomVersionRef.current;
       qrByCodeRef.current = null;
       setQrLoadError(null);
       setRoom(null);
@@ -181,10 +188,27 @@ export function PartyRoomProvider({
       return;
     }
 
+    if (options?.freshSeat) {
+      maxAppliedRoomVersionRef.current = 0;
+      roomVersionRef.current = 0;
+    }
+
     setRoom((prev) => {
+      if (
+        prev === null &&
+        !options?.freshSeat &&
+        roomCodeRef.current === null &&
+        next.roomVersion <= maxAppliedRoomVersionRef.current
+      ) {
+        return prev;
+      }
       const appliedVersion = Math.max(roomVersionRef.current, prev?.roomVersion ?? 0);
       if (next.roomVersion < appliedVersion) return prev;
       roomVersionRef.current = next.roomVersion;
+      maxAppliedRoomVersionRef.current = Math.max(
+        maxAppliedRoomVersionRef.current,
+        next.roomVersion,
+      );
 
       let snapshot = next;
       if (!snapshot.qrDataUrl) {
@@ -257,10 +281,15 @@ export function PartyRoomProvider({
       setLoading(false);
       return;
     }
+    const refreshGeneration = syncGenerationRef.current;
     setLoading(true);
     try {
       const current = await fetchCurrentRoom(meUserId);
-      applyRoom(current);
+      if (refreshGeneration !== syncGenerationRef.current) {
+        if (current) writeActiveRoomCode(null);
+        return;
+      }
+      applyRoom(current, current ? undefined : { freshSeat: true });
       setApiUnavailable(false);
       // A join/create error can land while this refresh is in flight. Do not
       // wipe it when the open seat arrives — the room page needs that sentence.
@@ -325,7 +354,9 @@ export function PartyRoomProvider({
         if (!isSnapshot) return;
 
         const raw = (payload.room as Record<string, unknown> | undefined) ?? payload;
+        const messageGeneration = syncGenerationRef.current;
         void import("./api.client.ts").then(({ normalizeRoomSnapshot }) => {
+          if (cancelled || messageGeneration !== syncGenerationRef.current) return;
           applyRoom(normalizeRoomSnapshot(raw, meUserId));
         });
       } catch {
@@ -375,7 +406,7 @@ export function PartyRoomProvider({
       setError(null);
       try {
         const next = await createRoom({ defaultJoinRole }, meUserId);
-        applyRoom(next);
+        applyRoom(next, { freshSeat: true });
         setApiUnavailable(false);
         await ensureQr(next);
         return next;
@@ -399,7 +430,7 @@ export function PartyRoomProvider({
       setError(null);
       try {
         const next = await joinRoom({ code, displayName }, meUserId);
-        applyRoom(next);
+        applyRoom(next, { freshSeat: true });
         setApiUnavailable(false);
         await ensureQr(next);
         return next;
@@ -424,6 +455,7 @@ export function PartyRoomProvider({
       }
       setError(null);
       try {
+        syncGenerationRef.current += 1;
         await leaveRoom(code);
         applyRoom(null);
       } catch (err) {
@@ -444,6 +476,7 @@ export function PartyRoomProvider({
     }
     setError(null);
     try {
+      syncGenerationRef.current += 1;
       await endRoom(code);
       applyRoom(null);
     } catch (err) {
