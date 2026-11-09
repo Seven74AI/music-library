@@ -88,6 +88,12 @@ import { AudioPlayer } from "./audio-player";
 import { InstallAppBanner } from "./pwa/install-app-banner";
 import { toast } from "./ui/use-toast";
 
+async function offlineHasTrack(trackId: string): Promise<boolean> {
+  const { hasTrack } = getOfflineStorage();
+  if (typeof hasTrack !== "function") return false;
+  return hasTrack(trackId);
+}
+
 type Track = FullTrack;
 
 type NavigationCommitScope = "full" | "position" | "track-only";
@@ -594,7 +600,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         return buildOfflineSpine(context, { libraryUsesDownloads: true });
       }
 
-      if (isOnline && spineContext) {
+      if (isOnline && !isOfflineEnvironment() && spineContext) {
         try {
           const result = await fetchQueueSpine(spineContext);
           if (result.tracks.length > 0) return result;
@@ -633,7 +639,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           if (context.type === "library") {
             spineTracks = [queueTrackFromFullTrack(track)];
             spineTotal = 1;
-          } else if (isOfflineEnvironment() && (await getOfflineStorage().hasTrack(track.id))) {
+          } else if (await offlineHasTrack(track.id)) {
             spineTracks = [queueTrackFromFullTrack(track)];
             spineTotal = 1;
           } else {
@@ -662,7 +668,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             spineTotal = 1;
             order = buildShuffledOrder(1);
             resolvedPosition = 0;
-          } else if (isOfflineEnvironment() && (await getOfflineStorage().hasTrack(track.id))) {
+          } else if (await offlineHasTrack(track.id)) {
             spineTracks = [queueTrackFromFullTrack(track)];
             spineTotal = 1;
             order = buildShuffledOrder(1);
