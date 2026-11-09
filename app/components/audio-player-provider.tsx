@@ -532,7 +532,6 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           return false;
         }
 
-        noteUserQueueMutation();
         if (playContext && !isSamePlayContext(playContext, context)) {
           resetQueueState();
         }
@@ -570,7 +569,6 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       buildShuffledOrder,
       hydrateAround,
       loadSpineForContext,
-      noteUserQueueMutation,
       playContext,
       rememberTrack,
       resetQueueState,
@@ -685,9 +683,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       if (roomSpeakerRef.current) return;
       if (!isPlayableTrack(track)) return;
 
+      // Mark intent before the async spine fetch so in-flight restore cannot
+      // clobber the queue mid-click; only reset queue state after ownership gate.
+      noteUserQueueMutation();
       await startSpinePlayback(track, context, index);
     },
-    [startSpinePlayback],
+    [noteUserQueueMutation, startSpinePlayback],
   );
 
   const playPlaylist = useCallback(
