@@ -40,10 +40,15 @@ describe("validatePublicHttpsUrl", () => {
     expect(result).toBeNull();
   });
 
-  test("rejects 6to4 and NAT64 when embedded IPv4 is non-public", async () => {
+  test("rejects 6to4 when embedded IPv4 is non-public", async () => {
     await expect(validatePublicHttpsUrl("https://[2002:7f00:1::]/image.png")).resolves.toBeNull();
+  });
+
+  test("rejects entire NAT64 64:ff9b::/96 prefix", async () => {
+    await expect(validatePublicHttpsUrl("https://[64:ff9b::7f00:1]/image.png")).resolves.toBeNull();
+    await expect(validatePublicHttpsUrl("https://[64:ff9b::a00:1]/image.png")).resolves.toBeNull();
     await expect(
-      validatePublicHttpsUrl("https://[64:ff9b:1:0:0:7f00:1]/image.png"),
+      validatePublicHttpsUrl("https://[64:ff9b:1:1::7f00:1]/image.png"),
     ).resolves.toBeNull();
   });
 });

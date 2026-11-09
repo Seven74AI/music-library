@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { type QueueTrack } from "#app/types/frontend/shared.ts";
 import {
+  advanceAfterPlay,
   getQueueSpineDisplayTracks,
   getSpinePlayOrder,
   getUpcomingSpinePlayOrder,
@@ -164,6 +165,23 @@ describe("getUpcomingSpinePlayOrder", () => {
     const state = baseState({ spinePosition: 2 });
 
     expect(getUpcomingSpinePlayOrder(state)).toEqual([]);
+  });
+});
+
+describe("advanceAfterPlay", () => {
+  test("skipping a failed up-next row does not drop the wrong item from the original queue", () => {
+    const state = baseState({
+      upNext: [track("fail"), track("now-playing"), track("keep")],
+      spinePosition: 0,
+    });
+
+    const afterSkip = advanceAfterPlay(state, { zone: "upNext", index: 0 });
+    const playedTarget = { zone: "upNext" as const, index: 0 };
+    const buggy = advanceAfterPlay(state, playedTarget);
+    const fixed = advanceAfterPlay(afterSkip, playedTarget);
+
+    expect(buggy.upNext.map((item) => item.id)).toEqual(["now-playing", "keep"]);
+    expect(fixed.upNext.map((item) => item.id)).toEqual(["keep"]);
   });
 });
 

@@ -14,6 +14,8 @@ blockedImageAddresses.addAddress("::", "ipv6");
 blockedImageAddresses.addSubnet("fe80::", 10, "ipv6");
 blockedImageAddresses.addSubnet("fc00::", 7, "ipv6");
 blockedImageAddresses.addSubnet("ff00::", 8, "ipv6");
+// Well-known NAT64 prefix (RFC 6052) — embeds IPv4 that may be non-public.
+blockedImageAddresses.addSubnet("64:ff9b::", 96, "ipv6");
 
 /** Node's URL.hostname keeps the brackets around IPv6 addresses. */
 function hostnameForResolution(hostname: string): string {
@@ -58,10 +60,6 @@ function extractEmbeddedIpv4(address: string): string | null {
     return hextetsToIpv4(hextets[1] ?? "0", hextets[2] ?? "0");
   }
 
-  if (hextets[0] === "64" && hextets[1] === "ff9b" && hextets[2] === "1" && hextets[3] === "0") {
-    return hextetsToIpv4(hextets[6] ?? "0", hextets[7] ?? "0");
-  }
-
   return null;
 }
 
@@ -70,6 +68,8 @@ function isBlockedImageAddress(address: string, checkEmbedded = true): boolean {
   const family = isIP(normalized);
   if (family === 4) return blockedImageAddresses.check(normalized, "ipv4");
   if (family === 6) {
+    const hextets = ipv6Hextets(normalized);
+    if (hextets?.[0] === "64" && hextets[1] === "ff9b") return true;
     if (blockedImageAddresses.check(normalized, "ipv6")) return true;
     if (checkEmbedded) {
       const embedded = extractEmbeddedIpv4(normalized);

@@ -181,11 +181,11 @@ export async function listLibraryQueueSpineTracks({
   return sortByPlayCompletedCount(sortable, counts, direction).map((row) => row.track);
 }
 
-/** Most-played cursor: frozen play count + stable userTrack id. */
-type MostPlayedCursor = { count: number; id: string };
+/** Most-played cursor: frozen play count, stable userTrack id, and snapshot cutoff. */
+type MostPlayedCursor = { count: number; id: string; snapshotAt: string };
 
 function encodeMostPlayedCursor(cursor: MostPlayedCursor): string {
-  return Buffer.from(JSON.stringify({ v: 1, ...cursor })).toString("base64url");
+  return Buffer.from(JSON.stringify({ v: 2, ...cursor })).toString("base64url");
 }
 
 function decodeMostPlayedCursor(raw: string): MostPlayedCursor {
@@ -194,20 +194,25 @@ function decodeMostPlayedCursor(raw: string): MostPlayedCursor {
       v?: unknown;
       count?: unknown;
       id?: unknown;
+      snapshotAt?: unknown;
     };
     if (
-      parsed?.v !== 1 ||
+      parsed?.v !== 2 ||
       typeof parsed.count !== "number" ||
       !Number.isFinite(parsed.count) ||
       !Number.isInteger(parsed.count) ||
       parsed.count < 0 ||
       typeof parsed.id !== "string" ||
       parsed.id.length === 0 ||
-      parsed.id.length > 200
+      parsed.id.length > 200 ||
+      typeof parsed.snapshotAt !== "string" ||
+      parsed.snapshotAt.length === 0 ||
+      parsed.snapshotAt.length > 80 ||
+      Number.isNaN(new Date(parsed.snapshotAt).getTime())
     ) {
       throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
     }
-    return { count: parsed.count, id: parsed.id };
+    return { count: parsed.count, id: parsed.id, snapshotAt: parsed.snapshotAt };
   } catch (error) {
     if (error instanceof Error && error.message === INVALID_CURSOR_FORMAT_MESSAGE) {
       throw error;
@@ -217,11 +222,11 @@ function decodeMostPlayedCursor(raw: string): MostPlayedCursor {
 }
 
 /**
- * Keyset-paginated library page ordered by (play_completed count, userTrack
- * createdAt, userTrack id). The count is recomputed on read (ADR-026) but is
- * FROZEN into the cursor at page time, so a play landing between page requests
- * cannot shift the boundary and re-serve/skip rows — only the immutable
- * (createdAt, id) secondary keys are re-read. Ordering happens inside SQLite
+ * Keyset-paginated library page ordered by (frozen play_completed count,
+ * userTrack createdAt, userTrack id). Counts are computed only from completes
+ * before `snapshotAt` (carried in the cursor from page 1), so a play landing
+ * between page requests cannot shift the boundary and re-serve/skip rows.
+ * Ordering happens inside SQLite
  * (which can spill a large sort to disk), so the Node process only ever
  * materializes the page: O(page size) in memory, not O(library size).
  */
@@ -248,12 +253,17 @@ async function listMostPlayedLibraryPage({
   const cntDir = desc ? "DESC" : "ASC";
   const cntOp = desc ? "<" : ">";
 
+  const cursorKey = cursor ? decodeMostPlayedCursor(cursor) : null;
+  const snapshotAt = cursorKey ? new Date(cursorKey.snapshotAt) : now;
+  const snapshotIso = cursorKey?.snapshotAt ?? snapshotAt.toISOString();
+
   const countSql = Prisma.sql`
     SELECT "trackId", COUNT(*) AS cnt
     FROM "UsageEvent"
     WHERE "userId" = ${userId}
       AND type = ${USAGE_EVENT_TYPES.play_completed}
       AND "trackId" IS NOT NULL
+      AND "createdAt" < ${snapshotAt}
       ${
         window === "month"
           ? Prisma.sql`AND "createdAt" >= ${getUtcMonthStart(now)} AND "createdAt" < ${getUtcMonthEndExclusive(now)}`
@@ -278,9 +288,6 @@ async function listMostPlayedLibraryPage({
     }
   `;
 
-  const cursorKey = cursor ? decodeMostPlayedCursor(cursor) : null;
-  let anchoredCount: number | undefined;
-
   if (cursorKey) {
     const anchor = await prisma.userTrack.findFirst({
       where: {
@@ -299,36 +306,14 @@ async function listMostPlayedLibraryPage({
       LEFT JOIN (${countSql}) c ON c."trackId" = ut."trackId"
       WHERE ut."id" = ${cursorKey.id}
     `;
-    anchoredCount = Number(countRow?.cnt ?? 0);
-    // The cursor freezes count at page time (plays may land later and raise the
-    // live count). Reject only when the cursor claims more completes than exist.
-    if (cursorKey.count > anchoredCount) {
+    const frozenCount = Number(countRow?.cnt ?? 0);
+    if (cursorKey.count > frozenCount) {
       throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
     }
   }
 
-  const crossedCountOp = desc ? ">" : "<";
-  const cursorWhere =
-    cursorKey && anchoredCount !== undefined
-      ? Prisma.sql`AND (
-        COALESCE(c.cnt, 0) ${Prisma.raw(cntOp)} ${cursorKey.count}
-        OR (
-          COALESCE(c.cnt, 0) = ${cursorKey.count}
-          AND ut."createdAt" < (SELECT u2."createdAt" FROM "UserTrack" u2 WHERE u2."id" = ${cursorKey.id})
-        )
-        OR (
-          COALESCE(c.cnt, 0) = ${cursorKey.count}
-          AND ut."createdAt" = (SELECT u2."createdAt" FROM "UserTrack" u2 WHERE u2."id" = ${cursorKey.id})
-          AND ut."id" > ${cursorKey.id}
-        )
-        OR (
-          COALESCE(c.cnt, 0) ${Prisma.raw(crossedCountOp)} ${cursorKey.count}
-          AND ut."id" > ${cursorKey.id}
-          AND COALESCE(c.cnt, 0) <= ${anchoredCount}
-        )
-      )`
-      : cursorKey
-        ? Prisma.sql`AND (
+  const cursorWhere = cursorKey
+    ? Prisma.sql`AND (
         COALESCE(c.cnt, 0) ${Prisma.raw(cntOp)} ${cursorKey.count}
         OR (
           COALESCE(c.cnt, 0) = ${cursorKey.count}
@@ -340,7 +325,7 @@ async function listMostPlayedLibraryPage({
           AND ut."id" > ${cursorKey.id}
         )
       )`
-        : Prisma.empty;
+    : Prisma.empty;
 
   const rows = await prisma.$queryRaw<Array<{ id: string; cnt: number | bigint; createdAt: Date }>>`
     SELECT ut."id", COALESCE(c.cnt, 0) AS cnt, ut."createdAt" AS "createdAt"
@@ -358,7 +343,13 @@ async function listMostPlayedLibraryPage({
   const page = hasNext ? rows.slice(0, limit) : rows;
   const last = page[page.length - 1];
   const nextCursor =
-    hasNext && last ? encodeMostPlayedCursor({ count: Number(last.cnt), id: last.id }) : null;
+    hasNext && last
+      ? encodeMostPlayedCursor({
+          count: Number(last.cnt),
+          id: last.id,
+          snapshotAt: snapshotIso,
+        })
+      : null;
 
   return { ids: page.map((row) => row.id), hasNext, nextCursor };
 }

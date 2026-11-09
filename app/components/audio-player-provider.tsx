@@ -1057,7 +1057,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           return;
         }
 
-        const nextState = options.computeNextState(navigationState, playedTarget);
+        const nextState = options.computeNextState(workingState, playedTarget);
         setUpNext(nextState.upNext);
         if (playedTarget.zone === "upNext") {
           const discard = options.discardPlayNextCount(playedTarget, upNextPlayNextCount);
