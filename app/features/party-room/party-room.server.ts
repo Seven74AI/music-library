@@ -538,6 +538,13 @@ export async function findOpenRoomByCode(code: string) {
     where: { code, status: ROOM_STATUS.open },
   });
   if (!room) {
+    const ended = await prisma.room.findFirst({
+      where: { code, status: ROOM_STATUS.ended },
+      select: { id: true },
+    });
+    if (ended) {
+      throw new PartyRoomError("room_ended", "Room has ended", 410);
+    }
     throw new PartyRoomError("not_found", "Room not found", 404);
   }
   await maybeAutoCloseEmptyRoom(room.id);

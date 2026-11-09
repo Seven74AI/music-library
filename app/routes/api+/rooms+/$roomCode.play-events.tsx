@@ -47,8 +47,6 @@ export async function action({
       type,
       trackId: body.trackId,
       playId: typeof body.playId === "string" ? body.playId : undefined,
-      addedByParticipantId:
-        typeof body.addedByParticipantId === "string" ? body.addedByParticipantId : undefined,
     });
 
     return Response.json({

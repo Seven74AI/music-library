@@ -8,6 +8,7 @@ import {
   resolveRoomParticipantByCode,
   touchParticipant,
 } from "#app/features/party-room/participant-seat.server.ts";
+import { partyRoomErrorResponse } from "#app/features/party-room/request.server.ts";
 import { roomSearchRateLimit } from "#app/features/party-room/rate-limit.server.ts";
 import {
   searchRoomCatalog,
@@ -54,7 +55,12 @@ export async function loader({
     return Response.json({ error: "Room code required", ...empty(limit) }, { status: 400 });
   }
 
-  const participant = await resolveRoomParticipantByCode(request, code);
+  let participant;
+  try {
+    participant = await resolveRoomParticipantByCode(request, code);
+  } catch (error) {
+    return partyRoomErrorResponse(error);
+  }
   if (!participant || participant.roomStatus !== "open") {
     return Response.json(
       { error: "Valid room participant seat required", code: "unauthorized", ...empty(limit) },

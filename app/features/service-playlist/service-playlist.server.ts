@@ -123,6 +123,19 @@ export class ServicePlaylistService {
     return bundle;
   }
 
+  private applyDeletedVideoResolution(
+    accumulated: ProcessTracksResult,
+    resolution: Awaited<ReturnType<typeof resolveDeletedVideosAfterSync>>,
+  ): void {
+    accumulated.pendingMatches = resolution.pendingMatches;
+    accumulated.deletedTracks.push(...resolution.deletedTracks);
+    accumulated.processedCount += resolution.autoCreatedCount;
+    accumulated.processedIds = resolution.processedIds;
+    accumulated.removeSptIds = resolution.removeSptIds;
+    accumulated.leaveAloneSptIds = resolution.leaveAloneSptIds;
+    accumulated.deletedVideosWithoutMatch = [];
+  }
+
   private async processBatches(
     playlistItems: SyncableItem[],
     serviceId: string,
@@ -188,6 +201,17 @@ export class ServicePlaylistService {
           (batchError.message.includes("expired transaction") ||
             batchError.message.includes("timeout"))
         ) {
+          const resolution = await resolveDeletedVideosAfterSync(
+            playlistId,
+            serviceId,
+            accumulated.deletedVideosWithoutMatch,
+            accumulated.processedIds,
+            {
+              accessToken: options?.accessToken,
+              resolveVideoExistence: options?.resolveVideoExistence,
+            },
+          );
+          this.applyDeletedVideoResolution(accumulated, resolution);
           return { result: accumulated, timedOut: true };
         }
         throw batchError;
@@ -205,14 +229,7 @@ export class ServicePlaylistService {
       },
     );
 
-    accumulated.pendingMatches = resolution.pendingMatches;
-    accumulated.deletedTracks.push(...resolution.deletedTracks);
-    accumulated.processedCount += resolution.autoCreatedCount;
-    accumulated.processedIds = resolution.processedIds;
-    accumulated.removeSptIds = resolution.removeSptIds;
-    accumulated.leaveAloneSptIds = resolution.leaveAloneSptIds;
-    // Clear stubs once resolved so callers don't re-process
-    accumulated.deletedVideosWithoutMatch = [];
+    this.applyDeletedVideoResolution(accumulated, resolution);
 
     return { result: accumulated, timedOut: false };
   }
@@ -382,14 +399,12 @@ export class ServicePlaylistService {
         ...playlistData,
         serviceId: service.id,
         ownerId: userId,
-        lastSyncedAt: new Date(),
         isActive: true,
       },
       create: {
         ...playlistData,
         serviceId: service.id,
         ownerId: userId,
-        lastSyncedAt: new Date(),
         isActive: true,
       },
     });
@@ -419,6 +434,15 @@ export class ServicePlaylistService {
           "The playlist sync took too long and timed out. This may happen with very large playlists. Please try again or contact support if the issue persists.",
       };
     }
+
+    await prisma.servicePlaylist.update({
+      where: { id: playlist.id },
+      data: {
+        itemCount: playlistItems.length,
+        lastSyncedAt: new Date(),
+        archiveReadyNotifiedAt: null,
+      },
+    });
 
     this.triggerImageProcessing(playlist.id);
 

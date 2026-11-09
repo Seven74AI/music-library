@@ -4,7 +4,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { sessionKey } from "#app/utils/auth.server.ts";
-import { action } from "./rooms.$code._index.tsx";
+import { action, loader as indexLoader } from "./rooms.$code._index.tsx";
 import { loader } from "./rooms.$code.tsx";
 
 async function cleanupRooms() {
@@ -26,6 +26,24 @@ async function createHost() {
 describe("guest /rooms/:code loader", () => {
   beforeEach(async () => {
     await cleanupRooms();
+  });
+
+  test("index loader returns the guest join shell when the room has ended", async () => {
+    const host = await createHost();
+    await prisma.room.create({
+      data: {
+        code: "AB3K9Q",
+        status: "ended",
+        endedAt: new Date(),
+        originalHostUserId: host.id,
+      },
+    });
+
+    const result = await indexLoader({
+      request: new Request("http://localhost/rooms/AB3K9Q"),
+      params: { code: "AB3K9Q" },
+    });
+    expect(result).toMatchObject({ code: "AB3K9Q", seated: false, participant: null });
   });
 
   test("a later visit says the room ended only when that room row is ended", async () => {

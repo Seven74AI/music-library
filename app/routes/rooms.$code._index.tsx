@@ -34,8 +34,15 @@ export type GuestRoomOutletContext = {
 
 export async function loader({ request, params }: { request: Request; params: { code?: string } }) {
   const code = parseRoomCodeInput(params.code ?? "") ?? normalizeRoomCode(params.code ?? "");
-  const participant = await resolveRoomParticipantByCode(request, code);
-  return { code, seated: Boolean(participant), participant };
+  try {
+    const participant = await resolveRoomParticipantByCode(request, code);
+    return { code, seated: Boolean(participant), participant };
+  } catch (error) {
+    if (error instanceof PartyRoomError) {
+      return { code, seated: false, participant: null };
+    }
+    throw error;
+  }
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {

@@ -8,6 +8,7 @@ import {
   hashGuestToken,
   serializeGuestTokenCookie,
 } from "#app/features/party-room/guest-token.server.ts";
+import { EMPTY_ROOM_TTL_MS } from "#app/features/party-room/constants.ts";
 import { resetPartyRoomRateLimits } from "#app/features/party-room/rate-limit.server.ts";
 import { action as auditionAction } from "#app/routes/api+/rooms+/$roomCode.audition.ts";
 import { loader as searchLoader } from "#app/routes/api+/rooms+/$roomCode.search.ts";
@@ -129,6 +130,48 @@ describe("party room audition grant authz (route)", () => {
     expect(await statusOf(response)).toBe(401);
   });
 
+  test("returns 410 for ended room instead of not_seated", async () => {
+    const { room, code } = await seedOpenRoom();
+    const track = await createTrack({ title: "Ended Room", withAudio: true });
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { emptySince: new Date(Date.now() - EMPTY_ROOM_TTL_MS - 1000) },
+    });
+    const response = await auditionAction(auditionArgs(code, null, track.id));
+    expect(await statusOf(response)).toBe(410);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("room_ended");
+  });
+
+  test("returns 410 when the room row is already ended", async () => {
+    const { room, code } = await seedOpenRoom();
+    const track = await createTrack({ title: "Ended Row", withAudio: true });
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { status: "ended", endedAt: new Date() },
+    });
+    const response = await auditionAction(auditionArgs(code, null, track.id));
+    expect(await statusOf(response)).toBe(410);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("room_ended");
+  });
+
+  test("returns 404 for unknown room code", async () => {
+    const track = await createTrack({ title: "Missing Room", withAudio: true });
+    const response = await auditionAction(auditionArgs("ABCDEF", null, track.id));
+    expect(await statusOf(response)).toBe(404);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("not_found");
+  });
+
+  test("returns 400 for malformed room code", async () => {
+    const track = await createTrack({ title: "Bad Code", withAudio: true });
+    const response = await auditionAction(auditionArgs("ABC", null, track.id));
+    expect(await statusOf(response)).toBe(400);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("invalid_code");
+  });
+
   test("rejects tracks without audio even for seated guests", async () => {
     const { room, code } = await seedOpenRoom();
     const { cookie } = await seatGuest(room.id);
@@ -158,6 +201,44 @@ describe("party room search gate (route)", () => {
     const { code } = await seedOpenRoom();
     const response = await searchLoader(searchArgs(code, null, "test"));
     expect(await statusOf(response)).toBe(401);
+  });
+
+  test("returns 410 for ended room instead of unauthorized", async () => {
+    const { room, code } = await seedOpenRoom();
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { emptySince: new Date(Date.now() - EMPTY_ROOM_TTL_MS - 1000) },
+    });
+    const response = await searchLoader(searchArgs(code, null, "test"));
+    expect(await statusOf(response)).toBe(410);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("room_ended");
+  });
+
+  test("returns 410 on search when the room row is already ended", async () => {
+    const { room, code } = await seedOpenRoom();
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { status: "ended", endedAt: new Date() },
+    });
+    const response = await searchLoader(searchArgs(code, null, "test"));
+    expect(await statusOf(response)).toBe(410);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("room_ended");
+  });
+
+  test("returns 404 for unknown room on search", async () => {
+    const response = await searchLoader(searchArgs("ABCDEF", null, "test"));
+    expect(await statusOf(response)).toBe(404);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("not_found");
+  });
+
+  test("returns 400 for malformed room code on search", async () => {
+    const response = await searchLoader(searchArgs("ABC", null, "test"));
+    expect(await statusOf(response)).toBe(400);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("invalid_code");
   });
 
   test("seated guest can search and only sees has-audio tracks", async () => {
