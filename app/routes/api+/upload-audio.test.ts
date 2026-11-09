@@ -57,6 +57,27 @@ describe("upload-audio action", () => {
     consoleWarn.mockImplementation(() => {});
   });
 
+  test("rejects an empty audio file with 400", async () => {
+    const { cookie } = await createAdminCookie();
+    const formData = new FormData();
+    formData.append("audioFile", new File([], "empty.mp3", { type: "audio/mpeg" }));
+    formData.append("title", "Empty");
+    formData.append("artist", "Nobody");
+
+    const response = await action({
+      request: new Request("http://localhost/api/upload-audio", {
+        method: "POST",
+        headers: { cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.init?.status).toBe(400);
+    expect(response.data).toMatchObject({ success: false, error: /empty/i });
+  });
+
   test("returns success when metadata backfill fails after the track commit", async () => {
     mockBackfillTrackMetadata.mockRejectedValue(new Error("canonical merge failed"));
 

@@ -924,6 +924,53 @@ test("queue-only room snapshot does not rewind the playing track", async () => {
   expect(playedSrc).toEqual([]);
 });
 
+test("room speaker pause routes through room transport instead of only pausing the element", async () => {
+  const roomTransport = vi.fn();
+  const roomTransportRef = { current: roomTransport };
+  const pauseSpy = vi.spyOn(window.HTMLMediaElement.prototype, "pause");
+  mockPlay();
+
+  const { audioEl } = await renderPlayer({
+    roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+    roomPlaying: true,
+    roomTransportRef,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+  });
+
+  setPaused(audioEl, false);
+  const user = userEvent.setup();
+  await clickTransport(user);
+
+  expect(roomTransport).toHaveBeenCalledWith({ action: "pause" });
+  expect(pauseSpy).not.toHaveBeenCalled();
+});
+
+test("repeated room playback snapshot re-applies pause when the element drifted", async () => {
+  const pauseSpy = vi.spyOn(window.HTMLMediaElement.prototype, "pause");
+  mockPlay();
+
+  const { audioEl, rerender } = await renderPlayer({
+    roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+    roomPlaying: false,
+    roomPlaybackTick: 0,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+  });
+
+  setPaused(audioEl, false);
+  pauseSpy.mockClear();
+
+  rerender(
+    playerUi({
+      roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+      roomPlaying: false,
+      roomPlaybackTick: 1,
+      audioSrcOverride: "/resources/rooms/audio/track-1",
+    }),
+  );
+
+  await waitFor(() => expect(pauseSpy).toHaveBeenCalled());
+});
+
 test("paused room does not start playback on its own", async () => {
   const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => {
     return Promise.resolve();

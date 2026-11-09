@@ -16,6 +16,7 @@ import {
 } from "#app/features/offline-storage/resolve-playback-url.client.ts";
 import { reportPlayEvent } from "#app/features/usage-analytics/report-play-event.client.ts";
 import { reportRoomPlayEvent, sendHostHeartbeat } from "#app/features/party-room/api.client.ts";
+import { type RoomTransportAction } from "#app/features/party-room/types.ts";
 import { speakerProgressHeartbeatDue } from "#app/features/party-room/speaker-progress-heartbeat.ts";
 import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
@@ -117,6 +118,12 @@ interface AudioPlayerProps {
   roomPlayEventTargetRef?: React.MutableRefObject<{ roomId: string; code: string } | null>;
   /** Server-driven play/pause while in room speaker mode. */
   roomPlaying?: boolean | null;
+  /** Bumps on every room playback snapshot so unchanged isPlaying still re-applies. */
+  roomPlaybackTick?: number;
+  roomTransportRef?: React.MutableRefObject<
+    | ((action: Extract<RoomTransportAction, { action: "play" } | { action: "pause" }>) => void)
+    | null
+  >;
   /**
    * Room speaker only. Fired after play() settles so a blocked autoplay can
    * leave the room paused without the personal toast/dialog stack.
@@ -183,6 +190,8 @@ export function AudioPlayer(props: AudioPlayerProps) {
     roomSpeaker = null,
     roomPlayEventTargetRef,
     roomPlaying = null,
+    roomPlaybackTick = 0,
+    roomTransportRef,
     onRoomAutoplayOutcome,
     audioSrcOverride,
     onPlayingChange,
@@ -226,6 +235,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
+
+  const requestRoomTransport = useCallback(
+    (action: "play" | "pause") => {
+      roomTransportRef?.current?.({ action });
+    },
+    [roomTransportRef],
+  );
 
   const emitPlayEvent = useCallback(
     (type: "play_started" | "play_completed", id: string, playId?: string | null) => {
@@ -311,6 +327,10 @@ export function AudioPlayer(props: AudioPlayerProps) {
   useEffect(() => {
     if (pausePlaybackRef) {
       pausePlaybackRef.current = () => {
+        if (roomSpeaker && roomTransportRef?.current) {
+          requestRoomTransport("pause");
+          return;
+        }
         const audio = audioRef.current;
         if (!audio) return;
         keepPlayingRef.current = false;
@@ -323,11 +343,15 @@ export function AudioPlayer(props: AudioPlayerProps) {
         pausePlaybackRef.current = null;
       }
     };
-  }, [pausePlaybackRef]);
+  }, [pausePlaybackRef, requestRoomTransport, roomSpeaker, roomTransportRef]);
 
   useEffect(() => {
     if (resumePlaybackRef) {
       resumePlaybackRef.current = () => {
+        if (roomSpeaker && roomTransportRef?.current) {
+          requestRoomTransport("play");
+          return;
+        }
         const audio = audioRef.current;
         if (!audio) return;
         keepPlayingRef.current = true;
@@ -348,7 +372,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         resumePlaybackRef.current = null;
       }
     };
-  }, [resumePlaybackRef]);
+  }, [resumePlaybackRef, requestRoomTransport, roomSpeaker, roomTransportRef]);
 
   useEffect(() => {
     setVolume(readStoredVolume());
@@ -673,6 +697,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
     const wasPlaying = !audioRef.current.paused;
     isManualPlayRef.current = true;
 
+    if (roomSpeaker && roomTransportRef?.current) {
+      requestRoomTransport(wasPlaying ? "pause" : "play");
+      return;
+    }
+
     try {
       if (wasPlaying) {
         keepPlayingRef.current = false;
@@ -697,7 +726,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         variant: "destructive",
       });
     }
-  }, [track, emitPlayEvent]);
+  }, [track, emitPlayEvent, requestRoomTransport, roomSpeaker, roomTransportRef]);
 
   // Room speaker: honor server play/pause. Wait until the committed audioSrc
   // is this track — play() on the song that just ended spends the gesture
@@ -727,9 +756,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
     }
 
     const playKey = `${track?.id ?? ""}:${audioSrc ?? ""}`;
+    const elementPlaying = !audio.paused;
     // Queue adds recreate `track` / `roomSpeaker` while this source is already
     // playing. Seeking to 0 would restart the song for the whole room.
-    if (roomPlayKeyRef.current === playKey && keepPlayingRef.current && !audio.paused) {
+    if (roomPlayKeyRef.current === playKey && elementPlaying === roomPlaying) {
+      if (roomPlaying) return;
+      keepPlayingRef.current = false;
+      setIsPlaying(false);
       return;
     }
 
@@ -774,7 +807,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     return () => {
       cancelled = true;
     };
-  }, [roomSpeaker, roomPlaying, track, audioSrc, emitPlayEvent]);
+  }, [roomSpeaker, roomPlaying, roomPlaybackTick, track, audioSrc, emitPlayEvent]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -828,12 +861,20 @@ export function AudioPlayer(props: AudioPlayerProps) {
     navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
 
     navigator.mediaSession.setActionHandler("play", () => {
+      if (roomSpeaker && roomTransportRef?.current) {
+        requestRoomTransport("play");
+        return;
+      }
       if (audioRef.current?.paused) {
         keepPlayingRef.current = true;
         void audioRef.current.play();
       }
     });
     navigator.mediaSession.setActionHandler("pause", () => {
+      if (roomSpeaker && roomTransportRef?.current) {
+        requestRoomTransport("pause");
+        return;
+      }
       if (audioRef.current && !audioRef.current.paused) {
         keepPlayingRef.current = false;
         audioRef.current.pause();
@@ -858,6 +899,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
       updateMediaSessionPositionState(audio);
     });
     navigator.mediaSession.setActionHandler("stop", () => {
+      if (roomSpeaker && roomTransportRef?.current) {
+        requestRoomTransport("pause");
+        clearMediaSessionPositionState();
+        return;
+      }
       const audio = audioRef.current;
       keepPlayingRef.current = false;
       if (audio && !audio.paused) {
@@ -880,7 +926,18 @@ export function AudioPlayer(props: AudioPlayerProps) {
       navigator.mediaSession.setActionHandler("stop", null);
       clearMediaSessionPositionState();
     };
-  }, [hasNext, hasPrevious, isPlaying, isVisible, onNext, onPrevious, track]);
+  }, [
+    hasNext,
+    hasPrevious,
+    isPlaying,
+    isVisible,
+    onNext,
+    onPrevious,
+    requestRoomTransport,
+    roomSpeaker,
+    roomTransportRef,
+    track,
+  ]);
 
   useEffect(() => {
     if (sleepTimerEndAt === null) {
@@ -893,7 +950,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
         setSleepTimerEndAt(null);
         setSleepTimerLabel(null);
         keepPlayingRef.current = false;
-        if (audioRef.current) {
+        if (roomSpeaker && roomTransportRef?.current) {
+          requestRoomTransport("pause");
+        } else if (audioRef.current) {
           audioRef.current.pause();
         }
         setIsPlaying(false);
@@ -910,7 +969,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     updateLabel();
     const intervalId = window.setInterval(updateLabel, 1000);
     return () => window.clearInterval(intervalId);
-  }, [sleepTimerEndAt]);
+  }, [requestRoomTransport, roomSpeaker, roomTransportRef, sleepTimerEndAt]);
 
   const handleVolumeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextVolume = Number.parseFloat(event.target.value);

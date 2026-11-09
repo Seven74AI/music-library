@@ -12,6 +12,7 @@ import {
   roomStateAfterAutoplay,
   type RoomAutoplayOutcome,
 } from "#app/components/audio-player-room-playback.ts";
+import { type RoomTransportAction } from "#app/features/party-room/types.ts";
 import { isOfflineEnvironment } from "#app/features/offline-app/is-offline-environment.client.ts";
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
 import { offlineSummaryToFullTrack } from "#app/features/offline-storage/offline-track-summary.client.ts";
@@ -193,6 +194,14 @@ interface AudioPlayerContextType {
   subscribeRoomAutoplay: (listener: (outcome: RoomAutoplayOutcome) => void) => () => void;
   /** Active room speaker session (null when not speaking for a room). */
   roomSpeaker: { roomId: string; code: string } | null;
+  /**
+   * Host speaker: set by RoomSpeakerBridge so user play/pause updates room
+   * transport instead of only the local element.
+   */
+  roomTransportRef: React.MutableRefObject<
+    | ((action: Extract<RoomTransportAction, { action: "play" } | { action: "pause" }>) => void)
+    | null
+  >;
 }
 
 const AudioPlayerContext = createContext<AudioPlayerContextType | undefined>(undefined);
@@ -229,6 +238,11 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const [cacheVersion, setCacheVersion] = useState(0);
   const [roomSpeaker, setRoomSpeaker] = useState<{ roomId: string; code: string } | null>(null);
   const [roomPlaying, setRoomPlaying] = useState<boolean | null>(null);
+  const [roomPlaybackTick, setRoomPlaybackTick] = useState(0);
+  const roomTransportRef = useRef<
+    | ((action: Extract<RoomTransportAction, { action: "play" } | { action: "pause" }>) => void)
+    | null
+  >(null);
   const persistenceSuspendedRef = useRef(false);
   // Explicit personal restore may run while persistence is still suspended so
   // the room queue cannot be written as PlayerState on the way out.
@@ -1767,6 +1781,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const setRoomPlaybackPlaying = useCallback((playing: boolean) => {
     setRoomPlaying(playing);
+    setRoomPlaybackTick((tick) => tick + 1);
   }, []);
 
   const notifyRoomAutoplayOutcome = useCallback((outcome: RoomAutoplayOutcome) => {
@@ -1839,6 +1854,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       setRoomPlaybackPlaying,
       subscribeRoomAutoplay,
       roomSpeaker,
+      roomTransportRef,
     }),
     [
       currentTrack,
@@ -1888,6 +1904,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       setRoomPlaybackPlaying,
       subscribeRoomAutoplay,
       roomSpeaker,
+      roomTransportRef,
     ],
   );
 
@@ -2269,6 +2286,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         roomSpeaker={roomSpeaker}
         roomPlayEventTargetRef={roomPlayEventTargetRef}
         roomPlaying={roomPlaying}
+        roomPlaybackTick={roomPlaybackTick}
+        roomTransportRef={roomTransportRef}
         onRoomAutoplayOutcome={notifyRoomAutoplayOutcome}
         onPlayingChange={setIsPlaying}
         audioSrcOverride={

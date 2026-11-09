@@ -14,7 +14,12 @@ const syncRoomSpeakerQueue = vi.fn();
 
 let autoplayListener: ((outcome: RoomAutoplayOutcome) => void) | null = null;
 
+const roomTransportRef: {
+  current: ((action: { action: "play" } | { action: "pause" }) => void) | null;
+} = { current: null };
+
 const mockAudio = {
+  roomTransportRef,
   suspendPersonalPersistence: vi.fn(),
   resumePersonalPersistence: vi.fn(),
   getPersonalPlayerSnapshot: vi.fn(() => ({
@@ -115,6 +120,7 @@ describe("RoomSpeakerBridge", () => {
   beforeEach(() => {
     transport.mockReset();
     transport.mockResolvedValue(undefined);
+    roomTransportRef.current = null;
     setRoomPlaybackPlaying.mockReset();
     syncRoomSpeakerQueue.mockReset();
     autoplayListener = null;
@@ -139,6 +145,14 @@ describe("RoomSpeakerBridge", () => {
     await waitFor(() => expect(transport).toHaveBeenCalledWith({ action: "pause" }));
     expect(reportRoomPlayEvent).not.toHaveBeenCalled();
     expect(setRoomPlaybackPlaying).toHaveBeenCalledWith(false);
+  });
+
+  it("wires room transport for the host speaker", async () => {
+    mockParty = { room: roomFixture({ meId: "host-1", isPlaying: true }), transport };
+    renderBridge();
+    await waitFor(() => expect(roomTransportRef.current).toEqual(expect.any(Function)));
+    roomTransportRef.current?.({ action: "pause" });
+    expect(transport).toHaveBeenCalledWith({ action: "pause" });
   });
 
   it("does not pause the room when audio actually starts", async () => {
