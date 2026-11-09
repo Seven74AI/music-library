@@ -248,6 +248,7 @@ export const TrackListItem = memo(function TrackListItem({
     currentIndex,
     isPlaying,
     playTrack,
+    pauseTrack,
     playNextTrack,
     addToUpNext,
     addToQueue,
@@ -366,8 +367,18 @@ export const TrackListItem = memo(function TrackListItem({
     event.stopPropagation();
   }, []);
 
+  // Current row is the loaded track. Pause is only for audio that is actually playing.
+  const isCurrentTrack = usePlaybackIndex
+    ? currentTrack?.id === track.id && currentIndex === index
+    : currentTrack?.id === track.id;
+  const showPauseIcon = isCurrentTrack && isPlaying;
+
   const handlePlayTrack = useCallback(() => {
     if (!hasAudioFiles) {
+      return;
+    }
+    if (showPauseIcon) {
+      pauseTrack();
       return;
     }
     const context = playlistContext || { type: "library" as const };
@@ -376,7 +387,16 @@ export const TrackListItem = memo(function TrackListItem({
       return;
     }
     playTrack(track, context);
-  }, [hasAudioFiles, track, playlistContext, index, playTrack, usePlaybackIndex]);
+  }, [
+    hasAudioFiles,
+    showPauseIcon,
+    pauseTrack,
+    track,
+    playlistContext,
+    index,
+    playTrack,
+    usePlaybackIndex,
+  ]);
 
   const handleQuickAddToPlaylist = useCallback(() => {
     if (isMobile) {
@@ -419,12 +439,6 @@ export const TrackListItem = memo(function TrackListItem({
     });
     setIsActionsSheetOpen(false);
   }, [hasAudioFiles, addToQueue, track]);
-
-  // Current row is the loaded track. Pause is only for audio that is actually playing.
-  const isCurrentTrack = usePlaybackIndex
-    ? currentTrack?.id === track.id && currentIndex === index
-    : currentTrack?.id === track.id;
-  const showPauseIcon = isCurrentTrack && isPlaying;
 
   const isCompact = variant === "compact";
   const rowClassName = isCompact
