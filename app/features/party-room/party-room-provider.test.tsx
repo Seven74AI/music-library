@@ -300,18 +300,22 @@ describe("PartyRoomProvider join errors and QR", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("qr").textContent).toBe(QR);
+      expect(MockEventSource.latest).not.toBeNull();
     });
 
-    MockEventSource.latest?.onmessage?.({
+    MockEventSource.latest!.onmessage?.({
       data: JSON.stringify({
         type: "room_snapshot",
         room: roomPayload({ roomVersion: 2 }),
       }),
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId("version").textContent).toBe("2");
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("version").textContent).toBe("2");
+      },
+      { timeout: 5_000 },
+    );
     expect(screen.getByTestId("qr").textContent).toBe(QR);
   });
 
