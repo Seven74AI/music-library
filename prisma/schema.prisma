@@ -548,6 +548,15 @@ model WorkerState {
   updatedAt          DateTime  @updatedAt
 }
 
+/// Singleton state for the monthly On-Repeat snapshot scheduler (ADR-024).
+model OnRepeatSnapshotSchedulerState {
+  id                   String    @id @default("singleton")
+  lastSuccessYearMonth String?
+  nextRetryAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
 /// Singleton status for automated SQLite backups (ADR-029).
 model BackupState {
   id                       String    @id @default("singleton")
