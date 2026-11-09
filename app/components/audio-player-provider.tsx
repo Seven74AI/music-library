@@ -28,6 +28,7 @@ import {
   resolveFullTrack,
   resolveFullTracks,
 } from "#app/features/queue/queue-hydration.ts";
+import { PLAYBACK_SPINE_SKIP_MAX } from "#app/features/queue/constants.ts";
 import {
   advanceAfterPlay,
   buildFlatQueueView,
@@ -548,25 +549,29 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   );
 
   const resolvePlayableTrack = useCallback(
-    async (queueTrack: QueueTrack): Promise<FullTrack | null> => {
+    async (queueTrack: QueueTrack, options?: { silent?: boolean }): Promise<FullTrack | null> => {
       try {
         await hydrateAround(queueTrack.id);
       } catch {
-        toast({
-          title: "Playback failed",
-          description: "Could not load the next track. Check your connection and try again.",
-          variant: "destructive",
-        });
+        if (!options?.silent) {
+          toast({
+            title: "Playback failed",
+            description: "Could not load the next track. Check your connection and try again.",
+            variant: "destructive",
+          });
+        }
         return null;
       }
 
       const fullTrack = resolveFullTrack(playbackCacheRef.current, queueTrack);
       if (!isPlayableTrack(fullTrack)) {
-        toast({
-          title: "Playback failed",
-          description: "This track is unavailable. Try another track.",
-          variant: "destructive",
-        });
+        if (!options?.silent) {
+          toast({
+            title: "Playback failed",
+            description: "This track is unavailable. Try another track.",
+            variant: "destructive",
+          });
+        }
         return null;
       }
 
@@ -1022,17 +1027,40 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       // Resolve the full track and update queue state. Even if we played synchronously,
       // we still need the full track metadata for the UI.
       void (async () => {
-        const fullTrack = await resolvePlayableTrack(queueTrack);
-        if (!fullTrack) {
-          // Hydration failed - clear autoplay intent
+        let workingState = navigationState;
+        let attemptTarget: QueueTarget | null = target;
+        let fullTrack: FullTrack | null = null;
+        let playedTarget: QueueTarget | null = null;
+        let attempts = 0;
+
+        while (attemptTarget && attempts < PLAYBACK_SPINE_SKIP_MAX) {
+          attempts += 1;
+          const candidate = getTrackAtTarget(workingState, attemptTarget);
+          if (!candidate) break;
+
+          const hasMoreTargets =
+            resolveNextTrack(options.computeNextState(workingState, attemptTarget)) !== null;
+          const silent = hasMoreTargets && attempts < PLAYBACK_SPINE_SKIP_MAX;
+          const resolved = await resolvePlayableTrack(candidate, { silent });
+          if (resolved) {
+            fullTrack = resolved;
+            playedTarget = attemptTarget;
+            break;
+          }
+
+          workingState = options.computeNextState(workingState, attemptTarget);
+          attemptTarget = resolveNextTrack(workingState);
+        }
+
+        if (!fullTrack || !playedTarget) {
           wantsAutoPlayRef.current = false;
           return;
         }
 
-        const nextState = options.computeNextState(navigationState, target);
+        const nextState = options.computeNextState(navigationState, playedTarget);
         setUpNext(nextState.upNext);
-        if (target.zone === "upNext") {
-          const discard = options.discardPlayNextCount(target, upNextPlayNextCount);
+        if (playedTarget.zone === "upNext") {
+          const discard = options.discardPlayNextCount(playedTarget, upNextPlayNextCount);
           if (discard > 0) {
             setUpNextPlayNextCount((count) => {
               const next = Math.max(0, count - discard);

@@ -1,5 +1,6 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import { buildUserTrackAccessWhere } from "./queue-playback.server.ts";
 import {
   fetchQueueSpine,
   parseQueueSpineParams,
@@ -17,6 +18,7 @@ vi.mock("#app/utils/db.server.ts", () => ({
     track: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
     },
   },
 }));
@@ -319,6 +321,10 @@ describe("fetchQueueSpine", () => {
         where: {
           playlistId: "pl-1",
           playlist: { ownerId: "user-1" },
+          track: {
+            audioFiles: { some: {} },
+            ...buildUserTrackAccessWhere("user-1"),
+          },
         },
         orderBy: { position: "asc" },
         select: {
@@ -391,7 +397,11 @@ describe("fetchQueueSpine", () => {
     });
 
     expect(prisma.track.findMany).toHaveBeenCalledWith({
-      where: { artistId: "artist-3", audioFiles: { some: {} } },
+      where: {
+        artistId: "artist-3",
+        audioFiles: { some: {} },
+        ...buildUserTrackAccessWhere("user-1"),
+      },
       select: QUEUE_TRACK_SELECT,
       orderBy: { createdAt: "desc" },
     });
@@ -427,7 +437,11 @@ describe("fetchQueueSpine", () => {
     });
 
     expect(prisma.track.findMany).toHaveBeenCalledWith({
-      where: { albumId: "album-4", audioFiles: { some: {} } },
+      where: {
+        albumId: "album-4",
+        audioFiles: { some: {} },
+        ...buildUserTrackAccessWhere("user-1"),
+      },
       select: QUEUE_TRACK_SELECT,
       orderBy: { createdAt: "asc" },
     });
@@ -461,7 +475,10 @@ describe("fetchQueueSpine", () => {
 
     expect(prisma.track.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { audioFiles: { some: {} } },
+        where: {
+          audioFiles: { some: {} },
+          ...buildUserTrackAccessWhere("user-1"),
+        },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       }),
     );
@@ -481,7 +498,7 @@ describe("fetchQueueSpine", () => {
   });
 
   test("returns a one-track spine for track context", async () => {
-    vi.mocked(prisma.track.findUnique).mockResolvedValue({
+    vi.mocked(prisma.track.findFirst).mockResolvedValue({
       id: "track-5",
       title: "Only Track",
       artist: { id: "artist-5", name: "Artist Five" },
@@ -492,8 +509,12 @@ describe("fetchQueueSpine", () => {
       trackId: "track-5",
     });
 
-    expect(prisma.track.findUnique).toHaveBeenCalledWith({
-      where: { id: "track-5" },
+    expect(prisma.track.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "track-5",
+        audioFiles: { some: {} },
+        ...buildUserTrackAccessWhere("user-1"),
+      },
       select: QUEUE_TRACK_SELECT,
     });
     expect(result).toEqual({
