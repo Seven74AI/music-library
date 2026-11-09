@@ -1142,6 +1142,16 @@ export async function reclaimHost({ roomId, actor }: { roomId: string; actor: Pa
   return emitRoomSnapshot(roomId);
 }
 
+export function buildPublicRoomSnapshot(room: { id: string; code: string; status: string }) {
+  return {
+    roomId: room.id,
+    code: room.code,
+    status: room.status,
+    ended: room.status === ROOM_STATUS.ended,
+    exists: true,
+  };
+}
+
 export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor | null) {
   const room = await prisma.room.findUnique({
     where: { id: roomId },

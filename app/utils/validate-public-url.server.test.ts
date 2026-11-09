@@ -25,8 +25,25 @@ describe("validatePublicHttpsUrl", () => {
     expect(lookupMock).toHaveBeenCalled();
   });
 
-  test("rejects 0.0.0.0", async () => {
-    const result = await validatePublicHttpsUrl("https://0.0.0.0/image.png");
+  test("rejects 0.0.0.0/8", async () => {
+    await expect(validatePublicHttpsUrl("https://0.0.0.0/image.png")).resolves.toBeNull();
+    await expect(validatePublicHttpsUrl("https://0.0.0.1/image.png")).resolves.toBeNull();
+  });
+
+  test.each([
+    "https://[::]/image.png",
+    "https://[::]:8443/image.png",
+    "https://[::0]/image.png",
+    "https://[0::0]/image.png",
+  ])("rejects IPv6 unspecified address %s", async (url) => {
+    const result = await validatePublicHttpsUrl(url);
     expect(result).toBeNull();
+  });
+
+  test("rejects 6to4 and NAT64 when embedded IPv4 is non-public", async () => {
+    await expect(validatePublicHttpsUrl("https://[2002:7f00:1::]/image.png")).resolves.toBeNull();
+    await expect(
+      validatePublicHttpsUrl("https://[64:ff9b:1:0:0:7f00:1]/image.png"),
+    ).resolves.toBeNull();
   });
 });

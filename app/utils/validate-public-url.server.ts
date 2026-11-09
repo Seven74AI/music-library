@@ -1,7 +1,7 @@
 import { BlockList, isIP } from "node:net";
 
 const blockedImageAddresses = new BlockList();
-blockedImageAddresses.addAddress("0.0.0.0", "ipv4");
+blockedImageAddresses.addSubnet("0.0.0.0", 8, "ipv4");
 blockedImageAddresses.addSubnet("100.64.0.0", 10, "ipv4");
 blockedImageAddresses.addSubnet("127.0.0.0", 8, "ipv4");
 blockedImageAddresses.addSubnet("10.0.0.0", 8, "ipv4");
@@ -10,8 +10,10 @@ blockedImageAddresses.addSubnet("192.168.0.0", 16, "ipv4");
 // Link-local, including cloud metadata (169.254.169.254 and 169.254.170.2).
 blockedImageAddresses.addSubnet("169.254.0.0", 16, "ipv4");
 blockedImageAddresses.addAddress("::1", "ipv6");
+blockedImageAddresses.addAddress("::", "ipv6");
 blockedImageAddresses.addSubnet("fe80::", 10, "ipv6");
 blockedImageAddresses.addSubnet("fc00::", 7, "ipv6");
+blockedImageAddresses.addSubnet("ff00::", 8, "ipv6");
 
 /** Node's URL.hostname keeps the brackets around IPv6 addresses. */
 function hostnameForResolution(hostname: string): string {
@@ -21,11 +23,60 @@ function hostnameForResolution(hostname: string): string {
   return hostname;
 }
 
-function isBlockedImageAddress(address: string): boolean {
+function ipv6Hextets(address: string): string[] | null {
+  const normalized = address.toLowerCase();
+  const [head, tail] = normalized.split("::");
+  const headParts = head ? head.split(":").filter(Boolean) : [];
+  const tailParts = tail !== undefined ? tail.split(":").filter(Boolean) : [];
+  if (tail === undefined && headParts.length !== 8) return null;
+  const missing = 8 - headParts.length - tailParts.length;
+  if (missing < 0) return null;
+  const expanded = [...headParts, ...Array<string>(missing).fill("0"), ...tailParts];
+  if (expanded.length !== 8) return null;
+  return expanded;
+}
+
+function hextetsToIpv4(highHex: string, lowHex: string): string | null {
+  const high = Number.parseInt(highHex, 16);
+  const low = Number.parseInt(lowHex, 16);
+  if (!Number.isFinite(high) || !Number.isFinite(low)) return null;
+  return `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`;
+}
+
+/** IPv4 embedded in IPv4-mapped, 6to4, or NAT64 forms. */
+function extractEmbeddedIpv4(address: string): string | null {
+  const lower = address.toLowerCase();
+  if (lower.startsWith("::ffff:")) {
+    const v4 = lower.slice("::ffff:".length);
+    return isIP(v4) === 4 ? v4 : null;
+  }
+
+  const hextets = ipv6Hextets(lower);
+  if (!hextets) return null;
+
+  if (hextets[0] === "2002") {
+    return hextetsToIpv4(hextets[1] ?? "0", hextets[2] ?? "0");
+  }
+
+  if (hextets[0] === "64" && hextets[1] === "ff9b" && hextets[2] === "1" && hextets[3] === "0") {
+    return hextetsToIpv4(hextets[6] ?? "0", hextets[7] ?? "0");
+  }
+
+  return null;
+}
+
+function isBlockedImageAddress(address: string, checkEmbedded = true): boolean {
   const normalized = address.toLowerCase();
   const family = isIP(normalized);
   if (family === 4) return blockedImageAddresses.check(normalized, "ipv4");
-  if (family === 6) return blockedImageAddresses.check(normalized, "ipv6");
+  if (family === 6) {
+    if (blockedImageAddresses.check(normalized, "ipv6")) return true;
+    if (checkEmbedded) {
+      const embedded = extractEmbeddedIpv4(normalized);
+      if (embedded) return isBlockedImageAddress(embedded, false);
+    }
+    return false;
+  }
   return true;
 }
 

@@ -61,7 +61,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       sessions: {
         orderBy: { updatedAt: "desc" },
         take: 5,
-        select: { id: true, createdAt: true, updatedAt: true, expirationDate: true },
+        select: { createdAt: true, updatedAt: true, expirationDate: true },
       },
       _count: {
         select: {
@@ -407,8 +407,8 @@ export default function AdminUserDetailRoute({ loaderData, actionData }: Route.C
                 </TableCell>
               </TableRow>
             ) : (
-              user.sessions.map((session) => (
-                <TableRow key={session.id}>
+              user.sessions.map((session, index) => (
+                <TableRow key={`${session.createdAt}-${index}`}>
                   <TableCell>{new Date(session.createdAt).toLocaleString()}</TableCell>
                   <TableCell>{new Date(session.updatedAt).toLocaleString()}</TableCell>
                   <TableCell>{new Date(session.expirationDate).toLocaleString()}</TableCell>

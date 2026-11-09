@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { findSessionByAdminHandle, sessionAdminHandle } from "./session-handle.server.ts";
 import {
   metaString,
   parseSecurityMetadata,
@@ -59,7 +60,7 @@ export async function listActiveSessions(now = new Date()) {
   }
 
   return sessions.map((session) => ({
-    id: session.id,
+    handle: sessionAdminHandle(session.id),
     userId: session.userId,
     username: session.user.username,
     ipHash: context.get(session.id)?.ipHash ?? null,
@@ -71,19 +72,17 @@ export async function listActiveSessions(now = new Date()) {
 }
 
 export async function forceLogoutSession({
-  sessionId,
+  sessionHandle,
   actorUserId,
   request,
 }: {
-  sessionId: string;
+  sessionHandle: string;
   actorUserId: string;
   request?: Request;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const session = await prisma.session.findUnique({
-    where: { id: sessionId },
-    select: { id: true, userId: true },
-  });
+  const session = await findSessionByAdminHandle(sessionHandle);
   if (!session) return { ok: false, error: "Session not found" };
+  const sessionId = session.id;
 
   if (!(await actorCanRevokeSession(actorUserId, session.userId))) {
     return { ok: false, error: "Not authorized" };

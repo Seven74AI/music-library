@@ -49,7 +49,7 @@ export function parsePlaybackIds(idsParam: string | null): ParseResult {
   return { ok: true, value: ids };
 }
 
-function buildUserTrackAccessWhere(userId: string) {
+export function buildUserTrackAccessWhere(userId: string) {
   return {
     OR: [
       {

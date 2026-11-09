@@ -798,18 +798,23 @@ describe("queue sheet integration", () => {
     ).not.toBeDisabled();
   });
 
-  test("omitted next-track hydration keeps hasNext and surfaces an error toast", async () => {
+  test("Next advances past a non-playable spine row within a bounded skip", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.mocked(fetch);
+    const spineTrackCharlie = {
+      id: "track-c-playable",
+      title: "Spine-Charlie-Upcoming",
+      artist: trackC.artist,
+    };
+    const threeTrackSpine = [spineTracks[0]!, spineTracks[1]!, spineTrackCharlie];
     let playbackCalls = 0;
-    const twoTrackSpine = spineTracks.slice(0, 2);
 
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/queue-spine")) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({ tracks: twoTrackSpine, total: twoTrackSpine.length }),
+          json: async () => ({ tracks: threeTrackSpine, total: threeTrackSpine.length }),
         } as Response);
       }
       if (url.includes("/api/tracks/playback")) {
@@ -820,10 +825,23 @@ describe("queue sheet integration", () => {
             json: async () => ({ tracks: [trackA] }),
           } as Response);
         }
-        // Access revoked / stale spine: 200 but next track omitted.
+        if (playbackCalls === 2) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ tracks: [] }),
+          } as Response);
+        }
         return Promise.resolve({
           ok: true,
-          json: async () => ({ tracks: [] }),
+          json: async () => ({
+            tracks: [
+              {
+                ...trackA,
+                id: "track-c-playable",
+                title: "Spine-Charlie-Upcoming",
+              },
+            ],
+          }),
         } as Response);
       }
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
@@ -840,11 +858,9 @@ describe("queue sheet integration", () => {
     await clickNextTrack(user);
 
     await waitFor(() => {
-      expect(vi.mocked(toast)).toHaveBeenCalled();
+      expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-c-playable");
     });
-
-    expect(queueProbe().getAttribute("data-current-track-id")).toBe("track-a");
-    expect(queueProbe().getAttribute("data-has-next")).toBe("true");
+    expect(playbackCalls).toBeGreaterThanOrEqual(3);
   });
 
   test("add to queue appends after the spine and shows in the queue sheet", async () => {
