@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import * as partyRoomServer from "#app/features/party-room/party-room.server.ts";
 import { createRoom } from "#app/features/party-room/party-room.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
@@ -78,6 +79,21 @@ describe("guest /rooms/:code loader", () => {
       room: null,
       invalidCode: false,
     });
+  });
+
+  test("rethrows transient findOpenRoomByCode failures instead of showing not-found", async () => {
+    const host = await createHost();
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    vi.spyOn(partyRoomServer, "findOpenRoomByCode").mockRejectedValueOnce(
+      new Error("SQLITE_BUSY: database is locked"),
+    );
+
+    await expect(
+      loader({
+        request: new Request(`http://localhost/rooms/${room.code}`),
+        params: { code: room.code },
+      } as never),
+    ).rejects.toThrow("SQLITE_BUSY");
   });
 
   test("an open room still loads the guest shell", async () => {

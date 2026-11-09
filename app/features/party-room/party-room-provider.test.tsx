@@ -255,6 +255,25 @@ function RoomCodeProbe() {
   );
 }
 
+function LeaveJoinRefreshProbe() {
+  const { room, leave, join, refresh } = usePartyRoom();
+  return (
+    <div>
+      <span data-testid="code">{room?.code ?? ""}</span>
+      <span data-testid="api">{room ? "seated" : "empty"}</span>
+      <button type="button" onClick={() => void refresh()}>
+        Refresh
+      </button>
+      <button type="button" onClick={() => void leave()}>
+        Leave
+      </button>
+      <button type="button" onClick={() => void join("CD4M2P", "Guest").catch(() => {})}>
+        Join other
+      </button>
+    </div>
+  );
+}
+
 function RoomProbe() {
   const party = usePartyRoom();
   return (
@@ -347,6 +366,132 @@ describe("PartyRoomProvider join errors and QR", () => {
 
     expect(screen.getByTestId("code").textContent).toBe("");
     expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
+  });
+
+  it("keeps a new seat when a stale refresh fails after leave then join", async () => {
+    writeActiveRoomCode("AB3K9Q");
+    let releaseStaleRefresh: () => void = () => {};
+    const staleRefreshGate = new Promise<void>((resolve) => {
+      releaseStaleRefresh = resolve;
+    });
+    let refreshCalls = 0;
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/leave")) {
+        return jsonResponse({ left: true, remaining: 0 });
+      }
+      if (method === "POST" && url.includes("/join")) {
+        return jsonResponse(roomPayload({ code: "CD4M2P", roomVersion: 1 }));
+      }
+      if (url.includes("/api/rooms/CD4M2P") && method === "GET") {
+        return jsonResponse(roomPayload({ code: "CD4M2P", roomVersion: 1 }));
+      }
+      if (url.includes("/current")) {
+        refreshCalls += 1;
+        if (refreshCalls === 1) {
+          return jsonResponse(roomPayload({ roomVersion: 1 }));
+        }
+        await staleRefreshGate;
+        return jsonResponse({ error: "Not Found" }, 404);
+      }
+      return jsonResponse({}, method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <LeaveJoinRefreshProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join other" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("CD4M2P");
+      expect(sessionStorage.getItem("party-room.active-code")).toBe("CD4M2P");
+    });
+
+    releaseStaleRefresh();
+    await waitFor(() => {
+      expect(refreshCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(screen.getByTestId("code").textContent).toBe("CD4M2P");
+    expect(sessionStorage.getItem("party-room.active-code")).toBe("CD4M2P");
+  });
+
+  it("does not clear sessionStorage when a stale refresh returns an old seat after join", async () => {
+    writeActiveRoomCode("AB3K9Q");
+    let releaseStaleRefresh: () => void = () => {};
+    const staleRefreshGate = new Promise<void>((resolve) => {
+      releaseStaleRefresh = resolve;
+    });
+    let refreshCalls = 0;
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/leave")) {
+        return jsonResponse({ left: true, remaining: 0 });
+      }
+      if (method === "POST" && url.includes("/join")) {
+        return jsonResponse(roomPayload({ code: "CD4M2P", roomVersion: 1 }));
+      }
+      if (url.includes("/api/rooms/CD4M2P") && method === "GET") {
+        return jsonResponse(roomPayload({ code: "CD4M2P", roomVersion: 1 }));
+      }
+      if (url.includes("/current")) {
+        refreshCalls += 1;
+        if (refreshCalls === 1) {
+          return jsonResponse(roomPayload({ roomVersion: 1 }));
+        }
+        await staleRefreshGate;
+        return jsonResponse(roomPayload({ roomVersion: 2 }));
+      }
+      return jsonResponse({}, method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <LeaveJoinRefreshProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join other" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("CD4M2P");
+      expect(sessionStorage.getItem("party-room.active-code")).toBe("CD4M2P");
+    });
+
+    releaseStaleRefresh();
+    await waitFor(() => {
+      expect(refreshCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(screen.getByTestId("code").textContent).toBe("CD4M2P");
+    expect(sessionStorage.getItem("party-room.active-code")).toBe("CD4M2P");
   });
 
   it("does not re-enter when a version refresh completes after leave", async () => {
