@@ -77,10 +77,13 @@ async function processPlaylistTrackImages(
             trackId: playlistTrack.trackId,
           });
 
-          await prisma.track.update({
-            where: { id: playlistTrack.trackId },
+          const assigned = await prisma.track.updateMany({
+            where: { id: playlistTrack.trackId, coverImageId: null },
             data: { coverImageId: coverImage.id },
           });
+          if (assigned.count === 0) {
+            return;
+          }
 
           try {
             await smartAlbumInheritance(playlistTrack.trackId);
