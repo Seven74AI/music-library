@@ -6,10 +6,7 @@ import { getSessionSecret } from "./env.server.ts";
 import { shouldMockYouTube } from "./youtube-mock-utils";
 
 // YouTube OAuth scopes
-export const YOUTUBE_SCOPES = [
-  "https://www.googleapis.com/auth/youtube.readonly",
-  "https://www.googleapis.com/auth/youtube",
-];
+export const YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"];
 
 // OAuth configuration schema
 export const YouTubeOAuthConfigSchema = z.object({

@@ -1,7 +1,9 @@
+import { data } from "react-router";
+import { removeTrackFromUserLibrary } from "#app/features/user-library/user-library.server";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
-import { redirectWithToast } from "#app/utils/toast.server.ts";
+import { createToastHeaders, redirectWithToast } from "#app/utils/toast.server.ts";
 import { type Route } from "./+types/library.$trackId.remove.ts";
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -47,19 +49,32 @@ export async function action({ request, params }: Route.ActionArgs) {
       });
     }
 
-    // Remove the track from user's library
-    await prisma.userTrack.delete({
-      where: {
-        id: userTrack.id,
-      },
-    });
+    const result = await removeTrackFromUserLibrary(trackId, userId);
+    if (!result.success) {
+      return data(
+        { status: "error", message: result.message },
+        {
+          status: 404,
+          headers: await createToastHeaders({
+            title: "Track Not Found",
+            description: result.message,
+            type: "error",
+          }),
+        },
+      );
+    }
 
     const artistName = userTrack.track.artist?.name || "Unknown Artist";
-    return redirectWithToast("/library", {
-      title: "Track Removed",
-      description: `"${userTrack.track.title}" by ${artistName} has been removed from your library.`,
-      type: "success",
-    });
+    return data(
+      { status: "success", message: result.message },
+      {
+        headers: await createToastHeaders({
+          title: "Track Removed",
+          description: `"${userTrack.track.title}" by ${artistName} has been removed from your library.`,
+          type: "success",
+        }),
+      },
+    );
   } catch (error) {
     console.error("Error removing track:", error);
     return redirectWithToast("/library", {
