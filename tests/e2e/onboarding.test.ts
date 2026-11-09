@@ -4,6 +4,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { noReplyEmail } from "#app/utils/email.server.ts";
 import { readEmail } from "#tests/mocks/utils.ts";
 import { createUser, expect, test as base, type AppPages } from "#tests/playwright-utils.ts";
+import { submitVerification } from "./verify-helpers.ts";
 
 const URL_REGEX = /(?<url>https?:\/\/[^\s$.?#].[^\s]*)/;
 const CODE_REGEX = /Here's your verification code: (?<code>[\d\w]+)/;
@@ -70,12 +71,7 @@ test("onboarding with link", { tag: "@slow" }, async ({ page, navigate, getOnboa
   const codeMatch = email.text.match(CODE_REGEX);
   const code = codeMatch?.groups?.code;
   invariant(code, "Onboarding code not found");
-  await page.getByRole("textbox", { name: /code/i }).fill(code);
-
-  await page
-    .getByRole("main")
-    .getByRole("button", { name: /submit/i })
-    .click();
+  await submitVerification(page, code);
 
   await expect(page).toHaveURL(`/onboarding`);
   await page.getByRole("textbox", { name: /^username/i }).fill(onboardingData.username);
