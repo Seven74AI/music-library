@@ -105,7 +105,6 @@ export async function prepareVerification({
     // Store the TOTP secret encrypted at rest (AES-256-GCM, `enc1:` prefix).
     secret: encryptVerificationSecret(verificationConfig.secret),
     expiresAt: new Date(Date.now() + verificationConfig.period * 1000),
-    linkConsumedAt: null,
     ...(pendingEmail !== undefined ? { pendingEmail } : {}),
   };
   await prisma.verification.upsert({
@@ -113,9 +112,6 @@ export async function prepareVerification({
     create: verificationData,
     update: verificationData,
   });
-
-  // add the otp to the url we'll email the user.
-  verifyUrl.searchParams.set(codeQueryParam, otp);
 
   return { otp, redirectTo, verifyUrl };
 }
@@ -134,16 +130,9 @@ export async function isCodeValid({
       target_type: { target, type },
       OR: [{ expiresAt: { gt: new Date() } }, { expiresAt: null }],
     },
-    select: {
-      algorithm: true,
-      secret: true,
-      period: true,
-      charSet: true,
-      linkConsumedAt: true,
-    },
+    select: { algorithm: true, secret: true, period: true, charSet: true },
   });
   if (!verification) return false;
-  if (verification.linkConsumedAt) return false;
   const result = await verifyTOTP({
     otp: code,
     ...verification,
@@ -154,71 +143,14 @@ export async function isCodeValid({
   return true;
 }
 
-/** True when the user already exchanged the emailed link OTP on GET (session-backed POST). */
-export async function isLinkConsumedVerificationValid({
-  type,
-  target,
-}: {
-  type: VerificationTypes | typeof twoFAVerifyVerificationType;
-  target: string;
-}) {
-  const verification = await prisma.verification.findFirst({
-    where: {
-      target,
-      type,
-      linkConsumedAt: { not: null },
-      OR: [{ expiresAt: { gt: new Date() } }, { expiresAt: null }],
-    },
-    select: { id: true },
-  });
-  return Boolean(verification);
-}
-
-/**
- * Validate an emailed magic-link OTP on GET, mark it consumed, and return whether
- * the exchange succeeded.
- */
-export async function consumeVerificationLink({
-  code,
-  type,
-  target,
-}: {
-  code: string;
-  type: VerificationTypes;
-  target: string;
-}): Promise<{ ok: true } | { ok: false }> {
-  const valid = await isCodeValid({ code, type, target });
-  if (!valid) {
-    return { ok: false };
-  }
-  const consumed = await prisma.verification.updateMany({
-    where: {
-      target,
-      type,
-      linkConsumedAt: null,
-    },
-    data: { linkConsumedAt: new Date() },
-  });
-  if (consumed.count !== 1) {
-    return { ok: false };
-  }
-  return { ok: true };
-}
-
-export async function validateRequest(
-  request: Request,
-  body: URLSearchParams | FormData,
-  options?: { sessionBacked?: boolean },
-) {
+export async function validateRequest(request: Request, body: URLSearchParams | FormData) {
   const submission = await parseWithZod(body, {
     schema: VerifySchema.superRefine(async (formValues, ctx) => {
-      const code = formValues[codeQueryParam];
-      const type = formValues[typeQueryParam];
-      const target = formValues[targetQueryParam];
-
-      const codeIsValid = options?.sessionBacked
-        ? await isLinkConsumedVerificationValid({ type, target })
-        : await isCodeValid({ code, type, target });
+      const codeIsValid = await isCodeValid({
+        code: formValues[codeQueryParam],
+        type: formValues[typeQueryParam],
+        target: formValues[targetQueryParam],
+      });
       if (!codeIsValid) {
         ctx.addIssue({
           path: ["code"],
