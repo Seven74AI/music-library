@@ -207,6 +207,7 @@ test.describe("Offline mode", () => {
     // Go offline using Playwright context (block network + sync React online state)
     await page.context().setOffline(true);
     await dispatchOffline(page);
+    await page.reload({ waitUntil: "domcontentloaded" });
 
     // Click the track to play it while offline
     await page

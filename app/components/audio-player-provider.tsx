@@ -506,25 +506,60 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     }, 300);
   }, []);
 
-  const fetchOfflineTracks = useCallback(async (context: PlaylistContext): Promise<Track[]> => {
-    const storage = getOfflineStorage();
-    const summaries =
-      context.type === "playlist" && context.playlistId
-        ? await storage.listForPlaylist(context.playlistId)
-        : context.type === "library"
-          ? await storage.listPinned()
-          : await storage.listDownloaded();
+  const fetchOfflineTracks = useCallback(
+    async (
+      context: PlaylistContext,
+      options?: { libraryUsesDownloads?: boolean },
+    ): Promise<Track[]> => {
+      const storage = getOfflineStorage();
+      let summaries: Awaited<ReturnType<typeof storage.listPinned>>;
+      if (context.type === "playlist" && context.playlistId) {
+        summaries = await storage.listForPlaylist(context.playlistId);
+      } else if (context.type === "library") {
+        if (options?.libraryUsesDownloads) {
+          const [pinned, downloaded] = await Promise.all([
+            storage.listPinned(),
+            storage.listDownloaded(),
+          ]);
+          const byId = new Map(pinned.map((track) => [track.trackId, track]));
+          for (const track of downloaded) {
+            byId.set(track.trackId, track);
+          }
+          summaries = [...byId.values()];
+        } else {
+          summaries = await storage.listPinned();
+        }
+      } else {
+        summaries = await storage.listDownloaded();
+      }
 
-    return summaries.map(offlineSummaryToFullTrack).filter(isPlayableTrack);
-  }, []);
+      return summaries.map(offlineSummaryToFullTrack).filter(isPlayableTrack);
+    },
+    [],
+  );
+
+  const buildOfflineSpine = useCallback(
+    async (context: PlaylistContext, options?: { libraryUsesDownloads?: boolean }) => {
+      const offlineTracks = await fetchOfflineTracks(context, options);
+      for (const track of offlineTracks) {
+        playbackCacheRef.current.set(track);
+      }
+      setCacheVersion((version) => version + 1);
+      const tracks = offlineTracks.map(queueTrackFromFullTrack);
+      return { tracks, total: tracks.length };
+    },
+    [fetchOfflineTracks],
+  );
 
   const loadSpineForContext = useCallback(
     async (context: PlaylistContext): Promise<{ tracks: QueueTrack[]; total: number }> => {
       const spineContext = toQueueSpineContext(context);
 
-      const navigatorOnline = !isOfflineEnvironment();
+      if (isOfflineEnvironment() && !isOnline) {
+        return buildOfflineSpine(context, { libraryUsesDownloads: true });
+      }
 
-      if (isOnline && navigatorOnline && spineContext) {
+      if (isOnline && spineContext) {
         try {
           const result = await fetchQueueSpine(spineContext);
           if (result.tracks.length > 0) return result;
@@ -537,15 +572,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         }
       }
 
-      const offlineTracks = await fetchOfflineTracks(context);
-      for (const track of offlineTracks) {
-        playbackCacheRef.current.set(track);
-      }
-      setCacheVersion((version) => version + 1);
-      const tracks = offlineTracks.map(queueTrackFromFullTrack);
-      return { tracks, total: tracks.length };
+      return buildOfflineSpine(
+        context,
+        isOfflineEnvironment() ? { libraryUsesDownloads: true } : undefined,
+      );
     },
-    [fetchOfflineTracks, isOnline],
+    [buildOfflineSpine, isOnline],
   );
 
   const resetQueueState = useCallback(() => {
