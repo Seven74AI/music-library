@@ -58,7 +58,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     }
 
     try {
-      return serveStorageAudioFile(audioFile.objectKey, audioFile, request, "private, no-store");
+      return await serveStorageAudioFile(
+        audioFile.objectKey,
+        audioFile,
+        request,
+        "private, no-store",
+      );
     } catch {
       // Deliberate exception to decision #22 ("no redirect — direct presigned
       // URL"): streaming is the primary path; when getStorageObjectStream is
