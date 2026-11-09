@@ -8,11 +8,15 @@ import {
   getPasswordHash,
   getPasswordHashParts,
   getSessionExpirationDate,
+  getUserIdOrNull,
   login,
+  requireAnonymous,
   resetUserPassword,
   verifyUserPassword,
+  sessionKey,
 } from "./auth.server.ts";
 import { prisma } from "./db.server.ts";
+import { authSessionStorage } from "./session.server.ts";
 
 test("checkIsCommonPassword returns true when password is found in breach database", async () => {
   const password = "testpassword";
@@ -174,6 +178,93 @@ describe("verifyUserPassword", () => {
 
   test("returns null for a non-existent user", async () => {
     expect(await verifyUserPassword({ username: "no-such-user" }, "whatever")).toBeNull();
+  });
+});
+
+describe("getUserIdOrNull", () => {
+  test("GET /login loader with a stale session cookie returns without redirect", async () => {
+    const deletedSessionId = `stale-${Math.random().toString(36).slice(2, 12)}`;
+    const authSession = await authSessionStorage.getSession();
+    authSession.set(sessionKey, deletedSessionId);
+    const setCookieHeader = await authSessionStorage.commitSession(authSession);
+    const request = new Request("http://localhost/login", {
+      method: "GET",
+      headers: { cookie: setCookieHeader },
+    });
+
+    await expect(getUserIdOrNull(request)).resolves.toBeNull();
+
+    const { loader: loginLoader } = await import("#app/routes/_auth+/login.tsx");
+    await expect(
+      loginLoader({
+        request,
+        params: {},
+        context: {},
+      } as Parameters<typeof loginLoader>[0]),
+    ).resolves.toEqual({});
+  });
+});
+
+describe("requireAnonymous", () => {
+  test("live session redirects authenticated users away from login", async () => {
+    const { hash } = createPassword("password");
+    const user = await prisma.user.create({
+      data: { ...createUser(), password: { create: { hash } } },
+    });
+    const session = await prisma.session.create({
+      data: { userId: user.id, expirationDate: getSessionExpirationDate() },
+    });
+
+    try {
+      const authSession = await authSessionStorage.getSession();
+      authSession.set(sessionKey, session.id);
+      const setCookieHeader = await authSessionStorage.commitSession(authSession);
+      const request = new Request("http://localhost/login", {
+        method: "GET",
+        headers: { cookie: setCookieHeader },
+      });
+
+      try {
+        await requireAnonymous(request);
+        expect.unreachable("expected redirect for authenticated session");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Response);
+        const response = error as Response;
+        expect(response.status).toBe(302);
+        expect(response.headers.get("location")).toBe("/");
+      }
+
+      const { loader: loginLoader } = await import("#app/routes/_auth+/login.tsx");
+      try {
+        await loginLoader({
+          request,
+          params: {},
+          context: {},
+        } as Parameters<typeof loginLoader>[0]);
+        expect.unreachable("expected login loader to redirect authenticated users");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Response);
+        const response = error as Response;
+        expect(response.status).toBe(302);
+        expect(response.headers.get("location")).toBe("/");
+      }
+    } finally {
+      await prisma.session.deleteMany({ where: { userId: user.id } });
+      await prisma.user.delete({ where: { id: user.id } });
+    }
+  });
+
+  test("login POST with a stale session cookie proceeds without redirect", async () => {
+    const deletedSessionId = `stale-${Math.random().toString(36).slice(2, 12)}`;
+    const authSession = await authSessionStorage.getSession();
+    authSession.set(sessionKey, deletedSessionId);
+    const setCookieHeader = await authSessionStorage.commitSession(authSession);
+    const request = new Request("http://localhost/login", {
+      method: "POST",
+      headers: { cookie: setCookieHeader },
+    });
+
+    await expect(requireAnonymous(request)).resolves.toBeUndefined();
   });
 });
 

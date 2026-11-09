@@ -2,24 +2,14 @@ import { startTransition } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { HydratedRouter } from "react-router/dom";
 import * as Sentry from "@sentry/react-router";
+import { buildProductionSentryInitOptions } from "#app/monitoring/sentry-browser-init.ts";
 import { registerServiceWorker } from "./utils/pwa-register.client.ts";
 
 registerServiceWorker();
 
 // Sentry client-side monitoring — gated on ENV.MODE + ENV.SENTRY_DSN at runtime
 if (ENV.MODE === "production" && ENV.SENTRY_DSN) {
-  Sentry.init({
-    dsn: ENV.SENTRY_DSN,
-    integrations: [
-      Sentry.captureConsoleIntegration({ levels: ["error"] }),
-      Sentry.reactRouterTracingIntegration(),
-      Sentry.replayIntegration(),
-      Sentry.feedbackIntegration({ colorScheme: "system" }),
-    ],
-    tracesSampleRate: 1.0,
-    replaysSessionSampleRate: 0.1,
-    replaysOnErrorSampleRate: 1.0,
-  });
+  Sentry.init(buildProductionSentryInitOptions(ENV.SENTRY_DSN));
 }
 
 const isOfflineShell = document.documentElement.dataset.offlineShell === "true";

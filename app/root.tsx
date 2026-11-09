@@ -43,7 +43,7 @@ import { RoomSpeakerBridge } from "./components/party-room/room-speaker-bridge.t
 import { offlineClientMiddleware } from "./middleware/offline-client.middleware.client.ts";
 import { ThemeSwitch, useOptionalTheme } from "./routes/resources+/theme-switch.tsx";
 import tailwindStyleSheetUrl from "./styles/tailwind.css?url";
-import { getUserId, logout } from "./utils/auth.server.ts";
+import { getUserIdOrNull, logout } from "./utils/auth.server.ts";
 import { ClientHintCheck, getHints } from "./utils/client-hints.tsx";
 import { prisma } from "./utils/db.server.ts";
 import { getEnv } from "./utils/env.server.ts";
@@ -122,7 +122,7 @@ export const meta: Route.MetaFunction = ({ loaderData }) => {
 
 export async function loader({ request, url }: Route.LoaderArgs) {
   const timings = makeTimings("root loader");
-  const userId = await time(() => getUserId(request), {
+  const userId = await time(() => getUserIdOrNull(request), {
     timings,
     type: "getUserId",
     desc: "getUserId in root",

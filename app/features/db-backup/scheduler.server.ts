@@ -12,6 +12,7 @@ import {
   persistSchedulerState,
   type PersistedSchedulerState,
 } from "./scheduler-state.server.ts";
+import { notifyBackupFailed } from "./notification.server.ts";
 
 const DEFAULT_HOUR_UTC = 3;
 export const BACKUP_SCHEDULER_MAX_ATTEMPTS = 3;
@@ -100,7 +101,12 @@ export async function processBackupSchedulerTick(options?: {
   const now = options?.now ?? new Date();
   try {
     if (!options?.skipPersistence) {
-      await hydrateSchedulerStateFromDb();
+      try {
+        await hydrateSchedulerStateFromDb();
+      } catch (hydrateError) {
+        console.error("Failed to hydrate backup scheduler state", hydrateError);
+        return;
+      }
     }
 
     const day = formatUtcDate(now);
@@ -117,7 +123,12 @@ export async function processBackupSchedulerTick(options?: {
       state.attemptsToday = 0;
       state.nextRetryAt = null;
       if (!options?.skipPersistence) {
-        await saveSchedulerStateToDb();
+        try {
+          await saveSchedulerStateToDb();
+        } catch (persistError) {
+          console.error("Failed to persist backup scheduler state on day rollover", persistError);
+          return;
+        }
       }
     }
 
@@ -136,12 +147,33 @@ export async function processBackupSchedulerTick(options?: {
     const attemptCount = state.attemptsToday + 1;
     const notifyOnFailure = attemptCount >= BACKUP_SCHEDULER_MAX_ATTEMPTS;
     const run = options?.run ?? runBackup;
-    const result = await run({
-      now,
-      skipPrimaryCheck: true, // already checked above
-      attemptCount,
-      notifyOnFailure,
-    });
+    let result;
+    try {
+      result = await run({
+        now,
+        skipPrimaryCheck: true, // already checked above
+        attemptCount,
+        notifyOnFailure,
+      });
+    } catch (error) {
+      console.error("Backup scheduler run failed", error);
+      state.attemptsToday = attemptCount;
+      if (attemptCount >= BACKUP_SCHEDULER_MAX_ATTEMPTS) {
+        const message = error instanceof Error ? error.message : String(error);
+        void notifyBackupFailed(message, attemptCount);
+        state.nextRetryAt = null;
+      } else {
+        state.nextRetryAt = now.getTime() + BACKUP_SCHEDULER_RETRY_DELAY_MS;
+      }
+      if (!options?.skipPersistence) {
+        try {
+          await saveSchedulerStateToDb();
+        } catch (persistError) {
+          console.error("Failed to persist backup scheduler state after run failure", persistError);
+        }
+      }
+      return;
+    }
 
     state.attemptsToday = attemptCount;
 
@@ -149,7 +181,11 @@ export async function processBackupSchedulerTick(options?: {
       state.lastSuccessDay = day;
       state.nextRetryAt = null;
       if (!options?.skipPersistence) {
-        await saveSchedulerStateToDb();
+        try {
+          await saveSchedulerStateToDb();
+        } catch (persistError) {
+          console.error("Failed to persist backup scheduler state after success", persistError);
+        }
       }
       return;
     }
@@ -158,7 +194,11 @@ export async function processBackupSchedulerTick(options?: {
       // Not configured / not primary — don't burn retries
       state.attemptsToday = Math.max(0, state.attemptsToday - 1);
       if (!options?.skipPersistence) {
-        await saveSchedulerStateToDb();
+        try {
+          await saveSchedulerStateToDb();
+        } catch (persistError) {
+          console.error("Failed to persist backup scheduler state after skip", persistError);
+        }
       }
       return;
     }
@@ -169,18 +209,10 @@ export async function processBackupSchedulerTick(options?: {
       state.nextRetryAt = null;
     }
     if (!options?.skipPersistence) {
-      await saveSchedulerStateToDb();
-    }
-  } catch (error) {
-    console.error("Backup scheduler tick failed", error);
-    if (state.attemptsToday < BACKUP_SCHEDULER_MAX_ATTEMPTS) {
-      state.nextRetryAt = now.getTime() + BACKUP_SCHEDULER_RETRY_DELAY_MS;
-    }
-    if (!options?.skipPersistence) {
       try {
         await saveSchedulerStateToDb();
       } catch (persistError) {
-        console.error("Failed to persist backup scheduler state after tick failure", persistError);
+        console.error("Failed to persist backup scheduler state after failure", persistError);
       }
     }
   } finally {

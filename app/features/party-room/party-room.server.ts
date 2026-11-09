@@ -1107,11 +1107,9 @@ export async function kickParticipant({
   if (!target) throw new PartyRoomError("not_found", "Participant not found", 404);
 
   const now = new Date();
-  await prisma.roomParticipant.update({
-    where: { id: target.id },
-    data: { leftAt: now },
+  await prisma.$transaction(async (tx) => {
+    await vacateParticipantSeatInTx(tx, target.id, roomId, now);
   });
-  await bumpRoomVersion(roomId);
   return emitRoomSnapshot(roomId);
 }
 

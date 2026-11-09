@@ -35,7 +35,7 @@ for (const [providerName, provider] of Object.entries(providers)) {
   }
 }
 
-export async function getUserId(request: Request) {
+export async function getUserIdOrNull(request: Request): Promise<string | null> {
   const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
   const sessionId = authSession.get(sessionKey);
   if (!sessionId) return null;
@@ -44,8 +44,6 @@ export async function getUserId(request: Request) {
     where: { id: sessionId, expirationDate: { gt: new Date() } },
   });
 
-  // A disabled account gets an explanation; an expired session is routine and
-  // is bounced silently.
   if (session?.user.disabledAt) {
     throw redirect("/", {
       headers: combineHeaders(
@@ -59,14 +57,21 @@ export async function getUserId(request: Request) {
     });
   }
 
-  if (!session?.userId) {
-    throw redirect("/", {
-      headers: {
-        "set-cookie": await authSessionStorage.destroySession(authSession),
-      },
-    });
-  }
+  if (!session?.userId) return null;
   return session.userId;
+}
+
+export async function getUserId(request: Request) {
+  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
+  const sessionId = authSession.get(sessionKey);
+  const userId = await getUserIdOrNull(request);
+  if (userId) return userId;
+  if (!sessionId) return null;
+  throw redirect("/", {
+    headers: {
+      "set-cookie": await authSessionStorage.destroySession(authSession),
+    },
+  });
 }
 
 export async function requireUserId(
@@ -86,10 +91,33 @@ export async function requireUserId(
 }
 
 export async function requireAnonymous(request: Request) {
-  const userId = await getUserId(request);
-  if (userId) {
+  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
+  const sessionId = authSession.get(sessionKey);
+  if (!sessionId) return;
+
+  const session = await prisma.session.findUnique({
+    select: { userId: true, user: { select: { disabledAt: true } } },
+    where: { id: sessionId, expirationDate: { gt: new Date() } },
+  });
+
+  if (session?.user.disabledAt) {
+    throw redirect("/", {
+      headers: combineHeaders(
+        { "set-cookie": await authSessionStorage.destroySession(authSession) },
+        await createToastHeaders({
+          type: "error",
+          title: "Account disabled",
+          description: "This account has been disabled. Contact an administrator.",
+        }),
+      ),
+    });
+  }
+
+  if (session?.userId) {
     throw redirect("/");
   }
+
+  void prisma.session.deleteMany({ where: { id: sessionId } }).catch(() => {});
 }
 
 export type LoginResult =

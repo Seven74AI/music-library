@@ -418,6 +418,44 @@ describe("listLibraryUserTracks most-played sorts", () => {
     expect(countsByTitle(mostPlayed.userTracks)).toEqual({ Noted: 2, Plain: 0 });
   });
 
+  test("mostPlayedMonth paging across a UTC month boundary keeps the snapshot month", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const janEndSnapshot = new Date("2026-01-31T23:30:00.000Z");
+    const febRequestNow = new Date("2026-02-01T12:00:00.000Z");
+
+    const top = await createTrack("Jan Top");
+    const mid = await createTrack("Jan Mid");
+    const low = await createTrack("Jan Low");
+    await addToLibrary(user.id, top.id, new Date("2026-01-05T00:00:00.000Z"));
+    await addToLibrary(user.id, mid.id, new Date("2026-01-06T00:00:00.000Z"));
+    await addToLibrary(user.id, low.id, new Date("2026-01-07T00:00:00.000Z"));
+    await seedCompleted(user.id, top.id, new Date("2026-01-15T12:00:00.000Z"), 5);
+    await seedCompleted(user.id, mid.id, new Date("2026-01-16T12:00:00.000Z"), 3);
+    await seedCompleted(user.id, low.id, new Date("2026-01-17T12:00:00.000Z"), 1);
+
+    const page1 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedMonth",
+      limit: 1,
+      now: janEndSnapshot,
+    });
+    expect(page1.userTracks.map((ut) => ut.track.title)).toEqual(["Jan Top"]);
+    expect(page1.pagination.hasNext).toBe(true);
+
+    // February completes must not inflate January snapshot counts on page 2.
+    await seedCompleted(user.id, low.id, new Date("2026-02-01T08:00:00.000Z"), 20);
+
+    const page2 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedMonth",
+      limit: 10,
+      cursor: page1.pagination.nextCursor,
+      now: febRequestNow,
+    });
+
+    expect(page2.userTracks.map((ut) => ut.track.title)).toEqual(["Jan Mid", "Jan Low"]);
+  });
+
   test("mostPlayedEver pagination does not drift when a play lands between pages", async () => {
     const user = await prisma.user.create({ data: createUser() });
 

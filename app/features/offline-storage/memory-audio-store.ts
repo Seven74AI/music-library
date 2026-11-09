@@ -1,5 +1,10 @@
 export type OfflineAudioStore = {
   write: (trackId: string, data: ArrayBuffer, format?: string | null) => Promise<void>;
+  commitStagingWrite: (
+    stagingTrackId: string,
+    trackId: string,
+    format?: string | null,
+  ) => Promise<void>;
   read: (trackId: string, format?: string | null) => Promise<ArrayBuffer | null>;
   delete: (trackId: string, format?: string | null) => Promise<void>;
   has: (trackId: string, format?: string | null) => Promise<boolean>;
@@ -11,6 +16,14 @@ export function createMemoryOfflineAudioStore(): OfflineAudioStore {
   return {
     async write(trackId, data) {
       files.set(trackId, data.slice(0));
+    },
+    async commitStagingWrite(stagingTrackId, trackId) {
+      const data = files.get(stagingTrackId);
+      if (!data) {
+        throw new Error("missing staging write");
+      }
+      files.set(trackId, data.slice(0));
+      files.delete(stagingTrackId);
     },
     async read(trackId) {
       const data = files.get(trackId);

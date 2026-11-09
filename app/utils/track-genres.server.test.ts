@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { Prisma } from "#prisma/client.js";
 import { prisma } from "#app/utils/db.server.ts";
+import { normalizeGenreName } from "#app/utils/genre-migration.server.ts";
 import { linkGenresToTrack } from "#tests/track-genre-test-utils.ts";
-import { replaceTrackGenresFromStrings } from "./track-genres.server.ts";
+import {
+  replaceTrackGenresFromStrings,
+  resolveOrderedGenresFromNames,
+} from "./track-genres.server.ts";
 
 const createdTrackIds: string[] = [];
 const createdArtistIds: string[] = [];
@@ -61,7 +65,52 @@ afterEach(async () => {
   }
 });
 
+describe("resolveOrderedGenresFromNames", () => {
+  test("two concurrent resolves of the same normalized name both succeed", async () => {
+    const genreName = `Concurrent-${Math.random().toString(36).slice(2, 10)}`;
+    const normalizedName = normalizeGenreName(genreName);
+    await prisma.genre.deleteMany({ where: { normalizedName } });
+
+    const [left, right] = await Promise.all([
+      resolveOrderedGenresFromNames([genreName]),
+      resolveOrderedGenresFromNames([genreName]),
+    ]);
+
+    expect(left).toEqual({ ok: true, genres: expect.any(Array) });
+    expect(right).toEqual({ ok: true, genres: expect.any(Array) });
+    if (!left.ok || !right.ok) throw new Error("expected success");
+    expect(left.genres[0]!.id).toBe(right.genres[0]!.id);
+    expect(await prisma.genre.count({ where: { normalizedName } })).toBe(1);
+
+    await prisma.genre.delete({ where: { id: left.genres[0]!.id } });
+  });
+});
+
 describe("replaceTrackGenresFromStrings", () => {
+  test("two concurrent writes of the same new genre both succeed", async () => {
+    const genreName = `ConcurrentLink-${Math.random().toString(36).slice(2, 10)}`;
+    const normalizedName = normalizeGenreName(genreName);
+    await prisma.genre.deleteMany({ where: { normalizedName } });
+
+    const trackA = await createTrackWithGenre("Placeholder-A");
+    const trackB = await createTrackWithGenre("Placeholder-B");
+
+    await Promise.all([
+      replaceTrackGenresFromStrings(prisma, trackA.id, [genreName]),
+      replaceTrackGenresFromStrings(prisma, trackB.id, [genreName]),
+    ]);
+
+    const namesA = await trackGenreNames(trackA.id);
+    const namesB = await trackGenreNames(trackB.id);
+    expect(namesA).toHaveLength(1);
+    expect(namesB).toHaveLength(1);
+    expect(namesA[0]).toBe(namesB[0]);
+    expect(normalizeGenreName(namesA[0]!)).toBe(normalizedName);
+    expect(await prisma.genre.count({ where: { normalizedName } })).toBe(1);
+
+    await prisma.genre.deleteMany({ where: { normalizedName } });
+  });
+
   test("keeps prior genres when the insert step fails mid-write", async () => {
     const track = await createTrackWithGenre("Jazz");
     expect(await trackGenreNames(track.id)).toEqual(["Jazz"]);

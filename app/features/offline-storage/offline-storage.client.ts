@@ -3,7 +3,7 @@ import { coverImageUrl, trackThumbnailPixelSizes } from "#app/utils/cover-image-
 import { cacheCoverImage } from "./cover-cache.client.ts";
 import { createMemoryOfflineAudioStore, type OfflineAudioStore } from "./memory-audio-store.ts";
 import { getOfflineMetadataStore } from "./metadata-store.client.ts";
-import { offlineAudioOpfsPath } from "./offline-audio-path.ts";
+import { offlineAudioOpfsPath, offlineAudioStagingTrackId } from "./offline-audio-path.ts";
 import { getOfflineAudioFormat, mimeTypeForAudioFormat } from "./offline-track-summary.client.ts";
 import {
   createOpfsOfflineAudioStore,
@@ -150,33 +150,41 @@ export function createOfflineStorage(
     await ensureCapacity(fileSizeBytes);
 
     const existing = await metadataStore.get(track.id);
-    await audioStore.write(track.id, buffer, getOfflineAudioFormat(track));
+    const audioFormat = getOfflineAudioFormat(track);
+    const stagingTrackId = offlineAudioStagingTrackId(track.id);
 
-    if (existing) {
-      await metadataStore.put(
-        mergeOfflineTrackRecord(existing, {
-          isPinned: options.pin ? true : existing.isPinned,
-          isQueueCached: options.queue ? true : existing.isQueueCached,
-          fileSizeBytes,
-          lastAccessedAt: Date.now(),
-          pinnedAt: options.pin ? Date.now() : existing.pinnedAt,
-          playlistId: options.playlistId,
-          audioFormat: getOfflineAudioFormat(track),
-        }),
-      );
-      return;
+    await audioStore.write(stagingTrackId, buffer, audioFormat);
+
+    try {
+      if (existing) {
+        await metadataStore.put(
+          mergeOfflineTrackRecord(existing, {
+            isPinned: options.pin ? true : existing.isPinned,
+            isQueueCached: options.queue ? true : existing.isQueueCached,
+            fileSizeBytes,
+            lastAccessedAt: Date.now(),
+            pinnedAt: options.pin ? Date.now() : existing.pinnedAt,
+            playlistId: options.playlistId,
+            audioFormat,
+          }),
+        );
+      } else {
+        await metadataStore.put(
+          toOfflineTrackRecord(track, {
+            opfsPath: offlineAudioOpfsPath(track.id, audioFormat),
+            fileSizeBytes,
+            isPinned: options.pin,
+            isQueueCached: options.queue,
+            playlistId: options.playlistId,
+            audioFormat,
+          }),
+        );
+      }
+      await audioStore.commitStagingWrite(stagingTrackId, track.id, audioFormat);
+    } catch (error) {
+      await audioStore.delete(stagingTrackId, audioFormat);
+      throw error;
     }
-
-    await metadataStore.put(
-      toOfflineTrackRecord(track, {
-        opfsPath: offlineAudioOpfsPath(track.id, getOfflineAudioFormat(track)),
-        fileSizeBytes,
-        isPinned: options.pin,
-        isQueueCached: options.queue,
-        playlistId: options.playlistId,
-        audioFormat: getOfflineAudioFormat(track),
-      }),
-    );
   }
 
   async function removeTrack(trackId: string) {

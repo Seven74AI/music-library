@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { consoleWarn } from "#tests/setup/setup-test-env.ts";
@@ -300,18 +300,27 @@ describe("PartyRoomProvider join errors and QR", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("qr").textContent).toBe(QR);
+      expect(MockEventSource.latest?.onmessage).toBeTypeOf("function");
     });
 
-    MockEventSource.latest?.onmessage?.({
-      data: JSON.stringify({
-        type: "room_snapshot",
-        room: roomPayload({ roomVersion: 2 }),
-      }),
+    // Preload so the SSE handler's dynamic import does not race waitFor under CI load.
+    await import("./api.client.ts");
+
+    await act(async () => {
+      MockEventSource.latest!.onmessage!({
+        data: JSON.stringify({
+          type: "room_snapshot",
+          room: roomPayload({ roomVersion: 2 }),
+        }),
+      });
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId("version").textContent).toBe("2");
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("version").textContent).toBe("2");
+      },
+      { timeout: 5_000 },
+    );
     expect(screen.getByTestId("qr").textContent).toBe(QR);
   });
 

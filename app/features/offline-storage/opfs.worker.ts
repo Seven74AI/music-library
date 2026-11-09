@@ -2,6 +2,7 @@
 
 import { deleteOfflineAudioEntry } from "./opfs-delete.ts";
 import { offlineAudioOpfsPath } from "./offline-audio-path.ts";
+import { commitStagingOpfsFile, opfsAudioLeafName } from "./opfs-commit-staging.ts";
 import { isOpfsSupportedInWorkerScope } from "./opfs-worker-support.ts";
 
 type WorkerRequest =
@@ -9,7 +10,14 @@ type WorkerRequest =
   | { id: number; type: "write"; trackId: string; buffer: ArrayBuffer; format?: string | null }
   | { id: number; type: "read"; trackId: string; format?: string | null }
   | { id: number; type: "delete"; trackId: string; format?: string | null }
-  | { id: number; type: "has"; trackId: string; format?: string | null };
+  | { id: number; type: "has"; trackId: string; format?: string | null }
+  | {
+      id: number;
+      type: "commitStaging";
+      stagingTrackId: string;
+      trackId: string;
+      format?: string | null;
+    };
 
 type WorkerResponse =
   | { id: number; ok: true; buffer?: ArrayBuffer; exists?: boolean; supported?: boolean }
@@ -17,10 +25,8 @@ type WorkerResponse =
 
 declare const self: DedicatedWorkerGlobalScope;
 
-/** Leaf file name inside the OPFS `audio/` directory, format-aware. */
 function opfsFileName(trackId: string, format: string | null | undefined): string {
-  const path = offlineAudioOpfsPath(trackId, format);
-  return path.slice(path.lastIndexOf("/") + 1);
+  return opfsAudioLeafName(trackId, format);
 }
 
 async function getFileHandle(trackId: string, format: string | null | undefined, create: boolean) {
@@ -57,6 +63,14 @@ async function readTrack(trackId: string, format: string | null | undefined) {
 async function deleteTrack(trackId: string, format: string | null | undefined) {
   const root = await navigator.storage.getDirectory();
   await deleteOfflineAudioEntry(root, trackId, format);
+}
+
+async function commitStagingWrite(
+  stagingTrackId: string,
+  trackId: string,
+  format: string | null | undefined,
+) {
+  await commitStagingOpfsFile(stagingTrackId, trackId, format);
 }
 
 async function hasTrack(trackId: string, format: string | null | undefined) {
@@ -98,6 +112,10 @@ self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
           self.postMessage({ id: message.id, ok: true, exists } satisfies WorkerResponse);
           break;
         }
+        case "commitStaging":
+          await commitStagingWrite(message.stagingTrackId, message.trackId, message.format);
+          self.postMessage({ id: message.id, ok: true } satisfies WorkerResponse);
+          break;
         default:
           throw new Error("Unknown worker message");
       }

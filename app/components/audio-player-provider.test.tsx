@@ -1099,6 +1099,93 @@ test("playPrevious applies the cached source for the track you return to", async
   });
 });
 
+test("playNext advances to a queue-cached track while offline", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const { peekCachedPlaybackUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(peekCachedPlaybackUrl).mockImplementation(
+    (id: string) => `https://cdn.example/${id}.mp3`,
+  );
+
+  const spineTrack = { ...playableTrack, id: "track-1" };
+  const track2: FullTrack = {
+    ...playableTrack,
+    id: "track-2",
+    title: "Second Track",
+    audioFiles: [{ id: "af-2", format: "mp3", objectKey: "audio/test2.mp3" }],
+  };
+
+  let playbackFetchCount = 0;
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2", title: "Second Track" }],
+          total: 2,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      playbackFetchCount += 1;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return Promise.reject(new Error("offline"));
+      }
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const tracks = [spineTrack, track2].filter((track) => ids.includes(track.id));
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  vi.stubGlobal("navigator", { ...(navigator as Navigator), onLine: true });
+
+  function Probe() {
+    const { playTrack, playNext, currentTrack } = useAudioPlayer();
+    return (
+      <div>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play first track
+        </button>
+        <button type="button" onClick={playNext}>
+          Play next
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </div>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play first track" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  const playbackFetchesBeforeOffline = playbackFetchCount;
+
+  await act(async () => {
+    vi.stubGlobal("navigator", { ...(navigator as Navigator), onLine: false });
+    window.dispatchEvent(new Event("offline"));
+  });
+
+  await user.click(screen.getByRole("button", { name: "Play next" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-2");
+  });
+
+  expect(playbackFetchCount).toBe(playbackFetchesBeforeOffline);
+});
+
 test("startQueuePlayback plays the first Up Next track when idle", async () => {
   const user = userEvent.setup();
 

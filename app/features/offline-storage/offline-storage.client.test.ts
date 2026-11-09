@@ -29,6 +29,62 @@ describe("createOfflineStorage", () => {
     await metadataStore.clear();
   });
 
+  test("failed metadata put leaves no orphan blob", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    vi.spyOn(metadataStore, "put").mockRejectedValue(new Error("metadata put failed"));
+
+    await expect(storage.downloadTrack(track, { pin: true })).rejects.toThrow(
+      "metadata put failed",
+    );
+
+    expect(await audioStore.has(track.id, "mp3")).toBe(false);
+    expect(await metadataStore.get(track.id)).toBeFalsy();
+  });
+
+  test("failed metadata update on an existing track keeps the prior blob and metadata", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+    const before = await metadataStore.get(track.id);
+    expect(before).toBeTruthy();
+    const originalBytes = await audioStore.read(track.id, "mp3");
+    expect(originalBytes).not.toBeNull();
+
+    vi.spyOn(metadataStore, "put").mockRejectedValue(new Error("metadata update failed"));
+
+    await expect(
+      storage.downloadTrack(
+        {
+          ...track,
+          audioFiles: [{ id: "af-1", format: "mp3", objectKey: "k2" }],
+        },
+        { pin: true },
+      ),
+    ).rejects.toThrow();
+
+    expect(await audioStore.has(track.id, "mp3")).toBe(true);
+    const afterBytes = await audioStore.read(track.id, "mp3");
+    expect(new Uint8Array(afterBytes!)).toEqual(new Uint8Array(originalBytes!));
+    expect(await metadataStore.get(track.id)).toEqual(before);
+  });
+
   test("downloads and resolves pinned playback blobs", async () => {
     const audioStore = createMemoryOfflineAudioStore();
     const metadataStore = createOfflineMetadataStore();

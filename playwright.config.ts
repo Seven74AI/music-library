@@ -18,6 +18,10 @@ process.env.LITEFS_DIR = "/tmp/litefs-test";
 // Now load dotenv (which won't override DATABASE_URL if it's already set)
 import "dotenv/config";
 
+// Re-apply after dotenv so local .env cannot break E2E cookie signing.
+process.env.SESSION_SECRET = "test-session-secret";
+process.env.HONEYPOT_SECRET = "test-honeypot-secret";
+
 const PORT = process.env.PORT || "3000";
 const PLAYWRIGHT_TEST_BASE_URL = `http://localhost:${PORT}/`;
 process.env.PLAYWRIGHT_TEST_BASE_URL = PLAYWRIGHT_TEST_BASE_URL;

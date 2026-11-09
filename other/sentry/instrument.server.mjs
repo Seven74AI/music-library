@@ -1,5 +1,9 @@
 import * as Sentry from "@sentry/react-router";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
+import {
+  scrubSensitiveSentryEvent,
+  scrubSensitiveSentryTransaction,
+} from "./sentry-sensitive-scrub.mjs";
 
 const environment = process.env.NODE_ENV ?? process.env.SENTRY_ENVIRONMENT ?? "development";
 const isProduction = environment === "production";
@@ -20,4 +24,9 @@ Sentry.init({
   // follows each trace instead.
   profileSessionSampleRate: isProduction ? 0.1 : 1.0,
   profileLifecycle: "trace",
+  dataCollection: {
+    urlQueryParams: { deny: ["code", "state", "target"] },
+  },
+  beforeSend: scrubSensitiveSentryEvent,
+  beforeSendTransaction: scrubSensitiveSentryTransaction,
 });

@@ -401,12 +401,57 @@ describe("processQueueTick", () => {
       mockExtractAudioMetadata.mockResolvedValue({
         format: "mp3",
         mimeType: "audio/mpeg",
+        artist: "Tagged Artist",
+      });
+
+      const trackRecord = {
+        id: "track-keep",
+        artistId: "artist-existing",
+        title: "Real Title",
+        duration: 180,
+      };
+      mockPrisma.track.findUnique.mockImplementation(
+        ({ where, select }: { where: { id: string }; select?: Record<string, boolean> }) => {
+          if (where.id !== trackRecord.id) return Promise.resolve(null);
+          if (!select) return Promise.resolve({ ...trackRecord });
+          const row: Record<string, unknown> = {};
+          for (const key of Object.keys(select)) {
+            if (select[key] && key in trackRecord) {
+              row[key] = trackRecord[key as keyof typeof trackRecord];
+            }
+          }
+          return Promise.resolve(row);
+        },
+      );
+      mockPrisma.track.update.mockImplementation(
+        async ({ data }: { data: Record<string, unknown> }) => {
+          expect(data).not.toHaveProperty("title", undefined);
+          expect(data).not.toHaveProperty("duration", undefined);
+          Object.assign(trackRecord, data);
+          return trackRecord;
+        },
+      );
+      mockPersistTrackAudio.mockImplementation(async ({ trackId, metadata }) => {
+        const { backfillTrackMetadata } =
+          await import("#app/features/track-audio-ingest/backfill-track-metadata.server.ts");
+        await backfillTrackMetadata(trackId, metadata);
+        return {
+          audioFile: {
+            id: "audio-keep",
+            trackId,
+            objectKey: "audio/tracks/youtube/track-keep.mp3",
+          },
+          objectKey: "audio/tracks/youtube/track-keep.mp3",
+          created: true,
+        };
       });
 
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
       expect(mockPersistTrackAudio).toHaveBeenCalled();
+      expect(trackRecord.title).toBe("Real Title");
+      expect(trackRecord.duration).toBe(180);
     });
 
     it("completes the job when persistTrackAudio succeeds", async () => {

@@ -7,6 +7,11 @@ import { BASE_DATABASE_PATH } from "./base-database-path.ts";
 // DATABASE_URL is set via cross-env in npm scripts
 // This ensures it's available for both the test process and globalSetup
 import "dotenv/config";
+
+// Keep E2E session signing aligned with playwright.config / webServer.env (dotenv must not win).
+process.env.SESSION_SECRET = "test-session-secret";
+process.env.HONEYPOT_SECRET = "test-honeypot-secret";
+
 import "#app/utils/env.server.ts";
 import "#app/utils/cache.server.ts";
 
