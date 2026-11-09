@@ -14,6 +14,7 @@ import {
   claimOpenGuestSeatForUser,
   createRoom,
   endRoom,
+  findOpenRoomByCode,
   getRoomSnapshot,
   heartbeat,
   joinRoom,
@@ -871,7 +872,7 @@ describe("party-room lifecycle", () => {
 
     await expect(
       joinRoom({ code: room.code, actor: { type: "guest", displayName: "Late" } }),
-    ).rejects.toMatchObject({ code: "not_found" });
+    ).rejects.toMatchObject({ code: "room_ended", status: 410 });
   });
 
   test("host can set defaultJoinRole", async () => {
@@ -1199,6 +1200,23 @@ describe("party-room lifecycle", () => {
     const err = new PartyRoomError("forbidden", "nope", 403);
     expect(err.status).toBe(403);
     expect(err.code).toBe("forbidden");
+  });
+
+  test("findOpenRoomByCode distinguishes ended rooms from missing codes", async () => {
+    const host = await makeUser();
+    const open = await createRoom({ userId: host.id, displayName: "Host" });
+    await expect(findOpenRoomByCode(open.code)).resolves.toMatchObject({ code: open.code });
+
+    await endRoom({ roomId: open.id, actor: { type: "user", userId: host.id } });
+    await expect(findOpenRoomByCode(open.code)).rejects.toMatchObject({
+      code: "room_ended",
+      status: 410,
+    });
+
+    await expect(findOpenRoomByCode("ABCDEF")).rejects.toMatchObject({
+      code: "not_found",
+      status: 404,
+    });
   });
 
   test("sweepExpiredEmptyRooms ends rooms past empty TTL", async () => {

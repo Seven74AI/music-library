@@ -165,7 +165,9 @@ describe("rooms API", () => {
       request: new Request(`http://localhost/api/rooms/${created.code}`),
       params: { roomCode: created.code },
     });
-    expect(afterEnd.status).toBe(404);
+    expect(afterEnd.status).toBe(410);
+    const afterEndBody = (await afterEnd.json()) as { code?: string };
+    expect(afterEndBody.code).toBe("room_ended");
   });
 
   test("snapshot includes me for guest cookie; leave clears guest cookie", async () => {

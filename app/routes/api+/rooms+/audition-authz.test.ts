@@ -143,6 +143,19 @@ describe("party room audition grant authz (route)", () => {
     expect(body?.code).toBe("room_ended");
   });
 
+  test("returns 410 when the room row is already ended", async () => {
+    const { room, code } = await seedOpenRoom();
+    const track = await createTrack({ title: "Ended Row", withAudio: true });
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { status: "ended", endedAt: new Date() },
+    });
+    const response = await auditionAction(auditionArgs(code, null, track.id));
+    expect(await statusOf(response)).toBe(410);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("room_ended");
+  });
+
   test("returns 404 for unknown room code", async () => {
     const track = await createTrack({ title: "Missing Room", withAudio: true });
     const response = await auditionAction(auditionArgs("ABCDEF", null, track.id));
@@ -195,6 +208,18 @@ describe("party room search gate (route)", () => {
     await prisma.room.update({
       where: { id: room.id },
       data: { emptySince: new Date(Date.now() - EMPTY_ROOM_TTL_MS - 1000) },
+    });
+    const response = await searchLoader(searchArgs(code, null, "test"));
+    expect(await statusOf(response)).toBe(410);
+    const body = (await jsonOf(response)) as { code?: string };
+    expect(body?.code).toBe("room_ended");
+  });
+
+  test("returns 410 on search when the room row is already ended", async () => {
+    const { room, code } = await seedOpenRoom();
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { status: "ended", endedAt: new Date() },
     });
     const response = await searchLoader(searchArgs(code, null, "test"));
     expect(await statusOf(response)).toBe(410);

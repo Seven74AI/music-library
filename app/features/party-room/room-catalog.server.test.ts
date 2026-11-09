@@ -8,7 +8,8 @@ import {
   hashGuestToken,
   serializeGuestTokenCookie,
 } from "./guest-token.server.ts";
-import { loadRoomAlbum, loadRoomArtist } from "./room-catalog.server.ts";
+import { loadRoomAlbum, loadRoomArtist, requireRoomCatalogSeat } from "./room-catalog.server.ts";
+import { loader as searchLayoutLoader } from "#app/routes/rooms.$code.search.tsx";
 import { loader as albumLoader } from "#app/routes/rooms.$code.search.albums.$albumId.tsx";
 import { loader as artistLoader } from "#app/routes/rooms.$code.search.artists.$artistId.tsx";
 import { createUser } from "#tests/db-utils.ts";
@@ -213,6 +214,33 @@ test("artist page lists playable albums and tracks only", async () => {
   expect(await loadRoomArtist("missing-artist")).toBeNull();
 });
 
+test("catalog seat gate redirects into the room shell when the room is missing or ended", async () => {
+  const host = await prisma.user.create({
+    data: { ...createUser(), roles: { connect: { name: "user" } } },
+  });
+  const code = generateRoomCode(6, () => randomBytes(1)[0]! / 256);
+  const room = await prisma.room.create({
+    data: { code, status: "ended", endedAt: new Date(), originalHostUserId: host.id },
+  });
+  roomIds.push(room.id);
+
+  await expectRedirect(searchLayoutLoader, code, {});
+
+  try {
+    await requireRoomCatalogSeat(new Request("http://localhost"), code);
+    expect.fail("expected redirect");
+  } catch (error) {
+    expect(error).toHaveRedirect(`/rooms/${code}`);
+  }
+
+  try {
+    await requireRoomCatalogSeat(new Request("http://localhost"), "ABCDEF");
+    expect.fail("expected redirect");
+  } catch (error) {
+    expect(error).toHaveRedirect("/rooms/ABCDEF");
+  }
+});
+
 test("album and artist loaders redirect until the guest has a seat", async () => {
   const host = await prisma.user.create({
     data: { ...createUser(), roles: { connect: { name: "user" } } },
@@ -247,7 +275,7 @@ async function expectRedirect(
     params: { code?: string; albumId?: string; artistId?: string };
   }) => Promise<unknown>,
   code: string,
-  params: { albumId?: string; artistId?: string },
+  params: { albumId?: string; artistId?: string } = {},
 ) {
   try {
     await loader({
