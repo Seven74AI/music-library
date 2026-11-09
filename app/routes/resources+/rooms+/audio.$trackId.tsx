@@ -9,9 +9,9 @@ import { type LoaderFunctionArgs } from "react-router";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import { partyRoomErrorResponse, resolveActor } from "#app/features/party-room/request.server.ts";
 import { assertRoomSpeakerTrackAccess } from "#app/features/party-room/speaker-audio.server.ts";
-import { serveLocalAudioFile } from "#app/utils/audio-serving.server.ts";
+import { serveLocalAudioFile, serveStorageAudioFile } from "#app/utils/audio-serving.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { getFileUrl, getStorageObjectStream } from "#app/utils/storage.server.ts";
+import { getFileUrl } from "#app/utils/storage.server.ts";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
@@ -58,17 +58,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     }
 
     try {
-      const { body, contentType, contentLength } = await getStorageObjectStream(
-        audioFile.objectKey,
-      );
-      return new Response(body, {
-        headers: {
-          "Content-Type": contentType,
-          ...(contentLength ? { "Content-Length": contentLength.toString() } : {}),
-          "Accept-Ranges": "bytes",
-          "Cache-Control": "private, no-store",
-        },
-      });
+      return serveStorageAudioFile(audioFile.objectKey, audioFile, request, "private, no-store");
     } catch {
       // Deliberate exception to decision #22 ("no redirect — direct presigned
       // URL"): streaming is the primary path; when getStorageObjectStream is
