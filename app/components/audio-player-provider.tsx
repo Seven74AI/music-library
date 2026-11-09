@@ -90,6 +90,8 @@ import { toast } from "./ui/use-toast";
 
 type Track = FullTrack;
 
+type NavigationCommitScope = "full" | "position" | "track-only";
+
 interface AudioPlayerContextType {
   currentTrack: Track | null;
   isPlayerVisible: boolean;
@@ -420,7 +422,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         playContext?: PlaylistContext | null;
         isPlayerVisible?: boolean;
       },
-      effects?: { armAutoplay?: boolean; bumpPlaybackToken?: boolean; resetQueue?: boolean },
+      effects?: {
+        armAutoplay?: boolean;
+        bumpPlaybackToken?: boolean;
+        resetQueue?: boolean;
+        navigationScope?: NavigationCommitScope;
+      },
     ): boolean => {
       if (epoch !== queueJumpEpochRef.current) {
         return false;
@@ -430,10 +437,16 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         resetQueueState();
       }
 
-      setUpNext(patch.navigation.upNext);
-      setSpine(patch.navigation.spine);
-      setSpineOrder(patch.navigation.spineOrder);
-      setSpinePosition(patch.navigation.spinePosition);
+      const scope = effects?.navigationScope ?? "full";
+      if (scope !== "track-only") {
+        setUpNext(patch.navigation.upNext);
+        setSpinePosition(patch.navigation.spinePosition);
+        if (scope === "full") {
+          setSpine(patch.navigation.spine);
+          setSpineOrder(patch.navigation.spineOrder);
+          setLoopMode(patch.navigation.loopMode);
+        }
+      }
       if (patch.spineTotal !== undefined) {
         setSpineTotal(patch.spineTotal);
       }
@@ -617,7 +630,10 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         let spineTracks = loadedSpine.tracks;
         let spineTotal = loadedSpine.total;
         if (spineTracks.length === 0) {
-          if (isOfflineEnvironment() && (await getOfflineStorage().hasTrack(track.id))) {
+          if (context.type === "library") {
+            spineTracks = [queueTrackFromFullTrack(track)];
+            spineTotal = 1;
+          } else if (isOfflineEnvironment() && (await getOfflineStorage().hasTrack(track.id))) {
             spineTracks = [queueTrackFromFullTrack(track)];
             spineTotal = 1;
           } else {
@@ -641,7 +657,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         })();
 
         if (resolvedPosition === null || resolvedPosition < 0) {
-          if (isOfflineEnvironment() && (await getOfflineStorage().hasTrack(track.id))) {
+          if (context.type === "library") {
+            spineTracks = [queueTrackFromFullTrack(track)];
+            spineTotal = 1;
+            order = buildShuffledOrder(1);
+            resolvedPosition = 0;
+          } else if (isOfflineEnvironment() && (await getOfflineStorage().hasTrack(track.id))) {
             spineTracks = [queueTrackFromFullTrack(track)];
             spineTotal = 1;
             order = buildShuffledOrder(1);
@@ -654,6 +675,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         if (fetchEpoch !== playlistFetchEpochRef.current) return false;
 
         const needsQueueReset = Boolean(playContext && !isSamePlayContext(playContext, context));
+
+        noteUserQueueMutation();
 
         const navigationAfterSpine: QueueNavigationState = {
           upNext: [],
@@ -674,7 +697,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
               playContext: context,
               isPlayerVisible: true,
             },
-            { armAutoplay: true, bumpPlaybackToken: true, resetQueue: needsQueueReset },
+            {
+              armAutoplay: true,
+              bumpPlaybackToken: true,
+              resetQueue: needsQueueReset,
+              navigationScope: "full",
+            },
           )
         ) {
           return false;
@@ -693,6 +721,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       commitNavigation,
       hydrateAround,
       loadSpineForContext,
+      noteUserQueueMutation,
       playContext,
       rememberTrack,
     ],
@@ -746,6 +775,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         navigation?: QueueNavigationState;
         spineTotal?: number;
         upNextPlayNextCount?: number;
+        navigationScope?: NavigationCommitScope;
       },
     ): Promise<boolean> => {
       const navigationEpoch = options.navigationEpoch;
@@ -764,11 +794,17 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       }
 
       const navigationPatch = options.navigation ?? navigationState;
+      const navigationScope =
+        options.navigationScope ?? (options.navigation ? "position" : "track-only");
       const commitPatch = {
         navigation: navigationPatch,
         spineTotal: options.spineTotal,
         upNextPlayNextCount: options.upNextPlayNextCount,
       };
+      const commitEffects = (extra?: { armAutoplay?: boolean; bumpPlaybackToken?: boolean }) => ({
+        ...extra,
+        navigationScope,
+      });
 
       const cachedFull = resolveFullTrack(playbackCacheRef.current, queueTrack);
       if (isPlayableTrack(cachedFull)) {
@@ -779,7 +815,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           !commitNavigation(
             navigationEpoch,
             { ...commitPatch, track: cachedFull },
-            appliedSynchronously ? undefined : { armAutoplay: true, bumpPlaybackToken: true },
+            appliedSynchronously
+              ? { navigationScope }
+              : commitEffects({ armAutoplay: true, bumpPlaybackToken: true }),
           )
         ) {
           return false;
@@ -809,7 +847,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       return commitNavigation(
         navigationEpoch,
         { ...commitPatch, track: fullTrack },
-        appliedSynchronously ? undefined : { armAutoplay: true, bumpPlaybackToken: true },
+        appliedSynchronously
+          ? { navigationScope }
+          : commitEffects({ armAutoplay: true, bumpPlaybackToken: true }),
       );
     },
     [commitNavigation, hydrateAround, navigationState, resolvePlayableTrack],
@@ -820,12 +860,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       if (roomSpeakerRef.current) return;
       if (!isPlayableTrack(track)) return;
 
-      // Mark intent before the async spine fetch so in-flight restore cannot
-      // clobber the queue mid-click; only reset queue state after ownership gate.
-      noteUserQueueMutation();
       await startSpinePlayback(track, context, index);
     },
-    [noteUserQueueMutation, startSpinePlayback],
+    [startSpinePlayback],
   );
 
   const playPlaylist = useCallback(
@@ -881,7 +918,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             playContext: context,
             isPlayerVisible: true,
           },
-          { armAutoplay: true, bumpPlaybackToken: true, resetQueue: needsQueueReset },
+          {
+            armAutoplay: true,
+            bumpPlaybackToken: true,
+            resetQueue: needsQueueReset,
+            navigationScope: "full",
+          },
         );
 
         void hydrateAround(startTrack.id, navigationAfterPlaylist).catch((error) => {
@@ -940,7 +982,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             playContext: context,
             isPlayerVisible: true,
           },
-          { armAutoplay: true, bumpPlaybackToken: true, resetQueue: needsQueueReset },
+          {
+            armAutoplay: true,
+            bumpPlaybackToken: true,
+            resetQueue: needsQueueReset,
+            navigationScope: "full",
+          },
         );
       } finally {
         if (fetchEpoch === playlistFetchEpochRef.current) {
@@ -1031,10 +1078,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           target.index < upNextPlayNextCount
             ? Math.max(0, upNextPlayNextCount - 1)
             : upNextPlayNextCount;
-        commitNavigation(navigationEpoch, {
-          navigation: { ...navigationState, upNext: nextUpNext },
-          upNextPlayNextCount: nextPlayNextCount,
-        });
+        commitNavigation(
+          navigationEpoch,
+          {
+            navigation: { ...navigationState, upNext: nextUpNext },
+            upNextPlayNextCount: nextPlayNextCount,
+          },
+          { navigationScope: "position" },
+        );
         return;
       }
 
@@ -1047,11 +1098,15 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       }
 
       if (!result.removedCurrent) {
-        commitNavigation(navigationEpoch, {
-          navigation: result.state,
-          spineTotal: Math.max(0, spineTotal - 1),
-          upNextPlayNextCount: nextPlayNextCount,
-        });
+        commitNavigation(
+          navigationEpoch,
+          {
+            navigation: result.state,
+            spineTotal: Math.max(0, spineTotal - 1),
+            upNextPlayNextCount: nextPlayNextCount,
+          },
+          { navigationScope: "full" },
+        );
         return;
       }
 
@@ -1061,16 +1116,21 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           navigation: result.state,
           spineTotal: Math.max(0, spineTotal - 1),
           upNextPlayNextCount: nextPlayNextCount,
+          navigationScope: "full",
         });
         return;
       }
 
-      commitNavigation(navigationEpoch, {
-        navigation: result.state,
-        track: null,
-        spineTotal: Math.max(0, spineTotal - 1),
-        upNextPlayNextCount: nextPlayNextCount,
-      });
+      commitNavigation(
+        navigationEpoch,
+        {
+          navigation: result.state,
+          track: null,
+          spineTotal: Math.max(0, spineTotal - 1),
+          upNextPlayNextCount: nextPlayNextCount,
+        },
+        { navigationScope: "full" },
+      );
     },
     [commitNavigation, navigationState, playResolvedTrack, spineTotal, upNext, upNextPlayNextCount],
   );
@@ -1106,14 +1166,19 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         navigationEpoch,
         navigation: nextState,
         upNextPlayNextCount: nextPlayNextCount,
+        navigationScope: "position",
       });
       return;
     }
 
-    commitNavigation(navigationEpoch, {
-      navigation: navigationState,
-      track: null,
-    });
+    commitNavigation(
+      navigationEpoch,
+      {
+        navigation: navigationState,
+        track: null,
+      },
+      { navigationScope: "position" },
+    );
   }, [
     commitNavigation,
     currentTrack,
@@ -1302,8 +1367,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             navigation: nextState,
             track: fullTrack,
             upNextPlayNextCount: nextPlayNextCount,
+            isPlayerVisible: true,
           },
-          !appliedSynchronously ? { bumpPlaybackToken: true } : undefined,
+          {
+            navigationScope: "position",
+            ...(!appliedSynchronously ? { bumpPlaybackToken: true } : {}),
+          },
         );
       })();
     },
@@ -1389,6 +1458,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     void playResolvedTrack(queueTrack, {
       navigationEpoch: jumpEpoch,
       navigation: { ...navigationState, spinePosition: target.index },
+      navigationScope: "position",
     });
   }, [navigationState, playResolvedTrack]);
 
@@ -1435,6 +1505,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const closePlayer = useCallback(() => {
     if (roomSpeakerRef.current) return;
     playlistFetchEpochRef.current += 1;
+    queueJumpEpochRef.current += 1;
     wantsAutoPlayRef.current = false;
     setIsPlayerVisible(false);
     setCurrentTrack(null);

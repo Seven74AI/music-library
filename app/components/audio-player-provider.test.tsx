@@ -3633,3 +3633,418 @@ test("playContextSpine does not reopen the player after closePlayer while the sp
   expect(screen.getByTestId("player-visible").textContent).toBe("false");
   expect(screen.getByTestId("current-track-id").textContent).toBe("");
 });
+
+test("addToQueue during a slow jump is not overwritten when the jump completes", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const track2 = { ...playableTrack, id: "track-2", title: "Second Track" };
+  const queuedExtra: FullTrack = {
+    ...playableTrack,
+    id: "track-queued",
+    title: "Queued On Spine",
+    audioFiles: [{ id: "af-q", format: "mp3", objectKey: "audio/queued.mp3" }],
+  };
+
+  let releaseSlow: () => void = () => {};
+  const slowGate = new Promise<void>((resolve) => {
+    releaseSlow = resolve;
+  });
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2" }],
+          total: 2,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      if (ids.includes("track-2") && !ids.includes("track-1")) {
+        return slowGate.then(() =>
+          Promise.resolve({
+            ok: true,
+            json: async () => ({ tracks: [track2] }),
+          } as Response),
+        );
+      }
+      const all = [playableTrack, track2, queuedExtra];
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: all.filter((track) => ids.includes(track.id) && track.id !== "track-2"),
+        }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function Probe() {
+    const { playTrack, playQueueTrack, addToQueue, spineTotal, playlist, currentTrack } =
+      useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play first
+        </button>
+        <button type="button" onClick={() => playQueueTrack({ zone: "spine", index: 1 })}>
+          Jump to second
+        </button>
+        <button type="button" onClick={() => addToQueue(queuedExtra)}>
+          Add to queue
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+        <span data-testid="spine-total">{spineTotal}</span>
+        <span data-testid="spine-has-queued">
+          {String(playlist.some((track) => track.id === "track-queued"))}
+        </span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play first" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  void user.click(screen.getByRole("button", { name: "Jump to second" }));
+  await user.click(screen.getByRole("button", { name: "Add to queue" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("spine-total").textContent).toBe("3");
+  });
+
+  releaseSlow();
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-2");
+  });
+  expect(screen.getByTestId("spine-total").textContent).toBe("3");
+  expect(screen.getByTestId("spine-has-queued").textContent).toBe("true");
+});
+
+test("close during an in-flight jumpToQueueTrack keeps the player closed", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const track2 = { ...playableTrack, id: "track-2", title: "Second Track" };
+
+  let releaseSlow: () => void = () => {};
+  const slowGate = new Promise<void>((resolve) => {
+    releaseSlow = resolve;
+  });
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE)) {
+      return Promise.resolve({ status: 204, ok: true, json: async () => null } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2" }],
+          total: 2,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      if (ids.includes("track-2") && ids.length === 1) {
+        return slowGate.then(() =>
+          Promise.resolve({
+            ok: true,
+            json: async () => ({ tracks: [track2] }),
+          } as Response),
+        );
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [playableTrack, track2].filter((track) => ids.includes(track.id)),
+        }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function Probe() {
+    const { playTrack, playQueueTrack, closePlayer, isPlayerVisible, currentTrack } =
+      useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play first
+        </button>
+        <button type="button" onClick={() => playQueueTrack({ zone: "spine", index: 1 })}>
+          Jump to second
+        </button>
+        <button type="button" onClick={closePlayer}>
+          Close player
+        </button>
+        <span data-testid="player-visible">{String(isPlayerVisible)}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play first" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+
+  void user.click(screen.getByRole("button", { name: "Jump to second" }));
+  await user.click(screen.getByRole("button", { name: "Close player" }));
+
+  expect(screen.getByTestId("player-visible").textContent).toBe("false");
+  expect(screen.getByTestId("current-track-id").textContent).toBe("");
+
+  releaseSlow();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  expect(screen.getByTestId("player-visible").textContent).toBe("false");
+  expect(screen.getByTestId("current-track-id").textContent).toBe("");
+});
+
+test("close during in-flight startSpinePlayback keeps the player closed", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+
+  let releaseLibrarySpine!: () => void;
+  let librarySpineReleased = false;
+  const librarySpineGate = new Promise<void>((resolve) => {
+    releaseLibrarySpine = () => {
+      librarySpineReleased = true;
+      resolve();
+    };
+  });
+  let deferLibrarySpine = false;
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE)) {
+      return Promise.resolve({ status: 204, ok: true, json: async () => null } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      if (deferLibrarySpine && url.includes("context=library") && !librarySpineReleased) {
+        return librarySpineGate.then(() =>
+          Promise.resolve({
+            ok: true,
+            json: async () => ({ tracks: [spineTrack], total: 1 }),
+          } as Response),
+        );
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: [spineTrack], total: 1 }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [playableTrack].filter((track) => ids.includes(track.id)),
+        }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function Probe() {
+    const { playTrack, closePlayer, isPlayerVisible, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => void playTrack(playableTrack, { type: "library" }, 0)}>
+          Play library track
+        </button>
+        <button type="button" onClick={closePlayer}>
+          Close player
+        </button>
+        <span data-testid="player-visible">{String(isPlayerVisible)}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  deferLibrarySpine = true;
+  void user.click(screen.getByRole("button", { name: "Play library track" }));
+  await user.click(screen.getByRole("button", { name: "Close player" }));
+
+  expect(screen.getByTestId("player-visible").textContent).toBe("false");
+
+  releaseLibrarySpine();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
+  expect(screen.getByTestId("player-visible").textContent).toBe("false");
+  expect(screen.getByTestId("current-track-id").textContent).toBe("");
+});
+
+test("a rejected catalog click during startup does not skip restore", async () => {
+  const user = userEvent.setup();
+  let resolveRestore: ((value: Response) => void) | undefined;
+  const restorePromise = new Promise<Response>((resolve) => {
+    resolveRestore = resolve;
+  });
+
+  const fetchMock = vi.mocked(fetch);
+  const restoredTrack = { ...playableTrack, id: "track-restored", title: "Restored Track" };
+
+  fetchMock.mockImplementation((input) => {
+    const url = String(input);
+    if (url === PLAYER_STATE_ROUTE) {
+      return restorePromise;
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const tracks = [restoredTrack, playableTrack].filter((track) => ids.includes(track.id));
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => ({ tracks }),
+      } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      if (url.includes("context=artist")) {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          json: async () => ({
+            tracks: [{ ...spineTrack, id: "artist-only", title: "Artist Only" }],
+            total: 1,
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => ({ tracks: [restoredTrack], total: 1 }),
+      } as Response);
+    }
+    return Promise.resolve({ status: 200, ok: true, json: async () => ({}) } as Response);
+  });
+
+  function Probe() {
+    const { playTrack, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => playTrack(playableTrack, { type: "artist", artistId: "artist-1" }, 0)}
+        >
+          Play artist track
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play artist track" }));
+
+  resolveRestore?.({
+    status: 200,
+    ok: true,
+    json: async () => ({
+      playContext: { type: "library" },
+      currentTrackId: "track-restored",
+      upNextIds: [],
+      shuffleSeed: null,
+      loopMode: "off",
+    }),
+  } as Response);
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-restored");
+  });
+});
+
+test("an owned-but-not-downloaded library track opens the player after online spine fetch failure", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  consoleError.mockImplementation(() => {});
+  const libraryTrack: FullTrack = {
+    ...playableTrack,
+    id: "library-owned",
+    title: "Library Owned",
+    audioFiles: [{ id: "af-lo", format: "mp3", objectKey: "audio/library-owned.mp3" }],
+  };
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/queue-spine")) {
+      return Promise.reject(new Error("network down"));
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: ids.includes("library-owned") ? [libraryTrack] : [],
+        }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  vi.mocked(getOfflineStorage).mockReturnValue({
+    cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
+    listDownloaded: vi.fn().mockResolvedValue([]),
+    listPinned: vi.fn().mockResolvedValue([]),
+    listForPlaylist: vi.fn().mockResolvedValue([]),
+    hasTrack: vi.fn().mockResolvedValue(false),
+  } as unknown as ReturnType<typeof getOfflineStorage>);
+
+  function Probe() {
+    const { playTrack, isPlayerVisible, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(libraryTrack, { type: "library" })}>
+          Play library owned
+        </button>
+        <span data-testid="player-visible">{String(isPlayerVisible)}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play library owned" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("library-owned");
+  });
+  expect(screen.getByTestId("player-visible").textContent).toBe("true");
+});
