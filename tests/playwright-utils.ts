@@ -2,9 +2,7 @@ import path from "node:path";
 import { test as base, type Page, type Response } from "@playwright/test";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { href, type Register } from "react-router";
-import * as setCookieParser from "set-cookie-parser";
-import { getPasswordHash, getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
-import { authSessionStorage } from "#app/utils/session.server.ts";
+import { getPasswordHash } from "#app/utils/auth.server.ts";
 import { type User as UserModel, PrismaClient } from "#prisma/client.js";
 import { createUser } from "./db-utils.ts";
 
@@ -197,29 +195,22 @@ export const test = base.extend<{
   login: async ({ page }, use) => {
     const userIds: string[] = [];
     await use(async (options) => {
-      const user = await getOrInsertUser(options);
-      userIds.push(user.id);
-      const session = await testPrisma.session.create({
-        data: {
-          expirationDate: getSessionExpirationDate(),
-          userId: user.id,
-        },
-        select: { id: true },
+      const userData = createUser();
+      const password = options?.password ?? userData.username;
+      const user = await getOrInsertUser({
+        ...options,
+        username: options?.username ?? userData.username,
+        email: options?.email ?? userData.email,
+        password,
       });
+      userIds.push(user.id);
 
-      const authSession = await authSessionStorage.getSession();
-      authSession.set(sessionKey, session.id);
-      const cookieConfig = setCookieParser.parseString(
-        await authSessionStorage.commitSession(authSession),
-      )!;
-      const newConfig = {
-        ...cookieConfig,
-        domain: "localhost",
-        expires: cookieConfig.expires?.getTime(),
-        sameSite: cookieConfig.sameSite as "Strict" | "Lax" | "None",
-      };
       await page.context().clearCookies();
-      await page.context().addCookies([newConfig]);
+      await page.goto("/login");
+      await page.getByRole("textbox", { name: /username/i }).fill(user.username);
+      await page.getByLabel(/^password$/i).fill(password);
+      await page.getByRole("button", { name: /log in/i }).click();
+      await page.waitForURL("/");
       return user;
     });
     // Use helper function for proper cleanup order
@@ -228,30 +219,23 @@ export const test = base.extend<{
   loginAsAdmin: async ({ page }, use) => {
     const userIds: string[] = [];
     await use(async (options) => {
-      // Automatically add admin and user roles
-      const user = await getOrInsertUser({ ...options, roles: ["admin", "user"] });
-      userIds.push(user.id);
-      const session = await testPrisma.session.create({
-        data: {
-          expirationDate: getSessionExpirationDate(),
-          userId: user.id,
-        },
-        select: { id: true },
+      const userData = createUser();
+      const password = options?.password ?? userData.username;
+      const user = await getOrInsertUser({
+        ...options,
+        username: options?.username ?? userData.username,
+        email: options?.email ?? userData.email,
+        password,
+        roles: ["admin", "user"],
       });
+      userIds.push(user.id);
 
-      const authSession = await authSessionStorage.getSession();
-      authSession.set(sessionKey, session.id);
-      const cookieConfig = setCookieParser.parseString(
-        await authSessionStorage.commitSession(authSession),
-      )!;
-      const newConfig = {
-        ...cookieConfig,
-        domain: "localhost",
-        expires: cookieConfig.expires?.getTime(),
-        sameSite: cookieConfig.sameSite as "Strict" | "Lax" | "None",
-      };
       await page.context().clearCookies();
-      await page.context().addCookies([newConfig]);
+      await page.goto("/login");
+      await page.getByRole("textbox", { name: /username/i }).fill(user.username);
+      await page.getByLabel(/^password$/i).fill(password);
+      await page.getByRole("button", { name: /log in/i }).click();
+      await page.waitForURL("/");
       return user;
     });
     // Use helper function for proper cleanup order

@@ -12,7 +12,9 @@ export async function submitVerification(page: Page, code?: string) {
     return;
   }
   invariant(code, "Verification code required when OTP field is shown");
-  await page.getByRole("textbox", { name: /code/i }).fill(code);
+  const codeInput = page.getByRole("textbox", { name: /code/i });
+  await expect(codeInput).toBeVisible({ timeout: 15_000 });
+  await codeInput.fill(code);
   await page
     .getByRole("main")
     .getByRole("button", { name: /submit/i })
