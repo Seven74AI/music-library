@@ -44,6 +44,9 @@ const playerStateSchema = z.object({
   upNextIds: z.array(idSchema).max(1000),
   shuffleSeed: z.number().int().nullable(),
   loopMode: z.enum(["off", "all", "one"]),
+  spinePosition: z.number().int().min(0).default(0),
+  audibleSourceZone: z.enum(["spine", "upNext"]).nullable().default(null),
+  upNextPlayNextCount: z.number().int().min(0).default(0),
 });
 
 const DEFAULT_PLAYER_STATE: PlayerStateData = {
@@ -52,6 +55,9 @@ const DEFAULT_PLAYER_STATE: PlayerStateData = {
   upNextIds: [],
   shuffleSeed: null,
   loopMode: "off",
+  spinePosition: 0,
+  audibleSourceZone: null,
+  upNextPlayNextCount: 0,
 };
 
 /** Validate an untrusted request body into a `PlayerStateData`. */
@@ -65,6 +71,9 @@ function parseStoredPlayerStateRow(row: {
   upNextIds: string;
   shuffleSeed: number | null;
   loopMode: string;
+  spinePosition: number;
+  audibleSourceZone: string | null;
+  upNextPlayNextCount: number;
 }): PlayerStateData {
   let playContext: unknown = null;
   if (row.playContext) {
@@ -88,6 +97,9 @@ function parseStoredPlayerStateRow(row: {
     upNextIds,
     shuffleSeed: row.shuffleSeed,
     loopMode: row.loopMode,
+    spinePosition: row.spinePosition,
+    audibleSourceZone: row.audibleSourceZone,
+    upNextPlayNextCount: row.upNextPlayNextCount,
   });
 
   if (!parsed.success) {
@@ -116,6 +128,9 @@ export async function savePlayerState(userId: string, data: PlayerStateData): Pr
       upNextIds,
       shuffleSeed,
       loopMode: data.loopMode,
+      spinePosition: data.spinePosition,
+      audibleSourceZone: data.audibleSourceZone,
+      upNextPlayNextCount: data.upNextPlayNextCount,
     },
     update: {
       playContext,
@@ -123,6 +138,9 @@ export async function savePlayerState(userId: string, data: PlayerStateData): Pr
       upNextIds,
       shuffleSeed,
       loopMode: data.loopMode,
+      spinePosition: data.spinePosition,
+      audibleSourceZone: data.audibleSourceZone,
+      upNextPlayNextCount: data.upNextPlayNextCount,
     },
   });
 }

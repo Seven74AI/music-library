@@ -5292,3 +5292,482 @@ test("leaving room speaker refetches catalog tracks evicted from the hydration c
   );
   expect(refetchCalls.some((call) => String(call[0]).includes(sharedId))).toBe(true);
 });
+
+test("currentIndex is the source-list row for a mid-spine track", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const track2 = { ...playableTrack, id: "track-2", title: "Second" };
+  const track3 = { ...playableTrack, id: "track-3", title: "Third" };
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE)) {
+      return Promise.resolve({ status: 204, ok: true, json: async () => null } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2" }, { ...spineTrack, id: "track-3" }],
+          total: 3,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const tracks = [playableTrack, track2, track3].filter((track) => ids.includes(track.id));
+      return Promise.resolve({ ok: true, json: async () => ({ tracks }) } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function IndexProbe() {
+    const { playTrack, currentIndex, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(track2, { type: "library" }, 1)}>
+          Play second
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+        <span data-testid="current-index">{currentIndex}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <IndexProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play second" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-2");
+  });
+  expect(screen.getByTestId("current-index").textContent).toBe("1");
+});
+
+test("currentIndex stays on the spine row when the same id is queued in Up Next", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE)) {
+      return Promise.resolve({ status: 204, ok: true, json: async () => null } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: [spineTrack], total: 1 }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: [playableTrack] }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function DuplicateProbe() {
+    const { playTrack, playNextTrack, currentIndex, audibleSourceZone, currentTrack } =
+      useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+          Play spine
+        </button>
+        <button type="button" onClick={() => playNextTrack(playableTrack)}>
+          Play next duplicate
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+        <span data-testid="current-index">{currentIndex}</span>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <DuplicateProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play spine" }));
+  await user.click(screen.getByRole("button", { name: "Play next duplicate" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("audible-zone").textContent).toBe("spine");
+  });
+  expect(screen.getByTestId("current-index").textContent).toBe("0");
+});
+
+test("restore resumes spine position and zone while an Up Next track is audible", async () => {
+  const fetchMock = vi.mocked(fetch);
+  const track2 = { ...playableTrack, id: "track-2", title: "Spine Two" };
+  const upNextCurrent = { ...playableTrack, id: "track-up", title: "Up Next Current" };
+
+  fetchMock.mockImplementation((input, init) => {
+    const url = String(input);
+    const method = (init as RequestInit | undefined)?.method ?? "GET";
+    if (url === PLAYER_STATE_ROUTE && method === "GET") {
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          playContext: { type: "library" },
+          currentTrackId: "track-up",
+          upNextIds: ["track-up", "track-queued"],
+          shuffleSeed: null,
+          loopMode: "off",
+          spinePosition: 2,
+          audibleSourceZone: "upNext",
+          upNextPlayNextCount: 0,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "https://example.com").searchParams.get("ids")!.split(",");
+      const tracks = [
+        upNextCurrent,
+        { ...playableTrack, id: "track-queued", title: "Queued" },
+      ].filter((track) => ids.includes(track.id));
+      return Promise.resolve({ ok: true, json: async () => ({ tracks }) } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2" }, { ...spineTrack, id: "track-3" }],
+          total: 3,
+        }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function RestoreProbe() {
+    const { spinePosition, audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="spine-position">{spinePosition}</span>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-up");
+  });
+  expect(screen.getByTestId("spine-position").textContent).toBe("2");
+  expect(screen.getByTestId("audible-zone").textContent).toBe("upNext");
+});
+
+test("local cache mirror re-infers spine position after reconnect backfills the spine", async () => {
+  const fetchMock = vi.mocked(fetch);
+  window.localStorage.clear();
+
+  writeCachedPlayerState("user-1", {
+    playContext: { type: "library" },
+    currentTrackId: "track-3",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: null,
+    upNextPlayNextCount: 0,
+  });
+
+  mockOfflineStorage([downloadedSummary("track-3", "Spine Three")]);
+  const navigatorState = { onLine: false };
+  vi.stubGlobal("navigator", navigatorState);
+
+  function RestoreProbe() {
+    const { spinePosition, audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="spine-position">{spinePosition}</span>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
+  });
+  expect(screen.getByTestId("audible-zone").textContent).toBe("");
+  expect(screen.getByTestId("spine-position").textContent).toBe("0");
+  expect(fetchMock).not.toHaveBeenCalled();
+
+  installQueueSpineFetchMock(fetchMock, {
+    playContext: { type: "library" },
+    currentTrackId: "track-3",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: null,
+    upNextPlayNextCount: 0,
+  });
+
+  navigatorState.onLine = true;
+  window.dispatchEvent(new Event("online"));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("spine-position").textContent).toBe("2");
+  });
+  expect(screen.getByTestId("audible-zone").textContent).toBe("spine");
+
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const persistPut = fetchMock.mock.calls.find((call) => {
+    const init = call[1] as RequestInit | undefined;
+    return String(call[0]) === PLAYER_STATE_ROUTE && init?.method === "PUT";
+  });
+  expect(persistPut).toBeDefined();
+  const body = JSON.parse(String((persistPut![1] as RequestInit).body)) as {
+    spinePosition: number;
+    audibleSourceZone: string | null;
+  };
+  expect(body.spinePosition).toBe(2);
+  expect(body.audibleSourceZone).toBe("spine");
+});
+
+test("offline restore keeps unknown audibleSourceZone without inventing a concrete zone", async () => {
+  window.localStorage.clear();
+
+  writeCachedPlayerState("user-1", {
+    playContext: { type: "library" },
+    currentTrackId: "track-1",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: null,
+  });
+
+  mockOfflineStorage([downloadedSummary("track-1", "Test Song")]);
+  vi.stubGlobal("navigator", { onLine: false });
+
+  function RestoreProbe() {
+    const { audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+  });
+  expect(screen.getByTestId("audible-zone").textContent).toBe("");
+});
+
+function installQueueSpineFetchMock(
+  fetchMock: ReturnType<typeof vi.mocked<typeof fetch>>,
+  playerStateBody: Record<string, unknown>,
+) {
+  fetchMock.mockImplementation((input, init) => {
+    const url = String(input);
+    const method = (init as RequestInit | undefined)?.method ?? "GET";
+    if (url === PLAYER_STATE_ROUTE && method === "GET") {
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => playerStateBody,
+      } as Response);
+    }
+    if (url === PLAYER_STATE_ROUTE && method === "PUT") {
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "https://example.com").searchParams.get("ids")!.split(",");
+      const tracks = [
+        playableTrack,
+        { ...playableTrack, id: "track-2", title: "Spine Two" },
+        { ...playableTrack, id: "track-3", title: "Spine Three" },
+      ].filter((track) => ids.includes(track.id));
+      return Promise.resolve({ ok: true, json: async () => ({ tracks }) } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2" }, { ...spineTrack, id: "track-3" }],
+          total: 3,
+        }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+}
+
+test("restore re-infers spine position for migrated rows with null audibleSourceZone", async () => {
+  const fetchMock = vi.mocked(fetch);
+  installQueueSpineFetchMock(fetchMock, {
+    playContext: { type: "library" },
+    currentTrackId: "track-3",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: null,
+    upNextPlayNextCount: 0,
+  });
+
+  function RestoreProbe() {
+    const { spinePosition, audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="spine-position">{spinePosition}</span>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
+  });
+  expect(screen.getByTestId("spine-position").textContent).toBe("2");
+  expect(screen.getByTestId("audible-zone").textContent).toBe("spine");
+
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const persistPut = fetchMock.mock.calls.find((call) => {
+    const init = call[1] as RequestInit | undefined;
+    return String(call[0]) === PLAYER_STATE_ROUTE && init?.method === "PUT";
+  });
+  expect(persistPut).toBeDefined();
+  const body = JSON.parse(String((persistPut![1] as RequestInit).body)) as {
+    spinePosition: number;
+    audibleSourceZone: string | null;
+  };
+  expect(body.spinePosition).toBe(2);
+  expect(body.audibleSourceZone).toBe("spine");
+});
+
+test("restore re-infers spine position for legacy payloads without audibleSourceZone", async () => {
+  const fetchMock = vi.mocked(fetch);
+  installQueueSpineFetchMock(fetchMock, {
+    playContext: { type: "library" },
+    currentTrackId: "track-3",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+  });
+
+  function RestoreProbe() {
+    const { spinePosition, audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="spine-position">{spinePosition}</span>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
+  });
+  expect(screen.getByTestId("spine-position").textContent).toBe("2");
+  expect(screen.getByTestId("audible-zone").textContent).toBe("spine");
+});
+
+test("restore keeps explicit upNext audibleSourceZone without forcing spine", async () => {
+  const fetchMock = vi.mocked(fetch);
+  const upNextCurrent = { ...playableTrack, id: "track-up", title: "Up Next Current" };
+  fetchMock.mockImplementation((input, init) => {
+    const url = String(input);
+    const method = (init as RequestInit | undefined)?.method ?? "GET";
+    if (url === PLAYER_STATE_ROUTE && method === "GET") {
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          playContext: { type: "library" },
+          currentTrackId: "track-up",
+          upNextIds: ["track-up"],
+          shuffleSeed: null,
+          loopMode: "off",
+          spinePosition: 2,
+          audibleSourceZone: "upNext",
+          upNextPlayNextCount: 0,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "https://example.com").searchParams.get("ids")!.split(",");
+      const tracks = [upNextCurrent].filter((track) => ids.includes(track.id));
+      return Promise.resolve({ ok: true, json: async () => ({ tracks }) } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2" }, { ...spineTrack, id: "track-3" }],
+          total: 3,
+        }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function RestoreProbe() {
+    const { spinePosition, audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="spine-position">{spinePosition}</span>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-up");
+  });
+  expect(screen.getByTestId("spine-position").textContent).toBe("2");
+  expect(screen.getByTestId("audible-zone").textContent).toBe("upNext");
+});

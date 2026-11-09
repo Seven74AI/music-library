@@ -25,6 +25,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "#app/components/ui/sheet";
+import { collectQueueDisplayHydrationIds } from "#app/features/queue/queue-hydration.ts";
 import {
   queueSpineDisplayIncludesHead,
   spineOrderIndexFromDisplayIndex,
@@ -231,6 +232,7 @@ function QueueSheet({
     spineTotal,
     spinePosition,
     audibleSourceZone,
+    queueNavigationState,
     currentTrack,
     playContext,
     removeTrackFromPlaylist,
@@ -244,14 +246,10 @@ function QueueSheet({
   const currentTrackId = currentTrack?.id;
 
   const queueSheetTrackIds = useMemo(() => {
-    const ids: string[] = [];
-    if (currentTrackId) ids.push(currentTrackId);
-    ids.push(...upNext.map((track) => track.id));
-    if (spine.length < SPINE_VIRTUAL_THRESHOLD) {
-      ids.push(...spine.map((track) => track.id));
-    }
-    return ids.join(",");
-  }, [currentTrackId, upNext, spine]);
+    return collectQueueDisplayHydrationIds(queueNavigationState, currentTrackId ?? null, {
+      audibleIsSpineHead: currentTrack !== null && audibleSourceZone === "spine",
+    }).join(",");
+  }, [queueNavigationState, currentTrackId, currentTrack, audibleSourceZone]);
 
   useEffect(() => {
     if (!isOpen || queueSheetTrackIds.length === 0) return;

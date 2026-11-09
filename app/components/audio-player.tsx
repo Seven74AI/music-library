@@ -883,7 +883,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
       }
       if (audioRef.current?.paused) {
         keepPlayingRef.current = true;
-        void audioRef.current.play();
+        void audioRef.current.play().then(() => {
+          if (track && playStartedForTrackRef.current !== track.id) {
+            playStartedForTrackRef.current = track.id;
+            playCompletedForPlayIdRef.current = null;
+            playIdRef.current = generatePlayId();
+            emitPlayEvent("play_started", track.id, playIdRef.current);
+          }
+        });
       }
     });
     navigator.mediaSession.setActionHandler("pause", () => {
@@ -954,6 +961,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     roomSpeaker,
     roomTransportRef,
     track,
+    emitPlayEvent,
   ]);
 
   useEffect(() => {

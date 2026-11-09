@@ -34,7 +34,6 @@ import {
   advanceAfterPlay,
   buildFlatQueueView,
   findSpinePositionForTrackId,
-  flatIndexForSpinePosition,
   getTrackAtTarget,
   getQueueSpineDisplayTracks,
   hasNextTrack,
@@ -59,12 +58,15 @@ import {
   queueTrackFromFullTrack,
 } from "#app/features/queue/queue-spine.ts";
 import {
-  readCachedPlayerState,
+  readCachedPlayerStateWithMeta,
   writeCachedPlayerState,
 } from "#app/features/player-state/player-state-cache.client.ts";
 import {
   fetchPlayerState,
+  inferAudibleSourceForRestore,
+  isAudibleSourceZoneUnknown,
   persistPlayerState,
+  withPlayerStateDefaults,
   type PlayerStateData,
 } from "#app/features/player-state/player-state.ts";
 import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
@@ -128,6 +130,8 @@ interface AudioPlayerContextType {
   spinePosition: number;
   /** Queue zone the current audible track was started from (spine vs up next). */
   audibleSourceZone: QueueZone | null;
+  /** Raw queue navigation state (spine order, Up Next rows, loop). */
+  queueNavigationState: QueueNavigationState;
   currentIndex: number;
   playContext: PlaylistContext | null;
   loopMode: LoopMode;
@@ -215,6 +219,9 @@ const EMPTY_PLAYER_STATE: PlayerStateData = {
   upNextIds: [],
   shuffleSeed: null,
   loopMode: "off",
+  spinePosition: 0,
+  audibleSourceZone: null,
+  upNextPlayNextCount: 0,
 };
 
 interface AudioPlayerProviderProps {
@@ -278,13 +285,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   // Mirror of the serializable queue state, kept in a ref so the debounced
   // write and the beforeunload flush always read the latest committed values.
-  const playerStateRef = useRef<PlayerStateData>({
-    playContext: null,
-    currentTrackId: null,
-    upNextIds: [],
-    shuffleSeed: null,
-    loopMode: "off",
-  });
+  const playerStateRef = useRef<PlayerStateData>(EMPTY_PLAYER_STATE);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // User id we last completed a successful *online* restore for. Persist and
   // unload-flush are gated on this matching the current user so we never:
@@ -357,6 +358,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     setSpineTotal(0);
     setSpineOrder([]);
     setSpinePosition(0);
+    setAudibleSourceZone(null);
+    audibleSourceZoneRef.current = null;
     setPlayContext(null);
     setLoopMode("off");
     setShuffleSeed(null);
@@ -412,15 +415,25 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const currentIndex = useMemo(() => {
     if (!currentTrack) return -1;
 
-    const upNextIndex = upNext.findIndex((track) => track.id === currentTrack.id);
-    if (upNextIndex >= 0) return upNextIndex;
-
-    if (findSpinePositionForTrackId(navigationState, currentTrack.id) !== null) {
-      return flatIndexForSpinePosition(navigationState, spinePosition);
+    if (audibleSourceZone === "upNext") {
+      const upNextIndex = upNext.findIndex((track) => track.id === currentTrack.id);
+      return upNextIndex >= 0 ? upNextIndex : -1;
     }
 
-    return -1;
-  }, [currentTrack, upNext, navigationState, spinePosition]);
+    if (audibleSourceZone === "spine") {
+      const sourceIndex = spineOrder[spinePosition];
+      return sourceIndex !== undefined ? sourceIndex : -1;
+    }
+
+    const spinePositionForId = findSpinePositionForTrackId(navigationState, currentTrack.id);
+    if (spinePositionForId !== null) {
+      const sourceIndex = spineOrder[spinePositionForId];
+      return sourceIndex !== undefined ? sourceIndex : -1;
+    }
+
+    const upNextIndex = upNext.findIndex((track) => track.id === currentTrack.id);
+    return upNextIndex >= 0 ? upNextIndex : -1;
+  }, [currentTrack, upNext, navigationState, spinePosition, spineOrder, audibleSourceZone]);
 
   const pauseTrack = useCallback(() => {
     if (roomSpeakerRef.current) {
@@ -437,17 +450,6 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       return;
     }
     resumePlaybackRef.current?.();
-  }, []);
-
-  const beginPlayback = useCallback(() => {
-    wantsAutoPlayRef.current = true;
-    setPlaybackToken((token) => token + 1);
-    // Cancel any pending scroll hydration from a previous queue
-    if (hydrationTimerRef.current) {
-      clearTimeout(hydrationTimerRef.current);
-      hydrationTimerRef.current = null;
-    }
-    pendingHydrationIdsRef.current.clear();
   }, []);
 
   const resetQueueState = useCallback(() => {
@@ -1878,6 +1880,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       spineTotal,
       spinePosition,
       audibleSourceZone,
+      queueNavigationState: navigationState,
       currentIndex,
       playContext,
       loopMode,
@@ -1929,6 +1932,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       spineTotal,
       spinePosition,
       audibleSourceZone,
+      navigationState,
       currentIndex,
       playContext,
       loopMode,
@@ -1991,7 +1995,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   // from the play context, replay Up Next + position on top, and leave the
   // player paused (restore-and-wait — no autoplay).
   const restoreQueueFromServer = useCallback(
-    async (saved: PlayerStateData) => {
+    async (rawSaved: PlayerStateData) => {
+      const zoneUnknown = isAudibleSourceZoneUnknown(rawSaved.audibleSourceZone);
+      const saved = withPlayerStateDefaults(rawSaved);
       const epoch = restoreEpochRef.current;
       const shouldAbortRestore = () =>
         userMutatedQueueRef.current ||
@@ -2054,37 +2060,38 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       setLoopMode(saved.loopMode);
       setShuffleSeed(saved.shuffleSeed);
       setUpNext(resolvedUpNext);
-      setUpNextPlayNextCount(0);
-      upNextPlayNextCountRef.current = 0;
+      setUpNextPlayNextCount(saved.upNextPlayNextCount);
+      upNextPlayNextCountRef.current = saved.upNextPlayNextCount;
       setSpine(spineTracks);
       setSpineTotal(total);
       setSpineOrder(order);
+      setSpinePosition(saved.spinePosition);
 
       const currentFullTrack = saved.currentTrackId
         ? (byId.get(saved.currentTrackId) ?? null)
         : null;
 
       if (currentFullTrack && isPlayableTrack(currentFullTrack)) {
-        // Position the current track within the reconstructed play order; a null
-        // position means it lives in Up Next (or nowhere), in which case the
-        // spine keeps its default position.
-        const position = findSpinePositionForTrackId(
+        const inferred = inferAudibleSourceForRestore(
+          zoneUnknown,
+          saved.audibleSourceZone,
+          saved.spinePosition,
           {
             upNext: resolvedUpNext,
             spine: spineTracks,
             spineOrder: order,
-            spinePosition: 0,
+            spinePosition: saved.spinePosition,
             loopMode: saved.loopMode,
           },
           currentFullTrack.id,
+          resolvedUpNext.map((track) => track.id),
         );
-        if (position !== null) {
-          setSpinePosition(position);
-          audibleSourceZoneRef.current = "spine";
-          setAudibleSourceZone("spine");
-        } else if (resolvedUpNext.some((track) => track.id === currentFullTrack.id)) {
-          audibleSourceZoneRef.current = "upNext";
-          setAudibleSourceZone("upNext");
+        if (inferred.spinePosition !== saved.spinePosition) {
+          setSpinePosition(inferred.spinePosition);
+        }
+        if (inferred.audibleSourceZone !== null) {
+          audibleSourceZoneRef.current = inferred.audibleSourceZone;
+          setAudibleSourceZone(inferred.audibleSourceZone);
         } else {
           audibleSourceZoneRef.current = null;
           setAudibleSourceZone(null);
@@ -2112,8 +2119,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   // returns. A client-side spine snapshot is never cached.
   const restoreQueueOffline = useCallback(async (restoreUserId: string) => {
     const epoch = restoreEpochRef.current;
-    const saved = readCachedPlayerState(restoreUserId);
-    if (!saved) return;
+    const cachedRead = readCachedPlayerStateWithMeta(restoreUserId);
+    if (!cachedRead) return;
+    const { saved, zoneUnknown } = cachedRead;
     if (
       userMutatedQueueRef.current ||
       roomSpeakerRef.current !== null ||
@@ -2160,15 +2168,22 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     setLoopMode(saved.loopMode);
     setShuffleSeed(saved.shuffleSeed);
     setUpNext(resolvedUpNext.map(queueTrackFromFullTrack));
-    setUpNextPlayNextCount(0);
-    upNextPlayNextCountRef.current = 0;
+    setUpNextPlayNextCount(saved.upNextPlayNextCount);
+    upNextPlayNextCountRef.current = saved.upNextPlayNextCount;
     // No spine offline — leave it empty and backfill on reconnect.
     setSpine([]);
     setSpineTotal(0);
     setSpineOrder([]);
-    setSpinePosition(0);
+    setSpinePosition(saved.spinePosition);
 
     if (currentFullTrack && isPlayableTrack(currentFullTrack)) {
+      if (zoneUnknown) {
+        audibleSourceZoneRef.current = null;
+        setAudibleSourceZone(null);
+      } else {
+        audibleSourceZoneRef.current = saved.audibleSourceZone;
+        setAudibleSourceZone(saved.audibleSourceZone);
+      }
       setCurrentTrack(currentFullTrack);
     }
 
@@ -2179,6 +2194,40 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     }
   }, []);
 
+  // Migrated/local-cache rows may omit zone + pin spinePosition 0. Once a spine
+  // exists, re-infer before the debounced persist can write the wrong index.
+  useEffect(() => {
+    const track = currentTrack;
+    if (!track?.id || !isPlayableTrack(track)) return;
+    if (!isAudibleSourceZoneUnknown(audibleSourceZone)) return;
+    if (spine.length === 0 || spineOrder.length === 0) return;
+
+    const inferred = inferAudibleSourceForRestore(
+      true,
+      null,
+      spinePosition,
+      navigationState,
+      track.id,
+      upNext.map((queueTrack) => queueTrack.id),
+    );
+    if (inferred.audibleSourceZone === null) return;
+
+    if (inferred.spinePosition !== spinePosition) {
+      setSpinePosition(inferred.spinePosition);
+    }
+    audibleSourceZoneRef.current = inferred.audibleSourceZone;
+    setAudibleSourceZone(inferred.audibleSourceZone);
+  }, [
+    currentTrack,
+    audibleSourceZone,
+    spine.length,
+    spineOrder,
+    upNext,
+    loopMode,
+    spinePosition,
+    navigationState,
+  ]);
+
   // Keep the serializable-state mirror in sync for the debounced write + flush.
   useEffect(() => {
     playerStateRef.current = {
@@ -2187,8 +2236,20 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       upNextIds: upNext.map((track) => track.id),
       shuffleSeed,
       loopMode,
+      spinePosition,
+      audibleSourceZone,
+      upNextPlayNextCount,
     };
-  }, [playContext, currentTrack?.id, upNext, shuffleSeed, loopMode]);
+  }, [
+    playContext,
+    currentTrack?.id,
+    upNext,
+    shuffleSeed,
+    loopMode,
+    spinePosition,
+    audibleSourceZone,
+    upNextPlayNextCount,
+  ]);
 
   // Debounced write: ~1s after the last queue mutation. Gated so the initial
   // empty snapshot, a previous user's queue, or an offline-truncated Up Next
@@ -2235,6 +2296,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     upNext,
     shuffleSeed,
     loopMode,
+    spinePosition,
+    audibleSourceZone,
+    upNextPlayNextCount,
     persistEpoch,
     roomSpeaker,
   ]);

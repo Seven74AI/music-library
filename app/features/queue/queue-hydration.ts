@@ -146,7 +146,7 @@ export function collectQueueDisplayHydrationIds(
   for (const track of getQueueSpineDisplayTracks(
     state,
     currentTrackId !== null,
-    currentTrackId === null || audibleIsSpineHead,
+    audibleIsSpineHead,
   )) {
     ids.push(track.id);
   }

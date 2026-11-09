@@ -2,8 +2,12 @@
  * @vitest-environment jsdom
  */
 import { expect, test, vi, beforeEach } from "vitest";
-import { type PlayerStateData } from "./player-state.ts";
-import { readCachedPlayerState, writeCachedPlayerState } from "./player-state-cache.client.ts";
+import { type PlayerStateData, withPlayerStateDefaults } from "./player-state.ts";
+import {
+  readCachedPlayerState,
+  readCachedPlayerStateWithMeta,
+  writeCachedPlayerState,
+} from "./player-state-cache.client.ts";
 
 const savedState: PlayerStateData = {
   playContext: { type: "playlist", playlistId: "playlist-1" },
@@ -20,7 +24,7 @@ beforeEach(() => {
 test("round-trips a player state through the local mirror", () => {
   writeCachedPlayerState("user-1", savedState);
 
-  expect(readCachedPlayerState("user-1")).toEqual(savedState);
+  expect(readCachedPlayerState("user-1")).toEqual(withPlayerStateDefaults(savedState));
 });
 
 test("returns null when no state has been mirrored", () => {
@@ -88,6 +92,39 @@ test("returns null when the sort option is not canonical for the context", () =>
   expect(readCachedPlayerState("user-1")).toBeNull();
 });
 
+test("readCachedPlayerStateWithMeta flags null audibleSourceZone as unknown", () => {
+  writeCachedPlayerState("user-1", {
+    ...savedState,
+    audibleSourceZone: null,
+    spinePosition: 0,
+  });
+
+  expect(readCachedPlayerStateWithMeta("user-1")).toEqual({
+    saved: withPlayerStateDefaults({
+      ...savedState,
+      audibleSourceZone: null,
+      spinePosition: 0,
+    }),
+    zoneUnknown: true,
+  });
+});
+
+test("readCachedPlayerStateWithMeta flags omitted audibleSourceZone as unknown", () => {
+  writeCachedPlayerState("user-1", savedState);
+
+  expect(readCachedPlayerStateWithMeta("user-1")?.zoneUnknown).toBe(true);
+});
+
+test("readCachedPlayerStateWithMeta treats explicit zones as known", () => {
+  writeCachedPlayerState("user-1", {
+    ...savedState,
+    audibleSourceZone: "upNext",
+    spinePosition: 1,
+  });
+
+  expect(readCachedPlayerStateWithMeta("user-1")?.zoneUnknown).toBe(false);
+});
+
 test("round-trips a valid library context with sort and direction", () => {
   const state: PlayerStateData = {
     playContext: { type: "library", sort: "dateAdded", direction: "desc" },
@@ -98,5 +135,5 @@ test("round-trips a valid library context with sort and direction", () => {
   };
 
   writeCachedPlayerState("user-1", state);
-  expect(readCachedPlayerState("user-1")).toEqual(state);
+  expect(readCachedPlayerState("user-1")).toEqual(withPlayerStateDefaults(state));
 });

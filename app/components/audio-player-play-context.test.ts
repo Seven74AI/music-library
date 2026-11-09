@@ -26,6 +26,9 @@ function state(overrides: Partial<PlayerStateData> = {}): PlayerStateData {
     upNextIds: [],
     shuffleSeed: null,
     loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: null,
+    upNextPlayNextCount: 0,
     ...overrides,
   };
 }
