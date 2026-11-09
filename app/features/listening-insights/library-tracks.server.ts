@@ -266,7 +266,7 @@ async function listMostPlayedLibraryPage({
       AND "createdAt" < ${snapshotAt}
       ${
         window === "month"
-          ? Prisma.sql`AND "createdAt" >= ${getUtcMonthStart(now)} AND "createdAt" < ${getUtcMonthEndExclusive(now)}`
+          ? Prisma.sql`AND "createdAt" >= ${getUtcMonthStart(snapshotAt)} AND "createdAt" < ${getUtcMonthEndExclusive(snapshotAt)}`
           : Prisma.empty
       }
     GROUP BY "trackId"

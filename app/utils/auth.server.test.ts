@@ -9,10 +9,13 @@ import {
   getPasswordHashParts,
   getSessionExpirationDate,
   login,
+  requireAnonymous,
   resetUserPassword,
   verifyUserPassword,
+  sessionKey,
 } from "./auth.server.ts";
 import { prisma } from "./db.server.ts";
+import { authSessionStorage } from "./session.server.ts";
 
 test("checkIsCommonPassword returns true when password is found in breach database", async () => {
   const password = "testpassword";
@@ -174,6 +177,21 @@ describe("verifyUserPassword", () => {
 
   test("returns null for a non-existent user", async () => {
     expect(await verifyUserPassword({ username: "no-such-user" }, "whatever")).toBeNull();
+  });
+});
+
+describe("requireAnonymous", () => {
+  test("login POST with a stale session cookie proceeds without redirect", async () => {
+    const deletedSessionId = `stale-${Math.random().toString(36).slice(2, 12)}`;
+    const authSession = await authSessionStorage.getSession();
+    authSession.set(sessionKey, deletedSessionId);
+    const setCookieHeader = await authSessionStorage.commitSession(authSession);
+    const request = new Request("http://localhost/login", {
+      method: "POST",
+      headers: { cookie: setCookieHeader },
+    });
+
+    await expect(requireAnonymous(request)).resolves.toBeUndefined();
   });
 });
 

@@ -86,10 +86,33 @@ export async function requireUserId(
 }
 
 export async function requireAnonymous(request: Request) {
-  const userId = await getUserId(request);
-  if (userId) {
+  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
+  const sessionId = authSession.get(sessionKey);
+  if (!sessionId) return;
+
+  const session = await prisma.session.findUnique({
+    select: { userId: true, user: { select: { disabledAt: true } } },
+    where: { id: sessionId, expirationDate: { gt: new Date() } },
+  });
+
+  if (session?.user.disabledAt) {
+    throw redirect("/", {
+      headers: combineHeaders(
+        { "set-cookie": await authSessionStorage.destroySession(authSession) },
+        await createToastHeaders({
+          type: "error",
+          title: "Account disabled",
+          description: "This account has been disabled. Contact an administrator.",
+        }),
+      ),
+    });
+  }
+
+  if (session?.userId) {
     throw redirect("/");
   }
+
+  void prisma.session.deleteMany({ where: { id: sessionId } }).catch(() => {});
 }
 
 export type LoginResult =

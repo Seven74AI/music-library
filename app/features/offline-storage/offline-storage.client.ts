@@ -150,33 +150,40 @@ export function createOfflineStorage(
     await ensureCapacity(fileSizeBytes);
 
     const existing = await metadataStore.get(track.id);
-    await audioStore.write(track.id, buffer, getOfflineAudioFormat(track));
+    const audioFormat = getOfflineAudioFormat(track);
 
-    if (existing) {
+    await audioStore.write(track.id, buffer, audioFormat);
+
+    try {
+      if (existing) {
+        await metadataStore.put(
+          mergeOfflineTrackRecord(existing, {
+            isPinned: options.pin ? true : existing.isPinned,
+            isQueueCached: options.queue ? true : existing.isQueueCached,
+            fileSizeBytes,
+            lastAccessedAt: Date.now(),
+            pinnedAt: options.pin ? Date.now() : existing.pinnedAt,
+            playlistId: options.playlistId,
+            audioFormat,
+          }),
+        );
+        return;
+      }
+
       await metadataStore.put(
-        mergeOfflineTrackRecord(existing, {
-          isPinned: options.pin ? true : existing.isPinned,
-          isQueueCached: options.queue ? true : existing.isQueueCached,
+        toOfflineTrackRecord(track, {
+          opfsPath: offlineAudioOpfsPath(track.id, audioFormat),
           fileSizeBytes,
-          lastAccessedAt: Date.now(),
-          pinnedAt: options.pin ? Date.now() : existing.pinnedAt,
+          isPinned: options.pin,
+          isQueueCached: options.queue,
           playlistId: options.playlistId,
-          audioFormat: getOfflineAudioFormat(track),
+          audioFormat,
         }),
       );
-      return;
+    } catch (error) {
+      await audioStore.delete(track.id, audioFormat);
+      throw error;
     }
-
-    await metadataStore.put(
-      toOfflineTrackRecord(track, {
-        opfsPath: offlineAudioOpfsPath(track.id, getOfflineAudioFormat(track)),
-        fileSizeBytes,
-        isPinned: options.pin,
-        isQueueCached: options.queue,
-        playlistId: options.playlistId,
-        audioFormat: getOfflineAudioFormat(track),
-      }),
-    );
   }
 
   async function removeTrack(trackId: string) {

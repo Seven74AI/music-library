@@ -1,5 +1,11 @@
 import { expect, test, vi } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { clearPersistedSchedulerStateForTests } from "./scheduler-state.server.ts";
+
+const mockNotifyBackupFailed = vi.fn().mockResolvedValue(undefined);
+vi.mock("./notification.server.ts", () => ({
+  notifyBackupFailed: (...args: unknown[]) => mockNotifyBackupFailed(...args),
+}));
 import {
   BACKUP_SCHEDULER_RETRY_DELAY_MS,
   getBackupHourUtc,
@@ -113,6 +119,48 @@ test("scheduler stops after success for the UTC day", async () => {
     run,
   });
   expect(run).toHaveBeenCalledTimes(1);
+});
+
+test("pre-run throw consumes an attempt and notifies on the last one", async () => {
+  consoleError.mockImplementation(() => {});
+  try {
+    process.env.BACKUP_BUCKET_NAME = "b";
+    process.env.BACKUP_HOUR_UTC = "3";
+    resetBackupSchedulerStateForTests();
+    mockNotifyBackupFailed.mockClear();
+
+    const run = vi.fn().mockRejectedValue(new Error("markBackupRunning failed"));
+
+    const t0 = new Date("2026-09-28T03:00:00.000Z");
+    await processBackupSchedulerTick({
+      now: t0,
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(mockNotifyBackupFailed).not.toHaveBeenCalled();
+
+    await processBackupSchedulerTick({
+      now: new Date(t0.getTime() + BACKUP_SCHEDULER_RETRY_DELAY_MS + 1),
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(mockNotifyBackupFailed).not.toHaveBeenCalled();
+
+    await processBackupSchedulerTick({
+      now: new Date(t0.getTime() + 2 * BACKUP_SCHEDULER_RETRY_DELAY_MS + 1),
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(mockNotifyBackupFailed).toHaveBeenCalledWith("markBackupRunning failed", 3);
+  } finally {
+    consoleError.mockReset();
+  }
 });
 
 test("scheduler restores persisted retry count after process restart", async () => {
