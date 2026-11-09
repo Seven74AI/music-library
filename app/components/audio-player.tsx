@@ -284,6 +284,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
           setDuration(0);
           setCurrentTime(0);
         }
+        userSeekRef.current = true;
         audio.currentTime = 0;
         audio.volume = isMuted ? 0 : volume;
 
@@ -641,6 +642,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
       audioRef.current.volume = isMuted ? 0 : volume;
       if (shouldAutoPlay) {
         keepPlayingRef.current = true;
+        userSeekRef.current = true;
         audioRef.current.currentTime = 0;
         let playPromise: Promise<void> | undefined;
         try {
