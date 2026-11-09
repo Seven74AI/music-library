@@ -87,6 +87,11 @@ export type InferredAudibleSource = {
   spinePosition: number;
 };
 
+function clampSpinePosition(position: number, spineOrderLength: number): number {
+  if (spineOrderLength <= 0) return 0;
+  return Math.min(Math.max(0, position), spineOrderLength - 1);
+}
+
 /** Re-derive zone + spine position once a spine exists for migrated/legacy rows. */
 export function inferAudibleSourceForRestore(
   zoneUnknown: boolean,
@@ -96,18 +101,34 @@ export function inferAudibleSourceForRestore(
   currentTrackId: string,
   upNextTrackIds: string[],
 ): InferredAudibleSource {
-  if (!zoneUnknown) {
-    return { audibleSourceZone: knownZone, spinePosition: savedSpinePosition };
+  const clampedSaved = clampSpinePosition(savedSpinePosition, navigation.spineOrder.length);
+
+  if (knownZone === "upNext" && !zoneUnknown) {
+    return { audibleSourceZone: "upNext", spinePosition: clampedSaved };
   }
 
-  const position = findSpinePositionForTrackId(navigation, currentTrackId);
-  if (position !== null) {
-    return { audibleSourceZone: "spine", spinePosition: position };
+  if (!zoneUnknown && knownZone === "spine") {
+    const position = findSpinePositionForTrackId(navigation, currentTrackId);
+    const spinePosition =
+      position !== null ? clampSpinePosition(position, navigation.spineOrder.length) : clampedSaved;
+    return { audibleSourceZone: "spine", spinePosition };
   }
-  if (upNextTrackIds.includes(currentTrackId)) {
-    return { audibleSourceZone: "upNext", spinePosition: savedSpinePosition };
+
+  if (zoneUnknown) {
+    const position = findSpinePositionForTrackId(navigation, currentTrackId);
+    if (position !== null) {
+      return {
+        audibleSourceZone: "spine",
+        spinePosition: clampSpinePosition(position, navigation.spineOrder.length),
+      };
+    }
+    if (upNextTrackIds.includes(currentTrackId)) {
+      return { audibleSourceZone: "upNext", spinePosition: clampedSaved };
+    }
+    return { audibleSourceZone: null, spinePosition: clampedSaved };
   }
-  return { audibleSourceZone: null, spinePosition: savedSpinePosition };
+
+  return { audibleSourceZone: knownZone, spinePosition: clampedSaved };
 }
 
 /** Apply defaults for queue-position fields omitted by older persisted rows. */
