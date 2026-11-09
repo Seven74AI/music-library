@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { forceUnlock, releaseLock } from "./locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  forceUnlock,
+  releaseLock,
+  type LockInfo,
+} from "./locks.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 
 describe("forceUnlock", () => {
@@ -179,5 +185,61 @@ describe("releaseLock", () => {
         where: { entityType_entityId: { entityType: "track", entityId: "track-123" } },
       }),
     ).toBeNull();
+  });
+});
+
+describe("assertEditLockInTransaction", () => {
+  beforeEach(async () => {
+    await prisma.editLock.deleteMany();
+    await prisma.user.deleteMany();
+  });
+
+  test("rejects when the curator's lock is gone before the write", async () => {
+    const owner = await prisma.user.create({ data: createUser() });
+    const acquiredAt = new Date("2026-06-01T00:00:00.000Z");
+    const heldBeforeWrite: LockInfo = {
+      id: "missing-lock",
+      entityType: "track",
+      entityId: "track-write",
+      lockedBy: owner.id,
+      lockedByName: owner.username,
+      acquiredAt,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+
+    await expect(
+      prisma.$transaction((tx) =>
+        assertEditLockInTransaction(tx, "track", "track-write", owner.id, heldBeforeWrite),
+      ),
+    ).rejects.toBeInstanceOf(EditLockTransactionError);
+  });
+
+  test("rejects when the lock expired but the row is still present", async () => {
+    const owner = await prisma.user.create({ data: createUser() });
+    const acquiredAt = new Date("2026-06-01T00:00:00.000Z");
+    const lock = await prisma.editLock.create({
+      data: {
+        entityType: "album",
+        entityId: "album-expired",
+        lockedBy: owner.id,
+        acquiredAt,
+        expiresAt: new Date(Date.now() - 1_000),
+      },
+    });
+    const heldBeforeWrite: LockInfo = {
+      id: lock.id,
+      entityType: "album",
+      entityId: "album-expired",
+      lockedBy: owner.id,
+      lockedByName: owner.username,
+      acquiredAt: lock.acquiredAt,
+      expiresAt: lock.expiresAt,
+    };
+
+    await expect(
+      prisma.$transaction((tx) =>
+        assertEditLockInTransaction(tx, "album", "album-expired", owner.id, heldBeforeWrite),
+      ),
+    ).rejects.toMatchObject({ violation: { kind: "not_held" } });
   });
 });

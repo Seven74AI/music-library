@@ -42,7 +42,7 @@ afterEach(async () => {
   }
 });
 
-test("lists and counts coverless tracks that have no playlist thumbnail", async () => {
+test("lists coverless tracks and attaches a playlist thumbnail when one is present", async () => {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const service = await prisma.service.upsert({
     where: { name: "local" },

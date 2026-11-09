@@ -338,6 +338,52 @@ describe("POST /api/metadata/artists/:id/edit", () => {
     });
   });
 
+  test("rejects save when the edit lock was released before the write transaction", async () => {
+    await prisma.role.upsert({
+      where: { name: "curator" },
+      update: {},
+      create: { name: "curator", description: "Curator" },
+    });
+
+    await prisma.user.create({
+      data: {
+        id: mockUserId,
+        email: "curator@test.com",
+        username: "curator",
+        roles: { connect: { name: "curator" } },
+      },
+    });
+
+    const artist = await prisma.artist.create({
+      data: { name: "Original Name", normalizedName: "originalname" },
+    });
+
+    const acquiredAt = new Date("2026-06-01T00:00:00.000Z");
+    const locks = await import("#app/utils/locks.server.ts");
+    vi.spyOn(locks, "getLockStatus").mockResolvedValue({
+      id: "lock-ghost",
+      entityType: "artist",
+      entityId: artist.id,
+      lockedBy: mockUserId,
+      lockedByName: "curator",
+      acquiredAt,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const request = new Request(`http://localhost/api/metadata/artists/${artist.id}/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Overwrite" }),
+    });
+
+    await expect(action({ request, params: { id: artist.id } } as any)).rejects.toMatchObject({
+      init: { status: 409 },
+    });
+
+    const unchanged = await prisma.artist.findUnique({ where: { id: artist.id } });
+    expect(unchanged?.name).toBe("Original Name");
+  });
+
   test("releases the lock after a successful save", async () => {
     await prisma.role.upsert({
       where: { name: "curator" },

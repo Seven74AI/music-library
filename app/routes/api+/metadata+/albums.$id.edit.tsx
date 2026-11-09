@@ -2,7 +2,12 @@ import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
-import { getLockStatus, releaseLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  getLockStatus,
+  releaseLock,
+} from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/albums.$id.edit.ts";
 
@@ -70,31 +75,64 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 
   // Snapshot the current album first so restore can recover the pre-edit values.
-  const { album, edit } = await prisma.$transaction(async (tx) => {
-    const albumEdit = await tx.albumEdit.create({
-      data: {
-        albumId,
-        editedBy: userId,
-        comment: comment || null,
-        name: existingAlbum.name,
-        artistId: existingAlbum.artistId,
-        year: existingAlbum.year,
-        coverImageId: existingAlbum.coverImageId,
-      },
-    });
+  let album: Awaited<ReturnType<typeof prisma.album.update>>;
+  let edit: Awaited<ReturnType<typeof prisma.albumEdit.create>>;
+  try {
+    ({ album, edit } = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "album", albumId, userId, lock);
 
-    const updatedAlbum = await tx.album.update({
-      where: { id: albumId },
-      data: {
-        name: name.trim(),
-        artistId,
-        year: year !== undefined ? year : undefined,
-        coverImageId: coverImageId !== undefined ? coverImageId : undefined,
-      },
-    });
+      const albumBeforeWrite = await tx.album.findUnique({
+        where: { id: albumId },
+      });
+      if (!albumBeforeWrite) {
+        throw data({ error: "Album not found" }, { status: 404 });
+      }
 
-    return { album: updatedAlbum, edit: albumEdit };
-  });
+      const albumEdit = await tx.albumEdit.create({
+        data: {
+          albumId,
+          editedBy: userId,
+          comment: comment || null,
+          name: albumBeforeWrite.name,
+          artistId: albumBeforeWrite.artistId,
+          year: albumBeforeWrite.year,
+          coverImageId: albumBeforeWrite.coverImageId,
+        },
+      });
+
+      const updatedAlbum = await tx.album.update({
+        where: { id: albumId },
+        data: {
+          name: name.trim(),
+          artistId,
+          year: year !== undefined ? year : undefined,
+          coverImageId: coverImageId !== undefined ? coverImageId : undefined,
+        },
+      });
+
+      return { album: updatedAlbum, edit: albumEdit };
+    }));
+  } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      if (error.violation.kind === "other") {
+        throw data(
+          {
+            error: "Locked",
+            message: `${error.violation.lockedByName} is currently editing this album`,
+          },
+          { status: 409 },
+        );
+      }
+      throw data(
+        {
+          error: "Locked",
+          message: "Your edit lock on this album is no longer active",
+        },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
   // Release the lock on successful save (ADR-032).
   if (lock) {
