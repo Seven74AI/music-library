@@ -21,7 +21,11 @@ import {
   resolveRoomParticipantByCode,
   type SeatedParticipant,
 } from "#app/features/party-room/participant-seat.server.ts";
-import { findOpenRoomByCode, getRoomSnapshot } from "#app/features/party-room/party-room.server.ts";
+import {
+  findOpenRoomByCode,
+  getRoomSnapshot,
+  PartyRoomError,
+} from "#app/features/party-room/party-room.server.ts";
 import {
   useOptionalPartyRoom,
   usePartyRoom,
@@ -115,7 +119,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     } satisfies UserLoaderData);
   }
 
-  const participant = await resolveRoomParticipantByCode(request, code);
+  let participant: SeatedParticipant | null = null;
+  try {
+    participant = await resolveRoomParticipantByCode(request, code);
+  } catch (error) {
+    if (error instanceof PartyRoomError) {
+      participant = null;
+    } else {
+      throw error;
+    }
+  }
 
   let openRoom: Awaited<ReturnType<typeof findOpenRoomByCode>> | null = null;
   try {

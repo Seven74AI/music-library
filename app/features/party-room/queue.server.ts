@@ -391,14 +391,12 @@ export async function recordRoomPlayEvent({
   type,
   trackId,
   playId,
-  addedByParticipantId,
 }: {
   roomId: string;
   actor: ParticipantActor;
   type: "room_play_started" | "room_play_completed";
   trackId: string;
   playId?: string;
-  addedByParticipantId?: string;
 }) {
   await loadOpenRoom(roomId);
   const participant = await requireParticipant(roomId, actor);
@@ -410,7 +408,7 @@ export async function recordRoomPlayEvent({
   // queue. Otherwise a Host could mint play events for arbitrary tracks.
   const queued = await prisma.roomQueueItem.findFirst({
     where: { roomId, trackId },
-    select: { id: true },
+    select: { id: true, addedByParticipantId: true },
   });
   if (!queued) {
     throw new PartyRoomError("forbidden", "Track is not on this room's queue", 403);
@@ -421,7 +419,7 @@ export async function recordRoomPlayEvent({
     trackId,
     type,
     playId: playId ?? null,
-    addedByParticipantId: addedByParticipantId ?? null,
+    addedByParticipantId: queued.addedByParticipantId,
   };
 
   // Dedupe by playId: a play session emits start + complete, but a retried or

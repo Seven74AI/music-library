@@ -46,30 +46,26 @@ export async function resolveRoomParticipantByCode(
   request: Request,
   roomCode: string,
 ): Promise<SeatedParticipant | null> {
-  try {
-    const room = await findOpenRoomByCode(roomCode.toUpperCase());
-    const actor = await resolveActorOptional(request);
-    if (!actor || actor.type === "system") return null;
+  const room = await findOpenRoomByCode(roomCode.toUpperCase());
+  const actor = await resolveActorOptional(request);
+  if (!actor || actor.type === "system") return null;
 
-    const participant = await resolveParticipant(room.id, actor);
-    if (!participant) return null;
+  const participant = await resolveParticipant(room.id, actor);
+  if (!participant) return null;
 
-    const role: RoomRole = isRoomRole(participant.role) ? participant.role : "listener";
-    const defaultJoinRole: DefaultJoinRole = room.defaultJoinRole === "dj" ? "dj" : "listener";
+  const role: RoomRole = isRoomRole(participant.role) ? participant.role : "listener";
+  const defaultJoinRole: DefaultJoinRole = room.defaultJoinRole === "dj" ? "dj" : "listener";
 
-    return {
-      id: participant.id,
-      roomId: room.id,
-      roomCode: room.code,
-      displayName: participant.displayName,
-      role,
-      roomStatus: room.status === ROOM_STATUS.ended ? ROOM_STATUS.ended : ROOM_STATUS.open,
-      defaultJoinRole,
-      userId: participant.userId,
-    };
-  } catch {
-    return null;
-  }
+  return {
+    id: participant.id,
+    roomId: room.id,
+    roomCode: room.code,
+    displayName: participant.displayName,
+    role,
+    roomStatus: room.status === ROOM_STATUS.ended ? ROOM_STATUS.ended : ROOM_STATUS.open,
+    defaultJoinRole,
+    userId: participant.userId,
+  };
 }
 
 export async function touchParticipant(participantId: string): Promise<void> {
