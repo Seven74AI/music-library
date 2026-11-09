@@ -1708,6 +1708,56 @@ test("gapless unlock handoff emits play_started with a distinct playId for the a
   expect(track2PlayId).not.toBe(track1PlayId);
 });
 
+test("repeat-one counts each loop as a new play_started and play_completed", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 55, 100);
+  fireEvent.timeUpdate(audioEl);
+  await waitFor(() => {
+    expect(
+      vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+    ).toHaveLength(1);
+  });
+
+  const firstStartedPlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(firstStartedPlayId).toBeTypeOf("string");
+
+  setProgress(audioEl, 95, 100);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.5, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  await waitFor(() => {
+    expect(
+      vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+    ).toHaveLength(2);
+  });
+
+  const startedCalls = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.filter(([type]) => type === "play_started");
+  expect(startedCalls[1]?.[2]).not.toBe(firstStartedPlayId);
+
+  setProgress(audioEl, 55, 100);
+  fireEvent.timeUpdate(audioEl);
+  await waitFor(() => {
+    expect(
+      vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+    ).toHaveLength(2);
+  });
+});
+
 test("correlates a track's play_started and play_completed with the same playId", async () => {
   const user = userEvent.setup();
   mockPlay();
