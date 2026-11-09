@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
+import { sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { authSessionStorage } from "#app/utils/session.server.ts";
 import { loader } from "./artist-tracks.tsx";
 
 async function ensureLocalService() {
@@ -121,6 +123,29 @@ describe("artist-tracks API loader", () => {
 
     const allIds = [...page1.tracks, ...page2.tracks, ...page3.tracks].map((t) => t.id);
     expect(new Set(allIds).size).toBe(5);
+  });
+
+  test("stale session cookie returns JSON, not redirect", async () => {
+    const artist = await createArtist("Stale Cookie Artist");
+    const deletedSessionId = `stale-${Math.random().toString(36).slice(2, 12)}`;
+    const authSession = await authSessionStorage.getSession();
+    authSession.set(sessionKey, deletedSessionId);
+    const cookie = await authSessionStorage.commitSession(authSession);
+
+    const response = await loader({
+      request: new Request(`http://localhost/api/artist-tracks?artistId=${artist.id}`, {
+        headers: { cookie },
+      }),
+      url: new URL(`http://localhost/api/artist-tracks?artistId=${artist.id}`),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toBeTruthy();
+    const body = (await response.json()) as Page;
+    expect(body.tracks).toEqual([]);
+    expect(body.pagination).toBeDefined();
   });
 
   test("returns the track shape and guest library status", async () => {
