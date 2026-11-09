@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, test, vi, afterEach } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 import type { DataStrategyResult } from "react-router";
 import type { MiddlewareFunction } from "react-router";
 import {
@@ -187,6 +188,45 @@ describe("offlineClientMiddleware", () => {
       type: "data",
       result: expect.objectContaining({ results: [], query: "" }),
     });
+  });
+
+  test("offline path: patches other routes when one offline stub throws", async () => {
+    consoleError.mockImplementation(() => {});
+    vi.stubGlobal("navigator", { onLine: false });
+    vi.resetModules();
+
+    const policies = await import("#app/features/offline-app/offline-route-policies.client.ts");
+    const resolveOfflineDataActual = policies.resolveOfflineData;
+    vi.spyOn(policies, "resolveOfflineData").mockImplementation(async (routeId, request) => {
+      if (routeId === "routes/playlist.$playlistId") {
+        throw new Error("missing playlistId");
+      }
+      return resolveOfflineDataActual(routeId, request);
+    });
+
+    const mod = await import("./offline-client.middleware.client.ts");
+    const mw = mod.offlineClientMiddleware;
+
+    const failingResult: DataStrategyResult = {
+      type: "error",
+      result: new Error("Network error"),
+    };
+    const next = makeNext({
+      root: failingResult,
+      "routes/playlist.$playlistId": failingResult,
+      "routes/search": failingResult,
+    });
+
+    const result = (await mw(makeArgs("https://example.com/search?q=foo"), next)) as Record<
+      string,
+      DataStrategyResult
+    >;
+
+    expect(result["routes/search"]).toEqual({
+      type: "data",
+      result: expect.objectContaining({ results: [], query: "" }),
+    });
+    expect(result["routes/playlist.$playlistId"]).toEqual(failingResult);
   });
 
   test("offline path: preserves successful data results (type=data → no substitute)", async () => {
