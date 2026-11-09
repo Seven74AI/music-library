@@ -285,6 +285,7 @@ async function searchHasAudioAlbums(
     JOIN "Album" alb ON albums_fts.album_id = alb.id
     JOIN "Artist" a ON alb."artistId" = a.id
     WHERE albums_fts MATCH ?
+      AND alb."mergedIntoId" IS NULL
       AND ${HAS_AUDIO_ALBUM}
       ${cursorFilter.sql}
     ORDER BY relevance_rank, fts_rank, alb.name, alb.id

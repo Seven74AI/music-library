@@ -932,6 +932,21 @@ export async function requireParticipant(roomId: string, actor: ParticipantActor
   return participant;
 }
 
+/** Re-check that an open SSE connection still has an active seat in an open room. */
+export async function isRoomEventStreamAuthorized(
+  roomId: string,
+  actor: ParticipantActor,
+): Promise<boolean> {
+  if (actor.type === "system") return false;
+  const participant = await resolveParticipant(roomId, actor);
+  if (!participant) return false;
+  const room = await prisma.room.findUnique({
+    where: { id: roomId },
+    select: { status: true },
+  });
+  return room?.status === ROOM_STATUS.open;
+}
+
 export async function leaveRoom({ roomId, actor }: { roomId: string; actor: ParticipantActor }) {
   const participant = await requireParticipant(roomId, actor);
   const now = new Date();

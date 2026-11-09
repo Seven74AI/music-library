@@ -1,6 +1,7 @@
 import {
   findOpenRoomByCode,
   getRoomSnapshot,
+  isRoomEventStreamAuthorized,
   requireParticipant,
 } from "#app/features/party-room/party-room.server.ts";
 import { partyRoomErrorResponse, resolveActor } from "#app/features/party-room/request.server.ts";
@@ -47,11 +48,28 @@ export async function loader({
         unsubscribe = subscribeRoomEvents(room.id, controller);
 
         heartbeat = setInterval(() => {
-          try {
-            controller.enqueue(encodeSseComment("heartbeat"));
-          } catch {
-            cleanup();
-          }
+          void (async () => {
+            try {
+              const stillAuthorized = await isRoomEventStreamAuthorized(room.id, actor);
+              if (!stillAuthorized) {
+                cleanup();
+                try {
+                  controller.close();
+                } catch {
+                  // already closed
+                }
+                return;
+              }
+              controller.enqueue(encodeSseComment("heartbeat"));
+            } catch {
+              cleanup();
+              try {
+                controller.close();
+              } catch {
+                // already closed
+              }
+            }
+          })();
         }, 15_000);
 
         request.signal.addEventListener("abort", () => {

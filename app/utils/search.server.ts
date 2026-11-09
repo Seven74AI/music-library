@@ -437,7 +437,7 @@ export async function searchAlbums(
 		FROM albums_fts
 		JOIN "Album" alb ON albums_fts.album_id = alb.id
 		JOIN "Artist" a ON alb."artistId" = a.id
-		WHERE albums_fts MATCH ?${albumUserJoin}${cursorFilter.sql}
+		WHERE albums_fts MATCH ? AND alb."mergedIntoId" IS NULL ${albumUserJoin}${cursorFilter.sql}
 		ORDER BY relevance_rank, fts_rank, alb.name, alb.id
 		LIMIT ?`,
     normalizedQuery,

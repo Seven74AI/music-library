@@ -95,7 +95,13 @@ export async function action({ request }: ActionFunctionArgs) {
           playlistId,
           userId,
         );
-        return data({ status: "success", ...result });
+        if (result.success) {
+          return data({ status: "success", ...result });
+        }
+        return data({
+          status: "error",
+          message: result.message || "Failed to remove playlist from sync. Please try again.",
+        });
       }
 
       default:
