@@ -34,6 +34,14 @@ function createAudioPlayerMock(overrides: Record<string, unknown> = {}) {
     spine: [],
     spineTotal: 0,
     spinePosition: 0,
+    queueNavigationState: {
+      upNext: [],
+      spine: [],
+      spineOrder: [],
+      spinePosition: 0,
+      loopMode: "off" as const,
+    },
+    audibleSourceZone: null,
     currentTrack: null,
     currentIndex: -1,
     playContext: null,
@@ -2294,5 +2302,130 @@ test("correlates a track's play_started and play_completed with the same playId"
 
   await waitFor(() => {
     expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1", startedPlayId);
+  });
+});
+
+type MediaSessionAction = "play" | "pause" | "previoustrack" | "nexttrack" | "seekto" | "stop";
+
+function stubMediaSession() {
+  const handlers = new Map<MediaSessionAction, (details?: { seekTime?: number }) => void>();
+  Object.defineProperty(globalThis.navigator, "mediaSession", {
+    configurable: true,
+    value: {
+      metadata: null,
+      playbackState: "none",
+      setActionHandler: (
+        action: MediaSessionAction,
+        handler: ((details?: { seekTime?: number }) => void) | null,
+      ) => {
+        if (handler) handlers.set(action, handler);
+        else handlers.delete(action);
+      },
+      setPositionState: vi.fn(),
+    },
+  });
+  class MediaMetadata {
+    constructor(init: Record<string, unknown>) {
+      Object.assign(this, init);
+    }
+  }
+  vi.stubGlobal("MediaMetadata", MediaMetadata);
+  return handlers;
+}
+
+test("media session play after autoplay block emits play_started", async () => {
+  const handlers = stubMediaSession();
+  const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (
+    this: HTMLMediaElement,
+  ) {
+    if ((this as HTMLMediaElement & { __blockedOnce?: boolean }).__blockedOnce) {
+      setPaused(this, false);
+      return Promise.resolve();
+    }
+    (this as HTMLMediaElement & { __blockedOnce?: boolean }).__blockedOnce = true;
+    return Promise.reject(new Error("NotAllowedError"));
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+  const { audioEl } = await renderPlayer({
+    wantsAutoPlayRef: { current: true },
+  });
+
+  await waitFor(() => {
+    expect(playSpy).toHaveBeenCalled();
+  });
+  expect(reportPlayEvent).not.toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  setPaused(audioEl, true);
+
+  await waitFor(() => expect(handlers.get("play")).toBeTypeOf("function"));
+  handlers.get("play")!();
+
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+});
+
+test("media session play after a completed prior track emits play_started and play_completed", async () => {
+  const user = userEvent.setup();
+  const handlers = stubMediaSession();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const onNext = vi.fn();
+  const { audioEl, rerender } = await renderPlayer({ onNext, hasNext: true });
+
+  await waitFor(() => expect(handlers.get("play")).toBeTypeOf("function"));
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 60, 100);
+  fireEvent.timeUpdate(audioEl);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1", expect.any(String));
+  });
+
+  const firstPlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(firstPlayId).toBeTypeOf("string");
+
+  fireEvent.ended(audioEl);
+  expect(onNext).toHaveBeenCalled();
+
+  vi.mocked(reportPlayEvent).mockClear();
+  setPaused(audioEl, true);
+
+  rerender(
+    playerUi({
+      track: mockTrack2,
+      hasNext: false,
+      playbackToken: 1,
+    }),
+  );
+
+  const advancedAudio = await waitFor(() => {
+    const element = document.querySelector("audio");
+    if (!element) throw new Error("Audio element not mounted yet");
+    return element;
+  });
+
+  setProgress(advancedAudio, 55, 100);
+  handlers.get("play")!();
+
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-2", expect.any(String));
+  });
+
+  const resumedPlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(resumedPlayId).not.toBe(firstPlayId);
+
+  fireEvent.timeUpdate(advancedAudio);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-2", resumedPlayId);
   });
 });

@@ -174,6 +174,30 @@ describe("collectQueueDisplayHydrationIds", () => {
 
     expect(ids).toEqual(["s1", "u1", "s2", "s3"]);
   });
+
+  test("audibleIsSpineHead option matches queue sheet spine-head zone semantics", () => {
+    const state = {
+      upNext: [{ id: "s1", title: "Dup", artist: { id: "a", name: "A" } }],
+      spine: [
+        { id: "s1", title: "S1", artist: { id: "a", name: "A" } },
+        { id: "s2", title: "S2", artist: { id: "a", name: "A" } },
+        { id: "s3", title: "S3", artist: { id: "a", name: "A" } },
+      ],
+      spineOrder: [0, 1, 2],
+      spinePosition: 0,
+      loopMode: "off" as const,
+    };
+
+    const fromUpNextZone = collectQueueDisplayHydrationIds(state, "s1", {
+      audibleIsSpineHead: false,
+    });
+    const fromSpineZone = collectQueueDisplayHydrationIds(state, "s1", {
+      audibleIsSpineHead: true,
+    });
+
+    expect(fromUpNextZone).toEqual(["s1", "s2", "s3"]);
+    expect(fromSpineZone).toEqual(["s1", "s2", "s3"]);
+  });
 });
 
 describe("hydratePlaybackCacheInBatches", () => {
