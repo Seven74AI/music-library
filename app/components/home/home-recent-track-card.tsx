@@ -18,12 +18,22 @@ export function HomeRecentTrackCard({
   playableTracks,
 }: HomeRecentTrackCardProps) {
   const [isHovered, setIsHovered] = useState(false);
-  const { currentTrack, playPlaylist } = useAudioPlayer();
+  const { currentTrack, isPlaying, pauseTrack, resumeTrack, playPlaylist } = useAudioPlayer();
   const hasAudio = (track.audioFiles?.length ?? 0) > 0;
-  const isPlaying = currentTrack?.id === track.id;
+  const isCurrent = currentTrack?.id === track.id;
+  const showPauseIcon = isCurrent && isPlaying;
 
   const handlePlay = () => {
-    if (!hasAudio || playableTracks.length === 0) return;
+    if (!hasAudio) return;
+    if (isCurrent && isPlaying) {
+      pauseTrack();
+      return;
+    }
+    if (isCurrent && !isPlaying) {
+      resumeTrack();
+      return;
+    }
+    if (playableTracks.length === 0) return;
     const startIndex = playableTracks.findIndex((playable) => playable.id === track.id);
     if (startIndex < 0) return;
     playPlaylist(playableTracks, { type: "library" }, startIndex);
@@ -52,11 +62,11 @@ export function HomeRecentTrackCard({
           <div
             className={cn(
               "absolute inset-0 flex items-center justify-center bg-black/40 transition-opacity",
-              isHovered || isPlaying ? "opacity-100" : "opacity-0",
+              isHovered || isCurrent ? "opacity-100" : "opacity-0",
             )}
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md">
-              <Icon name={isPlaying ? "pause" : "play"} className="h-5 w-5" />
+              <Icon name={showPauseIcon ? "pause" : "play"} className="h-5 w-5" />
             </div>
           </div>
         ) : (

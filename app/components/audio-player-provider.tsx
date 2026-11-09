@@ -88,7 +88,27 @@ import { AudioPlayer } from "./audio-player";
 import { InstallAppBanner } from "./pwa/install-app-banner";
 import { toast } from "./ui/use-toast";
 
+async function offlineHasTrack(trackId: string): Promise<boolean> {
+  const { hasTrack } = getOfflineStorage();
+  if (typeof hasTrack !== "function") return false;
+  return hasTrack(trackId);
+}
+
+/** Same access gate as `/api/tracks/playback` / library spine ownership filtering. */
+async function userOwnsLibraryTrack(trackId: string, isOnline: boolean): Promise<boolean> {
+  if (await offlineHasTrack(trackId)) return true;
+  if (!isOnline || isOfflineEnvironment()) return false;
+  try {
+    const tracks = await fetchPlaybackBatch([trackId]);
+    return tracks.some((candidate) => candidate.id === trackId && isPlayableTrack(candidate));
+  } catch {
+    return false;
+  }
+}
+
 type Track = FullTrack;
+
+type NavigationCommitScope = "full" | "position" | "spine-position" | "track-only";
 
 interface AudioPlayerContextType {
   currentTrack: Track | null;
@@ -120,6 +140,10 @@ interface AudioPlayerContextType {
   isLoadingNext: boolean;
   /** True only while the media element is actually playing. */
   isPlaying: boolean;
+  /** Pause the current track without restarting spine playback or clearing Up Next. */
+  pauseTrack: () => void;
+  /** Resume the current track from its paused position without re-running spine playback. */
+  resumeTrack: () => void;
   addTrackToPlaylist: (track: Track, position?: "next" | "end") => void;
   removeTrackFromPlaylist: (target: QueueTarget) => void;
   removeCurrentFromQueue: () => void;
@@ -217,8 +241,11 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
   const playbackCacheRef = useRef(new PlaybackHydrationCache());
   const playlistFetchEpochRef = useRef(0);
+  const queueJumpEpochRef = useRef(0);
   const wantsAutoPlayRef = useRef(false);
   const unlockAutoplayRef = useRef<((trackId: string, cachedUrl: string) => boolean) | null>(null);
+  const pausePlaybackRef = useRef<(() => void) | null>(null);
+  const resumePlaybackRef = useRef<(() => void) | null>(null);
   const upNextPlayNextCountRef = useRef(0);
 
   // Throttle scroll-driven hydration: accumulate IDs during rapid scrolling,
@@ -269,6 +296,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   if (sessionUserId !== userId) {
     setSessionUserId(userId);
     restoreEpochRef.current += 1;
+    queueJumpEpochRef.current += 1;
     playlistFetchEpochRef.current += 1;
     onlineRestoreDoneRef.current = false;
     offlineRestoreDoneRef.current = false;
@@ -331,6 +359,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     [upNext, spine, spineOrder, spinePosition, loopMode],
   );
 
+  const navigationStateRef = useRef(navigationState);
+  navigationStateRef.current = navigationState;
+
   const playlist = useMemo(() => {
     void cacheVersion;
     return resolveFullTracks(playbackCacheRef.current, buildFlatQueueView(navigationState));
@@ -362,6 +393,17 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     return -1;
   }, [currentTrack, upNext, navigationState, spinePosition]);
 
+  const pauseTrack = useCallback(() => {
+    if (roomSpeakerRef.current) return;
+    wantsAutoPlayRef.current = false;
+    pausePlaybackRef.current?.();
+  }, []);
+
+  const resumeTrack = useCallback(() => {
+    if (roomSpeakerRef.current) return;
+    resumePlaybackRef.current?.();
+  }, []);
+
   const beginPlayback = useCallback(() => {
     wantsAutoPlayRef.current = true;
     setPlaybackToken((token) => token + 1);
@@ -372,6 +414,97 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     }
     pendingHydrationIdsRef.current.clear();
   }, []);
+
+  const resetQueueState = useCallback(() => {
+    setUpNext([]);
+    setUpNextPlayNextCount(0);
+    upNextPlayNextCountRef.current = 0;
+    setSpine([]);
+    setSpineTotal(0);
+    setSpineOrder([]);
+    setSpinePosition(0);
+    playbackCacheRef.current.clear();
+    setCacheVersion((version) => version + 1);
+    // Cancel any pending scroll hydration from the old queue
+    if (hydrationTimerRef.current) {
+      clearTimeout(hydrationTimerRef.current);
+      hydrationTimerRef.current = null;
+    }
+    pendingHydrationIdsRef.current.clear();
+  }, []);
+
+  const commitNavigation = useCallback(
+    (
+      epoch: number,
+      patch: {
+        navigation: QueueNavigationState;
+        track?: Track | null;
+        spineTotal?: number;
+        upNextPlayNextCount?: number;
+        playContext?: PlaylistContext | null;
+        isPlayerVisible?: boolean;
+      },
+      effects?: {
+        armAutoplay?: boolean;
+        bumpPlaybackToken?: boolean;
+        resetQueue?: boolean;
+        navigationScope?: NavigationCommitScope;
+      },
+    ): boolean => {
+      if (epoch !== queueJumpEpochRef.current) {
+        return false;
+      }
+
+      if (effects?.resetQueue) {
+        resetQueueState();
+      }
+
+      const scope = effects?.navigationScope ?? "full";
+      if (scope === "spine-position") {
+        setSpinePosition(patch.navigation.spinePosition);
+      } else if (scope !== "track-only") {
+        setUpNext(patch.navigation.upNext);
+        setSpinePosition(patch.navigation.spinePosition);
+        if (scope === "full") {
+          setSpine(patch.navigation.spine);
+          setSpineOrder(patch.navigation.spineOrder);
+          setLoopMode(patch.navigation.loopMode);
+        }
+      }
+      if (patch.spineTotal !== undefined) {
+        setSpineTotal(patch.spineTotal);
+      }
+      if (patch.upNextPlayNextCount !== undefined) {
+        upNextPlayNextCountRef.current = patch.upNextPlayNextCount;
+        setUpNextPlayNextCount(patch.upNextPlayNextCount);
+      }
+      if (patch.playContext !== undefined) {
+        setPlayContext(patch.playContext);
+      }
+      if (patch.isPlayerVisible !== undefined) {
+        setIsPlayerVisible(patch.isPlayerVisible);
+      }
+      if (patch.track !== undefined) {
+        setCurrentTrack(patch.track);
+      }
+
+      if (effects?.armAutoplay) {
+        wantsAutoPlayRef.current = true;
+      }
+      if (effects?.bumpPlaybackToken) {
+        setPlaybackToken((token) => token + 1);
+      }
+      if (effects?.armAutoplay || effects?.bumpPlaybackToken) {
+        if (hydrationTimerRef.current) {
+          clearTimeout(hydrationTimerRef.current);
+          hydrationTimerRef.current = null;
+        }
+        pendingHydrationIdsRef.current.clear();
+      }
+      return true;
+    },
+    [resetQueueState],
+  );
 
   const rememberTrack = useCallback((track: Track) => {
     playbackCacheRef.current.set(track);
@@ -432,23 +565,60 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     }, 300);
   }, []);
 
-  const fetchOfflineTracks = useCallback(async (context: PlaylistContext): Promise<Track[]> => {
-    const storage = getOfflineStorage();
-    const summaries =
-      context.type === "playlist" && context.playlistId
-        ? await storage.listForPlaylist(context.playlistId)
-        : context.type === "library"
-          ? await storage.listPinned()
-          : await storage.listDownloaded();
+  const fetchOfflineTracks = useCallback(
+    async (
+      context: PlaylistContext,
+      options?: { libraryUsesDownloads?: boolean },
+    ): Promise<Track[]> => {
+      const storage = getOfflineStorage();
+      let summaries: Awaited<ReturnType<typeof storage.listPinned>>;
+      if (context.type === "playlist" && context.playlistId) {
+        summaries = await storage.listForPlaylist(context.playlistId);
+      } else if (context.type === "library") {
+        if (options?.libraryUsesDownloads) {
+          const [pinned, downloaded] = await Promise.all([
+            storage.listPinned(),
+            storage.listDownloaded(),
+          ]);
+          const byId = new Map(pinned.map((track) => [track.trackId, track]));
+          for (const track of downloaded) {
+            byId.set(track.trackId, track);
+          }
+          summaries = [...byId.values()];
+        } else {
+          summaries = await storage.listPinned();
+        }
+      } else {
+        summaries = await storage.listDownloaded();
+      }
 
-    return summaries.map(offlineSummaryToFullTrack).filter(isPlayableTrack);
-  }, []);
+      return summaries.map(offlineSummaryToFullTrack).filter(isPlayableTrack);
+    },
+    [],
+  );
+
+  const buildOfflineSpine = useCallback(
+    async (context: PlaylistContext, options?: { libraryUsesDownloads?: boolean }) => {
+      const offlineTracks = await fetchOfflineTracks(context, options);
+      for (const track of offlineTracks) {
+        playbackCacheRef.current.set(track);
+      }
+      setCacheVersion((version) => version + 1);
+      const tracks = offlineTracks.map(queueTrackFromFullTrack);
+      return { tracks, total: tracks.length };
+    },
+    [fetchOfflineTracks],
+  );
 
   const loadSpineForContext = useCallback(
     async (context: PlaylistContext): Promise<{ tracks: QueueTrack[]; total: number }> => {
       const spineContext = toQueueSpineContext(context);
 
-      if (spineContext) {
+      if (!isOnline || isOfflineEnvironment()) {
+        return buildOfflineSpine(context, { libraryUsesDownloads: true });
+      }
+
+      if (isOnline && !isOfflineEnvironment() && spineContext) {
         try {
           const result = await fetchQueueSpine(spineContext);
           if (result.tracks.length > 0) return result;
@@ -461,94 +631,127 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         }
       }
 
-      const offlineTracks = await fetchOfflineTracks(context);
-      for (const track of offlineTracks) {
-        playbackCacheRef.current.set(track);
-      }
-      setCacheVersion((version) => version + 1);
-      const tracks = offlineTracks.map(queueTrackFromFullTrack);
-      return { tracks, total: tracks.length };
+      return buildOfflineSpine(
+        context,
+        isOfflineEnvironment() ? { libraryUsesDownloads: true } : undefined,
+      );
     },
-    [fetchOfflineTracks],
+    [buildOfflineSpine, isOnline],
   );
 
-  const resetQueueState = useCallback(() => {
-    setUpNext([]);
-    setUpNextPlayNextCount(0);
-    upNextPlayNextCountRef.current = 0;
-    setSpine([]);
-    setSpineTotal(0);
-    setSpineOrder([]);
-    setSpinePosition(0);
-    playbackCacheRef.current.clear();
-    setCacheVersion((version) => version + 1);
-    // Cancel any pending scroll hydration from the old queue
-    if (hydrationTimerRef.current) {
-      clearTimeout(hydrationTimerRef.current);
-      hydrationTimerRef.current = null;
-    }
-    pendingHydrationIdsRef.current.clear();
-  }, []);
-
   const startSpinePlayback = useCallback(
-    async (track: Track, context: PlaylistContext, explicitIndex?: number) => {
+    async (track: Track, context: PlaylistContext, explicitIndex?: number): Promise<boolean> => {
       rememberTrack(track);
 
-      beginPlayback();
-      setPlayContext(context);
-      setIsPlayerVisible(true);
-      setCurrentTrack(track);
-
-      const epoch = ++playlistFetchEpochRef.current;
+      const navigationEpoch = ++queueJumpEpochRef.current;
+      const fetchEpoch = ++playlistFetchEpochRef.current;
       setIsLoadingNext(true);
 
       try {
         const loadedSpine = await loadSpineForContext(context);
-        if (epoch !== playlistFetchEpochRef.current) return;
+        if (fetchEpoch !== playlistFetchEpochRef.current) return false;
 
-        const order = buildShuffledOrder(loadedSpine.tracks.length);
-        const resolvedPosition = (() => {
-          if (explicitIndex !== undefined && loadedSpine.tracks[explicitIndex]?.id === track.id) {
+        let spineTracks = loadedSpine.tracks;
+        let spineTotal = loadedSpine.total;
+        const buildOwnedSingleTrackSpine = async (): Promise<{
+          spineTracks: QueueTrack[];
+          spineTotal: number;
+        } | null> => {
+          if (context.type === "library") {
+            if (!(await userOwnsLibraryTrack(track.id, isOnline))) return null;
+            return { spineTracks: [queueTrackFromFullTrack(track)], spineTotal: 1 };
+          }
+          if (await offlineHasTrack(track.id)) {
+            return { spineTracks: [queueTrackFromFullTrack(track)], spineTotal: 1 };
+          }
+          return null;
+        };
+
+        if (spineTracks.length === 0) {
+          const single = await buildOwnedSingleTrackSpine();
+          if (!single) return false;
+          spineTracks = single.spineTracks;
+          spineTotal = single.spineTotal;
+        }
+
+        let order = buildShuffledOrder(spineTracks.length);
+        const navigationPreview: QueueNavigationState = {
+          upNext: [],
+          spine: spineTracks,
+          spineOrder: order,
+          spinePosition: 0,
+          loopMode: "off",
+        };
+        let resolvedPosition = (() => {
+          if (explicitIndex !== undefined && spineTracks[explicitIndex]?.id === track.id) {
             return order.findIndex((index) => index === explicitIndex);
           }
-          return (
-            findSpinePositionForTrackId(
-              {
-                upNext: [],
-                spine: loadedSpine.tracks,
-                spineOrder: order,
-                spinePosition: 0,
-                loopMode: "off",
-              },
-              track.id,
-            ) ?? 0
-          );
+          return findSpinePositionForTrackId(navigationPreview, track.id);
         })();
 
-        setUpNext([]);
-        setUpNextPlayNextCount(0);
-        upNextPlayNextCountRef.current = 0;
-        setSpine(loadedSpine.tracks);
-        setSpineTotal(loadedSpine.total);
-        setSpineOrder(order);
-        const nextSpinePosition = resolvedPosition >= 0 ? resolvedPosition : 0;
-        setSpinePosition(nextSpinePosition);
+        if (resolvedPosition === null || resolvedPosition < 0) {
+          const single = await buildOwnedSingleTrackSpine();
+          if (!single) return false;
+          spineTracks = single.spineTracks;
+          spineTotal = single.spineTotal;
+          order = buildShuffledOrder(spineTracks.length);
+          resolvedPosition = 0;
+        }
+
+        if (fetchEpoch !== playlistFetchEpochRef.current) return false;
+
+        const needsQueueReset = Boolean(playContext && !isSamePlayContext(playContext, context));
+
+        noteUserQueueMutation();
 
         const navigationAfterSpine: QueueNavigationState = {
           upNext: [],
-          spine: loadedSpine.tracks,
+          spine: spineTracks,
           spineOrder: order,
-          spinePosition: nextSpinePosition,
+          spinePosition: resolvedPosition,
           loopMode: "off",
         };
+
+        if (
+          !commitNavigation(
+            navigationEpoch,
+            {
+              navigation: navigationAfterSpine,
+              track,
+              spineTotal,
+              upNextPlayNextCount: 0,
+              playContext: context,
+              isPlayerVisible: true,
+            },
+            {
+              armAutoplay: true,
+              bumpPlaybackToken: true,
+              resetQueue: needsQueueReset,
+              navigationScope: "full",
+            },
+          )
+        ) {
+          return false;
+        }
+
         await hydrateAround(track.id, navigationAfterSpine);
+        return true;
       } finally {
-        if (epoch === playlistFetchEpochRef.current) {
+        if (fetchEpoch === playlistFetchEpochRef.current) {
           setIsLoadingNext(false);
         }
       }
     },
-    [beginPlayback, buildShuffledOrder, hydrateAround, loadSpineForContext, rememberTrack],
+    [
+      buildShuffledOrder,
+      commitNavigation,
+      hydrateAround,
+      isOnline,
+      loadSpineForContext,
+      noteUserQueueMutation,
+      playContext,
+      rememberTrack,
+    ],
   );
 
   const resolvePlayableTrack = useCallback(
@@ -592,7 +795,29 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   );
 
   const playResolvedTrack = useCallback(
-    async (queueTrack: QueueTrack, options?: { commit?: () => void }): Promise<boolean> => {
+    async (
+      queueTrack: QueueTrack,
+      options: {
+        navigationEpoch: number;
+        navigation?: QueueNavigationState;
+        spineTotal?: number;
+        upNextPlayNextCount?: number;
+        playNextCountDiscard?: number;
+        navigationScope?: NavigationCommitScope;
+        /** Recompute queue navigation from the latest committed state at commit time. */
+        applyNavigation?: (latest: QueueNavigationState) => QueueNavigationState;
+      },
+    ): Promise<boolean> => {
+      const navigationEpoch = options.navigationEpoch;
+      const isLatestNavigation = () => navigationEpoch === queueJumpEpochRef.current;
+
+      const resolveUpNextPlayNextCount = (): number | undefined => {
+        if (options.playNextCountDiscard !== undefined && options.playNextCountDiscard > 0) {
+          return Math.max(0, upNextPlayNextCountRef.current - options.playNextCountDiscard);
+        }
+        return options.upNextPlayNextCount;
+      };
+
       // Apply a cached URL before the first await so Previous/Next stay inside
       // the user gesture. Otherwise the bar can show the returned track while
       // the element is still on the one we just left.
@@ -601,17 +826,54 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       if (cachedUrl && unlockAutoplayRef.current) {
         appliedSynchronously = unlockAutoplayRef.current(queueTrack.id, cachedUrl);
       }
-      if (!appliedSynchronously) {
+      if (!appliedSynchronously && isLatestNavigation()) {
         wantsAutoPlayRef.current = true;
       }
 
+      const navigationScope =
+        options.navigationScope ??
+        (options.navigation || options.applyNavigation ? "position" : "track-only");
+
+      const navigationForCommit = (): QueueNavigationState => {
+        const latest = navigationStateRef.current;
+        if (options.applyNavigation) {
+          return options.applyNavigation(latest);
+        }
+        if (options.navigation) {
+          if (navigationScope === "spine-position") {
+            return { ...latest, spinePosition: options.navigation.spinePosition };
+          }
+          return options.navigation;
+        }
+        return latest;
+      };
+
+      const commitPatch = () => ({
+        navigation: navigationForCommit(),
+        spineTotal: options.spineTotal,
+        upNextPlayNextCount: resolveUpNextPlayNextCount(),
+      });
+      const commitEffects = (extra?: { armAutoplay?: boolean; bumpPlaybackToken?: boolean }) => ({
+        ...extra,
+        navigationScope,
+      });
+
       const cachedFull = resolveFullTrack(playbackCacheRef.current, queueTrack);
       if (isPlayableTrack(cachedFull)) {
-        options?.commit?.();
-        if (!appliedSynchronously) {
-          beginPlayback();
+        if (!isLatestNavigation()) {
+          return false;
         }
-        setCurrentTrack(cachedFull);
+        if (
+          !commitNavigation(
+            navigationEpoch,
+            { ...commitPatch(), track: cachedFull },
+            appliedSynchronously
+              ? { navigationScope }
+              : commitEffects({ armAutoplay: true, bumpPlaybackToken: true }),
+          )
+        ) {
+          return false;
+        }
         void hydrateAround(queueTrack.id).catch((error) => {
           console.error("Background track hydration failed:", error);
           toast({
@@ -624,19 +886,25 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       }
 
       const fullTrack = await resolvePlayableTrack(queueTrack);
+      if (!isLatestNavigation()) {
+        return false;
+      }
       if (!fullTrack) {
-        wantsAutoPlayRef.current = false;
+        if (isLatestNavigation()) {
+          wantsAutoPlayRef.current = false;
+        }
         return false;
       }
 
-      options?.commit?.();
-      if (!appliedSynchronously) {
-        beginPlayback();
-      }
-      setCurrentTrack(fullTrack);
-      return true;
+      return commitNavigation(
+        navigationEpoch,
+        { ...commitPatch(), track: fullTrack },
+        appliedSynchronously
+          ? { navigationScope }
+          : commitEffects({ armAutoplay: true, bumpPlaybackToken: true }),
+      );
     },
-    [beginPlayback, hydrateAround, resolvePlayableTrack],
+    [commitNavigation, hydrateAround, navigationState, resolvePlayableTrack],
   );
 
   const playTrack = useCallback(
@@ -644,21 +912,16 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       if (roomSpeakerRef.current) return;
       if (!isPlayableTrack(track)) return;
 
-      noteUserQueueMutation();
-
-      if (playContext && !isSamePlayContext(playContext, context)) {
-        resetQueueState();
-      }
-
       await startSpinePlayback(track, context, index);
     },
-    [noteUserQueueMutation, playContext, resetQueueState, startSpinePlayback],
+    [startSpinePlayback],
   );
 
   const playPlaylist = useCallback(
     (tracks: Track[], context: PlaylistContext, startIndex: number = 0) => {
       if (roomSpeakerRef.current) return;
       noteUserQueueMutation();
+      const navigationEpoch = ++queueJumpEpochRef.current;
       setIsLoadingNext(true);
       try {
         const playableTracks = tracks.filter(isPlayableTrack);
@@ -674,9 +937,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         }
         if (!startTrack) return;
 
-        if (playContext && !isSamePlayContext(playContext, context)) {
-          resetQueueState();
-        }
+        const needsQueueReset = Boolean(playContext && !isSamePlayContext(playContext, context));
 
         const loadedSpine = playableTracks.map(queueTrackFromFullTrack);
         const order = buildShuffledOrder(loadedSpine.length);
@@ -690,17 +951,6 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           (index) => loadedSpine[index]?.id === startTrack.id,
         );
 
-        setUpNext([]);
-        setUpNextPlayNextCount(0);
-        upNextPlayNextCountRef.current = 0;
-        setSpine(loadedSpine);
-        setSpineTotal(loadedSpine.length);
-        setSpineOrder(order);
-        setSpinePosition(startSpinePosition >= 0 ? startSpinePosition : 0);
-        setPlayContext(context);
-        setIsPlayerVisible(true);
-        beginPlayback();
-        setCurrentTrack(startTrack);
         const startSpinePositionResolved = startSpinePosition >= 0 ? startSpinePosition : 0;
         const navigationAfterPlaylist: QueueNavigationState = {
           upNext: [],
@@ -709,6 +959,25 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           spinePosition: startSpinePositionResolved,
           loopMode: "off",
         };
+
+        commitNavigation(
+          navigationEpoch,
+          {
+            navigation: navigationAfterPlaylist,
+            track: startTrack,
+            spineTotal: loadedSpine.length,
+            upNextPlayNextCount: 0,
+            playContext: context,
+            isPlayerVisible: true,
+          },
+          {
+            armAutoplay: true,
+            bumpPlaybackToken: true,
+            resetQueue: needsQueueReset,
+            navigationScope: "full",
+          },
+        );
+
         void hydrateAround(startTrack.id, navigationAfterPlaylist).catch((error) => {
           console.error("Playlist hydration failed:", error);
           toast({
@@ -721,61 +990,71 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         setIsLoadingNext(false);
       }
     },
-    [
-      beginPlayback,
-      buildShuffledOrder,
-      hydrateAround,
-      noteUserQueueMutation,
-      playContext,
-      resetQueueState,
-    ],
+    [buildShuffledOrder, commitNavigation, hydrateAround, noteUserQueueMutation, playContext],
   );
 
   const playContextSpine = useCallback(
     async (context: PlaylistContext) => {
       if (roomSpeakerRef.current) return;
-      noteUserQueueMutation();
+      const navigationEpoch = ++queueJumpEpochRef.current;
+      const fetchEpoch = ++playlistFetchEpochRef.current;
       setIsLoadingNext(true);
       try {
-        if (!isSamePlayContext(playContext, context)) {
-          resetQueueState();
-        }
-
         const loadedSpine = await loadSpineForContext(context);
+        if (fetchEpoch !== playlistFetchEpochRef.current) return;
         if (loadedSpine.tracks.length === 0) return;
 
         const order = buildShuffledOrder(loadedSpine.tracks.length);
         const firstQueueTrack = loadedSpine.tracks[order[0] ?? 0];
         if (!firstQueueTrack) return;
 
-        setUpNext([]);
-        setUpNextPlayNextCount(0);
-        upNextPlayNextCountRef.current = 0;
-        setSpine(loadedSpine.tracks);
-        setSpineTotal(loadedSpine.total);
-        setSpineOrder(order);
-        setSpinePosition(0);
-        setPlayContext(context);
-        setIsPlayerVisible(true);
-
         await hydrateAround(firstQueueTrack.id);
+        if (fetchEpoch !== playlistFetchEpochRef.current) return;
         const fullTrack = resolveFullTrack(playbackCacheRef.current, firstQueueTrack);
         if (!isPlayableTrack(fullTrack)) return;
 
-        beginPlayback();
-        setCurrentTrack(fullTrack);
+        noteUserQueueMutation();
+
+        const needsQueueReset = !isSamePlayContext(playContext, context);
+
+        const navigationAfterSpine: QueueNavigationState = {
+          upNext: [],
+          spine: loadedSpine.tracks,
+          spineOrder: order,
+          spinePosition: 0,
+          loopMode: "off",
+        };
+
+        commitNavigation(
+          navigationEpoch,
+          {
+            navigation: navigationAfterSpine,
+            track: fullTrack,
+            spineTotal: loadedSpine.total,
+            upNextPlayNextCount: 0,
+            playContext: context,
+            isPlayerVisible: true,
+          },
+          {
+            armAutoplay: true,
+            bumpPlaybackToken: true,
+            resetQueue: needsQueueReset,
+            navigationScope: "full",
+          },
+        );
       } finally {
-        setIsLoadingNext(false);
+        if (fetchEpoch === playlistFetchEpochRef.current) {
+          setIsLoadingNext(false);
+        }
       }
     },
     [
-      beginPlayback,
       buildShuffledOrder,
+      commitNavigation,
       hydrateAround,
       loadSpineForContext,
       noteUserQueueMutation,
       playContext,
-      resetQueueState,
     ],
   );
 
@@ -844,45 +1123,84 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const removeTrackFromPlaylist = useCallback(
     (target: QueueTarget) => {
       if (roomSpeakerRef.current) return;
+      const navigationEpoch = ++queueJumpEpochRef.current;
+      const playNextCountAtStart = upNextPlayNextCountRef.current;
+
       if (target.zone === "upNext") {
-        setUpNext((prev) => prev.filter((_, itemIndex) => itemIndex !== target.index));
-        if (target.index < upNextPlayNextCount) {
-          setUpNextPlayNextCount((count) => {
-            const next = Math.max(0, count - 1);
-            upNextPlayNextCountRef.current = next;
-            return next;
-          });
-        }
+        const latest = navigationStateRef.current;
+        const nextUpNext = latest.upNext.filter((_, itemIndex) => itemIndex !== target.index);
+        const nextPlayNextCount =
+          target.index < playNextCountAtStart
+            ? Math.max(0, playNextCountAtStart - 1)
+            : playNextCountAtStart;
+        commitNavigation(
+          navigationEpoch,
+          {
+            navigation: { ...latest, upNext: nextUpNext },
+            upNextPlayNextCount: nextPlayNextCount,
+          },
+          { navigationScope: "position" },
+        );
         return;
       }
 
-      const result = removeSpineAtOrderIndex(navigationState, target.index);
+      const orderIndex = target.index;
+      const result = removeSpineAtOrderIndex(navigationStateRef.current, orderIndex);
       if (!result) return;
 
-      setSpine(result.state.spine);
-      setSpineOrder(result.state.spineOrder);
-      setSpinePosition(result.state.spinePosition);
-      setSpineTotal((total) => Math.max(0, total - 1));
+      const playNextDiscard =
+        result.consumedUpNextIndex !== null && result.consumedUpNextIndex < playNextCountAtStart
+          ? 1
+          : 0;
+      const nextPlayNextCount =
+        playNextDiscard > 0
+          ? Math.max(0, playNextCountAtStart - playNextDiscard)
+          : playNextCountAtStart;
 
-      if (result.consumedUpNextIndex !== null) {
-        setUpNext(result.state.upNext);
-        if (result.consumedUpNextIndex < upNextPlayNextCount) {
-          setUpNextPlayNextCount((count) => {
-            const next = Math.max(0, count - 1);
-            upNextPlayNextCountRef.current = next;
-            return next;
-          });
-        }
+      const applySpineRemoval = (latest: QueueNavigationState): QueueNavigationState => {
+        const removed = removeSpineAtOrderIndex(latest, orderIndex);
+        return removed?.state ?? latest;
+      };
+
+      if (!result.removedCurrent) {
+        const latest = navigationStateRef.current;
+        const fresh = removeSpineAtOrderIndex(latest, orderIndex);
+        if (!fresh) return;
+        commitNavigation(
+          navigationEpoch,
+          {
+            navigation: fresh.state,
+            spineTotal: Math.max(0, spineTotal - 1),
+            upNextPlayNextCount: nextPlayNextCount,
+          },
+          { navigationScope: "full" },
+        );
+        return;
       }
 
-      if (!result.removedCurrent) return;
       if (result.playTrack) {
-        void playResolvedTrack(result.playTrack);
-      } else {
-        setCurrentTrack(null);
+        void playResolvedTrack(result.playTrack, {
+          navigationEpoch,
+          applyNavigation: applySpineRemoval,
+          spineTotal: Math.max(0, spineTotal - 1),
+          playNextCountDiscard: playNextDiscard > 0 ? playNextDiscard : undefined,
+          navigationScope: "full",
+        });
+        return;
       }
+
+      commitNavigation(
+        navigationEpoch,
+        {
+          navigation: applySpineRemoval(navigationStateRef.current),
+          track: null,
+          spineTotal: Math.max(0, spineTotal - 1),
+          upNextPlayNextCount: nextPlayNextCount,
+        },
+        { navigationScope: "full" },
+      );
     },
-    [navigationState, playResolvedTrack, upNextPlayNextCount],
+    [commitNavigation, playResolvedTrack, spineTotal],
   );
 
   const removeCurrentFromQueue = useCallback(() => {
@@ -900,34 +1218,42 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       return;
     }
 
+    const navigationEpoch = ++queueJumpEpochRef.current;
+    const playNextCountAtStart = upNextPlayNextCountRef.current;
     const nextTarget = resolveNextTrack(navigationState);
     if (nextTarget) {
       const queueTrack = getTrackAtTarget(navigationState, nextTarget);
       if (!queueTrack) return;
 
       const nextState = advanceAfterPlay(navigationState, nextTarget);
-      setUpNext(nextState.upNext);
-      if (nextTarget.zone === "upNext" && nextTarget.index < upNextPlayNextCount) {
-        setUpNextPlayNextCount((count) => {
-          const next = Math.max(0, count - 1);
-          upNextPlayNextCountRef.current = next;
-          return next;
-        });
-      }
-      setSpinePosition(nextState.spinePosition);
-      void playResolvedTrack(queueTrack);
+      const playNextDiscard =
+        nextTarget.zone === "upNext" && nextTarget.index < playNextCountAtStart ? 1 : 0;
+
+      void playResolvedTrack(queueTrack, {
+        navigationEpoch,
+        applyNavigation: (latest) => advanceAfterPlay(latest, nextTarget),
+        playNextCountDiscard: playNextDiscard > 0 ? playNextDiscard : undefined,
+        navigationScope: "position",
+      });
       return;
     }
 
-    setCurrentTrack(null);
+    commitNavigation(
+      navigationEpoch,
+      {
+        navigation: navigationState,
+        track: null,
+      },
+      { navigationScope: "position" },
+    );
   }, [
+    commitNavigation,
     currentTrack,
     navigationState,
     playResolvedTrack,
     removeTrackFromPlaylist,
     spinePosition,
     upNext,
-    upNextPlayNextCount,
   ]);
 
   const playNextTrack = useCallback(
@@ -1022,6 +1348,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         noteUserQueueMutation();
       }
 
+      const jumpEpoch = ++queueJumpEpochRef.current;
+
       // Try to get the prefetched URL synchronously. If it exists, we can apply
       // it and call play() within the user gesture, satisfying autoplay policy.
       const cachedUrl = peekCachedPlaybackUrl(queueTrack.id);
@@ -1039,6 +1367,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
       // Resolve the full track and update queue state. Even if we played synchronously,
       // we still need the full track metadata for the UI.
+      const initialUpNextLength = navigationState.upNext.length;
+
       void (async () => {
         let workingState = navigationState;
         let attemptTarget: QueueTarget | null = target;
@@ -1076,41 +1406,54 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         }
 
         if (!fullTrack || !playedTarget) {
-          wantsAutoPlayRef.current = false;
+          if (jumpEpoch === queueJumpEpochRef.current) {
+            wantsAutoPlayRef.current = false;
+          }
           return;
         }
 
-        const nextState = options.computeNextState(workingState, playedTarget);
-        setUpNext(nextState.upNext);
-        const effectivePlayNextCount = Math.max(0, upNextPlayNextCount - skippedPlayNextPrefix);
+        if (jumpEpoch !== queueJumpEpochRef.current) {
+          return;
+        }
+
+        const latestAtCommit = navigationStateRef.current;
+        const upNextPrefixRemoved = Math.max(0, initialUpNextLength - workingState.upNext.length);
+        const baseState: QueueNavigationState = {
+          ...latestAtCommit,
+          upNext:
+            upNextPrefixRemoved > 0
+              ? latestAtCommit.upNext.slice(upNextPrefixRemoved)
+              : latestAtCommit.upNext,
+        };
+        const nextState = options.computeNextState(baseState, playedTarget);
+        const effectivePlayNextCount = Math.max(
+          0,
+          upNextPlayNextCountRef.current - skippedPlayNextPrefix,
+        );
         const discard =
           skippedPlayNextPrefix +
           (playedTarget.zone === "upNext"
             ? options.discardPlayNextCount(playedTarget, effectivePlayNextCount)
             : 0);
-        if (discard > 0) {
-          setUpNextPlayNextCount((count) => {
-            const next = Math.max(0, count - discard);
-            upNextPlayNextCountRef.current = next;
-            return next;
-          });
-        }
-        setSpinePosition(nextState.spinePosition);
+        const nextPlayNextCount =
+          discard > 0 ? Math.max(0, upNextPlayNextCountRef.current - discard) : undefined;
 
-        if (!appliedSynchronously) {
-          // Async flow - increment token to trigger autoplay effect
-          setPlaybackToken((token) => token + 1);
-          if (hydrationTimerRef.current) {
-            clearTimeout(hydrationTimerRef.current);
-            hydrationTimerRef.current = null;
-          }
-          pendingHydrationIdsRef.current.clear();
-        }
-
-        setCurrentTrack(fullTrack);
+        commitNavigation(
+          jumpEpoch,
+          {
+            navigation: nextState,
+            track: fullTrack,
+            upNextPlayNextCount: nextPlayNextCount,
+            isPlayerVisible: true,
+          },
+          {
+            navigationScope: "position",
+            ...(!appliedSynchronously ? { bumpPlaybackToken: true } : {}),
+          },
+        );
       })();
     },
-    [navigationState, noteUserQueueMutation, resolvePlayableTrack, upNextPlayNextCount],
+    [commitNavigation, navigationState, noteUserQueueMutation, resolvePlayableTrack],
   );
 
   const advanceToTarget = useCallback(
@@ -1162,12 +1505,13 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       return;
     }
 
+    const navigationEpoch = ++queueJumpEpochRef.current;
     const queueTrack = getTrackAtTarget(navigationState, {
       zone: "spine",
       index: spinePosition,
     });
     if (queueTrack) {
-      void playResolvedTrack(queueTrack);
+      void playResolvedTrack(queueTrack, { navigationEpoch });
     }
   }, [
     advanceToTarget,
@@ -1186,8 +1530,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     const queueTrack = getTrackAtTarget(navigationState, target);
     if (!queueTrack) return;
 
+    const jumpEpoch = ++queueJumpEpochRef.current;
+
     void playResolvedTrack(queueTrack, {
-      commit: () => setSpinePosition(target.index),
+      navigationEpoch: jumpEpoch,
+      navigation: { ...navigationState, spinePosition: target.index },
+      navigationScope: "spine-position",
     });
   }, [navigationState, playResolvedTrack]);
 
@@ -1234,6 +1582,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const closePlayer = useCallback(() => {
     if (roomSpeakerRef.current) return;
     playlistFetchEpochRef.current += 1;
+    queueJumpEpochRef.current += 1;
     wantsAutoPlayRef.current = false;
     setIsPlayerVisible(false);
     setCurrentTrack(null);
@@ -1491,6 +1840,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       hasPrevious,
       isLoadingNext,
       isPlaying,
+      pauseTrack,
+      resumeTrack,
       addTrackToPlaylist,
       removeTrackFromPlaylist,
       removeCurrentFromQueue,
@@ -1538,6 +1889,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       hasPrevious,
       isLoadingNext,
       isPlaying,
+      pauseTrack,
+      resumeTrack,
       addTrackToPlaylist,
       removeTrackFromPlaylist,
       removeCurrentFromQueue,
@@ -1898,12 +2251,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     }
 
     const epoch = restoreEpochRef.current;
-    offlineRestoreDoneRef.current = true;
     void (async () => {
       try {
         await restoreQueueOffline(userId);
+        if (epoch !== restoreEpochRef.current) return;
+        offlineRestoreDoneRef.current = true;
       } catch (error) {
         if (epoch === restoreEpochRef.current) {
+          offlineRestoreDoneRef.current = false;
           console.error("Failed to restore player state offline:", error);
         }
       }
@@ -1931,6 +2286,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         playbackToken={playbackToken}
         wantsAutoPlayRef={wantsAutoPlayRef}
         unlockAutoplayRef={unlockAutoplayRef}
+        pausePlaybackRef={pausePlaybackRef}
+        resumePlaybackRef={resumePlaybackRef}
         roomSpeaker={roomSpeaker}
         roomPlayEventTargetRef={roomPlayEventTargetRef}
         roomPlaying={roomPlaying}

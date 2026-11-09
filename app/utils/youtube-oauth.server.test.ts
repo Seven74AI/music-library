@@ -207,10 +207,7 @@ describe("createYouTubeOAuthService", () => {
     expect(service.getAuthUrl("state-1")).toBe("https://accounts.google.com/o/oauth2/v2/auth");
     expect(mockGenerateAuthUrl).toHaveBeenCalledWith({
       access_type: "offline",
-      scope: [
-        "https://www.googleapis.com/auth/youtube.readonly",
-        "https://www.googleapis.com/auth/youtube",
-      ],
+      scope: ["https://www.googleapis.com/auth/youtube.readonly"],
       state: "state-1",
       prompt: "consent",
     });

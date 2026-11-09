@@ -15,6 +15,7 @@ import {
   mutationRateLimitTier,
 } from "../app/utils/mutation-rate-limit.ts";
 import { createRouterLoadContext } from "../app/utils/router-context.server.ts";
+import { createHttpsUpgradeMiddleware } from "./https-upgrade-middleware.ts";
 import { requestUrlForAccessLog } from "./request-log-url.ts";
 
 const MODE = process.env.NODE_ENV ?? "development";
@@ -37,24 +38,10 @@ const viteDevServer = IS_PROD
 
 const app = express();
 
-const getHost = (req: { get: (key: string) => string | undefined }) =>
-  req.get("X-Forwarded-Host") ?? req.get("host") ?? "";
-
 // fly is our proxy
 app.set("trust proxy", true);
 
-// ensure HTTPS only (X-Forwarded-Proto comes from Fly)
-app.use((req, res, next) => {
-  if (req.method !== "GET") return next();
-  const proto = req.get("X-Forwarded-Proto");
-  const host = getHost(req);
-  if (proto === "http") {
-    res.set("X-Forwarded-Proto", "https");
-    res.redirect(`https://${host}${req.originalUrl}`);
-    return;
-  }
-  next();
-});
+app.use(createHttpsUpgradeMiddleware());
 
 // no ending slashes for SEO reasons
 // https://github.com/epicweb-dev/epic-stack/discussions/108
