@@ -1596,6 +1596,10 @@ function setProgress(audioEl: HTMLAudioElement, currentTime: number, duration: n
 
 function scrubSeekTo(audioEl: HTMLAudioElement, seconds: number, duration: number) {
   setProgress(audioEl, seconds, duration);
+  Object.defineProperty(audioEl, "readyState", {
+    configurable: true,
+    value: HTMLMediaElement.HAVE_METADATA,
+  });
   const seek = within(screen.getByTestId("player-desktop-bar")).getByLabelText("Seek");
   fireEvent.change(seek, { target: { value: String(seconds) } });
   Object.defineProperty(audioEl, "seeking", { configurable: true, value: false });
@@ -1927,7 +1931,7 @@ test("repeat-one 0.45s track: two wraps count two restarts", async () => {
   expect(started).toHaveLength(3);
 });
 
-test("repeat-one 1.2s at 4× playback: wraps still detected", async () => {
+test("repeat-one 1.2s at 4× playback: sparse timeupdates count all four wraps", async () => {
   const user = userEvent.setup();
   mockPlay();
   vi.mocked(reportPlayEvent).mockClear();
@@ -1944,13 +1948,21 @@ test("repeat-one 1.2s at 4× playback: wraps still detected", async () => {
     expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
   });
 
-  setProgress(audioEl, 1.15, 1.2);
-  fireEvent.timeUpdate(audioEl);
-  setProgress(audioEl, 0.05, 1.2);
-  fireEvent.timeUpdate(audioEl);
+  const wrapPairs: [number, number][] = [
+    [1.072, 0.07],
+    [0.492, 0.07],
+    [0.483, 0.07],
+    [0.504, 0.07],
+  ];
+  for (const [prev, next] of wrapPairs) {
+    setProgress(audioEl, prev, 1.2);
+    fireEvent.timeUpdate(audioEl);
+    setProgress(audioEl, next, 1.2);
+    fireEvent.timeUpdate(audioEl);
+  }
 
   const started = vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started");
-  expect(started).toHaveLength(2);
+  expect(started).toHaveLength(5);
 });
 
 test("non-loop playback: one started at play, one completed at 50%, ended silent", async () => {

@@ -1055,10 +1055,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
           const trackDuration = audio.duration;
           if (trackDuration > 0 && isFinite(trackDuration)) {
             const head = Math.min(1, trackDuration * 0.3);
-            const tail = Math.max(trackDuration - head, trackDuration * 0.6);
             const delta = prevTime - currentTime;
             const minJump = Math.min(0.5, head);
-            if (currentTime < head && prevTime > tail && delta > minJump) {
+            if (currentTime < head && delta > minJump) {
               playIdRef.current = generatePlayId();
               playCompletedForPlayIdRef.current = null;
               playStartedForTrackRef.current = trackId;
