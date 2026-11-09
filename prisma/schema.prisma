@@ -182,8 +182,6 @@ model Verification {
   expiresAt DateTime?
   /// Pending email address for change-email verifications (set at request time).
   pendingEmail String?
-  /// Set when the emailed magic link OTP is exchanged on GET — code is dead afterward.
-  linkConsumedAt DateTime?
 
   @@unique([target, type])
 }
