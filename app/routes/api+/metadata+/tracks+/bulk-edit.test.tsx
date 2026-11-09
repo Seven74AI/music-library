@@ -1,6 +1,10 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  findWriteBlockedLock,
+  getLockStatus,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { action, clientAction } from "./bulk-edit.tsx";
 
@@ -10,6 +14,8 @@ vi.mock("#app/utils/permissions.server.ts", () => ({
 
 vi.mock("#app/utils/locks.server.ts", () => ({
   findWriteBlockedLock: vi.fn(),
+  getLockStatus: vi.fn(),
+  assertEditLockInTransaction: vi.fn(),
 }));
 
 vi.mock("#app/utils/db.server.ts", () => ({
@@ -85,6 +91,8 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     vi.clearAllMocks();
     vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
     vi.mocked(findWriteBlockedLock).mockResolvedValue(null);
+    vi.mocked(getLockStatus).mockResolvedValue(null);
+    vi.mocked(assertEditLockInTransaction).mockResolvedValue(undefined);
   });
 
   test("returns 409 when any target track is locked by another curator", async () => {
@@ -642,6 +650,17 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
         year: 2021,
       },
     });
+  });
+
+  test("rejects invalid releaseDate in changes before the transaction", async () => {
+    const body = {
+      trackIds: ["track-1"],
+      changes: { releaseDate: "not-a-date" },
+      comment: "bad date",
+    };
+
+    await expectReturnedError(body, 400, "Validation failed");
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   test("handles date parsing correctly", async () => {

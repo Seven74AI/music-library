@@ -3,7 +3,13 @@ import { data } from "react-router";
 import { z } from "zod";
 import { chunkArray } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server.ts";
-import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  findWriteBlockedLock,
+  getLockStatus,
+  type LockInfo,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import {
@@ -14,6 +20,16 @@ import {
   type GenreRef,
 } from "#app/utils/track-genres.server.ts";
 import { type Route } from "./+types/bulk-edit.ts";
+
+const optionalIsoDateField = (label: string) =>
+  z
+    .string()
+    .nullable()
+    .optional()
+    .refine(
+      (v) => v === undefined || v === null || !Number.isNaN(Date.parse(v)),
+      `${label} must be a valid date`,
+    );
 
 // Validation schema for changes object (all fields optional, but at least one required)
 const ChangesSchema = z
@@ -29,8 +45,8 @@ const ChangesSchema = z
     bpm: z.number().int().nullable().optional(),
     label: z.string().nullable().optional(),
     isrc: z.string().nullable().optional(),
-    releaseDate: z.string().nullable().optional(), // ISO date string
-    originalDate: z.string().nullable().optional(),
+    releaseDate: optionalIsoDateField("releaseDate"),
+    originalDate: optionalIsoDateField("originalDate"),
     originalYear: z.number().int().nullable().optional(),
     totalTracks: z.number().int().nullable().optional(),
     totalDiscs: z.number().int().nullable().optional(),
@@ -210,73 +226,106 @@ export async function action({ request }: Route.ActionArgs) {
         : null
       : undefined;
 
-  // Perform bulk update in a transaction
-  const result = await prisma.$transaction(async (tx) => {
-    // 1. Batch-create edit history entries (one createMany instead of N creates).
-    await tx.trackEdit.createMany({
-      data: tracks.map((track) => ({
-        trackId: track.id,
-        editedBy: userId,
-        comment: comment,
-        // Snapshot current state
-        title: track.title,
-        artistId: track.artistId,
-        albumId: track.albumId,
-        genre: primaryGenreName(track.genres ?? []),
-        genreIds: snapshotGenreIds(track.genres),
-        year: track.year,
-        trackNumber: track.trackNumber,
-        albumArtist: track.albumArtist,
-        bpm: track.bpm,
-        label: track.label,
-        isrc: track.isrc,
-        releaseDate: track.releaseDate,
-        originalDate: track.originalDate,
-        originalYear: track.originalYear,
-        totalTracks: track.totalTracks,
-        totalDiscs: track.totalDiscs,
-        lyrics: track.lyrics,
-      })),
+  const trackLocks: Array<{ entityId: string; lock: LockInfo | null }> = await Promise.all(
+    uniqueTrackIds.map(async (entityId) => ({
+      entityId,
+      lock: await getLockStatus("track", entityId),
+    })),
+  );
+
+  let result: number;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      for (const { entityId, lock } of trackLocks) {
+        await assertEditLockInTransaction(tx, "track", entityId, userId, lock);
+      }
+
+      // 1. Batch-create edit history entries (one createMany instead of N creates).
+      await tx.trackEdit.createMany({
+        data: tracks.map((track) => ({
+          trackId: track.id,
+          editedBy: userId,
+          comment: comment,
+          // Snapshot current state
+          title: track.title,
+          artistId: track.artistId,
+          albumId: track.albumId,
+          genre: primaryGenreName(track.genres ?? []),
+          genreIds: snapshotGenreIds(track.genres),
+          year: track.year,
+          trackNumber: track.trackNumber,
+          albumArtist: track.albumArtist,
+          bpm: track.bpm,
+          label: track.label,
+          isrc: track.isrc,
+          releaseDate: track.releaseDate,
+          originalDate: track.originalDate,
+          originalYear: track.originalYear,
+          totalTracks: track.totalTracks,
+          totalDiscs: track.totalDiscs,
+          lyrics: track.lyrics,
+        })),
+      });
+
+      // 2. Build a single uniform update object — every track receives the same
+      //    scalar changes, so one updateMany replaces N per-track updates.
+      const trackUpdateData: any = {};
+
+      if (changes.title !== undefined) trackUpdateData.title = changes.title;
+      if (changes.artistId !== undefined) trackUpdateData.artistId = changes.artistId;
+      if (changes.albumId !== undefined) trackUpdateData.albumId = changes.albumId;
+      if (changes.year !== undefined) trackUpdateData.year = changes.year;
+      if (changes.trackNumber !== undefined) trackUpdateData.trackNumber = changes.trackNumber;
+      if (changes.albumArtist !== undefined) trackUpdateData.albumArtist = changes.albumArtist;
+      if (changes.bpm !== undefined) trackUpdateData.bpm = changes.bpm;
+      if (changes.label !== undefined) trackUpdateData.label = changes.label;
+      if (changes.isrc !== undefined) trackUpdateData.isrc = changes.isrc;
+      if (releaseDate !== undefined) trackUpdateData.releaseDate = releaseDate;
+      if (originalDate !== undefined) trackUpdateData.originalDate = originalDate;
+      if (changes.originalYear !== undefined) trackUpdateData.originalYear = changes.originalYear;
+      if (changes.totalTracks !== undefined) trackUpdateData.totalTracks = changes.totalTracks;
+      if (changes.totalDiscs !== undefined) trackUpdateData.totalDiscs = changes.totalDiscs;
+      if (changes.lyrics !== undefined) trackUpdateData.lyrics = changes.lyrics;
+
+      let genreIdsToSet: string[] | undefined;
+      if (resolvedGenres !== undefined) {
+        genreIdsToSet = resolvedGenres.map((genre) => genre.id);
+      }
+
+      // 3. Apply the uniform scalar changes in a single query.
+      await tx.track.updateMany({
+        where: { id: { in: uniqueTrackIds } },
+        data: trackUpdateData,
+      });
+
+      // 4. Replace genre links for all tracks with set-based SQL (2 queries total).
+      if (genreIdsToSet !== undefined) {
+        await replaceTrackGenreLinks(tx, uniqueTrackIds, genreIdsToSet);
+      }
+
+      return uniqueTrackIds.length;
     });
-
-    // 2. Build a single uniform update object — every track receives the same
-    //    scalar changes, so one updateMany replaces N per-track updates.
-    const trackUpdateData: any = {};
-
-    if (changes.title !== undefined) trackUpdateData.title = changes.title;
-    if (changes.artistId !== undefined) trackUpdateData.artistId = changes.artistId;
-    if (changes.albumId !== undefined) trackUpdateData.albumId = changes.albumId;
-    if (changes.year !== undefined) trackUpdateData.year = changes.year;
-    if (changes.trackNumber !== undefined) trackUpdateData.trackNumber = changes.trackNumber;
-    if (changes.albumArtist !== undefined) trackUpdateData.albumArtist = changes.albumArtist;
-    if (changes.bpm !== undefined) trackUpdateData.bpm = changes.bpm;
-    if (changes.label !== undefined) trackUpdateData.label = changes.label;
-    if (changes.isrc !== undefined) trackUpdateData.isrc = changes.isrc;
-    if (releaseDate !== undefined) trackUpdateData.releaseDate = releaseDate;
-    if (originalDate !== undefined) trackUpdateData.originalDate = originalDate;
-    if (changes.originalYear !== undefined) trackUpdateData.originalYear = changes.originalYear;
-    if (changes.totalTracks !== undefined) trackUpdateData.totalTracks = changes.totalTracks;
-    if (changes.totalDiscs !== undefined) trackUpdateData.totalDiscs = changes.totalDiscs;
-    if (changes.lyrics !== undefined) trackUpdateData.lyrics = changes.lyrics;
-
-    let genreIdsToSet: string[] | undefined;
-    if (resolvedGenres !== undefined) {
-      genreIdsToSet = resolvedGenres.map((genre) => genre.id);
+  } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      if (error.violation.kind === "other") {
+        return data(
+          {
+            error: "Locked",
+            message: `${error.violation.lockedByName} is currently editing this track`,
+          },
+          { status: 409 },
+        );
+      }
+      return data(
+        {
+          error: "Locked",
+          message: "Your edit lock on one or more tracks is no longer active",
+        },
+        { status: 409 },
+      );
     }
-
-    // 3. Apply the uniform scalar changes in a single query.
-    await tx.track.updateMany({
-      where: { id: { in: uniqueTrackIds } },
-      data: trackUpdateData,
-    });
-
-    // 4. Replace genre links for all tracks with set-based SQL (2 queries total).
-    if (genreIdsToSet !== undefined) {
-      await replaceTrackGenreLinks(tx, uniqueTrackIds, genreIdsToSet);
-    }
-
-    return uniqueTrackIds.length;
-  });
+    throw error;
+  }
 
   return data({
     success: true,

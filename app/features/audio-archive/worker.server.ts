@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { persistTrackAudio } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { checkPlaylistArchiveReadyAfterTrackArchived } from "#app/utils/playlist-archive-ready.server.tsx";
 import {
@@ -472,10 +473,12 @@ export async function resetAuthFailedJobs(): Promise<number> {
 
   if (resetIds.length === 0) return 0;
 
-  await prisma.archiveJob.updateMany({
-    where: { id: { in: resetIds } },
-    data: { status: "pending", retryCount: 0 },
-  });
+  for (const chunk of chunkArray(resetIds)) {
+    await prisma.archiveJob.updateMany({
+      where: { id: { in: chunk } },
+      data: { status: "pending", retryCount: 0 },
+    });
+  }
 
   return resetIds.length;
 }

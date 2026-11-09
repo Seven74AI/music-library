@@ -1,7 +1,12 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
-import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  findWriteBlockedLock,
+  getLockStatus,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/$id.set-primary.ts";
@@ -59,48 +64,74 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Image not found" }, { status: 404 });
   }
 
-  // Update the entity's primary-cover pointer. A shared CoverImage (deduplicated
-  // by contentHash) cannot carry per-album/per-track primary state, so the
-  // nullable FK on the entity is the single source of truth.
-  await prisma.$transaction(async (tx) => {
-    if (entityType === "artist") {
-      // Find artist
-      const artist = await tx.artist.findUnique({
-        where: { id: entityId },
-      });
+  const lock = await getLockStatus(entityType, entityId);
 
-      if (!artist) {
-        throw data({ error: "Artist not found" }, { status: 404 });
+  try {
+    // Update the entity's primary-cover pointer. A shared CoverImage (deduplicated
+    // by contentHash) cannot carry per-album/per-track primary state, so the
+    // nullable FK on the entity is the single source of truth.
+    await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, entityType, entityId, userId, lock);
+
+      if (entityType === "artist") {
+        // Find artist
+        const artist = await tx.artist.findUnique({
+          where: { id: entityId },
+        });
+
+        if (!artist) {
+          throw data({ error: "Artist not found" }, { status: 404 });
+        }
+
+        // Currently artists only have a single imageUrl field, not multiple images
+        // Update the artist's imageUrl to the selected image's objectKey
+        await tx.artist.update({
+          where: { id: entityId },
+          data: {
+            imageUrl: image.objectKey,
+          },
+        });
+      } else if (entityType === "album") {
+        // Find album
+        const album = await tx.album.findUnique({
+          where: { id: entityId },
+          select: { coverImageId: true },
+        });
+
+        if (!album) {
+          throw data({ error: "Album not found" }, { status: 404 });
+        }
+
+        // The album's `coverImageId` FK is the per-album primary cover pointer.
+        await tx.album.update({
+          where: { id: entityId },
+          data: {
+            coverImageId: imageId,
+          },
+        });
       }
-
-      // Currently artists only have a single imageUrl field, not multiple images
-      // Update the artist's imageUrl to the selected image's objectKey
-      await tx.artist.update({
-        where: { id: entityId },
-        data: {
-          imageUrl: image.objectKey,
-        },
-      });
-    } else if (entityType === "album") {
-      // Find album
-      const album = await tx.album.findUnique({
-        where: { id: entityId },
-        select: { coverImageId: true },
-      });
-
-      if (!album) {
-        throw data({ error: "Album not found" }, { status: 404 });
+    });
+  } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      if (error.violation.kind === "other") {
+        return data(
+          {
+            error: "Locked",
+            message: `${error.violation.lockedByName} is currently editing this ${entityType}`,
+          },
+          { status: 409 },
+        );
       }
-
-      // The album's `coverImageId` FK is the per-album primary cover pointer.
-      await tx.album.update({
-        where: { id: entityId },
-        data: {
-          coverImageId: imageId,
+      return data(
+        {
+          error: "Locked",
+          message: `Your edit lock on this ${entityType} is no longer active`,
         },
-      });
+        { status: 409 },
+      );
     }
-  });
+    throw error;
+  }
 
   return data({ success: true });
 }

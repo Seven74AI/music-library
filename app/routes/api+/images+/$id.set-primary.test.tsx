@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  findWriteBlockedLock,
+  getLockStatus,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { action } from "./$id.set-primary.tsx";
@@ -10,6 +14,8 @@ vi.mock("#app/utils/permissions.server.ts", () => ({
 
 vi.mock("#app/utils/locks.server.ts", () => ({
   findWriteBlockedLock: vi.fn(),
+  getLockStatus: vi.fn(),
+  assertEditLockInTransaction: vi.fn(),
 }));
 
 vi.mock("#app/utils/db.server.ts", () => ({
@@ -37,6 +43,8 @@ describe("PUT /api/images/:id/set-primary", () => {
     vi.clearAllMocks();
     vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
     vi.mocked(findWriteBlockedLock).mockResolvedValue(null);
+    vi.mocked(getLockStatus).mockResolvedValue(null);
+    vi.mocked(assertEditLockInTransaction).mockResolvedValue(undefined);
     vi.mocked(prisma.coverImage.findUnique).mockResolvedValue({
       id: "img-1",
       objectKey: "covers/test.png",

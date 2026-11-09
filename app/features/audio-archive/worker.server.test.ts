@@ -1519,6 +1519,29 @@ describe("scheduleQueueTick", () => {
   });
 });
 
+describe("resetAuthFailedJobs", () => {
+  it("chunks updateMany calls to stay under SQLite bind limits", async () => {
+    const authCategories = ["AUTH", "COOKIE_EXPIRED"] as const;
+    const jobCount = 1_100;
+    const jobs = Array.from({ length: jobCount }, (_, i) => ({
+      id: `job-${i}`,
+      errorHistory: JSON.stringify([{ category: authCategories[i % 2] }]),
+    }));
+    mockPrisma.archiveJob.findMany.mockResolvedValue(jobs);
+    mockPrisma.archiveJob.updateMany.mockResolvedValue({ count: 500 });
+
+    const { resetAuthFailedJobs } = await import("./worker.server.ts");
+    const reset = await resetAuthFailedJobs();
+
+    expect(reset).toBe(jobCount);
+    expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledTimes(3);
+    const chunkSizes = mockPrisma.archiveJob.updateMany.mock.calls.map(
+      (call) => (call[0] as { where: { id: { in: string[] } } }).where.id.in.length,
+    );
+    expect(chunkSizes).toEqual([500, 500, 100]);
+  });
+});
+
 describe("getQueueStats", () => {
   it("returns counts for all statuses", async () => {
     mockPrisma.archiveJob.groupBy.mockResolvedValue([

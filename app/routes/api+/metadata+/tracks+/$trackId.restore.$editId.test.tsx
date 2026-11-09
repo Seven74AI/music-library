@@ -1,6 +1,10 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { findWriteBlockedLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  findWriteBlockedLock,
+  getLockStatus,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { action } from "./$trackId.restore.$editId.tsx";
 
@@ -10,6 +14,8 @@ vi.mock("#app/utils/permissions.server.ts", () => ({
 
 vi.mock("#app/utils/locks.server.ts", () => ({
   findWriteBlockedLock: vi.fn(),
+  getLockStatus: vi.fn(),
+  assertEditLockInTransaction: vi.fn(),
 }));
 
 vi.mock("#app/utils/db.server.ts", () => ({
@@ -51,6 +57,8 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     vi.clearAllMocks();
     vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
     vi.mocked(findWriteBlockedLock).mockResolvedValue(null);
+    vi.mocked(getLockStatus).mockResolvedValue(null);
+    vi.mocked(assertEditLockInTransaction).mockResolvedValue(undefined);
   });
 
   test("returns 409 when the track is locked by another curator", async () => {
