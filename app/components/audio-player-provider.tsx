@@ -13,7 +13,6 @@ import {
   type RoomAutoplayOutcome,
 } from "#app/components/audio-player-room-playback.ts";
 import { isOfflineEnvironment } from "#app/features/offline-app/is-offline-environment.client.ts";
-import { isQueueOnlyOfflineTrack } from "#app/features/offline-storage/pin-policy.ts";
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
 import { offlineSummaryToFullTrack } from "#app/features/offline-storage/offline-track-summary.client.ts";
 import { isQueueCacheEnabled } from "#app/features/offline-storage/queue-cache-preference.client.ts";
@@ -100,10 +99,7 @@ async function userOwnsLibraryTrack(trackId: string, isOnline: boolean): Promise
   const storage = getOfflineStorage();
   if (typeof storage.getRecord === "function") {
     const record = await storage.getRecord(trackId);
-    if (record) {
-      if (record.isPinned) return true;
-      if (isQueueOnlyOfflineTrack(record)) return false;
-    }
+    if (record?.isPinned) return true;
   }
   if (!isOnline || isOfflineEnvironment()) return false;
   try {
