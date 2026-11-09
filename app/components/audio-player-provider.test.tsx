@@ -1494,17 +1494,13 @@ test("playUserPlaylist passes playlist track sort to the queue spine", async () 
   expect(spineRequestUrl).toContain("sort=title");
 });
 
-test("playTrack falls back to offline downloads when online spine fetch fails", async () => {
+test("playTrack uses pinned downloads when offline without calling queue spine", async () => {
   const user = userEvent.setup();
   const fetchMock = vi.mocked(fetch);
-  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
   vi.stubGlobal("navigator", { onLine: false });
-
-  fetchMock.mockResolvedValueOnce({
-    ok: false,
-    status: 503,
-    statusText: "Service Unavailable",
-  } as Response);
+  await act(async () => {
+    window.dispatchEvent(new Event("offline"));
+  });
 
   render(
     <AudioPlayerProvider>
@@ -1515,11 +1511,10 @@ test("playTrack falls back to offline downloads when online spine fetch fails", 
   await user.click(screen.getByRole("button", { name: "Play library track" }));
 
   await waitFor(() => {
-    expect(fetchMock).toHaveBeenCalled();
     expect(screen.getByTestId("playlist-length").textContent).toBe("1");
   });
+  expect(fetchMock).not.toHaveBeenCalled();
 
-  consoleError.mockRestore();
   vi.unstubAllGlobals();
 });
 
@@ -2597,6 +2592,79 @@ test("clicking a catalog row absent from the ownership-filtered spine does not s
 
   expect(screen.getByTestId("player-visible").textContent).toBe("false");
   expect(screen.getByTestId("current-track-id").textContent).toBe("");
+});
+
+test("playTrack while offline builds spine from pinned downloads instead of queue spine fetch", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const offlineTrack: FullTrack = {
+    ...playableTrack,
+    id: "offline-pin",
+    title: "Pinned Offline",
+  };
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [{ ...spineTrack, id: "other-owned", title: "Other" }],
+          total: 1,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const tracks = [offlineTrack].filter((track) => ids.includes(track.id));
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  vi.mocked(getOfflineStorage).mockReturnValue({
+    cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
+    listDownloaded: vi.fn().mockResolvedValue([]),
+    listPinned: vi.fn().mockResolvedValue([downloadedSummary("offline-pin", "Pinned Offline")]),
+    listForPlaylist: vi.fn().mockResolvedValue([]),
+  } as unknown as ReturnType<typeof getOfflineStorage>);
+
+  vi.stubGlobal("navigator", { ...(navigator as Navigator), onLine: false });
+  await act(async () => {
+    window.dispatchEvent(new Event("offline"));
+  });
+
+  function OfflinePlayProbe() {
+    const { playTrack, isPlayerVisible, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(offlineTrack, { type: "library" })}>
+          Play pinned offline
+        </button>
+        <span data-testid="player-visible">{String(isPlayerVisible)}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <OfflinePlayProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play pinned offline" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("offline-pin");
+  });
+  expect(screen.getByTestId("player-visible").textContent).toBe("true");
+  expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/queue-spine"))).toBe(
+    false,
+  );
 });
 
 test("failed offline restore is retried on the next mount", async () => {

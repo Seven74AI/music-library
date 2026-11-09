@@ -458,7 +458,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     async (context: PlaylistContext): Promise<{ tracks: QueueTrack[]; total: number }> => {
       const spineContext = toQueueSpineContext(context);
 
-      if (spineContext) {
+      if (isOnline && spineContext) {
         try {
           const result = await fetchQueueSpine(spineContext);
           if (result.tracks.length > 0) return result;
@@ -479,7 +479,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       const tracks = offlineTracks.map(queueTrackFromFullTrack);
       return { tracks, total: tracks.length };
     },
-    [fetchOfflineTracks],
+    [fetchOfflineTracks, isOnline],
   );
 
   const resetQueueState = useCallback(() => {
