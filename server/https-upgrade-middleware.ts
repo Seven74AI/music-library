@@ -1,5 +1,10 @@
 import type { RequestHandler } from "express";
-import { configuredSiteUrl } from "../app/utils/site-url.ts";
+
+/** Mirrors `configuredSiteUrl` in app/utils/site-url.ts (ADR-002: no server ↔ app imports). */
+function siteUrlFromEnv(): string | null {
+  const configured = process.env.SITE_URL?.trim();
+  return configured ? configured.replace(/\/$/, "") : null;
+}
 
 /**
  * Redirect HTTP→HTTPS when Fly reports plain HTTP via Fly-Forwarded-Port (not
@@ -12,7 +17,7 @@ export function createHttpsUpgradeMiddleware(): RequestHandler {
     const flyPort = req.get("Fly-Forwarded-Port");
     if (flyPort !== "80") return next();
 
-    const siteUrl = configuredSiteUrl();
+    const siteUrl = siteUrlFromEnv();
     if (!siteUrl) return next();
 
     let allowedHost: string;

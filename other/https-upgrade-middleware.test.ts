@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createHttpsUpgradeMiddleware } from "./https-upgrade-middleware";
+import { createHttpsUpgradeMiddleware } from "../server/https-upgrade-middleware.ts";
 
 describe("HTTPS upgrade middleware", () => {
   const originalSiteUrl = process.env.SITE_URL;
@@ -31,6 +31,39 @@ describe("HTTPS upgrade middleware", () => {
 
     expect(res.redirect).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
+  });
+
+  test("does not redirect when SITE_URL is unset", () => {
+    delete process.env.SITE_URL;
+    const middleware = createHttpsUpgradeMiddleware();
+    const req = {
+      method: "GET",
+      originalUrl: "/library",
+      get: (name: string) => (name === "Fly-Forwarded-Port" ? "80" : undefined),
+    };
+    const res = { redirect: vi.fn() };
+    const next = vi.fn();
+
+    middleware(req as never, res as never, next);
+
+    expect(res.redirect).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
+  test("strips trailing slash from SITE_URL when building redirect host", () => {
+    process.env.SITE_URL = "https://music.example.com/";
+    const middleware = createHttpsUpgradeMiddleware();
+    const req = {
+      method: "GET",
+      originalUrl: "/",
+      get: (name: string) => (name === "Fly-Forwarded-Port" ? "80" : undefined),
+    };
+    const res = { redirect: vi.fn() };
+    const next = vi.fn();
+
+    middleware(req as never, res as never, next);
+
+    expect(res.redirect).toHaveBeenCalledWith(302, "https://music.example.com/");
   });
 
   test("redirects to SITE_URL host when Fly-Forwarded-Port is 80", () => {
