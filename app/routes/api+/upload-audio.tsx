@@ -60,6 +60,10 @@ export async function action({ request }: ActionFunctionArgs) {
     return data({ success: false, error: "Audio file is required" }, { status: 400 });
   }
 
+  if (audioFile.size === 0) {
+    return data({ success: false, error: "Audio file is empty" }, { status: 400 });
+  }
+
   // Validate file size
   if (audioFile.size > MAX_FILE_SIZE) {
     return data(

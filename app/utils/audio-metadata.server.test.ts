@@ -395,6 +395,12 @@ describe("extractAudioMetadata", () => {
     expect(result.isrc).toBe("ISRC1");
   });
 
+  test("rejects an empty buffer instead of filename fallback", async () => {
+    await expect(extractAudioMetadata(Buffer.alloc(0), "empty.mp3")).rejects.toThrow(
+      /Empty buffer/,
+    );
+  });
+
   test("handles errors gracefully and returns format from filename", async () => {
     const { parseBuffer } = await import("music-metadata");
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

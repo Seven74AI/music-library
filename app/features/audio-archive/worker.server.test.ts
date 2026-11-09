@@ -601,6 +601,37 @@ describe("processQueueTick", () => {
   });
 
   describe("error handling", () => {
+    it("does not persist audio or complete when extraction rejects an empty buffer", async () => {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-empty",
+          status: "pending",
+          priority: false,
+          retryCount: 0,
+          errorHistory: "[]",
+          track: {
+            id: "track-empty",
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=emptyxxxxxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: "[]" });
+      mockReadFileSync.mockReturnValue(Buffer.alloc(0));
+      mockExtractAudioMetadata.mockRejectedValue(
+        new Error("Empty buffer for file: /tmp/test-audio.mp3"),
+      );
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockPersistTrackAudio).not.toHaveBeenCalled();
+      expect(mockPrisma.archiveJob.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: "completed" } }),
+      );
+    });
+
     it("handles yt-dlp failure: marks as failed for non-retriable errors", async () => {
       mockPrisma.archiveJob.count.mockResolvedValue(0);
       mockPendingArchiveJobs([
