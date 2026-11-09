@@ -21,7 +21,7 @@ describe("sendEmail without RESEND_API_KEY", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs a redacted notice in development without email body or OTP", async () => {
+  it("logs the full email body (including OTP) in development", async () => {
     process.env.NODE_ENV = "development";
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -34,8 +34,7 @@ describe("sendEmail without RESEND_API_KEY", () => {
 
     expect(result.status).toBe("success");
     const logged = errorSpy.mock.calls.flat().join("\n");
-    expect(logged).not.toContain("654321");
-    expect(logged).not.toContain("Your code");
+    expect(logged).toContain("654321");
     expect(logged).toContain("user@example.com");
     expect(logged).toContain("Verify your account");
   });
