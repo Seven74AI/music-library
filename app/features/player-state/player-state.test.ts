@@ -36,6 +36,9 @@ const sampleState: PlayerStateData = {
   upNextIds: ["track-2", "track-3"],
   shuffleSeed: 42,
   loopMode: "all",
+  spinePosition: 2,
+  audibleSourceZone: "upNext",
+  upNextPlayNextCount: 1,
 };
 
 function saveRequest(cookie: string, body: unknown) {
@@ -118,6 +121,41 @@ describe("player-state resource", () => {
     } as never)) as Response;
     expect(loadResponse.status).toBe(200);
     expect(await loadResponse.json()).toEqual(sampleState);
+    expect(row.spinePosition).toBe(2);
+    expect(row.audibleSourceZone).toBe("upNext");
+    expect(row.upNextPlayNextCount).toBe(1);
+  });
+
+  test("defaults queue-position fields when omitted from the request body", async () => {
+    const { cookie } = await createUserCookie();
+    const legacyBody = {
+      playContext: { type: "library" as const },
+      currentTrackId: "track-1",
+      upNextIds: [] as string[],
+      shuffleSeed: null,
+      loopMode: "off" as const,
+    };
+
+    const saveResponse = await action({
+      request: saveRequest(cookie, legacyBody),
+      params: {},
+      context: {},
+    } as never);
+
+    expect((saveResponse as Response).ok).toBe(true);
+
+    const loadResponse = (await loader({
+      request: loadRequest(cookie),
+      params: {},
+      context: {},
+    } as never)) as Response;
+
+    expect(await loadResponse.json()).toEqual({
+      ...legacyBody,
+      spinePosition: 0,
+      audibleSourceZone: null,
+      upNextPlayNextCount: 0,
+    });
   });
 
   test("upserts on the unique userId (one row per user)", async () => {

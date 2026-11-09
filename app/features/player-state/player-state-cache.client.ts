@@ -2,7 +2,12 @@ import { LOOP_MODES, type LoopMode } from "#app/features/queue/queue-navigation.
 import { LIBRARY_SORT_OPTIONS } from "#app/features/listening-insights/heavy-rotation.ts";
 import { DISCOVER_SORT_OPTIONS } from "#app/utils/discover.ts";
 import { PLAYLIST_TRACK_SORT_OPTIONS } from "#app/utils/playlist-track-sort.ts";
-import { type PlayContextJson, type PlayerStateData } from "./player-state.ts";
+import {
+  type PlayContextJson,
+  type PlayerStateData,
+  type ResolvedPlayerStateData,
+  withPlayerStateDefaults,
+} from "./player-state.ts";
 
 /**
  * localStorage mirror of the server-persisted `PlayerState`. This is NOT a
@@ -76,6 +81,27 @@ function isPlayerStateData(value: unknown): value is PlayerStateData {
     return false;
   }
 
+  if (
+    state.spinePosition !== undefined &&
+    (typeof state.spinePosition !== "number" || state.spinePosition < 0)
+  ) {
+    return false;
+  }
+  if (
+    state.audibleSourceZone !== undefined &&
+    state.audibleSourceZone !== null &&
+    state.audibleSourceZone !== "spine" &&
+    state.audibleSourceZone !== "upNext"
+  ) {
+    return false;
+  }
+  if (
+    state.upNextPlayNextCount !== undefined &&
+    (typeof state.upNextPlayNextCount !== "number" || state.upNextPlayNextCount < 0)
+  ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -87,7 +113,8 @@ export function readCachedPlayerState(userId: string): PlayerStateData | null {
     const raw = window.localStorage.getItem(playerStateLocalKey(userId));
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    return isPlayerStateData(parsed) ? parsed : null;
+    if (!isPlayerStateData(parsed)) return null;
+    return withPlayerStateDefaults(parsed as PlayerStateData) as ResolvedPlayerStateData;
   } catch {
     return null;
   }

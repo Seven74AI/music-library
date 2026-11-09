@@ -1,4 +1,4 @@
-import { type LoopMode } from "#app/features/queue/queue-navigation.ts";
+import { type LoopMode, type QueueZone } from "#app/features/queue/queue-navigation.ts";
 import { type DiscoverSortOption } from "#app/utils/discover.ts";
 
 /**
@@ -42,6 +42,10 @@ export type PlayerStateData = {
   upNextIds: string[];
   shuffleSeed: number | null;
   loopMode: LoopMode;
+  /** Spine order index when the audible track is from the spine (or the frozen spine head while Up Next plays). */
+  spinePosition?: number;
+  audibleSourceZone?: QueueZone | null;
+  upNextPlayNextCount?: number;
 };
 
 export const PLAYER_STATE_ROUTE = "/resources/player-state";
@@ -58,7 +62,24 @@ export async function fetchPlayerState(): Promise<PlayerStateData | null> {
     throw new Error(`Failed to fetch player state: ${response.status}`);
   }
 
-  return response.json() as Promise<PlayerStateData>;
+  const data = (await response.json()) as PlayerStateData;
+  return withPlayerStateDefaults(data) as PlayerStateData;
+}
+
+export type ResolvedPlayerStateData = PlayerStateData & {
+  spinePosition: number;
+  audibleSourceZone: QueueZone | null;
+  upNextPlayNextCount: number;
+};
+
+/** Apply defaults for queue-position fields omitted by older persisted rows. */
+export function withPlayerStateDefaults(data: PlayerStateData): ResolvedPlayerStateData {
+  return {
+    ...data,
+    spinePosition: data.spinePosition ?? 0,
+    audibleSourceZone: data.audibleSourceZone ?? null,
+    upNextPlayNextCount: data.upNextPlayNextCount ?? 0,
+  };
 }
 
 /**

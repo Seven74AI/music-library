@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { expect, test, vi, beforeEach } from "vitest";
-import { type PlayerStateData } from "./player-state.ts";
+import { type PlayerStateData, withPlayerStateDefaults } from "./player-state.ts";
 import { readCachedPlayerState, writeCachedPlayerState } from "./player-state-cache.client.ts";
 
 const savedState: PlayerStateData = {
@@ -20,7 +20,7 @@ beforeEach(() => {
 test("round-trips a player state through the local mirror", () => {
   writeCachedPlayerState("user-1", savedState);
 
-  expect(readCachedPlayerState("user-1")).toEqual(savedState);
+  expect(readCachedPlayerState("user-1")).toEqual(withPlayerStateDefaults(savedState));
 });
 
 test("returns null when no state has been mirrored", () => {
@@ -98,5 +98,5 @@ test("round-trips a valid library context with sort and direction", () => {
   };
 
   writeCachedPlayerState("user-1", state);
-  expect(readCachedPlayerState("user-1")).toEqual(state);
+  expect(readCachedPlayerState("user-1")).toEqual(withPlayerStateDefaults(state));
 });

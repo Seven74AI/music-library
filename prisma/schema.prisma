@@ -54,6 +54,9 @@ model PlayerState {
   upNextIds      String   @default("[]")
   shuffleSeed    Int?
   loopMode       String   @default("off")
+  spinePosition           Int     @default(0)
+  audibleSourceZone       String?
+  upNextPlayNextCount     Int     @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
