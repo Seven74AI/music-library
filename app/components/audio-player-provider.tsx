@@ -501,7 +501,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   }, []);
 
   const startSpinePlayback = useCallback(
-    async (track: Track, context: PlaylistContext, explicitIndex?: number) => {
+    async (track: Track, context: PlaylistContext, explicitIndex?: number): Promise<boolean> => {
       rememberTrack(track);
 
       const epoch = ++playlistFetchEpochRef.current;
@@ -509,7 +509,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
       try {
         const loadedSpine = await loadSpineForContext(context);
-        if (epoch !== playlistFetchEpochRef.current) return;
+        if (epoch !== playlistFetchEpochRef.current) return false;
 
         const order = buildShuffledOrder(loadedSpine.tracks.length);
         const navigationPreview: QueueNavigationState = {
@@ -527,7 +527,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         })();
 
         if (resolvedPosition === null || resolvedPosition < 0) {
-          return;
+          return false;
+        }
+
+        noteUserQueueMutation();
+        if (playContext && !isSamePlayContext(playContext, context)) {
+          resetQueueState();
         }
 
         beginPlayback();
@@ -551,13 +556,23 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           loopMode: "off",
         };
         await hydrateAround(track.id, navigationAfterSpine);
+        return true;
       } finally {
         if (epoch === playlistFetchEpochRef.current) {
           setIsLoadingNext(false);
         }
       }
     },
-    [beginPlayback, buildShuffledOrder, hydrateAround, loadSpineForContext, rememberTrack],
+    [
+      beginPlayback,
+      buildShuffledOrder,
+      hydrateAround,
+      loadSpineForContext,
+      noteUserQueueMutation,
+      playContext,
+      rememberTrack,
+      resetQueueState,
+    ],
   );
 
   const resolvePlayableTrack = useCallback(
@@ -601,7 +616,14 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   );
 
   const playResolvedTrack = useCallback(
-    async (queueTrack: QueueTrack, options?: { commit?: () => void }): Promise<boolean> => {
+    async (
+      queueTrack: QueueTrack,
+      options?: { commit?: () => void; navigationEpoch?: number },
+    ): Promise<boolean> => {
+      const navigationEpoch = options?.navigationEpoch;
+      const isLatestNavigation = () =>
+        navigationEpoch === undefined || navigationEpoch === queueJumpEpochRef.current;
+
       // Apply a cached URL before the first await so Previous/Next stay inside
       // the user gesture. Otherwise the bar can show the returned track while
       // the element is still on the one we just left.
@@ -616,6 +638,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
       const cachedFull = resolveFullTrack(playbackCacheRef.current, queueTrack);
       if (isPlayableTrack(cachedFull)) {
+        if (!isLatestNavigation()) {
+          return false;
+        }
         options?.commit?.();
         if (!appliedSynchronously) {
           beginPlayback();
@@ -633,8 +658,13 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       }
 
       const fullTrack = await resolvePlayableTrack(queueTrack);
+      if (!isLatestNavigation()) {
+        return false;
+      }
       if (!fullTrack) {
-        wantsAutoPlayRef.current = false;
+        if (isLatestNavigation()) {
+          wantsAutoPlayRef.current = false;
+        }
         return false;
       }
 
@@ -653,15 +683,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       if (roomSpeakerRef.current) return;
       if (!isPlayableTrack(track)) return;
 
-      noteUserQueueMutation();
-
-      if (playContext && !isSamePlayContext(playContext, context)) {
-        resetQueueState();
-      }
-
       await startSpinePlayback(track, context, index);
     },
-    [noteUserQueueMutation, playContext, resetQueueState, startSpinePlayback],
+    [startSpinePlayback],
   );
 
   const playPlaylist = useCallback(
@@ -1087,12 +1111,13 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         }
 
         if (!fullTrack || !playedTarget) {
-          wantsAutoPlayRef.current = false;
+          if (jumpEpoch === queueJumpEpochRef.current) {
+            wantsAutoPlayRef.current = false;
+          }
           return;
         }
 
         if (jumpEpoch !== queueJumpEpochRef.current) {
-          wantsAutoPlayRef.current = false;
           return;
         }
 
@@ -1205,8 +1230,11 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     const queueTrack = getTrackAtTarget(navigationState, target);
     if (!queueTrack) return;
 
+    const jumpEpoch = ++queueJumpEpochRef.current;
+
     void playResolvedTrack(queueTrack, {
       commit: () => setSpinePosition(target.index),
+      navigationEpoch: jumpEpoch,
     });
   }, [navigationState, playResolvedTrack]);
 
