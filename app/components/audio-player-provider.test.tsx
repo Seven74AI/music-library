@@ -1786,7 +1786,8 @@ test("reconnect backfills the spine after an offline partial restore", async () 
   });
 
   mockOfflineStorage([downloadedSummary("track-1", "Test Song")]);
-  vi.stubGlobal("navigator", { onLine: false });
+  const navigatorState = { onLine: false };
+  vi.stubGlobal("navigator", navigatorState);
 
   render(
     <AudioPlayerProvider userId="user-1">
@@ -1826,6 +1827,7 @@ test("reconnect backfills the spine after an offline partial restore", async () 
       json: async () => ({ tracks: [spineTrack, { ...spineTrack, id: "track-2" }], total: 2 }),
     } as Response);
 
+  navigatorState.onLine = true;
   window.dispatchEvent(new Event("online"));
 
   await waitFor(() => {
@@ -2807,6 +2809,75 @@ test("clicking an unowned catalog row while another context plays does not clear
 
   expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
   expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+});
+
+test("playTrack skips queue spine when navigator is offline before React isOnline updates", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  const offlineTrack: FullTrack = {
+    ...playableTrack,
+    id: "offline-pin",
+    title: "Pinned Offline",
+  };
+
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [{ ...spineTrack, id: "other-owned", title: "Other" }],
+          total: 1,
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const tracks = [offlineTrack].filter((track) => ids.includes(track.id));
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  vi.mocked(getOfflineStorage).mockReturnValue({
+    cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
+    listDownloaded: vi.fn().mockResolvedValue([]),
+    listPinned: vi.fn().mockResolvedValue([downloadedSummary("offline-pin", "Pinned Offline")]),
+    listForPlaylist: vi.fn().mockResolvedValue([]),
+  } as unknown as ReturnType<typeof getOfflineStorage>);
+
+  // Simulate Playwright setOffline: navigator offline, no offline event yet (stale isOnline).
+  vi.stubGlobal("navigator", { ...(navigator as Navigator), onLine: false });
+
+  function OfflinePlayProbe() {
+    const { playTrack, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(offlineTrack, { type: "library" })}>
+          Play pinned offline
+        </button>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <OfflinePlayProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play pinned offline" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("offline-pin");
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
+
+  vi.unstubAllGlobals();
 });
 
 test("playTrack while offline builds spine from pinned downloads instead of queue spine fetch", async () => {

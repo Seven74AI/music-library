@@ -206,6 +206,7 @@ test.describe("Offline mode", () => {
 
     // Go offline using Playwright context
     await page.context().setOffline(true);
+    await page.waitForFunction(() => !navigator.onLine);
 
     // Click the track to play it while offline
     await page

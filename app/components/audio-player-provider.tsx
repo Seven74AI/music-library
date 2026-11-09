@@ -458,7 +458,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     async (context: PlaylistContext): Promise<{ tracks: QueueTrack[]; total: number }> => {
       const spineContext = toQueueSpineContext(context);
 
-      if (isOnline && spineContext) {
+      const navigatorOnline = typeof navigator === "undefined" ? true : navigator.onLine !== false;
+
+      if (isOnline && navigatorOnline && spineContext) {
         try {
           const result = await fetchQueueSpine(spineContext);
           if (result.tracks.length > 0) return result;
