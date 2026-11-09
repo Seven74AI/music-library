@@ -632,6 +632,40 @@ describe("recordRoomPlayEvent", () => {
     );
   });
 
+  test("ignores forged addedByParticipantId and uses the queue row attribution", async () => {
+    const host = await makeUser();
+    const room = await createRoom({
+      userId: host.id,
+      displayName: "Host",
+      defaultJoinRole: "dj",
+    });
+    const adder = await joinRoom({
+      code: room.code,
+      actor: { type: "guest", displayName: "DJ Guest" },
+    });
+    const track = await makeTrackWithAudio("Attributed");
+    await addTrackToQueue({
+      roomId: room.id,
+      actor: { type: "guest", guestToken: adder.guestToken! },
+      trackId: track.id,
+    });
+
+    const event = await recordRoomPlayEvent({
+      roomId: room.id,
+      actor: { type: "user", userId: host.id },
+      type: "room_play_started",
+      trackId: track.id,
+      playId: "play-attribution",
+    });
+
+    const stored = await prisma.roomPlayEvent.findUnique({
+      where: { id: event.id },
+      select: { addedByParticipantId: true },
+    });
+    expect(stored?.addedByParticipantId).toBe(adder.participant.id);
+    expect(stored?.addedByParticipantId).not.toBe(host.id);
+  });
+
   test("rejects a non-transport participant from recording play events", async () => {
     const host = await makeUser();
     const room = await createRoom({
