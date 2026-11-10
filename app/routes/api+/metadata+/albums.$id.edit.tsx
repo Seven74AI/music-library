@@ -5,8 +5,10 @@ import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import {
   assertEditLockInTransaction,
   EditLockTransactionError,
+  editLockConflictCopyForEntity,
   getLockStatus,
   releaseLock,
+  throwEditLockTransactionError,
 } from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/albums.$id.edit.ts";
@@ -114,22 +116,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     }));
   } catch (error) {
     if (error instanceof EditLockTransactionError) {
-      if (error.violation.kind === "other") {
-        throw data(
-          {
-            error: "Locked",
-            message: `${error.violation.lockedByName} is currently editing this album`,
-          },
-          { status: 409 },
-        );
-      }
-      throw data(
-        {
-          error: "Locked",
-          message: "Your edit lock on this album is no longer active",
-        },
-        { status: 409 },
-      );
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("album"));
     }
     throw error;
   }

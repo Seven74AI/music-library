@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   assertEditLockInTransaction,
+  editLockConflictCopyForEntity,
   EditLockTransactionError,
   forceUnlock,
   releaseLock,
+  throwEditLockTransactionError,
+  toEditLockErrorResponse,
   type LockInfo,
 } from "./locks.server.ts";
 import { createUser } from "#tests/db-utils.ts";
@@ -241,5 +244,34 @@ describe("assertEditLockInTransaction", () => {
         assertEditLockInTransaction(tx, "album", "album-expired", owner.id, heldBeforeWrite),
       ),
     ).rejects.toMatchObject({ violation: { kind: "not_held" } });
+  });
+});
+
+describe("toEditLockErrorResponse", () => {
+  test("maps another curator's lock to a 409 Locked payload", () => {
+    const error = new EditLockTransactionError({
+      kind: "other",
+      lockedByName: "Ada",
+    });
+    const response = toEditLockErrorResponse(error, editLockConflictCopyForEntity("album"));
+    expect(response).toMatchObject({
+      data: { error: "Locked", message: "Ada is currently editing this album" },
+      init: { status: 409 },
+    });
+  });
+
+  test("maps a stale self lock to a 409 Locked payload", () => {
+    const error = new EditLockTransactionError({ kind: "not_held" });
+    expect(() =>
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("track")),
+    ).toThrow(
+      expect.objectContaining({
+        data: {
+          error: "Locked",
+          message: "Your edit lock on this track is no longer active",
+        },
+        init: { status: 409 },
+      }),
+    );
   });
 });

@@ -7,8 +7,10 @@ import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action
 import {
   assertEditLockInTransaction,
   EditLockTransactionError,
+  editLockConflictCopyForEntity,
   getLockStatus,
   releaseLock,
+  throwEditLockTransactionError,
 } from "#app/utils/locks.server.ts";
 import { type Route } from "./+types/artists.$id.edit.ts";
 
@@ -114,22 +116,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     }));
   } catch (error) {
     if (error instanceof EditLockTransactionError) {
-      if (error.violation.kind === "other") {
-        throw data(
-          {
-            error: "Locked",
-            message: `${error.violation.lockedByName} is currently editing this artist`,
-          },
-          { status: 409 },
-        );
-      }
-      throw data(
-        {
-          error: "Locked",
-          message: "Your edit lock on this artist is no longer active",
-        },
-        { status: 409 },
-      );
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("artist"));
     }
     throw error;
   }
