@@ -801,7 +801,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 
                     return (
                       <TrackListItem
-                        key={track.id}
+                        key={track.membershipId ?? `${track.id}-${index}`}
                         track={{
                           ...trackForListItem,
                           isInUserLibrary:

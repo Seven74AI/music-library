@@ -102,7 +102,9 @@ describe("ServicePlaylistService - Sync Logic", () => {
       await import("#app/features/service-connection/service-connection.server")
     ).resolveServiceAccessToken as ReturnType<typeof vi.fn>;
     vi.clearAllMocks();
-    vi.mocked(resolveServiceAccessToken).mockResolvedValue({ access_token: "token123" });
+    vi.mocked(resolveServiceAccessToken).mockResolvedValue({
+      access_token: "token123",
+    });
     // Default: absent videos are gone on YouTube (playlist removals → delete SPT)
     mockCheckVideosExist.mockImplementation(async (_ids: string[]) => new Set<string>());
   });
@@ -202,7 +204,8 @@ describe("ServicePlaylistService - Sync Logic", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockResolvedValue({
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
               id: "pt1",
               playlistId,
               trackId: "track1",
@@ -218,7 +221,9 @@ describe("ServicePlaylistService - Sync Logic", () => {
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
       // Mock deleteMany for removed tracks
-      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 1 } as any);
+      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({
+        count: 1,
+      } as any);
 
       const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
@@ -306,7 +311,8 @@ describe("ServicePlaylistService - Sync Logic", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockResolvedValue({
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
               id: "pt1",
               playlistId,
               trackId: "track1",
@@ -382,7 +388,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
         snippet: {
           title: `Video ${i + 1}`,
           resourceId: { videoId: `video${i + 1}` },
-          thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+          thumbnails: {
+            default: { url: `https://example.com/thumb${i + 1}.jpg` },
+          },
           videoOwnerChannelTitle: "Test Channel",
         },
       }));
@@ -414,13 +422,14 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockImplementation(async (args: any) => {
-              upsertedPositions.push(args.create.position);
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockImplementation(async (args: any) => {
+              upsertedPositions.push(args.data.position);
               return {
-                id: `pt-${args.create.trackId}`,
-                playlistId: args.create.playlistId,
-                trackId: args.create.trackId,
-                position: args.create.position,
+                id: `pt-${args.data.trackId}`,
+                playlistId: args.data.playlistId,
+                trackId: args.data.trackId,
+                position: args.data.position,
                 isDeleted: false,
               };
             }),
@@ -488,7 +497,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
           snippet: {
             title: `Video ${i + 1}`,
             resourceId: { videoId: `video${i + 1}` },
-            thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+            thumbnails: {
+              default: { url: `https://example.com/thumb${i + 1}.jpg` },
+            },
             videoOwnerChannelTitle: "Test Channel",
           },
         })),
@@ -503,7 +514,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
           snippet: {
             title: `Video ${i + 16}`,
             resourceId: { videoId: `video${i + 16}` },
-            thumbnails: { default: { url: `https://example.com/thumb${i + 16}.jpg` } },
+            thumbnails: {
+              default: { url: `https://example.com/thumb${i + 16}.jpg` },
+            },
             videoOwnerChannelTitle: "Test Channel",
           },
         })),
@@ -569,17 +582,17 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockImplementation(async (args: any) => {
-              processedTrackIds.add(args.create.trackId);
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockImplementation(async (args: any) => {
+              processedTrackIds.add(args.data.trackId);
               return {
-                id: `pt-${args.create.trackId}`,
-                playlistId: args.create.playlistId,
-                trackId: args.create.trackId,
-                position: args.create.position,
+                id: `pt-${args.data.trackId}`,
+                playlistId: args.data.playlistId,
+                trackId: args.data.trackId,
+                position: args.data.position,
                 isDeleted: false,
               };
             }),
-            create: vi.fn(),
           },
         };
         return callback(tx);
@@ -696,7 +709,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn(),
+            findFirst: vi.fn().mockResolvedValue(null),
             create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };
@@ -707,7 +720,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
         stillOnYoutubeTrack,
       ] as any);
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 1 } as any);
+      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({
+        count: 1,
+      } as any);
 
       const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
@@ -798,7 +813,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn(),
+            findFirst: vi.fn().mockResolvedValue(null),
             create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };
@@ -855,7 +870,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
         snippet: {
           title: `Video ${i + 1}`,
           resourceId: { videoId: `video${i + 1}` },
-          thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+          thumbnails: {
+            default: { url: `https://example.com/thumb${i + 1}.jpg` },
+          },
           videoOwnerChannelTitle: "Test Channel",
         },
       }));
@@ -913,7 +930,8 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockResolvedValue({
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
               id: "pt-new",
               playlistId,
               trackId: "track-new",
@@ -934,7 +952,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
       // Mock deleteMany
-      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 2 } as any);
+      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({
+        count: 2,
+      } as any);
 
       const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
@@ -972,7 +992,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       },
       servicePlaylistTrack: {
         findMany: vi.fn().mockResolvedValue([]),
-        upsert: vi.fn().mockResolvedValue({
+        create: vi.fn().mockResolvedValue({
           id: "pt1",
           playlistId,
           trackId: "track1",
@@ -1129,7 +1149,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
           snippet: {
             title: `Video ${i + 1}`,
             resourceId: { videoId: `video${i + 1}` },
-            thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+            thumbnails: {
+              default: { url: `https://example.com/thumb${i + 1}.jpg` },
+            },
             videoOwnerChannelTitle: "Test Channel",
           },
         })),
@@ -1172,14 +1194,14 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockResolvedValue({
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
               id: "pt-new",
               playlistId,
               trackId: "track-new",
               position: 1,
               isDeleted: false,
             }),
-            create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };
         return callback(tx);

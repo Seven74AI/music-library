@@ -157,6 +157,7 @@ export class ServicePlaylistService {
       processedIds: {
         externalIds: new Set<string>(),
         trackIds: new Set<string>(),
+        sptIds: new Set<string>(),
       },
       pendingMatches: [],
       deletedVideosWithoutMatch: [],
@@ -193,6 +194,7 @@ export class ServicePlaylistService {
         batchResult.processedIds.trackIds.forEach((id) =>
           accumulated.processedIds.trackIds.add(id),
         );
+        batchResult.processedIds.sptIds.forEach((id) => accumulated.processedIds.sptIds.add(id));
         accumulated.deletedVideosWithoutMatch.push(...batchResult.deletedVideosWithoutMatch);
         scheduleArchiveQueueTickAfterCommit(batchResult.archiveQueueTickNeeded);
       } catch (batchError) {
@@ -499,7 +501,9 @@ export class ServicePlaylistService {
       if (error instanceof Error) {
         throw error;
       }
-      throw new Error("Failed to fetch playlist items from external service", { cause: error });
+      throw new Error("Failed to fetch playlist items from external service", {
+        cause: error,
+      });
     }
 
     const { result: processResult, timedOut } = await this.processBatches(
@@ -694,6 +698,7 @@ export class ServicePlaylistService {
         Object.assign({}, pt.track, {
           artist: pt.track.artist || { id: "", name: "Unknown Artist" },
           position: pt.position,
+          membershipId: pt.id,
           isDeleted: pt.isDeleted,
           deletedAt: pt.deletedAt,
           thumbnailUrl: pt.thumbnailUrl,
@@ -735,6 +740,7 @@ export class ServicePlaylistService {
     const tracks: TrackWithUserStatus[] = result.tracks.map((track) =>
       Object.assign({}, track, {
         artist: track.artist || { id: "", name: "Unknown Artist" },
+        membershipId: track.membershipId,
         isDeleted: track.isDeleted || false,
         deletedAt: track.deletedAt || null,
         coverImage: track.coverImage

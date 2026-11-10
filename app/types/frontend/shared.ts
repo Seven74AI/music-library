@@ -39,6 +39,8 @@ export interface TrackWithUserStatus {
   createdAt: Date;
   updatedAt: Date;
   position: number;
+  /** ServicePlaylistTrack row id (unique per playlist entry; the same track can repeat). */
+  membershipId?: string;
   isDeleted?: boolean;
   deletedAt?: Date | null;
   service?: {

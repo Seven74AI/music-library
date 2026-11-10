@@ -25,7 +25,11 @@ describe("confirmOrphanedMatches membership scoping", () => {
     const service = await prisma.service.upsert({
       where: { name: "youtube" },
       update: {},
-      create: { name: "youtube", displayName: "YouTube", baseUrl: "https://youtube.com" },
+      create: {
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+      },
     });
     const artist = await prisma.artist.create({
       data: { name: "Test Artist", normalizedName: "test-artist" },
@@ -81,13 +85,8 @@ describe("confirmOrphanedMatches membership scoping", () => {
     expect(result.error).toContain("not a member of this playlist");
 
     // No membership row may have been created for the foreign track.
-    const foreignMembership = await prisma.servicePlaylistTrack.findUnique({
-      where: {
-        playlistId_trackId: {
-          playlistId: playlist.id,
-          trackId: foreignTrack.id,
-        },
-      },
+    const foreignMembership = await prisma.servicePlaylistTrack.findFirst({
+      where: { playlistId: playlist.id, trackId: foreignTrack.id },
     });
     expect(foreignMembership).toBeNull();
   });
@@ -97,7 +96,11 @@ describe("confirmOrphanedMatches membership scoping", () => {
     const service = await prisma.service.upsert({
       where: { name: "youtube" },
       update: {},
-      create: { name: "youtube", displayName: "YouTube", baseUrl: "https://youtube.com" },
+      create: {
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+      },
     });
     const artist = await prisma.artist.create({
       data: { name: "Test Artist", normalizedName: "test-artist" },
@@ -143,13 +146,8 @@ describe("confirmOrphanedMatches membership scoping", () => {
 
     expect(result.success).toBe(true);
 
-    const membership = await prisma.servicePlaylistTrack.findUnique({
-      where: {
-        playlistId_trackId: {
-          playlistId: playlist.id,
-          trackId: memberTrack.id,
-        },
-      },
+    const membership = await prisma.servicePlaylistTrack.findFirst({
+      where: { playlistId: playlist.id, trackId: memberTrack.id },
     });
     expect(membership).not.toBeNull();
     expect(membership?.isDeleted).toBe(true);
