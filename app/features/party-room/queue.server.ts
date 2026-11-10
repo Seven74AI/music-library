@@ -1,5 +1,6 @@
 import { type Prisma } from "#prisma/client.js";
 import { prisma } from "#app/utils/db.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import {
   canAddTracks,
   canEditOthersUpcoming,
@@ -428,12 +429,7 @@ export async function recordRoomPlayEvent({
     try {
       return await prisma.roomPlayEvent.create({ data });
     } catch (error) {
-      if (
-        error !== null &&
-        typeof error === "object" &&
-        "code" in error &&
-        (error as { code?: string }).code === "P2002"
-      ) {
+      if (isUniqueConstraintError(error)) {
         const existing = await prisma.roomPlayEvent.findFirst({
           where: { roomId, playId, type },
           select: { id: true, type: true, trackId: true, playId: true, createdAt: true },

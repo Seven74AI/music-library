@@ -9,17 +9,8 @@ import {
   bumpUserPlaylistUpdatedAt,
   userPlaylistTitleTaken,
 } from "#app/utils/user-playlist.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { type Route } from "./+types/service-playlist-to-user-playlist";
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
 
 /**
  * POST /resources/service-playlist-to-user-playlist
@@ -160,7 +151,7 @@ export async function action({ request }: Route.ActionArgs) {
           return playlist;
         });
       } catch (error) {
-        if (isUniqueConstraintViolation(error)) {
+        if (isUniqueConstraintError(error)) {
           return data(
             {
               status: "duplicate_title",

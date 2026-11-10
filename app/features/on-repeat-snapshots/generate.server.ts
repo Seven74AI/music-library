@@ -1,21 +1,12 @@
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { chunkArray } from "#app/utils/chunk-array.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import {
   ON_REPEAT_SNAPSHOT_CAP,
   getPreviousCalendarMonthUtc,
   yearMonthToUtcWindow,
 } from "./month.ts";
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
 
 export type RankedPlayCompletedTrack = {
   trackId: string;
@@ -153,7 +144,7 @@ export async function generateOnRepeatSnapshotForUser({
     });
     return { status: "created", snapshotId: snapshot.id };
   } catch (error) {
-    if (isUniqueConstraintViolation(error)) {
+    if (isUniqueConstraintError(error)) {
       const raced = await prisma.onRepeatSnapshot.findUnique({
         where: { userId_yearMonth: { userId, yearMonth } },
         select: { id: true },

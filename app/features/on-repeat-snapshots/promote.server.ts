@@ -5,16 +5,7 @@ import {
   bumpUserPlaylistUpdatedAt,
   userPlaylistTitleTaken,
 } from "#app/utils/user-playlist.server.ts";
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 export type PromoteOnRepeatSnapshotResult =
   | {
@@ -110,7 +101,7 @@ export async function promoteOnRepeatSnapshot(
       })
       .catch((error: unknown) => {
         // Atomic guard via the DB unique index on (ownerId, lower(trim(title))).
-        if (isUniqueConstraintViolation(error)) {
+        if (isUniqueConstraintError(error)) {
           return { status: "duplicate_title", existingTitle: trimmedTitle } as const;
         }
         throw error;

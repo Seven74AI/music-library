@@ -4,22 +4,13 @@ import {
   recordSecurityEvent,
   SECURITY_EVENT_TYPES,
 } from "#app/features/security/track-event.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 export type EntityType = "track" | "artist" | "album";
 
 const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 const lockInclude = { user: { select: { id: true, name: true, username: true } } } as const;
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
 
 export interface LockInfo {
   id: string;
@@ -82,7 +73,7 @@ export async function acquireLock(
 
     return toLockInfo(lock);
   } catch (error) {
-    if (!isUniqueConstraintViolation(error)) throw error;
+    if (!isUniqueConstraintError(error)) throw error;
 
     // Lost the race to another curator. Re-read the winning lock so a same-user
     // double-acquire still extends it instead of reporting "already locked".

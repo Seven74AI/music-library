@@ -5,15 +5,7 @@ import { deleteFile, uploadFile } from "./storage.server";
 import { coerceOptionalInt } from "#app/utils/track-metadata-int.server.ts";
 import { validatePublicHttpsUrl } from "./validate-public-url.server.ts";
 import { followMergedIntoIdChain } from "./canonical-merged-entity.server.ts";
-
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 /** Per-attempt timeout for external cover downloads (YouTube thumbnails, etc.) */
 export const IMAGE_DOWNLOAD_TIMEOUT_MS = 15_000;
@@ -357,7 +349,7 @@ async function createOrReuseCoverImage(
           select: { id: true, objectKey: true },
         });
       } catch (error) {
-        if (!isUniqueConstraintViolation(error)) throw error;
+        if (!isUniqueConstraintError(error)) throw error;
         coverImage = await client.coverImage.findUnique({
           where: { contentHash: prepared.contentHash },
           select: { id: true, objectKey: true },
