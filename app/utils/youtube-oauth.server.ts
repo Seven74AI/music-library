@@ -10,11 +10,7 @@ import {
 } from "./google-api-error-logger.server.ts";
 import { shouldMockYouTube } from "./youtube-mock-utils";
 
-export {
-  logGoogleOAuthClientError,
-  logGoogleYouTubeDataApiClientError,
-  redactGoogleClientErrorMessage,
-} from "./google-api-error-logger.server.ts";
+export { logGoogleOAuthClientError } from "./google-api-error-logger.server.ts";
 
 // YouTube OAuth scopes
 export const YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"];
