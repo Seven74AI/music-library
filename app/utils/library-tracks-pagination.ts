@@ -1,1 +1,1 @@
-export const LIBRARY_TRACKS_PAGE_SIZE = 50;
+export { LIBRARY_TRACKS_PAGE_SIZE } from "#app/features/queue/library-tracks-page-size.ts";
