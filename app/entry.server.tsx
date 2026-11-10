@@ -10,12 +10,16 @@ import { getEnv, init } from "./utils/env.server.ts";
 import { getInstanceInfo } from "./utils/litefs.server.ts";
 import { NonceProvider } from "./utils/nonce-provider.ts";
 import { getServerAppContext } from "./utils/router-context.server.ts";
-import { registerInProcessJobStopper } from "./utils/in-process-job-registry.server.ts";
+import {
+  drainInProcessJobStoppers,
+  registerInProcessJobStopper,
+} from "./utils/in-process-job-registry.server.ts";
 import { makeTimings } from "./utils/timing.server.ts";
 
 export const streamTimeout = 5000;
 
 init();
+globalThis.__drainInProcessJobStoppers = drainInProcessJobStoppers;
 global.ENV = getEnv();
 
 // Start the audio-archive worker if enabled.
@@ -24,8 +28,8 @@ if (process.env.AUDIO_ARCHIVE_ENABLED === "true") {
   const intervalMs = Number(process.env.AUDIO_ARCHIVE_INTERVAL_MS) || 120_000;
   void import("./features/audio-archive/worker.server.ts").then(
     ({ startAudioArchiveWorker, stopAudioArchiveWorker }) => {
-      startAudioArchiveWorker(intervalMs);
       registerInProcessJobStopper("audio-archive", stopAudioArchiveWorker);
+      startAudioArchiveWorker(intervalMs);
     },
   );
 }
@@ -34,8 +38,8 @@ if (process.env.AUDIO_ARCHIVE_ENABLED === "true") {
 if (process.env.BACKUP_BUCKET_NAME) {
   void import("./features/db-backup/scheduler.server.ts").then(
     ({ startBackupScheduler, stopBackupScheduler }) => {
-      startBackupScheduler();
       registerInProcessJobStopper("db-backup", stopBackupScheduler);
+      startBackupScheduler();
     },
   );
 }
@@ -44,8 +48,8 @@ if (process.env.BACKUP_BUCKET_NAME) {
 if (process.env.NODE_ENV !== "test") {
   void import("./features/party-room/empty-room-sweeper.server.ts").then(
     ({ startEmptyRoomSweeper, stopEmptyRoomSweeper }) => {
-      startEmptyRoomSweeper();
       registerInProcessJobStopper("party-empty-room", stopEmptyRoomSweeper);
+      startEmptyRoomSweeper();
     },
   );
 }
@@ -55,8 +59,8 @@ if (process.env.NODE_ENV !== "test") {
 if (process.env.NODE_ENV !== "test") {
   void import("./utils/quality-check.server.ts").then(
     ({ scheduleQualityCheck, stopQualityCheckScheduler }) => {
-      scheduleQualityCheck();
       registerInProcessJobStopper("quality-check", stopQualityCheckScheduler);
+      scheduleQualityCheck();
     },
   );
 }
@@ -65,8 +69,8 @@ if (process.env.NODE_ENV !== "test") {
 if (process.env.NODE_ENV !== "test") {
   void import("./utils/duplicate-detection-scheduler.server.ts").then(
     ({ scheduleDuplicateDetection, stopDuplicateDetectionScheduler }) => {
-      scheduleDuplicateDetection();
       registerInProcessJobStopper("duplicate-detection", stopDuplicateDetectionScheduler);
+      scheduleDuplicateDetection();
     },
   );
 }
@@ -75,8 +79,8 @@ if (process.env.NODE_ENV !== "test") {
 if (process.env.NODE_ENV !== "test") {
   void import("./features/on-repeat-snapshots/scheduler.server.ts").then(
     ({ scheduleOnRepeatSnapshots, stopOnRepeatSnapshotScheduler }) => {
-      scheduleOnRepeatSnapshots();
       registerInProcessJobStopper("on-repeat-snapshots", stopOnRepeatSnapshotScheduler);
+      scheduleOnRepeatSnapshots();
     },
   );
 }
@@ -85,8 +89,8 @@ if (process.env.NODE_ENV !== "test") {
 if (process.env.NODE_ENV !== "test") {
   void import("./features/security/retention-sweeper.server.ts").then(
     ({ startSecurityEventSweeper, stopSecurityEventSweeper }) => {
-      startSecurityEventSweeper();
       registerInProcessJobStopper("security-retention", stopSecurityEventSweeper);
+      startSecurityEventSweeper();
     },
   );
 }
@@ -97,8 +101,8 @@ if (process.env.NODE_ENV !== "test") {
 if (process.env.NODE_ENV !== "test") {
   void import("./features/upload-progress/progress-store.server.ts").then(
     ({ startUploadProgressSweeper, stopUploadProgressSweeper }) => {
-      startUploadProgressSweeper();
       registerInProcessJobStopper("upload-progress", stopUploadProgressSweeper);
+      startUploadProgressSweeper();
     },
   );
 }
