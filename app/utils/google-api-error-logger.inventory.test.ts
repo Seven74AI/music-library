@@ -35,9 +35,6 @@ describe("google-api-error-logger inventory", () => {
       // Match against the whole file so prettier-wrapped multi-line calls are caught.
       for (const match of source.matchAll(RAW_ERROR_LOG)) {
         const text = match[0];
-        if (text.includes("logGoogleApiError")) continue;
-        if (text.includes("logGoogleOAuthClientError")) continue;
-        if (text.includes("logGoogleYouTubeDataApiClientError")) continue;
 
         const lineNo = source.slice(0, match.index).split("\n").length;
         offenders.push(

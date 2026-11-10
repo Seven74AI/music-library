@@ -58,6 +58,7 @@ interface BulkEditResponse {
   updated?: number;
   updatedCount?: number;
   error?: string;
+  message?: string;
   errors?: Array<{ trackId: string; error: string }>;
 }
 
@@ -205,7 +206,7 @@ export function BulkEditDialog({ trackIds, open, onClose, onSuccess }: BulkEditD
 
     toast({
       title: "Error",
-      description: fetcher.data.error ?? "Bulk edit failed",
+      description: fetcher.data.message ?? fetcher.data.error ?? "Bulk edit failed",
       variant: "destructive",
     });
   }, [fetcher.state, fetcher.data, onSuccess, onClose]);

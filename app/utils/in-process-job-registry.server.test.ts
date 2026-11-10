@@ -5,6 +5,7 @@ import {
 } from "./in-process-job-registry.server.ts";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   void drainInProcessJobStoppers();
 });
 
@@ -82,6 +83,5 @@ describe("in-process job registry", () => {
     expect(before).toHaveBeenCalledOnce();
     expect(after).toHaveBeenCalledOnce();
     expect(errorSpy).toHaveBeenCalledTimes(2);
-    errorSpy.mockRestore();
   });
 });
