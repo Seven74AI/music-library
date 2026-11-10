@@ -55,6 +55,7 @@ import {
   writeCachedPlayerState,
 } from "#app/features/player-state/player-state-cache.client.ts";
 import {
+  clampUpNextPlayNextCountOnRestore,
   fetchPlayerState,
   inferAudibleSourceForRestore,
   isAudibleSourceZoneUnknown,
@@ -1989,6 +1990,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         .filter((track): track is FullTrack => track !== undefined)
         .map(queueTrackFromFullTrack);
 
+      const restoredPlayNextCount = clampUpNextPlayNextCountOnRestore(
+        saved.upNextIds,
+        resolvedUpNext.map((track) => track.id),
+        saved.upNextPlayNextCount,
+      );
+
       const order = createShuffledOrder(
         spineTracks.length,
         saved.shuffleSeed !== null,
@@ -2003,8 +2010,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       setLoopMode(saved.loopMode);
       setShuffleSeed(saved.shuffleSeed);
       setUpNext(resolvedUpNext);
-      setUpNextPlayNextCount(saved.upNextPlayNextCount);
-      upNextPlayNextCountRef.current = saved.upNextPlayNextCount;
+      setUpNextPlayNextCount(restoredPlayNextCount);
+      upNextPlayNextCountRef.current = restoredPlayNextCount;
       setSpine(spineTracks);
       setSpineTotal(total);
       setSpineOrder(order);
@@ -2056,7 +2063,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         loopMode: saved.loopMode,
         spinePosition: spinePositionForPersist,
         audibleSourceZone: audibleSourceZoneRef.current,
-        upNextPlayNextCount: saved.upNextPlayNextCount,
+        upNextPlayNextCount: restoredPlayNextCount,
       };
 
       // Restore-and-wait: show the player paused, never auto-play.
@@ -2111,6 +2118,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       .map(toFullTrack)
       .filter((track): track is FullTrack => track !== null);
 
+    const restoredPlayNextCount = clampUpNextPlayNextCountOnRestore(
+      saved.upNextIds,
+      resolvedUpNext.map((track) => track.id),
+      saved.upNextPlayNextCount,
+    );
+
     for (const track of [currentFullTrack, ...resolvedUpNext]) {
       if (track) playbackCacheRef.current.set(track);
     }
@@ -2126,8 +2139,8 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     setLoopMode(saved.loopMode);
     setShuffleSeed(saved.shuffleSeed);
     setUpNext(resolvedUpNext.map(queueTrackFromFullTrack));
-    setUpNextPlayNextCount(saved.upNextPlayNextCount);
-    upNextPlayNextCountRef.current = saved.upNextPlayNextCount;
+    setUpNextPlayNextCount(restoredPlayNextCount);
+    upNextPlayNextCountRef.current = restoredPlayNextCount;
     // No spine offline — leave it empty and backfill on reconnect.
     setSpine([]);
     setSpineTotal(0);

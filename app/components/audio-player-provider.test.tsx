@@ -2003,6 +2003,83 @@ test("offline load restores downloaded Up Next tracks in order", async () => {
   expect(screen.getByTestId("up-next-count").textContent).toBe("1");
 });
 
+test("online restore clamps play-next count when a prefix track fails hydration", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+
+  const prefixKept = { ...playableTrack, id: "track-prefix", title: "Prefix kept" };
+  const tailUpNext = { ...playableTrack, id: "track-tail", title: "Tail up next" };
+  const insertedPlayNext = { ...playableTrack, id: "track-new-pn", title: "New play next" };
+
+  fetchMock.mockImplementation((input) => {
+    const url = String(input);
+    if (url.includes(PLAYER_STATE_ROUTE)) {
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          playContext: { type: "library" },
+          currentTrackId: "track-1",
+          upNextIds: ["track-missing", "track-prefix", "track-tail"],
+          upNextPlayNextCount: 2,
+          shuffleSeed: null,
+          loopMode: "off",
+        }),
+      } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      const tracks = [playableTrack, prefixKept, tailUpNext, insertedPlayNext].filter((track) =>
+        ids.includes(track.id),
+      );
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks }),
+      } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ tracks: [spineTrack], total: 1 }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function RestorePlayNextProbe() {
+    const { playNextTrack, upNext, upNextPlayNextCount } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playNextTrack(insertedPlayNext)}>
+          Play next inserted
+        </button>
+        <span data-testid="play-next-count">{upNextPlayNextCount}</span>
+        <span data-testid="up-next-ids">{upNext.map((track) => track.id).join(",")}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestorePlayNextProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("up-next-ids").textContent).toBe("track-prefix,track-tail");
+  });
+  expect(screen.getByTestId("play-next-count").textContent).toBe("1");
+
+  await user.click(screen.getByRole("button", { name: "Play next inserted" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("up-next-ids").textContent).toBe(
+      "track-prefix,track-new-pn,track-tail",
+    );
+  });
+  expect(screen.getByTestId("play-next-count").textContent).toBe("2");
+});
+
 test("reconnect backfills the spine after an offline partial restore", async () => {
   const fetchMock = vi.mocked(fetch);
   window.localStorage.clear();
