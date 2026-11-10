@@ -45,6 +45,11 @@ function getSafeGoogleClientLogMessage(error: unknown): string {
   return redactGoogleClientErrorMessage(raw);
 }
 
+/** Safe string for Error `cause` — message (redacted) only; never a Gaxios object. */
+export function googleClientErrorCauseMessage(error: unknown): string {
+  return getSafeGoogleClientLogMessage(error);
+}
+
 function resolveDetailSource(error: unknown): unknown {
   if (error instanceof Error && error.cause !== undefined && error.cause !== null) {
     if (typeof error.cause === "string") return error.cause;

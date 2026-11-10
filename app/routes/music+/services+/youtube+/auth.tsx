@@ -12,6 +12,7 @@ import { Icon } from "#app/components/ui/icon";
 import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { hasServiceConnection } from "#app/features/service-connection/service-connection.server";
 import { requireUserId } from "#app/utils/auth.server";
+import { logGoogleApiError } from "#app/utils/google-api-error-logger.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import {
   commitOAuthState,
@@ -61,7 +62,7 @@ export async function action({ request }: ActionFunctionArgs) {
       headers: { "set-cookie": await commitOAuthState(state) },
     });
   } catch (error) {
-    console.error("Error generating YouTube OAuth URL:", error);
+    logGoogleApiError("Error generating YouTube OAuth URL", error);
     return redirect("/music/services/youtube/auth?error=oauth_error");
   }
 }

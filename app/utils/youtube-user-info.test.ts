@@ -89,4 +89,21 @@ describe("YouTubeService.getYouTubeUserInfo", () => {
       name: "Real Channel",
     });
   });
+
+  test("throws with a sanitized string cause when channels.list fails", async () => {
+    const gaxiosError = {
+      message: "Request failed",
+      response: { status: 403 },
+      config: { headers: { Authorization: "Bearer leaked-token" } },
+    };
+    mockChannelsList.mockRejectedValueOnce(gaxiosError);
+
+    const { YouTubeService } = await import("./youtube.server");
+    const service = new YouTubeService();
+
+    const error = await service.getYouTubeUserInfo("token").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).cause).toBe("Request failed");
+    expect(typeof (error as Error).cause).toBe("string");
+  });
 });

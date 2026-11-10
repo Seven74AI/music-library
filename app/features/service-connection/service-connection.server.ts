@@ -30,7 +30,7 @@ export async function resolveServiceAccessToken(
 
     return null;
   } catch (error) {
-    console.error(`Error resolving access token for ${serviceName}:`, error);
+    logGoogleOAuthClientError(`Error resolving access token for ${serviceName}`, error);
     return null;
   }
 }
@@ -61,7 +61,7 @@ export async function disconnectServiceConnection(
     });
     return result.count > 0;
   } catch (error) {
-    console.error(`Error disconnecting ${serviceName}:`, error);
+    logGoogleOAuthClientError(`Error disconnecting ${serviceName}`, error);
     return false;
   }
 }

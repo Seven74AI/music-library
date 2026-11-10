@@ -52,13 +52,12 @@ export async function action({ request, params }: Route.ActionArgs) {
     ...trackIds.map((entityId) => ({ entityType: "track" as const, entityId })),
   ]);
   if (blockedLock) {
-    const entityLabel = blockedLock.entityType === "track" ? "track" : "artist";
-    throw new Response(
-      JSON.stringify({
-        error: "Locked",
-        message: `${blockedLock.lockedByName} is currently editing this ${entityLabel}`,
+    throwEditLockTransactionError(
+      new EditLockTransactionError({
+        kind: "other",
+        lockedByName: blockedLock.lockedByName,
       }),
-      { status: 409, headers: { "Content-Type": "application/json" } },
+      EDIT_LOCK_CONFLICT_COPY_SPLIT,
     );
   }
 

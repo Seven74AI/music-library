@@ -43,12 +43,12 @@ export async function action({ request }: Route.ActionArgs) {
     { entityType: "album", entityId: targetId },
   ]);
   if (blockedLock) {
-    throw new Response(
-      JSON.stringify({
-        error: "Locked",
-        message: `${blockedLock.lockedByName} is currently editing this album`,
+    throwEditLockTransactionError(
+      new EditLockTransactionError({
+        kind: "other",
+        lockedByName: blockedLock.lockedByName,
       }),
-      { status: 409, headers: { "Content-Type": "application/json" } },
+      editLockConflictCopyForEntity("album"),
     );
   }
 

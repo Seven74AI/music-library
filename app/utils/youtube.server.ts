@@ -11,7 +11,10 @@ import {
   type YouTubeVideoListResponse,
 } from "#app/types/youtube-api";
 import { chunkArray } from "#app/utils/chunk-array";
-import { logGoogleApiError } from "#app/utils/google-api-error-logger.server.ts";
+import {
+  googleClientErrorCauseMessage,
+  logGoogleApiError,
+} from "#app/utils/google-api-error-logger.server.ts";
 import {
   createFakerYouTubePlaylist,
   createFakerYouTubePlaylistItem,
@@ -95,12 +98,8 @@ export class YouTubeService {
       };
     } catch (error) {
       logGoogleApiError("Error fetching YouTube user info", error);
-      if (error instanceof Error) {
-        throw new Error(`Failed to fetch YouTube user information: ${error.message}`, {
-          cause: error,
-        });
-      }
-      throw new Error("Failed to fetch YouTube user information", { cause: error });
+      const cause = googleClientErrorCauseMessage(error);
+      throw new Error(`Failed to fetch YouTube user information: ${cause}`, { cause });
     }
   }
 
@@ -295,7 +294,9 @@ export class YouTubeService {
       return existingIds;
     } catch (error) {
       logGoogleApiError("Error checking YouTube video existence", error);
-      throw error;
+      throw new Error("Failed to check YouTube video existence", {
+        cause: googleClientErrorCauseMessage(error),
+      });
     }
   }
 

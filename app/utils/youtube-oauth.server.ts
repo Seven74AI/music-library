@@ -4,6 +4,7 @@ import { createCookie } from "react-router";
 import { z } from "zod";
 import { getSessionSecret } from "./env.server.ts";
 import {
+  googleClientErrorCauseMessage,
   logGoogleOAuthClientError,
   redactGoogleClientErrorMessage,
 } from "./google-api-error-logger.server.ts";
@@ -14,15 +15,6 @@ export {
   logGoogleYouTubeDataApiClientError,
   redactGoogleClientErrorMessage,
 } from "./google-api-error-logger.server.ts";
-
-function oauthErrorCauseMessage(error: unknown): string {
-  if (error instanceof Error) return redactGoogleClientErrorMessage(error.message);
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message: unknown }).message;
-    if (typeof message === "string") return redactGoogleClientErrorMessage(message);
-  }
-  return redactGoogleClientErrorMessage(String(error));
-}
 
 // YouTube OAuth scopes
 export const YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"];
@@ -114,7 +106,7 @@ export class YouTubeOAuthService {
     } catch (error) {
       logGoogleOAuthClientError("Error exchanging code for tokens", error);
       throw new Error("Failed to exchange authorization code for tokens", {
-        cause: oauthErrorCauseMessage(error),
+        cause: googleClientErrorCauseMessage(error),
       });
     }
   }
@@ -149,7 +141,9 @@ export class YouTubeOAuthService {
       };
     } catch (error) {
       logGoogleOAuthClientError("Error refreshing access token", error);
-      throw new Error("Failed to refresh access token", { cause: oauthErrorCauseMessage(error) });
+      throw new Error("Failed to refresh access token", {
+        cause: googleClientErrorCauseMessage(error),
+      });
     }
   }
 

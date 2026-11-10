@@ -7,10 +7,10 @@ const APP_DIR = join(fileURLToPath(new URL("..", import.meta.url)));
 const LOGGER_CANONICAL = join(APP_DIR, "utils", "google-api-error-logger.server.ts");
 
 const GOOGLE_CONTEXT =
-  /googleapis|google\.youtube|oauth2Client|GaxiosError|getTokens|setCredentials|videos\.list/;
+  /googleapis|google\.youtube|oauth2Client|GaxiosError|getTokens|setCredentials|videos\.list|createYouTubeOAuth|YouTubeOAuth|youtube-oauth/;
 
 const RAW_ERROR_LOG =
-  /console\.(error|warn|log)\s*\(\s*[^)]*,\s*(?:error|err|callbackError|e)\s*\)/;
+  /console\.(error|warn|log)\s*\(\s*(?:[^)]*,\s*)?(?:error|err|callbackError|e)\s*\)/;
 
 function walkAppSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
