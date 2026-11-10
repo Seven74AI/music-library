@@ -49,6 +49,7 @@ import {
   getIntentErrorMessage,
 } from "#app/types/youtube-intents";
 import { requireUserId } from "#app/utils/auth.server";
+import { toClientErrorMessage } from "#app/utils/error-handlers.server";
 import { getPlaylistTitle } from "#app/utils/breadcrumb-utils";
 import { useIsPending } from "#app/utils/misc";
 import { filterPlayableTracks } from "#app/utils/playable-track.ts";
@@ -214,7 +215,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     console.error("Error in playlist action:", error);
     return data({
       status: "error",
-      message: error instanceof Error ? error.message : "An error occurred",
+      message: toClientErrorMessage(error),
     });
   }
 }

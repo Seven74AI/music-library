@@ -208,7 +208,8 @@ describe("importTrackDirectly", () => {
 
       expect(result.success).toBe(false);
       expect(result.action).toBe("failed");
-      expect(result.error).toContain("YouTube quota exceeded");
+      expect(result.error).toBe("Unable to import this track. Please try again.");
+      expect(result.error).not.toMatch(/quota/i);
 
       consoleError.mockRestore();
     });
@@ -228,7 +229,38 @@ describe("importTrackDirectly", () => {
 
       expect(result.success).toBe(false);
       expect(result.action).toBe("failed");
+      expect(result.error).toBe("Unable to import this track. Please try again.");
+      expect(result.error).not.toMatch(/Service not found/i);
 
+      consoleError.mockRestore();
+    });
+
+    it("returns a stable message for unexpected database failures", async () => {
+      const { getYouTubeVideoDetails } = await import("#app/utils/youtube-search.server.ts");
+      vi.mocked(getYouTubeVideoDetails).mockResolvedValue({
+        title: "Test",
+        artist: "Channel",
+        serviceUrl: "https://youtu.be/x",
+        duration: 100,
+        publishedAt: null,
+      } as never);
+
+      const { prisma } = await import("#app/utils/db.server");
+      const txnSpy = vi
+        .spyOn(prisma, "$transaction")
+        .mockRejectedValue(new Error("Invalid `prisma.$transaction()` invocation"));
+
+      const { consoleError } = await import("#tests/setup/setup-test-env.ts");
+      consoleError.mockImplementation(() => {});
+
+      const { importTrackDirectly } = await import("./service-import.server.ts");
+      const result = await importTrackDirectly("dQw4w9WgXcQ");
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Unable to import this track. Please try again.");
+      expect(result.error).not.toMatch(/prisma/i);
+
+      txnSpy.mockRestore();
       consoleError.mockRestore();
     });
   });

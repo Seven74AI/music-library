@@ -7,6 +7,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { consoleError, consoleWarn } from "#tests/setup/setup-test-env.ts";
+import { UPLOAD_AUDIO_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server";
 import { action } from "./upload-audio.tsx";
 
 const tinyMp3 = readFileSync(new URL("../../../tests/fixtures/tiny-tone.mp3", import.meta.url));
@@ -16,12 +17,28 @@ const {
   mockPrepareCoverImageUpload,
   mockCreateCoverImageInTx,
   mockDeleteFile,
+  mockCreateTrackAudioFile,
 } = vi.hoisted(() => ({
   mockBackfillTrackMetadata: vi.fn().mockResolvedValue(undefined),
   mockPrepareCoverImageUpload: vi.fn(),
   mockCreateCoverImageInTx: vi.fn(),
   mockDeleteFile: vi.fn().mockResolvedValue(undefined),
+  mockCreateTrackAudioFile: vi.fn(),
 }));
+
+vi.mock(
+  "#app/features/track-audio-ingest/persist-track-audio.server.ts",
+  async (importOriginal) => {
+    const original =
+      await importOriginal<
+        typeof import("#app/features/track-audio-ingest/persist-track-audio.server.ts")
+      >();
+    return {
+      ...original,
+      createTrackAudioFile: mockCreateTrackAudioFile,
+    };
+  },
+);
 
 vi.mock("#app/features/track-audio-ingest/backfill-track-metadata.server.ts", () => ({
   backfillTrackMetadata: (...args: unknown[]) => mockBackfillTrackMetadata(...args),
@@ -80,12 +97,17 @@ async function createAdminCookie() {
 }
 
 describe("upload-audio action", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mockBackfillTrackMetadata.mockReset();
     mockBackfillTrackMetadata.mockResolvedValue(undefined);
     mockPrepareCoverImageUpload.mockReset();
     mockCreateCoverImageInTx.mockReset();
     mockDeleteFile.mockClear();
+    mockCreateTrackAudioFile.mockReset();
+    const original = await vi.importActual<
+      typeof import("#app/features/track-audio-ingest/persist-track-audio.server.ts")
+    >("#app/features/track-audio-ingest/persist-track-audio.server.ts");
+    mockCreateTrackAudioFile.mockImplementation(original.createTrackAudioFile);
     consoleError.mockImplementation(() => {});
     consoleWarn.mockImplementation(() => {});
   });
@@ -170,6 +192,45 @@ describe("upload-audio action", () => {
     });
     expect(stored?.coverImageId).toBeNull();
     expect(await prisma.coverImage.findFirst({ where: { objectKey: coverObjectKey } })).toBeNull();
+  });
+
+  test("returns a stable domain error when the ingest transaction fails", async () => {
+    mockCreateTrackAudioFile.mockRejectedValueOnce(
+      new Error("Invalid `prisma.trackAudioFile.create()` invocation"),
+    );
+
+    await prisma.service.upsert({
+      where: { name: LOCAL_SERVICE.NAME },
+      update: {},
+      create: {
+        name: LOCAL_SERVICE.NAME,
+        displayName: LOCAL_SERVICE.DISPLAY_NAME,
+        baseUrl: LOCAL_SERVICE.BASE_URL,
+      },
+    });
+
+    const { cookie } = await createAdminCookie();
+    const formData = new FormData();
+    formData.append("audioFile", new File([tinyMp3], "good.mp3", { type: "audio/mpeg" }));
+    formData.append("title", `Fail ${Date.now()}`);
+    formData.append("artist", "Fail Artist");
+
+    const response = await action({
+      request: new Request("http://localhost/api/upload-audio", {
+        method: "POST",
+        headers: { cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.init?.status).toBe(500);
+    expect(response.data).toMatchObject({
+      success: false,
+      error: UPLOAD_AUDIO_CLIENT_ERROR_MESSAGE,
+    });
+    expect(String((response.data as { error?: string }).error)).not.toMatch(/prisma/i);
   });
 
   test("returns success when metadata backfill fails after the track commit", async () => {
