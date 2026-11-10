@@ -191,10 +191,8 @@ async function getBuild() {
 
     return { build: build as unknown as ServerBuild, error: null };
   } catch (error) {
+    // Catch error and return null to make express happy and avoid an unrecoverable crash
     console.error("Error creating build:", error);
-    // In dev, swallow and return null so the Vite overlay / HMR can recover.
-    // In production the build is loaded once before app.listen (see below), so a
-    // bad env or failed import fails fast at boot rather than per request.
     return { error: error, build: null as unknown as ServerBuild };
   }
 }
@@ -234,14 +232,6 @@ const portAvailable = desiredPort === portToUse;
 if (!portAvailable && !IS_DEV) {
   console.log(`⚠️ Port ${desiredPort} is not available.`);
   process.exit(1);
-}
-
-// Fail fast at boot in production: a bad env (validated at entry.server load) or
-// a failed build import must stop the process before it accepts traffic, rather
-// than crashing on the first request.
-if (IS_PROD) {
-  const { error } = await getBuild();
-  if (error) throw error;
 }
 
 const server = app.listen(portToUse, async () => {
