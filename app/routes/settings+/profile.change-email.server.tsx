@@ -12,7 +12,8 @@ export async function handleVerification({
   request,
   submission,
   pendingNewEmail,
-}: VerifyFunctionArgs) {
+  deleteVerification,
+}: VerifyFunctionArgs & { deleteVerification?: () => Promise<void> }) {
   await requireRecentVerification(request);
   invariant(submission.status === "success", "Submission should be successful by now");
   invariant(pendingNewEmail, "change-email verification requires pendingNewEmail");
@@ -53,6 +54,10 @@ export async function handleVerification({
       );
     }
     throw error;
+  }
+
+  if (deleteVerification) {
+    await deleteVerification();
   }
 
   void sendEmail({

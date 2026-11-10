@@ -122,6 +122,7 @@ export function PlaylistHero({
                     multiline
                     maxLength={500}
                     disabled={isUpdating}
+                    allowEmpty
                   />
                 </div>
               </div>

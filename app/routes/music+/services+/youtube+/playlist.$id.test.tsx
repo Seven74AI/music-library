@@ -3,7 +3,48 @@
  */
 import { test, expect } from "vitest";
 import { type TrackWithUserStatus } from "#app/types/frontend/shared";
-import { getTracksMissingFromLibrary, mapTrackToListItem } from "./playlist.$id";
+import {
+  getTracksMissingFromLibrary,
+  mapTrackToListItem,
+  revertLibraryStatusFromLoader,
+  shouldRevertLibraryStatusOnFetcherError,
+} from "./playlist.$id";
+
+test("shouldRevertLibraryStatusOnFetcherError is true only for idle error responses", () => {
+  expect(shouldRevertLibraryStatusOnFetcherError({ status: "error" }, "idle")).toBe(true);
+  expect(shouldRevertLibraryStatusOnFetcherError({ status: "error" }, "submitting")).toBe(false);
+  expect(shouldRevertLibraryStatusOnFetcherError({ status: "success" }, "idle")).toBe(false);
+});
+
+test("revertLibraryStatusFromLoader restores loader checkmarks after a failed toggle", () => {
+  const tracks: TrackWithUserStatus[] = [
+    {
+      id: "track-a",
+      title: "A",
+      artist: { id: "a1", name: "Artist" },
+      duration: 120,
+      coverImage: null,
+      thumbnailUrl: null,
+      serviceUrl: null,
+      service: undefined,
+      audioFiles: [],
+      position: 1,
+      isInUserLibrary: false,
+      isDeleted: false,
+      externalId: "vid-a",
+      serviceId: "svc",
+      releaseDate: null,
+      createdAt: new Date("2025-01-01"),
+      updatedAt: new Date("2025-01-01"),
+    },
+  ];
+
+  const optimistic = { "track-a": true };
+  const reverted = revertLibraryStatusFromLoader(tracks, optimistic);
+
+  expect(reverted["track-a"]).toBe(false);
+  expect(shouldRevertLibraryStatusOnFetcherError({ status: "error" }, "idle")).toBe(true);
+});
 
 test("getTracksMissingFromLibrary excludes deleted videos and tracks already in library", () => {
   const tracks: TrackWithUserStatus[] = [

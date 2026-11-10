@@ -63,8 +63,13 @@ export async function dispatchVerification(
         );
       }
 
-      await deleteVerification();
-      return handleChangeEmailVerification({ request, body, submission, pendingNewEmail });
+      return handleChangeEmailVerification({
+        request,
+        body,
+        submission,
+        pendingNewEmail,
+        deleteVerification,
+      });
     }
     case "2fa": {
       return handleLoginTwoFactorVerification({ request, body, submission });
