@@ -6,8 +6,7 @@ import {
 } from "./absent-track-classification.server";
 
 function row(
-  overrides: Partial<AbsentPlaylistTrackRow> &
-    Pick<AbsentPlaylistTrackRow, "sptId" | "trackId">,
+  overrides: Partial<AbsentPlaylistTrackRow> & Pick<AbsentPlaylistTrackRow, "sptId" | "trackId">,
 ): AbsentPlaylistTrackRow {
   return {
     title: "Some Track",
@@ -101,9 +100,7 @@ describe("classifyAbsentPlaylistTracks", () => {
 
   test("lookup failure → leave alone (neither remove nor candidate)", () => {
     const result = classifyAbsentPlaylistTracks({
-      absentTracks: [
-        row({ sptId: "spt-1", trackId: "track-1", externalId: "ZoYDkmD3tXU" }),
-      ],
+      absentTracks: [row({ sptId: "spt-1", trackId: "track-1", externalId: "ZoYDkmD3tXU" })],
       lookup: { status: "error" },
       hasDeferredDeletedItems: true,
     });

@@ -166,16 +166,14 @@ export function filterOrphanedTracks(
   allPlaylistTracks: PlaylistTrackForOrphanDetection[],
   processedIds: ProcessedIdSets,
 ): OrphanCandidate[] {
-  return filterAbsentPlaylistTracks(allPlaylistTracks, processedIds).map(
-    (track) => ({
-      id: track.trackId,
-      title: track.title,
-      artist: track.artist,
-      externalId: track.externalId,
-      position: track.position,
-      isDeleted: track.isDeleted,
-    }),
-  );
+  return filterAbsentPlaylistTracks(allPlaylistTracks, processedIds).map((track) => ({
+    id: track.trackId,
+    title: track.title,
+    artist: track.artist,
+    externalId: track.externalId,
+    position: track.position,
+    isDeleted: track.isDeleted,
+  }));
 }
 
 /**
@@ -239,9 +237,7 @@ async function lookupVideoExistence(
 
   const idsToProbe = [
     ...new Set(
-      absentTracks
-        .map((t) => t.externalId)
-        .filter((id): id is string => isYouTubeVideoId(id)),
+      absentTracks.map((t) => t.externalId).filter((id): id is string => isYouTubeVideoId(id)),
     ),
   ];
 
@@ -253,10 +249,7 @@ async function lookupVideoExistence(
     const existingIds = await resolveVideoExistence(idsToProbe, accessToken);
     return { status: "ok", existingIds };
   } catch (error) {
-    logGoogleApiError(
-      "Failed to resolve video existence during playlist sync",
-      error,
-    );
+    logGoogleApiError("Failed to resolve video existence during playlist sync", error);
     return { status: "error" };
   }
 }
@@ -342,14 +335,8 @@ export async function resolveDeletedVideosAfterSync(
   removeSptIds: Set<string>;
   leaveAloneSptIds: Set<string>;
 }> {
-  const allPlaylistTracks = await loadPlaylistTracksForOrphanDetection(
-    prisma,
-    playlistId,
-  );
-  const absentTracks = filterAbsentPlaylistTracks(
-    allPlaylistTracks,
-    processedIds,
-  );
+  const allPlaylistTracks = await loadPlaylistTracksForOrphanDetection(prisma, playlistId);
+  const absentTracks = filterAbsentPlaylistTracks(allPlaylistTracks, processedIds);
   const hasDeferredDeletedItems = deletedVideosWithoutMatch.length > 0;
   const surplusSptIds = findSurplusSptIds(allPlaylistTracks, processedIds);
 
@@ -525,17 +512,11 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     externalIds: new Set<string>(accumulatedProcessedIds?.externalIds || []),
     trackIds: new Set<string>(accumulatedProcessedIds?.trackIds || []),
     sptIds: new Set<string>(accumulatedProcessedIds?.sptIds || []),
-    failedExternalIds: new Set<string>(
-      accumulatedProcessedIds?.failedExternalIds || [],
-    ),
+    failedExternalIds: new Set<string>(accumulatedProcessedIds?.failedExternalIds || []),
   };
   const deletedVideosWithoutMatch: DeletedVideoWithoutMatch[] = [];
 
-  for (
-    let batchStart = 0;
-    batchStart < playlistItems.length;
-    batchStart += batchSize
-  ) {
+  for (let batchStart = 0; batchStart < playlistItems.length; batchStart += batchSize) {
     const batch = playlistItems.slice(batchStart, batchStart + batchSize);
 
     // Prepare batch data
@@ -594,10 +575,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       batchPositions.push(globalStartPosition + batchStart + i + 1);
     }
 
-    const existingTracksByPlaylistPosition = new Map<
-      number,
-      ExistingTrackRow
-    >();
+    const existingTracksByPlaylistPosition = new Map<number, ExistingTrackRow>();
     if (batchPositions.length > 0) {
       const sptRows = await tx.servicePlaylistTrack.findMany({
         where: { playlistId, position: { in: batchPositions } },
@@ -609,9 +587,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       for (const row of sptRows) {
         const track = row.track;
         if (!track?.externalId) continue;
-        const audioFiles = Array.isArray(track.audioFiles)
-          ? track.audioFiles
-          : [];
+        const audioFiles = Array.isArray(track.audioFiles) ? track.audioFiles : [];
         const { audioFiles: _audioFiles, ...base } = track;
         existingTracksByPlaylistPosition.set(row.position, {
           ...base,
@@ -624,9 +600,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     // is found via its ServicePlaylistTrack.playlistItemId instead.
     const existingTracksByPlaylistItemId = new Map<string, ExistingTrackRow>();
     const unavailableItemIds = batch
-      .filter(
-        (item) => item && trackProcessor.isUnavailableVideo(item) && item.id,
-      )
+      .filter((item) => item && trackProcessor.isUnavailableVideo(item) && item.id)
       .map((item) => (item as TItem).id as string);
     if (unavailableItemIds.length > 0) {
       const itemRows = await tx.servicePlaylistTrack.findMany({
@@ -636,9 +610,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       for (const row of itemRows) {
         const track = row.track;
         if (!row.playlistItemId || !track?.externalId) continue;
-        const audioFiles = Array.isArray(track.audioFiles)
-          ? track.audioFiles
-          : [];
+        const audioFiles = Array.isArray(track.audioFiles) ? track.audioFiles : [];
         const { audioFiles: _audioFiles, ...base } = track;
         existingTracksByPlaylistItemId.set(row.playlistItemId, {
           ...base,
@@ -702,14 +674,10 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       }
 
       if (isUnavailable && !existingTrack && !item.id && !videoId) {
-        const positionHit =
-          existingTracksByPlaylistPosition.get(position) ?? null;
+        const positionHit = existingTracksByPlaylistPosition.get(position) ?? null;
         if (
           positionHit?.externalId &&
-          isSyntheticUnavailableExternalIdForPlaylist(
-            positionHit.externalId,
-            playlistId,
-          )
+          isSyntheticUnavailableExternalIdForPlaylist(positionHit.externalId, playlistId)
         ) {
           existingTrack = positionHit;
         }
@@ -782,22 +750,16 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
         // videoOwnerChannelTitle = the channel that uploaded the video (the artist).
         // snippet.channelTitle on a playlistItem is the PLAYLIST owner's channel —
         // never use it as the artist name.
-        const artistName =
-          item.snippet?.videoOwnerChannelTitle || "Unknown Artist";
+        const artistName = item.snippet?.videoOwnerChannelTitle || "Unknown Artist";
         const artistRecord = await getOrCreateArtistTx(tx, artistName);
 
         // Determine if we should preserve existing track data
-        const preserveData = trackProcessor.shouldPreserveTrackData(
-          existingTrack,
-          item,
-        );
+        const preserveData = trackProcessor.shouldPreserveTrackData(existingTrack, item);
 
         // Skip image processing during sync - will be processed in background
         // Preserve existing coverImageId if available, otherwise set to null
         const coverImageId: string | null =
-          preserveData && existingTrack?.coverImageId
-            ? existingTrack.coverImageId
-            : null;
+          preserveData && existingTrack?.coverImageId ? existingTrack.coverImageId : null;
 
         let trackData: Omit<
           ReturnType<TrackSyncProcessor["transformPlaylistItem"]>,
@@ -827,16 +789,14 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
                 albumId: existingTrack.albumId,
                 releaseDate: existingTrack.releaseDate,
                 duration: existingTrack.duration,
-                coverImageId:
-                  coverImageId || existingTrack.coverImageId || null,
+                coverImageId: coverImageId || existingTrack.coverImageId || null,
               }
             : {
                 ...rest,
                 serviceId,
                 title: existingTrack.title,
                 artistId: existingTrack.artistId,
-                coverImageId:
-                  coverImageId || existingTrack.coverImageId || null,
+                coverImageId: coverImageId || existingTrack.coverImageId || null,
                 externalId,
               };
         } else {
@@ -845,11 +805,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             serviceId,
             artistRecord.id,
           );
-          const {
-            thumbnailUrl: _,
-            externalId: transformedExternalId,
-            ...rest
-          } = transformed;
+          const { thumbnailUrl: _, externalId: transformedExternalId, ...rest } = transformed;
           trackData = {
             ...rest,
             serviceId, // Use serviceId directly instead of service relation
@@ -880,34 +836,22 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
 
     // Batch upsert tracks — pair each upserted track with its source row so a
     // filtered middle entry cannot shift positions/deletion flags onto the wrong track.
-    const validTrackEntries = trackDataBatch.filter(
-      ({ serviceId: sid, trackData: td }) => {
-        const eid = td.externalId;
-        // Filter out any entries with invalid IDs (shouldn't happen, but safety check)
-        if (!sid || typeof eid !== "string" || eid.trim() === "") {
-          console.warn(
-            `Skipping track upsert with invalid IDs: serviceId=${sid}, externalId=${eid}`,
-          );
-          return false;
-        }
-        return true;
-      },
-    );
+    const validTrackEntries = trackDataBatch.filter(({ serviceId: sid, trackData: td }) => {
+      const eid = td.externalId;
+      // Filter out any entries with invalid IDs (shouldn't happen, but safety check)
+      if (!sid || typeof eid !== "string" || eid.trim() === "") {
+        console.warn(`Skipping track upsert with invalid IDs: serviceId=${sid}, externalId=${eid}`);
+        return false;
+      }
+      return true;
+    });
 
     const pairedTrackUpserts = validTrackEntries.map(
-      async ({
-        serviceId: sid,
-        externalId: eid,
-        trackData: td,
-        position,
-        item,
-      }) => {
+      async ({ serviceId: sid, externalId: eid, trackData: td, position, item }) => {
         // Final validation: ensure both serviceId and externalId are non-empty strings
         // SQLite unique indexes on nullable columns require non-null, non-empty values for upsert
         if (!sid || !eid || sid.trim() === "" || eid.trim() === "") {
-          console.error(
-            `Invalid upsert parameters: serviceId="${sid}", externalId="${eid}"`,
-          );
+          console.error(`Invalid upsert parameters: serviceId="${sid}", externalId="${eid}"`);
           throw new Error(
             `Cannot upsert track: serviceId and externalId must be non-empty strings. Got serviceId="${sid}", externalId="${eid}"`,
           );
@@ -954,31 +898,29 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           },
         });
 
-        const hasTrackAudioFileNow =
-          trackAtUpsert !== null && trackAtUpsert.audioFiles.length > 0;
+        const hasTrackAudioFileNow = trackAtUpsert !== null && trackAtUpsert.audioFiles.length > 0;
 
-        const updateData: Prisma.TrackUncheckedUpdateInput =
-          hasTrackAudioFileNow
-            ? {
-                serviceUrl: td.serviceUrl,
+        const updateData: Prisma.TrackUncheckedUpdateInput = hasTrackAudioFileNow
+          ? {
+              serviceUrl: td.serviceUrl,
+              serviceId: sid,
+              externalId: eid,
+              title: trackAtUpsert!.title,
+              artistId: trackAtUpsert!.artistId,
+              albumId: trackAtUpsert!.albumId,
+              releaseDate: trackAtUpsert!.releaseDate,
+              duration: trackAtUpsert!.duration,
+              coverImageId: td.coverImageId ?? trackAtUpsert!.coverImageId,
+              updatedAt: new Date(),
+            }
+          : (Object.fromEntries(
+              Object.entries({
+                ...td,
                 serviceId: sid,
                 externalId: eid,
-                title: trackAtUpsert!.title,
-                artistId: trackAtUpsert!.artistId,
-                albumId: trackAtUpsert!.albumId,
-                releaseDate: trackAtUpsert!.releaseDate,
-                duration: trackAtUpsert!.duration,
-                coverImageId: td.coverImageId ?? trackAtUpsert!.coverImageId,
                 updatedAt: new Date(),
-              }
-            : (Object.fromEntries(
-                Object.entries({
-                  ...td,
-                  serviceId: sid,
-                  externalId: eid,
-                  updatedAt: new Date(),
-                }).filter(([, value]) => value !== null && value !== undefined),
-              ) as Prisma.TrackUncheckedUpdateInput);
+              }).filter(([, value]) => value !== null && value !== undefined),
+            ) as Prisma.TrackUncheckedUpdateInput);
 
         const track = await tx.track.upsert({
           where: {
@@ -1016,9 +958,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             },
           })
         : [];
-    const passthroughById = new Map(
-      passthroughTracks.map((row) => [row.id, row]),
-    );
+    const passthroughById = new Map(passthroughTracks.map((row) => [row.id, row]));
     const passthroughPaired = realTrackPassthrough.flatMap((entry) => {
       const track = passthroughById.get(entry.trackId);
       if (!track) return [];
@@ -1028,8 +968,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           trackData: {
             serviceId,
             externalId: entry.externalId,
-            trackData:
-              undefined as unknown as (typeof validTrackEntries)[number]["trackData"],
+            trackData: undefined as unknown as (typeof validTrackEntries)[number]["trackData"],
             position: entry.position,
             item: entry.item,
           },
@@ -1069,9 +1008,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
               playlistId,
               OR: [
                 { trackId: { in: batchTrackIds } },
-                ...(batchItemIds.length > 0
-                  ? [{ playlistItemId: { in: batchItemIds } }]
-                  : []),
+                ...(batchItemIds.length > 0 ? [{ playlistItemId: { in: batchItemIds } }] : []),
               ],
             },
             select: {
@@ -1137,59 +1074,51 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
 
     // Write claimed rows. Each claim targets a distinct row (or a create), so
     // concurrent execution is safe.
-    const playlistTrackPromises = claims.map(
-      async ({ track, trackData, itemId, existing }) => {
-        // Use the item stored with trackData to avoid index mismatch when items are skipped
-        const item = trackData.item;
-        const isDeleted = item
-          ? trackProcessor.isUnavailableVideo(item)
-          : false;
+    const playlistTrackPromises = claims.map(async ({ track, trackData, itemId, existing }) => {
+      // Use the item stored with trackData to avoid index mismatch when items are skipped
+      const item = trackData.item;
+      const isDeleted = item ? trackProcessor.isUnavailableVideo(item) : false;
 
-        // Get thumbnailUrl from API response
-        const thumbnailUrl = pickCoverThumbnailUrl(item?.snippet?.thumbnails);
+      // Get thumbnailUrl from API response
+      const thumbnailUrl = pickCoverThumbnailUrl(item?.snippet?.thumbnails);
 
-        const shouldSetDeletedAt = isDeleted && !existing?.isDeleted;
+      const shouldSetDeletedAt = isDeleted && !existing?.isDeleted;
 
-        const result = existing
-          ? await tx.servicePlaylistTrack.update({
-              where: { id: existing.id },
-              data: {
-                position: trackData.position,
-                isDeleted,
-                deletedAt: shouldSetDeletedAt
-                  ? new Date()
-                  : isDeleted
-                    ? existing.deletedAt
-                    : null,
-                thumbnailUrl, // Store thumbnail URL for background processing
-                ...(itemId ? { playlistItemId: itemId } : {}),
-              },
-            })
-          : await tx.servicePlaylistTrack.create({
-              data: {
-                playlistId: playlistId,
-                trackId: track.id,
-                playlistItemId: itemId,
-                position: trackData.position,
-                isDeleted,
-                deletedAt: isDeleted ? new Date() : null,
-                thumbnailUrl, // Store thumbnail URL for background processing
-              },
-            });
-
-        // Track deleted videos for reporting - only report newly detected deletions
-        if (shouldSetDeletedAt) {
-          deletedTracks.push({
-            id: track.id,
-            title: track.title,
-            externalId: trackData.externalId,
-            membershipId: result.id,
+      const result = existing
+        ? await tx.servicePlaylistTrack.update({
+            where: { id: existing.id },
+            data: {
+              position: trackData.position,
+              isDeleted,
+              deletedAt: shouldSetDeletedAt ? new Date() : isDeleted ? existing.deletedAt : null,
+              thumbnailUrl, // Store thumbnail URL for background processing
+              ...(itemId ? { playlistItemId: itemId } : {}),
+            },
+          })
+        : await tx.servicePlaylistTrack.create({
+            data: {
+              playlistId: playlistId,
+              trackId: track.id,
+              playlistItemId: itemId,
+              position: trackData.position,
+              isDeleted,
+              deletedAt: isDeleted ? new Date() : null,
+              thumbnailUrl, // Store thumbnail URL for background processing
+            },
           });
-        }
 
-        return result;
-      },
-    );
+      // Track deleted videos for reporting - only report newly detected deletions
+      if (shouldSetDeletedAt) {
+        deletedTracks.push({
+          id: track.id,
+          title: track.title,
+          externalId: trackData.externalId,
+          membershipId: result.id,
+        });
+      }
+
+      return result;
+    });
 
     const playlistTrackResults = await Promise.all(playlistTrackPromises);
     const successfulResults = playlistTrackResults.filter(

@@ -42,11 +42,7 @@ describe("YouTubePlaylistProvider - fetch and normalize", () => {
       },
     };
 
-    const result = provider.normalizePlaylistData(
-      rawPlaylist,
-      "service-id",
-      "user-id",
-    );
+    const result = provider.normalizePlaylistData(rawPlaylist, "service-id", "user-id");
 
     expect(result).toEqual({
       title: "Summer Hits",

@@ -11,10 +11,7 @@ const UNAVAILABLE_TITLE_PATTERNS = [
   /^this video is unavailable$/i,
 ];
 
-const PLACEHOLDER_TITLE_PATTERNS = [
-  ...UNAVAILABLE_TITLE_PATTERNS,
-  /^unknown title$/i,
-];
+const PLACEHOLDER_TITLE_PATTERNS = [...UNAVAILABLE_TITLE_PATTERNS, /^unknown title$/i];
 
 function isPlaceholderTitle(title: string): boolean {
   return PLACEHOLDER_TITLE_PATTERNS.some((pattern) => pattern.test(title));
@@ -44,9 +41,7 @@ export class YouTubeTrackSyncProcessor implements TrackSyncProcessor {
     const title = item.snippet?.title || "";
     const videoId = item.snippet?.resourceId?.videoId;
 
-    const hasUnavailableTitle = UNAVAILABLE_TITLE_PATTERNS.some((pattern) =>
-      pattern.test(title),
-    );
+    const hasUnavailableTitle = UNAVAILABLE_TITLE_PATTERNS.some((pattern) => pattern.test(title));
     const missingVideoId = !videoId || videoId.trim() === "";
 
     return hasUnavailableTitle || missingVideoId;
@@ -61,10 +56,7 @@ export class YouTubeTrackSyncProcessor implements TrackSyncProcessor {
     // Archive worker metadata wins once audio is stored (ADR-012 / CONTEXT #36).
     if (existingTrack.hasTrackAudioFile) return true;
 
-    if (
-      this.isUnavailableVideo(newItem) &&
-      !isPlaceholderTitle(existingTrack.title)
-    ) {
+    if (this.isUnavailableVideo(newItem) && !isPlaceholderTitle(existingTrack.title)) {
       return true;
     }
 

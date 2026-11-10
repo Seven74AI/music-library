@@ -81,8 +81,7 @@ vi.mock("#app/utils/cover-management.server", () => ({
 }));
 
 vi.mock("./batch-processor.server", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("./batch-processor.server")>();
+  const actual = await importOriginal<typeof import("./batch-processor.server")>();
   return {
     ...actual,
     resolveDeletedVideosAfterSync: vi.fn(actual.resolveDeletedVideosAfterSync),
@@ -107,9 +106,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
       access_token: "token123",
     });
     // Default: absent videos are gone on YouTube (playlist removals → delete SPT)
-    mockCheckVideosExist.mockImplementation(
-      async (_ids: string[]) => new Set<string>(),
-    );
+    mockCheckVideosExist.mockImplementation(async (_ids: string[]) => new Set<string>());
   });
 
   describe("syncServicePlaylist - removed tracks cleanup", () => {
@@ -186,41 +183,39 @@ describe("ServicePlaylistService - Sync Logic", () => {
       ] as any);
 
       // Mock transaction
-      vi.mocked(prisma.$transaction).mockImplementation(
-        async (callback: any) => {
-          const tx = {
-            track: {
-              findUnique: vi.fn().mockResolvedValue(null),
-              findMany: vi.fn().mockResolvedValue([]),
-              upsert: vi.fn().mockResolvedValue({
-                id: "track1",
-                title: "Video 1",
-                externalId: "vid00000001",
-              }),
-            },
-            artist: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "artist1",
-                name: "Test Artist",
-              }),
-            },
-            servicePlaylistTrack: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "pt1",
-                playlistId,
-                trackId: "track1",
-                position: 1,
-                isDeleted: false,
-              }),
-            },
-          };
-          return callback(tx);
-        },
-      );
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
+            upsert: vi.fn().mockResolvedValue({
+              id: "track1",
+              title: "Video 1",
+              externalId: "vid00000001",
+            }),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Test Artist",
+            }),
+          },
+          servicePlaylistTrack: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "pt1",
+              playlistId,
+              trackId: "track1",
+              position: 1,
+              isDeleted: false,
+            }),
+          },
+        };
+        return callback(tx);
+      });
 
       // Mock playlist update
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
@@ -230,11 +225,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
         count: 1,
       } as any);
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        playlistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(true);
       expect(result.removedTracks).toHaveLength(1);
@@ -299,42 +290,40 @@ describe("ServicePlaylistService - Sync Logic", () => {
       };
 
       // Mock transaction
-      vi.mocked(prisma.$transaction).mockImplementation(
-        async (callback: any) => {
-          const tx = {
-            track: {
-              findUnique: vi.fn().mockResolvedValue(null),
-              findMany: vi.fn().mockResolvedValue([existingTrack]),
-              upsert: vi.fn().mockResolvedValue({
-                id: "track1",
-                title: "Original Video Title", // Should be preserved
-                externalId: "video1",
-              }),
-            },
-            artist: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "artist1",
-                name: "Original Artist",
-              }),
-            },
-            servicePlaylistTrack: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "pt1",
-                playlistId,
-                trackId: "track1",
-                position: 1,
-                isDeleted: true,
-                deletedAt: new Date(),
-              }),
-            },
-          };
-          return callback(tx);
-        },
-      );
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([existingTrack]),
+            upsert: vi.fn().mockResolvedValue({
+              id: "track1",
+              title: "Original Video Title", // Should be preserved
+              externalId: "video1",
+            }),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Original Artist",
+            }),
+          },
+          servicePlaylistTrack: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "pt1",
+              playlistId,
+              trackId: "track1",
+              position: 1,
+              isDeleted: true,
+              deletedAt: new Date(),
+            }),
+          },
+        };
+        return callback(tx);
+      });
 
       // Mock playlist tracks query (empty - no removed tracks)
       vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([]);
@@ -342,11 +331,7 @@ describe("ServicePlaylistService - Sync Logic", () => {
       // Mock playlist update
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        playlistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(true);
       expect(result.deletedTracks).toHaveLength(1);
@@ -416,44 +401,42 @@ describe("ServicePlaylistService - Batch Processing", () => {
       const upsertedPositions: number[] = [];
 
       // Mock transaction - track positions
-      vi.mocked(prisma.$transaction).mockImplementation(
-        async (callback: any) => {
-          const tx = {
-            track: {
-              findUnique: vi.fn().mockResolvedValue(null),
-              findMany: vi.fn().mockResolvedValue([]),
-              upsert: vi.fn().mockImplementation(async (args: any) => ({
-                id: `track-${args.where.serviceId_externalId.externalId}`,
-                title: args.create.title,
-                externalId: args.create.externalId,
-              })),
-            },
-            artist: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "artist1",
-                name: "Test Channel",
-              }),
-            },
-            servicePlaylistTrack: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockImplementation(async (args: any) => {
-                upsertedPositions.push(args.data.position);
-                return {
-                  id: `pt-${args.data.trackId}`,
-                  playlistId: args.data.playlistId,
-                  trackId: args.data.trackId,
-                  position: args.data.position,
-                  isDeleted: false,
-                };
-              }),
-            },
-          };
-          return callback(tx);
-        },
-      );
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
+            upsert: vi.fn().mockImplementation(async (args: any) => ({
+              id: `track-${args.where.serviceId_externalId.externalId}`,
+              title: args.create.title,
+              externalId: args.create.externalId,
+            })),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Test Channel",
+            }),
+          },
+          servicePlaylistTrack: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockImplementation(async (args: any) => {
+              upsertedPositions.push(args.data.position);
+              return {
+                id: `pt-${args.data.trackId}`,
+                playlistId: args.data.playlistId,
+                trackId: args.data.trackId,
+                position: args.data.position,
+                isDeleted: false,
+              };
+            }),
+          },
+        };
+        return callback(tx);
+      });
 
       // Mock playlist tracks query (empty - no removed tracks)
       vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([]);
@@ -461,11 +444,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       // Mock playlist update
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        playlistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(true);
       expect(result.tracksAdded).toBe(50);
@@ -477,9 +456,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
 
       // Verify no position is duplicated or skipped
       const sortedPositions = [...upsertedPositions].sort((a, b) => a - b);
-      expect(sortedPositions).toEqual(
-        Array.from({ length: 50 }, (_, i) => i + 1),
-      );
+      expect(sortedPositions).toEqual(Array.from({ length: 50 }, (_, i) => i + 1));
     });
   });
 
@@ -579,49 +556,47 @@ describe("ServicePlaylistService - Batch Processing", () => {
 
       // Mock transaction
       let processedTrackIds = new Set<string>();
-      vi.mocked(prisma.$transaction).mockImplementation(
-        async (callback: any) => {
-          const tx = {
-            track: {
-              findUnique: vi.fn().mockResolvedValue(null),
-              findMany: vi.fn().mockResolvedValue([]),
-              upsert: vi.fn().mockImplementation(async (args: any) => {
-                const trackId = `track-${args.where.serviceId_externalId.externalId}`;
-                processedTrackIds.add(trackId);
-                return {
-                  id: trackId,
-                  title: args.create.title,
-                  externalId: args.create.externalId,
-                };
-              }),
-              create: vi.fn(),
-            },
-            artist: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "artist1",
-                name: "Test Channel",
-              }),
-            },
-            servicePlaylistTrack: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockImplementation(async (args: any) => {
-                processedTrackIds.add(args.data.trackId);
-                return {
-                  id: `pt-${args.data.trackId}`,
-                  playlistId: args.data.playlistId,
-                  trackId: args.data.trackId,
-                  position: args.data.position,
-                  isDeleted: false,
-                };
-              }),
-            },
-          };
-          return callback(tx);
-        },
-      );
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
+            upsert: vi.fn().mockImplementation(async (args: any) => {
+              const trackId = `track-${args.where.serviceId_externalId.externalId}`;
+              processedTrackIds.add(trackId);
+              return {
+                id: trackId,
+                title: args.create.title,
+                externalId: args.create.externalId,
+              };
+            }),
+            create: vi.fn(),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Test Channel",
+            }),
+          },
+          servicePlaylistTrack: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockImplementation(async (args: any) => {
+              processedTrackIds.add(args.data.trackId);
+              return {
+                id: `pt-${args.data.trackId}`,
+                playlistId: args.data.playlistId,
+                trackId: args.data.trackId,
+                position: args.data.position,
+                isDeleted: false,
+              };
+            }),
+          },
+        };
+        return callback(tx);
+      });
 
       // Mock playlist tracks query for orphan resolution + removal detection
       vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([
@@ -632,11 +607,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       // Mock playlist update
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        playlistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(true);
 
@@ -716,36 +687,34 @@ describe("ServicePlaylistService - Batch Processing", () => {
         },
       };
 
-      vi.mocked(prisma.$transaction).mockImplementation(
-        async (callback: any) => {
-          const tx = {
-            track: {
-              findUnique: vi.fn().mockResolvedValue(null),
-              findMany: vi.fn().mockResolvedValue([]),
-              upsert: vi.fn().mockImplementation(async (args: any) => ({
-                id: args.create.id,
-                title: args.create.title,
-                externalId: args.create.externalId,
-              })),
-              create: vi.fn(),
-            },
-            artist: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "artist1",
-                name: "Unknown Artist",
-              }),
-            },
-            servicePlaylistTrack: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
-            },
-          };
-          return callback(tx);
-        },
-      );
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
+            upsert: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.create.id,
+              title: args.create.title,
+              externalId: args.create.externalId,
+            })),
+            create: vi.fn(),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Unknown Artist",
+            }),
+          },
+          servicePlaylistTrack: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
+          },
+        };
+        return callback(tx);
+      });
 
       vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([
         stillOnYoutubeTrack,
@@ -755,11 +724,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
         count: 1,
       } as any);
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        playlistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(true);
       expect(result.pendingMatches).toHaveLength(0);
@@ -810,9 +775,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       ]);
 
       consoleError.mockImplementation(() => {});
-      mockCheckVideosExist.mockRejectedValueOnce(
-        new Error("YouTube quota exceeded"),
-      );
+      mockCheckVideosExist.mockRejectedValueOnce(new Error("YouTube quota exceeded"));
 
       const uncertainTrack = {
         id: "pt-uncertain",
@@ -828,47 +791,39 @@ describe("ServicePlaylistService - Batch Processing", () => {
         },
       };
 
-      vi.mocked(prisma.$transaction).mockImplementation(
-        async (callback: any) => {
-          const tx = {
-            track: {
-              findUnique: vi.fn().mockResolvedValue(null),
-              findMany: vi.fn().mockResolvedValue([]),
-              upsert: vi.fn().mockImplementation(async (args: any) => ({
-                id: args.create.id,
-                title: args.create.title,
-                externalId: args.create.externalId,
-              })),
-              create: vi.fn(),
-            },
-            artist: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "artist1",
-                name: "Unknown Artist",
-              }),
-            },
-            servicePlaylistTrack: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
-            },
-          };
-          return callback(tx);
-        },
-      );
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
+            upsert: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.create.id,
+              title: args.create.title,
+              externalId: args.create.externalId,
+            })),
+            create: vi.fn(),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Unknown Artist",
+            }),
+          },
+          servicePlaylistTrack: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
+          },
+        };
+        return callback(tx);
+      });
 
-      vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([
-        uncertainTrack,
-      ] as any);
+      vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([uncertainTrack] as any);
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        playlistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(true);
       expect(result.pendingMatches).toHaveLength(0);
@@ -954,41 +909,39 @@ describe("ServicePlaylistService - Batch Processing", () => {
       ];
 
       // Mock transaction
-      vi.mocked(prisma.$transaction).mockImplementation(
-        async (callback: any) => {
-          const tx = {
-            track: {
-              findUnique: vi.fn().mockResolvedValue(null),
-              findMany: vi.fn().mockResolvedValue([]),
-              upsert: vi.fn().mockResolvedValue({
-                id: "track-new",
-                title: "New Video",
-                externalId: "video-new",
-              }),
-            },
-            artist: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "artist1",
-                name: "Test Channel",
-              }),
-            },
-            servicePlaylistTrack: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "pt-new",
-                playlistId,
-                trackId: "track-new",
-                position: 1,
-                isDeleted: false,
-              }),
-            },
-          };
-          return callback(tx);
-        },
-      );
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
+            upsert: vi.fn().mockResolvedValue({
+              id: "track-new",
+              title: "New Video",
+              externalId: "video-new",
+            }),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Test Channel",
+            }),
+          },
+          servicePlaylistTrack: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "pt-new",
+              playlistId,
+              trackId: "track-new",
+              position: 1,
+              isDeleted: false,
+            }),
+          },
+        };
+        return callback(tx);
+      });
 
       // Mock playlist tracks query for removal detection
       vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue(
@@ -1003,20 +956,12 @@ describe("ServicePlaylistService - Batch Processing", () => {
         count: 2,
       } as any);
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        playlistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(true);
       expect(result.removedTracks).toHaveLength(2);
-      expect(result.removedTracks.map((t) => t.externalId)).toContain(
-        "vid00000021",
-      );
-      expect(result.removedTracks.map((t) => t.externalId)).toContain(
-        "vid00000022",
-      );
+      expect(result.removedTracks.map((t) => t.externalId)).toContain("vid00000021");
+      expect(result.removedTracks.map((t) => t.externalId)).toContain("vid00000022");
 
       // Verify deleteMany was called with correct IDs
       expect(prisma.servicePlaylistTrack.deleteMany).toHaveBeenCalledWith({
@@ -1043,9 +988,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       artist: {
         findMany: vi.fn().mockResolvedValue([]),
         findFirst: vi.fn().mockResolvedValue(null),
-        create: vi
-          .fn()
-          .mockResolvedValue({ id: "artist1", name: "Test Channel" }),
+        create: vi.fn().mockResolvedValue({ id: "artist1", name: "Test Channel" }),
       },
       servicePlaylistTrack: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -1098,24 +1041,18 @@ describe("ServicePlaylistService - Batch Processing", () => {
       mockGetPlaylistItems.mockResolvedValue(playlistItems);
 
       let transactionCalls = 0;
-      vi.mocked(prisma.$transaction).mockImplementation(
-        async (callback: any) => {
-          transactionCalls += 1;
-          if (transactionCalls > 1) {
-            throw new Error("Transaction expired due to timeout");
-          }
-          return callback(makeTransactionTx(playlistId));
-        },
-      );
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        transactionCalls += 1;
+        if (transactionCalls > 1) {
+          throw new Error("Transaction expired due to timeout");
+        }
+        return callback(makeTransactionTx(playlistId));
+      });
 
       vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([]);
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        playlistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(false);
       expect(vi.mocked(resolveDeletedVideosAfterSync)).toHaveBeenCalledTimes(1);
@@ -1166,15 +1103,10 @@ describe("ServicePlaylistService - Batch Processing", () => {
         new Error("Transaction expired due to timeout"),
       );
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        externalPlaylistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", externalPlaylistId, userId);
 
       expect(result.success).toBe(false);
-      const upsertCall = vi.mocked(prisma.servicePlaylist.upsert).mock
-        .calls[0]?.[0];
+      const upsertCall = vi.mocked(prisma.servicePlaylist.upsert).mock.calls[0]?.[0];
       expect(upsertCall?.create?.lastSyncedAt).toBeUndefined();
       expect(upsertCall?.update?.lastSyncedAt).toBeUndefined();
       expect(prisma.servicePlaylist.update).not.toHaveBeenCalled();
@@ -1236,46 +1168,44 @@ describe("ServicePlaylistService - Batch Processing", () => {
       mockGetPlaylistItems.mockResolvedValue(playlistItems);
 
       // Mock transaction (batch processing + auto-create of deleted video)
-      vi.mocked(prisma.$transaction).mockImplementation(
-        async (callback: any) => {
-          const tx = {
-            track: {
-              findUnique: vi.fn().mockResolvedValue(null),
-              findMany: vi.fn().mockResolvedValue([]),
-              upsert: vi.fn().mockResolvedValue({
-                id: "track-new",
-                title: "New Video",
-                externalId: "video-new",
-              }),
-              create: vi.fn().mockImplementation(async (args: any) => ({
-                id: args.data.id,
-                title: args.data.title,
-                externalId: args.data.externalId,
-              })),
-            },
-            artist: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "artist1",
-                name: "Test Channel",
-              }),
-            },
-            servicePlaylistTrack: {
-              findMany: vi.fn().mockResolvedValue([]),
-              findFirst: vi.fn().mockResolvedValue(null),
-              create: vi.fn().mockResolvedValue({
-                id: "pt-new",
-                playlistId,
-                trackId: "track-new",
-                position: 1,
-                isDeleted: false,
-              }),
-            },
-          };
-          return callback(tx);
-        },
-      );
+      vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+        const tx = {
+          track: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            findMany: vi.fn().mockResolvedValue([]),
+            upsert: vi.fn().mockResolvedValue({
+              id: "track-new",
+              title: "New Video",
+              externalId: "video-new",
+            }),
+            create: vi.fn().mockImplementation(async (args: any) => ({
+              id: args.data.id,
+              title: args.data.title,
+              externalId: args.data.externalId,
+            })),
+          },
+          artist: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "artist1",
+              name: "Test Channel",
+            }),
+          },
+          servicePlaylistTrack: {
+            findMany: vi.fn().mockResolvedValue([]),
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "pt-new",
+              playlistId,
+              trackId: "track-new",
+              position: 1,
+              isDeleted: false,
+            }),
+          },
+        };
+        return callback(tx);
+      });
 
       // Mock playlist tracks query (empty - no orphans, no removed tracks)
       vi.mocked(prisma.servicePlaylistTrack.findMany).mockResolvedValue([]);
@@ -1283,11 +1213,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       // Mock playlist update
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        playlistId,
-        userId,
-      );
+      const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
       expect(result.success).toBe(true);
       // 5 normal tracks + 1 auto-created deleted video (no orphan candidates)
@@ -1305,11 +1231,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
         new Error("Invalid `prisma.servicePlaylist.findFirst()` invocation"),
       );
 
-      const result = await service.syncServicePlaylist(
-        "youtube",
-        "PLtest",
-        "user-1",
-      );
+      const result = await service.syncServicePlaylist("youtube", "PLtest", "user-1");
 
       expect(result.success).toBe(false);
       expect(result.message).toBe("Failed to sync playlist. Please try again.");

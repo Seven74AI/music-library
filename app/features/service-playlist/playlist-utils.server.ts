@@ -66,10 +66,7 @@ export async function getSyncedPlaylistsTrackStats(
   userId: string,
   serviceName: string = "youtube",
 ): Promise<{ totalTracks: number; missingTracks: number }> {
-  const { trackIds } = await getActiveSyncedPlaylistTrackIds(
-    userId,
-    serviceName,
-  );
+  const { trackIds } = await getActiveSyncedPlaylistTrackIds(userId, serviceName);
   const totalTracks = trackIds.length;
 
   if (totalTracks === 0) {

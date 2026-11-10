@@ -1,7 +1,4 @@
-import {
-  type YouTubePlaylist,
-  type YouTubePlaylistItem,
-} from "#app/types/youtube-api";
+import { type YouTubePlaylist, type YouTubePlaylistItem } from "#app/types/youtube-api";
 
 /**
  * Provider seam for external playlist services — fetch and normalize only.
@@ -19,10 +16,7 @@ export interface PlaylistSyncProvider {
 
   fetchPlaylist(externalId: string, token: string): Promise<YouTubePlaylist>;
 
-  fetchPlaylistItems(
-    externalId: string,
-    token: string,
-  ): Promise<YouTubePlaylistItem[]>;
+  fetchPlaylistItems(externalId: string, token: string): Promise<YouTubePlaylistItem[]>;
 
   /**
    * Optional YouTube-only seam: probe whether absent video IDs still exist.

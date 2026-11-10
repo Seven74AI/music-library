@@ -1,13 +1,7 @@
 import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { transformYouTubePlaylistToServicePlaylist } from "#app/types/transformations";
-import {
-  type YouTubePlaylist,
-  type YouTubePlaylistItem,
-} from "#app/types/youtube-api";
-import {
-  createYouTubeService,
-  type YouTubeService,
-} from "#app/utils/youtube.server";
+import { type YouTubePlaylist, type YouTubePlaylistItem } from "#app/types/youtube-api";
+import { createYouTubeService, type YouTubeService } from "#app/utils/youtube.server";
 import { type PlaylistSyncProvider } from "./playlist-sync-provider.server";
 
 export class YouTubePlaylistProvider implements PlaylistSyncProvider {
@@ -17,31 +11,19 @@ export class YouTubePlaylistProvider implements PlaylistSyncProvider {
     this.youtubeService = youtubeService ?? createYouTubeService();
   }
 
-  async fetchPlaylists(
-    token: string,
-    _userId: string,
-  ): Promise<YouTubePlaylist[]> {
+  async fetchPlaylists(token: string, _userId: string): Promise<YouTubePlaylist[]> {
     return this.youtubeService.getUserPlaylists(token);
   }
 
-  async fetchPlaylist(
-    externalId: string,
-    token: string,
-  ): Promise<YouTubePlaylist> {
+  async fetchPlaylist(externalId: string, token: string): Promise<YouTubePlaylist> {
     return this.youtubeService.getPlaylist(externalId, token);
   }
 
-  async fetchPlaylistItems(
-    externalId: string,
-    token: string,
-  ): Promise<YouTubePlaylistItem[]> {
+  async fetchPlaylistItems(externalId: string, token: string): Promise<YouTubePlaylistItem[]> {
     return this.youtubeService.getPlaylistItems(externalId, token);
   }
 
-  resolveVideoExistence = async (
-    videoIds: string[],
-    accessToken: string,
-  ): Promise<Set<string>> => {
+  resolveVideoExistence = async (videoIds: string[], accessToken: string): Promise<Set<string>> => {
     return this.youtubeService.checkVideosExist(videoIds, accessToken);
   };
 

@@ -1,8 +1,5 @@
 import { smartAlbumInheritance } from "#app/features/admin/cover-fetch.server";
-import {
-  downloadExternalImage,
-  findOrCreateCoverImage,
-} from "#app/utils/cover-management.server";
+import { downloadExternalImage, findOrCreateCoverImage } from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server";
 
 const MAX_CONCURRENCY = 3;
@@ -22,9 +19,7 @@ type PlaylistTrackForProcessing = {
 /**
  * Fire-and-forget post-sync cover image processing.
  */
-export async function processTrackImagesAsync(
-  playlistId: string,
-): Promise<void> {
+export async function processTrackImagesAsync(playlistId: string): Promise<void> {
   let cursor: string | undefined;
 
   while (true) {
@@ -71,13 +66,9 @@ async function processPlaylistTrackImages(
         if (!playlistTrack.thumbnailUrl) return;
 
         try {
-          const imageBuffer = await downloadExternalImage(
-            playlistTrack.thumbnailUrl,
-          );
+          const imageBuffer = await downloadExternalImage(playlistTrack.thumbnailUrl);
           if (!imageBuffer) {
-            console.warn(
-              `Failed to download image from ${playlistTrack.thumbnailUrl}`,
-            );
+            console.warn(`Failed to download image from ${playlistTrack.thumbnailUrl}`);
             return;
           }
 
@@ -103,10 +94,7 @@ async function processPlaylistTrackImages(
             );
           }
         } catch (error) {
-          console.error(
-            `Error processing image for track ${playlistTrack.trackId}:`,
-            error,
-          );
+          console.error(`Error processing image for track ${playlistTrack.trackId}:`, error);
         }
       }),
     );

@@ -4,17 +4,13 @@ import { createUser } from "#tests/db-utils";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
 import { createServicePlaylistService } from "./service-playlist.server";
 
-const {
-  mockGetPlaylist,
-  mockGetPlaylistItems,
-  mockCheckVideosExist,
-  mockResolveToken,
-} = vi.hoisted(() => ({
-  mockGetPlaylist: vi.fn(),
-  mockGetPlaylistItems: vi.fn(),
-  mockCheckVideosExist: vi.fn(),
-  mockResolveToken: vi.fn(),
-}));
+const { mockGetPlaylist, mockGetPlaylistItems, mockCheckVideosExist, mockResolveToken } =
+  vi.hoisted(() => ({
+    mockGetPlaylist: vi.fn(),
+    mockGetPlaylistItems: vi.fn(),
+    mockCheckVideosExist: vi.fn(),
+    mockResolveToken: vi.fn(),
+  }));
 
 vi.mock("#app/features/service-connection/service-connection.server", () => ({
   resolveServiceAccessToken: mockResolveToken,
@@ -59,16 +55,8 @@ describe("ServicePlaylist cross-user isolation", () => {
       archiveEnqueueAdapter: noopArchiveEnqueueAdapter,
     });
 
-    const resultA = await service.syncServicePlaylist(
-      "youtube",
-      "PLshared",
-      userA.id,
-    );
-    const resultB = await service.syncServicePlaylist(
-      "youtube",
-      "PLshared",
-      userB.id,
-    );
+    const resultA = await service.syncServicePlaylist("youtube", "PLshared", userA.id);
+    const resultB = await service.syncServicePlaylist("youtube", "PLshared", userB.id);
 
     expect(resultA.success).toBe(true);
     expect(resultB.success).toBe(true);
@@ -79,8 +67,6 @@ describe("ServicePlaylist cross-user isolation", () => {
 
     // Each user must own their own row — no cross-user clobbering.
     expect(playlists).toHaveLength(2);
-    expect(new Set(playlists.map((p) => p.ownerId))).toEqual(
-      new Set([userA.id, userB.id]),
-    );
+    expect(new Set(playlists.map((p) => p.ownerId))).toEqual(new Set([userA.id, userB.id]));
   });
 });

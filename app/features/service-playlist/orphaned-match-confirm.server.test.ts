@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  getDuplicateMatchedTrackIds,
-  orphanMatchesSchema,
-} from "./orphaned-match-confirm.server";
+import { getDuplicateMatchedTrackIds, orphanMatchesSchema } from "./orphaned-match-confirm.server";
 
 describe("getDuplicateMatchedTrackIds", () => {
   test("returns empty when each matched track is unique", () => {
@@ -60,12 +57,8 @@ describe("orphanMatchesSchema", () => {
 
   test("rejects malformed entries", () => {
     expect(orphanMatchesSchema.safeParse({}).success).toBe(false);
-    expect(
-      orphanMatchesSchema.safeParse([{ action: "boom", position: 1 }]).success,
-    ).toBe(false);
-    expect(
-      orphanMatchesSchema.safeParse([{ action: "new", position: -1 }]).success,
-    ).toBe(false);
+    expect(orphanMatchesSchema.safeParse([{ action: "boom", position: 1 }]).success).toBe(false);
+    expect(orphanMatchesSchema.safeParse([{ action: "new", position: -1 }]).success).toBe(false);
     expect(
       orphanMatchesSchema.safeParse([
         { action: "new", position: 1, deletedItemId: "x".repeat(129) },

@@ -97,9 +97,7 @@ describe("processTracksInBatches - unavailable placeholders", () => {
       },
       servicePlaylistTrack: {
         findMany: vi.fn().mockResolvedValue([]),
-        create: vi
-          .fn()
-          .mockResolvedValue({ id: "spt-1", trackId: "track-pending" }),
+        create: vi.fn().mockResolvedValue({ id: "spt-1", trackId: "track-pending" }),
       },
       archiveJob: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -235,9 +233,7 @@ describe("processTracksInBatches - archived metadata", () => {
       artist: {
         findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn(),
-        create: vi
-          .fn()
-          .mockResolvedValue({ id: "artist-yt", name: "YouTube Artist" }),
+        create: vi.fn().mockResolvedValue({ id: "artist-yt", name: "YouTube Artist" }),
       },
       servicePlaylistTrack: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -319,9 +315,7 @@ describe("processTracksInBatches - archived metadata", () => {
       },
       artist: {
         findMany: vi.fn().mockResolvedValue([]),
-        findFirst: vi
-          .fn()
-          .mockResolvedValue({ id: "artist-yt", name: "YouTube Artist" }),
+        findFirst: vi.fn().mockResolvedValue({ id: "artist-yt", name: "YouTube Artist" }),
         create: vi.fn(),
       },
       servicePlaylistTrack: {
@@ -429,36 +423,33 @@ describe("processTracksInBatches - playlist track pairing", () => {
 
   it("keeps playlist positions aligned when the safety filter drops a middle row", async () => {
     consoleWarn.mockImplementation(() => {});
-    const playlistTrackUpsert = vi
-      .fn()
-      .mockImplementation(
-        ({
-          data,
-        }: {
-          data: {
-            position: number;
-            trackId: string;
-            thumbnailUrl?: string | null;
-          };
-        }) =>
-          Promise.resolve({
-            id: "spt",
-            trackId: data.trackId,
-            position: data.position,
-            thumbnailUrl: data.thumbnailUrl ?? null,
-          }),
-      );
+    const playlistTrackUpsert = vi.fn().mockImplementation(
+      ({
+        data,
+      }: {
+        data: {
+          position: number;
+          trackId: string;
+          thumbnailUrl?: string | null;
+        };
+      }) =>
+        Promise.resolve({
+          id: "spt",
+          trackId: data.trackId,
+          position: data.position,
+          thumbnailUrl: data.thumbnailUrl ?? null,
+        }),
+    );
 
     const trackUpsert = vi
       .fn()
-      .mockImplementation(
-        ({ create }: { create: { externalId: string; title: string } }) =>
-          Promise.resolve({
-            id: `track-${create.externalId}`,
-            title: create.title,
-            externalId: create.externalId,
-            serviceUrl: "https://youtube.com/watch?v=" + create.externalId,
-          }),
+      .mockImplementation(({ create }: { create: { externalId: string; title: string } }) =>
+        Promise.resolve({
+          id: `track-${create.externalId}`,
+          title: create.title,
+          externalId: create.externalId,
+          serviceUrl: "https://youtube.com/watch?v=" + create.externalId,
+        }),
       );
 
     const tx = {
@@ -492,11 +483,7 @@ describe("processTracksInBatches - playlist track pairing", () => {
       shouldPreserveTrackData: (existingTrack: never, newItem: never) =>
         base.shouldPreserveTrackData(existingTrack, newItem),
       transformPlaylistItem(item: never, serviceId: string, artistId: string) {
-        const transformed = base.transformPlaylistItem(
-          item,
-          serviceId,
-          artistId,
-        );
+        const transformed = base.transformPlaylistItem(item, serviceId, artistId);
         if ((item as { snippet?: { title?: string } }).snippet?.title === "B") {
           return { ...transformed, externalId: "" };
         }
@@ -542,8 +529,7 @@ describe("processTracksInBatches - playlist track pairing", () => {
     );
 
     const upsertCalls = playlistTrackUpsert.mock.calls.map(
-      (call) =>
-        call[0] as { data: { position: number; thumbnailUrl?: string | null } },
+      (call) => call[0] as { data: { position: number; thumbnailUrl?: string | null } },
     );
     expect(upsertCalls.map((call) => call.data.position)).toEqual([1, 3]);
     expect(upsertCalls.map((call) => call.data.thumbnailUrl)).toEqual([

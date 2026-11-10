@@ -9,6 +9,7 @@ export const orphanMatchesSchema = z
       action: z.enum(["match", "new", "skip"]),
       deletedItemId: z
         .string()
+        .trim()
         .max(128)
         .optional()
         .transform((v) => (v === "" ? undefined : v)),
@@ -162,24 +163,16 @@ export async function confirmOrphanedMatches(
           // orphaned track is a ServicePlaylistTrack row for this playlist
           // that was not seen in the latest sync). Reject any client-supplied
           // track that is only in the global catalog.
-          const existingPlaylistTrack = await tx.servicePlaylistTrack.findFirst(
-            {
-              where: {
-                playlistId,
-                trackId: match.selectedTrackId,
-              },
-              orderBy: [
-                { isDeleted: "asc" },
-                { position: "asc" },
-                { id: "asc" },
-              ],
+          const existingPlaylistTrack = await tx.servicePlaylistTrack.findFirst({
+            where: {
+              playlistId,
+              trackId: match.selectedTrackId,
             },
-          );
+            orderBy: [{ isDeleted: "asc" }, { position: "asc" }, { id: "asc" }],
+          });
 
           if (!existingPlaylistTrack) {
-            throw new Error(
-              `Track is not a member of this playlist: ${match.selectedTrackId}`,
-            );
+            throw new Error(`Track is not a member of this playlist: ${match.selectedTrackId}`);
           }
 
           // The dialog offers candidate rows that are absent from the latest sync
@@ -220,8 +213,7 @@ export async function confirmOrphanedMatches(
     };
   } catch (error) {
     console.error("Error confirming deleted video matches:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "An unexpected error occurred";
+    const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
     return {
       success: false,
       processedCount: 0,

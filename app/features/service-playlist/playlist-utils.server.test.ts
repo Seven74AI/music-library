@@ -27,25 +27,19 @@ describe("getActiveSyncedPlaylistTrackIds", () => {
   });
 
   test("chunks playlistId IN queries when many synced playlists exist", async () => {
-    const playlistIds = Array.from(
-      { length: SQLITE_IN_CHUNK_SIZE + 3 },
-      (_, i) => `pl-${i}`,
-    );
+    const playlistIds = Array.from({ length: SQLITE_IN_CHUNK_SIZE + 3 }, (_, i) => `pl-${i}`);
     vi.mocked(prisma.servicePlaylist.findMany).mockResolvedValue(
       playlistIds.map((id) => ({ id })) as never,
     );
-    vi.mocked(prisma.servicePlaylistTrack.findMany).mockImplementation(
-      (args) => {
-        const where = args?.where as
-          { playlistId?: { in?: string[] } } | undefined;
-        const chunk = where?.playlistId?.in ?? [];
-        return Promise.resolve(
-          chunk.map((playlistId, index) => ({
-            trackId: `track-${playlistId}-${index}`,
-          })),
-        ) as ReturnType<typeof prisma.servicePlaylistTrack.findMany>;
-      },
-    );
+    vi.mocked(prisma.servicePlaylistTrack.findMany).mockImplementation((args) => {
+      const where = args?.where as { playlistId?: { in?: string[] } } | undefined;
+      const chunk = where?.playlistId?.in ?? [];
+      return Promise.resolve(
+        chunk.map((playlistId, index) => ({
+          trackId: `track-${playlistId}-${index}`,
+        })),
+      ) as ReturnType<typeof prisma.servicePlaylistTrack.findMany>;
+    });
 
     const result = await getActiveSyncedPlaylistTrackIds("user-1");
 

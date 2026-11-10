@@ -1,10 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { SERVICE_IMPORT_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server";
-import {
-  YouTubeAPIError,
-  YOUTUBE_ERROR_CODES,
-} from "#app/utils/youtube-errors.ts";
+import { YouTubeAPIError, YOUTUBE_ERROR_CODES } from "#app/utils/youtube-errors.ts";
 
 vi.mock("#app/utils/auth.server", () => ({
   requireUserId: vi.fn().mockResolvedValue("user-test"),
@@ -14,15 +11,10 @@ vi.mock("#app/utils/service-import.server", () => ({
   importTrackDirectly: vi.fn(),
 }));
 
-vi.mock(
-  "#app/features/service-playlist/orphaned-match-confirm.server",
-  async (orig) => ({
-    ...(await orig<
-      typeof import("#app/features/service-playlist/orphaned-match-confirm.server")
-    >()),
-    confirmOrphanedMatches: vi.fn(),
-  }),
-);
+vi.mock("#app/features/service-playlist/orphaned-match-confirm.server", async (orig) => ({
+  ...(await orig<typeof import("#app/features/service-playlist/orphaned-match-confirm.server")>()),
+  confirmOrphanedMatches: vi.fn(),
+}));
 
 vi.mock("#app/utils/youtube-search.server", () => ({
   searchYouTubeVideos: vi.fn(),
@@ -38,23 +30,17 @@ describe("YouTube route action error responses", () => {
   test("import action does not expose YouTube API key configuration text", async () => {
     consoleError.mockImplementation(() => {});
     vi.mocked(searchYouTubeVideos).mockRejectedValue(
-      new YouTubeAPIError(
-        "YouTube API key is not configured",
-        YOUTUBE_ERROR_CODES.NO_API_KEY,
-      ),
+      new YouTubeAPIError("YouTube API key is not configured", YOUTUBE_ERROR_CODES.NO_API_KEY),
     );
 
     const formData = new FormData();
     formData.set("intent", "search");
     formData.set("query", "test query");
 
-    const request = new Request(
-      "http://localhost/music/services/youtube/import",
-      {
-        method: "POST",
-        body: formData,
-      },
-    );
+    const request = new Request("http://localhost/music/services/youtube/import", {
+      method: "POST",
+      body: formData,
+    });
 
     const result = await importAction({
       request,
@@ -71,9 +57,7 @@ describe("YouTube route action error responses", () => {
       },
     });
     expect(JSON.stringify(result)).not.toMatch(/API key/i);
-    expect(JSON.stringify(result)).not.toContain(
-      "YouTube API key is not configured",
-    );
+    expect(JSON.stringify(result)).not.toContain("YouTube API key is not configured");
   });
 
   test("import action maps unknown errors to the service import fallback", async () => {
@@ -86,13 +70,10 @@ describe("YouTube route action error responses", () => {
     formData.set("intent", "search");
     formData.set("query", "test query");
 
-    const request = new Request(
-      "http://localhost/music/services/youtube/import",
-      {
-        method: "POST",
-        body: formData,
-      },
-    );
+    const request = new Request("http://localhost/music/services/youtube/import", {
+      method: "POST",
+      body: formData,
+    });
 
     const result = await importAction({
       request,
@@ -114,22 +95,13 @@ describe("YouTube route action error responses", () => {
   test("confirm-deleted-match returns a non-400 error when confirm fails", async () => {
     consoleError.mockImplementation(() => {});
     const formData = new FormData();
-    formData.set(
-      "intent",
-      YOUTUBE_PLAYLIST_DETAIL_INTENTS.CONFIRM_DELETED_MATCH,
-    );
-    formData.set(
-      "matches",
-      JSON.stringify([{ action: "new", position: 1, deletedItemId: "" }]),
-    );
+    formData.set("intent", YOUTUBE_PLAYLIST_DETAIL_INTENTS.CONFIRM_DELETED_MATCH);
+    formData.set("matches", JSON.stringify([{ action: "new", position: 1, deletedItemId: "" }]));
     const run = () => {
-      const request = new Request(
-        "http://localhost/music/services/youtube/playlist/p1",
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
+      const request = new Request("http://localhost/music/services/youtube/playlist/p1", {
+        method: "POST",
+        body: formData,
+      });
       return playlistAction({
         request,
         params: { id: "p1" },
@@ -158,9 +130,7 @@ describe("YouTube route action error responses", () => {
       "user-test",
     );
 
-    vi.mocked(confirmOrphanedMatches).mockRejectedValueOnce(
-      new Error("db down"),
-    );
+    vi.mocked(confirmOrphanedMatches).mockRejectedValueOnce(new Error("db down"));
     const thrown = (await run()) as { init?: { status?: number } | null };
     expect(thrown.init?.status).not.toBe(400);
   });

@@ -105,9 +105,7 @@ describe("YouTubeTrackSyncProcessor", () => {
         },
       };
 
-      expect(
-        trackProcessor.shouldPreserveTrackData(existingTrack, newItem),
-      ).toBe(true);
+      expect(trackProcessor.shouldPreserveTrackData(existingTrack, newItem)).toBe(true);
     });
 
     test('does not preserve data when existing track has "Deleted video" title', () => {
@@ -123,9 +121,7 @@ describe("YouTubeTrackSyncProcessor", () => {
         },
       };
 
-      expect(
-        trackProcessor.shouldPreserveTrackData(existingTrack, newItem),
-      ).toBe(false);
+      expect(trackProcessor.shouldPreserveTrackData(existingTrack, newItem)).toBe(false);
     });
 
     test("preserves data when existing title is not a placeholder even if new title is DELETED VIDEO", () => {
@@ -141,9 +137,7 @@ describe("YouTubeTrackSyncProcessor", () => {
         },
       };
 
-      expect(
-        trackProcessor.shouldPreserveTrackData(existingTrack, newItem),
-      ).toBe(true);
+      expect(trackProcessor.shouldPreserveTrackData(existingTrack, newItem)).toBe(true);
     });
 
     test("does not preserve when existing title is DELETED VIDEO (case-insensitive placeholder)", () => {
@@ -159,9 +153,7 @@ describe("YouTubeTrackSyncProcessor", () => {
         },
       };
 
-      expect(
-        trackProcessor.shouldPreserveTrackData(existingTrack, newItem),
-      ).toBe(false);
+      expect(trackProcessor.shouldPreserveTrackData(existingTrack, newItem)).toBe(false);
     });
 
     test("does not preserve data when video is not deleted", () => {
@@ -182,9 +174,7 @@ describe("YouTubeTrackSyncProcessor", () => {
         },
       };
 
-      expect(
-        trackProcessor.shouldPreserveTrackData(existingTrack, newItem),
-      ).toBe(false);
+      expect(trackProcessor.shouldPreserveTrackData(existingTrack, newItem)).toBe(false);
     });
 
     test("preserves metadata when the track has archived audio", () => {
@@ -199,9 +189,7 @@ describe("YouTubeTrackSyncProcessor", () => {
         },
       };
 
-      expect(
-        trackProcessor.shouldPreserveTrackData(existingTrack, newItem),
-      ).toBe(true);
+      expect(trackProcessor.shouldPreserveTrackData(existingTrack, newItem)).toBe(true);
     });
 
     test("returns false when no existing track", () => {
