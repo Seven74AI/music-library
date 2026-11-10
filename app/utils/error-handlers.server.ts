@@ -9,11 +9,14 @@ import { data } from "react-router";
 import { ServiceNotFoundError as PlaylistServiceNotFoundError } from "#app/features/service-playlist/playlist-utils.server";
 import { ValidationError } from "#app/utils/validation.ts";
 import { YouTubeError } from "#app/utils/youtube-errors.ts";
+import { ZipExtractionLimitError } from "#app/utils/zip-extraction.server.ts";
 
 export const DEFAULT_CLIENT_ERROR_MESSAGE = "Something went wrong. Please try again.";
 
 export const UPLOAD_AUDIO_CLIENT_ERROR_MESSAGE = "Failed to upload audio file.";
 export const UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE = "Failed to upload file.";
+export const UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE = "Failed to extract ZIP file.";
+export const UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE = "Failed to read audio metadata.";
 export const SERVICE_IMPORT_CLIENT_ERROR_MESSAGE = "Unable to import this track. Please try again.";
 export const SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE =
   "Failed to sync playlist. Please try again.";
@@ -22,7 +25,8 @@ function isKnownClientError(error: unknown): error is Error {
   return (
     error instanceof YouTubeError ||
     error instanceof ValidationError ||
-    error instanceof PlaylistServiceNotFoundError
+    error instanceof PlaylistServiceNotFoundError ||
+    error instanceof ZipExtractionLimitError
   );
 }
 

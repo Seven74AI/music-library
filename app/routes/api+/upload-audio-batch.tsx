@@ -31,6 +31,8 @@ import {
 } from "#app/utils/track-metadata-int.server.ts";
 import {
   UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE,
+  UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+  UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE,
   toClientErrorMessage,
 } from "#app/utils/error-handlers.server";
 import {
@@ -250,12 +252,30 @@ export async function action({ request }: ActionFunctionArgs) {
 
           try {
             await updateFileProgress(uploadId, fileId, 0, "processing");
-            const metadata = roundExtractedNumericMetadata(
-              await extractAudioMetadata(extractedFile.buffer, extractedFile.fileName),
-            );
+            let metadata: ExtractedAudioMetadata;
+            try {
+              metadata = roundExtractedNumericMetadata(
+                await extractAudioMetadata(extractedFile.buffer, extractedFile.fileName),
+              );
+            } catch (error) {
+              const message = toClientErrorMessage(
+                error,
+                UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+              );
+              await recordFileFailure(uploadId, fileId, message);
+              console.error(`Error extracting metadata from ${extractedFile.fileName}:`, error);
+              return;
+            }
 
-            // Get user-provided metadata for this file (if any)
-            const parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
+            let parsedMetadata: FileWithMetadata["userMetadata"];
+            try {
+              parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Invalid user metadata";
+              await recordFileFailure(uploadId, fileId, message);
+              console.error(`Invalid user metadata for ${extractedFile.fileName}:`, error);
+              return;
+            }
 
             filesToProcess.push({
               fileName: extractedFile.fileName,
@@ -266,18 +286,22 @@ export async function action({ request }: ActionFunctionArgs) {
               userMetadata: parsedMetadata,
             });
           } catch (error) {
-            const message = error instanceof Error ? error.message : "Failed to extract metadata";
+            const message = toClientErrorMessage(
+              error,
+              UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+            );
             await recordFileFailure(uploadId, fileId, message);
-            console.error(`Error extracting metadata from ${extractedFile.fileName}:`, error);
+            console.error(`Error processing ${extractedFile.fileName}:`, error);
           }
         },
         MAX_CONCURRENCY,
       );
     } catch (error) {
+      console.error("Failed to extract ZIP file:", error);
       return data(
         {
           success: false,
-          error: `Failed to extract ZIP file: ${error instanceof Error ? error.message : "Unknown error"}`,
+          error: toClientErrorMessage(error, UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE),
         },
         { status: 400 },
       );
@@ -322,12 +346,28 @@ export async function action({ request }: ActionFunctionArgs) {
           await updateFileProgress(uploadId, fileId, 0, "processing");
           const arrayBuffer = await file.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
-          const metadata = roundExtractedNumericMetadata(
-            await extractAudioMetadata(buffer, file.name),
-          );
+          let metadata: ExtractedAudioMetadata;
+          try {
+            metadata = roundExtractedNumericMetadata(await extractAudioMetadata(buffer, file.name));
+          } catch (error) {
+            const message = toClientErrorMessage(
+              error,
+              UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+            );
+            await recordFileFailure(uploadId, fileId, message);
+            console.error(`Error extracting metadata from ${file.name}:`, error);
+            return;
+          }
 
-          // Get user-provided metadata for this file (if any)
-          const parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
+          let parsedMetadata: FileWithMetadata["userMetadata"];
+          try {
+            parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Invalid user metadata";
+            await recordFileFailure(uploadId, fileId, message);
+            console.error(`Invalid user metadata for ${file.name}:`, error);
+            return;
+          }
 
           filesToProcess.push({
             fileName: file.name,
@@ -338,9 +378,12 @@ export async function action({ request }: ActionFunctionArgs) {
             userMetadata: parsedMetadata,
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Failed to extract metadata";
+          const message = toClientErrorMessage(
+            error,
+            UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+          );
           await recordFileFailure(uploadId, fileId, message);
-          console.error(`Error extracting metadata from ${file.name}:`, error);
+          console.error(`Error processing ${file.name}:`, error);
         }
       },
       MAX_CONCURRENCY,
@@ -410,6 +453,9 @@ async function processFilesAsync(
 
       let preparedAudio: Awaited<ReturnType<typeof prepareTrackAudioUpload>> | null = null;
       let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+      const preparedCoverHolder: {
+        current: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null;
+      } = { current: null };
       let transactionCommitted = false;
       let trackId: string | undefined;
 
@@ -509,6 +555,7 @@ async function processFilesAsync(
               trackId,
               format: file.metadata.coverImage.format,
             });
+            preparedCoverHolder.current = preparedCover;
           } catch (error) {
             await cleanupFailedCoverUpload(error);
             console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error);
@@ -529,6 +576,7 @@ async function processFilesAsync(
           yearForAlbum: pickIntField(file.userMetadata?.year, file.metadata.year),
           extractedMetadata: file.metadata,
           preparedCover,
+          preparedCoverHolder,
           preparedAudio: audioPrepared,
           audioFileName: file.fileName,
           buffer: file.buffer,
@@ -543,7 +591,7 @@ async function processFilesAsync(
             afterUserTrack: () => updateFileProgress(uploadId, fileId, 95, "uploading"),
           },
         });
-        preparedCover = uploadResult.preparedCover;
+        preparedCover = preparedCoverHolder.current ?? uploadResult.preparedCover;
         transactionCommitted = true;
 
         const successfulTrackInfo: SuccessfulTrackInfo = {
@@ -615,6 +663,7 @@ async function processFilesAsync(
 
         return { success: true, trackId: result.trackId };
       } catch (error) {
+        preparedCover = preparedCoverHolder.current;
         await cleanupFailedUploadArtifacts(preparedAudio, preparedCover, { transactionCommitted });
         if (transactionCommitted) {
           console.warn(

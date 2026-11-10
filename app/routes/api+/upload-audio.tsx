@@ -86,6 +86,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
   let preparedAudio: Awaited<ReturnType<typeof prepareTrackAudioUpload>> | null = null;
   let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+  const preparedCoverHolder: {
+    current: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null;
+  } = { current: null };
   let transactionCommitted = false;
 
   try {
@@ -186,6 +189,7 @@ export async function action({ request }: ActionFunctionArgs) {
           trackId,
           format: extractedMetadata.coverImage.format,
         });
+        preparedCoverHolder.current = preparedCover;
       } catch (error) {
         await cleanupFailedCoverUpload(error);
         console.warn(`⚠️  Failed to upload cover image for ${audioFile.name}:`, error);
@@ -206,6 +210,7 @@ export async function action({ request }: ActionFunctionArgs) {
       yearForAlbum: pickIntField(extractedMetadata.year),
       extractedMetadata,
       preparedCover,
+      preparedCoverHolder,
       preparedAudio: audioPrepared,
       audioFileName: audioFile.name,
       buffer,
@@ -214,7 +219,7 @@ export async function action({ request }: ActionFunctionArgs) {
         console.warn(`⚠️  Failed to create cover image for ${audioFile.name}:`, error);
       },
     });
-    preparedCover = result.preparedCover;
+    preparedCover = preparedCoverHolder.current ?? result.preparedCover;
     transactionCommitted = true;
 
     try {
@@ -242,6 +247,7 @@ export async function action({ request }: ActionFunctionArgs) {
       { status: 201 },
     );
   } catch (error) {
+    preparedCover = preparedCoverHolder.current;
     await cleanupFailedUploadArtifacts(preparedAudio, preparedCover, { transactionCommitted });
     console.error("Error uploading audio file:", error);
     return data(

@@ -8,7 +8,11 @@ import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { consoleError, consoleWarn } from "#tests/setup/setup-test-env.ts";
-import { UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server";
+import {
+  UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE,
+  UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+  UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE,
+} from "#app/utils/error-handlers.server";
 import { action } from "./upload-audio-batch.tsx";
 import { getUploadProgress } from "#app/features/upload-progress/progress-store.server.ts";
 
@@ -182,6 +186,14 @@ test("a valid file still uploads when another file in the batch is empty", async
 }, 20_000);
 
 test("an over-cap audio ZIP returns 400 and does not upload a partial set", async () => {
+  consoleError.mockImplementation((...args: unknown[]) => {
+    const message = args.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(" ");
+    if (message.includes("Failed to extract ZIP file")) return;
+    throw new Error(
+      `Console error was called: ${message}. Call consoleError.mockImplementation(() => {}) if this is expected.`,
+    );
+  });
+
   const { userId, cookie } = await createAdminCookie();
   const uploadId = `upload-over-cap-${Date.now()}`;
   const zip = new AdmZip();
@@ -222,6 +234,7 @@ function allowUploadConsoleErrors() {
     const message = args.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(" ");
     if (message.includes("Failed to generate audio fingerprint")) return;
     if (message.includes("Error extracting metadata from")) return;
+    if (message.includes("Invalid user metadata for")) return;
     if (message.includes("Error uploading file")) return;
     throw new Error(
       `Console error was called: ${message}. Call consoleError.mockImplementation(() => {}) if this is expected.`,
@@ -496,6 +509,92 @@ test("a post-commit progress write failure keeps the committed track out of fail
     expect(await prisma.track.count({ where: { title, artist: { name: artist } } })).toBe(1);
   } finally {
     updateSpy.mockRestore();
+    await cleanupUploadArtist(artist, userId);
+  }
+}, 20_000);
+
+test("corrupt ZIP extraction returns a stable client error without internal details", async () => {
+  consoleError.mockImplementation((...args: unknown[]) => {
+    const message = args.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(" ");
+    if (message.includes("Failed to extract ZIP file")) return;
+    throw new Error(
+      `Console error was called: ${message}. Call consoleError.mockImplementation(() => {}) if this is expected.`,
+    );
+  });
+
+  const zipModule = await import("#app/utils/zip-extraction.server.ts");
+  const zipSpy = vi
+    .spyOn(zipModule, "extractAudioFilesFromZip")
+    .mockRejectedValueOnce(
+      new Error("Invalid central directory file header signature: expected 0x02014b50"),
+    );
+
+  const { userId, cookie } = await createAdminCookie();
+  const uploadId = `upload-bad-zip-${Date.now()}`;
+  const zipBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+
+  try {
+    const formData = new FormData();
+    formData.append("uploadId", uploadId);
+    formData.append("zipFile", new File([zipBytes], "broken.zip", { type: "application/zip" }));
+
+    const response = await action({
+      request: new Request("http://localhost/api/upload-audio-batch", {
+        method: "POST",
+        headers: { cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.init?.status).toBe(400);
+    expect(response.data).toMatchObject({
+      success: false,
+      error: UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE,
+    });
+    const payload = response.data as { error?: string };
+    expect(String(payload.error)).not.toMatch(/central directory|0x/i);
+  } finally {
+    zipSpy.mockRestore();
+    await prisma.session.deleteMany({ where: { userId } });
+    await prisma.user.delete({ where: { id: userId } });
+  }
+});
+
+test("metadata extraction failure maps to a stable per-file client error", async () => {
+  allowUploadConsoleErrors();
+  await seedLocalService();
+  const { extractAudioMetadata: baseExtract } = await vi.importActual<
+    typeof import("#app/utils/audio-metadata.server.ts")
+  >("#app/utils/audio-metadata.server.ts");
+  const metadataModule = await import("#app/utils/audio-metadata.server.ts");
+  const extractSpy = vi.spyOn(metadataModule, "extractAudioMetadata");
+  extractSpy.mockImplementation(async (buffer, fileName) => {
+    if (fileName === "bad.mp3") {
+      throw new Error("ffprobe exploded with codec 0xdeadbeef");
+    }
+    return baseExtract(buffer, fileName);
+  });
+
+  const { userId, cookie } = await createAdminCookie();
+  const title = `QA meta-fail ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = `QA Artist ${title}`;
+  const uploadId = `upload-meta-fail-${Date.now()}`;
+
+  try {
+    const response = await postBatch(cookie, uploadId, [
+      ["good.mp3", JSON.stringify({ title, artist })],
+      ["bad.mp3", JSON.stringify({ title: `${title} bad`, artist })],
+    ]);
+    expect(response.init?.status).toBe(202);
+
+    const progress = await waitForUpload(uploadId);
+    const failed = progress.failedFiles?.find((file) => file.fileName === "bad.mp3");
+    expect(failed?.error).toBe(UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE);
+    expect(failed?.error).not.toMatch(/ffprobe|0x/i);
+  } finally {
+    extractSpy.mockRestore();
     await cleanupUploadArtist(artist, userId);
   }
 }, 20_000);

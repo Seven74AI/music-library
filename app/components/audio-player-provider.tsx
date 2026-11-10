@@ -1968,6 +1968,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         ? (byId.get(saved.currentTrackId) ?? null)
         : null;
 
+      let spinePositionForPersist = saved.spinePosition;
       if (currentFullTrack && isPlayableTrack(currentFullTrack)) {
         const inferred = inferAudibleSourceForRestore(
           zoneUnknown,
@@ -1983,6 +1984,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           currentFullTrack.id,
           resolvedUpNext.map((track) => track.id),
         );
+        spinePositionForPersist = inferred.spinePosition;
         if (inferred.spinePosition !== saved.spinePosition) {
           setSpinePosition(inferred.spinePosition);
         }
@@ -1997,6 +1999,19 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         setCurrentTrack(currentFullTrack);
         setCacheVersion((version) => version + 1);
       }
+
+      // Unload flush can run before the playerStateRef mirror effect; sync now so
+      // pagehide never persists an empty Up Next after a multi-batch restore.
+      playerStateRef.current = {
+        playContext: playContextToJson(context),
+        currentTrackId: currentFullTrack?.id ?? saved.currentTrackId,
+        upNextIds: resolvedUpNext.map((track) => track.id),
+        shuffleSeed: saved.shuffleSeed,
+        loopMode: saved.loopMode,
+        spinePosition: spinePositionForPersist,
+        audibleSourceZone: audibleSourceZoneRef.current,
+        upNextPlayNextCount: saved.upNextPlayNextCount,
+      };
 
       // Restore-and-wait: show the player paused, never auto-play.
       wantsAutoPlayRef.current = false;

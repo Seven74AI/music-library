@@ -42,6 +42,9 @@ export type CreateLocalUploadTransactionHooks = {
   afterUserTrack?: () => void | Promise<void>;
 };
 
+/** When set, updated when an unpersisted cover object is abandoned so callers can avoid double cleanup. */
+export type PreparedCoverHolder = { current: PreparedCoverImage | null };
+
 export type CreateLocalUploadInTransactionParams = {
   tx: Prisma.TransactionClient;
   trackId: string;
@@ -56,6 +59,7 @@ export type CreateLocalUploadInTransactionParams = {
   yearForAlbum: number | null | undefined;
   extractedMetadata: ExtractedAudioMetadata;
   preparedCover: PreparedCoverImage | null;
+  preparedCoverHolder?: PreparedCoverHolder;
   preparedAudio: PreparedTrackAudio;
   audioFileName: string;
   buffer: Buffer;
@@ -97,8 +101,12 @@ export async function createLocalUploadInTransaction(
     uploadedBy,
     hooks,
     onCoverPersistFailure,
+    preparedCoverHolder,
   } = params;
   let preparedCover = params.preparedCover;
+  if (preparedCoverHolder) {
+    preparedCoverHolder.current = preparedCover;
+  }
 
   const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata);
   const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata);
@@ -114,6 +122,9 @@ export async function createLocalUploadInTransaction(
       if (preparedCover?.kind === "new") {
         await abandonUnpersistedPreparedCover(preparedCover);
         preparedCover = null;
+        if (preparedCoverHolder) {
+          preparedCoverHolder.current = null;
+        }
       }
     }
   }
@@ -194,20 +205,20 @@ export function mergeMetadataForLocalUploadBackfill(
 
   return {
     ...extracted,
-    title: userMetadata.title ?? extracted.title,
-    artist: userMetadata.artist ?? extracted.artist,
-    album: userMetadata.album ?? extracted.album,
-    albumArtist: userMetadata.albumArtist ?? extracted.albumArtist,
+    title: userMetadata.title || extracted.title,
+    artist: userMetadata.artist || extracted.artist,
+    album: userMetadata.album || extracted.album,
+    albumArtist: userMetadata.albumArtist || extracted.albumArtist,
     year: userMetadata.year ?? extracted.year,
     bpm: userMetadata.bpm ?? extracted.bpm,
-    label: userMetadata.label ?? extracted.label,
-    isrc: userMetadata.isrc ?? extracted.isrc,
+    label: userMetadata.label || extracted.label,
+    isrc: userMetadata.isrc || extracted.isrc,
     originalYear: userMetadata.originalYear ?? extracted.originalYear,
     totalTracks: userMetadata.totalTracks ?? extracted.totalTracks,
     totalDiscs: userMetadata.totalDiscs ?? extracted.totalDiscs,
-    lyrics: userMetadata.lyrics ?? extracted.lyrics,
-    releaseDate: userMetadata.releaseDate ?? extracted.releaseDate,
-    originalDate: userMetadata.originalDate ?? extracted.originalDate,
+    lyrics: userMetadata.lyrics || extracted.lyrics,
+    releaseDate: userMetadata.releaseDate || extracted.releaseDate,
+    originalDate: userMetadata.originalDate || extracted.originalDate,
     genre: genreFromUser ?? extracted.genre,
     track:
       userMetadata.trackNumber !== undefined
