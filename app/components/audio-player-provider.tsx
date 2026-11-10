@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
 import {
   roomStateAfterAutoplay,
   type RoomAutoplayOutcome,
@@ -2203,7 +2203,11 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   ]);
 
   // Keep the serializable-state mirror in sync for the debounced write + flush.
-  useEffect(() => {
+  // `useLayoutEffect` (not `useEffect`) so the ref is updated synchronously with
+  // the commit: a `beforeunload`/`pagehide` flush can otherwise read a stale
+  // mirror (e.g. an empty Up Next right after an online restore) and persist the
+  // wrong queue.
+  useLayoutEffect(() => {
     playerStateRef.current = {
       playContext: playContextToJson(playContext),
       currentTrackId: currentTrack?.id ?? null,
