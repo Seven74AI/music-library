@@ -229,6 +229,33 @@ describe("createOfflineStorage", () => {
     expect(stats.totalBytes).toBe(3_538_581);
   });
 
+  test("LRU eviction removes cover blob when no other offline track references it", async () => {
+    const coverKey = "covers/evict-only.jpg";
+    const queueTrack = {
+      ...track,
+      id: "queue-cover",
+      title: "Queue with cover",
+      coverImage: { objectKey: coverKey },
+    };
+
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array(400_000).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 900_000, quota: 1_000_000 }),
+    });
+
+    deleteCachedCover.mockClear();
+    await storage.downloadTrack(queueTrack, { pin: false });
+    await storage.downloadTrack(track, { pin: true });
+
+    expect(await storage.hasTrack("queue-cover")).toBe(false);
+    expect(deleteCachedCover).toHaveBeenCalledWith(coverKey);
+  });
+
   test("evicts queue-only tracks before pinned ones when quota is tight", async () => {
     const audioStore = createMemoryOfflineAudioStore();
     const metadataStore = createOfflineMetadataStore();
