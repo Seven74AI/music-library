@@ -1,52 +1,37 @@
 import { describe, expect, test } from "vitest";
-import { collectQueueDisplayHydrationIds } from "#app/features/queue/queue-hydration.ts";
-import type { QueueZone } from "#app/features/queue/queue-navigation.ts";
+import {
+  PLAYBACK_LOOKAHEAD,
+  collectHydrationIds,
+  collectQueueDisplayHydrationIds,
+} from "#app/features/queue/queue-hydration.ts";
 
-function sheetHydrationIds(
-  state: Parameters<typeof collectQueueDisplayHydrationIds>[0],
-  currentTrackId: string | null,
-  audibleSourceZone: QueueZone | null,
-  hasCurrentTrack: boolean,
-): string[] {
-  return collectQueueDisplayHydrationIds(state, currentTrackId, {
-    audibleIsSpineHead: hasCurrentTrack && audibleSourceZone === "spine",
-  });
+function largeSpineState() {
+  const spine = Array.from({ length: 50 }, (_, index) => ({
+    id: `s${index}`,
+    title: `S${index}`,
+    artist: { id: "a", name: "A" },
+  }));
+  return {
+    upNext: [{ id: "u1", title: "U1", artist: { id: "a", name: "A" } }],
+    spine,
+    spineOrder: spine.map((_, index) => index),
+    spinePosition: 0,
+    loopMode: "off" as const,
+  };
 }
 
-describe("player queue sheet hydration ids", () => {
-  test("match collectQueueDisplayHydrationIds for spine-head playback", () => {
-    const state = {
-      upNext: [{ id: "u1", title: "U1", artist: { id: "a", name: "A" } }],
-      spine: [
-        { id: "s1", title: "S1", artist: { id: "a", name: "A" } },
-        { id: "s2", title: "S2", artist: { id: "a", name: "A" } },
-      ],
-      spineOrder: [0, 1],
-      spinePosition: 0,
-      loopMode: "off" as const,
-    };
+describe("player queue sheet hydration scope", () => {
+  test("playback lookahead hydration stays bounded; display ids are not used on sheet open", () => {
+    const state = largeSpineState();
+    const currentTrackId = "s0";
 
-    const expected = collectQueueDisplayHydrationIds(state, "s1", {
+    const displayIds = collectQueueDisplayHydrationIds(state, currentTrackId, {
       audibleIsSpineHead: true,
     });
-    expect(sheetHydrationIds(state, "s1", "spine", true)).toEqual(expected);
-  });
+    const playbackIds = collectHydrationIds(state, currentTrackId);
 
-  test("match collectQueueDisplayHydrationIds when now playing from Up Next", () => {
-    const state = {
-      upNext: [{ id: "u1", title: "U1", artist: { id: "a", name: "A" } }],
-      spine: [
-        { id: "s1", title: "S1", artist: { id: "a", name: "A" } },
-        { id: "s2", title: "S2", artist: { id: "a", name: "A" } },
-      ],
-      spineOrder: [0, 1],
-      spinePosition: 0,
-      loopMode: "off" as const,
-    };
-
-    const expected = collectQueueDisplayHydrationIds(state, "u1", {
-      audibleIsSpineHead: false,
-    });
-    expect(sheetHydrationIds(state, "u1", "upNext", true)).toEqual(expected);
+    expect(displayIds.length).toBeGreaterThan(PLAYBACK_LOOKAHEAD + 1);
+    expect(playbackIds.length).toBeLessThanOrEqual(PLAYBACK_LOOKAHEAD + 1);
+    expect(playbackIds).toEqual(["s0", "u1", "s1", "s2", "s3"]);
   });
 });

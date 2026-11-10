@@ -777,6 +777,23 @@ test("does NOT call onNext when audio ends with no next track", async () => {
   expect(onNext).not.toHaveBeenCalled();
 });
 
+test("unmute after mute at volume 0 restores 0, not default full volume", async () => {
+  await renderPlayer();
+
+  const volumeSlider = document.querySelector('[aria-label="Volume"]');
+  expect(volumeSlider).toBeInstanceOf(HTMLInputElement);
+  if (!(volumeSlider instanceof HTMLInputElement)) return;
+
+  fireEvent.change(volumeSlider, { target: { value: "0" } });
+
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+
+  await waitFor(() => {
+    expect(volumeSlider.value).toBe("0");
+  });
+});
+
 test("persists volume changes to localStorage", async () => {
   await renderPlayer();
 

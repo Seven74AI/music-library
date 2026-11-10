@@ -16,6 +16,7 @@ import {
   collectHydrationIds,
   fetchPlaybackBatch,
   hydratePlaybackCacheInBatches,
+  isPlaybackHydrationStub,
   PlaybackHydrationCache,
   resolveFullTrack,
   resolveFullTracks,
@@ -178,6 +179,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   // Throttle scroll-driven hydration: accumulate IDs during rapid scrolling,
   // flush as a single batch 300ms after the last scroll event.
   const pendingHydrationIdsRef = useRef(new Set<string>());
+  const displayHydrationFetchedIdsRef = useRef(new Set<string>());
   const hydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Mirror of the serializable queue state, kept in a ref so the debounced
@@ -229,6 +231,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     upNextPlayNextCountRef.current = 0;
     playbackCacheRef.current.clear();
     pendingHydrationIdsRef.current.clear();
+    displayHydrationFetchedIdsRef.current.clear();
     if (hydrationTimerRef.current) {
       clearTimeout(hydrationTimerRef.current);
       hydrationTimerRef.current = null;
@@ -367,6 +370,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       hydrationTimerRef.current = null;
     }
     pendingHydrationIdsRef.current.clear();
+    displayHydrationFetchedIdsRef.current.clear();
   }, []);
 
   const commitNavigation = useCallback(
@@ -444,6 +448,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           hydrationTimerRef.current = null;
         }
         pendingHydrationIdsRef.current.clear();
+        displayHydrationFetchedIdsRef.current.clear();
       }
       return true;
     },
@@ -475,10 +480,18 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     if (ids.length === 0 || isOfflineEnvironment()) return;
 
     for (const id of ids) {
+      if (displayHydrationFetchedIdsRef.current.has(id)) continue;
+
       const cached = playbackCacheRef.current.get(id);
-      if (!cached?.coverImage) {
+      if (cached === undefined) {
         pendingHydrationIdsRef.current.add(id);
+        continue;
       }
+      if (isPlaybackHydrationStub(cached)) {
+        pendingHydrationIdsRef.current.add(id);
+        continue;
+      }
+      displayHydrationFetchedIdsRef.current.add(id);
     }
 
     if (pendingHydrationIdsRef.current.size === 0) return;
@@ -499,6 +512,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
             needsHydration,
             { refetchIncomplete: true },
           );
+          for (const id of needsHydration) {
+            displayHydrationFetchedIdsRef.current.add(id);
+          }
           if (updated > 0) {
             setCacheVersion((version) => version + 1);
           }
