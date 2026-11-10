@@ -10,7 +10,12 @@ import { OfflineRouteBlocker } from "#app/components/offline/offline-route-block
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
-import { ARTIST_TRACK_PAGE_SIZE } from "#app/features/artist/artist-tracks.server.ts";
+import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/features/queue/library-tracks-page-size.ts";
+import {
+  mergedEntityNotFoundResponse,
+  MergedEntityResolutionError,
+  resolveCanonicalIdFromStartId,
+} from "#app/utils/canonical-merged-entity.server.ts";
 import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { getAlbumTitle } from "#app/utils/breadcrumb-utils.ts";
 import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
@@ -26,31 +31,19 @@ export const handle: BreadcrumbHandle = {
   breadcrumb: ({ loaderData }) => getAlbumTitle(loaderData),
 };
 
-/**
- * Follow mergedIntoId, including a chain, to the living album.
- * A cycle or a missing target is a 404. Merged rows stay in the database.
- */
 async function resolvePublicAlbumId(startId: string): Promise<string> {
-  const seen = new Set<string>();
-  let currentId = startId;
-
-  for (;;) {
-    if (seen.has(currentId)) {
-      throw new Response("Album not found", { status: 404 });
+  try {
+    return await resolveCanonicalIdFromStartId(startId, (id) =>
+      prisma.album.findUnique({
+        where: { id },
+        select: { id: true, mergedIntoId: true },
+      }),
+    );
+  } catch (error) {
+    if (error instanceof MergedEntityResolutionError) {
+      throw mergedEntityNotFoundResponse("Album");
     }
-    seen.add(currentId);
-
-    const row = await prisma.album.findUnique({
-      where: { id: currentId },
-      select: { id: true, mergedIntoId: true },
-    });
-    if (!row) {
-      throw new Response("Album not found", { status: 404 });
-    }
-    if (!row.mergedIntoId) {
-      return row.id;
-    }
-    currentId = row.mergedIntoId;
+    throw error;
   }
 }
 
@@ -110,11 +103,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       where: { albumId: canonicalId },
       select: albumTrackSelect,
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      take: ARTIST_TRACK_PAGE_SIZE,
+      take: LIBRARY_TRACKS_PAGE_SIZE,
       ...(trackCursor ? { skip: 1, cursor: { id: trackCursor } } : {}),
     });
     albumTracks.push(...page);
-    if (page.length < ARTIST_TRACK_PAGE_SIZE) {
+    if (page.length < LIBRARY_TRACKS_PAGE_SIZE) {
       break;
     }
     trackCursor = page[page.length - 1]?.id;

@@ -15,7 +15,10 @@ import {
 import { getServiceByName } from "#app/features/service-playlist/service-playlist.server";
 import { getOrCreateArtistTx } from "#app/utils/artist-management.server";
 import { prisma } from "#app/utils/db.server";
-import { handleServiceError } from "#app/utils/error-handlers.server";
+import {
+  SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
+  handleServiceError,
+} from "#app/utils/error-handlers.server";
 import { getYouTubeVideoDetails } from "#app/utils/youtube-search.server";
 
 /**
@@ -183,7 +186,12 @@ export async function importTrackDirectly(videoIdOrUrl: string): Promise<ImportT
   } catch (error) {
     // YouTube-specific errors (quota, auth, not found) bubble up naturally
     // as they extend Error and will be caught here
-    const handled = handleServiceError(error, "importTrackDirectly", "YouTube");
+    const handled = handleServiceError(
+      error,
+      "importTrackDirectly",
+      "YouTube",
+      SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
+    );
     return {
       ...handled,
       action: "failed" as const,

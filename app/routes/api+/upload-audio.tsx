@@ -3,27 +3,24 @@ import { createId } from "@paralleldrive/cuid2";
 import { data, type ActionFunctionArgs } from "react-router";
 import { LOCAL_SERVICE } from "#app/constants/services";
 import {
-  prepareTrackAudioUpload,
-  createTrackAudioFile,
-} from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
-import {
-  getOrCreateArtistTx,
-  getOrCreateArtist,
-  extractArtistMetadata,
-} from "#app/utils/artist-management.server";
+  createLocalUpload,
+  runLocalUploadMetadataBackfill,
+} from "#app/features/track-audio-ingest/create-local-upload.server.ts";
+import { prepareTrackAudioUpload } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
+import { getOrCreateArtist, extractArtistMetadata } from "#app/utils/artist-management.server";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
 import {
   prepareCoverImageUpload,
-  createCoverImageInTx,
-  getOrCreateAlbumTx,
   getOrCreateAlbum,
   cleanupFailedCoverUpload,
-  abandonUnpersistedPreparedCover,
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
-import { backfillTrackMetadata } from "#app/features/track-audio-ingest/backfill-track-metadata.server.ts";
 import { pickIntField } from "#app/utils/track-metadata-int.server.ts";
+import {
+  UPLOAD_AUDIO_CLIENT_ERROR_MESSAGE,
+  toClientErrorMessage,
+} from "#app/utils/error-handlers.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/upload-audio.ts";
@@ -89,6 +86,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
   let preparedAudio: Awaited<ReturnType<typeof prepareTrackAudioUpload>> | null = null;
   let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+  const preparedCoverHolder: {
+    current: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null;
+  } = { current: null };
   let transactionCommitted = false;
 
   try {
@@ -189,6 +189,7 @@ export async function action({ request }: ActionFunctionArgs) {
           trackId,
           format: extractedMetadata.coverImage.format,
         });
+        preparedCoverHolder.current = preparedCover;
       } catch (error) {
         await cleanupFailedCoverUpload(error);
         console.warn(`⚠️  Failed to upload cover image for ${audioFile.name}:`, error);
@@ -196,79 +197,33 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     }
 
-    // Create track and TrackAudioFile rows in a short transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Get or create artist
-      const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata);
-
-      // Get or create album (using artistId)
-      const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata);
-      const albumRecord = await getOrCreateAlbumTx(
-        tx,
-        albumArtistRecord.id,
-        album || null,
-        pickIntField(extractedMetadata.year),
-      );
-
-      // Associate the cover image (DB-only) — the upload already happened above.
-      let coverImageId: string | null = null;
-      if (preparedCover) {
-        try {
-          const coverImage = await createCoverImageInTx(tx, preparedCover, albumRecord?.id ?? null);
-          coverImageId = coverImage.id;
-        } catch (error) {
-          console.warn(`⚠️  Failed to create cover image for ${audioFile.name}:`, error);
-          if (preparedCover?.kind === "new") {
-            await abandonUnpersistedPreparedCover(preparedCover);
-            preparedCover = null;
-          }
-        }
-      }
-
-      // Create track
-      const track = await tx.track.create({
-        data: {
-          id: trackId,
-          title,
-          artistId: artistRecord.id,
-          albumId: albumRecord?.id || null,
-          coverImageId,
-          duration: extractedMetadata.duration || null,
-          serviceId: localService.id,
-          externalId: fileId, // Use fileId as externalId for local uploads
-          serviceUrl: null,
-          releaseDate: null,
-        },
-      });
-
-      // Create the TrackAudioFile row (the upload already happened above)
-      await createTrackAudioFile(
-        {
-          trackId: track.id,
-          serviceId: localService.id,
-          fileName: audioFile.name,
-          metadata: extractedMetadata,
-          uploadedBy: userId,
-          buffer,
-        },
-        audioPrepared,
-        tx,
-      );
-
-      // Add track to user's library
-      await tx.userTrack.create({
-        data: {
-          userId,
-          trackId: track.id,
-        },
-      });
-
-      return { track };
+    const result = await createLocalUpload({
+      trackId,
+      externalId: fileId,
+      userId,
+      serviceId: localService.id,
+      title,
+      artist,
+      artistMetadata,
+      album: album || null,
+      albumArtist,
+      yearForAlbum: pickIntField(extractedMetadata.year),
+      extractedMetadata,
+      preparedCover,
+      preparedCoverHolder,
+      preparedAudio: audioPrepared,
+      audioFileName: audioFile.name,
+      buffer,
+      uploadedBy: userId,
+      onCoverPersistFailure: (error) => {
+        console.warn(`⚠️  Failed to create cover image for ${audioFile.name}:`, error);
+      },
     });
+    preparedCover = preparedCoverHolder.current ?? result.preparedCover;
     transactionCommitted = true;
 
     try {
-      await backfillTrackMetadata(result.track.id, extractedMetadata, {
+      await runLocalUploadMetadataBackfill(result.track.id, extractedMetadata, {
         preserveTitle: Boolean(formTitle),
         preserveArtist: Boolean(formArtist),
         preserveAlbum: Boolean(formAlbum),
@@ -280,27 +235,24 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    // Fetch artist name for response
-    const artistRecord = await prisma.artist.findUnique({
-      where: { id: result.track.artistId },
-      select: { name: true },
-    });
-
     return data(
       {
         success: true,
         track: {
           id: result.track.id,
           title: result.track.title,
-          artist: artistRecord?.name || "Unknown Artist",
+          artist: result.artistName || "Unknown Artist",
         },
       },
       { status: 201 },
     );
   } catch (error) {
+    preparedCover = preparedCoverHolder.current;
     await cleanupFailedUploadArtifacts(preparedAudio, preparedCover, { transactionCommitted });
     console.error("Error uploading audio file:", error);
-    const errorMessage = error instanceof Error ? error.message : "Failed to upload audio file";
-    return data({ success: false, error: errorMessage }, { status: 500 });
+    return data(
+      { success: false, error: toClientErrorMessage(error, UPLOAD_AUDIO_CLIENT_ERROR_MESSAGE) },
+      { status: 500 },
+    );
   }
 }

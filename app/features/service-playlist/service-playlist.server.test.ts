@@ -1191,4 +1191,20 @@ describe("ServicePlaylistService - Batch Processing", () => {
       expect(result.deletedTracks[0]?.title).toBe("Deleted video");
     });
   });
+
+  describe("syncServicePlaylist - client-safe errors", () => {
+    test("maps unexpected failures to a stable sync message", async () => {
+      consoleError.mockImplementation(() => {});
+      prisma.servicePlaylist.findFirst.mockRejectedValue(
+        new Error("Invalid `prisma.servicePlaylist.findFirst()` invocation"),
+      );
+
+      const result = await service.syncServicePlaylist("youtube", "PLtest", "user-1");
+
+      expect(result.success).toBe(false);
+      expect(result.message).toBe("Failed to sync playlist. Please try again.");
+      expect(result.error).toBe("Failed to sync playlist. Please try again.");
+      expect(result.message).not.toMatch(/prisma/i);
+    });
+  });
 });

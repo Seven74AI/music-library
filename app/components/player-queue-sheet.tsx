@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useAudioPlayer } from "#app/components/audio-player-provider";
+import { useAudioPlayer } from "#app/components/audio-player-context";
 import {
   formatQueueSheetTitle,
   getSpineSectionHeading,

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser, createTrack, resetUsageAnalyticsTables } from "#tests/db-utils.ts";
-import { listLibraryQueueSpineTracks, listLibraryUserTracks } from "./library-tracks.server.ts";
+import { listLibraryQueueSpineTracks } from "#app/features/queue/library-queue-tracks.server.ts";
+import { listLibraryUserTracks } from "./library-tracks.server.ts";
 
 async function addToLibrary(userId: string, trackId: string, createdAt: Date) {
   return prisma.userTrack.create({

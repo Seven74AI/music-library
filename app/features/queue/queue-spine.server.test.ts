@@ -1,7 +1,7 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { buildUserTrackAccessWhere } from "./queue-playback.server.ts";
-import { ARTIST_TRACK_PAGE_SIZE } from "#app/features/artist/artist-tracks.server.ts";
+import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/features/queue/library-tracks-page-size.ts";
 import { USER_PLAYLIST_TRACK_PAGE_SIZE } from "#app/features/user-playlist/user-playlist-track-queries.server.ts";
 import {
   fetchQueueSpine,
@@ -454,7 +454,7 @@ describe("fetchQueueSpine", () => {
       },
       select: QUEUE_TRACK_SELECT,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: ARTIST_TRACK_PAGE_SIZE,
+      take: LIBRARY_TRACKS_PAGE_SIZE,
     });
     expect(result).toEqual({
       tracks: [
@@ -490,7 +490,7 @@ describe("fetchQueueSpine", () => {
       },
       select: QUEUE_TRACK_SELECT,
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      take: ARTIST_TRACK_PAGE_SIZE,
+      take: LIBRARY_TRACKS_PAGE_SIZE,
     });
     expect(result).toEqual({
       tracks: [
@@ -505,7 +505,7 @@ describe("fetchQueueSpine", () => {
   });
 
   test("paginates album spine across multiple pages", async () => {
-    const firstPage = Array.from({ length: ARTIST_TRACK_PAGE_SIZE }, (_, i) => ({
+    const firstPage = Array.from({ length: LIBRARY_TRACKS_PAGE_SIZE }, (_, i) => ({
       id: `track-${i}`,
       title: `Song ${i}`,
       artist: { id: "artist-4", name: "Artist Four" },
@@ -529,9 +529,9 @@ describe("fetchQueueSpine", () => {
     expect(prisma.track.findMany).toHaveBeenCalledTimes(2);
     expect(vi.mocked(prisma.track.findMany).mock.calls[1]?.[0]).toMatchObject({
       skip: 1,
-      cursor: { id: `track-${ARTIST_TRACK_PAGE_SIZE - 1}` },
+      cursor: { id: `track-${LIBRARY_TRACKS_PAGE_SIZE - 1}` },
     });
-    expect(result.total).toBe(ARTIST_TRACK_PAGE_SIZE + 1);
+    expect(result.total).toBe(LIBRARY_TRACKS_PAGE_SIZE + 1);
   });
 
   test("returns the playable discover catalog without a page cap", async () => {

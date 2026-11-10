@@ -26,6 +26,10 @@ import { scheduleArchiveQueueTickAfterCommit } from "#app/features/audio-archive
 import { chunkArray } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server";
 import {
+  SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE,
+  toClientErrorMessage,
+} from "#app/utils/error-handlers.server";
+import {
   type ArchiveEnqueueAdapter,
   createProductionArchiveEnqueueAdapter,
 } from "./archive-enqueue-adapter.server";
@@ -345,7 +349,7 @@ export class ServicePlaylistService {
       return this.registerAndSyncPlaylist(serviceName, playlistId, userId);
     } catch (error) {
       console.error("Error syncing service playlist:", error);
-      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+      const clientMessage = toClientErrorMessage(error, SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE);
       return {
         success: false,
         tracksAdded: 0,
@@ -353,8 +357,8 @@ export class ServicePlaylistService {
         deletedTracks: [],
         removedTracks: [],
         pendingMatches: [],
-        error: errorMessage,
-        message: `Failed to sync playlist: ${errorMessage}`,
+        error: clientMessage,
+        message: clientMessage,
       };
     }
   }
