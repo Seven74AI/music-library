@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildPendingMatches, filterOrphanedTracks } from "./batch-processor.server";
+import { buildPendingMatches, filterOrphanedTracks } from "./orphan-detection.server";
 
 describe("filterOrphanedTracks", () => {
   test("returns tracks missing from the current sync that are not deleted", () => {

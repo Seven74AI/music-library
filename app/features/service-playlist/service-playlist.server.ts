@@ -36,12 +36,12 @@ import {
 import {
   processTracksInBatches,
   resolveDeletedVideosAfterSync,
-  type PendingMatch,
   type ProcessTracksResult,
   type SyncableItem,
   type SyncTrackInfo,
 } from "./batch-processor.server";
 import { processTrackImagesAsync } from "./image-processor.server";
+import { type PendingMatch } from "./orphan-detection.server";
 import { type PlaylistSyncProvider } from "./playlist-sync-provider.server";
 import { getServiceByName } from "./playlist-utils.server";
 import { findAllServicePlaylistTracks } from "./service-playlist-track-queries.server";
