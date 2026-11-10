@@ -11,8 +11,10 @@ import { prisma } from "#app/utils/db.server.ts";
 import { executeCatalogEntityMerge } from "#app/features/metadata/merge-catalog-entity.server.ts";
 import {
   EditLockTransactionError,
+  editLockConflictCopyForEntity,
   findWriteBlockedLock,
   getLockStatus,
+  throwEditLockTransactionError,
 } from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/artists.merge.ts";
@@ -131,14 +133,7 @@ export async function action({ request }: Route.ActionArgs) {
     });
   } catch (error) {
     if (error instanceof EditLockTransactionError) {
-      const message =
-        error.violation.kind === "other"
-          ? `${error.violation.lockedByName} is currently editing this artist`
-          : "Your edit lock on this artist is no longer active";
-      throw new Response(JSON.stringify({ error: "Locked", message }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      });
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("artist"));
     }
     console.error("Error merging artists:", error);
     throw new Response("Failed to merge artists", { status: 500 });

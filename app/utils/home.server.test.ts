@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { getHeavyRotationTracks } from "#app/features/listening-insights/index.server.ts";
+import { getHeavyRotationTracks } from "#app/features/listening-insights/heavy-rotation.server.ts";
 import { getRecentlyPlayedTracks } from "#app/features/recently-played/recently-played.server.ts";
 import { hasServiceConnection } from "#app/features/service-connection/service-connection.server";
 import { getWeeklyWrap } from "#app/features/weekly-wrap/weekly-wrap.server.ts";
@@ -17,7 +17,7 @@ vi.mock("#app/utils/auth.server.ts", () => ({
   getStaleAuthSessionDestroyCookie: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("#app/features/listening-insights/index.server.ts", () => ({
+vi.mock("#app/features/listening-insights/heavy-rotation.server.ts", () => ({
   getHeavyRotationTracks: vi.fn().mockResolvedValue([]),
 }));
 

@@ -5,7 +5,9 @@ import { chunkArray } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   assertEditLockInTransaction,
+  EDIT_LOCK_CONFLICT_COPY_BULK_TRACKS,
   EditLockTransactionError,
+  throwEditLockTransactionError,
   findWriteBlockedLock,
   getLockStatus,
   type LockInfo,
@@ -307,22 +309,7 @@ export async function action({ request }: Route.ActionArgs) {
     });
   } catch (error) {
     if (error instanceof EditLockTransactionError) {
-      if (error.violation.kind === "other") {
-        return data(
-          {
-            error: "Locked",
-            message: `${error.violation.lockedByName} is currently editing this track`,
-          },
-          { status: 409 },
-        );
-      }
-      return data(
-        {
-          error: "Locked",
-          message: "Your edit lock on one or more tracks is no longer active",
-        },
-        { status: 409 },
-      );
+      throwEditLockTransactionError(error, EDIT_LOCK_CONFLICT_COPY_BULK_TRACKS);
     }
     throw error;
   }

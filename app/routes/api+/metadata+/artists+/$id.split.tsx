@@ -10,9 +10,11 @@ import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   assertEditLockInTransaction,
+  EDIT_LOCK_CONFLICT_COPY_SPLIT,
   EditLockTransactionError,
   findWriteBlockedLock,
   getLockStatus,
+  throwEditLockTransactionError,
   type LockInfo,
 } from "#app/utils/locks.server.ts";
 import { normalizeArtistName } from "#app/utils/normalize.server.ts";
@@ -175,14 +177,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     });
   } catch (error) {
     if (error instanceof EditLockTransactionError) {
-      const message =
-        error.violation.kind === "other"
-          ? `${error.violation.lockedByName} is currently editing this entity`
-          : "Your edit lock is no longer active";
-      throw new Response(JSON.stringify({ error: "Locked", message }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      });
+      throwEditLockTransactionError(error, EDIT_LOCK_CONFLICT_COPY_SPLIT);
     }
     console.error("Error splitting artist:", error);
     throw new Response("Failed to split artist", { status: 500 });
