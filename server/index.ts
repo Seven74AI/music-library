@@ -15,8 +15,12 @@ import {
   mutationRateLimitTier,
 } from "../app/utils/mutation-rate-limit.ts";
 import { createRouterLoadContext } from "../app/utils/router-context.server.ts";
+import { init } from "../app/utils/env.server.ts";
 import { createHttpsUpgradeMiddleware } from "./https-upgrade-middleware.ts";
+import { startInProcessJobs, stopInProcessJobs } from "./in-process-jobs.server.ts";
 import { requestUrlForAccessLog } from "./request-log-url.ts";
+
+init();
 
 const MODE = process.env.NODE_ENV ?? "development";
 const IS_PROD = MODE === "production";
@@ -234,6 +238,8 @@ if (!portAvailable && !IS_DEV) {
   process.exit(1);
 }
 
+startInProcessJobs();
+
 const server = app.listen(portToUse, async () => {
   if (!portAvailable) {
     console.warn(
@@ -262,11 +268,7 @@ ${styleText("bold", "Press Ctrl+C to stop")}
 });
 
 closeWithGrace(async ({ err }) => {
-  const { stopBackupScheduler } = await import("../app/features/db-backup/scheduler.server.ts");
-  stopBackupScheduler();
-  const { stopEmptyRoomSweeper } =
-    await import("../app/features/party-room/empty-room-sweeper.server.ts");
-  stopEmptyRoomSweeper();
+  await stopInProcessJobs();
   await new Promise((resolve, reject) => {
     server.close((e) => (e ? reject(e) : resolve("ok")));
   });

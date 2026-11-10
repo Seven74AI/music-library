@@ -29,3 +29,10 @@ export function startSecurityEventSweeper(intervalMs = SECURITY_EVENT_SWEEP_INTE
   void runTick();
   intervalHandle = setInterval(runTick, intervalMs);
 }
+
+export function stopSecurityEventSweeper(): void {
+  if (intervalHandle !== null) {
+    clearInterval(intervalHandle);
+    intervalHandle = null;
+  }
+}

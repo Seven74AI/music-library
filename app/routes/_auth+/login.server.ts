@@ -8,11 +8,15 @@ import { combineResponseInits } from "#app/utils/misc.tsx";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
 import { verifySessionStorage } from "#app/utils/verification.server.ts";
-import { getRedirectToUrl, type VerifyFunctionArgs } from "./verify.server.ts";
+import {
+  rememberKey,
+  unverifiedSessionIdKey,
+  verifiedTimeKey,
+} from "./login.session-keys.server.ts";
+import { getRedirectToUrl } from "./verify-guards.server.ts";
+import { type VerifyFunctionArgs } from "./verify.shared.ts";
 
-const verifiedTimeKey = "verified-time";
-const unverifiedSessionIdKey = "unverified-session-id";
-const rememberKey = "remember";
+export { shouldRequestTwoFA } from "./login-two-factor.server.ts";
 
 export async function handleNewSession(
   {
@@ -134,21 +138,4 @@ export async function handleVerification({ request, submission }: VerifyFunction
   headers.append("set-cookie", await verifySessionStorage.destroySession(verifySession));
 
   return redirect(safeRedirect(redirectTo), { headers });
-}
-
-export async function shouldRequestTwoFA(request: Request) {
-  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
-  const verifySession = await verifySessionStorage.getSession(request.headers.get("cookie"));
-  if (verifySession.has(unverifiedSessionIdKey)) return true;
-  const userId = await getUserId(request);
-  if (!userId) return false;
-  // if it's over two hours since they last verified, we should request 2FA again
-  const userHasTwoFA = await prisma.verification.findUnique({
-    select: { id: true },
-    where: { target_type: { target: userId, type: twoFAVerificationType } },
-  });
-  if (!userHasTwoFA) return false;
-  const verifiedTime = authSession.get(verifiedTimeKey) ?? new Date(0);
-  const twoHours = 1000 * 60 * 60 * 2;
-  return Date.now() - verifiedTime > twoHours;
 }

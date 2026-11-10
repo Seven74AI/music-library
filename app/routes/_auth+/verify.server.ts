@@ -1,147 +1,24 @@
-import { type Submission } from "@conform-to/react";
 import { parseWithZod } from "@conform-to/zod/v4";
 import { data } from "react-router";
 import { z } from "zod";
-import { handleVerification as handleChangeEmailVerification } from "#app/routes/settings+/profile.change-email.server.tsx";
-import { twoFAVerificationType } from "#app/routes/settings+/profile.two-factor.tsx";
-import { getUserId, requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { getDomainUrl } from "#app/utils/misc.tsx";
-import { redirectWithToast } from "#app/utils/toast.server.ts";
+import { dispatchVerification } from "./verify-dispatch.server.ts";
+import { isCodeValid } from "./verify-guards.server.ts";
 import {
-  decryptVerificationSecret,
-  encryptVerificationSecret,
-} from "#app/utils/token-cipher.server.ts";
-import { generateTOTP, verifyTOTP } from "#app/utils/totp.server.ts";
-import { type twoFAVerifyVerificationType } from "../settings+/profile.two-factor.verify.tsx";
-import {
-  handleVerification as handleLoginTwoFactorVerification,
-  shouldRequestTwoFA,
-} from "./login.server.ts";
-import { handleVerification as handleOnboardingVerification } from "./onboarding.server.ts";
-import { handleVerification as handleResetPasswordVerification } from "./reset-password.server.ts";
-import {
-  VerifySchema,
   codeQueryParam,
-  redirectToQueryParam,
   targetQueryParam,
   typeQueryParam,
-  type VerificationTypes,
-} from "./verify.tsx";
+  VerifySchema,
+  type VerifyFunctionArgs,
+} from "./verify.shared.ts";
 
-export type VerifyFunctionArgs = {
-  request: Request;
-  submission: Submission<z.input<typeof VerifySchema>, string[], z.output<typeof VerifySchema>>;
-  body: FormData | URLSearchParams;
-  /** Set for change-email verifications after loading from the Verification row. */
-  pendingNewEmail?: string;
-};
-
-export function getRedirectToUrl({
-  request,
-  type,
-  target,
-  redirectTo,
-}: {
-  request: Request;
-  type: VerificationTypes;
-  target: string;
-  redirectTo?: string;
-}) {
-  const redirectToUrl = new URL(`${getDomainUrl(request)}/verify`);
-  redirectToUrl.searchParams.set(typeQueryParam, type);
-  redirectToUrl.searchParams.set(targetQueryParam, target);
-  if (redirectTo) {
-    redirectToUrl.searchParams.set(redirectToQueryParam, redirectTo);
-  }
-  return redirectToUrl;
-}
-
-export async function requireRecentVerification(request: Request, url?: URL) {
-  const userId = await requireUserId(request);
-  const shouldReverify = await shouldRequestTwoFA(request);
-  if (shouldReverify) {
-    const reqUrl = url ?? new URL(request.url);
-    const redirectUrl = getRedirectToUrl({
-      request,
-      target: userId,
-      type: twoFAVerificationType,
-      redirectTo: reqUrl.pathname + reqUrl.search,
-    });
-    throw await redirectWithToast(redirectUrl.toString(), {
-      title: "Please Reverify",
-      description: "Please reverify your account before proceeding",
-      type: "message",
-    });
-  }
-}
-
-export async function prepareVerification({
-  period,
-  request,
-  type,
-  target,
-  pendingEmail,
-}: {
-  period: number;
-  request: Request;
-  type: VerificationTypes;
-  target: string;
-  pendingEmail?: string;
-}) {
-  const verifyUrl = getRedirectToUrl({ request, type, target });
-  const redirectTo = new URL(verifyUrl.toString());
-
-  const { otp, ...verificationConfig } = await generateTOTP({
-    algorithm: "SHA-256",
-    // Leaving off 0, O, and I on purpose to avoid confusing users.
-    charSet: "ABCDEFGHJKLMNPQRSTUVWXYZ123456789",
-    period,
-  });
-  const verificationData = {
-    type,
-    target,
-    ...verificationConfig,
-    // Store the TOTP secret encrypted at rest (AES-256-GCM, `enc1:` prefix).
-    secret: encryptVerificationSecret(verificationConfig.secret),
-    expiresAt: new Date(Date.now() + verificationConfig.period * 1000),
-    ...(pendingEmail !== undefined ? { pendingEmail } : {}),
-  };
-  await prisma.verification.upsert({
-    where: { target_type: { target, type } },
-    create: verificationData,
-    update: verificationData,
-  });
-
-  return { otp, redirectTo, verifyUrl };
-}
-
-export async function isCodeValid({
-  code,
-  type,
-  target,
-}: {
-  code: string;
-  type: VerificationTypes | typeof twoFAVerifyVerificationType;
-  target: string;
-}) {
-  const verification = await prisma.verification.findUnique({
-    where: {
-      target_type: { target, type },
-      OR: [{ expiresAt: { gt: new Date() } }, { expiresAt: null }],
-    },
-    select: { algorithm: true, secret: true, period: true, charSet: true },
-  });
-  if (!verification) return false;
-  const result = await verifyTOTP({
-    otp: code,
-    ...verification,
-    secret: decryptVerificationSecret(verification.secret),
-  });
-  if (!result) return false;
-
-  return true;
-}
+export type { VerifyFunctionArgs } from "./verify.shared.ts";
+export {
+  getRedirectToUrl,
+  isCodeValid,
+  prepareVerification,
+  requireRecentVerification,
+} from "./verify-guards.server.ts";
 
 export async function validateRequest(request: Request, body: URLSearchParams | FormData) {
   const submission = await parseWithZod(body, {
@@ -183,54 +60,12 @@ export async function validateRequest(request: Request, body: URLSearchParams | 
     });
   }
 
-  switch (submissionValue[typeQueryParam]) {
-    case "reset-password": {
-      await deleteVerification();
-      return handleResetPasswordVerification({ request, body, submission });
-    }
-    case "onboarding": {
-      await deleteVerification();
-      return handleOnboardingVerification({ request, body, submission });
-    }
-    case "change-email": {
-      const sessionUserId = await getUserId(request);
-      if (!sessionUserId || sessionUserId !== submissionValue[targetQueryParam]) {
-        return data(
-          {
-            result: submission.reply({
-              formErrors: ["You can only complete an email change for your own account."],
-            }),
-          },
-          { status: 403 },
-        );
-      }
-
-      const pendingVerification = await prisma.verification.findUnique({
-        where: {
-          target_type: {
-            type: submissionValue[typeQueryParam],
-            target: submissionValue[targetQueryParam],
-          },
-        },
-        select: { pendingEmail: true },
-      });
-      const pendingNewEmail = pendingVerification?.pendingEmail;
-      if (!pendingNewEmail) {
-        return data(
-          {
-            result: submission.reply({
-              formErrors: ["This email change request is no longer valid. Please start again."],
-            }),
-          },
-          { status: 400 },
-        );
-      }
-
-      await deleteVerification();
-      return handleChangeEmailVerification({ request, body, submission, pendingNewEmail });
-    }
-    case "2fa": {
-      return handleLoginTwoFactorVerification({ request, body, submission });
-    }
+  if (
+    submissionValue[typeQueryParam] === "reset-password" ||
+    submissionValue[typeQueryParam] === "onboarding"
+  ) {
+    await deleteVerification();
   }
+
+  return dispatchVerification(submissionValue, { request, body, submission, deleteVerification });
 }
