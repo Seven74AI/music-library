@@ -3935,7 +3935,7 @@ test("jump onto a play-next row discards the prefix using ref-backed play-next c
           Play next B
         </button>
         <button type="button" onClick={() => playQueueTrack({ zone: "upNext", index: 1 })}>
-          Jump to A
+          Jump to B
         </button>
         <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
         <span data-testid="play-next-count">{upNextPlayNextCount}</span>
@@ -3958,10 +3958,10 @@ test("jump onto a play-next row discards the prefix using ref-backed play-next c
   await user.click(screen.getByRole("button", { name: "Play next B" }));
   expect(screen.getByTestId("play-next-count").textContent).toBe("2");
 
-  await user.click(screen.getByRole("button", { name: "Jump to A" }));
+  await user.click(screen.getByRole("button", { name: "Jump to B" }));
 
   await waitFor(() => {
-    expect(screen.getByTestId("current-track-id").textContent).toBe("track-pna");
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-pnb");
   });
   expect(screen.getByTestId("play-next-count").textContent).toBe("0");
 });
@@ -4894,7 +4894,7 @@ test("play-next added during remove-current await does not drift play-next count
   const slowGate = new Promise<void>((resolve) => {
     releaseSlow = () => {
       slowReleased = true;
-      playableTrackGate.treatUnplayableIds.delete("track-pna");
+      playableTrackGate.treatUnplayableIds.delete("track-pnb");
       resolve();
     };
   });
@@ -4957,7 +4957,7 @@ test("play-next added during remove-current await does not drift play-next count
           type="button"
           onClick={() => {
             deferSlow = true;
-            playableTrackGate.treatUnplayableIds.add("track-pna");
+            playableTrackGate.treatUnplayableIds.add("track-pnb");
             removeCurrentFromQueue();
           }}
         >
@@ -4996,9 +4996,9 @@ test("play-next added during remove-current await does not drift play-next count
   await user.click(screen.getByRole("button", { name: "Release slow" }));
 
   await waitFor(() => {
-    expect(screen.getByTestId("play-next-count").textContent).toBe("2");
+    expect(screen.getByTestId("current-track-id").textContent).not.toBe("track-1");
   });
-  expect(screen.getByTestId("current-track-id").textContent).not.toBe("track-1");
+  expect(screen.getByTestId("play-next-count").textContent).toBe("2");
 });
 
 test("play next during slow removeTrackFromPlaylist successor hydration survives in Up Next", async () => {
@@ -5176,7 +5176,7 @@ test("remove current while playing the spine head removes spine not play-next du
   });
 });
 
-test("leaving room speaker refetches catalog tracks evicted from the hydration cache", async () => {
+test("leaving room speaker refetches spine rows after queue display hydration latched room stubs", async () => {
   const user = userEvent.setup();
   const fetchMock = vi.mocked(fetch);
   const sharedId = "shared-catalog-track";
@@ -5257,6 +5257,9 @@ test("leaving room speaker refetches catalog tracks evicted from the hydration c
         >
           Enter speaker
         </button>
+        <button type="button" onClick={() => audio.hydrateTracksForDisplay([sharedId])}>
+          Hydrate queue row
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -5280,6 +5283,11 @@ test("leaving room speaker refetches catalog tracks evicted from the hydration c
 
   await user.click(screen.getByRole("button", { name: "Enter speaker" }));
   expect(screen.getByTestId("current-artist-id").textContent).toBe("room-artist");
+
+  await user.click(screen.getByRole("button", { name: "Hydrate queue row" }));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  });
 
   await user.click(screen.getByRole("button", { name: "Leave speaker" }));
 

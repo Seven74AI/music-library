@@ -754,7 +754,7 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
     if (tracks.length === 0) return;
 
     if (queueAction === "playNext") {
-      for (const track of [...tracks].reverse()) {
+      for (const track of tracks) {
         playNextTrack(track);
       }
       return;
