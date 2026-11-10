@@ -4,7 +4,7 @@
  * Provider fetch wiring and cold-start flags. AudioPlayer is mocked for speed.
  * Queue ordering and queue sheet UX are covered in audio-player-queue.integration.test.tsx.
  */
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi, beforeEach, afterEach } from "vitest";
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
@@ -287,6 +287,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Unmount before restoring fetch so debounced player-state writes do not hit MSW
+  // after the stub is gone (vitest runs this file's afterEach before setup-test-env cleanup).
+  cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
