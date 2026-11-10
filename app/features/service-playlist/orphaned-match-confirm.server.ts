@@ -24,13 +24,6 @@ export const orphanMatchesSchema = z
             message: "selectedTrackId is required for match",
           });
         }
-        if (val.action === "new" && !val.deletedItemId) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["deletedItemId"],
-            message: "deletedItemId is required for new",
-          });
-        }
       }),
   )
   .max(200);
@@ -67,12 +60,13 @@ export function getDuplicateMatchedTrackIds(
  * Deleted item ids selected more than once.
  */
 export function getDuplicateDeletedItemIds(
-  matches: Array<{ deletedItemId?: string | null }>,
+  matches: Array<{ action: string; deletedItemId?: string | null }>,
 ): string[] {
   const seen = new Set<string>();
   const duplicates = new Set<string>();
 
   for (const match of matches) {
+    if (match.action !== "new" && match.action !== "match") continue;
     if (!match.deletedItemId) continue;
     if (seen.has(match.deletedItemId)) {
       duplicates.add(match.deletedItemId);

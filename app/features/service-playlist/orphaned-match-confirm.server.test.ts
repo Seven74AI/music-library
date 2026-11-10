@@ -77,8 +77,8 @@ describe("orphanMatchesSchema cross-field validation and bounds", () => {
     expect(orphanMatchesSchema.safeParse([{ action: "match", position: 0 }]).success).toBe(false);
   });
 
-  test("rejects new without deletedItemId", () => {
-    expect(orphanMatchesSchema.safeParse([{ action: "new", position: 0 }]).success).toBe(false);
+  test("accepts new without deletedItemId (itemId-less flow)", () => {
+    expect(orphanMatchesSchema.safeParse([{ action: "new", position: 0 }]).success).toBe(true);
   });
 
   test("accepts valid match and new", () => {
@@ -109,13 +109,23 @@ describe("getDuplicateDeletedItemIds", () => {
   test("returns duplicated ids only", () => {
     expect(
       getDuplicateDeletedItemIds([
-        { deletedItemId: "d1" },
-        { deletedItemId: "d2" },
-        { deletedItemId: "d1" },
-        { deletedItemId: undefined },
-        { deletedItemId: undefined },
+        { action: "new", deletedItemId: "d1" },
+        { action: "match", deletedItemId: "d2" },
+        { action: "new", deletedItemId: "d1" },
+        { action: "new", deletedItemId: undefined },
+        { action: "new", deletedItemId: undefined },
       ]),
     ).toEqual(["d1"]);
+  });
+
+  test("ignores skip rows sharing an id", () => {
+    expect(
+      getDuplicateDeletedItemIds([
+        { action: "skip", deletedItemId: "d1" },
+        { action: "new", deletedItemId: "d1" },
+        { action: "skip", deletedItemId: "d1" },
+      ]),
+    ).toEqual([]);
   });
 
   test("confirmOrphanedMatches rejects duplicates before touching the DB", async () => {
