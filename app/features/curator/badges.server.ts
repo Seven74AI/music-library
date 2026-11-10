@@ -217,21 +217,39 @@ async function awardCuratorBadgesOnce({
   });
   const have = new Set(existing.map((row) => `${row.curatorId}:${row.badgeType}`));
   const missing = earned.filter((row) => !have.has(`${row.curatorId}:${row.badgeType}`));
-  let awarded = missing.length;
+  let awarded = 0;
+  let batchPersisted = true;
   if (missing.length > 0) {
-    try {
-      await prisma.curatorBadge.createMany({
-        data: missing.map((row) => ({ curatorId: row.curatorId, badgeType: row.badgeType })),
+    batchPersisted = false;
+    for (const row of missing) {
+      try {
+        await prisma.curatorBadge.create({
+          data: { curatorId: row.curatorId, badgeType: row.badgeType },
+        });
+        awarded += 1;
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+      }
+    }
+    if (awarded > 0) {
+      batchPersisted = true;
+    } else {
+      const persisted = await prisma.curatorBadge.findMany({
+        where: {
+          OR: missing.map((row) => ({
+            curatorId: row.curatorId,
+            badgeType: row.badgeType,
+          })),
+        },
+        select: { curatorId: true, badgeType: true },
       });
-    } catch (error) {
-      // A second process can still collide between the lookup and the write.
-      // Keep the badges that won the insert instead of failing the dashboard.
-      if (!isUniqueConstraintError(error)) throw error;
-      awarded = 0;
+      batchPersisted = persisted.length === missing.length;
     }
   }
 
-  awardedAt = now;
+  if (batchPersisted) {
+    awardedAt = now;
+  }
   return { awarded, skipped: false };
 }
 

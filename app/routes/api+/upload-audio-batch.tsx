@@ -14,9 +14,9 @@ import {
   extractAudioMetadata,
   type ExtractedAudioMetadata,
 } from "#app/utils/audio-metadata.server";
+import { getOrCreateAlbum } from "#app/utils/album-management.server";
 import {
   prepareCoverImageUpload,
-  getOrCreateAlbum,
   cleanupFailedCoverUpload,
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";

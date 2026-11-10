@@ -4,14 +4,14 @@ import { prisma } from "#app/utils/db.server.ts";
 vi.mock("#app/utils/artist-management.server", () => ({
   getOrCreateArtist: vi.fn().mockResolvedValue({ id: "artist-1" }),
 }));
-vi.mock("#app/utils/cover-management.server", () => ({
+vi.mock("#app/utils/album-management.server", () => ({
   getOrCreateAlbum: vi.fn().mockResolvedValue({ id: "album-1" }),
 }));
 vi.mock("#app/utils/track-genres.server.ts", () => ({
   replaceTrackGenresFromStrings: vi.fn(),
 }));
 
-import { getOrCreateAlbum } from "#app/utils/cover-management.server";
+import { getOrCreateAlbum } from "#app/utils/album-management.server";
 import { replaceTrackGenresFromStrings } from "#app/utils/track-genres.server.ts";
 import { backfillTrackMetadata } from "./backfill-track-metadata.server.ts";
 
