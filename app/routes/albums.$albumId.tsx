@@ -10,7 +10,7 @@ import { OfflineRouteBlocker } from "#app/components/offline/offline-route-block
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
-import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/features/queue/library-tracks-page-size.ts";
+import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
 import {
   mergedEntityNotFoundResponse,
   MergedEntityResolutionError,

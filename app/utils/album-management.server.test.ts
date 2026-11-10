@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { getOrCreateAlbum, getOrCreateAlbumTx } from "./cover-management.server.ts";
+import { getOrCreateAlbum, getOrCreateAlbumTx } from "./album-management.server.ts";
 
 describe("getOrCreateAlbum merge following", () => {
   const artistIds: string[] = [];
@@ -46,6 +46,43 @@ describe("getOrCreateAlbum merge following", () => {
     const result = await getOrCreateAlbum(artist.id, `Abbey Road (Remaster) ${stamp}`);
 
     expect(result?.id).toBe(target.id);
+  });
+
+  test("prefers an unmerged album when a merged row shares the same name", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const artist = await prisma.artist.create({
+      data: {
+        name: `Prefer Living Artist ${stamp}`,
+        normalizedName: `prefer living artist ${stamp}`,
+      },
+    });
+    artistIds.push(artist.id);
+
+    const mergeTarget = await prisma.album.create({
+      data: {
+        name: `Canonical Target ${stamp}`,
+        artistId: artist.id,
+      },
+    });
+    const mergedDuplicate = await prisma.album.create({
+      data: {
+        name: `Shared Name ${stamp}`,
+        artistId: artist.id,
+        mergedIntoId: mergeTarget.id,
+        mergedAt: new Date(),
+      },
+    });
+    const living = await prisma.album.create({
+      data: {
+        name: `Shared Name ${stamp}`,
+        artistId: artist.id,
+      },
+    });
+    albumIds.push(mergeTarget.id, mergedDuplicate.id, living.id);
+
+    const result = await getOrCreateAlbum(artist.id, `Shared Name ${stamp}`);
+
+    expect(result?.id).toBe(living.id);
   });
 
   test("getOrCreateAlbumTx follows mergedIntoId inside a transaction", async () => {

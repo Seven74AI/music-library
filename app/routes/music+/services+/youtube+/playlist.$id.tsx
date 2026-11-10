@@ -251,6 +251,31 @@ export function mapTrackToListItem(track: TrackWithUserStatus) {
  * Deleted/unavailable placeholders are never "missing" for library purposes
  * (same rule as getActiveSyncedPlaylistTrackIds on the synced-playlists page).
  */
+export function shouldRevertLibraryStatusOnFetcherError(
+  fetcherResult: unknown,
+  fetcherState: string,
+): boolean {
+  if (fetcherState !== "idle") return false;
+  if (!fetcherResult || typeof fetcherResult !== "object" || !("status" in fetcherResult)) {
+    return false;
+  }
+  return (fetcherResult as { status: string }).status === "error";
+}
+
+/** Reset optimistic library toggles to loader `isInUserLibrary` after a failed POST. */
+export function revertLibraryStatusFromLoader(
+  tracks: Pick<TrackWithUserStatus, "id" | "isInUserLibrary">[],
+  libraryStatus: Record<string, boolean>,
+): Record<string, boolean> {
+  const next = { ...libraryStatus };
+  for (const track of tracks) {
+    if (track.isInUserLibrary !== undefined) {
+      next[track.id] = track.isInUserLibrary;
+    }
+  }
+  return next;
+}
+
 export function getTracksMissingFromLibrary(
   tracks: TrackWithUserStatus[],
   libraryStatus: Record<string, boolean> = {},
@@ -308,6 +333,13 @@ export default function YouTubeSyncedPlaylistDetailPage() {
       return next;
     });
   }, [tracks]);
+
+  useEffect(() => {
+    if (!shouldRevertLibraryStatusOnFetcherError(libraryFetcher.data, libraryFetcher.state)) {
+      return;
+    }
+    setLibraryStatus((prev) => revertLibraryStatusFromLoader(tracks, prev));
+  }, [libraryFetcher.data, libraryFetcher.state, tracks]);
 
   const handleToggleLibrary = useCallback(
     (trackId: string, currentIsInLibrary: boolean) => {

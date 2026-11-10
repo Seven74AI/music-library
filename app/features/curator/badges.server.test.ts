@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { linkGenresToTrack } from "#tests/track-genre-test-utils.ts";
 import { awardCuratorBadges, loadCuratorCounts, resetBadgeAwardCache } from "./badges.server.ts";
@@ -82,6 +82,34 @@ afterEach(async () => {
 });
 
 describe("awardCuratorBadges", () => {
+  test("unique-violation batch does not stamp awardedAt TTL", async () => {
+    const curator = await createCurator("TtlStamp");
+    const { track, artist } = await createTrack("Ttl Track");
+    await prisma.trackEdit.create({
+      data: {
+        trackId: track.id,
+        editedBy: curator.id,
+        title: track.title,
+        artistId: artist.id,
+        genre: "Jazz",
+      },
+    });
+    resetBadgeAwardCache();
+
+    const createSpy = vi
+      .spyOn(prisma.curatorBadge, "create")
+      .mockRejectedValue(Object.assign(new Error("Unique constraint failed"), { code: "P2002" }));
+
+    const failedAward = await awardCuratorBadges({ force: true });
+    expect(failedAward.awarded).toBe(0);
+    createSpy.mockRestore();
+
+    const retry = await awardCuratorBadges({ force: false });
+    expect(retry.skipped).toBe(false);
+    expect(retry.awarded).toBeGreaterThanOrEqual(1);
+    expect(await prisma.curatorBadge.count({ where: { curatorId: curator.id } })).toBe(1);
+  });
+
   test("parallel awards insert a new badge once", async () => {
     const curator = await createCurator("ParallelBadge");
     const { track, artist } = await createTrack("Parallel Track");

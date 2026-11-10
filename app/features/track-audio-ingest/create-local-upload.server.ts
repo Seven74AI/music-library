@@ -1,9 +1,9 @@
 import { getOrCreateArtistTx, type ArtistMetadata } from "#app/utils/artist-management.server";
 import { type ExtractedAudioMetadata } from "#app/utils/audio-metadata.server";
+import { getOrCreateAlbumTx } from "#app/utils/album-management.server";
 import {
   abandonUnpersistedPreparedCover,
   createCoverImageInTx,
-  getOrCreateAlbumTx,
   type PreparedCoverImage,
 } from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server.ts";

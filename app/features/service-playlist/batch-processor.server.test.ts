@@ -17,6 +17,7 @@ function createTxMock() {
   const tx = {
     track: {
       findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
       upsert: vi
         .fn()
         .mockImplementation(({ create }: { create: Record<string, unknown> }) =>
@@ -82,6 +83,7 @@ describe("processTracksInBatches - unavailable placeholders", () => {
             audioFiles: [],
           },
         ]),
+        findUnique: vi.fn().mockResolvedValue(null),
         upsert: trackUpsert,
       },
       artist: {
@@ -129,6 +131,7 @@ describe("processTracksInBatches - unavailable placeholders", () => {
     const tx = {
       track: {
         findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue(null),
         upsert: trackUpsert,
       },
       artist: {
@@ -183,6 +186,81 @@ describe("processTracksInBatches - unavailable placeholders", () => {
 describe("processTracksInBatches - archived metadata", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    consoleError.mockImplementation(() => {});
+  });
+
+  it("does not overwrite file-derived metadata when audio appears after the batch snapshot", async () => {
+    const trackUpsert = vi
+      .fn()
+      .mockImplementation(({ update }: { update: Record<string, unknown> }) =>
+        Promise.resolve({ id: "track-archived", ...update }),
+      );
+
+    const tx = {
+      track: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: "track-archived",
+            title: "Archive Worker Title",
+            artistId: "artist-1",
+            albumId: "album-1",
+            releaseDate: new Date("2020-01-01"),
+            duration: 200,
+            coverImageId: "cover-1",
+            externalId: "video-archived",
+            audioFiles: [],
+          },
+        ]),
+        findUnique: vi.fn().mockResolvedValue({
+          title: "Archive Worker Title",
+          artistId: "artist-1",
+          albumId: "album-1",
+          releaseDate: new Date("2020-01-01"),
+          duration: 200,
+          coverImageId: "cover-1",
+          audioFiles: [{ id: "audio-1" }],
+        }),
+        upsert: trackUpsert,
+      },
+      artist: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn(),
+        create: vi.fn().mockResolvedValue({ id: "artist-yt", name: "YouTube Artist" }),
+      },
+      servicePlaylistTrack: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue({ id: "spt-1" }),
+      },
+      archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
+    } as unknown as Prisma.TransactionClient;
+
+    await processTracksInBatches(
+      [
+        {
+          snippet: {
+            title: "YouTube Re-sync Title",
+            resourceId: { videoId: "video-archived" },
+            videoOwnerChannelTitle: "YouTube Artist",
+            thumbnails: { default: { url: "https://example.com/t.jpg" } },
+          },
+        },
+      ],
+      "service-1",
+      "playlist-1",
+      tx,
+      createYouTubeTrackSyncProcessor(),
+      noopArchiveEnqueueAdapter,
+    );
+
+    expect(trackUpsert).toHaveBeenCalled();
+    const update = trackUpsert.mock.calls[0]![0].update as {
+      title?: string;
+      artistId?: string;
+      albumId?: string;
+    };
+    expect(update.title).toBe("Archive Worker Title");
+    expect(update.artistId).toBe("artist-1");
+    expect(update.albumId).toBe("album-1");
   });
 
   it("does not overwrite archive-worker title on re-sync when TrackAudioFile exists", async () => {
@@ -198,21 +276,26 @@ describe("processTracksInBatches - archived metadata", () => {
         }) => Promise.resolve({ id: "track-archived", ...(create.serviceUrl ? update : create) }),
       );
 
+    const archivedRow = {
+      title: "Archive Worker Title",
+      artistId: "artist-1",
+      albumId: "album-1",
+      releaseDate: new Date("2020-01-01"),
+      duration: 200,
+      coverImageId: "cover-1",
+      audioFiles: [{ id: "audio-1" }],
+    };
+
     const tx = {
       track: {
         findMany: vi.fn().mockResolvedValue([
           {
             id: "track-archived",
-            title: "Archive Worker Title",
-            artistId: "artist-1",
-            albumId: "album-1",
-            releaseDate: new Date("2020-01-01"),
-            duration: 200,
-            coverImageId: "cover-1",
+            ...archivedRow,
             externalId: "video-archived",
-            audioFiles: [{ id: "audio-1" }],
           },
         ]),
+        findUnique: vi.fn().mockResolvedValue(archivedRow),
         upsert: trackUpsert,
       },
       artist: {
@@ -352,7 +435,11 @@ describe("processTracksInBatches - playlist track pairing", () => {
       );
 
     const tx = {
-      track: { findMany: vi.fn().mockResolvedValue([]), upsert: trackUpsert },
+      track: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: trackUpsert,
+      },
       artist: {
         findMany: vi.fn().mockResolvedValue([]),
         findFirst: vi.fn().mockResolvedValue(null),

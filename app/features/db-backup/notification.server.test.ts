@@ -1,8 +1,8 @@
 import { expect, test, vi } from "vitest";
-import { sendTelegramMessage } from "#app/features/audio-archive/notification.server.ts";
+import { sendTelegramMessage } from "#app/utils/telegram-notification.server.ts";
 import { notifyBackupFailed } from "./notification.server.ts";
 
-vi.mock("#app/features/audio-archive/notification.server.ts", () => ({
+vi.mock("#app/utils/telegram-notification.server.ts", () => ({
   sendTelegramMessage: vi.fn(async () => true),
 }));
 

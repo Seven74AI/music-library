@@ -11,6 +11,8 @@ interface EditableTextProps {
   multiline?: boolean;
   maxLength?: number;
   disabled?: boolean;
+  /** When true, saving an empty/cleared field calls onSave with "". */
+  allowEmpty?: boolean;
 }
 
 export function EditableText({
@@ -21,6 +23,7 @@ export function EditableText({
   multiline = false,
   maxLength,
   disabled = false,
+  allowEmpty = false,
 }: EditableTextProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
@@ -39,7 +42,8 @@ export function EditableText({
 
   const handleSave = () => {
     const trimmedValue = editValue.trim();
-    if (trimmedValue && trimmedValue !== value) {
+    const valueChanged = trimmedValue !== value;
+    if (valueChanged && (allowEmpty || trimmedValue)) {
       onSave(trimmedValue);
     }
     setIsEditing(false);
