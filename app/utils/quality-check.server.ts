@@ -1,5 +1,5 @@
 import { prisma } from "./db.server.ts";
-import { getInstanceInfo } from "./litefs.server.ts";
+import { createDailyPrimaryScheduler } from "./daily-primary-scheduler.server.ts";
 
 interface QualityIssue {
   trackId: string;
@@ -170,22 +170,21 @@ export const QUALITY_CHECK_HOUR_UTC = 2;
 /** Space out retries so a failing scan is not repeated on every tick. */
 export const QUALITY_CHECK_RETRY_DELAY_MS = 15 * 60 * 1000;
 
-let intervalHandle: ReturnType<typeof setInterval> | null = null;
-let lastSuccessDay: string | null = null;
-let nextRetryAt: number | null = null;
-let inFlight = false;
+const qualityCheckScheduler = createDailyPrimaryScheduler({
+  hourUtc: QUALITY_CHECK_HOUR_UTC,
+  retryDelayMs: QUALITY_CHECK_RETRY_DELAY_MS,
+  tickIntervalMs: QUALITY_CHECK_TICK_INTERVAL_MS,
+  logLabel: "Quality check",
+  tickFailedLogMessage: "Quality check tick failed",
+  defaultRun: runQualityCheck,
+});
 
 export function resetQualityCheckSchedulerForTests(): void {
-  lastSuccessDay = null;
-  nextRetryAt = null;
-  inFlight = false;
+  qualityCheckScheduler.resetForTests();
 }
 
 export function stopQualityCheckScheduler(): void {
-  if (intervalHandle !== null) {
-    clearInterval(intervalHandle);
-    intervalHandle = null;
-  }
+  qualityCheckScheduler.stop();
 }
 
 /**
@@ -197,37 +196,7 @@ export async function processQualityCheckTick(options?: {
   skipPrimaryCheck?: boolean;
   run?: typeof runQualityCheck;
 }): Promise<void> {
-  if (inFlight) return;
-
-  const now = options?.now ?? new Date();
-  if (now.getUTCHours() < QUALITY_CHECK_HOUR_UTC) return;
-
-  const day = now.toISOString().slice(0, 10);
-  if (lastSuccessDay === day) return;
-  if (nextRetryAt !== null && now.getTime() < nextRetryAt) return;
-
-  inFlight = true;
-  try {
-    if (!options?.skipPrimaryCheck) {
-      const { currentIsPrimary } = await getInstanceInfo();
-      if (!currentIsPrimary) return;
-    }
-
-    const run = options?.run ?? runQualityCheck;
-    const result = await run();
-    if (result.success) {
-      lastSuccessDay = day;
-      nextRetryAt = null;
-      return;
-    }
-
-    nextRetryAt = now.getTime() + QUALITY_CHECK_RETRY_DELAY_MS;
-  } catch (error) {
-    nextRetryAt = now.getTime() + QUALITY_CHECK_RETRY_DELAY_MS;
-    console.error("Quality check tick failed", error);
-  } finally {
-    inFlight = false;
-  }
+  return qualityCheckScheduler.processTick(options);
 }
 
 /**
@@ -235,15 +204,5 @@ export async function processQualityCheckTick(options?: {
  * background jobs. Idempotent: a second call does not register another interval.
  */
 export function scheduleQualityCheck(): void {
-  if (intervalHandle !== null) return;
-
-  const runTick = () => {
-    void processQualityCheckTick();
-  };
-
-  void runTick();
-  intervalHandle = setInterval(runTick, QUALITY_CHECK_TICK_INTERVAL_MS);
-  console.log(
-    `Quality check scheduler started (hour UTC: ${QUALITY_CHECK_HOUR_UTC}, tick: ${QUALITY_CHECK_TICK_INTERVAL_MS}ms)`,
-  );
+  qualityCheckScheduler.schedule();
 }
