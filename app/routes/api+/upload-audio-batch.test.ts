@@ -8,6 +8,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { consoleError, consoleWarn } from "#tests/setup/setup-test-env.ts";
+import { UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server";
 import { action } from "./upload-audio-batch.tsx";
 import { getUploadProgress } from "#app/features/upload-progress/progress-store.server.ts";
 
@@ -445,6 +446,12 @@ test("a rolled-back DB transaction leaves no phantom success and records a failu
     const progress = await waitForUpload(uploadId);
     expect(progress.successfulTracks).toEqual([]);
     expect(progress.failedFiles?.map((file) => file.fileName)).toContain("good.mp3");
+    expect(progress.failedFiles?.find((file) => file.fileName === "good.mp3")?.error).toBe(
+      UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE,
+    );
+    expect(progress.failedFiles?.find((file) => file.fileName === "good.mp3")?.error).not.toMatch(
+      /prisma|db txn/i,
+    );
     expect(await prisma.track.count({ where: { title, artist: { name: artist } } })).toBe(0);
   } finally {
     await cleanupUploadArtist(artist, userId);
