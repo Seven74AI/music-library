@@ -55,6 +55,7 @@ describe("add-all-service-tracks-to-library action", () => {
 
     expect(response).toMatchObject({
       data: { status: "error", message: "No synced playlists found" },
+      init: { status: 400 },
     });
   });
 
@@ -137,6 +138,7 @@ describe("add-all-service-tracks-to-library action", () => {
 
     expect(response).toMatchObject({
       data: { status: "error" },
+      init: { status: 500 },
     });
   });
 
@@ -149,6 +151,7 @@ describe("add-all-service-tracks-to-library action", () => {
 
     expect(response).toMatchObject({
       data: { status: "error", message: "Internal server error" },
+      init: { status: 500 },
     });
   });
 

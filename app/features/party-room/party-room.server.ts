@@ -1,6 +1,6 @@
 import { prisma } from "#app/utils/db.server.ts";
 import { Prisma } from "#prisma/client.js";
-import { canManageRoom, isRoomRole } from "./capabilities.ts";
+import { canManageRoom, isRoomRole, rankForHostTakeover } from "./capabilities.ts";
 import { generateRoomCode, isValidRoomCode } from "./codes.ts";
 import {
   DEFAULT_JOIN_ROLE,
@@ -1221,6 +1221,26 @@ export async function becomeHost({
           where: { id: currentHost.id },
           data: { role: ROOM_ROLE.dj },
         });
+      }
+    }
+
+    const activeParticipants = await tx.roomParticipant.findMany({
+      where: { roomId, leftAt: null },
+    });
+    const takeoverClaimants = activeParticipants.filter(
+      (p) => p.id !== room.currentHostParticipantId,
+    );
+    if (takeoverClaimants.length > 0) {
+      const bestRank = Math.max(
+        ...takeoverClaimants.map((p) => rankForHostTakeover(p.role as RoomRole)),
+      );
+      const callerRank = rankForHostTakeover(participant.role as RoomRole);
+      if (callerRank < bestRank) {
+        throw new PartyRoomError(
+          "forbidden",
+          "Another participant has priority to become host",
+          403,
+        );
       }
     }
 
