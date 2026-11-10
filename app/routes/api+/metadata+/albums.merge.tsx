@@ -29,7 +29,12 @@ export async function action({ request }: Route.ActionArgs) {
   await requireCuratorOrAdmin(request);
   const userId = await requireUserId(request);
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    throw data({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const result = MergeAlbumsSchema.safeParse(body);
 
   if (!result.success) {

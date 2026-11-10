@@ -27,6 +27,8 @@ const SplitArtistSchema = z.object({
   comment: z.string().min(1, "Comment is required to explain the split"),
 });
 
+class SplitTrackCountMismatchError extends Error {}
+
 export async function action({ request, params }: Route.ActionArgs) {
   await requireCuratorOrAdmin(request);
   const userId = await requireUserId(request);
@@ -37,7 +39,12 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw new Response("Artist ID is required", { status: 400 });
   }
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    throw data({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const result = SplitArtistSchema.safeParse(body);
 
   if (!result.success) {
@@ -160,6 +167,10 @@ export async function action({ request, params }: Route.ActionArgs) {
         },
       });
 
+      if (tracksUpdated.count !== trackIds.length) {
+        throw new SplitTrackCountMismatchError();
+      }
+
       return {
         newArtist,
         tracksUpdated: tracksUpdated.count,
@@ -177,6 +188,12 @@ export async function action({ request, params }: Route.ActionArgs) {
   } catch (error) {
     if (error instanceof EditLockTransactionError) {
       throwEditLockTransactionError(error, EDIT_LOCK_CONFLICT_COPY_SPLIT);
+    }
+    if (error instanceof SplitTrackCountMismatchError) {
+      throw data(
+        { error: "Conflict", message: "Tracks changed during split; please retry" },
+        { status: 409 },
+      );
     }
     console.error("Error splitting artist:", error);
     throw new Response("Failed to split artist", { status: 500 });

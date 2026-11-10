@@ -7,7 +7,7 @@ import {
   assertEditLockInTransaction,
   EDIT_LOCK_CONFLICT_COPY_BULK_TRACKS,
   EditLockTransactionError,
-  throwEditLockTransactionError,
+  toEditLockErrorResponse,
   findWriteBlockedLock,
   getLockStatus,
   type LockInfo,
@@ -309,7 +309,7 @@ export async function action({ request }: Route.ActionArgs) {
     });
   } catch (error) {
     if (error instanceof EditLockTransactionError) {
-      throwEditLockTransactionError(error, EDIT_LOCK_CONFLICT_COPY_BULK_TRACKS);
+      return toEditLockErrorResponse(error, EDIT_LOCK_CONFLICT_COPY_BULK_TRACKS);
     }
     throw error;
   }
