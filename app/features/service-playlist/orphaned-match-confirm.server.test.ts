@@ -39,6 +39,12 @@ describe("orphanMatchesSchema", () => {
     expect(orphanMatchesSchema.safeParse(big).success).toBe(false);
   });
 
+  test("rejects an empty-string deletedItemId", () => {
+    expect(
+      orphanMatchesSchema.safeParse([{ action: "new", position: 1, deletedItemId: "" }]).success,
+    ).toBe(false);
+  });
+
   test("rejects malformed entries", () => {
     expect(orphanMatchesSchema.safeParse({}).success).toBe(false);
     expect(orphanMatchesSchema.safeParse([{ action: "boom", position: 1 }]).success).toBe(false);

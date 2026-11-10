@@ -233,4 +233,51 @@ describe("confirmOrphanedMatches membership scoping", () => {
     expect(tracks).toHaveLength(2);
     expect(new Set(tracks.map((t) => t.externalId)).size).toBe(2);
   });
+
+  test("empty-string deletedItemId on multiple new entries stores NULL, no P2002", async () => {
+    const { user, playlist } = await setupPlaylist();
+    const result = await confirmOrphanedMatches(
+      playlist.id,
+      [
+        { deletedItemId: "", selectedTrackId: null, position: 1, action: "new" },
+        { deletedItemId: "", selectedTrackId: null, position: 2, action: "new" },
+      ],
+      user.id,
+    );
+    expect(result.success).toBe(true);
+    expect(result.processedCount).toBe(2);
+    const rows = await prisma.servicePlaylistTrack.findMany({
+      where: { playlistId: playlist.id },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.playlistItemId === null)).toBe(true);
+  });
+
+  test("match cannot select a LIVE row with a non-null playlistItemId", async () => {
+    consoleError.mockImplementation(() => {});
+    const { user, service, playlist } = await setupPlaylist();
+    const artist = await prisma.artist.create({
+      data: { name: "Live Artist", normalizedName: "live-artist" },
+    });
+    const track = await prisma.track.create({
+      data: { title: "Live", artistId: artist.id, serviceId: service.id, externalId: "live-ext" },
+    });
+    await prisma.servicePlaylistTrack.create({
+      data: { playlistId: playlist.id, trackId: track.id, position: 1, playlistItemId: "live-item" },
+    });
+
+    const result = await confirmOrphanedMatches(
+      playlist.id,
+      [{ deletedItemId: "other-item", selectedTrackId: track.id, position: 5, action: "match" }],
+      user.id,
+    );
+
+    expect(result.success).toBe(false);
+    const row = await prisma.servicePlaylistTrack.findFirst({
+      where: { playlistId: playlist.id, trackId: track.id },
+    });
+    expect(row?.isDeleted).toBe(false);
+    expect(row?.position).toBe(1);
+    expect(row?.playlistItemId).toBe("live-item");
+  });
 });

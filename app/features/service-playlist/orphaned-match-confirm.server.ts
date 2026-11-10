@@ -7,7 +7,7 @@ export const orphanMatchesSchema = z
   .array(
     z.object({
       action: z.enum(["match", "new", "skip"]),
-      deletedItemId: z.string().max(128).optional(),
+      deletedItemId: z.string().min(1).max(128).optional(),
       selectedTrackId: z.string().nullable().optional(),
       position: z.number().int().min(0),
     }),
@@ -95,10 +95,10 @@ export async function confirmOrphanedMatches(
     };
   }
 
-  const service = await getServiceByName(playlist.service.name);
-  const { createId } = await import("@paralleldrive/cuid2");
-
   try {
+    const service = await getServiceByName(playlist.service.name);
+    const { createId } = await import("@paralleldrive/cuid2");
+
     const result = await prisma.$transaction(async (tx) => {
       let processedCount = 0;
 
@@ -144,7 +144,7 @@ export async function confirmOrphanedMatches(
               id: createId(),
               playlistId,
               trackId: track.id,
-              playlistItemId: match.deletedItemId ?? null,
+              playlistItemId: match.deletedItemId || null,
               position: match.position,
               isDeleted: true,
               deletedAt: new Date(),
@@ -159,8 +159,13 @@ export async function confirmOrphanedMatches(
           // that was not seen in the latest sync). Reject any client-supplied
           // track that is only in the global catalog.
           const existingPlaylistTrack = await tx.servicePlaylistTrack.findFirst({
-            where: { playlistId, trackId: match.selectedTrackId },
-            orderBy: [{ isDeleted: "asc" }, { position: "asc" }, { id: "asc" }],
+            where: {
+              playlistId,
+              trackId: match.selectedTrackId,
+              // Only orphaned/deleted rows may be matched (ADR-006); never a live row.
+              OR: [{ isDeleted: true }, { playlistItemId: null }],
+            },
+            orderBy: [{ isDeleted: "desc" }, { position: "asc" }, { id: "asc" }],
           });
 
           if (!existingPlaylistTrack) {
@@ -179,7 +184,7 @@ export async function confirmOrphanedMatches(
           await tx.servicePlaylistTrack.update({
             where: { id: existingPlaylistTrack.id },
             data: {
-              ...(match.deletedItemId && !itemIdOwner
+              ...(match.deletedItemId && !itemIdOwner && !existingPlaylistTrack.playlistItemId
                 ? { playlistItemId: match.deletedItemId }
                 : {}),
               position: match.position,
