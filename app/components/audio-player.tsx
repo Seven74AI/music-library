@@ -1,33 +1,29 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type RoomAutoplayOutcome } from "#app/components/audio-player-room-playback.ts";
+import { useAudioPlayerMediaSession } from "./audio-player-media-session";
 import {
-  outcomeFromPlayCall,
-  roomStateAfterAutoplay,
-  type RoomAutoplayOutcome,
-} from "#app/components/audio-player-room-playback.ts";
+  recoverPlaybackSourceAfterMediaError,
+  useAudioPlayerOfflineSourceSwap,
+  useAudioPlayerTrackSource,
+  isPlaybackSourceReady,
+  type PendingPlaybackSource,
+} from "./audio-player-offline-source";
+import { useAudioPlayerEmitPlayEvent } from "./audio-player-play-events";
+import {
+  runRoomSpeakerProgressHeartbeat,
+  useAudioPlayerRequestRoomTransport,
+  useAudioPlayerRoomSpeakerPlayback,
+  useRoomAutoplayOutcomeRef,
+} from "./audio-player-room-speaker";
+import { useAudioPlayerSleepTimer } from "./audio-player-sleep-timer";
 import { recordAutoplayFailure } from "#app/hooks/use-autoplay-guide";
 import { type FullTrack } from "#app/types/frontend/shared";
-import {
-  clearBlobUrlCache,
-  invalidateRemotePlaybackUrl,
-  peekCachedPlaybackUrl,
-  resolvePlaybackAudioUrl,
-  resolveTrackPlaybackSource,
-  revokePlaybackAudioUrl,
-} from "#app/features/offline-storage/resolve-playback-url.client.ts";
-import { reportPlayEvent } from "#app/features/usage-analytics/report-play-event.client.ts";
-import { reportRoomPlayEvent, sendHostHeartbeat } from "#app/features/party-room/api.client.ts";
+import { clearBlobUrlCache } from "#app/features/offline-storage/resolve-playback-url.client.ts";
 import { type RoomTransportAction } from "#app/features/party-room/types.ts";
-import { speakerProgressHeartbeatDue } from "#app/features/party-room/speaker-progress-heartbeat.ts";
 import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import { triggerBrowserDownload } from "#app/utils/download.ts";
-import {
-  buildMediaSessionMetadata,
-  clearMediaSessionPositionState,
-  clampMediaSessionSeekTime,
-  isMediaSessionSupported,
-  updateMediaSessionPositionState,
-} from "#app/utils/media-session.client.ts";
+import { updateMediaSessionPositionState } from "#app/utils/media-session.client.ts";
 import { coverImageUrl, nowPlayingCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { adjustVolumeStep, getPlayerKeyboardAction } from "#app/utils/player-keyboard-shortcuts.ts";
 import {
@@ -35,19 +31,12 @@ import {
   readStoredVolume,
   writeStoredVolume,
 } from "#app/utils/player-preferences.ts";
-import {
-  createSleepTimerEndAt,
-  formatSleepTimerRemaining,
-  isSleepTimerExpired,
-} from "#app/utils/sleep-timer.ts";
 import { toast } from "#app/components/ui/use-toast.ts";
 import {
   generatePlayId,
   getMediaErrorMessage,
   isDurationKnown,
   isPlayInterrupted,
-  swapPlaybackSource,
-  withRecoveryNonce,
 } from "./audio-player-format";
 import {
   PlayerDesktopBar,
@@ -58,34 +47,6 @@ import {
 import { QueueOnlyPlayerBar } from "./queue-only-player-bar";
 
 type Track = FullTrack;
-
-type PendingPlaybackSource = { trackId: string; url: string };
-
-/**
- * The track is ready to start only when the committed `audioSrc` is the URL we
- * intend to play. A ref updated in the same effect turn as `setAudioSrc` is
- * not enough: the previous source is still on the element for that render.
- */
-function isPlaybackSourceReady(
-  trackId: string | undefined,
-  audioSrc: string | undefined,
-  loadedTrackId: string | null,
-  pending: PendingPlaybackSource | null,
-): boolean {
-  if (!trackId || !audioSrc) return false;
-  if (pending?.trackId === trackId) return pending.url === audioSrc;
-  return loadedTrackId === trackId;
-}
-
-/** React state can still hold a URL after a gesture wrote a different one onto the element. */
-function mediaElementHasSrc(audio: HTMLAudioElement, url: string): boolean {
-  if (audio.getAttribute("src") === url) return true;
-  try {
-    return audio.src === new URL(url, window.location.href).href;
-  } catch {
-    return false;
-  }
-}
 
 interface AudioPlayerProps {
   track: Track | null;
@@ -208,8 +169,6 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const [volume, setVolume] = useState(DEFAULT_PLAYER_VOLUME);
   const [isMuted, setIsMuted] = useState(false);
   const preMuteVolumeRef = useRef(DEFAULT_PLAYER_VOLUME);
-  const [sleepTimerEndAt, setSleepTimerEndAt] = useState<number | null>(null);
-  const [sleepTimerLabel, setSleepTimerLabel] = useState<string | null>(null);
   const previousPlaybackTokenRef = useRef<number | null>(null);
   const previousTrackIdRef = useRef<string | null>(null);
   const loadedTrackIdRef = useRef<string | null>(null);
@@ -232,8 +191,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     time: null,
     sentAt: 0,
   });
-  const onRoomAutoplayOutcomeRef = useRef(onRoomAutoplayOutcome);
-  onRoomAutoplayOutcomeRef.current = onRoomAutoplayOutcome;
+  const onRoomAutoplayOutcomeRef = useRoomAutoplayOutcomeRef(onRoomAutoplayOutcome);
   // Last room-speaker source we started. Queue snapshots recreate `track` /
   // `roomSpeaker` without changing this key and must not rewind.
   const roomPlayKeyRef = useRef<string | null>(null);
@@ -241,29 +199,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
 
-  const requestRoomTransport = useCallback(
-    (action: "play" | "pause") => {
-      roomTransportRef?.current?.({ action });
-    },
-    [roomTransportRef],
-  );
+  const requestRoomTransport = useAudioPlayerRequestRoomTransport(roomTransportRef);
 
-  const emitPlayEvent = useCallback(
-    (type: "play_started" | "play_completed", id: string, playId?: string | null) => {
-      const roomCode = roomPlayEventTargetRef?.current?.code ?? roomSpeaker?.code;
-      if (roomCode) {
-        reportRoomPlayEvent(
-          roomCode,
-          type === "play_started" ? "room_play_started" : "room_play_completed",
-          id,
-          playId,
-        );
-        return;
-      }
-      reportPlayEvent(type, id, playId);
-    },
-    [roomPlayEventTargetRef, roomSpeaker],
-  );
+  const emitPlayEvent = useAudioPlayerEmitPlayEvent(roomPlayEventTargetRef, roomSpeaker);
 
   // Expose a function to apply a prefetched track and play it synchronously within
   // a user gesture. This maintains autoplay permission across track changes.
@@ -480,126 +418,33 @@ export function AudioPlayer(props: AudioPlayerProps) {
     playCompletedForPlayIdRef.current = null;
   }, [trackId]);
 
-  useEffect(() => {
-    if (!audioFile || !trackId) {
-      loadedTrackIdRef.current = null;
-      pendingAudioSrcRef.current = null;
-      setAudioSrc(undefined);
-      setPlaybackError(null);
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.removeAttribute("src");
-        audioRef.current.load();
-      }
-      setIsPlaying(false);
-      setCurrentTime(0);
-      return;
-    }
+  useAudioPlayerTrackSource({
+    audioRef,
+    audioFile,
+    trackId,
+    audioSrcOverride,
+    audioSrcRef,
+    loadedTrackIdRef,
+    pendingAudioSrcRef,
+    suppressStaleDurationRef,
+    setAudioSrc,
+    setPlaybackError,
+    setIsPlaying,
+    setCurrentTime,
+    setDuration,
+  });
 
-    // If the track is already loaded (e.g., by synchronous unlock), skip to avoid
-    // interrupting ongoing playback with a redundant source update.
-    if (loadedTrackIdRef.current === trackId) {
-      return;
-    }
-
-    // Prefetched / already-resolved URL: apply synchronously so auto-advance
-    // does not blank <audio src> and wait on async storage/network.
-    // Room speaker grants use audioSrcOverride the same way. Do not mark the
-    // track loaded until that URL is the committed state — otherwise autoplay
-    // calls play() on the track that just ended and then drops the token.
-    const cachedUrl = peekCachedPlaybackUrl(trackId);
-    const directUrl = cachedUrl || audioSrcOverride || null;
-    if (directUrl) {
-      pendingAudioSrcRef.current = { trackId, url: directUrl };
-      const audio = audioRef.current;
-      const elementOnUrl = audio ? mediaElementHasSrc(audio, directUrl) : false;
-      if (audioSrcRef.current === directUrl && elementOnUrl) {
-        loadedTrackIdRef.current = trackId;
-      } else if (audioSrcRef.current === directUrl && audio) {
-        // Same React src as the track we are returning to, but the element is
-        // still playing the track we just left. setAudioSrc would no-op.
-        audio.src = directUrl;
-        loadedTrackIdRef.current = trackId;
-        suppressStaleDurationRef.current = true;
-        setDuration(0);
-        setCurrentTime(0);
-        setPlaybackError(null);
-      } else {
-        loadedTrackIdRef.current = null;
-        setAudioSrc(directUrl);
-        setPlaybackError(null);
-      }
-      return () => {
-        if (cachedUrl) revokePlaybackAudioUrl(trackId);
-      };
-    }
-
-    pendingAudioSrcRef.current = null;
-    loadedTrackIdRef.current = null;
-    setAudioSrc(undefined);
-    setPlaybackError(null);
-
-    let cancelled = false;
-
-    void resolveTrackPlaybackSource(trackId)
-      .then((url) => {
-        if (cancelled) return;
-        if (url) {
-          pendingAudioSrcRef.current = { trackId, url };
-          loadedTrackIdRef.current = trackId;
-          setAudioSrc(url);
-          setPlaybackError(null);
-        } else {
-          setPlaybackError(
-            "This track is not available offline. Download it while you still have a connection.",
-          );
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to resolve audio URL:", err);
-        if (!cancelled) {
-          setAudioSrc(undefined);
-          setPlaybackError("Playback failed. Try downloading this track for offline listening.");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      revokePlaybackAudioUrl(trackId);
-    };
-  }, [audioFile, trackId, audioSrcOverride]);
-
-  // When going offline while a track is playing, proactively swap to the
-  // cached blob URL so playback continues seamlessly.  Falls back to
-  // handleError recovery on MEDIA_ERR_NETWORK if the buffer drains first.
-  const prevOnlineRef = useRef(isOnline);
-  useEffect(() => {
-    const wasOnline = prevOnlineRef.current;
-    prevOnlineRef.current = isOnline;
-
-    const audio = audioRef.current;
-    if (!wasOnline || isOnline || !trackId || !audio || !audioSrc) return;
-
-    // Already on a local blob — no network dependency, do not interrupt.
-    if (audioSrc.startsWith("blob:")) return;
-
-    const shouldResume = keepPlayingRef.current || !audio.paused;
-    if (!shouldResume) return;
-
-    const savedTime = audio.currentTime;
-
-    resolvePlaybackAudioUrl(trackId).then((offlineUrl) => {
-      if (!offlineUrl || !audioRef.current || loadedTrackIdRef.current !== trackId) {
-        // No blob — let handleError deal with it when buffer runs out
-        return;
-      }
-      swapPlaybackSource(audioRef.current, offlineUrl, savedTime, shouldResume, () => {
-        userSeekRef.current = true;
-      });
-      setAudioSrc(offlineUrl);
-      setPlaybackError(null);
-    });
-  }, [isOnline, trackId, audioSrc]);
+  useAudioPlayerOfflineSourceSwap({
+    audioRef,
+    isOnline,
+    trackId,
+    audioSrc,
+    loadedTrackIdRef,
+    keepPlayingRef,
+    userSeekRef,
+    setAudioSrc,
+    setPlaybackError,
+  });
 
   useEffect(() => {
     if (
@@ -743,87 +588,26 @@ export function AudioPlayer(props: AudioPlayerProps) {
     }
   }, [track, emitPlayEvent, requestRoomTransport, roomSpeaker, roomTransportRef]);
 
-  // Room speaker: honor server play/pause. Wait until the committed audioSrc
-  // is this track — play() on the song that just ended spends the gesture
-  // token and the next URL stays silent. A blocked play() leaves the room
-  // paused with one explanation and does not report playback.
-  useEffect(() => {
-    if (!roomSpeaker) {
-      roomPlayKeyRef.current = null;
-    }
-    if (!roomSpeaker || roomPlaying === null || !audioRef.current) return;
-    const audio = audioRef.current;
-    if (!roomPlaying) {
-      keepPlayingRef.current = false;
-      audio.pause();
-      setIsPlaying(false);
-      return;
-    }
-    if (
-      !isPlaybackSourceReady(
-        track?.id,
-        audioSrc,
-        loadedTrackIdRef.current,
-        pendingAudioSrcRef.current,
-      )
-    ) {
-      return;
-    }
-
-    const playKey = `${track?.id ?? ""}:${audioSrc ?? ""}`;
-    const elementPlaying = !audio.paused;
-    // Queue adds recreate `track` / `roomSpeaker` while this source is already
-    // playing. Seeking to 0 would restart the song for the whole room.
-    if (roomPlayKeyRef.current === playKey && elementPlaying === roomPlaying) {
-      if (roomPlaying) return;
-      keepPlayingRef.current = false;
-      setIsPlaying(false);
-      return;
-    }
-
-    const isNewSource = roomPlayKeyRef.current !== playKey;
-    roomPlayKeyRef.current = playKey;
-    let cancelled = false;
-    keepPlayingRef.current = true;
-    if (isNewSource) {
-      try {
-        userSeekRef.current = true;
-        audio.currentTime = 0;
-      } catch {
-        // The element may not be seekable until metadata arrives.
-      }
-    }
-    let playResult: Promise<void> | void;
-    try {
-      playResult = audio.play();
-    } catch {
-      playResult = Promise.reject(new Error("play threw"));
-    }
-    void outcomeFromPlayCall(playResult).then((outcome) => {
-      if (cancelled) return;
-      const next = roomStateAfterAutoplay(outcome);
-      if (!next.isPlaying) {
-        setIsPlaying(false);
-        keepPlayingRef.current = false;
-        if (next.explanation) setPlaybackError(next.explanation);
-        onRoomAutoplayOutcomeRef.current?.(outcome);
-        return;
-      }
-      setPlaybackError(null);
-      setIsPlaying(true);
-      keepPlayingRef.current = true;
-      if (next.reportPlaying && track && playStartedForTrackRef.current !== track.id) {
-        playStartedForTrackRef.current = track.id;
-        playCompletedForPlayIdRef.current = null;
-        playIdRef.current = generatePlayId();
-        emitPlayEvent("play_started", track.id, playIdRef.current);
-      }
-      onRoomAutoplayOutcomeRef.current?.(outcome);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [roomSpeaker, roomPlaying, roomPlaybackTick, track, audioSrc, emitPlayEvent]);
+  useAudioPlayerRoomSpeakerPlayback({
+    audioRef,
+    roomSpeaker,
+    roomPlaying,
+    roomPlaybackTick,
+    track,
+    audioSrc,
+    loadedTrackIdRef,
+    pendingAudioSrcRef,
+    roomPlayKeyRef,
+    keepPlayingRef,
+    userSeekRef,
+    playStartedForTrackRef,
+    playCompletedForPlayIdRef,
+    playIdRef,
+    onRoomAutoplayOutcomeRef,
+    setIsPlaying,
+    setPlaybackError,
+    emitPlayEvent,
+  });
 
   useEffect(() => {
     if (!isVisible) return;
@@ -869,154 +653,36 @@ export function AudioPlayer(props: AudioPlayerProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [hasNext, hasPrevious, isVisible, onNext, onPrevious, togglePlayPause, volume]);
 
-  useEffect(() => {
-    if (!isMediaSessionSupported() || !track || !isVisible) return;
-
-    navigator.mediaSession.metadata = new MediaMetadata(buildMediaSessionMetadata(track));
-
-    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
-
-    navigator.mediaSession.setActionHandler("play", () => {
-      if (roomSpeaker && roomTransportRef?.current) {
-        requestRoomTransport("play");
-        return;
-      }
-      if (audioRef.current?.paused) {
-        keepPlayingRef.current = true;
-        const playPromise = audioRef.current.play();
-        if (playPromise !== undefined) {
-          void playPromise
-            .then(() => {
-              if (audioRef.current?.error) {
-                setIsPlaying(false);
-                keepPlayingRef.current = false;
-                return;
-              }
-              setIsPlaying(true);
-              keepPlayingRef.current = true;
-              if (track && playStartedForTrackRef.current !== track.id) {
-                playStartedForTrackRef.current = track.id;
-                playCompletedForPlayIdRef.current = null;
-                playIdRef.current = generatePlayId();
-                emitPlayEvent("play_started", track.id, playIdRef.current);
-              }
-            })
-            .catch(() => {
-              if (!audioRef.current) return;
-              setIsPlaying(!audioRef.current.paused);
-              keepPlayingRef.current = !audioRef.current.paused;
-              setPlaybackError("Unable to play this track. Try again or check your connection.");
-              toast({
-                title: "Playback failed",
-                description: "Could not start playback. Please try again.",
-                variant: "destructive",
-              });
-            });
-        }
-      }
-    });
-    navigator.mediaSession.setActionHandler("pause", () => {
-      if (roomSpeaker && roomTransportRef?.current) {
-        requestRoomTransport("pause");
-        return;
-      }
-      if (audioRef.current && !audioRef.current.paused) {
-        keepPlayingRef.current = false;
-        audioRef.current.pause();
-      }
-    });
-    navigator.mediaSession.setActionHandler("previoustrack", () => {
-      if (hasPrevious) onPrevious();
-    });
-    navigator.mediaSession.setActionHandler("nexttrack", () => {
-      if (hasNext) onNext();
-    });
-    navigator.mediaSession.setActionHandler("seekto", (details) => {
-      const audio = audioRef.current;
-      if (!audio || details.seekTime == null) return;
-
-      const trackDuration = audio.duration;
-      if (!trackDuration || !isFinite(trackDuration) || trackDuration <= 0) {
-        return;
-      }
-
-      audio.currentTime = clampMediaSessionSeekTime(details.seekTime, trackDuration);
-      userSeekRef.current = true;
-      updateMediaSessionPositionState(audio);
-    });
-    navigator.mediaSession.setActionHandler("stop", () => {
-      if (roomSpeaker && roomTransportRef?.current) {
-        requestRoomTransport("pause");
-        clearMediaSessionPositionState();
-        return;
-      }
-      const audio = audioRef.current;
-      keepPlayingRef.current = false;
-      if (audio && !audio.paused) {
-        audio.pause();
-      }
-      clearMediaSessionPositionState();
-    });
-
-    const audio = audioRef.current;
-    if (audio) {
-      updateMediaSessionPositionState(audio);
-    }
-
-    return () => {
-      navigator.mediaSession.setActionHandler("play", null);
-      navigator.mediaSession.setActionHandler("pause", null);
-      navigator.mediaSession.setActionHandler("previoustrack", null);
-      navigator.mediaSession.setActionHandler("nexttrack", null);
-      navigator.mediaSession.setActionHandler("seekto", null);
-      navigator.mediaSession.setActionHandler("stop", null);
-      clearMediaSessionPositionState();
-    };
-  }, [
+  useAudioPlayerMediaSession({
+    audioRef,
+    track,
+    isVisible,
+    isPlaying,
     hasNext,
     hasPrevious,
-    isPlaying,
-    isVisible,
-    onNext,
-    onPrevious,
-    requestRoomTransport,
     roomSpeaker,
     roomTransportRef,
-    track,
+    requestRoomTransport,
+    onNext,
+    onPrevious,
+    keepPlayingRef,
+    playStartedForTrackRef,
+    playCompletedForPlayIdRef,
+    playIdRef,
+    userSeekRef,
+    setIsPlaying,
+    setPlaybackError,
     emitPlayEvent,
-  ]);
+  });
 
-  useEffect(() => {
-    if (sleepTimerEndAt === null) {
-      setSleepTimerLabel(null);
-      return undefined;
-    }
-
-    const updateLabel = () => {
-      if (isSleepTimerExpired(sleepTimerEndAt)) {
-        setSleepTimerEndAt(null);
-        setSleepTimerLabel(null);
-        keepPlayingRef.current = false;
-        if (roomSpeaker && roomTransportRef?.current) {
-          requestRoomTransport("pause");
-        } else if (audioRef.current) {
-          audioRef.current.pause();
-        }
-        setIsPlaying(false);
-        toast({
-          title: "Sleep timer ended",
-          description: "Playback has been stopped.",
-        });
-        return;
-      }
-
-      setSleepTimerLabel(formatSleepTimerRemaining(sleepTimerEndAt));
-    };
-
-    updateLabel();
-    const intervalId = window.setInterval(updateLabel, 1000);
-    return () => window.clearInterval(intervalId);
-  }, [requestRoomTransport, roomSpeaker, roomTransportRef, sleepTimerEndAt]);
+  const { sleepTimerLabel, startSleepTimer, clearSleepTimer } = useAudioPlayerSleepTimer({
+    audioRef,
+    roomSpeaker,
+    roomTransportRef,
+    requestRoomTransport,
+    keepPlayingRef,
+    setIsPlaying,
+  });
 
   const handleVolumeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextVolume = Number.parseFloat(event.target.value);
@@ -1036,19 +702,6 @@ export function AudioPlayer(props: AudioPlayerProps) {
     });
   };
 
-  const startSleepTimer = useCallback((minutes: number) => {
-    setSleepTimerEndAt(createSleepTimerEndAt(minutes));
-    toast({
-      title: "Sleep timer set",
-      description: `Playback will stop in ${minutes} minutes.`,
-    });
-  }, []);
-
-  const clearSleepTimer = useCallback(() => {
-    setSleepTimerEndAt(null);
-    setSleepTimerLabel(null);
-  }, []);
-
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.loop = loopMode === "one";
@@ -1065,21 +718,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         setCurrentTime(audio.currentTime);
         updateMediaSessionPositionState(audio);
       }
-      const sample = speakerProgressRef.current;
-      const decision = speakerProgressHeartbeatDue({
-        active: Boolean(roomSpeaker?.code),
-        paused: audio.paused,
-        seeking: audio.seeking,
-        currentTime: audio.currentTime,
-        previousTime: sample.time,
-        lastSentAtMs: sample.sentAt,
-        nowMs: Date.now(),
-      });
-      sample.time = decision.previousTime;
-      if (decision.due && roomSpeaker?.code) {
-        sample.sentAt = Date.now();
-        void sendHostHeartbeat(roomSpeaker.code).catch(() => {});
-      }
+      runRoomSpeakerProgressHeartbeat({ roomSpeaker, audio, speakerProgressRef });
       const currentTime = audio.currentTime;
       if (loopMode === "one" && trackId) {
         if (userSeekRef.current) {
@@ -1186,60 +825,24 @@ export function AudioPlayer(props: AudioPlayerProps) {
         // Speaker grant is `/resources/rooms/audio/:id`. Personal
         // `/resources/audio/:id` 403s for catalog tracks the host does not
         // own (same reason queue auto-cache is skipped in speaker mode).
-        if (roomSpeaker && audioSrcOverride) {
-          const retryUrl = withRecoveryNonce(audioSrcOverride);
-          if (audioRef.current && loadedTrackIdRef.current === trackId) {
-            pendingAudioSrcRef.current = { trackId, url: retryUrl };
-            swapPlaybackSource(audioRef.current, retryUrl, savedTime || 0, shouldResume, () => {
-              userSeekRef.current = true;
-            });
-            setAudioSrc(retryUrl);
-            setPlaybackError(null);
-          } else {
+        void recoverPlaybackSourceAfterMediaError({
+          trackId,
+          roomSpeaker,
+          audioSrcOverride,
+          audioRef,
+          loadedTrackIdRef,
+          pendingAudioSrcRef,
+          userSeekRef,
+          previousSrc,
+          savedTime,
+          shouldResume,
+          setAudioSrc,
+          setPlaybackError,
+        }).then((result) => {
+          if (result === "failed") {
             stopFailedPlayback(getMediaErrorMessage(errorCode));
           }
-          return;
-        }
-
-        invalidateRemotePlaybackUrl(trackId);
-
-        void resolveTrackPlaybackSource(trackId)
-          .then((freshUrl) => {
-            if (
-              freshUrl &&
-              freshUrl !== previousSrc &&
-              audioRef.current &&
-              loadedTrackIdRef.current === trackId
-            ) {
-              swapPlaybackSource(audioRef.current, freshUrl, savedTime || 0, shouldResume, () => {
-                userSeekRef.current = true;
-              });
-              setAudioSrc(freshUrl);
-              setPlaybackError(null);
-              return;
-            }
-
-            return resolvePlaybackAudioUrl(trackId).then((offlineUrl) => {
-              if (offlineUrl && audioRef.current && loadedTrackIdRef.current === trackId) {
-                swapPlaybackSource(
-                  audioRef.current,
-                  offlineUrl,
-                  savedTime || 0,
-                  shouldResume,
-                  () => {
-                    userSeekRef.current = true;
-                  },
-                );
-                setAudioSrc(offlineUrl);
-                setPlaybackError(null);
-              } else {
-                stopFailedPlayback(getMediaErrorMessage(errorCode));
-              }
-            });
-          })
-          .catch(() => {
-            stopFailedPlayback(getMediaErrorMessage(errorCode));
-          });
+        });
         return;
       }
 

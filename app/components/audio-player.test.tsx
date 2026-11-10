@@ -9,7 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { type ComponentProps, type ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { useAudioPlayer } from "#app/components/audio-player-provider";
+import { useAudioPlayer } from "#app/components/audio-player-context";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { toast } from "#app/components/ui/use-toast";
 import { reportRoomPlayEvent } from "#app/features/party-room/api.client.ts";
@@ -77,9 +77,8 @@ vi.mock("#app/features/offline-storage/cover-cache.client.ts", () => ({
   resolveCachedCoverUrl: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("#app/components/audio-player-provider", () => ({
+vi.mock("#app/components/audio-player-context", () => ({
   useAudioPlayer: vi.fn(() => createAudioPlayerMock()),
-  AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
 }));
 
 vi.mock("#app/hooks/use-swipe-gesture", () => ({

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useAudioPlayer } from "#app/components/audio-player-provider";
+import { useAudioPlayer } from "#app/components/audio-player-context";
 import { AddToPlaylistMenu } from "#app/components/add-to-playlist-menu";
 import { MarqueeText } from "#app/components/marquee-text";
 import { TrackDetailsDialog } from "#app/components/track-details-dialog";
