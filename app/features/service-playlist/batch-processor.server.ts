@@ -703,7 +703,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           item,
         });
       } catch (error) {
-        console.error(
+        logGoogleApiError(
           `Error preparing track ${item.snippet?.resourceId?.videoId || "unknown"}:`,
           error,
         );
