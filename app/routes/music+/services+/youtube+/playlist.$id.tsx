@@ -196,6 +196,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
           return data({ status: "success", message: result.message });
         }
 
+        // Domain failure (e.g. track not a member of the playlist) -> 403.
+        if (result.error) {
+          return data({ status: "error", message: result.error }, { status: 403 });
+        }
+
         return data({
           status: "error",
           message: result.message || "Failed to process matches. Please try again.",

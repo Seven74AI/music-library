@@ -3,19 +3,27 @@ import { getOrCreateArtistTx } from "#app/utils/artist-management.server";
 import { prisma } from "#app/utils/db.server";
 import { getServiceByName } from "./playlist-utils.server";
 
+export class OrphanMatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OrphanMatchError";
+  }
+}
+
 export const orphanMatchesSchema = z
   .array(
-    z.object({
-      action: z.enum(["match", "new", "skip"]),
-      deletedItemId: z
-        .string()
-        .trim()
-        .max(128)
-        .optional()
-        .transform((v) => (v === "" ? undefined : v)),
-      selectedTrackId: z.string().max(128).nullable().optional(),
-      position: z.number().int().min(0).max(100000),
-    })
+    z
+      .object({
+        action: z.enum(["match", "new", "skip"]),
+        deletedItemId: z
+          .string()
+          .trim()
+          .max(128)
+          .optional()
+          .transform((v) => (v === "" ? undefined : v)),
+        selectedTrackId: z.string().max(128).nullable().optional(),
+        position: z.number().int().min(0).max(100000),
+      })
       .superRefine((val, ctx) => {
         if (val.action === "match" && !val.selectedTrackId) {
           ctx.addIssue({
@@ -213,7 +221,9 @@ export async function confirmOrphanedMatches(
           });
 
           if (!existingPlaylistTrack) {
-            throw new Error(`Track is not a member of this playlist: ${match.selectedTrackId}`);
+            throw new OrphanMatchError(
+              `Track is not a member of this playlist: ${match.selectedTrackId}`,
+            );
           }
 
           // The dialog offers candidate rows that are absent from the latest sync
@@ -254,12 +264,19 @@ export async function confirmOrphanedMatches(
     };
   } catch (error) {
     console.error("Error confirming deleted video matches:", error);
-    const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+    if (error instanceof OrphanMatchError) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: error.message,
+        error: error.message,
+      };
+    }
     return {
       success: false,
       processedCount: 0,
-      message: `Failed to process matches. No changes were made. Please try again.`,
-      error: errorMessage,
+      message: "Failed to process matches. No changes were made. Please try again.",
+      error: undefined,
     };
   }
 }

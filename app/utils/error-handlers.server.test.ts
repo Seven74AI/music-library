@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
-import { ServiceNotFoundError } from "#app/features/service-playlist/playlist-utils.server";
+import { ServiceConfigurationError } from "#app/features/service-playlist/playlist-utils.server";
 import {
   YouTubeAPIError,
   YOUTUBE_ERROR_CODES,
@@ -44,8 +44,8 @@ describe("toClientErrorMessage", () => {
     expect(toClientErrorMessage(new YouTubeValidationError("Title is required"))).toBe(
       "Title is required",
     );
-    expect(toClientErrorMessage(new ServiceNotFoundError("youtube"))).toBe(
-      "Service not found: youtube",
+    expect(toClientErrorMessage(new ServiceConfigurationError("youtube"))).toBe(
+      "Service not configured: youtube",
     );
   });
 });

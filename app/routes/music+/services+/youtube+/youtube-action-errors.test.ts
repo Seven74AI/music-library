@@ -134,4 +134,50 @@ describe("YouTube route action error responses", () => {
     const thrown = (await run()) as { init?: { status?: number } | null };
     expect(thrown.init?.status).not.toBe(400);
   });
+
+  test("confirm-deleted-match maps domain failure to 403 and generic failure to 200", async () => {
+    consoleError.mockImplementation(() => {});
+    const run = () => {
+      const formData = new FormData();
+      formData.set("intent", YOUTUBE_PLAYLIST_DETAIL_INTENTS.CONFIRM_DELETED_MATCH);
+      formData.set("matches", JSON.stringify([{ action: "new", position: 1 }]));
+      const request = new Request("http://localhost/music/services/youtube/playlist/p1", {
+        method: "POST",
+        body: formData,
+      });
+      return playlistAction({
+        request,
+        params: { id: "p1" },
+        context: {} as never,
+        url: new URL(request.url),
+        pattern: "/music/services/youtube/playlist/:id",
+      }) as Promise<{ init?: { status?: number } | null; data: unknown }>;
+    };
+
+    vi.mocked(confirmOrphanedMatches).mockResolvedValueOnce({
+      success: false,
+      processedCount: 0,
+      message: "Track is not a member of this playlist: t1",
+      error: "Track is not a member of this playlist: t1",
+    });
+    const domain = await run();
+    expect(domain.init?.status).toBe(403);
+    expect(domain.data).toEqual({
+      status: "error",
+      message: "Track is not a member of this playlist: t1",
+    });
+
+    vi.mocked(confirmOrphanedMatches).mockResolvedValueOnce({
+      success: false,
+      processedCount: 0,
+      message: "Failed to process matches. No changes were made. Please try again.",
+      error: undefined,
+    });
+    const generic = await run();
+    expect(generic.init?.status ?? 200).toBe(200);
+    expect(generic.data).toMatchObject({
+      status: "error",
+      message: "Failed to process matches. No changes were made. Please try again.",
+    });
+  });
 });
