@@ -1419,8 +1419,3 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
     })),
   };
 }
-
-export async function getRoomSnapshotByCode(code: string) {
-  const room = await findOpenRoomByCode(code);
-  return getRoomSnapshot(room.id);
-}

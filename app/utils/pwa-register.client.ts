@@ -15,10 +15,6 @@ export function onServiceWorkerUpdate(callback: () => void) {
   if (updateReady) callback();
 }
 
-export function isServiceWorkerUpdateReady(): boolean {
-  return updateReady;
-}
-
 type ServiceWorkerEnv = Partial<Pick<Window["ENV"], "MODE" | "DISABLE_SERVICE_WORKER">>;
 
 /**
