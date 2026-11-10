@@ -34,6 +34,7 @@ import { YOUTUBE_SERVICE } from "#app/constants/services";
 import {
   createServicePlaylistService,
   confirmOrphanedMatches,
+  orphanMatchesSchema,
 } from "#app/features/service-playlist/service-playlist.server";
 import {
   isPlaylistWithTracks,
@@ -137,11 +138,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
               id: t.id,
               title: String(t.title),
               externalId: t.externalId || null,
+              membershipId: t.membershipId,
             })),
             removedTracks: result.removedTracks.map((t) => ({
               id: t.id,
               title: String(t.title),
               externalId: t.externalId || null,
+              membershipId: t.membershipId,
             })),
             pendingMatches: result.pendingMatches,
           });
@@ -176,12 +179,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
         }
 
         try {
-          const matches = JSON.parse(matchesJson) as Array<{
-            deletedItemId: string | undefined;
-            selectedTrackId: string | null;
-            position: number;
-            action: "match" | "new" | "skip";
-          }>;
+          const parsed = orphanMatchesSchema.safeParse(JSON.parse(matchesJson));
+          if (!parsed.success) {
+            return data({ status: "error", message: "Invalid matches format" }, { status: 400 });
+          }
+          const matches = parsed.data;
 
           const result = await confirmOrphanedMatches(params.id!, matches, userId);
 
@@ -568,10 +570,16 @@ export default function YouTubeSyncedPlaylistDetailPage() {
               <div className="mt-2 text-sm text-green-700 dark:text-green-300">
                 <p className="font-medium">Deleted tracks: {actionData.deletedTracks.length}</p>
                 <ul className="list-disc list-inside mt-1 space-y-1">
-                  {(actionData.deletedTracks as Array<{ id: string; title: string }>)
+                  {(
+                    actionData.deletedTracks as Array<{
+                      id: string;
+                      title: string;
+                      membershipId?: string;
+                    }>
+                  )
                     .slice(0, 5)
                     .map((track) => (
-                      <li key={track.id}>{track.title}</li>
+                      <li key={track.membershipId ?? track.id}>{track.title}</li>
                     ))}
                   {actionData.deletedTracks.length > 5 && (
                     <li className="text-muted-foreground">
