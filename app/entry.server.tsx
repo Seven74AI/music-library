@@ -10,12 +10,98 @@ import { getEnv, init } from "./utils/env.server.ts";
 import { getInstanceInfo } from "./utils/litefs.server.ts";
 import { NonceProvider } from "./utils/nonce-provider.ts";
 import { getServerAppContext } from "./utils/router-context.server.ts";
+import { registerInProcessJobStopper } from "./utils/in-process-job-registry.server.ts";
 import { makeTimings } from "./utils/timing.server.ts";
 
 export const streamTimeout = 5000;
 
 init();
 global.ENV = getEnv();
+
+// Start the audio-archive worker if enabled.
+// Runs as an in-process setInterval per ADR-011 — only on the LiteFS primary instance.
+if (process.env.AUDIO_ARCHIVE_ENABLED === "true") {
+  const intervalMs = Number(process.env.AUDIO_ARCHIVE_INTERVAL_MS) || 120_000;
+  void import("./features/audio-archive/worker.server.ts").then(
+    ({ startAudioArchiveWorker, stopAudioArchiveWorker }) => {
+      startAudioArchiveWorker(intervalMs);
+      registerInProcessJobStopper("audio-archive", stopAudioArchiveWorker);
+    },
+  );
+}
+
+// Start SQLite backup scheduler when BACKUP_BUCKET_NAME is set (ADR-029).
+if (process.env.BACKUP_BUCKET_NAME) {
+  void import("./features/db-backup/scheduler.server.ts").then(
+    ({ startBackupScheduler, stopBackupScheduler }) => {
+      startBackupScheduler();
+      registerInProcessJobStopper("db-backup", stopBackupScheduler);
+    },
+  );
+}
+
+// Party Room empty-room TTL sweeper (ADR-030) — primary only, always on.
+if (process.env.NODE_ENV !== "test") {
+  void import("./features/party-room/empty-room-sweeper.server.ts").then(
+    ({ startEmptyRoomSweeper, stopEmptyRoomSweeper }) => {
+      startEmptyRoomSweeper();
+      registerInProcessJobStopper("party-empty-room", stopEmptyRoomSweeper);
+    },
+  );
+}
+
+// Review-queue quality check (system detection). Daily at 02:00 UTC on the
+// LiteFS primary — same in-process interval as the other background jobs.
+if (process.env.NODE_ENV !== "test") {
+  void import("./utils/quality-check.server.ts").then(
+    ({ scheduleQualityCheck, stopQualityCheckScheduler }) => {
+      scheduleQualityCheck();
+      registerInProcessJobStopper("quality-check", stopQualityCheckScheduler);
+    },
+  );
+}
+
+// Duplicate-detection cache refresh (ADR-034). Daily at 02:00 UTC on the primary.
+if (process.env.NODE_ENV !== "test") {
+  void import("./utils/duplicate-detection-scheduler.server.ts").then(
+    ({ scheduleDuplicateDetection, stopDuplicateDetectionScheduler }) => {
+      scheduleDuplicateDetection();
+      registerInProcessJobStopper("duplicate-detection", stopDuplicateDetectionScheduler);
+    },
+  );
+}
+
+// On-repeat snapshots for the previous UTC month (ADR-024). 1st at 02:00 UTC on the primary.
+if (process.env.NODE_ENV !== "test") {
+  void import("./features/on-repeat-snapshots/scheduler.server.ts").then(
+    ({ scheduleOnRepeatSnapshots, stopOnRepeatSnapshotScheduler }) => {
+      scheduleOnRepeatSnapshots();
+      registerInProcessJobStopper("on-repeat-snapshots", stopOnRepeatSnapshotScheduler);
+    },
+  );
+}
+
+// Security-event retention: drop non-perpetual rows older than 90 days.
+if (process.env.NODE_ENV !== "test") {
+  void import("./features/security/retention-sweeper.server.ts").then(
+    ({ startSecurityEventSweeper, stopSecurityEventSweeper }) => {
+      startSecurityEventSweeper();
+      registerInProcessJobStopper("security-retention", stopSecurityEventSweeper);
+    },
+  );
+}
+
+// Upload-progress TTL sweeper: reclaim abandoned in-memory upload sessions so
+// their audio buffers cannot accumulate without bound. No-op when the Redis
+// backend is configured (EXPIRE handles TTL there). See ADR-038.
+if (process.env.NODE_ENV !== "test") {
+  void import("./features/upload-progress/progress-store.server.ts").then(
+    ({ startUploadProgressSweeper, stopUploadProgressSweeper }) => {
+      startUploadProgressSweeper();
+      registerInProcessJobStopper("upload-progress", stopUploadProgressSweeper);
+    },
+  );
+}
 
 const MODE = process.env.NODE_ENV ?? "development";
 

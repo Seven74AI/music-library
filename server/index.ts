@@ -17,7 +17,7 @@ import {
 import { createRouterLoadContext } from "../app/utils/router-context.server.ts";
 import { init } from "../app/utils/env.server.ts";
 import { createHttpsUpgradeMiddleware } from "./https-upgrade-middleware.ts";
-import { startInProcessJobs, stopInProcessJobs } from "./in-process-jobs.server.ts";
+import { drainInProcessJobStoppers } from "../app/utils/in-process-job-registry.server.ts";
 import { requestUrlForAccessLog } from "./request-log-url.ts";
 
 init();
@@ -238,8 +238,6 @@ if (!portAvailable && !IS_DEV) {
   process.exit(1);
 }
 
-startInProcessJobs();
-
 const server = app.listen(portToUse, async () => {
   if (!portAvailable) {
     console.warn(
@@ -268,7 +266,7 @@ ${styleText("bold", "Press Ctrl+C to stop")}
 });
 
 closeWithGrace(async ({ err }) => {
-  await stopInProcessJobs();
+  await drainInProcessJobStoppers();
   await new Promise((resolve, reject) => {
     server.close((e) => (e ? reject(e) : resolve("ok")));
   });
