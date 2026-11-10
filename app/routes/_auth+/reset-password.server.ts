@@ -7,7 +7,7 @@ import {
   resetPasswordGrantTokenSessionKey,
   resetPasswordUsernameSessionKey,
 } from "./reset-password.tsx";
-import { type VerifyFunctionArgs } from "./verify.server.ts";
+import { type VerifyFunctionArgs } from "./verify.shared.ts";
 
 export async function handleVerification({ submission }: VerifyFunctionArgs) {
   invariant(submission.status === "success", "Submission should be successful by now");
