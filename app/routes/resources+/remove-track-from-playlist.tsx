@@ -58,6 +58,7 @@ export async function action({ request }: Route.ActionArgs) {
           message: `Track is not in "${result.playlistTitle}"`,
         },
         {
+          status: 404,
           headers: await createToastHeaders({
             title: "Not Found",
             description: `Track is not in "${result.playlistTitle}"`,
