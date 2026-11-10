@@ -4,7 +4,7 @@
  * Provider fetch wiring and cold-start flags. AudioPlayer is mocked for speed.
  * Queue ordering and queue sheet UX are covered in audio-player-queue.integration.test.tsx.
  */
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi, beforeEach, afterEach } from "vitest";
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
@@ -5890,6 +5890,74 @@ test("online backfill does not re-anchor after the user mutates the queue offlin
   expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
   expect(screen.getByTestId("spine-position").textContent).toBe("0");
   expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+});
+
+test("coverless track display hydration is not re-requested on every navigation change", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const coverlessTrack: FullTrack = {
+      ...playableTrack,
+      id: "coverless-track",
+      coverImage: null,
+    };
+
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/api/tracks/playback")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks: [coverlessTrack] }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+
+    function DisplayHydrationProbe() {
+      const { playNextTrack, hydrateTracksForDisplay } = useAudioPlayer();
+      return (
+        <>
+          <button type="button" onClick={() => playNextTrack(coverlessTrack)}>
+            Seed coverless track
+          </button>
+          <button type="button" onClick={() => hydrateTracksForDisplay(["coverless-track"])}>
+            Hydrate display
+          </button>
+        </>
+      );
+    }
+
+    render(
+      <AudioPlayerProvider>
+        <DisplayHydrationProbe />
+      </AudioPlayerProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /seed coverless track/i }));
+    });
+    fetchMock.mockClear();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /hydrate display/i }));
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes("/api/tracks/playback")),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /hydrate display/i }));
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes("/api/tracks/playback")),
+    ).toHaveLength(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("restore keeps explicit upNext audibleSourceZone without forcing spine", async () => {

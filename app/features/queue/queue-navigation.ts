@@ -255,13 +255,6 @@ export function buildFlatQueueView(state: QueueNavigationState): QueueTrack[] {
   return [...state.upNext, ...getSpinePlayOrder(state)];
 }
 
-export function flatIndexForSpinePosition(
-  state: QueueNavigationState,
-  spinePosition: number,
-): number {
-  return state.upNext.length + Math.max(0, spinePosition - state.spinePosition);
-}
-
 /** True when the queue sheet spine list includes the row at `spinePosition` (not upcoming-only). */
 export function queueSpineDisplayIncludesHead(
   hasCurrentTrack: boolean,

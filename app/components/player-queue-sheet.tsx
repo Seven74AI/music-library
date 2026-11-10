@@ -25,7 +25,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "#app/components/ui/sheet";
-import { collectQueueDisplayHydrationIds } from "#app/features/queue/queue-hydration.ts";
+import { collectHydrationIds } from "#app/features/queue/queue-hydration.ts";
 import {
   queueSpineDisplayIncludesHead,
   spineOrderIndexFromDisplayIndex,
@@ -243,18 +243,31 @@ function QueueSheet({
   const queueScrollRef = useRef<HTMLDivElement>(null);
   const [isOpen, setIsOpen] = useState(false);
 
-  const currentTrackId = currentTrack?.id;
-
-  const queueSheetTrackIds = useMemo(() => {
-    return collectQueueDisplayHydrationIds(queueNavigationState, currentTrackId ?? null, {
-      audibleIsSpineHead: currentTrack !== null && audibleSourceZone === "spine",
-    }).join(",");
-  }, [queueNavigationState, currentTrackId, currentTrack, audibleSourceZone]);
+  const playbackLookaheadHydrationKey = useMemo(() => {
+    return collectHydrationIds(queueNavigationState, currentTrack?.id ?? null).join(",");
+  }, [queueNavigationState, currentTrack?.id]);
 
   useEffect(() => {
-    if (!isOpen || queueSheetTrackIds.length === 0) return;
-    hydrateTracksForDisplay(queueSheetTrackIds.split(","));
-  }, [isOpen, queueSheetTrackIds, hydrateTracksForDisplay]);
+    if (!isOpen || playbackLookaheadHydrationKey.length === 0) return;
+    hydrateTracksForDisplay(playbackLookaheadHydrationKey.split(","));
+  }, [isOpen, playbackLookaheadHydrationKey, hydrateTracksForDisplay]);
+
+  const shortListHydrationKey = useMemo(() => {
+    if (!isOpen) return "";
+    const ids: string[] = [];
+    if (upNext.length > 0 && upNext.length < UP_NEXT_VIRTUAL_THRESHOLD) {
+      ids.push(...upNext.map((track) => track.id));
+    }
+    if (spine.length > 0 && spine.length < SPINE_VIRTUAL_THRESHOLD) {
+      ids.push(...spine.map((track) => track.id));
+    }
+    return [...new Set(ids)].join(",");
+  }, [isOpen, upNext, spine]);
+
+  useEffect(() => {
+    if (!isOpen || shortListHydrationKey.length === 0) return;
+    hydrateTracksForDisplay(shortListHydrationKey.split(","));
+  }, [isOpen, shortListHydrationKey, hydrateTracksForDisplay]);
 
   const spineLabel = getSpineSectionLabel(playContext);
   const sheetTitle = formatQueueSheetTitle(upNext.length, spineTotal, spineLabel);

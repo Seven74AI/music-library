@@ -47,16 +47,6 @@ export function isNumber(value: unknown): value is number {
 }
 
 /**
- * Type guard to check if a value is a boolean
- *
- * @param value - The value to check
- * @returns True if the value is a boolean
- */
-export function isBoolean(value: unknown): value is boolean {
-  return typeof value === "boolean";
-}
-
-/**
  * Type guard to check if a value is a Date
  *
  * @param value - The value to check
@@ -74,26 +64,6 @@ export function isDate(value: unknown): value is Date {
  */
 export function isNull(value: unknown): value is null {
   return value === null;
-}
-
-/**
- * Type guard to check if a value is undefined
- *
- * @param value - The value to check
- * @returns True if the value is undefined
- */
-export function isUndefined(value: unknown): value is undefined {
-  return value === undefined;
-}
-
-/**
- * Type guard to check if a value is null or undefined
- *
- * @param value - The value to check
- * @returns True if the value is null or undefined
- */
-export function isNullOrUndefined(value: unknown): value is null | undefined {
-  return value === null || value === undefined;
 }
 
 /**

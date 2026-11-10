@@ -181,36 +181,6 @@ export function createYouTubeOAuthService(): YouTubeOAuthService {
   return new YouTubeOAuthService(config);
 }
 
-/**
- * Validate YouTube tokens
- */
-export async function validateYouTubeTokens(tokens: {
-  access_token?: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}): Promise<boolean> {
-  try {
-    const oauth2Client = new google.auth.OAuth2();
-    oauth2Client.setCredentials(tokens);
-
-    const youtube = google.youtube({
-      version: "v3",
-      auth: oauth2Client,
-    });
-
-    // Test the token by making a simple API call
-    await youtube.channels.list({
-      part: ["id"],
-      mine: true,
-    });
-
-    return true;
-  } catch (error) {
-    console.error("YouTube token validation failed:", error);
-    return false;
-  }
-}
-
 export const YOUTUBE_OAUTH_STATE_COOKIE_NAME = "en_youtube_oauth_state";
 
 /**

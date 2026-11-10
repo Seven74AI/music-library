@@ -1,5 +1,9 @@
 import { downloadExternalImage, findOrCreateCoverImage } from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server";
+import {
+  COVER_ADMIN_CLIENT_ERROR_MESSAGE,
+  toClientErrorMessage,
+} from "#app/utils/error-handlers.server";
 import { type Prisma } from "#prisma/client.js";
 
 export async function getTracksWithoutCovers(params: { limit?: number; offset?: number } = {}) {
@@ -230,7 +234,10 @@ export async function retryFetchCover(
     return { success: true };
   } catch (error) {
     console.error(`Error fetching cover for track ${trackId}:`, error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return {
+      success: false,
+      error: toClientErrorMessage(error, COVER_ADMIN_CLIENT_ERROR_MESSAGE),
+    };
   }
 }
 
@@ -270,7 +277,10 @@ export async function uploadTrackCover(
     return { success: true };
   } catch (error) {
     console.error(`Error uploading cover for track ${trackId}:`, error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return {
+      success: false,
+      error: toClientErrorMessage(error, COVER_ADMIN_CLIENT_ERROR_MESSAGE),
+    };
   }
 }
 
@@ -302,7 +312,10 @@ export async function uploadAlbumCover(
     return { success: true };
   } catch (error) {
     console.error(`Error uploading cover for album ${albumId}:`, error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return {
+      success: false,
+      error: toClientErrorMessage(error, COVER_ADMIN_CLIENT_ERROR_MESSAGE),
+    };
   }
 }
 
@@ -346,7 +359,10 @@ export async function inheritCoverFromTrack(
     return { success: true };
   } catch (error) {
     console.error(`Error inheriting cover for album ${albumId}:`, error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return {
+      success: false,
+      error: toClientErrorMessage(error, COVER_ADMIN_CLIENT_ERROR_MESSAGE),
+    };
   }
 }
 

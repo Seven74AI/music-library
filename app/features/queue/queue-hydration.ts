@@ -16,6 +16,11 @@ export function isRoomSpeakerHydrationStub(track: FullTrack): boolean {
   );
 }
 
+/** Queue stubs and other rows without playback payload still need a catalog fetch. */
+export function isPlaybackHydrationStub(track: FullTrack): boolean {
+  return (track.audioFiles?.length ?? 0) === 0;
+}
+
 export type PlaybackBatchResponse = {
   tracks: FullTrack[];
 };
@@ -75,7 +80,8 @@ export class PlaybackHydrationCache {
     const targetIds = ids.filter((id) => {
       if (!this.cache.has(id)) return true;
       if (options?.refetchIncomplete) {
-        return !this.cache.get(id)?.coverImage;
+        const cached = this.cache.get(id);
+        return cached !== undefined && isPlaybackHydrationStub(cached);
       }
       return false;
     });

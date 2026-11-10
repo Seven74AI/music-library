@@ -233,13 +233,16 @@ describe("hydratePlaybackCacheInBatches", () => {
     expect(updated).toBe(0);
   });
 
-  test("refetches cached stubs missing cover art when refetchIncomplete is set", async () => {
+  test("refetches queue stubs without playback payload when refetchIncomplete is set", async () => {
     const fetchMock = vi.mocked(fetch);
     const cache = new PlaybackHydrationCache();
     cache.set({
-      ...fullTrack,
       id: "track-1",
+      title: "Song",
+      artist: { id: "artist-1", name: "Artist" },
+      duration: null,
       coverImage: null,
+      audioFiles: [],
     });
 
     fetchMock.mockResolvedValue({
@@ -255,6 +258,23 @@ describe("hydratePlaybackCacheInBatches", () => {
 
     expect(updated).toBe(1);
     expect(cache.get("track-1")?.coverImage).toEqual({ objectKey: "covers/1.jpg" });
+  });
+
+  test("does not refetch full tracks with legitimately null cover when refetchIncomplete is set", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const cache = new PlaybackHydrationCache();
+    cache.set({
+      ...fullTrack,
+      id: "track-1",
+      coverImage: null,
+    });
+
+    const updated = await hydratePlaybackCacheInBatches(cache, ["track-1"], {
+      refetchIncomplete: true,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(updated).toBe(0);
   });
 });
 

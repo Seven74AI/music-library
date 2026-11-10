@@ -109,6 +109,103 @@ export const YOUTUBE_ERROR_CODES = {
   FETCH_FAILED: "FETCH_FAILED",
 } as const;
 
+export type YouTubeGoogleApiErrorPayload = {
+  code?: number;
+  message?: string;
+  errors?: Array<{ message?: string; reason?: string }>;
+};
+
+export const YOUTUBE_PLAYLISTS_CLIENT_ERROR_MESSAGE =
+  "Failed to fetch YouTube playlists. Please try again.";
+export const YOUTUBE_PLAYLIST_ITEMS_CLIENT_ERROR_MESSAGE =
+  "Failed to fetch playlist items. Please try again.";
+
+/**
+ * Map a Google YouTube API error payload to a domain error with a client-safe message.
+ * Upstream `message` text is used only for classification (quota, access), never forwarded.
+ */
+export function throwFromYouTubeGoogleApiError(
+  errorData: YouTubeGoogleApiErrorPayload,
+  context: "playlists" | "playlistItems",
+): never {
+  const errorCode = errorData.code;
+  const upstreamMessage = errorData.message ?? "";
+  const firstError = errorData.errors?.[0];
+  const genericMessage =
+    context === "playlists"
+      ? YOUTUBE_PLAYLISTS_CLIENT_ERROR_MESSAGE
+      : YOUTUBE_PLAYLIST_ITEMS_CLIENT_ERROR_MESSAGE;
+  const accessDeniedMessage =
+    context === "playlistItems"
+      ? "Access denied. The playlist may be private or you may not have permission to view it."
+      : "Access denied. Please check your YouTube account permissions.";
+
+  if (errorCode === 404) {
+    throw new YouTubeNotFoundError("Playlist");
+  }
+
+  if (errorCode === 403) {
+    if (upstreamMessage.includes("quota") || upstreamMessage.includes("Quota")) {
+      throw new YouTubeQuotaError();
+    }
+    throw new YouTubeAPIError(accessDeniedMessage, "ACCESS_DENIED", 403);
+  }
+
+  if (errorCode === 401) {
+    throw new YouTubeAuthError(
+      "Invalid or expired access token. Please reconnect your YouTube account.",
+    );
+  }
+
+  throw new YouTubeAPIError(genericMessage, YOUTUBE_ERROR_CODES.API_ERROR, errorCode || 500);
+}
+
+/**
+ * Re-throw when the error is already a mapped YouTube domain error.
+ */
+export function rethrowIfYouTubeDomainError(error: unknown): void {
+  if (
+    error instanceof YouTubeAPIError ||
+    error instanceof YouTubeNotFoundError ||
+    error instanceof YouTubeQuotaError ||
+    error instanceof YouTubeAuthError ||
+    error instanceof YouTubeNetworkError
+  ) {
+    throw error;
+  }
+}
+
+/**
+ * Map transport-layer Error messages to domain errors without leaking upstream text.
+ */
+export function throwFromYouTubeTransportError(
+  error: Error,
+  context: "playlists" | "playlistItems",
+): never {
+  if (error.message.includes("quota")) {
+    throw new YouTubeQuotaError();
+  }
+  if (
+    error.message.includes("network") ||
+    error.message.includes("timeout") ||
+    error.message.includes("ECONNREFUSED")
+  ) {
+    throw new YouTubeNetworkError(
+      "Unable to connect to YouTube. Please check your internet connection and try again.",
+    );
+  }
+  if (context === "playlistItems") {
+    if (error.message.includes("not found") || error.message.includes("404")) {
+      throw new YouTubeNotFoundError("Playlist");
+    }
+  }
+  const genericMessage =
+    context === "playlists"
+      ? YOUTUBE_PLAYLISTS_CLIENT_ERROR_MESSAGE
+      : YOUTUBE_PLAYLIST_ITEMS_CLIENT_ERROR_MESSAGE;
+  throw new YouTubeAPIError(genericMessage, YOUTUBE_ERROR_CODES.API_ERROR, 500);
+}
+
 // Error factory functions
 export const YouTubeErrorFactory = {
   validation: (message: string, field?: string) => new YouTubeValidationError(message, field),

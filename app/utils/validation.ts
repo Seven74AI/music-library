@@ -52,29 +52,3 @@ export function validateYouTubeAPIResponse<T>(data: unknown, schema: z.ZodSchema
 
 // Database validation removed - use Prisma types directly
 // Prisma handles database-level validation and type safety
-
-/**
- * Safe validation that returns result object instead of throwing
- *
- * @param data - Raw data to validate
- * @param schema - Zod schema to validate against
- * @returns Result object with success/error information
- */
-export function safeValidate<T>(
-  data: unknown,
-  schema: z.ZodSchema<T>,
-): { success: true; data: T } | { success: false; error: string } {
-  const result = schema.safeParse(data);
-
-  if (!result.success) {
-    return {
-      success: false,
-      error: `Validation failed: ${result.error.message}`,
-    };
-  }
-
-  return {
-    success: true,
-    data: result.data,
-  };
-}
