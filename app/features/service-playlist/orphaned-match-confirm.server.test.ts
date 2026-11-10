@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { getDuplicateMatchedTrackIds, orphanMatchesSchema } from "./orphaned-match-confirm.server";
+import {
+  confirmOrphanedMatches,
+  getDuplicateDeletedItemIds,
+  getDuplicateMatchedTrackIds,
+  orphanMatchesSchema,
+} from "./orphaned-match-confirm.server";
 
 describe("getDuplicateMatchedTrackIds", () => {
   test("returns empty when each matched track is unique", () => {
@@ -49,7 +54,7 @@ describe("orphanMatchesSchema", () => {
 
   test("treats an empty-string deletedItemId as omitted", () => {
     const parsed = orphanMatchesSchema.safeParse([
-      { action: "new", position: 1, deletedItemId: "" },
+      { action: "skip", position: 1, deletedItemId: "" },
     ]);
     expect(parsed.success).toBe(true);
     expect(parsed.data?.[0]?.deletedItemId).toBeUndefined();
@@ -64,5 +69,69 @@ describe("orphanMatchesSchema", () => {
         { action: "new", position: 1, deletedItemId: "x".repeat(129) },
       ]).success,
     ).toBe(false);
+  });
+});
+
+describe("orphanMatchesSchema cross-field validation and bounds", () => {
+  test("rejects match without selectedTrackId", () => {
+    expect(orphanMatchesSchema.safeParse([{ action: "match", position: 0 }]).success).toBe(false);
+  });
+
+  test("rejects new without deletedItemId", () => {
+    expect(orphanMatchesSchema.safeParse([{ action: "new", position: 0 }]).success).toBe(false);
+  });
+
+  test("accepts valid match and new", () => {
+    expect(
+      orphanMatchesSchema.safeParse([
+        { action: "match", selectedTrackId: "t1", position: 0 },
+        { action: "new", deletedItemId: "d1", position: 1 },
+      ]).success,
+    ).toBe(true);
+  });
+
+  test("rejects position over 100000", () => {
+    expect(orphanMatchesSchema.safeParse([{ action: "skip", position: 100001 }]).success).toBe(
+      false,
+    );
+  });
+
+  test("rejects selectedTrackId over 128 chars", () => {
+    expect(
+      orphanMatchesSchema.safeParse([
+        { action: "match", selectedTrackId: "a".repeat(129), position: 0 },
+      ]).success,
+    ).toBe(false);
+  });
+});
+
+describe("getDuplicateDeletedItemIds", () => {
+  test("returns duplicated ids only", () => {
+    expect(
+      getDuplicateDeletedItemIds([
+        { deletedItemId: "d1" },
+        { deletedItemId: "d2" },
+        { deletedItemId: "d1" },
+        { deletedItemId: undefined },
+        { deletedItemId: undefined },
+      ]),
+    ).toEqual(["d1"]);
+  });
+
+  test("confirmOrphanedMatches rejects duplicates before touching the DB", async () => {
+    const result = await confirmOrphanedMatches(
+      "p1",
+      [
+        { action: "new", deletedItemId: "d1", position: 0 },
+        { action: "new", deletedItemId: "d1", position: 1 },
+      ],
+      "u1",
+    );
+    expect(result).toEqual({
+      success: false,
+      processedCount: 0,
+      message: "Each deleted video can only be used once.",
+      error: "Duplicate deleted video selections: d1",
+    });
   });
 });
