@@ -13,9 +13,18 @@ export const orphanMatchesSchema = z
         .max(128)
         .optional()
         .transform((v) => (v === "" ? undefined : v)),
-      selectedTrackId: z.string().nullable().optional(),
-      position: z.number().int().min(0),
-    }),
+      selectedTrackId: z.string().max(128).nullable().optional(),
+      position: z.number().int().min(0).max(100000),
+    })
+      .superRefine((val, ctx) => {
+        if (val.action === "match" && !val.selectedTrackId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["selectedTrackId"],
+            message: "selectedTrackId is required for match",
+          });
+        }
+      }),
   )
   .max(200);
 
@@ -48,6 +57,28 @@ export function getDuplicateMatchedTrackIds(
 }
 
 /**
+ * Deleted item ids selected more than once.
+ */
+export function getDuplicateDeletedItemIds(
+  matches: Array<{ action: string; deletedItemId?: string | null }>,
+): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const match of matches) {
+    if (match.action !== "new" && match.action !== "match") continue;
+    if (!match.deletedItemId) continue;
+    if (seen.has(match.deletedItemId)) {
+      duplicates.add(match.deletedItemId);
+    } else {
+      seen.add(match.deletedItemId);
+    }
+  }
+
+  return [...duplicates];
+}
+
+/**
  * Confirm deleted video matches — process user selections for pending matches.
  *
  * Handles creating new tracks for deleted videos, matching to existing orphan tracks,
@@ -70,6 +101,16 @@ export async function confirmOrphanedMatches(
       processedCount: 0,
       message: "Each orphaned track can only be matched to one deleted video.",
       error: `Duplicate track selections: ${duplicateTrackIds.join(", ")}`,
+    };
+  }
+
+  const duplicateDeletedIds = getDuplicateDeletedItemIds(matches);
+  if (duplicateDeletedIds.length > 0) {
+    return {
+      success: false,
+      processedCount: 0,
+      message: "Each deleted video can only be used once.",
+      error: `Duplicate deleted video selections: ${duplicateDeletedIds.join(", ")}`,
     };
   }
 
