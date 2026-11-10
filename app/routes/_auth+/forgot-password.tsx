@@ -69,8 +69,7 @@ export async function action({ request }: Route.ActionArgs) {
         ),
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not send reset email";
-      return data({ result: submission.reply({ formErrors: [message] }) }, { status: 500 });
+      console.error("Forgot password email error:", error);
     }
     redirectTo = prepared.redirectTo;
   }

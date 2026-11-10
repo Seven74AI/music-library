@@ -19,6 +19,10 @@ import {
   YOUTUBE_PAGE_TYPES,
 } from "#app/types/youtube-intents";
 import { requireUserId } from "#app/utils/auth.server";
+import {
+  SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
+  toClientErrorMessage,
+} from "#app/utils/error-handlers.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { importTrackDirectly } from "#app/utils/service-import.server";
 import { searchYouTubeVideos } from "#app/utils/youtube-search.server";
@@ -87,7 +91,7 @@ export async function action({ request }: ActionFunctionArgs) {
     console.error("YouTube import action error:", error);
     return data({
       status: "error",
-      message: error instanceof Error ? error.message : "An unexpected error occurred",
+      message: toClientErrorMessage(error, SERVICE_IMPORT_CLIENT_ERROR_MESSAGE),
     });
   }
 }

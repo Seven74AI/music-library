@@ -13,6 +13,7 @@ import {
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { sendEmail } from "#app/utils/email.server.ts";
+import { VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
 import { EmailSchema } from "#app/utils/user-validation.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -87,8 +88,15 @@ export async function action({ request }: Route.ActionArgs) {
       react: <EmailChangeEmail verifyUrl={verifyUrl.toString()} otp={otp} />,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not send verification email";
-    return data({ result: submission.reply({ formErrors: [message] }) }, { status: 500 });
+    console.error("Change email verification email error:", error);
+    return data(
+      {
+        result: submission.reply({
+          formErrors: [VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE],
+        }),
+      },
+      { status: 500 },
+    );
   }
 
   return redirect(redirectTo.toString());

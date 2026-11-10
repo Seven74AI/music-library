@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { ServiceNotFoundError } from "#app/features/service-playlist/playlist-utils.server";
-import { YouTubeQuotaError, YouTubeValidationError } from "#app/utils/youtube-errors.ts";
+import {
+  YouTubeAPIError,
+  YOUTUBE_ERROR_CODES,
+  YouTubeQuotaError,
+  YouTubeValidationError,
+} from "#app/utils/youtube-errors.ts";
 import {
   DEFAULT_CLIENT_ERROR_MESSAGE,
   SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
@@ -17,6 +22,21 @@ describe("toClientErrorMessage", () => {
     expect(
       toClientErrorMessage(new Error("db exploded"), SERVICE_IMPORT_CLIENT_ERROR_MESSAGE),
     ).toBe(SERVICE_IMPORT_CLIENT_ERROR_MESSAGE);
+  });
+
+  test("does not forward YouTube API key configuration text", () => {
+    expect(
+      toClientErrorMessage(
+        new YouTubeAPIError("YouTube API key is not configured", YOUTUBE_ERROR_CODES.NO_API_KEY),
+        SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
+      ),
+    ).toBe(SERVICE_IMPORT_CLIENT_ERROR_MESSAGE);
+    expect(
+      toClientErrorMessage(
+        new YouTubeAPIError("YouTube API key is not configured", YOUTUBE_ERROR_CODES.NO_API_KEY),
+        SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
+      ),
+    ).not.toMatch(/API key/i);
   });
 
   test("preserves known domain error messages", () => {

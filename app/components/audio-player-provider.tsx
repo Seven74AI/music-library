@@ -17,6 +17,7 @@ import {
   fetchPlaybackBatch,
   hydratePlaybackCacheInBatches,
   isPlaybackHydrationStub,
+  isRoomSpeakerHydrationStub,
   PlaybackHydrationCache,
   resolveFullTrack,
   resolveFullTracks,
@@ -476,54 +477,70 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     [navigationState],
   );
 
-  const hydrateTracksForDisplay = useCallback((ids: string[]) => {
-    if (ids.length === 0 || isOfflineEnvironment()) return;
-
-    for (const id of ids) {
-      if (displayHydrationFetchedIdsRef.current.has(id)) continue;
-
-      const cached = playbackCacheRef.current.get(id);
-      if (cached === undefined) {
-        pendingHydrationIdsRef.current.add(id);
-        continue;
-      }
-      if (isPlaybackHydrationStub(cached)) {
-        pendingHydrationIdsRef.current.add(id);
-        continue;
-      }
-      displayHydrationFetchedIdsRef.current.add(id);
-    }
-
-    if (pendingHydrationIdsRef.current.size === 0) return;
-
-    // Reset the debounce timer — flush 300ms after the last scroll event
-    if (hydrationTimerRef.current) {
-      clearTimeout(hydrationTimerRef.current);
-    }
-
-    hydrationTimerRef.current = setTimeout(() => {
-      const needsHydration = [...pendingHydrationIdsRef.current];
-      pendingHydrationIdsRef.current.clear();
-
-      void (async () => {
-        try {
-          const updated = await hydratePlaybackCacheInBatches(
-            playbackCacheRef.current,
-            needsHydration,
-            { refetchIncomplete: true },
-          );
-          for (const id of needsHydration) {
-            displayHydrationFetchedIdsRef.current.add(id);
-          }
-          if (updated > 0) {
-            setCacheVersion((version) => version + 1);
-          }
-        } catch (error) {
-          console.error("Scroll hydration failed:", error);
-        }
-      })();
-    }, 300);
+  const isCatalogDisplayHydrationComplete = useCallback((track: FullTrack) => {
+    return !isPlaybackHydrationStub(track) && !isRoomSpeakerHydrationStub(track);
   }, []);
+
+  const clearDisplayHydrationLatch = useCallback((ids: string[]) => {
+    for (const id of ids) {
+      displayHydrationFetchedIdsRef.current.delete(id);
+    }
+  }, []);
+
+  const hydrateTracksForDisplay = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0 || isOfflineEnvironment()) return;
+
+      for (const id of ids) {
+        if (displayHydrationFetchedIdsRef.current.has(id)) continue;
+
+        const cached = playbackCacheRef.current.get(id);
+        if (cached === undefined) {
+          pendingHydrationIdsRef.current.add(id);
+          continue;
+        }
+        if (!isCatalogDisplayHydrationComplete(cached)) {
+          pendingHydrationIdsRef.current.add(id);
+          continue;
+        }
+        displayHydrationFetchedIdsRef.current.add(id);
+      }
+
+      if (pendingHydrationIdsRef.current.size === 0) return;
+
+      // Reset the debounce timer — flush 300ms after the last scroll event
+      if (hydrationTimerRef.current) {
+        clearTimeout(hydrationTimerRef.current);
+      }
+
+      hydrationTimerRef.current = setTimeout(() => {
+        const needsHydration = [...pendingHydrationIdsRef.current];
+        pendingHydrationIdsRef.current.clear();
+
+        void (async () => {
+          try {
+            const updated = await hydratePlaybackCacheInBatches(
+              playbackCacheRef.current,
+              needsHydration,
+              { refetchIncomplete: true },
+            );
+            for (const id of needsHydration) {
+              const hydrated = playbackCacheRef.current.get(id);
+              if (hydrated !== undefined && isCatalogDisplayHydrationComplete(hydrated)) {
+                displayHydrationFetchedIdsRef.current.add(id);
+              }
+            }
+            if (updated > 0) {
+              setCacheVersion((version) => version + 1);
+            }
+          } catch (error) {
+            console.error("Scroll hydration failed:", error);
+          }
+        })();
+      }, 300);
+    },
+    [isCatalogDisplayHydrationComplete],
+  );
 
   const fetchOfflineTracks = useCallback(async (context: PlaylistContext): Promise<Track[]> => {
     const storage = getOfflineStorage();
@@ -1030,12 +1047,13 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       rememberTrack(track);
 
       if (position === "next") {
-        const nextCount = upNextPlayNextCountRef.current + 1;
+        const playNextPrefixLength = upNextPlayNextCountRef.current;
+        const nextCount = playNextPrefixLength + 1;
         upNextPlayNextCountRef.current = nextCount;
         setUpNextPlayNextCount(nextCount);
         setUpNext((prev) => {
           const next = [...prev];
-          next.splice(0, 0, queueTrack);
+          next.splice(playNextPrefixLength, 0, queueTrack);
           return next;
         });
         return;
@@ -1169,13 +1187,23 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       const queueTrack = getTrackAtTarget(navigationState, nextTarget);
       if (!queueTrack) return;
 
-      const nextState = advanceAfterPlay(navigationState, nextTarget);
+      const successorTrackId = queueTrack.id;
       const playNextDiscard =
         nextTarget.zone === "upNext" && nextTarget.index < playNextCountAtStart ? 1 : 0;
 
       void playResolvedTrack(queueTrack, {
         navigationEpoch,
-        applyNavigation: (latest) => advanceAfterPlay(latest, nextTarget),
+        applyNavigation: (latest) => {
+          if (nextTarget.zone === "upNext") {
+            const successorIndex = latest.upNext.findIndex(
+              (track) => track.id === successorTrackId,
+            );
+            if (successorIndex >= 0) {
+              return advanceAfterPlay(latest, { zone: "upNext", index: successorIndex });
+            }
+          }
+          return advanceAfterPlay(latest, nextTarget);
+        },
         playNextCountDiscard: playNextDiscard > 0 ? playNextDiscard : undefined,
         navigationScope: "position",
         audibleSourceZone: nextTarget.zone,
@@ -1607,8 +1635,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const evictRoomSpeakerHydrationStubs = useCallback(async () => {
     const evicted = playbackCacheRef.current.evictRoomSpeakerStubs();
     if (evicted.length === 0) return;
+    clearDisplayHydrationLatch(evicted);
     setCacheVersion((version) => version + 1);
-  }, []);
+  }, [clearDisplayHydrationLatch]);
 
   const resumePersonalPersistence = useCallback(() => {
     // Leave persistence suspended until the personal snapshot is applied.
@@ -1645,6 +1674,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       try {
         const evicted = playbackCacheRef.current.evictRoomSpeakerStubs();
         if (evicted.length > 0) {
+          clearDisplayHydrationLatch(evicted);
           setCacheVersion((version) => version + 1);
           try {
             await hydratePlaybackCacheInBatches(playbackCacheRef.current, evicted);
@@ -1682,7 +1712,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         }
       }
     },
-    [closePlayer, releasePersonalPersistence, userId],
+    [clearDisplayHydrationLatch, closePlayer, releasePersonalPersistence, userId],
   );
 
   const syncRoomSpeakerQueue = useCallback(

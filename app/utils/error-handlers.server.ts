@@ -8,7 +8,7 @@
 import { data } from "react-router";
 import { ServiceNotFoundError as PlaylistServiceNotFoundError } from "#app/features/service-playlist/playlist-utils.server";
 import { ValidationError } from "#app/utils/validation.ts";
-import { YouTubeError } from "#app/utils/youtube-errors.ts";
+import { YouTubeAPIError, YouTubeError, YOUTUBE_ERROR_CODES } from "#app/utils/youtube-errors.ts";
 import { ZipExtractionLimitError } from "#app/utils/zip-extraction.server.ts";
 
 export const DEFAULT_CLIENT_ERROR_MESSAGE = "Something went wrong. Please try again.";
@@ -23,6 +23,16 @@ export const SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE =
 export const DUPLICATE_DETECTION_CLIENT_ERROR_MESSAGE =
   "Duplicate detection failed. Please try again.";
 export const COVER_ADMIN_CLIENT_ERROR_MESSAGE = "Failed to update cover image. Please try again.";
+export const VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE =
+  "Could not send verification email. Please try again.";
+
+function isYouTubeConfigError(error: unknown): boolean {
+  return (
+    error instanceof YouTubeAPIError &&
+    (error.code === YOUTUBE_ERROR_CODES.NO_API_KEY ||
+      error.message === "YouTube API key is not configured")
+  );
+}
 
 function isKnownClientError(error: unknown): error is Error {
   return (
@@ -42,6 +52,9 @@ export function toClientErrorMessage(
   error: unknown,
   fallback: string = DEFAULT_CLIENT_ERROR_MESSAGE,
 ): string {
+  if (isYouTubeConfigError(error)) {
+    return fallback;
+  }
   if (isKnownClientError(error)) {
     return error.message;
   }

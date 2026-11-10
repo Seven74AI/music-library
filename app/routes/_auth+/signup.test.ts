@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
+import { VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { action } from "./signup.tsx";
@@ -107,7 +109,9 @@ afterEach(async () => {
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
   await Promise.all(
-    emailRecipients.splice(0).map((recipient) => fs.rm(emailFixturePath(recipient), { force: true })),
+    emailRecipients
+      .splice(0)
+      .map((recipient) => fs.rm(emailFixturePath(recipient), { force: true })),
   );
 });
 
@@ -191,6 +195,39 @@ describe("signup action", () => {
     expect(successShape(unknownResponse).status).toBe(302);
     expect(await unknownResponse.clone().text()).not.toContain("already exists");
     expect(JSON.stringify(successShape(unknownResponse))).not.toContain("already exists");
+  });
+
+  test("does not expose Resend upstream text when sendEmail fails", async () => {
+    consoleError.mockImplementation(() => {});
+    const unknownEmail = `fail-resend.${Date.now()}@example.com`;
+    emailRecipients.push(unknownEmail);
+    trackTarget(unknownEmail);
+    const request = signupRequest(unknownEmail);
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          name: "application_error",
+          message: "Resend upstream secret failure",
+          statusCode: 502,
+        }),
+        { status: 502 },
+      ),
+    );
+
+    try {
+      const { result } = await resendCallsDuring(() => callAction(request));
+      expect(result).toMatchObject({
+        type: "DataWithResponseInit",
+        init: { status: 500 },
+      });
+      const serialized = JSON.stringify(result);
+      expect(serialized).toContain(VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE);
+      expect(serialized).not.toContain("Resend");
+      expect(serialized).not.toContain("upstream secret");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   test("a malformed email still returns 400 and does not email or store a verification", async () => {

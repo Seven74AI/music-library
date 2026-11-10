@@ -39,6 +39,7 @@ import {
   getIntentErrorMessage,
 } from "#app/types/youtube-intents";
 import { requireUserId } from "#app/utils/auth.server";
+import { toClientErrorMessage } from "#app/utils/error-handlers.server";
 import { handleLoaderError } from "#app/utils/error-handlers.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type ServicePlaylist } from "#prisma/client.js";
@@ -146,7 +147,7 @@ export async function action({ request }: ActionFunctionArgs) {
     console.error("Error in synced playlists action:", error);
     return data({
       status: "error",
-      message: error instanceof Error ? error.message : "An error occurred",
+      message: toClientErrorMessage(error),
     });
   }
 }
