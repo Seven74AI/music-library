@@ -1,1 +1,2 @@
-export { LIBRARY_TRACKS_PAGE_SIZE } from "#app/features/queue/library-tracks-page-size.ts";
+/** Keyset page size for library listing, library queue spine, and album track loads. */
+export const LIBRARY_TRACKS_PAGE_SIZE = 50;

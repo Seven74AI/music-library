@@ -1,5 +1,5 @@
 import { listLibraryQueueSpineTracks } from "./library-queue-tracks.server.ts";
-import { LIBRARY_TRACKS_PAGE_SIZE } from "./library-tracks-page-size.ts";
+import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
 import { QUEUE_TRACK_SELECT } from "./queue-track-select.ts";
 import { listDiscoverSpineTracks } from "#app/utils/discover-tracks.server.ts";
 import {

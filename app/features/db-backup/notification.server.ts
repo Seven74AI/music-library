@@ -1,7 +1,7 @@
 /**
  * Telegram alerts for SQLite backup failures.
  */
-import { sendTelegramMessage } from "#app/features/audio-archive/notification.server.ts";
+import { sendTelegramMessage } from "#app/utils/telegram-notification.server.ts";
 
 function escapeHtml(text: string): string {
   return text

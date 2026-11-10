@@ -9,7 +9,7 @@ import {
   type LibrarySortOption,
 } from "#app/features/listening-insights/heavy-rotation.ts";
 import { listMostPlayedLibraryPage } from "#app/features/listening-insights/library-tracks.server.ts";
-import { LIBRARY_TRACKS_PAGE_SIZE } from "./library-tracks-page-size.ts";
+import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
 import { QUEUE_TRACK_SELECT } from "./queue-track-select.ts";
 
 /**
