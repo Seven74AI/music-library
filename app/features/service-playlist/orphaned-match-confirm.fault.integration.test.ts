@@ -90,6 +90,7 @@ describe("confirmOrphanedMatches server faults", () => {
       processedCount: 0,
       message: "Track is not a member of this playlist: not-a-member",
       error: "Track is not a member of this playlist: not-a-member",
+      status: 403,
     });
   });
 });
