@@ -30,6 +30,7 @@ import {
   getCurrentlyProcessingJobs,
 } from "#app/features/audio-archive/worker.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { parsePageParam } from "#app/utils/parse-page-param.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -730,13 +731,4 @@ export function ErrorBoundary() {
 
 export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "P2002"
-  );
 }

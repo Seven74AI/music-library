@@ -22,7 +22,7 @@ import { clearBlobUrlCache } from "#app/features/offline-storage/resolve-playbac
 import { type RoomTransportAction } from "#app/features/party-room/types.ts";
 import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
-import { triggerBrowserDownload } from "#app/utils/download.ts";
+import { useTrackAudioFileDownload } from "#app/hooks/use-track-audio-file-download.ts";
 import { updateMediaSessionPositionState } from "#app/utils/media-session.client.ts";
 import { coverImageUrl, nowPlayingCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { adjustVolumeStep, getPlayerKeyboardAction } from "#app/utils/player-keyboard-shortcuts.ts";
@@ -195,7 +195,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
   // Last room-speaker source we started. Queue snapshots recreate `track` /
   // `roomSpeaker` without changing this key and must not rewind.
   const roomPlayKeyRef = useRef<string | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const { isDownloading, downloadAudioFile: handleDownload } = useTrackAudioFileDownload(
+    track ? { id: track.id, title: track.title } : null,
+  );
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
   const isOnline = useOnlineStatus();
 
@@ -879,29 +881,6 @@ export function AudioPlayer(props: AudioPlayerProps) {
     audioSrcOverride,
     stopFailedPlayback,
   ]);
-
-  const handleDownload = async () => {
-    if (!track) return;
-    setIsDownloading(true);
-    try {
-      const response = await fetch(`/resources/audio/${track.id}/download-url`);
-      if (!response.ok) {
-        throw new Error(`Failed to get download URL: ${response.status}`);
-      }
-      const { fileName } = (await response.json()) as { fileName: string };
-
-      await triggerBrowserDownload(`/resources/audio/${track.id}?stream=1`, fileName);
-    } catch (error) {
-      console.error("Download failed:", error);
-      toast({
-        title: "Download failed",
-        description: error instanceof Error ? error.message : "Could not download track",
-        variant: "destructive",
-      });
-    } finally {
-      setIsDownloading(false);
-    }
-  };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!audioRef.current) return;
