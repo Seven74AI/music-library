@@ -2194,17 +2194,20 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     }
   }, []);
 
-  // Migrated/local-cache rows may omit zone + pin spinePosition 0. Once a spine
-  // exists, re-infer before the debounced persist can write the wrong index.
+  // Migrated rows may omit zone; persisted spine rows may carry a stale index
+  // after the spine re-derives. Re-anchor from currentTrackId before debounced
+  // persist writes the wrong index — but never override a user queue edit.
   useEffect(() => {
     const track = currentTrack;
     if (!track?.id || !isPlayableTrack(track)) return;
-    if (!isAudibleSourceZoneUnknown(audibleSourceZone)) return;
+    if (userMutatedQueueRef.current) return;
+    const zoneUnknown = isAudibleSourceZoneUnknown(audibleSourceZone);
+    if (!zoneUnknown && audibleSourceZone !== "spine") return;
     if (spine.length === 0 || spineOrder.length === 0) return;
 
     const inferred = inferAudibleSourceForRestore(
-      true,
-      null,
+      zoneUnknown,
+      audibleSourceZone,
       spinePosition,
       navigationState,
       track.id,

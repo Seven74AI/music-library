@@ -35,7 +35,7 @@ describe("InRoomChip on a phone", () => {
   beforeEach(() => {
     party.current = {
       isHost: true,
-      leave: vi.fn().mockRejectedValue(new Error("network")),
+      leave: vi.fn().mockResolvedValue(false),
       refresh: vi.fn().mockResolvedValue(undefined),
       room: { code: "LSQHE8", status: "open", me: { role: "host" } },
     };
@@ -69,7 +69,7 @@ describe("LeaveRoomButton", () => {
   beforeEach(() => {
     party.current = {
       isHost: false,
-      leave: vi.fn().mockRejectedValue(new Error("network")),
+      leave: vi.fn().mockResolvedValue(false),
       refresh: vi.fn().mockResolvedValue(undefined),
       room: { code: "LSQHE8", status: "open", me: { role: "listener" } },
     };

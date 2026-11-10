@@ -19,6 +19,7 @@ import {
 import {
   prepareCoverImageUpload,
   createCoverImageInTx,
+  abandonUnpersistedPreparedCover,
   getOrCreateAlbumTx,
   getOrCreateAlbum,
   cleanupFailedCoverUpload,
@@ -557,7 +558,10 @@ async function processFilesAsync(
               coverImageId = coverImage.id;
             } catch (error) {
               console.warn(`⚠️  Failed to create cover image for ${file.fileName}:`, error);
-              // Continue without cover image
+              if (preparedCover?.kind === "new") {
+                await abandonUnpersistedPreparedCover(preparedCover);
+                preparedCover = null;
+              }
             }
           }
 

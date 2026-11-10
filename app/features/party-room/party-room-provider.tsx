@@ -66,11 +66,11 @@ type PartyRoomContextValue = {
   refresh: () => Promise<void>;
   create: (defaultJoinRole?: RoomDefaultJoinRole) => Promise<RoomSnapshot>;
   join: (codeOrUrl: string, displayName?: string) => Promise<RoomSnapshot>;
-  leave: (codeOverride?: string) => Promise<void>;
-  end: () => Promise<void>;
+  leave: (codeOverride?: string) => Promise<boolean>;
+  end: () => Promise<boolean>;
   becomeHostNow: () => Promise<void>;
   reclaimHostNow: () => Promise<void>;
-  setDefaultJoinRole: (role: RoomDefaultJoinRole) => Promise<void>;
+  setDefaultJoinRole: (role: RoomDefaultJoinRole) => Promise<boolean>;
   addTrack: (trackId: string) => Promise<void>;
   addPlaylist: (playlistId: string) => Promise<void>;
   reorderUpcoming: (orderedUpcomingIds: string[]) => Promise<void>;
@@ -457,16 +457,19 @@ export function PartyRoomProvider({
         storedCode: readActiveRoomCode(),
       });
       if (!code) {
-        throw new Error("Not in a room");
+        const msg = "Not in a room";
+        setError(msg);
+        return false;
       }
       setError(null);
       try {
         syncGenerationRef.current += 1;
         await leaveRoom(code);
         applyRoom(null);
+        return true;
       } catch (err) {
         setError(errorMessage(err));
-        throw err;
+        return false;
       }
     },
     [applyRoom],
@@ -478,16 +481,19 @@ export function PartyRoomProvider({
       storedCode: readActiveRoomCode(),
     });
     if (!code) {
-      throw new Error("Not in a room");
+      const msg = "Not in a room";
+      setError(msg);
+      return false;
     }
     setError(null);
     try {
       syncGenerationRef.current += 1;
       await endRoom(code);
       applyRoom(null);
+      return true;
     } catch (err) {
       setError(errorMessage(err));
-      throw err;
+      return false;
     }
   }, [applyRoom]);
 
@@ -508,9 +514,20 @@ export function PartyRoomProvider({
   const setDefaultJoinRole = useCallback(
     async (role: RoomDefaultJoinRole) => {
       const code = roomCodeRef.current;
-      if (!code) return;
-      const next = await updateRoomSettings(code, { defaultJoinRole: role }, meUserId);
-      applyRoom(next);
+      if (!code) {
+        const msg = "Not in a room";
+        setError(msg);
+        return false;
+      }
+      setError(null);
+      try {
+        const next = await updateRoomSettings(code, { defaultJoinRole: role }, meUserId);
+        applyRoom(next);
+        return true;
+      } catch (err) {
+        setError(errorMessage(err));
+        return false;
+      }
     },
     [applyRoom, meUserId],
   );

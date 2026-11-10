@@ -6,6 +6,7 @@ const { mockUploadFile, mockDeleteFile, mockPrisma, sharpDefault } = vi.hoisted(
   mockPrisma: {
     coverImage: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
     },
     album: {
@@ -36,6 +37,7 @@ vi.mock("sharp", () => ({
 
 import {
   CoverImageUploadError,
+  abandonUnpersistedPreparedCover,
   cleanupFailedCoverUpload,
   prepareCoverImageUpload,
   createCoverImageInTx,
@@ -95,6 +97,26 @@ describe("cover image upload split (sharp/uploadFile outside the transaction)", 
     ).rejects.toThrow(/content hash/);
 
     expect(tx.coverImage.create).not.toHaveBeenCalled();
+  });
+
+  it("abandonUnpersistedPreparedCover deletes a new cover object when no row exists", async () => {
+    mockPrisma.coverImage.findFirst.mockResolvedValue(null);
+    await abandonUnpersistedPreparedCover({
+      kind: "new",
+      objectKey: "images/covers/orphan.jpg",
+      contentHash: "hash",
+      width: 1,
+      height: 1,
+      format: "jpeg",
+      fileSize: 1,
+    });
+    expect(mockDeleteFile).toHaveBeenCalledWith("images/covers/orphan.jpg");
+  });
+
+  it("abandonUnpersistedPreparedCover skips existing and album-cover kinds", async () => {
+    await abandonUnpersistedPreparedCover({ kind: "existing", id: "c-1", objectKey: "k.jpg" });
+    await abandonUnpersistedPreparedCover({ kind: "album-cover", id: "c-2", objectKey: "k2.jpg" });
+    expect(mockDeleteFile).not.toHaveBeenCalled();
   });
 
   it("cleanupFailedCoverUpload deletes the uploaded object key", async () => {

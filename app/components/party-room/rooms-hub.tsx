@@ -120,7 +120,9 @@ export function RoomsHub() {
             {room.me?.role === ROOM_ROLE.host ? (
               <EndRoomButton
                 onConfirm={() => {
-                  void party.end().then(() => toast({ title: "Room ended" }));
+                  void party.end().then((ended) => {
+                    if (ended) toast({ title: "Room ended" });
+                  });
                 }}
               />
             ) : (
@@ -129,7 +131,9 @@ export function RoomsHub() {
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  void party.leave().then(() => toast({ title: "Left room" }));
+                  void party.leave().then((left) => {
+                    if (left) toast({ title: "Left room" });
+                  });
                 }}
               >
                 Leave

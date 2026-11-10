@@ -2429,3 +2429,45 @@ test("media session play after a completed prior track emits play_started and pl
     expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-2", resumedPlayId);
   });
 });
+
+test("rejected media session play clears keepPlaying and surfaces playback error", async () => {
+  const handlers = stubMediaSession();
+  vi.mocked(toast).mockClear();
+
+  vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (
+    this: HTMLMediaElement,
+  ) {
+    setPaused(this, true);
+    return Promise.reject(new Error("NotSupportedError"));
+  });
+
+  const { audioEl } = await renderPlayer();
+
+  audioEl.dispatchEvent(new Event("play"));
+  setPaused(audioEl, false);
+  await waitFor(() => {
+    expect(within(screen.getByTestId("player-desktop-bar")).getByLabelText("Pause")).toBeTruthy();
+  });
+
+  setPaused(audioEl, true);
+
+  await waitFor(() => expect(handlers.get("play")).toBeTypeOf("function"));
+  handlers.get("play")!();
+
+  await waitFor(() => {
+    expect(screen.getByTestId("player-playback-error")).toHaveTextContent(
+      "Unable to play this track. Try again or check your connection.",
+    );
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Playback failed",
+        variant: "destructive",
+      }),
+    );
+  });
+
+  audioEl.dispatchEvent(new Event("pause"));
+  await waitFor(() => {
+    expect(within(screen.getByTestId("player-desktop-bar")).getByLabelText("Play")).toBeTruthy();
+  });
+});

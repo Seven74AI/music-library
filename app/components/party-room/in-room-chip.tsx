@@ -52,8 +52,8 @@ export function LeaveRoomButton() {
         setLeavePending(true);
         void party
           .leave()
-          .catch(() => {
-            void party.refresh();
+          .then((left) => {
+            if (!left) void party.refresh();
           })
           .finally(() => {
             setLeavePending(false);

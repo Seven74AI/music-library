@@ -5709,6 +5709,189 @@ test("restore re-infers spine position for legacy payloads without audibleSource
   expect(screen.getByTestId("audible-zone").textContent).toBe("spine");
 });
 
+test("restore re-anchors stale spinePosition for explicit spine audibleSourceZone", async () => {
+  const fetchMock = vi.mocked(fetch);
+  installQueueSpineFetchMock(fetchMock, {
+    playContext: { type: "library" },
+    currentTrackId: "track-3",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: "spine",
+    upNextPlayNextCount: 0,
+  });
+
+  function RestoreProbe() {
+    const { spinePosition, audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="spine-position">{spinePosition}</span>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
+  });
+  expect(screen.getByTestId("spine-position").textContent).toBe("2");
+  expect(screen.getByTestId("audible-zone").textContent).toBe("spine");
+});
+
+test("restore clamps spine position when currentTrackId is not on the re-derived spine", async () => {
+  const fetchMock = vi.mocked(fetch);
+  fetchMock.mockImplementation((input, init) => {
+    const url = String(input);
+    const method = (init as RequestInit | undefined)?.method ?? "GET";
+    if (url === PLAYER_STATE_ROUTE && method === "GET") {
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: async () => ({
+          playContext: { type: "library" },
+          currentTrackId: "track-removed",
+          upNextIds: [],
+          shuffleSeed: null,
+          loopMode: "off",
+          spinePosition: 99,
+          audibleSourceZone: "spine",
+          upNextPlayNextCount: 0,
+        }),
+      } as Response);
+    }
+    if (url === PLAYER_STATE_ROUTE && method === "PUT") {
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response);
+    }
+    if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "https://example.com").searchParams.get("ids")!.split(",");
+      const tracks = [
+        { ...playableTrack, id: "track-removed", title: "Removed From Spine" },
+      ].filter((track) => ids.includes(track.id));
+      return Promise.resolve({ ok: true, json: async () => ({ tracks }) } as Response);
+    }
+    if (url.includes("/api/queue-spine")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          tracks: [spineTrack, { ...spineTrack, id: "track-2" }],
+          total: 2,
+        }),
+      } as Response);
+    }
+    return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+  });
+
+  function RestoreProbe() {
+    const { spinePosition, audibleSourceZone, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <span data-testid="spine-position">{spinePosition}</span>
+        <span data-testid="audible-zone">{audibleSourceZone ?? ""}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-removed");
+  });
+  expect(screen.getByTestId("spine-position").textContent).toBe("1");
+  expect(screen.getByTestId("audible-zone").textContent).toBe("spine");
+});
+
+test("online backfill does not re-anchor after the user mutates the queue offline", async () => {
+  const user = userEvent.setup();
+  const fetchMock = vi.mocked(fetch);
+  window.localStorage.clear();
+
+  writeCachedPlayerState("user-1", {
+    playContext: { type: "library" },
+    currentTrackId: "track-3",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: "spine",
+    upNextPlayNextCount: 0,
+  });
+
+  mockOfflineStorage([
+    downloadedSummary("track-3", "Spine Three"),
+    downloadedSummary("track-queued", "Queued"),
+  ]);
+  const navigatorState = { onLine: false };
+  vi.stubGlobal("navigator", navigatorState);
+
+  function RestoreProbe() {
+    const { spinePosition, addToUpNext, currentTrack, upNext } = useAudioPlayer();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => addToUpNext({ ...playableTrack, id: "track-queued", title: "Queued" })}
+        >
+          Queue track
+        </button>
+        <span data-testid="spine-position">{spinePosition}</span>
+        <span data-testid="up-next-count">{upNext.length}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider userId="user-1">
+      <RestoreProbe />
+    </AudioPlayerProvider>,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
+  });
+
+  await user.click(screen.getByRole("button", { name: "Queue track" }));
+  await waitFor(() => {
+    expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+  });
+  expect(screen.getByTestId("spine-position").textContent).toBe("0");
+
+  installQueueSpineFetchMock(fetchMock, {
+    playContext: { type: "library" },
+    currentTrackId: "track-3",
+    upNextIds: [],
+    shuffleSeed: null,
+    loopMode: "off",
+    spinePosition: 0,
+    audibleSourceZone: "spine",
+    upNextPlayNextCount: 0,
+  });
+
+  navigatorState.onLine = true;
+  window.dispatchEvent(new Event("online"));
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  expect(screen.getByTestId("current-track-id").textContent).toBe("track-3");
+  expect(screen.getByTestId("spine-position").textContent).toBe("0");
+  expect(screen.getByTestId("up-next-count").textContent).toBe("1");
+});
+
 test("restore keeps explicit upNext audibleSourceZone without forcing spine", async () => {
   const fetchMock = vi.mocked(fetch);
   const upNextCurrent = { ...playableTrack, id: "track-up", title: "Up Next Current" };

@@ -43,6 +43,7 @@ model User {
   resolvedQueueItems  ReviewQueueItem[] @relation("ReviewQueueResolved")
   curatorNotes        CuratorNote[]     @relation("CuratorNotes")
   curatorBadges       CuratorBadge[]    @relation("CuratorBadges")
+  passwordResetGrants PasswordResetGrant[]
 }
 
 model PlayerState {
@@ -127,6 +128,19 @@ model Password {
   hash   String
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetGrant {
+  id        String   @id @default(cuid())
+  /// SHA-256 hex digest of the opaque grant token (token lives only in the verify cookie).
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Session {

@@ -18,6 +18,7 @@ import {
   getOrCreateAlbumTx,
   getOrCreateAlbum,
   cleanupFailedCoverUpload,
+  abandonUnpersistedPreparedCover,
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
@@ -217,7 +218,10 @@ export async function action({ request }: ActionFunctionArgs) {
           coverImageId = coverImage.id;
         } catch (error) {
           console.warn(`⚠️  Failed to create cover image for ${audioFile.name}:`, error);
-          // Continue without cover image
+          if (preparedCover?.kind === "new") {
+            await abandonUnpersistedPreparedCover(preparedCover);
+            preparedCover = null;
+          }
         }
       }
 

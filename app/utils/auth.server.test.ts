@@ -289,7 +289,14 @@ describe("resetUserPassword", () => {
     });
 
     try {
-      await resetUserPassword({ username: user.username, password: newPassword });
+      const { createPasswordResetGrantForUser } =
+        await import("#app/utils/password-reset-grant.server.ts");
+      const { token } = await createPasswordResetGrantForUser(user.id);
+      await resetUserPassword({
+        username: user.username,
+        password: newPassword,
+        grantToken: token,
+      });
 
       const sessions = await prisma.session.findMany({ where: { userId: user.id } });
       expect(sessions).toHaveLength(0);
@@ -305,7 +312,11 @@ describe("resetUserPassword", () => {
 
   test("throws when the user does not exist", async () => {
     await expect(
-      resetUserPassword({ username: "no-such-user", password: "whatever-123" }),
+      resetUserPassword({
+        username: "no-such-user",
+        password: "whatever-123",
+        grantToken: "unused-grant-token",
+      }),
     ).rejects.toThrow();
   });
 });
