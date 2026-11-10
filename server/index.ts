@@ -15,12 +15,8 @@ import {
   mutationRateLimitTier,
 } from "../app/utils/mutation-rate-limit.ts";
 import { createRouterLoadContext } from "../app/utils/router-context.server.ts";
-import { init } from "../app/utils/env.server.ts";
 import { createHttpsUpgradeMiddleware } from "./https-upgrade-middleware.ts";
-import { drainInProcessJobStoppers } from "../app/utils/in-process-job-registry.server.ts";
 import { requestUrlForAccessLog } from "./request-log-url.ts";
-
-init();
 
 const MODE = process.env.NODE_ENV ?? "development";
 const IS_PROD = MODE === "production";
@@ -266,7 +262,7 @@ ${styleText("bold", "Press Ctrl+C to stop")}
 });
 
 closeWithGrace(async ({ err }) => {
-  await drainInProcessJobStoppers();
+  await globalThis.__drainInProcessJobStoppers?.();
   await new Promise((resolve, reject) => {
     server.close((e) => (e ? reject(e) : resolve("ok")));
   });

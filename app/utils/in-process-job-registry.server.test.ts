@@ -39,6 +39,17 @@ describe("in-process job registry", () => {
     expect(second).toHaveBeenCalledOnce();
   });
 
+  it("global drain hook invokes registered stoppers without a server bundle import", async () => {
+    globalThis.__drainInProcessJobStoppers = drainInProcessJobStoppers;
+    const stop = vi.fn();
+    registerInProcessJobStopper("cross-bundle", stop);
+
+    await globalThis.__drainInProcessJobStoppers!();
+
+    expect(stop).toHaveBeenCalledOnce();
+    delete globalThis.__drainInProcessJobStoppers;
+  });
+
   it("awaits async stoppers", async () => {
     const order: string[] = [];
     registerInProcessJobStopper("async", async () => {
