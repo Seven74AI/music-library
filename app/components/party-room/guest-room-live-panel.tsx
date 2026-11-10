@@ -37,12 +37,12 @@ export function GuestRoomLivePanel({
   code,
   role,
   displayName,
-  onLeaveStart,
+  onLeaveDismissal,
 }: {
   code: string;
   role: RoomRole;
   displayName: string;
-  onLeaveStart?: () => void;
+  onLeaveDismissal?: (left: boolean) => void;
 }) {
   const party = useOptionalPartyRoom();
   const navigate = useNavigate();
@@ -125,9 +125,9 @@ export function GuestRoomLivePanel({
             size="sm"
             onClick={() => {
               void (async () => {
-                onLeaveStart?.();
                 if (party) {
                   const left = await party.leave(code);
+                  onLeaveDismissal?.(left);
                   if (left) {
                     toast({ title: "Left room" });
                     void navigate("/");
@@ -151,10 +151,12 @@ export function GuestRoomLivePanel({
                     } | null;
                     throw new Error(body?.error ?? "Could not leave");
                   }
+                  onLeaveDismissal?.(true);
                   writeActiveRoomCode(null);
                   toast({ title: "Left room" });
                   void navigate("/");
                 } catch (err: unknown) {
+                  onLeaveDismissal?.(false);
                   toast({
                     title: "Could not leave",
                     description: err instanceof Error ? err.message : undefined,
