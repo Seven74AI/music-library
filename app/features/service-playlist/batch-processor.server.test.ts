@@ -408,11 +408,7 @@ describe("processTracksInBatches - playlist track pairing", () => {
     const playlistTrackUpsert = vi
       .fn()
       .mockImplementation(
-        ({
-          data,
-        }: {
-          data: { position: number; trackId: string; thumbnailUrl?: string | null };
-        }) =>
+        ({ data }: { data: { position: number; trackId: string; thumbnailUrl?: string | null } }) =>
           Promise.resolve({
             id: "spt",
             trackId: data.trackId,
