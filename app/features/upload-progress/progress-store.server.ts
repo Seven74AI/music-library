@@ -385,7 +385,31 @@ export async function addSuccessfulTrack(
     if (!current.successfulTracks) {
       current.successfulTracks = [];
     }
-    current.successfulTracks.push(trackInfo);
+    const alreadyRecorded = current.successfulTracks.some(
+      (entry) => entry.trackId === trackInfo.trackId,
+    );
+    if (!alreadyRecorded) {
+      current.successfulTracks.push(trackInfo);
+    }
+    current.lastUpdated = Date.now();
+    await backend.set(uploadId, current);
+    notifyProgressUpdate(uploadId);
+  });
+}
+
+/** Drop a committed track from the success list when recording a failure. */
+export async function removeSuccessfulTrackByTrackId(
+  uploadId: string,
+  trackId: string,
+): Promise<void> {
+  await withUploadLock(uploadId, async () => {
+    const current = await backend.get(uploadId);
+    if (!current?.successfulTracks?.length) return;
+
+    const nextTracks = current.successfulTracks.filter((entry) => entry.trackId !== trackId);
+    if (nextTracks.length === current.successfulTracks.length) return;
+
+    current.successfulTracks = nextTracks;
     current.lastUpdated = Date.now();
     await backend.set(uploadId, current);
     notifyProgressUpdate(uploadId);
