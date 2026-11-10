@@ -329,4 +329,44 @@ describe("guest room shell", () => {
     expect(await screen.findByText("Home")).toBeInTheDocument();
     expect(screen.queryByText("This room has ended.")).not.toBeInTheDocument();
   });
+
+  test("failed leave keeps the guest in the live shell; a later kick still shows removal", async () => {
+    leave.mockResolvedValue(false);
+    mockParty = {
+      ...mockParty,
+      room: openRoom("listener"),
+      leave,
+      error: "Could not leave",
+    };
+    renderShell("/rooms/AB3K9Q", seatedLoader);
+    expect(await screen.findByText(/joined as a guest/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /leave room/i }));
+    await waitFor(() => expect(leave).toHaveBeenCalledWith("AB3K9Q"));
+    expect(screen.getByText(/joined as a guest/i)).toBeInTheDocument();
+
+    mockParty = {
+      ...mockParty,
+      room: {
+        ...openRoom("listener"),
+        me: null,
+        participants: [{ id: "h1", displayName: "Host", role: "host" }],
+      },
+    };
+    fireEvent.click(screen.getByRole("button", { name: "Sync room" }));
+    expect(await screen.findByText("The host removed you from this room.")).toBeInTheDocument();
+  });
+
+  test("failed leave keeps the guest in the live shell; a later end still shows ended copy", async () => {
+    leave.mockResolvedValue(false);
+    mockParty = { ...mockParty, room: openRoom("listener"), leave, error: "Could not leave" };
+    renderShell("/rooms/AB3K9Q", seatedLoader);
+    expect(await screen.findByText(/joined as a guest/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /leave room/i }));
+    await waitFor(() => expect(leave).toHaveBeenCalledWith("AB3K9Q"));
+    expect(screen.getByText(/joined as a guest/i)).toBeInTheDocument();
+
+    mockParty = { ...mockParty, room: null, loading: false };
+    fireEvent.click(screen.getByRole("button", { name: "Sync room" }));
+    expect(await screen.findByText("This room has ended.")).toBeInTheDocument();
+  });
 });
