@@ -17,11 +17,15 @@ vi.mock("#app/utils/db.server", () => ({
   },
 }));
 
-vi.mock("#app/utils/youtube-oauth.server", () => ({
-  createYouTubeOAuthService: vi.fn(() => ({
-    refreshAccessToken: mockRefreshAccessToken,
-  })),
-}));
+vi.mock("#app/utils/youtube-oauth.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/utils/youtube-oauth.server")>();
+  return {
+    ...actual,
+    createYouTubeOAuthService: vi.fn(() => ({
+      refreshAccessToken: mockRefreshAccessToken,
+    })),
+  };
+});
 
 vi.mock("#app/utils/youtube-mock-utils", () => ({
   shouldMockYouTube: vi.fn(() => false),

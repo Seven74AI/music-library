@@ -17,6 +17,52 @@ export const YouTubeOAuthConfigSchema = z.object({
 
 export type YouTubeOAuthConfig = z.infer<typeof YouTubeOAuthConfigSchema>;
 
+function getHttpStatusFromGoogleClientError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+
+  const response =
+    "response" in error ? (error as { response?: { status?: number } }).response : undefined;
+  if (response && typeof response.status === "number") {
+    return response.status;
+  }
+
+  if ("status" in error && typeof (error as { status: unknown }).status === "number") {
+    return (error as { status: number }).status;
+  }
+
+  return undefined;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return String(error);
+}
+
+/**
+ * Logs a Google OAuth client failure without serializing request bodies or tokens.
+ * Gaxios errors carry `code`, `refresh_token`, and `client_secret` in `config.data`.
+ */
+export function logGoogleOAuthClientError(context: string, error: unknown): void {
+  let detailSource = error;
+  if (error instanceof Error && error.cause && typeof error.cause === "object") {
+    detailSource = error.cause;
+  }
+
+  const message = getErrorMessage(detailSource) || getErrorMessage(error);
+  const status =
+    getHttpStatusFromGoogleClientError(detailSource) ?? getHttpStatusFromGoogleClientError(error);
+
+  if (status !== undefined) {
+    console.error(`${context}: HTTP ${status} — ${message}`);
+  } else {
+    console.error(`${context}: ${message}`);
+  }
+}
+
 /**
  * Service class for handling YouTube OAuth authentication
  * Manages OAuth flow, token exchange, and user authorization
@@ -93,7 +139,7 @@ export class YouTubeOAuthService {
         ...(tokens.expiry_date ? { expiry_date: tokens.expiry_date } : {}),
       };
     } catch (error) {
-      console.error("Error exchanging code for tokens:", error);
+      logGoogleOAuthClientError("Error exchanging code for tokens", error);
       throw new Error("Failed to exchange authorization code for tokens", { cause: error });
     }
   }
@@ -127,7 +173,7 @@ export class YouTubeOAuthService {
         ...(credentials.expiry_date ? { expiry_date: credentials.expiry_date } : {}),
       };
     } catch (error) {
-      console.error("Error refreshing access token:", error);
+      logGoogleOAuthClientError("Error refreshing access token", error);
       throw new Error("Failed to refresh access token", { cause: error });
     }
   }
