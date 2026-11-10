@@ -639,7 +639,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
         case "mute-toggle":
           setIsMuted((current) => {
             if (current) {
-              setVolume(preMuteVolumeRef.current || DEFAULT_PLAYER_VOLUME);
+              setVolume(preMuteVolumeRef.current);
               return false;
             }
             preMuteVolumeRef.current = volume;
@@ -694,7 +694,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const toggleMute = () => {
     setIsMuted((current) => {
       if (current) {
-        setVolume(preMuteVolumeRef.current || DEFAULT_PLAYER_VOLUME);
+        setVolume(preMuteVolumeRef.current);
         return false;
       }
       preMuteVolumeRef.current = volume;
