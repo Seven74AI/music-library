@@ -7,6 +7,7 @@ import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { type QueueNavigationState } from "#app/features/queue/queue-navigation.ts";
 import {
+  clampUpNextPlayNextCountOnRestore,
   inferAudibleSourceForRestore,
   isAudibleSourceZoneUnknown,
   withPlayerStateDefaults,
@@ -61,6 +62,28 @@ function loadRequest(cookie: string) {
     headers: { cookie },
   });
 }
+
+describe("clampUpNextPlayNextCountOnRestore", () => {
+  test("subtracts dropped ids inside the saved play-next prefix", () => {
+    expect(
+      clampUpNextPlayNextCountOnRestore(
+        ["gone", "keep-prefix", "tail"],
+        ["keep-prefix", "tail"],
+        2,
+      ),
+    ).toBe(1);
+  });
+
+  test("clamps to the surviving Up Next length", () => {
+    expect(clampUpNextPlayNextCountOnRestore(["a", "b"], ["a"], 5)).toBe(1);
+  });
+
+  test("leaves count unchanged when every prefix track survives", () => {
+    expect(clampUpNextPlayNextCountOnRestore(["p1", "p2", "tail"], ["p1", "p2", "tail"], 2)).toBe(
+      2,
+    );
+  });
+});
 
 describe("isAudibleSourceZoneUnknown", () => {
   test("treats null and undefined as unknown", () => {

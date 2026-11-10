@@ -92,6 +92,24 @@ function clampSpinePosition(position: number, spineOrderLength: number): number 
   return Math.min(Math.max(0, position), spineOrderLength - 1);
 }
 
+/** Adjust play-next prefix length after Up Next ids are filtered on queue restore. */
+export function clampUpNextPlayNextCountOnRestore(
+  savedUpNextIds: readonly string[],
+  resolvedUpNextIds: readonly string[],
+  savedPlayNextCount: number,
+): number {
+  const resolved = new Set(resolvedUpNextIds);
+  const prefixEnd = Math.min(savedPlayNextCount, savedUpNextIds.length);
+  let droppedInPrefix = 0;
+  for (let index = 0; index < prefixEnd; index++) {
+    if (!resolved.has(savedUpNextIds[index]!)) {
+      droppedInPrefix += 1;
+    }
+  }
+  const adjusted = savedPlayNextCount - droppedInPrefix;
+  return Math.min(Math.max(0, adjusted), resolvedUpNextIds.length);
+}
+
 /** Re-derive zone + spine position once a spine exists for migrated/legacy rows. */
 export function inferAudibleSourceForRestore(
   zoneUnknown: boolean,
