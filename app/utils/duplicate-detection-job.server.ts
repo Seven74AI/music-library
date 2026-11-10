@@ -18,6 +18,7 @@ import {
   cacheAlbumNormalizedNames,
   saveDuplicateDetectionResults,
 } from "./duplicate-detection.server.ts";
+import { DUPLICATE_DETECTION_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server.ts";
 
 export interface DuplicateDetectionJobResult {
   success: boolean;
@@ -123,7 +124,7 @@ export async function runDuplicateDetectionJob(): Promise<DuplicateDetectionJobR
       fuzzyArtistGroups: 0,
       exactAlbumGroups: 0,
       fuzzyAlbumGroups: 0,
-      error: error instanceof Error ? error.message : String(error),
+      error: DUPLICATE_DETECTION_CLIENT_ERROR_MESSAGE,
     };
   }
 }

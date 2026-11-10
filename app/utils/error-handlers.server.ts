@@ -20,6 +20,9 @@ export const UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE = "Failed to rea
 export const SERVICE_IMPORT_CLIENT_ERROR_MESSAGE = "Unable to import this track. Please try again.";
 export const SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE =
   "Failed to sync playlist. Please try again.";
+export const DUPLICATE_DETECTION_CLIENT_ERROR_MESSAGE =
+  "Duplicate detection failed. Please try again.";
+export const COVER_ADMIN_CLIENT_ERROR_MESSAGE = "Failed to update cover image. Please try again.";
 
 function isKnownClientError(error: unknown): error is Error {
   return (
