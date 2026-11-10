@@ -34,7 +34,12 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 
   // Parse and validate request body
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    throw data({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const result = EditArtistSchema.safeParse(body);
 
   if (!result.success) {

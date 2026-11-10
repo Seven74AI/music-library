@@ -25,6 +25,11 @@ export async function drainInProcessJobStoppers(): Promise<void> {
   const stops = [...map.values()];
   map.clear();
   for (const stop of stops) {
-    await stop();
+    try {
+      await stop();
+    } catch (error) {
+      // One failing stopper must not skip the rest (or the HTTP graceful close).
+      console.error("In-process job stopper failed during shutdown:", error);
+    }
   }
 }

@@ -10,7 +10,7 @@ const GOOGLE_CONTEXT =
   /googleapis|google\.youtube|oauth2Client|GaxiosError|getTokens|setCredentials|videos\.list|createYouTubeOAuth|YouTubeOAuth|youtube-oauth/;
 
 const RAW_ERROR_LOG =
-  /console\.(error|warn|log)\s*\(\s*(?:[^)]*,\s*)?(?:error|err|callbackError|e)\s*\)/;
+  /console\.(error|warn|log)\s*\(\s*(?:[^)]*,\s*)?(?:error|err|callbackError|e)\s*,?\s*\)/g;
 
 function walkAppSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -32,15 +32,14 @@ describe("google-api-error-logger inventory", () => {
       const source = readFileSync(filePath, "utf8");
       if (!GOOGLE_CONTEXT.test(source)) continue;
 
-      const lines = source.split("\n");
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]!;
-        if (!RAW_ERROR_LOG.test(line)) continue;
-        if (line.includes("logGoogleApiError")) continue;
-        if (line.includes("logGoogleOAuthClientError")) continue;
-        if (line.includes("logGoogleYouTubeDataApiClientError")) continue;
+      // Match against the whole file so prettier-wrapped multi-line calls are caught.
+      for (const match of source.matchAll(RAW_ERROR_LOG)) {
+        const text = match[0];
 
-        offenders.push(`${relative(process.cwd(), filePath)}:${i + 1}: ${line.trim()}`);
+        const lineNo = source.slice(0, match.index).split("\n").length;
+        offenders.push(
+          `${relative(process.cwd(), filePath)}:${lineNo}: ${text.replace(/\s+/g, " ")}`,
+        );
       }
     }
 
