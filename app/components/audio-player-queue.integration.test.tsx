@@ -690,7 +690,7 @@ describe("queue sheet integration", () => {
     expect(within(sheet).queryByText("Now playing")).toBeNull();
   });
 
-  test("stacked play next puts the most recent track at the front of Up Next", async () => {
+  test("stacked play next appends to the play-next prefix in FIFO order", async () => {
     const user = userEvent.setup();
     mockSpineAndHydration(vi.mocked(fetch));
 
@@ -699,11 +699,11 @@ describe("queue sheet integration", () => {
     await user.click(screen.getByRole("button", { name: "Play next Delta" }));
     await user.click(screen.getByRole("button", { name: "Play next Echo" }));
 
-    await expectUpNextIds(["track-e", "track-d"]);
+    await expectUpNextIds(["track-d", "track-e"]);
 
     const sheet = await openQueueSheet(user);
 
-    expect(upNextTitlesInSheet(sheet)).toEqual(["Inject-Echo-88", "Inject-Delta-99"]);
+    expect(upNextTitlesInSheet(sheet)).toEqual(["Inject-Delta-99", "Inject-Echo-88"]);
   });
 
   test("play next inserts before add-to-up-next tail even after another play-next item", async () => {
@@ -716,13 +716,13 @@ describe("queue sheet integration", () => {
     await user.click(screen.getByRole("button", { name: "Add Charlie to up next" }));
     await user.click(screen.getByRole("button", { name: "Play next Echo" }));
 
-    await expectUpNextIds(["track-e", "track-d", "track-c"]);
+    await expectUpNextIds(["track-d", "track-e", "track-c"]);
 
     const sheet = await openQueueSheet(user);
 
     expect(upNextTitlesInSheet(sheet)).toEqual([
-      "Inject-Echo-88",
       "Inject-Delta-99",
+      "Inject-Echo-88",
       "Spine-Charlie-Upcoming",
     ]);
   });
@@ -1125,7 +1125,7 @@ describe("queue sheet integration", () => {
             { label: "Add Delta to up next", onClick: () => addToUpNext(trackD) },
             {
               label: "Jump to NoPlay-1",
-              onClick: () => playQueueTrack({ zone: "upNext", index: 2 }),
+              onClick: () => playQueueTrack({ zone: "upNext", index: 0 }),
             },
           ]}
         />
@@ -1205,7 +1205,7 @@ describe("queue sheet integration", () => {
             { label: "Play next NoPlay-3", onClick: () => playNextTrack(noPlay3) },
             {
               label: "Jump to NoPlay-1",
-              onClick: () => playQueueTrack({ zone: "upNext", index: 2 }),
+              onClick: () => playQueueTrack({ zone: "upNext", index: 0 }),
             },
           ]}
         />
@@ -1341,7 +1341,7 @@ describe("queue sheet integration", () => {
           <button
             type="button"
             onClick={() => {
-              for (const track of [...bulkTracks].reverse()) {
+              for (const track of bulkTracks) {
                 playNextTrack(track);
               }
             }}
@@ -1430,7 +1430,7 @@ describe("queue sheet integration", () => {
           <button
             type="button"
             onClick={() => {
-              for (const track of [...bulkTracks].reverse()) {
+              for (const track of bulkTracks) {
                 playNextTrack(track);
               }
             }}
@@ -1497,7 +1497,7 @@ describe("queue sheet integration", () => {
           <button
             type="button"
             onClick={() => {
-              for (const track of [...bulkTracks].reverse()) {
+              for (const track of bulkTracks) {
                 playNextTrack(track);
               }
             }}
