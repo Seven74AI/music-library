@@ -4,8 +4,10 @@ import { createUser } from "#tests/db-utils";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
 import {
   findSurplusSptIds,
-  resolveDeletedVideosAfterSync,
   loadPlaylistTracksForOrphanDetection,
+} from "./orphan-detection.server";
+import {
+  resolveDeletedVideosAfterSync,
   processTracksInBatches,
   type ProcessedIdSets,
   type SyncableItem,
