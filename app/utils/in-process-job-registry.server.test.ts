@@ -63,4 +63,25 @@ describe("in-process job registry", () => {
 
     expect(order).toEqual(["before", "stopped", "after"]);
   });
+
+  it("continues draining after a throwing stopper", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const before = vi.fn();
+    const after = vi.fn();
+    registerInProcessJobStopper("before", before);
+    registerInProcessJobStopper("sync-throw", () => {
+      throw new Error("sync boom");
+    });
+    registerInProcessJobStopper("async-reject", async () => {
+      throw new Error("async boom");
+    });
+    registerInProcessJobStopper("after", after);
+
+    await expect(drainInProcessJobStoppers()).resolves.toBeUndefined();
+
+    expect(before).toHaveBeenCalledOnce();
+    expect(after).toHaveBeenCalledOnce();
+    expect(errorSpy).toHaveBeenCalledTimes(2);
+    errorSpy.mockRestore();
+  });
 });

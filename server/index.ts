@@ -193,6 +193,12 @@ async function getBuild() {
   } catch (error) {
     // Catch error and return null to make express happy and avoid an unrecoverable crash
     console.error("Error creating build:", error);
+    // Fail fast in production: a bad env (validated at entry.server load) or a
+    // failed build import must crash the process, not leave it serving errors.
+    // In dev, keep the swallow so the Vite overlay / HMR can recover.
+    if (process.env.NODE_ENV === "production") {
+      throw error;
+    }
     return { error: error, build: null as unknown as ServerBuild };
   }
 }
