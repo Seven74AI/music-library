@@ -8,8 +8,8 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { executeCatalogEntityMerge } from "#app/features/metadata/merge-catalog-entity.server.ts";
 import {
-  assertEditLockInTransaction,
   EditLockTransactionError,
   findWriteBlockedLock,
   getLockStatus,
@@ -100,16 +100,16 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     // Perform merge in transaction
-    const result = await prisma.$transaction(async (tx) => {
-      await assertEditLockInTransaction(tx, "artist", sourceId, userId, sourceLock);
-      await assertEditLockInTransaction(tx, "artist", targetId, userId, targetLock);
-
-      // Create audit entry before merge
-      await tx.artistEdit.create({
-        data: {
-          artistId: sourceId,
-          editedBy: userId,
-          comment: `MERGE: ${comment}`,
+    const result = await prisma.$transaction(async (tx) =>
+      executeCatalogEntityMerge(tx, {
+        entityType: "artist",
+        sourceId,
+        targetId,
+        comment,
+        userId,
+        sourceLock,
+        targetLock,
+        auditSnapshot: {
           name: sourceArtist.name,
           bio: sourceArtist.bio,
           imageUrl: sourceArtist.imageUrl,
@@ -117,49 +117,8 @@ export async function action({ request }: Route.ActionArgs) {
           genre: sourceArtist.genre,
           country: sourceArtist.country,
         },
-      });
-
-      // Move all tracks from source to target
-      const tracksUpdated = await tx.track.updateMany({
-        where: { artistId: sourceId },
-        data: { artistId: targetId },
-      });
-
-      // Move all albums from source to target
-      const albumsUpdated = await tx.album.updateMany({
-        where: { artistId: sourceId },
-        data: { artistId: targetId },
-      });
-
-      // Mark source artist as merged
-      await tx.artist.update({
-        where: { id: sourceId },
-        data: {
-          mergedIntoId: targetId,
-          mergedAt: new Date(),
-          mergedBy: userId,
-        },
-      });
-
-      // Update duplicate detection status for this pair
-      await tx.duplicateDetection.updateMany({
-        where: {
-          entityType: "artist",
-          OR: [
-            { entityId1: sourceId, entityId2: targetId },
-            { entityId1: targetId, entityId2: sourceId },
-          ],
-        },
-        data: {
-          status: "merged",
-        },
-      });
-
-      return {
-        tracksUpdated: tracksUpdated.count,
-        albumsUpdated: albumsUpdated.count,
-      };
-    });
+      }),
+    );
 
     return data({
       success: true,

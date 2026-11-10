@@ -8,8 +8,8 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { executeCatalogEntityMerge } from "#app/features/metadata/merge-catalog-entity.server.ts";
 import {
-  assertEditLockInTransaction,
   EditLockTransactionError,
   findWriteBlockedLock,
   getLockStatus,
@@ -108,57 +108,23 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     // Perform merge in transaction
-    const result = await prisma.$transaction(async (tx) => {
-      await assertEditLockInTransaction(tx, "album", sourceId, userId, sourceLock);
-      await assertEditLockInTransaction(tx, "album", targetId, userId, targetLock);
-
-      // Create audit entry before merge
-      await tx.albumEdit.create({
-        data: {
-          albumId: sourceId,
-          editedBy: userId,
-          comment: `MERGE: ${comment}`,
+    const result = await prisma.$transaction(async (tx) =>
+      executeCatalogEntityMerge(tx, {
+        entityType: "album",
+        sourceId,
+        targetId,
+        comment,
+        userId,
+        sourceLock,
+        targetLock,
+        auditSnapshot: {
           name: sourceAlbum.name,
           artistId: sourceAlbum.artistId,
           year: sourceAlbum.year,
           coverImageId: sourceAlbum.coverImageId,
         },
-      });
-
-      // Move all tracks from source to target
-      const tracksUpdated = await tx.track.updateMany({
-        where: { albumId: sourceId },
-        data: { albumId: targetId },
-      });
-
-      // Mark source album as merged
-      await tx.album.update({
-        where: { id: sourceId },
-        data: {
-          mergedIntoId: targetId,
-          mergedAt: new Date(),
-          mergedBy: userId,
-        },
-      });
-
-      // Update duplicate detection status for this pair
-      await tx.duplicateDetection.updateMany({
-        where: {
-          entityType: "album",
-          OR: [
-            { entityId1: sourceId, entityId2: targetId },
-            { entityId1: targetId, entityId2: sourceId },
-          ],
-        },
-        data: {
-          status: "merged",
-        },
-      });
-
-      return {
-        tracksUpdated: tracksUpdated.count,
-      };
-    });
+      }),
+    );
 
     return data({
       success: true,

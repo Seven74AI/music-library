@@ -13,10 +13,15 @@ import {
 import { prisma } from "#app/utils/db.server.ts";
 import { escapeLikeLiterals, toLiteralFts5Query } from "#app/utils/fts5-query.server.ts";
 import {
-  decodeCursorArm,
-  INVALID_CURSOR_FORMAT_MESSAGE,
-  type CursorSortTuple,
-} from "#app/utils/search-validation.server.ts";
+  buildAlbumFtsQuery,
+  buildArtistFtsQuery,
+  buildTrackFtsQuery,
+  cursorClause,
+  decodeSearchCursor,
+  encodeSearchCursor,
+  lastCursorTuple,
+  type SearchCursorState,
+} from "#app/utils/search-fts.server.ts";
 
 function emptySearchResponse(limit: number): SearchResponse {
   return {
@@ -25,79 +30,19 @@ function emptySearchResponse(limit: number): SearchResponse {
   };
 }
 
-type HasAudioCursor = {
-  t: CursorSortTuple | null;
-  a: CursorSortTuple | null;
-  ar: CursorSortTuple | null;
-};
+type HasAudioCursor = Required<Pick<SearchCursorState, "t" | "a" | "ar">>;
 
-/** Fail-closed decode aligned with global search: invalid present arms reject pagination. */
 function decodeCursor(cursor: string): HasAudioCursor {
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<string, unknown>;
-  } catch {
-    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
-  }
-  if (typeof parsed !== "object" || parsed === null) {
-    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
-  }
+  const state = decodeSearchCursor(cursor, ["t", "a", "ar"]);
   return {
-    t: decodeCursorArm(parsed, "t"),
-    a: decodeCursorArm(parsed, "a"),
-    ar: decodeCursorArm(parsed, "ar"),
+    t: state.t ?? null,
+    a: state.a ?? null,
+    ar: state.ar ?? null,
   };
 }
 
 function encodeCursor(c: HasAudioCursor): string {
-  return Buffer.from(JSON.stringify(c)).toString("base64");
-}
-
-function cursorClause(
-  tuple: CursorSortTuple,
-  rankCol: string,
-  ftsCol: string,
-  nameCol: string,
-  idCol: string,
-): { sql: string; params: unknown[] } {
-  return {
-    sql: `AND (
-      ${rankCol} > ? OR
-      (${rankCol} = ? AND ${ftsCol} > ?) OR
-      (${rankCol} = ? AND ${ftsCol} = ? AND ${nameCol} > ?) OR
-      (${rankCol} = ? AND ${ftsCol} = ? AND ${nameCol} = ? AND ${idCol} > ?)
-    )`,
-    params: [
-      tuple.rk,
-      tuple.rk,
-      tuple.fr,
-      tuple.rk,
-      tuple.fr,
-      tuple.n,
-      tuple.rk,
-      tuple.fr,
-      tuple.n,
-      tuple.id,
-    ],
-  };
-}
-
-function lastCursorTuple(
-  row: {
-    relevance_rank: number;
-    fts_rank: number | bigint;
-    name?: string;
-    title?: string;
-    id: string;
-  },
-  nameField: string,
-): CursorSortTuple {
-  return {
-    rk: Number(row.relevance_rank),
-    fr: Number(row.fts_rank ?? 0),
-    n: String(row[nameField as keyof typeof row] ?? ""),
-    id: String(row.id),
-  };
+  return encodeSearchCursor(c);
 }
 
 const HAS_AUDIO_TRACK = `EXISTS (
@@ -137,6 +82,19 @@ async function searchHasAudioTracks(
     ? cursorClause(curT, "relevance_rank", "fts_rank", "t.title", "t.id")
     : { sql: "", params: [] as unknown[] };
 
+  const trackQuery = buildTrackFtsQuery({
+    normalizedQuery,
+    prefixPattern,
+    ftsQuery,
+    limit,
+    cursorFilter,
+    userTrackJoin: "",
+    extraWhereAfterMatch: `
+      AND ${HAS_AUDIO_TRACK}
+      `,
+    ftsRankExpr: { sql: "tracks_fts.rank", params: [] },
+  });
+
   const results = await prisma.$queryRawUnsafe<
     Array<{
       type: string;
@@ -152,39 +110,7 @@ async function searchHasAudioTracks(
       relevance_rank: number;
       fts_rank: number;
     }>
-  >(
-    `SELECT
-      'track' as type,
-      t.id,
-      t.title,
-      a.name as artist_name,
-      a.id as artist_id,
-      COALESCE(alb.name, '') as album_name,
-      alb.id as album_id,
-      t.duration,
-      t."coverImageId",
-      t."serviceId",
-      CASE
-        WHEN LOWER(t.title) = ? THEN 1
-        WHEN LOWER(t.title) LIKE ? ESCAPE '\\' THEN 2
-        ELSE 3
-      END as relevance_rank,
-      tracks_fts.rank as fts_rank
-    FROM tracks_fts
-    JOIN "Track" t ON tracks_fts.track_id = t.id
-    JOIN "Artist" a ON t."artistId" = a.id
-    LEFT JOIN "Album" alb ON t."albumId" = alb.id
-    WHERE tracks_fts MATCH ?
-      AND ${HAS_AUDIO_TRACK}
-      ${cursorFilter.sql}
-    ORDER BY relevance_rank, fts_rank, t.title, t.id
-    LIMIT ?`,
-    normalizedQuery,
-    prefixPattern,
-    ftsQuery,
-    ...cursorFilter.params,
-    limit + 1,
-  );
+  >(trackQuery.sql, ...trackQuery.params);
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
@@ -254,6 +180,18 @@ async function searchHasAudioAlbums(
     ? cursorClause(curA, "relevance_rank", "fts_rank", "alb.name", "alb.id")
     : { sql: "", params: [] as unknown[] };
 
+  const albumQuery = buildAlbumFtsQuery({
+    normalizedQuery,
+    prefixPattern,
+    ftsQuery,
+    limit,
+    cursorFilter,
+    libraryScopeSql: "",
+    extraWhereAfterMatch: `
+      AND ${HAS_AUDIO_ALBUM}
+      `,
+  });
+
   const results = await prisma.$queryRawUnsafe<
     Array<{
       type: string;
@@ -266,36 +204,7 @@ async function searchHasAudioAlbums(
       relevance_rank: number;
       fts_rank: number;
     }>
-  >(
-    `SELECT
-      'album' as type,
-      alb.id,
-      alb.name,
-      a.name as artist_name,
-      a.id as artist_id,
-      alb.year,
-      alb."coverImageId",
-      CASE
-        WHEN LOWER(alb.name) = ? THEN 1
-        WHEN LOWER(alb.name) LIKE ? ESCAPE '\\' THEN 2
-        ELSE 3
-      END as relevance_rank,
-      albums_fts.rank as fts_rank
-    FROM albums_fts
-    JOIN "Album" alb ON albums_fts.album_id = alb.id
-    JOIN "Artist" a ON alb."artistId" = a.id
-    WHERE albums_fts MATCH ?
-      AND alb."mergedIntoId" IS NULL
-      AND ${HAS_AUDIO_ALBUM}
-      ${cursorFilter.sql}
-    ORDER BY relevance_rank, fts_rank, alb.name, alb.id
-    LIMIT ?`,
-    normalizedQuery,
-    prefixPattern,
-    ftsQuery,
-    ...cursorFilter.params,
-    limit + 1,
-  );
+  >(albumQuery.sql, ...albumQuery.params);
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
@@ -346,6 +255,19 @@ async function searchHasAudioArtists(
     ? cursorClause(curAr, "relevance_rank", "fts_rank", "a.name", "a.id")
     : { sql: "", params: [] as unknown[] };
 
+  const artistQuery = buildArtistFtsQuery({
+    normalizedQuery,
+    prefixPattern,
+    ftsQuery,
+    limit,
+    cursorFilter,
+    mergedIntoGuardSql: "",
+    libraryScopeSql: "",
+    extraWhereAfterMatch: `
+      AND ${HAS_AUDIO_ARTIST}
+      `,
+  });
+
   const results = await prisma.$queryRawUnsafe<
     Array<{
       type: string;
@@ -355,31 +277,7 @@ async function searchHasAudioArtists(
       relevance_rank: number;
       fts_rank: number;
     }>
-  >(
-    `SELECT
-      'artist' as type,
-      a.id,
-      a.name,
-      a.genre,
-      CASE
-        WHEN LOWER(a.name) = ? THEN 1
-        WHEN LOWER(a.name) LIKE ? ESCAPE '\\' THEN 2
-        ELSE 3
-      END as relevance_rank,
-      artists_fts.rank as fts_rank
-    FROM artists_fts
-    JOIN "Artist" a ON artists_fts.artist_id = a.id
-    WHERE artists_fts MATCH ?
-      AND ${HAS_AUDIO_ARTIST}
-      ${cursorFilter.sql}
-    ORDER BY relevance_rank, fts_rank, a.name, a.id
-    LIMIT ?`,
-    normalizedQuery,
-    prefixPattern,
-    ftsQuery,
-    ...cursorFilter.params,
-    limit + 1,
-  );
+  >(artistQuery.sql, ...artistQuery.params);
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);

@@ -5,11 +5,8 @@ import { requireRecentVerification } from "#app/routes/_auth+/verify-guards.serv
 import { type VerifyFunctionArgs } from "#app/routes/_auth+/verify.shared.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { sendEmail } from "#app/utils/email.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && (error as { code?: string }).code === "P2002";
-}
 
 export async function handleVerification({
   request,

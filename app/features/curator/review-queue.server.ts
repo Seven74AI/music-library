@@ -1,17 +1,9 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { QUEUE_STATUS_MINE, type ReviewQueueListItem } from "./review-queue.ts";
 
 const PAGE_SIZE = 20;
 const CLAIM_TIMEOUT_MS = 2 * 60 * 60 * 1000; // ADR-035: auto-unclaim after 2h inactivity
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "P2002"
-  );
-}
 
 /**
  * Idempotently create a review queue item, per ADR-035.
