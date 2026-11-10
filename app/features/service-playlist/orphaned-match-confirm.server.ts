@@ -101,6 +101,7 @@ export async function confirmOrphanedMatches(
   processedCount: number;
   message: string;
   error?: string;
+  status?: 400 | 403 | 404 | 500;
 }> {
   const duplicateTrackIds = getDuplicateMatchedTrackIds(matches);
   if (duplicateTrackIds.length > 0) {
@@ -109,6 +110,7 @@ export async function confirmOrphanedMatches(
       processedCount: 0,
       message: "Each orphaned track can only be matched to one deleted video.",
       error: `Duplicate track selections: ${duplicateTrackIds.join(", ")}`,
+      status: 400,
     };
   }
 
@@ -119,6 +121,7 @@ export async function confirmOrphanedMatches(
       processedCount: 0,
       message: "Each deleted video can only be used once.",
       error: `Duplicate deleted video selections: ${duplicateDeletedIds.join(", ")}`,
+      status: 400,
     };
   }
 
@@ -138,6 +141,7 @@ export async function confirmOrphanedMatches(
         processedCount: 0,
         message: "Playlist not found or access denied",
         error: "Playlist not found or access denied",
+        status: 404,
       };
     }
 
@@ -146,7 +150,8 @@ export async function confirmOrphanedMatches(
         success: false,
         processedCount: 0,
         message: "Service not found for playlist",
-        error: "Service not found for playlist",
+        error: undefined,
+        status: 500,
       };
     }
 
@@ -270,6 +275,7 @@ export async function confirmOrphanedMatches(
         processedCount: 0,
         message: error.message,
         error: error.message,
+        status: 403,
       };
     }
     return {
@@ -277,6 +283,7 @@ export async function confirmOrphanedMatches(
       processedCount: 0,
       message: "Failed to process matches. No changes were made. Please try again.",
       error: undefined,
+      status: 500,
     };
   }
 }

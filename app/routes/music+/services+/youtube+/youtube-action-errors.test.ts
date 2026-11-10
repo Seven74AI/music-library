@@ -135,7 +135,7 @@ describe("YouTube route action error responses", () => {
     expect(thrown.init?.status).not.toBe(400);
   });
 
-  test("confirm-deleted-match maps domain failure to 403 and generic failure to 200", async () => {
+  test("confirm-deleted-match maps each failure case to its status (400/403/404/500)", async () => {
     consoleError.mockImplementation(() => {});
     const run = () => {
       const formData = new FormData();
@@ -154,30 +154,55 @@ describe("YouTube route action error responses", () => {
       }) as Promise<{ init?: { status?: number } | null; data: unknown }>;
     };
 
-    vi.mocked(confirmOrphanedMatches).mockResolvedValueOnce({
-      success: false,
-      processedCount: 0,
-      message: "Track is not a member of this playlist: t1",
-      error: "Track is not a member of this playlist: t1",
-    });
-    const domain = await run();
-    expect(domain.init?.status).toBe(403);
-    expect(domain.data).toEqual({
-      status: "error",
-      message: "Track is not a member of this playlist: t1",
-    });
-
-    vi.mocked(confirmOrphanedMatches).mockResolvedValueOnce({
-      success: false,
-      processedCount: 0,
-      message: "Failed to process matches. No changes were made. Please try again.",
-      error: undefined,
-    });
-    const generic = await run();
-    expect(generic.init?.status ?? 200).toBe(200);
-    expect(generic.data).toMatchObject({
-      status: "error",
-      message: "Failed to process matches. No changes were made. Please try again.",
-    });
+    const cases: Array<{
+      name: string;
+      status: 400 | 403 | 404 | 500;
+      message: string;
+      error: string | undefined;
+    }> = [
+      {
+        name: "duplicate selections",
+        status: 400,
+        message: "Each orphaned track can only be matched to one deleted video.",
+        error: "Duplicate track selections: cuid1",
+      },
+      {
+        name: "not a member",
+        status: 403,
+        message: "Track is not a member of this playlist: t1",
+        error: "Track is not a member of this playlist: t1",
+      },
+      {
+        name: "playlist not found",
+        status: 404,
+        message: "Playlist not found or access denied",
+        error: "Playlist not found or access denied",
+      },
+      {
+        name: "service missing",
+        status: 500,
+        message: "Service not found for playlist",
+        error: undefined,
+      },
+      {
+        name: "generic infra",
+        status: 500,
+        message: "Failed to process matches. No changes were made. Please try again.",
+        error: undefined,
+      },
+    ];
+    for (const c of cases) {
+      vi.mocked(confirmOrphanedMatches).mockResolvedValueOnce({
+        success: false,
+        processedCount: 0,
+        message: c.message,
+        error: c.error,
+        status: c.status,
+      });
+      const res = await run();
+      expect(res.init?.status, c.name).toBe(c.status);
+      // Body uses the friendly `message`, never the internal `error`.
+      expect(res.data, c.name).toEqual({ status: "error", message: c.message });
+    }
   });
 });
