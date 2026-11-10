@@ -1,10 +1,22 @@
+import { z } from "zod";
 import { getOrCreateArtistTx } from "#app/utils/artist-management.server";
 import { prisma } from "#app/utils/db.server";
 import { getServiceByName } from "./playlist-utils.server";
 
+export const orphanMatchesSchema = z
+  .array(
+    z.object({
+      action: z.enum(["match", "new", "skip"]),
+      deletedItemId: z.string().max(64).optional(),
+      selectedTrackId: z.string().nullable().optional(),
+      position: z.number().int().min(0),
+    }),
+  )
+  .max(50);
+
 export type OrphanMatchSelection = {
-  deletedItemId: string | undefined;
-  selectedTrackId: string | null;
+  deletedItemId?: string | undefined;
+  selectedTrackId?: string | null;
   position: number;
   action: "match" | "new" | "skip";
 };
@@ -96,8 +108,21 @@ export async function confirmOrphanedMatches(
         }
 
         if (match.action === "new") {
+          // Idempotency: if a row in this playlist already owns this
+          // playlistItem.id (re-submit / stale confirm / later sync), treat the
+          // match as already resolved instead of failing the whole batch.
+          if (match.deletedItemId) {
+            const itemIdOwner = await tx.servicePlaylistTrack.findFirst({
+              where: { playlistId, playlistItemId: match.deletedItemId },
+              select: { id: true },
+            });
+            if (itemIdOwner) continue;
+          }
+
           const newTrackId = createId();
-          const externalId = match.deletedItemId || `deleted-${playlistId}-${match.position}`;
+          // Never trust client input for the Track externalId (deletedItemId is a
+          // playlistItem.id, not a video id, and could squat the unique key).
+          const externalId = `deleted-${playlistId}-${match.position}`;
 
           const artistRecord = await getOrCreateArtistTx(tx, "Unknown Artist");
 

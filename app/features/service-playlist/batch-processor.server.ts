@@ -462,6 +462,7 @@ export async function resolveDeletedVideosAfterSync(
         id: track.id,
         title: "Deleted video",
         externalId,
+        membershipId: spt.id,
       });
     }
   });
@@ -1024,6 +1025,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           id: track.id,
           title: track.title,
           externalId: trackData.externalId,
+          membershipId: result.id,
         });
       }
 

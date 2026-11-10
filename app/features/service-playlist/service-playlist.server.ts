@@ -794,6 +794,6 @@ export function createServicePlaylistService(options?: {
 }
 
 export type { PendingMatch, SyncTrackInfo };
-export { confirmOrphanedMatches } from "./orphaned-match-confirm.server";
+export { confirmOrphanedMatches, orphanMatchesSchema } from "./orphaned-match-confirm.server";
 export { getServiceByName } from "./playlist-utils.server";
 export { SERVICE_PLAYLIST_TRACK_PAGE_SIZE } from "./service-playlist-track-queries.server";
