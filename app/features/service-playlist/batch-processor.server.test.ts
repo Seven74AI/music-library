@@ -99,10 +99,7 @@ describe("processTracksInBatches - unavailable placeholders", () => {
         findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue({ id: "spt-1", trackId: "track-pending" }),
       },
-      archiveJob: {
-        findMany: vi.fn().mockResolvedValue([]),
-        createMany: vi.fn(),
-      },
+      archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
     } as unknown as Prisma.TransactionClient;
 
     await processTracksInBatches(
@@ -124,9 +121,7 @@ describe("processTracksInBatches - unavailable placeholders", () => {
     );
 
     expect(trackUpsert).toHaveBeenCalled();
-    const { update } = trackUpsert.mock.calls[0]![0] as {
-      update: { title?: string };
-    };
+    const { update } = trackUpsert.mock.calls[0]![0] as { update: { title?: string } };
     expect(update.title).toBe("Original Title");
   });
 
@@ -163,10 +158,7 @@ describe("processTracksInBatches - unavailable placeholders", () => {
         ]),
         upsert: vi.fn(),
       },
-      archiveJob: {
-        findMany: vi.fn().mockResolvedValue([]),
-        createMany: vi.fn(),
-      },
+      archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
     } as unknown as Prisma.TransactionClient;
 
     await processTracksInBatches(
@@ -239,10 +231,7 @@ describe("processTracksInBatches - archived metadata", () => {
         findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue({ id: "spt-1" }),
       },
-      archiveJob: {
-        findMany: vi.fn().mockResolvedValue([]),
-        createMany: vi.fn(),
-      },
+      archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
     } as unknown as Prisma.TransactionClient;
 
     await processTracksInBatches(
@@ -284,11 +273,7 @@ describe("processTracksInBatches - archived metadata", () => {
         }: {
           update: Record<string, unknown>;
           create: Record<string, unknown>;
-        }) =>
-          Promise.resolve({
-            id: "track-archived",
-            ...(create.serviceUrl ? update : create),
-          }),
+        }) => Promise.resolve({ id: "track-archived", ...(create.serviceUrl ? update : create) }),
       );
 
     const archivedRow = {
@@ -343,10 +328,7 @@ describe("processTracksInBatches - archived metadata", () => {
     );
 
     expect(trackUpsert).toHaveBeenCalled();
-    const update = trackUpsert.mock.calls[0]![0].update as {
-      title?: string;
-      artistId?: string;
-    };
+    const update = trackUpsert.mock.calls[0]![0].update as { title?: string; artistId?: string };
     expect(update.title).toBe("Archive Worker Title");
     expect(update.artistId).toBe("artist-1");
   });
@@ -423,23 +405,21 @@ describe("processTracksInBatches - playlist track pairing", () => {
 
   it("keeps playlist positions aligned when the safety filter drops a middle row", async () => {
     consoleWarn.mockImplementation(() => {});
-    const playlistTrackUpsert = vi.fn().mockImplementation(
-      ({
-        data,
-      }: {
-        data: {
-          position: number;
-          trackId: string;
-          thumbnailUrl?: string | null;
-        };
-      }) =>
-        Promise.resolve({
-          id: "spt",
-          trackId: data.trackId,
-          position: data.position,
-          thumbnailUrl: data.thumbnailUrl ?? null,
-        }),
-    );
+    const playlistTrackUpsert = vi
+      .fn()
+      .mockImplementation(
+        ({
+          data,
+        }: {
+          data: { position: number; trackId: string; thumbnailUrl?: string | null };
+        }) =>
+          Promise.resolve({
+            id: "spt",
+            trackId: data.trackId,
+            position: data.position,
+            thumbnailUrl: data.thumbnailUrl ?? null,
+          }),
+      );
 
     const trackUpsert = vi
       .fn()
@@ -471,10 +451,7 @@ describe("processTracksInBatches - playlist track pairing", () => {
         findMany: vi.fn().mockResolvedValue([]),
         create: playlistTrackUpsert,
       },
-      archiveJob: {
-        findMany: vi.fn().mockResolvedValue([]),
-        createMany: vi.fn(),
-      },
+      archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
     } as unknown as Prisma.TransactionClient;
 
     const base = createYouTubeTrackSyncProcessor();

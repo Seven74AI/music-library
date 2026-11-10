@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server";
 import { createUser } from "#tests/db-utils";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
@@ -10,6 +10,8 @@ import {
   type SyncableItem,
 } from "./batch-processor.server";
 import { createYouTubeTrackSyncProcessor } from "./youtube-track-sync.server";
+
+type TrackSyncProcessor = ReturnType<typeof createYouTubeTrackSyncProcessor>;
 
 const item = (id: string | undefined, videoId: string): SyncableItem => ({
   ...(id ? { id } : {}),
@@ -25,14 +27,17 @@ const emptyIds = (): ProcessedIdSets => ({
   externalIds: new Set(),
   trackIds: new Set(),
   sptIds: new Set(),
+  failedExternalIds: new Set(),
 });
 
 describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
   let playlistId: string;
   let serviceId: string;
 
-  async function sync(items: SyncableItem[]) {
-    const processor = createYouTubeTrackSyncProcessor();
+  async function sync(
+    items: SyncableItem[],
+    processor: TrackSyncProcessor = createYouTubeTrackSyncProcessor(),
+  ) {
     const ids = emptyIds();
     const result = await prisma.$transaction((tx) =>
       processTracksInBatches(
@@ -117,10 +122,16 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
   });
 
   test("regenerated playlistItem.id reuses the row (no double rows)", async () => {
-    await sync([item("pi-1", "vid-a"), item("pi-2", "vid-a")]);
+    const before = await sync([item("pi-1", "vid-a"), item("pi-2", "vid-a")]);
     const { rows, surplus } = await sync([item("pi-9", "vid-a"), item("pi-2", "vid-a")]);
     expect(rows).toHaveLength(2);
     expect(surplus.size).toBe(0);
+    // The regenerated id REUSED the existing row rather than creating a new one.
+    expect(new Set(rows.map((r) => r.id))).toEqual(new Set(before.rows.map((r) => r.id)));
+    const stamped = await prisma.servicePlaylistTrack.findMany({
+      where: { playlistId },
+    });
+    expect(stamped.map((r) => r.playlistItemId).sort()).toEqual(["pi-2", "pi-9"]);
   });
 
   test("removing one of two copies marks only the surplus row, keeps the other", async () => {
@@ -136,5 +147,63 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
         })
       ).playlistItemId,
     ).toBe("pi-2");
+  });
+
+  test("duplicate playlistItem.id in one payload does not fail and yields one row", async () => {
+    const { result, rows } = await sync([
+      item("pi-1", "vid-a"),
+      item("pi-1", "vid-a"),
+      item("pi-2", "vid-b"),
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(result.processedCount).toBe(2);
+    expect(rows.filter((r) => r.track.externalId === "vid-a")).toHaveLength(1);
+  });
+
+  test("a failed-preparation copy is not deleted as surplus", async () => {
+    await sync([item("pi-1", "vid-a"), item("pi-2", "vid-a")]);
+    const base = createYouTubeTrackSyncProcessor();
+    const flaky = Object.create(base) as TrackSyncProcessor;
+    flaky.transformPlaylistItem = (it, serviceId, artistId) => {
+      if (it.id === "pi-2") throw new Error("boom");
+      return base.transformPlaylistItem(it, serviceId, artistId);
+    };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { rows, surplus } = await sync([item("pi-1", "vid-a"), item("pi-2", "vid-a")], flaky);
+    errorSpy.mockRestore();
+    expect(rows).toHaveLength(2);
+    expect(surplus.size).toBe(0);
+  });
+
+  test("more than one batch (50) accumulates claimed rows across batches", async () => {
+    // Same video repeated 60 times: rows from batch 1 must not be re-claimed in batch 2.
+    const items = Array.from({ length: 60 }, (_, i) => item(`pi-${i}`, "vid-a"));
+    const ids = emptyIds();
+    const processor = createYouTubeTrackSyncProcessor();
+    for (const start of [0, 50]) {
+      const slice = items.slice(start, start + 50);
+      const res = await prisma.$transaction((tx) =>
+        processTracksInBatches(
+          slice,
+          serviceId,
+          playlistId,
+          tx,
+          processor,
+          noopArchiveEnqueueAdapter,
+          start,
+          ids,
+        ),
+      );
+      res.processedIds.sptIds.forEach((id) => ids.sptIds.add(id));
+    }
+    const rows = await prisma.servicePlaylistTrack.findMany({
+      where: { playlistId },
+    });
+    expect(rows).toHaveLength(60);
+    expect(new Set(rows.map((r) => r.playlistItemId)).size).toBe(60);
+    // Re-sync in one call (two internal batches of 50) is stable.
+    const again = await sync(items);
+    expect(again.rows).toHaveLength(60);
+    expect(again.surplus.size).toBe(0);
   });
 });

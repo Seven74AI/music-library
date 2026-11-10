@@ -479,20 +479,20 @@ model ServicePlaylist {
 }
 
 model ServicePlaylistTrack {
-  id           String          @id @default(cuid())
-  playlistId   String
-  trackId      String
-  position     Int
-  isDeleted    Boolean         @default(false)
-  deletedAt    DateTime?
-  thumbnailUrl String? // Temporary storage for YouTube thumbnail URL until processed
+  id             String          @id @default(cuid())
+  playlistId     String
+  trackId        String
+  position       Int
+  isDeleted      Boolean         @default(false)
+  deletedAt      DateTime?
+  thumbnailUrl   String? // Temporary storage for YouTube thumbnail URL until processed
   // Provider playlist-item id (YouTube playlistItem.id). Nullable: legacy rows are lazily
   // stamped on next sync. SQLite treats NULLs as distinct, so legacy rows coexist.
   playlistItemId String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  track        Track           @relation(fields: [trackId], references: [id])
-  playlist     ServicePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  track          Track           @relation(fields: [trackId], references: [id])
+  playlist       ServicePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
   @@unique([playlistId, playlistItemId])
   @@index([playlistId, trackId])

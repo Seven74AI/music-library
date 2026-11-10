@@ -150,6 +150,14 @@ export class ServicePlaylistService {
       resolveVideoExistence?: PlaylistSyncProvider["resolveVideoExistence"];
     },
   ): Promise<{ result: ProcessTracksResult; timedOut: boolean }> {
+    // Dedup by playlistItem.id: paged fetches can repeat an item mid-edit.
+    const seenItemIds = new Set<string>();
+    playlistItems = playlistItems.filter((item) => {
+      if (!item.id) return true;
+      if (seenItemIds.has(item.id)) return false;
+      seenItemIds.add(item.id);
+      return true;
+    });
     const totalItems = playlistItems.length;
     const accumulated: ProcessTracksResult = {
       processedCount: 0,
@@ -158,6 +166,7 @@ export class ServicePlaylistService {
         externalIds: new Set<string>(),
         trackIds: new Set<string>(),
         sptIds: new Set<string>(),
+        failedExternalIds: new Set<string>(),
       },
       pendingMatches: [],
       deletedVideosWithoutMatch: [],
@@ -195,6 +204,9 @@ export class ServicePlaylistService {
           accumulated.processedIds.trackIds.add(id),
         );
         batchResult.processedIds.sptIds.forEach((id) => accumulated.processedIds.sptIds.add(id));
+        batchResult.processedIds.failedExternalIds?.forEach((id) =>
+          accumulated.processedIds.failedExternalIds?.add(id),
+        );
         accumulated.deletedVideosWithoutMatch.push(...batchResult.deletedVideosWithoutMatch);
         scheduleArchiveQueueTickAfterCommit(batchResult.archiveQueueTickNeeded);
       } catch (batchError) {
@@ -501,9 +513,7 @@ export class ServicePlaylistService {
       if (error instanceof Error) {
         throw error;
       }
-      throw new Error("Failed to fetch playlist items from external service", {
-        cause: error,
-      });
+      throw new Error("Failed to fetch playlist items from external service", { cause: error });
     }
 
     const { result: processResult, timedOut } = await this.processBatches(
@@ -557,11 +567,15 @@ export class ServicePlaylistService {
       const externalId = playlistTrack.track.externalId;
       const trackId = playlistTrack.track.id;
 
-      removedTracks.push({
-        id: trackId,
-        title: playlistTrack.track.title,
-        ...(externalId && { externalId }),
-      });
+      // A surplus copy of a video still in the payload is cleanup, not a removal.
+      if (!processResult.processedIds.trackIds.has(trackId)) {
+        removedTracks.push({
+          id: trackId,
+          title: playlistTrack.track.title,
+          ...(externalId && { externalId }),
+          membershipId: playlistTrack.id,
+        });
+      }
       tracksToRemove.push(playlistTrack.id);
     }
 
@@ -740,7 +754,6 @@ export class ServicePlaylistService {
     const tracks: TrackWithUserStatus[] = result.tracks.map((track) =>
       Object.assign({}, track, {
         artist: track.artist || { id: "", name: "Unknown Artist" },
-        membershipId: track.membershipId,
         isDeleted: track.isDeleted || false,
         deletedAt: track.deletedAt || null,
         coverImage: track.coverImage

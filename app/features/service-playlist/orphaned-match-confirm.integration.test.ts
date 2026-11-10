@@ -25,11 +25,7 @@ describe("confirmOrphanedMatches membership scoping", () => {
     const service = await prisma.service.upsert({
       where: { name: "youtube" },
       update: {},
-      create: {
-        name: "youtube",
-        displayName: "YouTube",
-        baseUrl: "https://youtube.com",
-      },
+      create: { name: "youtube", displayName: "YouTube", baseUrl: "https://youtube.com" },
     });
     const artist = await prisma.artist.create({
       data: { name: "Test Artist", normalizedName: "test-artist" },
@@ -96,11 +92,7 @@ describe("confirmOrphanedMatches membership scoping", () => {
     const service = await prisma.service.upsert({
       where: { name: "youtube" },
       update: {},
-      create: {
-        name: "youtube",
-        displayName: "YouTube",
-        baseUrl: "https://youtube.com",
-      },
+      create: { name: "youtube", displayName: "YouTube", baseUrl: "https://youtube.com" },
     });
     const artist = await prisma.artist.create({
       data: { name: "Test Artist", normalizedName: "test-artist" },
