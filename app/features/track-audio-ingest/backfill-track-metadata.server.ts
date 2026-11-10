@@ -1,6 +1,6 @@
 import { getOrCreateArtist } from "#app/utils/artist-management.server";
 import { type ExtractedAudioMetadata } from "#app/utils/audio-metadata.server";
-import { getOrCreateAlbum } from "#app/utils/cover-management.server";
+import { getOrCreateAlbum } from "#app/utils/album-management.server";
 import { prisma } from "#app/utils/db.server.ts";
 import { replaceTrackGenresFromStrings } from "#app/utils/track-genres.server.ts";
 import { coerceOptionalInt, pickIntField } from "#app/utils/track-metadata-int.server.ts";

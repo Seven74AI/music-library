@@ -756,14 +756,47 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           );
         }
 
-        const updateData = Object.fromEntries(
-          Object.entries({
-            ...td,
-            serviceId: sid,
-            externalId: eid,
-            updatedAt: new Date(),
-          }).filter(([, value]) => value !== null && value !== undefined),
-        );
+        const trackAtUpsert = await tx.track.findUnique({
+          where: {
+            serviceId_externalId: {
+              serviceId: sid,
+              externalId: eid,
+            },
+          },
+          select: {
+            title: true,
+            artistId: true,
+            albumId: true,
+            releaseDate: true,
+            duration: true,
+            coverImageId: true,
+            audioFiles: { select: { id: true }, take: 1 },
+          },
+        });
+
+        const hasTrackAudioFileNow = trackAtUpsert !== null && trackAtUpsert.audioFiles.length > 0;
+
+        const updateData: Prisma.TrackUncheckedUpdateInput = hasTrackAudioFileNow
+          ? {
+              serviceUrl: td.serviceUrl,
+              serviceId: sid,
+              externalId: eid,
+              title: trackAtUpsert!.title,
+              artistId: trackAtUpsert!.artistId,
+              albumId: trackAtUpsert!.albumId,
+              releaseDate: trackAtUpsert!.releaseDate,
+              duration: trackAtUpsert!.duration,
+              coverImageId: td.coverImageId ?? trackAtUpsert!.coverImageId,
+              updatedAt: new Date(),
+            }
+          : (Object.fromEntries(
+              Object.entries({
+                ...td,
+                serviceId: sid,
+                externalId: eid,
+                updatedAt: new Date(),
+              }).filter(([, value]) => value !== null && value !== undefined),
+            ) as Prisma.TrackUncheckedUpdateInput);
 
         const track = await tx.track.upsert({
           where: {
