@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { afterEach, expect, test, vi } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 import * as coverManagement from "#app/utils/cover-management.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { COVER_ADMIN_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server.ts";
 import {
   countTracksWithoutCovers,
   getTracksWithoutCovers,
@@ -42,6 +44,46 @@ afterEach(async () => {
   if (createdUserIds.length > 0) {
     await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     createdUserIds.length = 0;
+  }
+});
+
+test("uploadTrackCover returns stable message when storage fails", async () => {
+  consoleError.mockImplementation(() => {});
+  const storageLeak = "Tigris PutObject failed: AccessDenied on images/tracks/x.jpg";
+  const findOrCreateSpy = vi
+    .spyOn(coverManagement, "findOrCreateCoverImage")
+    .mockRejectedValueOnce(new Error(storageLeak));
+
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const service = await prisma.service.upsert({
+    where: { name: "local" },
+    update: {},
+    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
+  });
+  const artist = await prisma.artist.create({
+    data: {
+      name: `Cover fail ${suffix}`,
+      normalizedName: `cover fail ${suffix}`,
+    },
+  });
+  createdArtistIds.push(artist.id);
+  const track = await prisma.track.create({
+    data: {
+      title: `Cover fail track ${suffix}`,
+      externalId: `cover-fail-${suffix}`,
+      artistId: artist.id,
+      serviceId: service.id,
+    },
+  });
+  createdTrackIds.push(track.id);
+
+  try {
+    const result = await uploadTrackCover(track.id, Buffer.from("fake-image"));
+    expect(result.success).toBe(false);
+    expect(result.error).toBe(COVER_ADMIN_CLIENT_ERROR_MESSAGE);
+    expect(result.error).not.toMatch(/Tigris/i);
+  } finally {
+    findOrCreateSpy.mockRestore();
   }
 });
 

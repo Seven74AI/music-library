@@ -1,6 +1,11 @@
 import { parseFormData } from "@mjackson/form-data-parser";
 import { data, type ActionFunctionArgs } from "react-router";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
+import {
+  UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+  UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE,
+  toClientErrorMessage,
+} from "#app/utils/error-handlers.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -90,7 +95,10 @@ export async function action({ request }: ActionFunctionArgs) {
             results.push({
               fileName: extractedFile.fileName,
               metadata: null,
-              error: error instanceof Error ? error.message : "Failed to extract metadata",
+              error: toClientErrorMessage(
+                error,
+                UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+              ),
             });
           }
         }
@@ -103,10 +111,11 @@ export async function action({ request }: ActionFunctionArgs) {
           { status: 200 },
         );
       } catch (error) {
+        console.error("Error extracting ZIP file:", error);
         return data(
           {
             success: false,
-            error: `Failed to extract ZIP file: ${error instanceof Error ? error.message : "Unknown error"}`,
+            error: toClientErrorMessage(error, UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE),
           },
           { status: 400 },
         );
@@ -187,7 +196,7 @@ export async function action({ request }: ActionFunctionArgs) {
       results.push({
         fileName: file.name,
         metadata: null,
-        error: error instanceof Error ? error.message : "Failed to extract metadata",
+        error: toClientErrorMessage(error, UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE),
       });
     }
   }
