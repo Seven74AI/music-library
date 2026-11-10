@@ -488,7 +488,7 @@ Added:
 - app/utils/audio-file-management.server.test.ts (comprehensive tests)
 - prisma/migrations/20260924102309_add_content_hash_to_track_audio_file/migration.sql
 - prisma/migrations/20260924150400_add_audio_fingerprint_to_track_audio_file/migration.sql
-- prisma/backfill-audio-hashes.ts (for existing uploads, now includes fingerprints)
+- prisma/backfill-audio-hashes.ts (for existing uploads, includes fingerprints)
 - docs/audio-deduplication.md (this file)
 
 Updated Tests:

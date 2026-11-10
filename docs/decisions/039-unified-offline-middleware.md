@@ -75,7 +75,7 @@ type StubEntry =
   | { kind: "async"; fn: AsyncOfflineStubFn }; // async (IndexedDB queries)
 ```
 
-Previously "live" routes (root, library, playlists, downloads, home) are now
+Previously "live" routes (root, library, playlists, downloads, home) are
 regular policy entries. Routes not in the map get `OFFLINE_EMPTY ({})`.
 
 ### Route files — no offline code

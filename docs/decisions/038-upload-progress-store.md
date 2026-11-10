@@ -42,7 +42,7 @@ re-sends the failed files from the browser (`upload.tsx` →
 `handleRetryFailed`), and the SSE payload already strips `fileData` before
 serialising. Audio buffers (up to ~1 GB per ZIP) cannot live in Redis verbatim,
 and spilling them to Tigris/S3 would add a read path no caller needs. We
-therefore **drop the server-side retry buffer entirely** — `addFailedFile` now
+therefore **drop the server-side retry buffer entirely** — `addFailedFile`
 records only `{ fileId, fileName, error }` — and rely on client-side re-upload.
 This keeps the shared store small, JSON-only, and Redis-safe, and removes a
 latent unbounded-memory hazard.
@@ -55,7 +55,7 @@ mechanisms make progress visible:
 
 1. An immediate, instance-local push via a store subscription (same-instance
    upload + poll — the common single-instance case).
-2. The SSE loader's 1 s heartbeat, which now polls the shared store every tick
+2. The SSE loader's 1 s heartbeat, which polls the shared store every tick
    and pushes a full snapshot. On a multi-instance deploy this is the mechanism
    that makes progress visible at 1 s granularity even when upload and poll land
    on different instances.
