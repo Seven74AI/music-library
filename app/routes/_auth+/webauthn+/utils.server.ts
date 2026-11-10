@@ -1,6 +1,7 @@
 import {
   type AuthenticationResponseJSON,
   type RegistrationResponseJSON,
+  SimpleWebAuthnError,
 } from "@simplewebauthn/server";
 import { createCookie } from "react-router";
 import { z } from "zod";
@@ -77,4 +78,31 @@ export function getWebAuthnConfig(request: Request) {
     rpID: url.hostname,
     origin: url.origin,
   } as const;
+}
+
+export const WEBAUTHN_CLIENT_ERROR_MESSAGE = "Passkey verification failed. Please try again.";
+
+const SAFE_WEBAUTHN_CLIENT_ERRORS = new Set([
+  "Authentication challenge not found",
+  "Invalid authentication response",
+  "Passkey not found",
+  "This account has been disabled",
+  "Authentication verification failed",
+  "Invalid registration response",
+  "No challenge found",
+  "Registration verification failed",
+  "This passkey has already been registered",
+]);
+
+/**
+ * Map WebAuthn action errors to client-safe strings (no Prisma/upstream text).
+ */
+export function toWebAuthnClientErrorMessage(error: unknown): string {
+  if (error instanceof SimpleWebAuthnError) {
+    return error.message;
+  }
+  if (error instanceof Error && SAFE_WEBAUTHN_CLIENT_ERRORS.has(error.message)) {
+    return error.message;
+  }
+  return WEBAUTHN_CLIENT_ERROR_MESSAGE;
 }

@@ -1,7 +1,6 @@
 import { generateRegistrationOptions, verifyRegistrationResponse } from "@simplewebauthn/server";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { getErrorMessage } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/registration.ts";
 import {
@@ -9,6 +8,7 @@ import {
   RegistrationResponseSchema,
   passkeyCookie,
   getWebAuthnConfig,
+  toWebAuthnClientErrorMessage,
 } from "./utils.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -124,7 +124,8 @@ export async function action({ request }: Route.ActionArgs) {
   } catch (error) {
     if (error instanceof Response) throw error;
 
-    return Response.json({ status: "error", error: getErrorMessage(error) } as const, {
+    console.error("WebAuthn registration error:", error);
+    return Response.json({ status: "error", error: toWebAuthnClientErrorMessage(error) } as const, {
       status: 400,
     });
   }

@@ -15,6 +15,7 @@ import {
 import { requireAnonymous } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { sendEmail } from "#app/utils/email.server.ts";
+import { VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server.ts";
 import { checkHoneypot } from "#app/utils/honeypot.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -74,8 +75,15 @@ export async function action({ request }: Route.ActionArgs) {
         react: <SignupEmail onboardingUrl={prepared.verifyUrl.toString()} otp={prepared.otp} />,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not send verification email";
-      return data({ result: submission.reply({ formErrors: [message] }) }, { status: 500 });
+      console.error("Signup verification email error:", error);
+      return data(
+        {
+          result: submission.reply({
+            formErrors: [VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE],
+          }),
+        },
+        { status: 500 },
+      );
     }
 
     await recordSecurityEvent({

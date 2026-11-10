@@ -35,6 +35,7 @@ import {
   getIntentErrorMessage,
 } from "#app/types/youtube-intents";
 import { requireUserId } from "#app/utils/auth.server";
+import { toClientErrorMessage } from "#app/utils/error-handlers.server";
 import { handleLoaderError } from "#app/utils/error-handlers.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/playlists.ts";
@@ -191,7 +192,7 @@ export async function action({ request }: ActionFunctionArgs) {
     console.error("Error in YouTube playlists action:", error);
     return data({
       status: "error",
-      message: error instanceof Error ? error.message : "An error occurred",
+      message: toClientErrorMessage(error),
     });
   }
 }
