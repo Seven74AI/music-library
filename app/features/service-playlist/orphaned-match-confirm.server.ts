@@ -119,6 +119,7 @@ export async function confirmOrphanedMatches(
               id: createId(),
               playlistId,
               trackId: track.id,
+              playlistItemId: match.deletedItemId ?? null,
               position: match.position,
               isDeleted: true,
               deletedAt: new Date(),
@@ -132,27 +133,30 @@ export async function confirmOrphanedMatches(
           // orphaned track is a ServicePlaylistTrack row for this playlist
           // that was not seen in the latest sync). Reject any client-supplied
           // track that is only in the global catalog.
-          const existingPlaylistTrack = await tx.servicePlaylistTrack.findUnique({
-            where: {
-              playlistId_trackId: {
-                playlistId,
-                trackId: match.selectedTrackId,
-              },
-            },
+          const existingPlaylistTrack = await tx.servicePlaylistTrack.findFirst({
+            where: { playlistId, trackId: match.selectedTrackId },
+            orderBy: [{ isDeleted: "asc" }, { position: "asc" }, { id: "asc" }],
           });
 
           if (!existingPlaylistTrack) {
             throw new Error(`Track is not a member of this playlist: ${match.selectedTrackId}`);
           }
 
+          // Stamp the deleted item's playlistItem.id so later syncs find this row
+          // directly (skip if another row already owns that id).
+          const itemIdOwner = match.deletedItemId
+            ? await tx.servicePlaylistTrack.findFirst({
+                where: { playlistId, playlistItemId: match.deletedItemId },
+                select: { id: true },
+              })
+            : null;
+
           await tx.servicePlaylistTrack.update({
-            where: {
-              playlistId_trackId: {
-                playlistId,
-                trackId: match.selectedTrackId,
-              },
-            },
+            where: { id: existingPlaylistTrack.id },
             data: {
+              ...(match.deletedItemId && !itemIdOwner
+                ? { playlistItemId: match.deletedItemId }
+                : {}),
               position: match.position,
               isDeleted: true,
               deletedAt: existingPlaylistTrack.deletedAt || new Date(),

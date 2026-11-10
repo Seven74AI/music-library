@@ -280,11 +280,14 @@ export function getTracksMissingFromLibrary(
   tracks: TrackWithUserStatus[],
   libraryStatus: Record<string, boolean> = {},
 ): TrackWithUserStatus[] {
+  const seen = new Set<string>();
   return tracks.filter((track) => {
     if (track.isDeleted) return false;
     const status =
       libraryStatus[track.id] !== undefined ? libraryStatus[track.id] : track.isInUserLibrary;
-    return !status;
+    if (status || seen.has(track.id)) return false;
+    seen.add(track.id);
+    return true;
   });
 }
 
@@ -584,10 +587,16 @@ export default function YouTubeSyncedPlaylistDetailPage() {
               <div className="mt-2 text-sm text-green-700 dark:text-green-300">
                 <p className="font-medium">Removed tracks: {actionData.removedTracks.length}</p>
                 <ul className="list-disc list-inside mt-1 space-y-1">
-                  {(actionData.removedTracks as Array<{ id: string; title: string }>)
+                  {(
+                    actionData.removedTracks as Array<{
+                      id: string;
+                      title: string;
+                      membershipId?: string;
+                    }>
+                  )
                     .slice(0, 5)
                     .map((track) => (
-                      <li key={track.id}>{track.title}</li>
+                      <li key={track.membershipId ?? track.id}>{track.title}</li>
                     ))}
                   {actionData.removedTracks.length > 5 && (
                     <li className="text-muted-foreground">
@@ -801,7 +810,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 
                     return (
                       <TrackListItem
-                        key={track.id}
+                        key={track.membershipId ?? `${track.id}-${index}`}
                         track={{
                           ...trackForListItem,
                           isInUserLibrary:

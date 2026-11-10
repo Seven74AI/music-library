@@ -150,6 +150,14 @@ export class ServicePlaylistService {
       resolveVideoExistence?: PlaylistSyncProvider["resolveVideoExistence"];
     },
   ): Promise<{ result: ProcessTracksResult; timedOut: boolean }> {
+    // Dedup by playlistItem.id: paged fetches can repeat an item mid-edit.
+    const seenItemIds = new Set<string>();
+    playlistItems = playlistItems.filter((item) => {
+      if (!item.id) return true;
+      if (seenItemIds.has(item.id)) return false;
+      seenItemIds.add(item.id);
+      return true;
+    });
     const totalItems = playlistItems.length;
     const accumulated: ProcessTracksResult = {
       processedCount: 0,
@@ -157,6 +165,8 @@ export class ServicePlaylistService {
       processedIds: {
         externalIds: new Set<string>(),
         trackIds: new Set<string>(),
+        sptIds: new Set<string>(),
+        failedExternalIds: new Set<string>(),
       },
       pendingMatches: [],
       deletedVideosWithoutMatch: [],
@@ -192,6 +202,10 @@ export class ServicePlaylistService {
         );
         batchResult.processedIds.trackIds.forEach((id) =>
           accumulated.processedIds.trackIds.add(id),
+        );
+        batchResult.processedIds.sptIds.forEach((id) => accumulated.processedIds.sptIds.add(id));
+        batchResult.processedIds.failedExternalIds?.forEach((id) =>
+          accumulated.processedIds.failedExternalIds?.add(id),
         );
         accumulated.deletedVideosWithoutMatch.push(...batchResult.deletedVideosWithoutMatch);
         scheduleArchiveQueueTickAfterCommit(batchResult.archiveQueueTickNeeded);
@@ -553,11 +567,15 @@ export class ServicePlaylistService {
       const externalId = playlistTrack.track.externalId;
       const trackId = playlistTrack.track.id;
 
-      removedTracks.push({
-        id: trackId,
-        title: playlistTrack.track.title,
-        ...(externalId && { externalId }),
-      });
+      // A surplus copy of a video still in the payload is cleanup, not a removal.
+      if (!processResult.processedIds.trackIds.has(trackId)) {
+        removedTracks.push({
+          id: trackId,
+          title: playlistTrack.track.title,
+          ...(externalId && { externalId }),
+          membershipId: playlistTrack.id,
+        });
+      }
       tracksToRemove.push(playlistTrack.id);
     }
 
@@ -694,6 +712,7 @@ export class ServicePlaylistService {
         Object.assign({}, pt.track, {
           artist: pt.track.artist || { id: "", name: "Unknown Artist" },
           position: pt.position,
+          membershipId: pt.id,
           isDeleted: pt.isDeleted,
           deletedAt: pt.deletedAt,
           thumbnailUrl: pt.thumbnailUrl,

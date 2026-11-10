@@ -31,7 +31,7 @@ function createTxMock() {
     },
     servicePlaylistTrack: {
       findMany: vi.fn().mockResolvedValue([]),
-      upsert: vi.fn().mockResolvedValue({ id: "spt-1" }),
+      create: vi.fn().mockResolvedValue({ id: "spt-1" }),
     },
     archiveJob: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -97,7 +97,7 @@ describe("processTracksInBatches - unavailable placeholders", () => {
       },
       servicePlaylistTrack: {
         findMany: vi.fn().mockResolvedValue([]),
-        upsert: vi.fn().mockResolvedValue({ id: "spt-1", trackId: "track-pending" }),
+        create: vi.fn().mockResolvedValue({ id: "spt-1", trackId: "track-pending" }),
       },
       archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
     } as unknown as Prisma.TransactionClient;
@@ -229,7 +229,7 @@ describe("processTracksInBatches - archived metadata", () => {
       },
       servicePlaylistTrack: {
         findMany: vi.fn().mockResolvedValue([]),
-        upsert: vi.fn().mockResolvedValue({ id: "spt-1" }),
+        create: vi.fn().mockResolvedValue({ id: "spt-1" }),
       },
       archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
     } as unknown as Prisma.TransactionClient;
@@ -305,7 +305,7 @@ describe("processTracksInBatches - archived metadata", () => {
       },
       servicePlaylistTrack: {
         findMany: vi.fn().mockResolvedValue([]),
-        upsert: vi.fn().mockResolvedValue({ id: "spt-1" }),
+        create: vi.fn().mockResolvedValue({ id: "spt-1" }),
       },
     } as unknown as Prisma.TransactionClient;
 
@@ -408,18 +408,12 @@ describe("processTracksInBatches - playlist track pairing", () => {
     const playlistTrackUpsert = vi
       .fn()
       .mockImplementation(
-        ({
-          create,
-          update,
-        }: {
-          create: { position: number; trackId: string; thumbnailUrl?: string | null };
-          update: { position: number; thumbnailUrl?: string | null };
-        }) =>
+        ({ data }: { data: { position: number; trackId: string; thumbnailUrl?: string | null } }) =>
           Promise.resolve({
             id: "spt",
-            trackId: create.trackId,
-            position: create.position ?? update.position,
-            thumbnailUrl: create.thumbnailUrl ?? update.thumbnailUrl ?? null,
+            trackId: data.trackId,
+            position: data.position,
+            thumbnailUrl: data.thumbnailUrl ?? null,
           }),
       );
 
@@ -451,7 +445,7 @@ describe("processTracksInBatches - playlist track pairing", () => {
       },
       servicePlaylistTrack: {
         findMany: vi.fn().mockResolvedValue([]),
-        upsert: playlistTrackUpsert,
+        create: playlistTrackUpsert,
       },
       archiveJob: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
     } as unknown as Prisma.TransactionClient;
@@ -508,10 +502,10 @@ describe("processTracksInBatches - playlist track pairing", () => {
     );
 
     const upsertCalls = playlistTrackUpsert.mock.calls.map(
-      (call) => call[0] as { create: { position: number; thumbnailUrl?: string | null } },
+      (call) => call[0] as { data: { position: number; thumbnailUrl?: string | null } },
     );
-    expect(upsertCalls.map((call) => call.create.position)).toEqual([1, 3]);
-    expect(upsertCalls.map((call) => call.create.thumbnailUrl)).toEqual([
+    expect(upsertCalls.map((call) => call.data.position)).toEqual([1, 3]);
+    expect(upsertCalls.map((call) => call.data.thumbnailUrl)).toEqual([
       "https://example.com/a.jpg",
       "https://example.com/c.jpg",
     ]);

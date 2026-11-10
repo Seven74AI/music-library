@@ -74,7 +74,9 @@ export async function action({ request }: Route.ActionArgs) {
     orderBy: { position: "asc" },
   });
 
-  const trackIds = playlistTracks.map((pt) => pt.trackId);
+  // A video can now appear in a service playlist more than once; user playlists hold each
+  // track once, so collapse repeats (first occurrence wins) before counting/adding.
+  const trackIds = [...new Set(playlistTracks.map((pt) => pt.trackId))];
 
   if (trackIds.length === 0) {
     return data(

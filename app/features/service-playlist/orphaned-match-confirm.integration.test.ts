@@ -81,13 +81,8 @@ describe("confirmOrphanedMatches membership scoping", () => {
     expect(result.error).toContain("not a member of this playlist");
 
     // No membership row may have been created for the foreign track.
-    const foreignMembership = await prisma.servicePlaylistTrack.findUnique({
-      where: {
-        playlistId_trackId: {
-          playlistId: playlist.id,
-          trackId: foreignTrack.id,
-        },
-      },
+    const foreignMembership = await prisma.servicePlaylistTrack.findFirst({
+      where: { playlistId: playlist.id, trackId: foreignTrack.id },
     });
     expect(foreignMembership).toBeNull();
   });
@@ -143,13 +138,8 @@ describe("confirmOrphanedMatches membership scoping", () => {
 
     expect(result.success).toBe(true);
 
-    const membership = await prisma.servicePlaylistTrack.findUnique({
-      where: {
-        playlistId_trackId: {
-          playlistId: playlist.id,
-          trackId: memberTrack.id,
-        },
-      },
+    const membership = await prisma.servicePlaylistTrack.findFirst({
+      where: { playlistId: playlist.id, trackId: memberTrack.id },
     });
     expect(membership).not.toBeNull();
     expect(membership?.isDeleted).toBe(true);

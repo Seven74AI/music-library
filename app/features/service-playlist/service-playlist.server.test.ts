@@ -202,7 +202,8 @@ describe("ServicePlaylistService - Sync Logic", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockResolvedValue({
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
               id: "pt1",
               playlistId,
               trackId: "track1",
@@ -306,7 +307,8 @@ describe("ServicePlaylistService - Sync Logic", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockResolvedValue({
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
               id: "pt1",
               playlistId,
               trackId: "track1",
@@ -414,13 +416,14 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockImplementation(async (args: any) => {
-              upsertedPositions.push(args.create.position);
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockImplementation(async (args: any) => {
+              upsertedPositions.push(args.data.position);
               return {
-                id: `pt-${args.create.trackId}`,
-                playlistId: args.create.playlistId,
-                trackId: args.create.trackId,
-                position: args.create.position,
+                id: `pt-${args.data.trackId}`,
+                playlistId: args.data.playlistId,
+                trackId: args.data.trackId,
+                position: args.data.position,
                 isDeleted: false,
               };
             }),
@@ -569,17 +572,17 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockImplementation(async (args: any) => {
-              processedTrackIds.add(args.create.trackId);
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockImplementation(async (args: any) => {
+              processedTrackIds.add(args.data.trackId);
               return {
-                id: `pt-${args.create.trackId}`,
-                playlistId: args.create.playlistId,
-                trackId: args.create.trackId,
-                position: args.create.position,
+                id: `pt-${args.data.trackId}`,
+                playlistId: args.data.playlistId,
+                trackId: args.data.trackId,
+                position: args.data.position,
                 isDeleted: false,
               };
             }),
-            create: vi.fn(),
           },
         };
         return callback(tx);
@@ -696,7 +699,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn(),
+            findFirst: vi.fn().mockResolvedValue(null),
             create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };
@@ -798,7 +801,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn(),
+            findFirst: vi.fn().mockResolvedValue(null),
             create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };
@@ -913,7 +916,8 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockResolvedValue({
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
               id: "pt-new",
               playlistId,
               trackId: "track-new",
@@ -972,7 +976,7 @@ describe("ServicePlaylistService - Batch Processing", () => {
       },
       servicePlaylistTrack: {
         findMany: vi.fn().mockResolvedValue([]),
-        upsert: vi.fn().mockResolvedValue({
+        create: vi.fn().mockResolvedValue({
           id: "pt1",
           playlistId,
           trackId: "track1",
@@ -1172,14 +1176,14 @@ describe("ServicePlaylistService - Batch Processing", () => {
           },
           servicePlaylistTrack: {
             findMany: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockResolvedValue({
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
               id: "pt-new",
               playlistId,
               trackId: "track-new",
               position: 1,
               isDeleted: false,
             }),
-            create: vi.fn().mockResolvedValue({ id: "pt-deleted" }),
           },
         };
         return callback(tx);
