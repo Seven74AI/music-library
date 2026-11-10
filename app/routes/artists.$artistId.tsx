@@ -13,6 +13,11 @@ import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { getArtistTracksPage } from "#app/features/artist/artist-tracks.server.ts";
+import {
+  mergedEntityNotFoundResponse,
+  MergedEntityResolutionError,
+  resolveCanonicalIdFromStartId,
+} from "#app/utils/canonical-merged-entity.server.ts";
 import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { getArtistTitle } from "#app/utils/breadcrumb-utils.ts";
 import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
@@ -25,31 +30,19 @@ export const handle: BreadcrumbHandle = {
   breadcrumb: ({ loaderData }) => getArtistTitle(loaderData),
 };
 
-/**
- * Follow mergedIntoId, including a chain, to the living artist.
- * A cycle or a missing target is a 404. Merged rows stay in the database.
- */
 async function resolvePublicArtistId(startId: string): Promise<string> {
-  const seen = new Set<string>();
-  let currentId = startId;
-
-  for (;;) {
-    if (seen.has(currentId)) {
-      throw new Response("Artist not found", { status: 404 });
+  try {
+    return await resolveCanonicalIdFromStartId(startId, (id) =>
+      prisma.artist.findUnique({
+        where: { id },
+        select: { id: true, mergedIntoId: true },
+      }),
+    );
+  } catch (error) {
+    if (error instanceof MergedEntityResolutionError) {
+      throw mergedEntityNotFoundResponse("Artist");
     }
-    seen.add(currentId);
-
-    const row = await prisma.artist.findUnique({
-      where: { id: currentId },
-      select: { id: true, mergedIntoId: true },
-    });
-    if (!row) {
-      throw new Response("Artist not found", { status: 404 });
-    }
-    if (!row.mergedIntoId) {
-      return row.id;
-    }
-    currentId = row.mergedIntoId;
+    throw error;
   }
 }
 

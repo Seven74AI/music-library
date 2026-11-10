@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import { MergedEntityResolutionError } from "./canonical-merged-entity.server.ts";
 import {
   getOrCreateArtist,
   getOrCreateArtistTx,
@@ -119,7 +120,9 @@ describe("getOrCreateArtist merge following", () => {
     });
     createdIds.push(a.id, b.id);
 
-    await expect(getOrCreateArtist(`Cycle A ${s}`)).rejects.toThrow(/cyclic/i);
+    await expect(getOrCreateArtist(`Cycle A ${s}`)).rejects.toBeInstanceOf(
+      MergedEntityResolutionError,
+    );
   });
 
   test("getOrCreateArtistTx follows mergedIntoId inside a transaction", async () => {

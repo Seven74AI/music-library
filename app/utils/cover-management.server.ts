@@ -4,6 +4,7 @@ import { type Prisma } from "#prisma/client.js";
 import { deleteFile, uploadFile } from "./storage.server";
 import { coerceOptionalInt } from "#app/utils/track-metadata-int.server.ts";
 import { validatePublicHttpsUrl } from "./validate-public-url.server.ts";
+import { followMergedIntoIdChain } from "./canonical-merged-entity.server.ts";
 
 function isUniqueConstraintViolation(error: unknown): boolean {
   return (
@@ -205,31 +206,14 @@ type AlbumClient = {
   };
 };
 
-/**
- * Follow mergedIntoId until we reach the living album.
- * Upload/import must not keep attaching tracks to a merged-away source.
- */
 async function resolveCanonicalAlbum(db: AlbumClient, album: AlbumLookup): Promise<{ id: string }> {
-  const seen = new Set<string>();
-  let current = album;
-
-  while (current.mergedIntoId) {
-    if (seen.has(current.id)) {
-      throw new Error(`Album merge cycle detected at album ${current.id}`);
-    }
-    seen.add(current.id);
-
-    const next = await db.album.findUnique({
-      where: { id: current.mergedIntoId },
+  const living = await followMergedIntoIdChain(album, (mergedIntoId) =>
+    db.album.findUnique({
+      where: { id: mergedIntoId },
       select: { id: true, mergedIntoId: true },
-    });
-    if (!next) {
-      throw new Error(`Album merge target missing for album ${current.id}`);
-    }
-    current = next;
-  }
-
-  return { id: current.id };
+    }),
+  );
+  return { id: living.id };
 }
 
 /**

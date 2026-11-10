@@ -1,4 +1,6 @@
-import { listLibraryQueueSpineTracks } from "#app/features/listening-insights/library-tracks.server.ts";
+import { listLibraryQueueSpineTracks } from "./library-queue-tracks.server.ts";
+import { LIBRARY_TRACKS_PAGE_SIZE } from "./library-tracks-page-size.ts";
+import { QUEUE_TRACK_SELECT } from "./queue-track-select.ts";
 import { listDiscoverSpineTracks } from "#app/utils/discover-tracks.server.ts";
 import {
   defaultDiscoverSortDirection,
@@ -20,7 +22,6 @@ import {
   type PlaylistTrackSortOption,
 } from "#app/utils/playlist-track-sort.ts";
 import { parseSortDirection, type SortDirection } from "#app/utils/sort-direction.ts";
-import { ARTIST_TRACK_PAGE_SIZE } from "#app/features/artist/artist-tracks.server.ts";
 import { findAllUserPlaylistTracks } from "#app/features/user-playlist/user-playlist-track-queries.server.ts";
 import { type Prisma } from "#prisma/client.js";
 import { buildUserTrackAccessWhere } from "./queue-playback.server.ts";
@@ -37,11 +38,11 @@ async function findAllPlayableTracksForSpine(
       where,
       select: QUEUE_TRACK_SELECT,
       orderBy,
-      take: ARTIST_TRACK_PAGE_SIZE,
+      take: LIBRARY_TRACKS_PAGE_SIZE,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
     });
     tracks.push(...page);
-    if (page.length < ARTIST_TRACK_PAGE_SIZE) {
+    if (page.length < LIBRARY_TRACKS_PAGE_SIZE) {
       break;
     }
     cursor = page[page.length - 1]?.id;
@@ -50,16 +51,7 @@ async function findAllPlayableTracksForSpine(
   return tracks;
 }
 
-export const QUEUE_TRACK_SELECT = {
-  id: true,
-  title: true,
-  artist: {
-    select: {
-      id: true,
-      name: true,
-    },
-  },
-} as const;
+export { QUEUE_TRACK_SELECT } from "./queue-track-select.ts";
 
 type LibrarySpineParams = {
   context: "library";
