@@ -5,15 +5,7 @@ import {
 import { Prisma } from "#prisma/client.js";
 import { chunkArray, SQLITE_IN_CHUNK_SIZE } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server";
-
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 async function createUserTracksIgnoringDuplicateKey(
   tx: Prisma.TransactionClient,
@@ -26,7 +18,7 @@ async function createUserTracksIgnoringDuplicateKey(
     const result = await tx.userTrack.createMany({ data: rows });
     return result.count;
   } catch (error) {
-    if (!isUniqueConstraintViolation(error)) {
+    if (!isUniqueConstraintError(error)) {
       throw error;
     }
     let created = 0;
@@ -35,7 +27,7 @@ async function createUserTracksIgnoringDuplicateKey(
         await tx.userTrack.create({ data: row });
         created += 1;
       } catch (rowError) {
-        if (!isUniqueConstraintViolation(rowError)) {
+        if (!isUniqueConstraintError(rowError)) {
           throw rowError;
         }
       }
@@ -81,7 +73,7 @@ export async function addTrackToUserLibrary(
     }).catch((error) => console.error("Failed to record library_add usage event:", error));
     return { success: true, message: "Track added to library" };
   } catch (error) {
-    if (isUniqueConstraintViolation(error)) {
+    if (isUniqueConstraintError(error)) {
       const raced = await prisma.userTrack.findUnique({
         where: {
           userId_trackId: { userId, trackId },

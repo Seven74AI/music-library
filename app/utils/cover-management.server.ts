@@ -3,7 +3,7 @@ import { prisma } from "#app/utils/db.server";
 import { type Prisma } from "#prisma/client.js";
 import { deleteFile, uploadFile } from "./storage.server";
 import { validatePublicHttpsUrl } from "./validate-public-url.server.ts";
-import { isUniqueConstraintError } from "./prisma-errors.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 /** Per-attempt timeout for external cover downloads (YouTube thumbnails, etc.) */
 export const IMAGE_DOWNLOAD_TIMEOUT_MS = 15_000;
