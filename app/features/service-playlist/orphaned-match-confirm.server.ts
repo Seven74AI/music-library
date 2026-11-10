@@ -7,12 +7,12 @@ export const orphanMatchesSchema = z
   .array(
     z.object({
       action: z.enum(["match", "new", "skip"]),
-      deletedItemId: z.string().max(64).optional(),
+      deletedItemId: z.string().max(128).optional(),
       selectedTrackId: z.string().nullable().optional(),
       position: z.number().int().min(0),
     }),
   )
-  .max(50);
+  .max(200);
 
 export type OrphanMatchSelection = {
   deletedItemId?: string | undefined;
@@ -122,7 +122,7 @@ export async function confirmOrphanedMatches(
           const newTrackId = createId();
           // Never trust client input for the Track externalId (deletedItemId is a
           // playlistItem.id, not a video id, and could squat the unique key).
-          const externalId = `deleted-${playlistId}-${match.position}`;
+          const externalId = `deleted-${playlistId}-${newTrackId}`;
 
           const artistRecord = await getOrCreateArtistTx(tx, "Unknown Artist");
 

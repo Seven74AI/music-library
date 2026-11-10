@@ -144,6 +144,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
               id: t.id,
               title: String(t.title),
               externalId: t.externalId || null,
+              membershipId: t.membershipId,
             })),
             pendingMatches: result.pendingMatches,
           });

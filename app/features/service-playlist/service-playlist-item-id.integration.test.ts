@@ -206,4 +206,30 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
     expect(again.rows).toHaveLength(60);
     expect(again.surplus.size).toBe(0);
   });
+
+  test("a confirmed placeholder is found by the next sync via playlistItemId", async () => {
+    const { confirmOrphanedMatches } = await import("./orphaned-match-confirm.server");
+    const playlist = await prisma.servicePlaylist.findUniqueOrThrow({ where: { id: playlistId } });
+    await confirmOrphanedMatches(
+      playlistId,
+      [{ deletedItemId: "pi-gone", selectedTrackId: null, position: 1, action: "new" }],
+      playlist.ownerId,
+    );
+    const tracksBefore = await prisma.track.count({ where: { serviceId } });
+    const placeholder = await prisma.servicePlaylistTrack.findFirstOrThrow({
+      where: { playlistId, playlistItemId: "pi-gone" },
+    });
+
+    const deletedItem: SyncableItem = {
+      id: "pi-gone",
+      snippet: { title: "Deleted video", resourceId: { videoId: "" } },
+    };
+    const { result, rows } = await sync([deletedItem]);
+
+    expect(result.deletedVideosWithoutMatch ?? []).toHaveLength(0);
+    expect(await prisma.track.count({ where: { serviceId } })).toBe(tracksBefore);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(placeholder.id);
+    expect(rows[0]!.track.id).toBe(placeholder.trackId);
+  });
 });

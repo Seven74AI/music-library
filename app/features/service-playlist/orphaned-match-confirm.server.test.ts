@@ -35,7 +35,7 @@ describe("orphanMatchesSchema", () => {
   });
 
   test("rejects an oversized array", () => {
-    const big = Array.from({ length: 51 }, (_, i) => ({ action: "skip", position: i }));
+    const big = Array.from({ length: 201 }, (_, i) => ({ action: "skip", position: i }));
     expect(orphanMatchesSchema.safeParse(big).success).toBe(false);
   });
 
@@ -44,8 +44,9 @@ describe("orphanMatchesSchema", () => {
     expect(orphanMatchesSchema.safeParse([{ action: "boom", position: 1 }]).success).toBe(false);
     expect(orphanMatchesSchema.safeParse([{ action: "new", position: -1 }]).success).toBe(false);
     expect(
-      orphanMatchesSchema.safeParse([{ action: "new", position: 1, deletedItemId: "x".repeat(65) }])
-        .success,
+      orphanMatchesSchema.safeParse([
+        { action: "new", position: 1, deletedItemId: "x".repeat(129) },
+      ]).success,
     ).toBe(false);
   });
 });
