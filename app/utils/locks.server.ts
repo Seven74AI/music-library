@@ -1,3 +1,4 @@
+import { data } from "react-router";
 import { prisma } from "./db.server.ts";
 import { type Prisma } from "#prisma/client.js";
 import {
@@ -204,6 +205,47 @@ export class EditLockTransactionError extends Error {
     this.name = "EditLockTransactionError";
     this.violation = violation;
   }
+}
+
+export type EditLockConflictCopy = {
+  otherEditing: (lockedByName: string) => string;
+  notHeld: string;
+};
+
+export function editLockConflictCopyForEntity(entity: EntityType): EditLockConflictCopy {
+  return {
+    otherEditing: (lockedByName) => `${lockedByName} is currently editing this ${entity}`,
+    notHeld: `Your edit lock on this ${entity} is no longer active`,
+  };
+}
+
+export const EDIT_LOCK_CONFLICT_COPY_BULK_TRACKS: EditLockConflictCopy = {
+  otherEditing: (lockedByName) => `${lockedByName} is currently editing this track`,
+  notHeld: "Your edit lock on one or more tracks is no longer active",
+};
+
+export const EDIT_LOCK_CONFLICT_COPY_SPLIT: EditLockConflictCopy = {
+  otherEditing: (lockedByName) => `${lockedByName} is currently editing this entity`,
+  notHeld: "Your edit lock is no longer active",
+};
+
+/** Maps {@link EditLockTransactionError} to the standard 409 conflict payload (ADR-032). */
+export function toEditLockErrorResponse(
+  error: EditLockTransactionError,
+  copy: EditLockConflictCopy,
+) {
+  const message =
+    error.violation.kind === "other"
+      ? copy.otherEditing(error.violation.lockedByName)
+      : copy.notHeld;
+  return data({ error: "Locked", message }, { status: 409 });
+}
+
+export function throwEditLockTransactionError(
+  error: EditLockTransactionError,
+  copy: EditLockConflictCopy,
+): never {
+  throw toEditLockErrorResponse(error, copy);
 }
 
 /**

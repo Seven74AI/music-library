@@ -3,7 +3,18 @@ import { google } from "googleapis";
 import { createCookie } from "react-router";
 import { z } from "zod";
 import { getSessionSecret } from "./env.server.ts";
+import {
+  googleClientErrorCauseMessage,
+  logGoogleOAuthClientError,
+  redactGoogleClientErrorMessage,
+} from "./google-api-error-logger.server.ts";
 import { shouldMockYouTube } from "./youtube-mock-utils";
+
+export {
+  logGoogleOAuthClientError,
+  logGoogleYouTubeDataApiClientError,
+  redactGoogleClientErrorMessage,
+} from "./google-api-error-logger.server.ts";
 
 // YouTube OAuth scopes
 export const YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"];
@@ -16,95 +27,6 @@ export const YouTubeOAuthConfigSchema = z.object({
 });
 
 export type YouTubeOAuthConfig = z.infer<typeof YouTubeOAuthConfigSchema>;
-
-function getHttpStatusFromGoogleClientError(error: unknown): number | undefined {
-  if (!error || typeof error !== "object") return undefined;
-
-  const response =
-    "response" in error ? (error as { response?: { status?: number } }).response : undefined;
-  if (response && typeof response.status === "number") {
-    return response.status;
-  }
-
-  if ("status" in error && typeof (error as { status: unknown }).status === "number") {
-    return (error as { status: number }).status;
-  }
-
-  return undefined;
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message: unknown }).message;
-    if (typeof message === "string") return message;
-  }
-  return String(error);
-}
-
-/** Remove API keys and OAuth bearer values that may appear in Gaxios error strings. */
-export function redactGoogleClientErrorMessage(message: string): string {
-  return message
-    .replace(/([?&])key=[^&\s"']+/gi, "$1key=[REDACTED]")
-    .replace(/(Authorization:\s*Bearer\s+)\S+/gi, "$1[REDACTED]")
-    .replace(/(authorization['"]?\s*:\s*['"]Bearer\s+)[^'"]+/gi, "$1[REDACTED]");
-}
-
-function getSafeGoogleClientLogMessage(error: unknown): string {
-  const raw = getErrorMessage(error);
-  return redactGoogleClientErrorMessage(raw);
-}
-
-/**
- * Logs a Google OAuth client failure without serializing request bodies or tokens.
- * Gaxios errors carry `code`, `refresh_token`, and `client_secret` in `config.data`.
- */
-export function logGoogleOAuthClientError(context: string, error: unknown): void {
-  let detailSource = error;
-  if (error instanceof Error && error.cause && typeof error.cause === "object") {
-    detailSource = error.cause;
-  }
-
-  const message =
-    getSafeGoogleClientLogMessage(detailSource) || getSafeGoogleClientLogMessage(error);
-  const status =
-    getHttpStatusFromGoogleClientError(detailSource) ?? getHttpStatusFromGoogleClientError(error);
-
-  if (status !== undefined) {
-    console.error(`${context}: HTTP ${status} — ${message}`);
-  } else {
-    console.error(`${context}: ${message}`);
-  }
-}
-
-/**
- * Logs a Google YouTube Data API client failure without the raw Gaxios error (config.url,
- * config.params.key, etc.). API-key auth puts the key on `params.key` and in the request URL.
- */
-export function logGoogleYouTubeDataApiClientError(context: string, error: unknown): void {
-  let detailSource = error;
-  if (error instanceof Error && error.cause && typeof error.cause === "object") {
-    detailSource = error.cause;
-  }
-
-  let message = getSafeGoogleClientLogMessage(detailSource) || getSafeGoogleClientLogMessage(error);
-
-  if (error && typeof error === "object" && "code" in error) {
-    const code = (error as { code: unknown }).code;
-    if (typeof code === "string" || typeof code === "number") {
-      message = `${code}: ${message}`;
-    }
-  }
-
-  const status =
-    getHttpStatusFromGoogleClientError(detailSource) ?? getHttpStatusFromGoogleClientError(error);
-
-  if (status !== undefined) {
-    console.error(`${context}: HTTP ${status} — ${message}`);
-  } else {
-    console.error(`${context}: ${message}`);
-  }
-}
 
 /**
  * Service class for handling YouTube OAuth authentication
@@ -183,7 +105,9 @@ export class YouTubeOAuthService {
       };
     } catch (error) {
       logGoogleOAuthClientError("Error exchanging code for tokens", error);
-      throw new Error("Failed to exchange authorization code for tokens", { cause: error });
+      throw new Error("Failed to exchange authorization code for tokens", {
+        cause: googleClientErrorCauseMessage(error),
+      });
     }
   }
 
@@ -217,7 +141,9 @@ export class YouTubeOAuthService {
       };
     } catch (error) {
       logGoogleOAuthClientError("Error refreshing access token", error);
-      throw new Error("Failed to refresh access token", { cause: error });
+      throw new Error("Failed to refresh access token", {
+        cause: googleClientErrorCauseMessage(error),
+      });
     }
   }
 

@@ -12,6 +12,10 @@ import {
 } from "#app/types/youtube-api";
 import { chunkArray } from "#app/utils/chunk-array";
 import {
+  googleClientErrorCauseMessage,
+  logGoogleApiError,
+} from "#app/utils/google-api-error-logger.server.ts";
+import {
   createFakerYouTubePlaylist,
   createFakerYouTubePlaylistItem,
 } from "#app/utils/mock-generators";
@@ -93,13 +97,9 @@ export class YouTubeService {
         name: channel.snippet?.title || "Unknown",
       };
     } catch (error) {
-      console.error("Error fetching YouTube user info:", error);
-      if (error instanceof Error) {
-        throw new Error(`Failed to fetch YouTube user information: ${error.message}`, {
-          cause: error,
-        });
-      }
-      throw new Error("Failed to fetch YouTube user information", { cause: error });
+      logGoogleApiError("Error fetching YouTube user info", error);
+      const cause = googleClientErrorCauseMessage(error);
+      throw new Error(`Failed to fetch YouTube user information: ${cause}`, { cause });
     }
   }
 
@@ -155,7 +155,7 @@ export class YouTubeService {
 
       return allPlaylists;
     } catch (error) {
-      console.error("Error fetching YouTube playlists:", error);
+      logGoogleApiError("Error fetching YouTube playlists", error);
 
       if (error && typeof error === "object" && "response" in error) {
         const apiError = error as {
@@ -235,7 +235,7 @@ export class YouTubeService {
       }
       return playlist;
     } catch (error) {
-      console.error("Error fetching YouTube playlist:", error);
+      logGoogleApiError("Error fetching YouTube playlist", error);
       if (error instanceof YouTubeNotFoundError) {
         throw error;
       }
@@ -270,27 +270,34 @@ export class YouTubeService {
       auth: oauth2Client,
     });
 
-    const existingIds = new Set<string>();
+    try {
+      const existingIds = new Set<string>();
 
-    for (const idChunk of chunkArray(uniqueIds, VIDEOS_LIST_BATCH_SIZE)) {
-      const response = await youtube.videos.list({
-        part: ["id"],
-        id: idChunk,
-      });
+      for (const idChunk of chunkArray(uniqueIds, VIDEOS_LIST_BATCH_SIZE)) {
+        const response = await youtube.videos.list({
+          part: ["id"],
+          id: idChunk,
+        });
 
-      const validated = validateYouTubeAPIResponse(
-        response.data,
-        YouTubeVideoListResponseSchema,
-      ) as YouTubeVideoListResponse;
+        const validated = validateYouTubeAPIResponse(
+          response.data,
+          YouTubeVideoListResponseSchema,
+        ) as YouTubeVideoListResponse;
 
-      for (const item of validated.items ?? []) {
-        if (item?.id) {
-          existingIds.add(item.id);
+        for (const item of validated.items ?? []) {
+          if (item?.id) {
+            existingIds.add(item.id);
+          }
         }
       }
-    }
 
-    return existingIds;
+      return existingIds;
+    } catch (error) {
+      logGoogleApiError("Error checking YouTube video existence", error);
+      throw new Error("Failed to check YouTube video existence", {
+        cause: googleClientErrorCauseMessage(error),
+      });
+    }
   }
 
   /**
@@ -347,7 +354,7 @@ export class YouTubeService {
 
       return allItems;
     } catch (error) {
-      console.error("Error fetching playlist items:", error);
+      logGoogleApiError("Error fetching playlist items", error);
 
       // Extract more specific error information from YouTube API
       if (error && typeof error === "object" && "response" in error) {

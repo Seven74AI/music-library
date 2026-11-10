@@ -69,13 +69,20 @@ describe("POST /api/metadata/albums/merge", () => {
       }),
     });
 
-    let response: Response | undefined;
+    let thrown: {
+      type: string;
+      data: { error?: string; message?: string };
+      init: { status?: number } | null;
+    };
     try {
       await action({ request, params: {} } as never);
+      throw new Error("expected 409");
     } catch (error) {
-      response = error as Response;
+      thrown = error as typeof thrown;
     }
-    expect(response?.status).toBe(409);
+    expect(thrown!.type).toBe("DataWithResponseInit");
+    expect(thrown!.init?.status).toBe(409);
+    expect(thrown!.data.error).toBe("Locked");
 
     const untouched = await prisma.album.findUnique({ where: { id: sourceAlbum.id } });
     expect(untouched?.mergedIntoId).toBeNull();

@@ -18,6 +18,5 @@ export {
 } from "./heavy-rotation.ts";
 export { getHeavyRotationTracks } from "./heavy-rotation.server.ts";
 export { listLibraryUserTracks } from "./library-tracks.server.ts";
-export { listLibraryQueueSpineTracks } from "#app/features/queue/library-queue-tracks.server.ts";
 export { getPlayCompletedCountsByTrack } from "./play-completed-counts.server.ts";
 export { getUtcMonthEndExclusive, getUtcMonthStart } from "./utc-month.ts";

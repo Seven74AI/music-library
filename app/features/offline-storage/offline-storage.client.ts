@@ -106,7 +106,6 @@ export function createOfflineStorage(
   }
 
   async function ensureCapacity(requiredBytes: number) {
-    const audioStore = await resolveAudioStore();
     const { usage, quota } = await readStorageEstimate();
     if (!quota) return;
 
@@ -123,8 +122,7 @@ export function createOfflineStorage(
     const victims = selectQueueCacheEvictionCandidates(records, bytesToFree);
 
     for (const victim of victims) {
-      await audioStore.delete(victim.trackId, victim.audioFormat);
-      await metadataStore.delete(victim.trackId);
+      await removeTrack(victim.trackId);
     }
   }
 

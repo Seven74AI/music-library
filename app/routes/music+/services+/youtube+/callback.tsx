@@ -7,6 +7,7 @@ import {
 import { requireUserId } from "#app/utils/auth.server";
 import { prisma } from "#app/utils/db.server";
 import { encryptConnectionTokens } from "#app/utils/token-cipher.server.ts";
+import { logGoogleApiError } from "#app/utils/google-api-error-logger.server.ts";
 import {
   clearOAuthState,
   createYouTubeOAuthService,
@@ -109,7 +110,7 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
       headers: { "set-cookie": await clearOAuthState() },
     });
   } catch (callbackError) {
-    console.error("YouTube OAuth callback error:", callbackError);
+    logGoogleApiError("YouTube OAuth callback error", callbackError);
     return redirect("/music/services/youtube/auth?error=callback_failed", {
       headers: { "set-cookie": await clearOAuthState() },
     });

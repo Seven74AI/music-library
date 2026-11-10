@@ -1,9 +1,7 @@
 import { data } from "react-router";
 import { YOUTUBE_SERVICE } from "#app/constants/services";
-import {
-  getHeavyRotationTracks,
-  type HeavyRotationTrack,
-} from "#app/features/listening-insights/index.server.ts";
+import { getHeavyRotationTracks } from "#app/features/listening-insights/heavy-rotation.server.ts";
+import { type HeavyRotationTrack } from "#app/features/listening-insights/heavy-rotation.ts";
 import {
   getRecentlyPlayedTracks,
   type RecentlyPlayedTrack,

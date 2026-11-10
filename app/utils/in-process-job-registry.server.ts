@@ -3,6 +3,8 @@ type InProcessJobStopper = () => void | Promise<void>;
 declare global {
   // eslint-disable-next-line no-var
   var __inProcessJobStoppers: Map<string, InProcessJobStopper> | undefined;
+  // eslint-disable-next-line no-var
+  var __drainInProcessJobStoppers: (() => void | Promise<void>) | undefined;
 }
 
 function stoppers(): Map<string, InProcessJobStopper> {

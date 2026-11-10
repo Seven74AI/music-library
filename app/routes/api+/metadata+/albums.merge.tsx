@@ -11,8 +11,10 @@ import { prisma } from "#app/utils/db.server.ts";
 import { executeCatalogEntityMerge } from "#app/features/metadata/merge-catalog-entity.server.ts";
 import {
   EditLockTransactionError,
+  editLockConflictCopyForEntity,
   findWriteBlockedLock,
   getLockStatus,
+  throwEditLockTransactionError,
 } from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/albums.merge.ts";
@@ -41,12 +43,12 @@ export async function action({ request }: Route.ActionArgs) {
     { entityType: "album", entityId: targetId },
   ]);
   if (blockedLock) {
-    throw new Response(
-      JSON.stringify({
-        error: "Locked",
-        message: `${blockedLock.lockedByName} is currently editing this album`,
+    throwEditLockTransactionError(
+      new EditLockTransactionError({
+        kind: "other",
+        lockedByName: blockedLock.lockedByName,
       }),
-      { status: 409, headers: { "Content-Type": "application/json" } },
+      editLockConflictCopyForEntity("album"),
     );
   }
 
@@ -136,14 +138,7 @@ export async function action({ request }: Route.ActionArgs) {
     });
   } catch (error) {
     if (error instanceof EditLockTransactionError) {
-      const message =
-        error.violation.kind === "other"
-          ? `${error.violation.lockedByName} is currently editing this album`
-          : "Your edit lock on this album is no longer active";
-      throw new Response(JSON.stringify({ error: "Locked", message }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      });
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("album"));
     }
     console.error("Error merging albums:", error);
     throw new Response("Failed to merge albums", { status: 500 });

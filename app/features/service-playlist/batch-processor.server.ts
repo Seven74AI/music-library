@@ -1,6 +1,7 @@
 import { pickCoverThumbnailUrl } from "#app/types/transformations";
 import { getOrCreateArtistTx } from "#app/utils/artist-management.server";
 import { prisma } from "#app/utils/db.server";
+import { logGoogleApiError } from "#app/utils/google-api-error-logger.server.ts";
 import { type Prisma } from "#prisma/client.js";
 import {
   classifyAbsentPlaylistTracks,
@@ -221,7 +222,7 @@ async function lookupVideoExistence(
     const existingIds = await resolveVideoExistence(idsToProbe, accessToken);
     return { status: "ok", existingIds };
   } catch (error) {
-    console.error("Failed to resolve video existence during playlist sync:", error);
+    logGoogleApiError("Failed to resolve video existence during playlist sync", error);
     return { status: "error" };
   }
 }

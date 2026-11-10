@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { consoleWarn } from "#tests/setup/setup-test-env.ts";
+import { consoleError, consoleWarn } from "#tests/setup/setup-test-env.ts";
 
 const mockVideosList = vi.fn();
 
@@ -29,6 +29,7 @@ vi.mock("#app/utils/validation", () => ({
 describe("YouTubeService.checkVideosExist", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    consoleError.mockImplementation(() => {});
     consoleWarn.mockImplementation(() => {});
   });
 
@@ -52,6 +53,25 @@ describe("YouTubeService.checkVideosExist", () => {
       id: ["aaaaaaaaaa1", "aaaaaaaaaa2", "aaaaaaaaaa3"],
     });
     expect(existing).toEqual(new Set(["aaaaaaaaaa1", "aaaaaaaaaa3"]));
+  });
+
+  test("rethrows with a sanitized string cause when videos.list fails", async () => {
+    const gaxiosError = {
+      message: "quotaExceeded",
+      response: { status: 403 },
+      config: { params: { key: "secret-api-key" } },
+    };
+    mockVideosList.mockRejectedValueOnce(gaxiosError);
+
+    const { YouTubeService } = await import("./youtube.server");
+    const service = new YouTubeService();
+
+    const error = await service.checkVideosExist(["vid1"], "token").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Failed to check YouTube video existence");
+    expect((error as Error).cause).toBe("quotaExceeded");
+    expect(typeof (error as Error).cause).toBe("string");
   });
 
   test("returns empty set when given no ids", async () => {

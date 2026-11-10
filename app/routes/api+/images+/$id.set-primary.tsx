@@ -4,8 +4,10 @@ import { prisma } from "#app/utils/db.server.ts";
 import {
   assertEditLockInTransaction,
   EditLockTransactionError,
+  editLockConflictCopyForEntity,
   findWriteBlockedLock,
   getLockStatus,
+  throwEditLockTransactionError,
 } from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -113,22 +115,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     });
   } catch (error) {
     if (error instanceof EditLockTransactionError) {
-      if (error.violation.kind === "other") {
-        return data(
-          {
-            error: "Locked",
-            message: `${error.violation.lockedByName} is currently editing this ${entityType}`,
-          },
-          { status: 409 },
-        );
-      }
-      return data(
-        {
-          error: "Locked",
-          message: `Your edit lock on this ${entityType} is no longer active`,
-        },
-        { status: 409 },
-      );
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity(entityType));
     }
     throw error;
   }
