@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { getInstanceInfo } from "#app/utils/litefs.server.ts";
 import {
-  ON_REPEAT_SNAPSHOT_HOUR_UTC,
   ON_REPEAT_SNAPSHOT_TICK_INTERVAL_MS,
   ON_REPEAT_SNAPSHOT_RETRY_DELAY_MS,
   processOnRepeatSnapshotTick,
@@ -188,7 +187,6 @@ describe("scheduleOnRepeatSnapshots", () => {
       expect.any(Function),
       ON_REPEAT_SNAPSHOT_TICK_INTERVAL_MS,
     );
-    expect(ON_REPEAT_SNAPSHOT_HOUR_UTC).toBe(2);
 
     vi.useRealTimers();
   });

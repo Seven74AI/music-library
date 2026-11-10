@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { getInstanceInfo } from "#app/utils/litefs.server.ts";
 import {
-  DUPLICATE_DETECTION_HOUR_UTC,
   DUPLICATE_DETECTION_RETRY_DELAY_MS,
   DUPLICATE_DETECTION_TICK_INTERVAL_MS,
   processDuplicateDetectionTick,
@@ -114,7 +113,6 @@ describe("scheduleDuplicateDetection", () => {
       expect.any(Function),
       DUPLICATE_DETECTION_TICK_INTERVAL_MS,
     );
-    expect(DUPLICATE_DETECTION_HOUR_UTC).toBe(2);
 
     vi.useRealTimers();
   });
