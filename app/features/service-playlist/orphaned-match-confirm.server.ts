@@ -7,7 +7,11 @@ export const orphanMatchesSchema = z
   .array(
     z.object({
       action: z.enum(["match", "new", "skip"]),
-      deletedItemId: z.string().min(1).max(128).optional(),
+      deletedItemId: z
+        .string()
+        .max(128)
+        .optional()
+        .transform((v) => (v === "" ? undefined : v)),
       selectedTrackId: z.string().nullable().optional(),
       position: z.number().int().min(0),
     }),
@@ -58,33 +62,6 @@ export async function confirmOrphanedMatches(
   message: string;
   error?: string;
 }> {
-  const playlist = await prisma.servicePlaylist.findFirst({
-    where: {
-      id: playlistId,
-      ownerId: userId,
-      isActive: true,
-    },
-    include: { service: true },
-  });
-
-  if (!playlist) {
-    return {
-      success: false,
-      processedCount: 0,
-      message: "Playlist not found or access denied",
-      error: "Playlist not found or access denied",
-    };
-  }
-
-  if (!playlist.service) {
-    return {
-      success: false,
-      processedCount: 0,
-      message: "Service not found for playlist",
-      error: "Service not found for playlist",
-    };
-  }
-
   const duplicateTrackIds = getDuplicateMatchedTrackIds(matches);
   if (duplicateTrackIds.length > 0) {
     return {
@@ -96,6 +73,33 @@ export async function confirmOrphanedMatches(
   }
 
   try {
+    const playlist = await prisma.servicePlaylist.findFirst({
+      where: {
+        id: playlistId,
+        ownerId: userId,
+        isActive: true,
+      },
+      include: { service: true },
+    });
+
+    if (!playlist) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: "Playlist not found or access denied",
+        error: "Playlist not found or access denied",
+      };
+    }
+
+    if (!playlist.service) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: "Service not found for playlist",
+        error: "Service not found for playlist",
+      };
+    }
+
     const service = await getServiceByName(playlist.service.name);
     const { createId } = await import("@paralleldrive/cuid2");
 
@@ -158,22 +162,31 @@ export async function confirmOrphanedMatches(
           // orphaned track is a ServicePlaylistTrack row for this playlist
           // that was not seen in the latest sync). Reject any client-supplied
           // track that is only in the global catalog.
-          const existingPlaylistTrack = await tx.servicePlaylistTrack.findFirst({
-            where: {
-              playlistId,
-              trackId: match.selectedTrackId,
-              // Only orphaned/deleted rows may be matched (ADR-006); never a live row.
-              OR: [{ isDeleted: true }, { playlistItemId: null }],
+          const existingPlaylistTrack = await tx.servicePlaylistTrack.findFirst(
+            {
+              where: {
+                playlistId,
+                trackId: match.selectedTrackId,
+              },
+              orderBy: [
+                { isDeleted: "asc" },
+                { position: "asc" },
+                { id: "asc" },
+              ],
             },
-            orderBy: [{ isDeleted: "desc" }, { position: "asc" }, { id: "asc" }],
-          });
+          );
 
           if (!existingPlaylistTrack) {
-            throw new Error(`Track is not a member of this playlist: ${match.selectedTrackId}`);
+            throw new Error(
+              `Track is not a member of this playlist: ${match.selectedTrackId}`,
+            );
           }
 
-          // Stamp the deleted item's playlistItem.id so later syncs find this row
-          // directly (skip if another row already owns that id).
+          // The dialog offers candidate rows that are absent from the latest sync
+          // but NOT deleted (deleted rows are filtered out, ADR-006 Edge Case 9).
+          // Matching one marks it deleted and stamps the deleted item's
+          // playlistItem.id (overwriting a stale one) so the next sync resolves
+          // the item. Skip the stamp only if another row already owns that id.
           const itemIdOwner = match.deletedItemId
             ? await tx.servicePlaylistTrack.findFirst({
                 where: { playlistId, playlistItemId: match.deletedItemId },
@@ -184,7 +197,7 @@ export async function confirmOrphanedMatches(
           await tx.servicePlaylistTrack.update({
             where: { id: existingPlaylistTrack.id },
             data: {
-              ...(match.deletedItemId && !itemIdOwner && !existingPlaylistTrack.playlistItemId
+              ...(match.deletedItemId && !itemIdOwner
                 ? { playlistItemId: match.deletedItemId }
                 : {}),
               position: match.position,
@@ -207,7 +220,8 @@ export async function confirmOrphanedMatches(
     };
   } catch (error) {
     console.error("Error confirming deleted video matches:", error);
-    const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+    const errorMessage =
+      error instanceof Error ? error.message : "An unexpected error occurred";
     return {
       success: false,
       processedCount: 0,

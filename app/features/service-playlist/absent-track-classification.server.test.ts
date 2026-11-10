@@ -6,7 +6,8 @@ import {
 } from "./absent-track-classification.server";
 
 function row(
-  overrides: Partial<AbsentPlaylistTrackRow> & Pick<AbsentPlaylistTrackRow, "sptId" | "trackId">,
+  overrides: Partial<AbsentPlaylistTrackRow> &
+    Pick<AbsentPlaylistTrackRow, "sptId" | "trackId">,
 ): AbsentPlaylistTrackRow {
   return {
     title: "Some Track",
@@ -37,7 +38,11 @@ describe("classifyAbsentPlaylistTracks", () => {
   test("still-exists on YouTube → remove SPT, never candidate", () => {
     const result = classifyAbsentPlaylistTracks({
       absentTracks: [
-        row({ sptId: "spt-rafyou", trackId: "track-rafyou", externalId: "ZoYDkmD3tXU" }),
+        row({
+          sptId: "spt-rafyou",
+          trackId: "track-rafyou",
+          externalId: "ZoYDkmD3tXU",
+        }),
       ],
       lookup: { status: "ok", existingIds: new Set(["ZoYDkmD3tXU"]) },
       hasDeferredDeletedItems: true,
@@ -79,7 +84,13 @@ describe("classifyAbsentPlaylistTracks", () => {
 
   test("gone + no deferred deleted items → remove SPT", () => {
     const result = classifyAbsentPlaylistTracks({
-      absentTracks: [row({ sptId: "spt-gone", trackId: "track-gone", externalId: "abcdefghijk" })],
+      absentTracks: [
+        row({
+          sptId: "spt-gone",
+          trackId: "track-gone",
+          externalId: "abcdefghijk",
+        }),
+      ],
       lookup: { status: "ok", existingIds: new Set() },
       hasDeferredDeletedItems: false,
     });
@@ -90,7 +101,9 @@ describe("classifyAbsentPlaylistTracks", () => {
 
   test("lookup failure → leave alone (neither remove nor candidate)", () => {
     const result = classifyAbsentPlaylistTracks({
-      absentTracks: [row({ sptId: "spt-1", trackId: "track-1", externalId: "ZoYDkmD3tXU" })],
+      absentTracks: [
+        row({ sptId: "spt-1", trackId: "track-1", externalId: "ZoYDkmD3tXU" }),
+      ],
       lookup: { status: "error" },
       hasDeferredDeletedItems: true,
     });
@@ -102,7 +115,13 @@ describe("classifyAbsentPlaylistTracks", () => {
 
   test("synthetic externalId → leave alone without treating as still-exists", () => {
     const result = classifyAbsentPlaylistTracks({
-      absentTracks: [row({ sptId: "spt-syn", trackId: "track-syn", externalId: "pending-pl-1" })],
+      absentTracks: [
+        row({
+          sptId: "spt-syn",
+          trackId: "track-syn",
+          externalId: "pending-pl-1",
+        }),
+      ],
       lookup: { status: "ok", existingIds: new Set(["pending-pl-1"]) },
       hasDeferredDeletedItems: true,
     });
@@ -118,7 +137,10 @@ describe("classifyAbsentPlaylistTracks", () => {
         row({ sptId: "spt-a", trackId: "t-a", externalId: "ZoYDkmD3tXU" }),
         row({ sptId: "spt-b", trackId: "t-b", externalId: "J-qHhKuEulA" }),
       ],
-      lookup: { status: "ok", existingIds: new Set(["ZoYDkmD3tXU", "J-qHhKuEulA"]) },
+      lookup: {
+        status: "ok",
+        existingIds: new Set(["ZoYDkmD3tXU", "J-qHhKuEulA"]),
+      },
       hasDeferredDeletedItems: true,
     });
 

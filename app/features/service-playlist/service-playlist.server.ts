@@ -20,7 +20,10 @@
  */
 import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { resolveServiceAccessToken } from "#app/features/service-connection/service-connection.server";
-import { type PlaylistWithTracks, type TrackWithUserStatus } from "#app/types/frontend";
+import {
+  type PlaylistWithTracks,
+  type TrackWithUserStatus,
+} from "#app/types/frontend";
 import { type YouTubePlaylist } from "#app/types/youtube-api";
 import { scheduleArchiveQueueTickAfterCommit } from "#app/features/audio-archive/auto-enqueue.server";
 import { chunkArray } from "#app/utils/chunk-array";
@@ -175,8 +178,15 @@ export class ServicePlaylistService {
       archiveQueueTickNeeded: false,
     };
 
-    for (let batchStart = 0; batchStart < totalItems; batchStart += TRANSACTION_BATCH_SIZE) {
-      const batchItems = playlistItems.slice(batchStart, batchStart + TRANSACTION_BATCH_SIZE);
+    for (
+      let batchStart = 0;
+      batchStart < totalItems;
+      batchStart += TRANSACTION_BATCH_SIZE
+    ) {
+      const batchItems = playlistItems.slice(
+        batchStart,
+        batchStart + TRANSACTION_BATCH_SIZE,
+      );
 
       try {
         const batchResult = await prisma.$transaction(
@@ -203,11 +213,15 @@ export class ServicePlaylistService {
         batchResult.processedIds.trackIds.forEach((id) =>
           accumulated.processedIds.trackIds.add(id),
         );
-        batchResult.processedIds.sptIds.forEach((id) => accumulated.processedIds.sptIds.add(id));
+        batchResult.processedIds.sptIds.forEach((id) =>
+          accumulated.processedIds.sptIds.add(id),
+        );
         batchResult.processedIds.failedExternalIds?.forEach((id) =>
           accumulated.processedIds.failedExternalIds?.add(id),
         );
-        accumulated.deletedVideosWithoutMatch.push(...batchResult.deletedVideosWithoutMatch);
+        accumulated.deletedVideosWithoutMatch.push(
+          ...batchResult.deletedVideosWithoutMatch,
+        );
         scheduleArchiveQueueTickAfterCommit(batchResult.archiveQueueTickNeeded);
       } catch (batchError) {
         console.error(
@@ -288,7 +302,10 @@ export class ServicePlaylistService {
         };
       }
 
-      const allPlaylists = await syncProvider.fetchPlaylists(tokenData.access_token, userId);
+      const allPlaylists = await syncProvider.fetchPlaylists(
+        tokenData.access_token,
+        userId,
+      );
 
       const syncedPlaylists = await prisma.servicePlaylist.findMany({
         where: {
@@ -302,15 +319,21 @@ export class ServicePlaylistService {
         },
       });
 
-      const syncedPlaylistIds = new Set(syncedPlaylists.map((p) => p.externalId));
-      const syncedPlaylistInternalIds = new Map(syncedPlaylists.map((p) => [p.externalId, p.id]));
-
-      const playlistsWithSyncStatus: PlaylistWithSyncStatus[] = allPlaylists.map((playlist) =>
-        Object.assign({}, playlist, {
-          isSynced: syncedPlaylistIds.has(playlist.id || ""),
-          playlistInternalId: syncedPlaylistInternalIds.get(playlist.id || "") || null,
-        }),
+      const syncedPlaylistIds = new Set(
+        syncedPlaylists.map((p) => p.externalId),
       );
+      const syncedPlaylistInternalIds = new Map(
+        syncedPlaylists.map((p) => [p.externalId, p.id]),
+      );
+
+      const playlistsWithSyncStatus: PlaylistWithSyncStatus[] =
+        allPlaylists.map((playlist) =>
+          Object.assign({}, playlist, {
+            isSynced: syncedPlaylistIds.has(playlist.id || ""),
+            playlistInternalId:
+              syncedPlaylistInternalIds.get(playlist.id || "") || null,
+          }),
+        );
 
       return {
         playlists: playlistsWithSyncStatus,
@@ -357,13 +380,20 @@ export class ServicePlaylistService {
       });
 
       if (existingPlaylist) {
-        return this.resyncExistingPlaylist(serviceName, existingPlaylist, userId);
+        return this.resyncExistingPlaylist(
+          serviceName,
+          existingPlaylist,
+          userId,
+        );
       }
 
       return this.registerAndSyncPlaylist(serviceName, playlistId, userId);
     } catch (error) {
       console.error("Error syncing service playlist:", error);
-      const clientMessage = toClientErrorMessage(error, SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE);
+      const clientMessage = toClientErrorMessage(
+        error,
+        SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE,
+      );
       return {
         success: false,
         tracksAdded: 0,
@@ -397,13 +427,21 @@ export class ServicePlaylistService {
       };
     }
 
-    const { syncProvider, trackProcessor } = this.getProviderBundle(serviceName);
+    const { syncProvider, trackProcessor } =
+      this.getProviderBundle(serviceName);
     const [rawPlaylist, playlistItems] = await Promise.all([
       syncProvider.fetchPlaylist(externalPlaylistId, tokenData.access_token),
-      syncProvider.fetchPlaylistItems(externalPlaylistId, tokenData.access_token),
+      syncProvider.fetchPlaylistItems(
+        externalPlaylistId,
+        tokenData.access_token,
+      ),
     ]);
 
-    const playlistData = syncProvider.normalizePlaylistData(rawPlaylist, service.id, userId);
+    const playlistData = syncProvider.normalizePlaylistData(
+      rawPlaylist,
+      service.id,
+      userId,
+    );
 
     const playlist = await prisma.servicePlaylist.upsert({
       where: {
@@ -502,8 +540,11 @@ export class ServicePlaylistService {
       };
     }
 
-    const { syncProvider, trackProcessor } = this.getProviderBundle(serviceName);
-    let playlistItems: Awaited<ReturnType<typeof syncProvider.fetchPlaylistItems>>;
+    const { syncProvider, trackProcessor } =
+      this.getProviderBundle(serviceName);
+    let playlistItems: Awaited<
+      ReturnType<typeof syncProvider.fetchPlaylistItems>
+    >;
     try {
       playlistItems = await syncProvider.fetchPlaylistItems(
         playlist.externalId,
@@ -513,7 +554,9 @@ export class ServicePlaylistService {
       if (error instanceof Error) {
         throw error;
       }
-      throw new Error("Failed to fetch playlist items from external service", { cause: error });
+      throw new Error("Failed to fetch playlist items from external service", {
+        cause: error,
+      });
     }
 
     const { result: processResult, timedOut } = await this.processBatches(
@@ -627,7 +670,11 @@ export class ServicePlaylistService {
     });
   }
 
-  async removePlaylistFromSync(serviceName: string, id: string, userId: string) {
+  async removePlaylistFromSync(
+    serviceName: string,
+    id: string,
+    userId: string,
+  ) {
     this.getProviderBundle(serviceName);
 
     const service = await getServiceByName(serviceName);
@@ -657,7 +704,11 @@ export class ServicePlaylistService {
     }
   }
 
-  async getPlaylistTracks(serviceName: string, playlistId: string, userId: string) {
+  async getPlaylistTracks(
+    serviceName: string,
+    playlistId: string,
+    userId: string,
+  ) {
     const service = await getServiceByName(serviceName);
 
     const playlist = await prisma.servicePlaylist.findFirst({
@@ -729,7 +780,11 @@ export class ServicePlaylistService {
     playlist: PlaylistWithTracks;
     tracks: TrackWithUserStatus[];
   }> {
-    const result = await this.getPlaylistTracks(serviceName, playlistId, userId);
+    const result = await this.getPlaylistTracks(
+      serviceName,
+      playlistId,
+      userId,
+    );
 
     const userTracks = await prisma.userTrack.findMany({
       where: {
@@ -761,7 +816,8 @@ export class ServicePlaylistService {
               objectKey: track.coverImage.objectKey,
             }
           : null,
-        thumbnailUrl: (track as { thumbnailUrl?: string | null }).thumbnailUrl || null,
+        thumbnailUrl:
+          (track as { thumbnailUrl?: string | null }).thumbnailUrl || null,
         service: track.service
           ? {
               name: track.service.name,
@@ -794,6 +850,9 @@ export function createServicePlaylistService(options?: {
 }
 
 export type { PendingMatch, SyncTrackInfo };
-export { confirmOrphanedMatches, orphanMatchesSchema } from "./orphaned-match-confirm.server";
+export {
+  confirmOrphanedMatches,
+  orphanMatchesSchema,
+} from "./orphaned-match-confirm.server";
 export { getServiceByName } from "./playlist-utils.server";
 export { SERVICE_PLAYLIST_TRACK_PAGE_SIZE } from "./service-playlist-track-queries.server";

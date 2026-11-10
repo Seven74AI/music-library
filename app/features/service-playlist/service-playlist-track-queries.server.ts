@@ -8,7 +8,9 @@ export const SERVICE_PLAYLIST_TRACK_PAGE_SIZE = 200;
 
 type ServicePlaylistTrackFindManyClient = {
   servicePlaylistTrack: {
-    findMany: (args: Prisma.ServicePlaylistTrackFindManyArgs) => Promise<unknown[]>;
+    findMany: (
+      args: Prisma.ServicePlaylistTrackFindManyArgs,
+    ) => Promise<unknown[]>;
   };
 };
 
@@ -17,11 +19,17 @@ type FindManyArgsWithoutPagination = Omit<
   "take" | "skip" | "cursor" | "orderBy"
 >;
 
-export async function findAllServicePlaylistTracks<T extends FindManyArgsWithoutPagination>(
+export async function findAllServicePlaylistTracks<
+  T extends FindManyArgsWithoutPagination,
+>(
   client: ServicePlaylistTrackFindManyClient,
   args: T,
-): Promise<Prisma.ServicePlaylistTrackGetPayload<T & { orderBy: { id: "asc" } }>[]> {
-  const results: Prisma.ServicePlaylistTrackGetPayload<T & { orderBy: { id: "asc" } }>[] = [];
+): Promise<
+  Prisma.ServicePlaylistTrackGetPayload<T & { orderBy: { id: "asc" } }>[]
+> {
+  const results: Prisma.ServicePlaylistTrackGetPayload<
+    T & { orderBy: { id: "asc" } }
+  >[] = [];
   let cursor: string | undefined;
 
   while (true) {
@@ -34,7 +42,9 @@ export async function findAllServicePlaylistTracks<T extends FindManyArgsWithout
       // under concurrent inserts unlike `skip` offset, which is O(n²) and can
       // skip/duplicate rows when the set mutates mid-iteration.
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-    })) as Prisma.ServicePlaylistTrackGetPayload<T & { orderBy: { id: "asc" } }>[];
+    })) as Prisma.ServicePlaylistTrackGetPayload<
+      T & { orderBy: { id: "asc" } }
+    >[];
 
     results.push(...page);
     if (page.length < SERVICE_PLAYLIST_TRACK_PAGE_SIZE) {

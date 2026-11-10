@@ -14,13 +14,21 @@ const existingTrack = {
 
 describe("isSyntheticUnavailableExternalIdForPlaylist", () => {
   test("accepts pending and deleted ids for the playlist", () => {
-    expect(isSyntheticUnavailableExternalIdForPlaylist("pending-pl-1-3", "pl-1")).toBe(true);
-    expect(isSyntheticUnavailableExternalIdForPlaylist("deleted-pl-1-9", "pl-1")).toBe(true);
+    expect(
+      isSyntheticUnavailableExternalIdForPlaylist("pending-pl-1-3", "pl-1"),
+    ).toBe(true);
+    expect(
+      isSyntheticUnavailableExternalIdForPlaylist("deleted-pl-1-9", "pl-1"),
+    ).toBe(true);
   });
 
   test("rejects real video ids and other playlists", () => {
-    expect(isSyntheticUnavailableExternalIdForPlaylist("dQw4w9WgXcQ", "pl-1")).toBe(false);
-    expect(isSyntheticUnavailableExternalIdForPlaylist("pending-pl-2-1", "pl-1")).toBe(false);
+    expect(
+      isSyntheticUnavailableExternalIdForPlaylist("dQw4w9WgXcQ", "pl-1"),
+    ).toBe(false);
+    expect(
+      isSyntheticUnavailableExternalIdForPlaylist("pending-pl-2-1", "pl-1"),
+    ).toBe(false);
   });
 });
 

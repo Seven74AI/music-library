@@ -34,11 +34,16 @@ describe("findAllServicePlaylistTracks", () => {
   });
 
   test("paginates until a partial page is returned", async () => {
-    const firstPage = Array.from({ length: SERVICE_PLAYLIST_TRACK_PAGE_SIZE }, (_, i) => ({
-      id: `pt-${i}`,
-      position: i + 1,
-    }));
-    const secondPage = [{ id: "pt-last", position: SERVICE_PLAYLIST_TRACK_PAGE_SIZE + 1 }];
+    const firstPage = Array.from(
+      { length: SERVICE_PLAYLIST_TRACK_PAGE_SIZE },
+      (_, i) => ({
+        id: `pt-${i}`,
+        position: i + 1,
+      }),
+    );
+    const secondPage = [
+      { id: "pt-last", position: SERVICE_PLAYLIST_TRACK_PAGE_SIZE + 1 },
+    ];
 
     findMany.mockResolvedValueOnce(firstPage).mockResolvedValueOnce(secondPage);
 

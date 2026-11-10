@@ -13,7 +13,8 @@ export type AbsentPlaylistTrackRow = {
   isDeleted: boolean;
 };
 
-export type VideoExistenceLookup = { status: "ok"; existingIds: Set<string> } | { status: "error" };
+export type VideoExistenceLookup =
+  { status: "ok"; existingIds: Set<string> } | { status: "error" };
 
 export type AbsentTrackClassification = {
   removeSptIds: Set<string>;
@@ -29,8 +30,12 @@ export type AbsentTrackClassification = {
 };
 
 /** YouTube video ids are 11 chars from [A-Za-z0-9_-]. */
-export function isYouTubeVideoId(externalId: string | null | undefined): boolean {
-  return typeof externalId === "string" && /^[A-Za-z0-9_-]{11}$/.test(externalId);
+export function isYouTubeVideoId(
+  externalId: string | null | undefined,
+): boolean {
+  return (
+    typeof externalId === "string" && /^[A-Za-z0-9_-]{11}$/.test(externalId)
+  );
 }
 
 export function classifyAbsentPlaylistTracks(input: {

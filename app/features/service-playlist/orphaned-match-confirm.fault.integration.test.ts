@@ -25,7 +25,11 @@ describe("confirmOrphanedMatches server faults", () => {
     const service = await prisma.service.upsert({
       where: { name: "youtube" },
       update: {},
-      create: { name: "youtube", displayName: "YouTube", baseUrl: "https://youtube.com" },
+      create: {
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+      },
     });
     const playlist = await prisma.servicePlaylist.create({
       data: {
@@ -39,7 +43,14 @@ describe("confirmOrphanedMatches server faults", () => {
 
     const result = await confirmOrphanedMatches(
       playlist.id,
-      [{ deletedItemId: "i1", selectedTrackId: null, position: 1, action: "new" }],
+      [
+        {
+          deletedItemId: "i1",
+          selectedTrackId: null,
+          position: 1,
+          action: "new",
+        },
+      ],
       user.id,
     );
 

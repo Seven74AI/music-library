@@ -4,6 +4,7 @@ import { createUser } from "#tests/db-utils";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
 import {
   findSurplusSptIds,
+  resolveDeletedVideosAfterSync,
   loadPlaylistTracksForOrphanDetection,
   processTracksInBatches,
   type ProcessedIdSets,
@@ -89,7 +90,11 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
   });
 
   test("same videoId twice yields two rows at distinct positions; re-sync keeps both", async () => {
-    const items = [item("pi-1", "vid-a"), item("pi-2", "vid-b"), item("pi-3", "vid-a")];
+    const items = [
+      item("pi-1", "vid-a"),
+      item("pi-2", "vid-b"),
+      item("pi-3", "vid-a"),
+    ];
     const first = await sync(items);
     expect(first.result.processedCount).toBe(3);
     expect(first.rows).toHaveLength(3);
@@ -123,15 +128,23 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
 
   test("regenerated playlistItem.id reuses the row (no double rows)", async () => {
     const before = await sync([item("pi-1", "vid-a"), item("pi-2", "vid-a")]);
-    const { rows, surplus } = await sync([item("pi-9", "vid-a"), item("pi-2", "vid-a")]);
+    const { rows, surplus } = await sync([
+      item("pi-9", "vid-a"),
+      item("pi-2", "vid-a"),
+    ]);
     expect(rows).toHaveLength(2);
     expect(surplus.size).toBe(0);
     // The regenerated id REUSED the existing row rather than creating a new one.
-    expect(new Set(rows.map((r) => r.id))).toEqual(new Set(before.rows.map((r) => r.id)));
+    expect(new Set(rows.map((r) => r.id))).toEqual(
+      new Set(before.rows.map((r) => r.id)),
+    );
     const stamped = await prisma.servicePlaylistTrack.findMany({
       where: { playlistId },
     });
-    expect(stamped.map((r) => r.playlistItemId).sort()).toEqual(["pi-2", "pi-9"]);
+    expect(stamped.map((r) => r.playlistItemId).sort()).toEqual([
+      "pi-2",
+      "pi-9",
+    ]);
   });
 
   test("removing one of two copies marks only the surplus row, keeps the other", async () => {
@@ -169,7 +182,10 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
       return base.transformPlaylistItem(it, serviceId, artistId);
     };
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { rows, surplus } = await sync([item("pi-1", "vid-a"), item("pi-2", "vid-a")], flaky);
+    const { rows, surplus } = await sync(
+      [item("pi-1", "vid-a"), item("pi-2", "vid-a")],
+      flaky,
+    );
     errorSpy.mockRestore();
     expect(rows).toHaveLength(2);
     expect(surplus.size).toBe(0);
@@ -177,7 +193,9 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
 
   test("more than one batch (50) accumulates claimed rows across batches", async () => {
     // Same video repeated 60 times: rows from batch 1 must not be re-claimed in batch 2.
-    const items = Array.from({ length: 60 }, (_, i) => item(`pi-${i}`, "vid-a"));
+    const items = Array.from({ length: 60 }, (_, i) =>
+      item(`pi-${i}`, "vid-a"),
+    );
     const ids = emptyIds();
     const processor = createYouTubeTrackSyncProcessor();
     for (const start of [0, 50]) {
@@ -208,11 +226,21 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
   });
 
   test("a confirmed placeholder is found by the next sync via playlistItemId", async () => {
-    const { confirmOrphanedMatches } = await import("./orphaned-match-confirm.server");
-    const playlist = await prisma.servicePlaylist.findUniqueOrThrow({ where: { id: playlistId } });
+    const { confirmOrphanedMatches } =
+      await import("./orphaned-match-confirm.server");
+    const playlist = await prisma.servicePlaylist.findUniqueOrThrow({
+      where: { id: playlistId },
+    });
     await confirmOrphanedMatches(
       playlistId,
-      [{ deletedItemId: "pi-gone", selectedTrackId: null, position: 1, action: "new" }],
+      [
+        {
+          deletedItemId: "pi-gone",
+          selectedTrackId: null,
+          position: 1,
+          action: "new",
+        },
+      ],
       playlist.ownerId,
     );
     const tracksBefore = await prisma.track.count({ where: { serviceId } });
@@ -227,14 +255,19 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
     const { result, rows } = await sync([deletedItem]);
 
     expect(result.deletedVideosWithoutMatch ?? []).toHaveLength(0);
-    expect(await prisma.track.count({ where: { serviceId } })).toBe(tracksBefore);
+    expect(await prisma.track.count({ where: { serviceId } })).toBe(
+      tracksBefore,
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe(placeholder.id);
     expect(rows[0]!.track.id).toBe(placeholder.trackId);
   });
   test("a real track confirmed with `match` is not clobbered by the deleted item on re-sync", async () => {
-    const { confirmOrphanedMatches } = await import("./orphaned-match-confirm.server");
-    const playlist = await prisma.servicePlaylist.findUniqueOrThrow({ where: { id: playlistId } });
+    const { confirmOrphanedMatches } =
+      await import("./orphaned-match-confirm.server");
+    const playlist = await prisma.servicePlaylist.findUniqueOrThrow({
+      where: { id: playlistId },
+    });
     await sync([item("pi-real", "vid-real")]);
     const real = await prisma.track.findFirstOrThrow({
       where: { serviceId, externalId: "vid-real" },
@@ -243,7 +276,14 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
 
     const confirmed = await confirmOrphanedMatches(
       playlistId,
-      [{ deletedItemId: "pi-dead", selectedTrackId: real.id, position: 2, action: "match" }],
+      [
+        {
+          deletedItemId: "pi-dead",
+          selectedTrackId: real.id,
+          position: 2,
+          action: "match",
+        },
+      ],
       playlist.ownerId,
     );
     expect(confirmed.success).toBe(true);
@@ -267,14 +307,20 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
       ),
     );
 
-    const after = await prisma.track.findUniqueOrThrow({ where: { id: real.id } });
+    const after = await prisma.track.findUniqueOrThrow({
+      where: { id: real.id },
+    });
     expect(after.serviceUrl).toBe(before.serviceUrl);
     expect(after.serviceUrl ?? "").not.toContain("pi-dead");
     expect(after.title).toBe(before.title);
     expect(after.externalId).toBe("vid-real");
     expect(after.artistId).toBe(before.artistId);
-    expect(await prisma.track.count({ where: { serviceId, externalId: "pi-dead" } })).toBe(0);
-    for (const call of enqueue.mock.calls as unknown as Array<[unknown, string[]]>) {
+    expect(
+      await prisma.track.count({ where: { serviceId, externalId: "pi-dead" } }),
+    ).toBe(0);
+    for (const call of enqueue.mock.calls as unknown as Array<
+      [unknown, string[]]
+    >) {
       expect(call[1]).not.toContain(real.id);
     }
     const rows = await prisma.servicePlaylistTrack.findMany({
@@ -282,5 +328,63 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0]!.trackId).toBe(real.id);
+  });
+
+  test("regenerated item id: match to the offered candidate, next sync resolves it with no new pending match", async () => {
+    const { confirmOrphanedMatches } =
+      await import("./orphaned-match-confirm.server");
+    const playlist = await prisma.servicePlaylist.findUniqueOrThrow({
+      where: { id: playlistId },
+    });
+    await sync([item("pi-1", "vid-a"), item("pi-2", "vid-b")]);
+    const candidate = await prisma.track.findFirstOrThrow({
+      where: { serviceId, externalId: "vid-a" },
+    });
+
+    // YouTube regenerated the item id and the video is now unavailable; vid-a is
+    // absent from the payload but NOT deleted (stale playlistItemId pi-1).
+    const unavailable: SyncableItem = {
+      id: "pi-9",
+      snippet: { title: "Deleted video", resourceId: { videoId: "" } },
+    };
+    const payload = [unavailable, item("pi-2", "vid-b")];
+    const first = await sync(payload);
+    const resolved = await resolveDeletedVideosAfterSync(
+      playlistId,
+      serviceId,
+      first.result.deletedVideosWithoutMatch,
+      first.result.processedIds,
+    );
+    expect(resolved.pendingMatches).toHaveLength(1);
+    const offered = resolved.pendingMatches[0]!;
+    expect(offered.candidateTracks.map((c) => c.id)).toContain(candidate.id);
+
+    const confirmed = await confirmOrphanedMatches(
+      playlistId,
+      [
+        {
+          deletedItemId: offered.deletedVideo.itemId,
+          selectedTrackId: candidate.id,
+          position: offered.deletedVideo.position,
+          action: "match",
+        },
+      ],
+      playlist.ownerId,
+    );
+    expect(confirmed.success).toBe(true);
+    const stamped = await prisma.servicePlaylistTrack.findFirstOrThrow({
+      where: { playlistId, trackId: candidate.id },
+    });
+    expect(stamped.playlistItemId).toBe("pi-9");
+
+    const second = await sync(payload);
+    expect(second.result.deletedVideosWithoutMatch ?? []).toHaveLength(0);
+    const again = await resolveDeletedVideosAfterSync(
+      playlistId,
+      serviceId,
+      second.result.deletedVideosWithoutMatch,
+      second.result.processedIds,
+    );
+    expect(again.pendingMatches).toHaveLength(0);
   });
 });

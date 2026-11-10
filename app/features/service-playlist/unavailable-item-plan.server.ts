@@ -9,12 +9,16 @@ export type ExistingTrackForPlan = {
   externalId: string | null;
 };
 
-export type TrackIdentityPlan<TTrack extends ExistingTrackForPlan = ExistingTrackForPlan> =
+export type TrackIdentityPlan<
+  TTrack extends ExistingTrackForPlan = ExistingTrackForPlan,
+> =
   | { kind: "process"; externalId: string; existingTrack: TTrack | null }
   | { kind: "defer"; externalId: string }
   | { kind: "skip"; reason: string };
 
-export type PlanUnavailableItemInput<TTrack extends ExistingTrackForPlan = ExistingTrackForPlan> = {
+export type PlanUnavailableItemInput<
+  TTrack extends ExistingTrackForPlan = ExistingTrackForPlan,
+> = {
   isUnavailable: boolean;
   itemId: string | undefined;
   videoId: string;
@@ -39,10 +43,17 @@ export function isSyntheticUnavailableExternalIdForPlaylist(
  * Decide how to handle a playlist item after DB lookups for existing tracks.
  * Owns externalId synthesis and defer vs process vs skip — not the DB lookups themselves.
  */
-export function planUnavailableItemProcessing<TTrack extends ExistingTrackForPlan>(
-  input: PlanUnavailableItemInput<TTrack>,
-): TrackIdentityPlan<TTrack> {
-  const { isUnavailable, itemId, videoId, playlistId, position, existingTrack } = input;
+export function planUnavailableItemProcessing<
+  TTrack extends ExistingTrackForPlan,
+>(input: PlanUnavailableItemInput<TTrack>): TrackIdentityPlan<TTrack> {
+  const {
+    isUnavailable,
+    itemId,
+    videoId,
+    playlistId,
+    position,
+    existingTrack,
+  } = input;
 
   if (isUnavailable && !existingTrack) {
     const externalId = itemId || `pending-${playlistId}-${position}`;
@@ -51,7 +62,10 @@ export function planUnavailableItemProcessing<TTrack extends ExistingTrackForPla
 
   let externalId = videoId;
   if (isUnavailable && !externalId) {
-    externalId = itemId || existingTrack?.externalId || `deleted-${playlistId}-${position}`;
+    externalId =
+      itemId ||
+      existingTrack?.externalId ||
+      `deleted-${playlistId}-${position}`;
   }
 
   if (!externalId || externalId.trim() === "") {

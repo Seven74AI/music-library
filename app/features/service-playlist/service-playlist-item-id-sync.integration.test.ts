@@ -4,13 +4,17 @@ import { createUser } from "#tests/db-utils";
 import { noopArchiveEnqueueAdapter } from "./archive-enqueue-adapter.server";
 import { createServicePlaylistService } from "./service-playlist.server";
 
-const { mockGetPlaylist, mockGetPlaylistItems, mockCheckVideosExist, mockResolveToken } =
-  vi.hoisted(() => ({
-    mockGetPlaylist: vi.fn(),
-    mockGetPlaylistItems: vi.fn(),
-    mockCheckVideosExist: vi.fn(),
-    mockResolveToken: vi.fn(),
-  }));
+const {
+  mockGetPlaylist,
+  mockGetPlaylistItems,
+  mockCheckVideosExist,
+  mockResolveToken,
+} = vi.hoisted(() => ({
+  mockGetPlaylist: vi.fn(),
+  mockGetPlaylistItems: vi.fn(),
+  mockCheckVideosExist: vi.fn(),
+  mockResolveToken: vi.fn(),
+}));
 
 vi.mock("#app/features/service-connection/service-connection.server", () => ({
   resolveServiceAccessToken: mockResolveToken,
@@ -61,13 +65,24 @@ describe("syncServicePlaylist with duplicate videos", () => {
     const service = createServicePlaylistService({
       archiveEnqueueAdapter: noopArchiveEnqueueAdapter,
     });
-    mockGetPlaylistItems.mockResolvedValue([ytItem("pi-1", "vid-a"), ytItem("pi-2", "vid-a")]);
-    const first = await service.syncServicePlaylist("youtube", "PLdupes", userId);
+    mockGetPlaylistItems.mockResolvedValue([
+      ytItem("pi-1", "vid-a"),
+      ytItem("pi-2", "vid-a"),
+    ]);
+    const first = await service.syncServicePlaylist(
+      "youtube",
+      "PLdupes",
+      userId,
+    );
     expect(await prisma.servicePlaylistTrack.count()).toBe(2);
 
     mockGetPlaylistItems.mockResolvedValue([ytItem("pi-2", "vid-a")]);
     // Re-sync via the internal id → resyncExistingPlaylist, where deleteMany runs.
-    const result = await service.syncServicePlaylist("youtube", first.playlistId!, userId);
+    const result = await service.syncServicePlaylist(
+      "youtube",
+      first.playlistId!,
+      userId,
+    );
 
     expect(result.success).toBe(true);
     const rows = await prisma.servicePlaylistTrack.findMany();
@@ -81,8 +96,15 @@ describe("syncServicePlaylist with duplicate videos", () => {
     const service = createServicePlaylistService({
       archiveEnqueueAdapter: noopArchiveEnqueueAdapter,
     });
-    mockGetPlaylistItems.mockResolvedValue([ytItem("pi-1", "vid-a"), ytItem("pi-1", "vid-a")]);
-    const result = await service.syncServicePlaylist("youtube", "PLdupes", userId);
+    mockGetPlaylistItems.mockResolvedValue([
+      ytItem("pi-1", "vid-a"),
+      ytItem("pi-1", "vid-a"),
+    ]);
+    const result = await service.syncServicePlaylist(
+      "youtube",
+      "PLdupes",
+      userId,
+    );
     expect(result.success).toBe(true);
     expect(await prisma.servicePlaylistTrack.count()).toBe(1);
   });

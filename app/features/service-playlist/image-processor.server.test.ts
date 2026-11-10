@@ -49,7 +49,10 @@ describe("processTrackImagesAsync", () => {
     findOrCreateCoverImage = vi.mocked(coverManagement.findOrCreateCoverImage);
 
     downloadExternalImage.mockResolvedValue(Buffer.from("image"));
-    findOrCreateCoverImage.mockResolvedValue({ id: "cover1", objectKey: "cover1.jpg" });
+    findOrCreateCoverImage.mockResolvedValue({
+      id: "cover1",
+      objectKey: "cover1.jpg",
+    });
     vi.mocked(prisma.track.updateMany).mockResolvedValue({ count: 1 });
     vi.mocked(prisma.servicePlaylistTrack.findMany).mockReset();
   });
@@ -60,7 +63,11 @@ describe("processTrackImagesAsync", () => {
       makePlaylistTrack(`spt${i}`, `track${i}`, `https://example.com/${i}.jpg`),
     );
     const secondBatch = Array.from({ length: 25 }, (_, i) =>
-      makePlaylistTrack(`spt${100 + i}`, `track${100 + i}`, `https://example.com/${100 + i}.jpg`),
+      makePlaylistTrack(
+        `spt${100 + i}`,
+        `track${100 + i}`,
+        `https://example.com/${100 + i}.jpg`,
+      ),
     );
 
     vi.mocked(prisma.servicePlaylistTrack.findMany)
@@ -71,7 +78,8 @@ describe("processTrackImagesAsync", () => {
 
     expect(prisma.servicePlaylistTrack.findMany).toHaveBeenCalledTimes(2);
 
-    const firstCall = vi.mocked(prisma.servicePlaylistTrack.findMany).mock.calls[0]?.[0];
+    const firstCall = vi.mocked(prisma.servicePlaylistTrack.findMany).mock
+      .calls[0]?.[0];
     expect(firstCall?.where).toEqual({
       playlistId,
       thumbnailUrl: { not: null },
@@ -81,7 +89,8 @@ describe("processTrackImagesAsync", () => {
     expect(firstCall?.orderBy).toEqual({ id: "asc" });
     expect(firstCall?.where).not.toHaveProperty("id");
 
-    const secondCall = vi.mocked(prisma.servicePlaylistTrack.findMany).mock.calls[1]?.[0];
+    const secondCall = vi.mocked(prisma.servicePlaylistTrack.findMany).mock
+      .calls[1]?.[0];
     expect(secondCall?.cursor).toEqual({ id: "spt99" });
     expect(secondCall?.skip).toBe(1);
 
@@ -116,7 +125,9 @@ describe("processTrackImagesAsync", () => {
 
   test("skips assignment when the track gains a cover before the guarded write", async () => {
     const playlistId = "playlist-race";
-    const tracks = [makePlaylistTrack("spt1", "track1", "https://example.com/1.jpg")];
+    const tracks = [
+      makePlaylistTrack("spt1", "track1", "https://example.com/1.jpg"),
+    ];
 
     vi.mocked(prisma.servicePlaylistTrack.findMany)
       .mockResolvedValueOnce(tracks as any)
@@ -129,7 +140,8 @@ describe("processTrackImagesAsync", () => {
       where: { id: "track1", coverImageId: null },
       data: { coverImageId: "cover1" },
     });
-    const { smartAlbumInheritance } = await import("#app/features/admin/cover-fetch.server");
+    const { smartAlbumInheritance } =
+      await import("#app/features/admin/cover-fetch.server");
     expect(smartAlbumInheritance).not.toHaveBeenCalled();
   });
 
