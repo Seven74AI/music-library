@@ -513,7 +513,9 @@ export class ServicePlaylistService {
       if (error instanceof Error) {
         throw error;
       }
-      throw new Error("Failed to fetch playlist items from external service", { cause: error });
+      throw new Error("Failed to fetch playlist items from external service", {
+        cause: error,
+      });
     }
 
     const { result: processResult, timedOut } = await this.processBatches(

@@ -49,7 +49,10 @@ describe("processTrackImagesAsync", () => {
     findOrCreateCoverImage = vi.mocked(coverManagement.findOrCreateCoverImage);
 
     downloadExternalImage.mockResolvedValue(Buffer.from("image"));
-    findOrCreateCoverImage.mockResolvedValue({ id: "cover1", objectKey: "cover1.jpg" });
+    findOrCreateCoverImage.mockResolvedValue({
+      id: "cover1",
+      objectKey: "cover1.jpg",
+    });
     vi.mocked(prisma.track.updateMany).mockResolvedValue({ count: 1 });
     vi.mocked(prisma.servicePlaylistTrack.findMany).mockReset();
   });

@@ -732,7 +732,12 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
         !isSyntheticUnavailableExternalIdForPlaylist(externalId, playlistId)
       ) {
         processedIds.externalIds.add(externalId);
-        realTrackPassthrough.push({ trackId: existingTrack.id, externalId, position, item });
+        realTrackPassthrough.push({
+          trackId: existingTrack.id,
+          externalId,
+          position,
+          item,
+        });
         continue;
       }
 
@@ -948,7 +953,9 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     const passthroughTracks =
       realTrackPassthrough.length > 0
         ? await tx.track.findMany({
-            where: { id: { in: realTrackPassthrough.map((entry) => entry.trackId) } },
+            where: {
+              id: { in: realTrackPassthrough.map((entry) => entry.trackId) },
+            },
           })
         : [];
     const passthroughById = new Map(passthroughTracks.map((row) => [row.id, row]));

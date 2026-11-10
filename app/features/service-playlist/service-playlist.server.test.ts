@@ -102,7 +102,9 @@ describe("ServicePlaylistService - Sync Logic", () => {
       await import("#app/features/service-connection/service-connection.server")
     ).resolveServiceAccessToken as ReturnType<typeof vi.fn>;
     vi.clearAllMocks();
-    vi.mocked(resolveServiceAccessToken).mockResolvedValue({ access_token: "token123" });
+    vi.mocked(resolveServiceAccessToken).mockResolvedValue({
+      access_token: "token123",
+    });
     // Default: absent videos are gone on YouTube (playlist removals → delete SPT)
     mockCheckVideosExist.mockImplementation(async (_ids: string[]) => new Set<string>());
   });
@@ -219,7 +221,9 @@ describe("ServicePlaylistService - Sync Logic", () => {
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
       // Mock deleteMany for removed tracks
-      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 1 } as any);
+      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({
+        count: 1,
+      } as any);
 
       const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
@@ -384,7 +388,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
         snippet: {
           title: `Video ${i + 1}`,
           resourceId: { videoId: `video${i + 1}` },
-          thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+          thumbnails: {
+            default: { url: `https://example.com/thumb${i + 1}.jpg` },
+          },
           videoOwnerChannelTitle: "Test Channel",
         },
       }));
@@ -491,7 +497,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
           snippet: {
             title: `Video ${i + 1}`,
             resourceId: { videoId: `video${i + 1}` },
-            thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+            thumbnails: {
+              default: { url: `https://example.com/thumb${i + 1}.jpg` },
+            },
             videoOwnerChannelTitle: "Test Channel",
           },
         })),
@@ -506,7 +514,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
           snippet: {
             title: `Video ${i + 16}`,
             resourceId: { videoId: `video${i + 16}` },
-            thumbnails: { default: { url: `https://example.com/thumb${i + 16}.jpg` } },
+            thumbnails: {
+              default: { url: `https://example.com/thumb${i + 16}.jpg` },
+            },
             videoOwnerChannelTitle: "Test Channel",
           },
         })),
@@ -710,7 +720,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
         stillOnYoutubeTrack,
       ] as any);
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 1 } as any);
+      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({
+        count: 1,
+      } as any);
 
       const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
@@ -858,7 +870,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
         snippet: {
           title: `Video ${i + 1}`,
           resourceId: { videoId: `video${i + 1}` },
-          thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+          thumbnails: {
+            default: { url: `https://example.com/thumb${i + 1}.jpg` },
+          },
           videoOwnerChannelTitle: "Test Channel",
         },
       }));
@@ -938,7 +952,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
       vi.mocked(prisma.servicePlaylist.update).mockResolvedValue({} as any);
 
       // Mock deleteMany
-      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({ count: 2 } as any);
+      vi.mocked(prisma.servicePlaylistTrack.deleteMany).mockResolvedValue({
+        count: 2,
+      } as any);
 
       const result = await service.syncServicePlaylist("youtube", playlistId, userId);
 
@@ -1133,7 +1149,9 @@ describe("ServicePlaylistService - Batch Processing", () => {
           snippet: {
             title: `Video ${i + 1}`,
             resourceId: { videoId: `video${i + 1}` },
-            thumbnails: { default: { url: `https://example.com/thumb${i + 1}.jpg` } },
+            thumbnails: {
+              default: { url: `https://example.com/thumb${i + 1}.jpg` },
+            },
             videoOwnerChannelTitle: "Test Channel",
           },
         })),

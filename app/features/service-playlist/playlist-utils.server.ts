@@ -76,7 +76,12 @@ export async function getSyncedPlaylistsTrackStats(
   const libraryRows: { trackId: string }[] = [];
   for (const trackIdChunk of chunkArray(trackIds)) {
     const batch = await prisma.userTrack.findMany({
-      where: { userId, trackId: { in: trackIdChunk }, isActive: true, deletedAt: null },
+      where: {
+        userId,
+        trackId: { in: trackIdChunk },
+        isActive: true,
+        deletedAt: null,
+      },
       select: { trackId: true },
     });
     libraryRows.push(...batch);

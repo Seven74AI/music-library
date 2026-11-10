@@ -28,15 +28,31 @@ describe("orphanMatchesSchema", () => {
   test("accepts a valid array", () => {
     expect(
       orphanMatchesSchema.safeParse([
-        { action: "new", deletedItemId: "abc", selectedTrackId: null, position: 0 },
+        {
+          action: "new",
+          deletedItemId: "abc",
+          selectedTrackId: null,
+          position: 0,
+        },
         { action: "skip", position: 2 },
       ]).success,
     ).toBe(true);
   });
 
   test("rejects an oversized array", () => {
-    const big = Array.from({ length: 201 }, (_, i) => ({ action: "skip", position: i }));
+    const big = Array.from({ length: 201 }, (_, i) => ({
+      action: "skip",
+      position: i,
+    }));
     expect(orphanMatchesSchema.safeParse(big).success).toBe(false);
+  });
+
+  test("treats an empty-string deletedItemId as omitted", () => {
+    const parsed = orphanMatchesSchema.safeParse([
+      { action: "new", position: 1, deletedItemId: "" },
+    ]);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.[0]?.deletedItemId).toBeUndefined();
   });
 
   test("rejects malformed entries", () => {

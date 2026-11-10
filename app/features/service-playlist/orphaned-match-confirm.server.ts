@@ -7,7 +7,12 @@ export const orphanMatchesSchema = z
   .array(
     z.object({
       action: z.enum(["match", "new", "skip"]),
-      deletedItemId: z.string().max(128).optional(),
+      deletedItemId: z
+        .string()
+        .trim()
+        .max(128)
+        .optional()
+        .transform((v) => (v === "" ? undefined : v)),
       selectedTrackId: z.string().nullable().optional(),
       position: z.number().int().min(0),
     }),
@@ -58,33 +63,6 @@ export async function confirmOrphanedMatches(
   message: string;
   error?: string;
 }> {
-  const playlist = await prisma.servicePlaylist.findFirst({
-    where: {
-      id: playlistId,
-      ownerId: userId,
-      isActive: true,
-    },
-    include: { service: true },
-  });
-
-  if (!playlist) {
-    return {
-      success: false,
-      processedCount: 0,
-      message: "Playlist not found or access denied",
-      error: "Playlist not found or access denied",
-    };
-  }
-
-  if (!playlist.service) {
-    return {
-      success: false,
-      processedCount: 0,
-      message: "Service not found for playlist",
-      error: "Service not found for playlist",
-    };
-  }
-
   const duplicateTrackIds = getDuplicateMatchedTrackIds(matches);
   if (duplicateTrackIds.length > 0) {
     return {
@@ -95,10 +73,37 @@ export async function confirmOrphanedMatches(
     };
   }
 
-  const service = await getServiceByName(playlist.service.name);
-  const { createId } = await import("@paralleldrive/cuid2");
-
   try {
+    const playlist = await prisma.servicePlaylist.findFirst({
+      where: {
+        id: playlistId,
+        ownerId: userId,
+        isActive: true,
+      },
+      include: { service: true },
+    });
+
+    if (!playlist) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: "Playlist not found or access denied",
+        error: "Playlist not found or access denied",
+      };
+    }
+
+    if (!playlist.service) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: "Service not found for playlist",
+        error: "Service not found for playlist",
+      };
+    }
+
+    const service = await getServiceByName(playlist.service.name);
+    const { createId } = await import("@paralleldrive/cuid2");
+
     const result = await prisma.$transaction(async (tx) => {
       let processedCount = 0;
 
@@ -144,7 +149,7 @@ export async function confirmOrphanedMatches(
               id: createId(),
               playlistId,
               trackId: track.id,
-              playlistItemId: match.deletedItemId ?? null,
+              playlistItemId: match.deletedItemId || null,
               position: match.position,
               isDeleted: true,
               deletedAt: new Date(),
@@ -159,7 +164,10 @@ export async function confirmOrphanedMatches(
           // that was not seen in the latest sync). Reject any client-supplied
           // track that is only in the global catalog.
           const existingPlaylistTrack = await tx.servicePlaylistTrack.findFirst({
-            where: { playlistId, trackId: match.selectedTrackId },
+            where: {
+              playlistId,
+              trackId: match.selectedTrackId,
+            },
             orderBy: [{ isDeleted: "asc" }, { position: "asc" }, { id: "asc" }],
           });
 
@@ -167,8 +175,11 @@ export async function confirmOrphanedMatches(
             throw new Error(`Track is not a member of this playlist: ${match.selectedTrackId}`);
           }
 
-          // Stamp the deleted item's playlistItem.id so later syncs find this row
-          // directly (skip if another row already owns that id).
+          // The dialog offers candidate rows that are absent from the latest sync
+          // but NOT deleted (deleted rows are filtered out, ADR-006 Edge Case 9).
+          // Matching one marks it deleted and stamps the deleted item's
+          // playlistItem.id (overwriting a stale one) so the next sync resolves
+          // the item. Skip the stamp only if another row already owns that id.
           const itemIdOwner = match.deletedItemId
             ? await tx.servicePlaylistTrack.findFirst({
                 where: { playlistId, playlistItemId: match.deletedItemId },

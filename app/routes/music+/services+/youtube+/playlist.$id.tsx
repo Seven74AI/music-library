@@ -178,36 +178,28 @@ export async function action({ request, params }: ActionFunctionArgs) {
           return data({ status: "error", message: "Invalid matches data" }, { status: 400 });
         }
 
+        let matches: ReturnType<typeof orphanMatchesSchema.parse>;
         try {
           const parsed = orphanMatchesSchema.safeParse(JSON.parse(matchesJson));
           if (!parsed.success) {
             return data({ status: "error", message: "Invalid matches format" }, { status: 400 });
           }
-          const matches = parsed.data;
-
-          const result = await confirmOrphanedMatches(params.id!, matches, userId);
-
-          if (result.success) {
-            return data({
-              status: "success",
-              message: result.message,
-            });
-          }
-
-          return data({
-            status: "error",
-            message: result.message || "Failed to process matches. Please try again.",
-          });
+          matches = parsed.data;
         } catch (error) {
           console.error("Error parsing matches:", error);
-          return data(
-            {
-              status: "error",
-              message: "Invalid matches format",
-            },
-            { status: 400 },
-          );
+          return data({ status: "error", message: "Invalid matches format" }, { status: 400 });
         }
+
+        const result = await confirmOrphanedMatches(params.id!, matches, userId);
+
+        if (result.success) {
+          return data({ status: "success", message: result.message });
+        }
+
+        return data({
+          status: "error",
+          message: result.message || "Failed to process matches. Please try again.",
+        });
       }
 
       default:
