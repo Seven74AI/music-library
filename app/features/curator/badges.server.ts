@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { MERGE_COMMENT_PREFIX, MERGED_INTO_PREFIX } from "./activity-comments.ts";
 import {
   badgeLabel,
@@ -36,15 +37,6 @@ function enqueueAward<T>(task: () => Promise<T>): Promise<T> {
     () => undefined,
   );
   return run;
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "P2002"
-  );
 }
 
 function asNumber(value: unknown): number {

@@ -6,7 +6,10 @@ import {
   encryptConnectionTokens,
 } from "#app/utils/token-cipher.server.ts";
 import { shouldMockYouTube } from "#app/utils/youtube-mock-utils";
-import { createYouTubeOAuthService } from "#app/utils/youtube-oauth.server";
+import {
+  createYouTubeOAuthService,
+  logGoogleOAuthClientError,
+} from "#app/utils/youtube-oauth.server";
 
 export type ServiceAccessToken = { access_token: string };
 
@@ -164,7 +167,7 @@ async function refreshYouTubeAccessToken(
 
     return { access_token: updatedTokenData.access_token };
   } catch (refreshError) {
-    console.error("Failed to refresh YouTube OAuth token:", refreshError);
+    logGoogleOAuthClientError("Failed to refresh YouTube OAuth token", refreshError);
     return null;
   }
 }

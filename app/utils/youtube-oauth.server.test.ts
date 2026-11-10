@@ -252,4 +252,65 @@ describe("YouTubeOAuthService token exchange", () => {
       message: "Google token refresh omitted access_token",
     });
   });
+
+  function makeGaxiosLikeError(configData: string, message = "invalid_grant") {
+    return {
+      name: "Error",
+      message,
+      response: { status: 400, data: { error: "invalid_grant" } },
+      config: { data: configData },
+    };
+  }
+
+  function loggedOutput(): string {
+    return consoleError.mock.calls
+      .flat()
+      .map((part) => (typeof part === "string" ? part : JSON.stringify(part)))
+      .join(" ");
+  }
+
+  test("getTokens logs only status and message when Google rejects the code exchange", async () => {
+    const sensitiveCode = "4/0auth-leaked-authorization-code";
+    const sensitiveSecret = "super-secret-client-secret";
+    mockGetToken.mockRejectedValue(
+      makeGaxiosLikeError(
+        `code=${sensitiveCode}&client_id=test-client&client_secret=${sensitiveSecret}`,
+      ),
+    );
+
+    const service = new YouTubeOAuthService(config);
+    await service.getTokens(sensitiveCode).catch(() => {});
+
+    expect(consoleError).toHaveBeenCalled();
+    const output = loggedOutput();
+    expect(output).toContain("invalid_grant");
+    expect(output).toContain("400");
+    expect(output).not.toContain(sensitiveCode);
+    expect(output).not.toContain(sensitiveSecret);
+    expect(output).not.toContain("refresh_token");
+    expect(output).not.toContain("client_secret");
+    expect(output).not.toMatch(/code=/);
+  });
+
+  test("refreshAccessToken logs only status and message when Google rejects the refresh", async () => {
+    const sensitiveRefresh = "1//0g-long-lived-refresh-token-value";
+    const sensitiveSecret = "super-secret-client-secret";
+    mockRefreshAccessToken.mockRejectedValue(
+      makeGaxiosLikeError(
+        `refresh_token=${sensitiveRefresh}&client_id=test-client&client_secret=${sensitiveSecret}&grant_type=refresh_token`,
+      ),
+    );
+
+    const service = new YouTubeOAuthService(config);
+    await service.refreshAccessToken(sensitiveRefresh).catch(() => {});
+
+    expect(consoleError).toHaveBeenCalled();
+    const output = loggedOutput();
+    expect(output).toContain("invalid_grant");
+    expect(output).toContain("400");
+    expect(output).not.toContain(sensitiveRefresh);
+    expect(output).not.toContain(sensitiveSecret);
+    expect(output).not.toContain("refresh_token");
+    expect(output).not.toContain("client_secret");
+  });
 });

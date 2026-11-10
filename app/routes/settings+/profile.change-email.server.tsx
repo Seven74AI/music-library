@@ -1,17 +1,12 @@
 import { invariant } from "@epic-web/invariant";
 import * as E from "@react-email/components";
 import { data } from "react-router";
-import {
-  requireRecentVerification,
-  type VerifyFunctionArgs,
-} from "#app/routes/_auth+/verify.server.ts";
+import { requireRecentVerification } from "#app/routes/_auth+/verify-guards.server.ts";
+import { type VerifyFunctionArgs } from "#app/routes/_auth+/verify.shared.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { sendEmail } from "#app/utils/email.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && (error as { code?: string }).code === "P2002";
-}
 
 export async function handleVerification({
   request,

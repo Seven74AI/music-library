@@ -1,15 +1,6 @@
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
+import { isUniqueConstraintError as isUniqueConstraintViolation } from "#app/utils/prisma-errors.ts";
 
 export type AddTrackToUserPlaylistInput = {
   userId: string;

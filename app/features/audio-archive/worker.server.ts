@@ -5,6 +5,7 @@ import { persistTrackAudio } from "#app/features/track-audio-ingest/persist-trac
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { getInstanceInfo } from "#app/utils/litefs.server.ts";
 import { checkPlaylistArchiveReadyAfterTrackArchived } from "#app/utils/playlist-archive-ready.server.tsx";
 import {
   recordArchiveSuccess,
@@ -505,4 +506,39 @@ export async function getQueueStats(): Promise<{
     completed: byStatus["completed"] ?? 0,
     failed: byStatus["failed"] ?? 0,
   };
+}
+
+let archiveWorkerIntervalHandle: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * In-process archive queue poll (ADR-011). Idempotent; only when AUDIO_ARCHIVE_ENABLED.
+ */
+export function startAudioArchiveWorker(intervalMs = 120_000): void {
+  if (process.env.AUDIO_ARCHIVE_ENABLED !== "true") return;
+  if (archiveWorkerIntervalHandle !== null) return;
+
+  const runTick = () => {
+    void (async () => {
+      const { currentIsPrimary } = await getInstanceInfo();
+      if (!currentIsPrimary) return;
+      await processQueueTick();
+    })().catch((error) => {
+      console.error("Audio archive worker tick failed", error);
+    });
+  };
+
+  void runTick();
+  archiveWorkerIntervalHandle = setInterval(runTick, intervalMs);
+  console.log(`Audio archive worker started (interval: ${intervalMs}ms)`);
+}
+
+export function stopAudioArchiveWorker(): void {
+  if (archiveWorkerIntervalHandle !== null) {
+    clearInterval(archiveWorkerIntervalHandle);
+    archiveWorkerIntervalHandle = null;
+  }
+  if (enqueueWakeTimer !== null) {
+    clearTimeout(enqueueWakeTimer);
+    enqueueWakeTimer = null;
+  }
 }
