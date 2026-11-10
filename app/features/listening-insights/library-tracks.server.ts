@@ -1,7 +1,7 @@
 import { Prisma } from "#prisma/client.js";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/features/queue/library-tracks-page-size.ts";
+import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
 import { buildLibraryUserTracksWhere } from "#app/utils/library-user-tracks.server.ts";
 import { type SortDirection } from "#app/utils/sort-direction.ts";
 import {

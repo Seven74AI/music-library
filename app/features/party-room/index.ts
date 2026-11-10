@@ -18,15 +18,6 @@ export {
   ROOM_PLAY_EVENT_TYPES,
   RATE_LIMIT_WINDOW_MS,
   ROOM_HOST_HEARTBEAT_INTERVAL_MS,
-  ROOM_QUEUE_MAX_TRACKS,
-  ROOM_MAX_PARTICIPANTS,
-  ROOM_ACTIVE_PER_CREATOR,
-  ROOM_GUEST_DISPLAY_NAME_MIN,
-  ROOM_GUEST_DISPLAY_NAME_MAX,
-  ROOM_ADD_TRACK_RATE_PER_MIN,
-  ROOM_AUDITION_RATE_PER_MIN,
-  ROOM_EMPTY_TTL_MS,
-  ROOM_NON_SPEAKER_AWAY_MS,
 } from "./constants.ts";
 
 export type {
@@ -57,11 +48,9 @@ export {
   canManageRoom,
   canBeSpeaker,
   isRoomRole,
-  canRoomRole,
   canAddToRoomQueue,
   canRemoveOwnQueueItem,
   canControlTransport,
-  isRoomSpeakerRole,
   rankForHostTakeover,
 } from "./capabilities.ts";
 
