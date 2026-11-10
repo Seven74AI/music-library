@@ -232,4 +232,55 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
     expect(rows[0]!.id).toBe(placeholder.id);
     expect(rows[0]!.track.id).toBe(placeholder.trackId);
   });
+  test("a real track confirmed with `match` is not clobbered by the deleted item on re-sync", async () => {
+    const { confirmOrphanedMatches } = await import("./orphaned-match-confirm.server");
+    const playlist = await prisma.servicePlaylist.findUniqueOrThrow({ where: { id: playlistId } });
+    await sync([item("pi-real", "vid-real")]);
+    const real = await prisma.track.findFirstOrThrow({
+      where: { serviceId, externalId: "vid-real" },
+    });
+    const before = { ...real };
+
+    const confirmed = await confirmOrphanedMatches(
+      playlistId,
+      [{ deletedItemId: "pi-dead", selectedTrackId: real.id, position: 2, action: "match" }],
+      playlist.ownerId,
+    );
+    expect(confirmed.success).toBe(true);
+
+    const enqueue = vi.fn(async () => false);
+    const deletedItem: SyncableItem = {
+      id: "pi-dead",
+      snippet: { title: "Deleted video", resourceId: { videoId: "" } },
+    };
+    const ids = emptyIds();
+    await prisma.$transaction((tx) =>
+      processTracksInBatches(
+        [deletedItem],
+        serviceId,
+        playlistId,
+        tx,
+        createYouTubeTrackSyncProcessor(),
+        { enqueueArchiveJobs: enqueue },
+        0,
+        ids,
+      ),
+    );
+
+    const after = await prisma.track.findUniqueOrThrow({ where: { id: real.id } });
+    expect(after.serviceUrl).toBe(before.serviceUrl);
+    expect(after.serviceUrl ?? "").not.toContain("pi-dead");
+    expect(after.title).toBe(before.title);
+    expect(after.externalId).toBe("vid-real");
+    expect(after.artistId).toBe(before.artistId);
+    expect(await prisma.track.count({ where: { serviceId, externalId: "pi-dead" } })).toBe(0);
+    for (const call of enqueue.mock.calls as unknown as Array<[unknown, string[]]>) {
+      expect(call[1]).not.toContain(real.id);
+    }
+    const rows = await prisma.servicePlaylistTrack.findMany({
+      where: { playlistId, playlistItemId: "pi-dead" },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.trackId).toBe(real.id);
+  });
 });

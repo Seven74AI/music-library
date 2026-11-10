@@ -640,6 +640,13 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       }
     }
 
+    const realTrackPassthrough: Array<{
+      trackId: string;
+      externalId: string;
+      position: number;
+      item: TItem;
+    }> = [];
+
     for (let i = 0; i < batch.length; i++) {
       const item = batch[i] as TItem;
       if (!item) continue;
@@ -715,6 +722,19 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
           ? plan.existingTrack.externalId
           : plan.externalId;
       existingTrack = plan.existingTrack;
+
+      // Only a synthetic placeholder may be overwritten by the deleted item. A REAL
+      // track reached via playlistItemId (confirmed with `match`, or gone private)
+      // keeps its data/serviceUrl; only its membership row is claimed below.
+      if (
+        resolvedViaPlaylistItemId &&
+        existingTrack &&
+        !isSyntheticUnavailableExternalIdForPlaylist(externalId, playlistId)
+      ) {
+        processedIds.externalIds.add(externalId);
+        realTrackPassthrough.push({ trackId: existingTrack.id, externalId, position, item });
+        continue;
+      }
 
       // Seen in this sync's API payload. Mark before ingest so a preparation
       // error cannot classify the membership as "removed from the playlist".
@@ -921,8 +941,34 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       },
     );
 
-    const pairedTracks = await Promise.all(pairedTrackUpserts);
-    const tracks = pairedTracks.map((row) => row.track);
+    const upsertedTracks = await Promise.all(pairedTrackUpserts);
+    const tracks = upsertedTracks.map((row) => row.track);
+
+    // Real tracks resolved via playlistItemId: no Track write, membership only.
+    const passthroughTracks =
+      realTrackPassthrough.length > 0
+        ? await tx.track.findMany({
+            where: { id: { in: realTrackPassthrough.map((entry) => entry.trackId) } },
+          })
+        : [];
+    const passthroughById = new Map(passthroughTracks.map((row) => [row.id, row]));
+    const passthroughPaired = realTrackPassthrough.flatMap((entry) => {
+      const track = passthroughById.get(entry.trackId);
+      if (!track) return [];
+      return [
+        {
+          track,
+          trackData: {
+            serviceId,
+            externalId: entry.externalId,
+            trackData: undefined as unknown as (typeof validTrackEntries)[number]["trackData"],
+            position: entry.position,
+            item: entry.item,
+          },
+        },
+      ];
+    });
+    const pairedTracks = [...upsertedTracks, ...passthroughPaired];
 
     // Auto-enqueue ArchiveJobs for tracks that have a serviceUrl
     // (external service tracks, e.g. YouTube — not local uploads)
@@ -943,7 +989,7 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
       isDeleted: boolean;
       deletedAt: Date | null;
     };
-    const batchTrackIds = tracks.map((track) => track.id);
+    const batchTrackIds = pairedTracks.map(({ track }) => track.id);
     const batchItemIds = pairedTracks
       .map(({ trackData }) => trackData.item?.id)
       .filter((id): id is string => typeof id === "string" && id !== "");
