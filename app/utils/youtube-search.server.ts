@@ -15,7 +15,7 @@ import {
   YouTubeNotFoundError,
   YOUTUBE_ERROR_CODES,
 } from "#app/utils/youtube-errors";
-import { logGoogleYouTubeDataApiClientError } from "#app/utils/youtube-oauth.server.ts";
+import { logGoogleYouTubeDataApiClientError } from "#app/utils/google-api-error-logger.server.ts";
 import { shouldMockYouTube } from "#app/utils/youtube-mock-utils";
 import { type VideoData } from "#app/utils/youtube-utils";
 
