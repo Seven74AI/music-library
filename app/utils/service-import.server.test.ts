@@ -217,7 +217,7 @@ describe("importTrackDirectly", () => {
     it("returns error when service is not found in database", async () => {
       const { getServiceByName } =
         await import("#app/features/service-playlist/service-playlist.server.ts");
-      vi.mocked(getServiceByName).mockRejectedValue(new Error("Service not found: youtube"));
+      vi.mocked(getServiceByName).mockRejectedValue(new Error("Service not configured: youtube"));
 
       // Suppress console.error from handleServiceError
       const { consoleError } = await import("#tests/setup/setup-test-env.ts");

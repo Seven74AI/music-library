@@ -196,10 +196,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
           return data({ status: "success", message: result.message });
         }
 
-        return data({
-          status: "error",
-          message: result.message || "Failed to process matches. Please try again.",
-        });
+        // Per-case status from the domain layer; always the friendly message.
+        return data(
+          { status: "error", message: result.message },
+          { status: result.status ?? 500 },
+        );
       }
 
       default:

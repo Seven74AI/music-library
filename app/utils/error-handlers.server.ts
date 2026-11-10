@@ -6,7 +6,7 @@
  */
 
 import { data } from "react-router";
-import { ServiceNotFoundError as PlaylistServiceNotFoundError } from "#app/features/service-playlist/playlist-utils.server";
+import { ServiceConfigurationError } from "#app/features/service-playlist/playlist-utils.server";
 import { ValidationError } from "#app/utils/validation.ts";
 import { YouTubeAPIError, YouTubeError, YOUTUBE_ERROR_CODES } from "#app/utils/youtube-errors.ts";
 import { ZipExtractionLimitError } from "#app/utils/zip-extraction.server.ts";
@@ -38,7 +38,7 @@ function isKnownClientError(error: unknown): error is Error {
   return (
     error instanceof YouTubeError ||
     error instanceof ValidationError ||
-    error instanceof PlaylistServiceNotFoundError ||
+    error instanceof ServiceConfigurationError ||
     error instanceof ZipExtractionLimitError
   );
 }

@@ -142,6 +142,7 @@ describe("getDuplicateDeletedItemIds", () => {
       processedCount: 0,
       message: "Each deleted video can only be used once.",
       error: "Duplicate deleted video selections: d1",
+      status: 400,
     });
   });
 });

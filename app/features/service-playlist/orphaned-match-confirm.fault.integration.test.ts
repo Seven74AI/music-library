@@ -56,5 +56,41 @@ describe("confirmOrphanedMatches server faults", () => {
 
     expect(result.success).toBe(false);
     expect(result.message).toContain("Failed to process matches");
+    expect(result.error).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("db down");
+  });
+
+  test("match to a track not in the playlist returns the specific domain error", async () => {
+    consoleError.mockImplementation(() => {});
+    const user = await prisma.user.create({ data: createUser() });
+    const service = await prisma.service.upsert({
+      where: { name: "youtube" },
+      update: {},
+      create: { name: "youtube", displayName: "YouTube", baseUrl: "https://youtube.com" },
+    });
+    vi.mocked(getServiceByName).mockResolvedValue(service);
+    const playlist = await prisma.servicePlaylist.create({
+      data: {
+        serviceId: service.id,
+        externalId: "PL-orphan",
+        title: "Orphan",
+        itemCount: 0,
+        ownerId: user.id,
+      },
+    });
+
+    const result = await confirmOrphanedMatches(
+      playlist.id,
+      [{ action: "match", selectedTrackId: "not-a-member", position: 1 }],
+      user.id,
+    );
+
+    expect(result).toEqual({
+      success: false,
+      processedCount: 0,
+      message: "Track is not a member of this playlist: not-a-member",
+      error: "Track is not a member of this playlist: not-a-member",
+      status: 403,
+    });
   });
 });

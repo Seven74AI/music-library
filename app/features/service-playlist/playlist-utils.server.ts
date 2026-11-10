@@ -1,10 +1,10 @@
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server";
 
-export class ServiceNotFoundError extends Error {
+export class ServiceConfigurationError extends Error {
   constructor(serviceName: string) {
-    super(`Service not found: ${serviceName}`);
-    this.name = "ServiceNotFoundError";
+    super(`Service not configured: ${serviceName}`);
+    this.name = "ServiceConfigurationError";
   }
 }
 
@@ -14,7 +14,7 @@ export async function getServiceByName(serviceName: string) {
   });
 
   if (!service) {
-    throw new ServiceNotFoundError(serviceName);
+    throw new ServiceConfigurationError(serviceName);
   }
 
   return service;
