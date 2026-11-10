@@ -13,13 +13,17 @@ import { getUploadProgress } from "#app/features/upload-progress/progress-store.
 
 const tinyMp3 = readFileSync(new URL("../../../tests/fixtures/tiny-tone.mp3", import.meta.url));
 
-const { mockPrepareCoverImageUpload, mockCreateCoverImageInTx, mockDeleteFile } = vi.hoisted(
-  () => ({
-    mockPrepareCoverImageUpload: vi.fn(),
-    mockCreateCoverImageInTx: vi.fn(),
-    mockDeleteFile: vi.fn().mockResolvedValue(undefined),
-  }),
-);
+const {
+  mockPrepareCoverImageUpload,
+  mockCreateCoverImageInTx,
+  mockDeleteFile,
+  mockCreateTrackAudioFile,
+} = vi.hoisted(() => ({
+  mockPrepareCoverImageUpload: vi.fn(),
+  mockCreateCoverImageInTx: vi.fn(),
+  mockDeleteFile: vi.fn().mockResolvedValue(undefined),
+  mockCreateTrackAudioFile: vi.fn(),
+}));
 
 vi.mock("#app/utils/storage.server.ts", async (importOriginal) => {
   const original = await importOriginal<typeof import("#app/utils/storage.server.ts")>();
@@ -35,10 +39,29 @@ vi.mock("#app/utils/cover-management.server", async (importOriginal) => {
   };
 });
 
-beforeEach(() => {
+vi.mock(
+  "#app/features/track-audio-ingest/persist-track-audio.server.ts",
+  async (importOriginal) => {
+    const original =
+      await importOriginal<
+        typeof import("#app/features/track-audio-ingest/persist-track-audio.server.ts")
+      >();
+    return {
+      ...original,
+      createTrackAudioFile: mockCreateTrackAudioFile,
+    };
+  },
+);
+
+beforeEach(async () => {
   mockPrepareCoverImageUpload.mockReset();
   mockCreateCoverImageInTx.mockReset();
   mockDeleteFile.mockClear();
+  mockCreateTrackAudioFile.mockReset();
+  const original = await vi.importActual<
+    typeof import("#app/features/track-audio-ingest/persist-track-audio.server.ts")
+  >("#app/features/track-audio-ingest/persist-track-audio.server.ts");
+  mockCreateTrackAudioFile.mockImplementation(original.createTrackAudioFile);
 });
 
 async function createAdminCookie() {
@@ -198,8 +221,19 @@ function allowUploadConsoleErrors() {
     const message = args.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(" ");
     if (message.includes("Failed to generate audio fingerprint")) return;
     if (message.includes("Error extracting metadata from")) return;
+    if (message.includes("Error uploading file")) return;
     throw new Error(
       `Console error was called: ${message}. Call consoleError.mockImplementation(() => {}) if this is expected.`,
+    );
+  });
+  consoleWarn.mockImplementation((...args: unknown[]) => {
+    const message = args.map((arg) => (arg instanceof Error ? arg.message : String(arg))).join(" ");
+    if (message.includes("Post-commit progress update failed")) return;
+    if (message.includes("Unexpected error after DB commit")) return;
+    if (message.includes("Duplicate audio detected")) return;
+    if (message.includes("Duplicate:")) return;
+    throw new Error(
+      `Console warn was called: ${message}. Call consoleWarn.mockImplementation(() => {}) if this is expected.`,
     );
   });
 }
@@ -391,3 +425,100 @@ test("batch upload succeeds without a cover when cover persistence fails and del
     await cleanupUploadArtist(artist, userId);
   }
 }, 20_000);
+
+test("a rolled-back DB transaction leaves no phantom success and records a failure", async () => {
+  allowUploadConsoleErrors();
+  await seedLocalService();
+  mockCreateTrackAudioFile.mockRejectedValueOnce(new Error("db txn failed"));
+
+  const { userId, cookie } = await createAdminCookie();
+  const title = `QA txn-rollback ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = `QA Artist ${title}`;
+  const uploadId = `upload-txn-rollback-${Date.now()}`;
+
+  try {
+    const response = await postBatch(cookie, uploadId, [
+      ["good.mp3", JSON.stringify({ title, artist })],
+    ]);
+    expect(response.init?.status).toBe(202);
+
+    const progress = await waitForUpload(uploadId);
+    expect(progress.successfulTracks).toEqual([]);
+    expect(progress.failedFiles?.map((file) => file.fileName)).toContain("good.mp3");
+    expect(await prisma.track.count({ where: { title, artist: { name: artist } } })).toBe(0);
+  } finally {
+    await cleanupUploadArtist(artist, userId);
+  }
+}, 20_000);
+
+test("a post-commit progress write failure keeps the committed track out of failedFiles", async () => {
+  allowUploadConsoleErrors();
+  await seedLocalService();
+
+  const progressStore = await import("#app/features/upload-progress/progress-store.server.ts");
+  const realUpdateFileProgress = progressStore.updateFileProgress;
+  let completedProgressAttempts = 0;
+  const updateSpy = vi
+    .spyOn(progressStore, "updateFileProgress")
+    .mockImplementation(async (uploadId, fileId, progress, status, ...rest) => {
+      if (status === "completed" && progress === 100) {
+        completedProgressAttempts += 1;
+        if (completedProgressAttempts === 1) {
+          throw new Error("progress backend unavailable");
+        }
+      }
+      return realUpdateFileProgress(uploadId, fileId, progress, status, ...rest);
+    });
+
+  const { userId, cookie } = await createAdminCookie();
+  const title = `QA post-commit-progress ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = `QA Artist ${title}`;
+  const uploadId = `upload-post-commit-${Date.now()}`;
+
+  try {
+    const response = await postBatch(cookie, uploadId, [
+      ["good.mp3", JSON.stringify({ title, artist })],
+    ]);
+    expect(response.init?.status).toBe(202);
+
+    const progress = await waitForUpload(uploadId);
+    expect(progress.failedFiles).toEqual([]);
+    expect(progress.successfulTracks).toEqual([
+      expect.objectContaining({ fileName: "good.mp3", title, artist }),
+    ]);
+    expect(await prisma.track.count({ where: { title, artist: { name: artist } } })).toBe(1);
+  } finally {
+    updateSpy.mockRestore();
+    await cleanupUploadArtist(artist, userId);
+  }
+}, 20_000);
+
+test("retry after a rolled-back upload inserts only one library row", async () => {
+  allowUploadConsoleErrors();
+  await seedLocalService();
+  mockCreateTrackAudioFile.mockRejectedValueOnce(new Error("db txn failed"));
+
+  const { userId, cookie } = await createAdminCookie();
+  const title = `QA retry-once ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const artist = `QA Artist ${title}`;
+  const firstUploadId = `upload-retry-once-a-${Date.now()}`;
+  const retryUploadId = `upload-retry-once-b-${Date.now()}`;
+
+  try {
+    const first = await postBatch(cookie, firstUploadId, [
+      ["good.mp3", JSON.stringify({ title, artist })],
+    ]);
+    expect(first.init?.status).toBe(202);
+    await waitForUpload(firstUploadId);
+
+    const second = await postBatch(cookie, retryUploadId, [
+      ["good.mp3", JSON.stringify({ title, artist })],
+    ]);
+    expect(second.init?.status).toBe(202);
+    await waitForUpload(retryUploadId);
+
+    expect(await prisma.track.count({ where: { title, artist: { name: artist } } })).toBe(1);
+  } finally {
+    await cleanupUploadArtist(artist, userId);
+  }
+}, 40_000);

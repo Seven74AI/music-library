@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   addFailedFile,
   addSuccessfulTrack,
+  removeSuccessfulTrackByTrackId,
   cleanupOldProgress,
   deleteUploadProgress,
   getUploadProgress,
@@ -109,6 +110,44 @@ test("updateFileProgress marks the session failed when any file fails", async ()
   const entry = await getUploadProgress(uploadId);
   expect(entry?.status).toBe("failed");
   expect(entry?.files.find((f) => f.fileId === "file-1")?.error).toBe("boom");
+});
+
+test("addSuccessfulTrack does not duplicate the same trackId", async () => {
+  const uploadId = uniqueUploadId();
+  await initUploadProgress(uploadId, ["song.mp3"], "owner-1");
+  const track = {
+    trackId: "track-1",
+    fileName: "song.mp3",
+    title: "Song",
+    artist: "Artist",
+  };
+  await addSuccessfulTrack(uploadId, track);
+  await addSuccessfulTrack(uploadId, track);
+
+  const entry = await getUploadProgress(uploadId);
+  expect(entry?.successfulTracks).toHaveLength(1);
+});
+
+test("removeSuccessfulTrackByTrackId drops a persisted success entry", async () => {
+  const uploadId = uniqueUploadId();
+  await initUploadProgress(uploadId, ["song.mp3"], "owner-1");
+  await addSuccessfulTrack(uploadId, {
+    trackId: "track-1",
+    fileName: "song.mp3",
+    title: "Song",
+    artist: "Artist",
+  });
+  await addSuccessfulTrack(uploadId, {
+    trackId: "track-2",
+    fileName: "other.mp3",
+    title: "Other",
+    artist: "Artist",
+  });
+
+  await removeSuccessfulTrackByTrackId(uploadId, "track-1");
+
+  const entry = await getUploadProgress(uploadId);
+  expect(entry?.successfulTracks?.map((t) => t.trackId)).toEqual(["track-2"]);
 });
 
 test("addFailedFile records the failure without a retry buffer", async () => {

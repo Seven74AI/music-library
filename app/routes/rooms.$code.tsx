@@ -251,8 +251,8 @@ function GuestRoomShell({ roomShell }: { roomShell: GuestLoaderData }) {
   const party = useOptionalPartyRoom();
   const sawThisRoom = useRef(false);
   const dismissal = useRef<null | "kicked" | "ended" | "left">(null);
-  const onLeaveStart = useCallback(() => {
-    dismissal.current = "left";
+  const onLeaveDismissal = useCallback((left: boolean) => {
+    dismissal.current = left ? "left" : null;
   }, []);
 
   const live = party?.room?.code === roomShell.code ? party.room : null;
@@ -303,7 +303,7 @@ function GuestRoomShell({ roomShell }: { roomShell: GuestLoaderData }) {
   const outletContext: GuestRoomOutletContext = {
     role,
     displayName,
-    onLeaveStart,
+    onLeaveDismissal,
   };
 
   return (

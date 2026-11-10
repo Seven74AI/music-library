@@ -72,6 +72,7 @@ describe("remove-track-from-playlist action", () => {
         status: "error",
         message: 'Track is not in "Favorites"',
       },
+      init: { status: 404 },
     });
   });
 

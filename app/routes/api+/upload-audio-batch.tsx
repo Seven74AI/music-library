@@ -40,7 +40,9 @@ import {
   updateFileProgress,
   addSuccessfulTrack,
   addFailedFile,
+  removeSuccessfulTrackByTrackId,
   getUploadProgress,
+  type SuccessfulTrackInfo,
 } from "#app/features/upload-progress/progress-store.server";
 import { type Route } from "./+types/upload-audio-batch.ts";
 
@@ -428,6 +430,7 @@ async function processFilesAsync(
       let preparedAudio: Awaited<ReturnType<typeof prepareTrackAudioUpload>> | null = null;
       let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
       let transactionCommitted = false;
+      let trackId: string | undefined;
 
       try {
         // Use user metadata if provided, otherwise use extracted metadata
@@ -444,7 +447,7 @@ async function processFilesAsync(
         await updateFileProgress(uploadId, fileId, 5, "uploading", undefined, file.buffer.length);
 
         // Generate IDs
-        const trackId = createId();
+        trackId = createId();
         const fileIdForStorage = createId();
 
         await updateFileProgress(uploadId, fileId, 5, "uploading", undefined, file.buffer.length);
@@ -638,8 +641,7 @@ async function processFilesAsync(
 
           await updateFileProgress(uploadId, fileId, 95, "uploading");
 
-          // Store successful track information
-          await addSuccessfulTrack(uploadId, {
+          const successfulTrackInfo: SuccessfulTrackInfo = {
             trackId: track.id,
             fileName: file.fileName,
             title: track.title,
@@ -653,21 +655,62 @@ async function processFilesAsync(
                   confidence: 100, // Content hash match is 100% confidence
                 }
               : undefined,
-          });
+          };
 
-          return { success: true, trackId: track.id };
+          return { success: true, trackId: track.id, successfulTrackInfo };
         });
         transactionCommitted = true;
 
-        // Update to 100% after transaction completes successfully
-        await updateFileProgress(uploadId, fileId, 100, "completed", undefined, file.buffer.length);
+        try {
+          await addSuccessfulTrack(uploadId, result.successfulTrackInfo);
+          await updateFileProgress(
+            uploadId,
+            fileId,
+            100,
+            "completed",
+            undefined,
+            file.buffer.length,
+          );
+        } catch (progressError) {
+          console.warn(
+            `Post-commit progress update failed for ${file.fileName} (track ${result.trackId} persisted):`,
+            progressError,
+          );
+          try {
+            await addSuccessfulTrack(uploadId, result.successfulTrackInfo);
+          } catch {
+            // Best-effort: track is already committed.
+          }
+          try {
+            await updateFileProgress(
+              uploadId,
+              fileId,
+              100,
+              "completed",
+              undefined,
+              file.buffer.length,
+            );
+          } catch {
+            // Best-effort: do not surface a committed track as failed.
+          }
+        }
 
-        return result;
+        return { success: true, trackId: result.trackId };
       } catch (error) {
         await cleanupFailedUploadArtifacts(preparedAudio, preparedCover, { transactionCommitted });
-        const errorMessage = error instanceof Error ? error.message : "Failed to upload file";
-        await updateFileProgress(uploadId, fileId, 0, "failed", errorMessage);
+        if (transactionCommitted) {
+          console.warn(
+            `Unexpected error after DB commit for ${file.fileName} (track persisted):`,
+            error,
+          );
+          return { success: true, trackId };
+        }
 
+        const errorMessage = error instanceof Error ? error.message : "Failed to upload file";
+        if (trackId) {
+          await removeSuccessfulTrackByTrackId(uploadId, trackId);
+        }
+        await updateFileProgress(uploadId, fileId, 0, "failed", errorMessage);
         await addFailedFile(uploadId, fileId, errorMessage);
         console.error(`Error uploading file ${file.fileName}:`, error);
 

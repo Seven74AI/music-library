@@ -90,8 +90,14 @@ export async function getHeavyRotationTracks({
   });
   const trackById = new Map(tracks.map((track) => [track.id, track]));
 
-  return topIds.map((trackId) => ({
-    completedCount: counts.get(trackId) ?? 0,
-    track: trackById.get(trackId)!,
-  }));
+  const result: HeavyRotationTrack[] = [];
+  for (const trackId of topIds) {
+    const track = trackById.get(trackId);
+    if (!track) continue; // deleted between existence check and detail fetch
+    result.push({
+      completedCount: counts.get(trackId) ?? 0,
+      track,
+    });
+  }
+  return result;
 }

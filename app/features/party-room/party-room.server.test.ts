@@ -1437,6 +1437,45 @@ describe("party-room lifecycle", () => {
     expect(taken?.currentHostParticipantId).not.toBe(room.currentHostParticipantId);
   });
 
+  test("becomeHost prefers DJ over Listener when both are eligible", async () => {
+    const hostUser = await makeUser("Original");
+    const room = await createRoom({
+      userId: hostUser.id,
+      displayName: "Original",
+      defaultJoinRole: "listener",
+    });
+    const djUser = await makeUser("DJ");
+    const listenerUser = await makeUser("Listener");
+    const djJoin = await joinRoom({
+      code: room.code,
+      actor: { type: "user", userId: djUser.id, displayName: "DJ" },
+    });
+    await prisma.roomParticipant.update({
+      where: { id: djJoin.participant.id },
+      data: { role: ROOM_ROLE.dj },
+    });
+    await joinRoom({
+      code: room.code,
+      actor: { type: "user", userId: listenerUser.id, displayName: "Listener" },
+    });
+
+    await agePastGrace(room.currentHostParticipantId!);
+
+    await expect(
+      becomeHost({
+        roomId: room.id,
+        actor: { type: "user", userId: listenerUser.id },
+      }),
+    ).rejects.toMatchObject({ code: "forbidden", status: 403 });
+
+    const taken = await becomeHost({
+      roomId: room.id,
+      actor: { type: "user", userId: djUser.id },
+    });
+    expect(taken?.currentHostParticipantId).not.toBe(room.currentHostParticipantId);
+    expect(taken?.participants.find((p) => p.userId === djUser.id)?.role).toBe(ROOM_ROLE.host);
+  });
+
   test("hostTakeoverAvailable when the host seat is empty", async () => {
     const host = await makeUser("Host");
     const room = await createRoom({ userId: host.id, displayName: "Host" });

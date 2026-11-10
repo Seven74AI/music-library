@@ -29,7 +29,7 @@ import { type Route } from "./+types/rooms.$code._index.ts";
 export type GuestRoomOutletContext = {
   role?: RoomRole;
   displayName?: string;
-  onLeaveStart?: () => void;
+  onLeaveDismissal?: (left: boolean) => void;
 };
 
 export async function loader({ request, params }: { request: Request; params: { code?: string } }) {
@@ -158,7 +158,7 @@ export default function GuestJoinOrRoom() {
         code={code}
         role={outlet?.role ?? participant.role}
         displayName={outlet?.displayName ?? participant.displayName}
-        onLeaveStart={outlet?.onLeaveStart}
+        onLeaveDismissal={outlet?.onLeaveDismissal}
       />
     );
   }
