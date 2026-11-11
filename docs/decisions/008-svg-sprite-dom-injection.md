@@ -81,7 +81,7 @@ Add a blocking script in `app/root.tsx` that runs before React hydration:
 Update `Icon` component to reference local symbols:
 
 - Change from `<use href="sprite.svg#play">` to `<use href="#play">`
-- Symbols are now in document context, no external requests needed
+- Symbols are in document context, no external requests needed
 
 #### 3. Maintain Preload and Cache Headers
 
@@ -109,7 +109,7 @@ Update `Icon` component to reference local symbols:
 
 ### Neutral
 
-- 🔄 **Sprite in DOM**: Sprite content is now in HTML document (hidden)
+- 🔄 **Sprite in DOM**: Sprite content is in HTML document (hidden)
 - 🔄 **Local References**: Icons use fragment identifiers instead of external URLs
 - 🔄 **Preload Still Useful**: Preload helps with initial fetch, injection ensures availability
 

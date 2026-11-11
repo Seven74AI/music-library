@@ -31,7 +31,7 @@ Redesign search to be a Spotify-like experience: library-scoped, inline overlay 
 12. As a user, I want my recent searches to persist across sessions via local device storage (localStorage)
 13. As a user, I want a persistent bottom navigation bar with four buttons: Home, Search, My Library, My Playlists
 14. As a user, I want each bottom nav button to show an icon and a label underneath
-15. As a user, I want the currently active tab in the bottom nav to be visually highlighted
+15. As a user, I want the active tab in the bottom nav to be visually highlighted
 16. As a user, I want to click a search result and navigate to the corresponding page (track/artist/playlist)
 17. As a user, I want each search result to display Spotify-style metadata: artist + album name for tracks, artist for albums, genre for artists, track count for playlists
 18. As a user, when I haven't typed a query, I want to see an empty/ready state without results
