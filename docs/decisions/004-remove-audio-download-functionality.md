@@ -313,7 +313,7 @@ DROP TABLE IF EXISTS "TrackAudioFile";
 
 - [YouTube Terms of Service](https://www.youtube.com/static?template=terms)
 - [yt-dlp Documentation](https://github.com/yt-dlp/yt-dlp)
-- [ADR-002: Eliminating Cross-Boundary Imports](./002-cross-boundary-imports.md) - Documents audio worker architecture (now removed)
+- [ADR-002: Eliminating Cross-Boundary Imports](./002-cross-boundary-imports.md) - Documents audio worker architecture (removed)
 
 ## Related ADRs
 

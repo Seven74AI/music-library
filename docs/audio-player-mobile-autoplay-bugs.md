@@ -225,7 +225,7 @@ A second element for true cross-track buffering was not added.
 
 ### Gesture unlock calls `play()`, not only `load()`
 
-Unlock now uses muted `play()` (+ `pause()`), with `load()` as a jsdom fallback.
+Unlock uses muted `play()` (+ `pause()`), with `load()` as a jsdom fallback.
 Effective for Chromium and stronger on iOS than `load()` alone.
 
 ---
