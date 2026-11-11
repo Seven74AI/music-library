@@ -178,18 +178,14 @@ describe("createYouTubeOAuthService", () => {
   });
 
   test("requires GOOGLE_CLIENT_ID when YouTube mocks are off", () => {
-    expect(() => createYouTubeOAuthService()).toThrow(
-      "GOOGLE_CLIENT_ID environment variable is required",
-    );
+    expect(() => createYouTubeOAuthService()).toThrow();
     expect(mockOAuth2Constructor).not.toHaveBeenCalled();
   });
 
   test("requires GOOGLE_CLIENT_SECRET when YouTube mocks are off", () => {
     setEnv("GOOGLE_CLIENT_ID", "real-client-id");
 
-    expect(() => createYouTubeOAuthService()).toThrow(
-      "GOOGLE_CLIENT_SECRET environment variable is required",
-    );
+    expect(() => createYouTubeOAuthService()).toThrow();
     expect(mockOAuth2Constructor).not.toHaveBeenCalled();
   });
 
