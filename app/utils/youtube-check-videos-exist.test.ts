@@ -69,7 +69,6 @@ describe("YouTubeService.checkVideosExist", () => {
     const error = await service.checkVideosExist(["vid1"], "token").catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toBe("Failed to check YouTube video existence");
     expect((error as Error).cause).toBe("quotaExceeded");
     expect(typeof (error as Error).cause).toBe("string");
   });

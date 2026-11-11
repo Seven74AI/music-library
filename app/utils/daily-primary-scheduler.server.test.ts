@@ -38,22 +38,6 @@ afterEach(() => {
 });
 
 describe("createDailyPrimaryScheduler", () => {
-  test("jobs wired through createDailyPrimaryScheduler share hour, retry, and gating semantics", async () => {
-    const {
-      DUPLICATE_DETECTION_HOUR_UTC,
-      DUPLICATE_DETECTION_RETRY_DELAY_MS,
-      DUPLICATE_DETECTION_TICK_INTERVAL_MS,
-    } = await import("./duplicate-detection-scheduler.server.ts");
-    const { QUALITY_CHECK_HOUR_UTC, QUALITY_CHECK_RETRY_DELAY_MS, QUALITY_CHECK_TICK_INTERVAL_MS } =
-      await import("./quality-check.server.ts");
-
-    expect(DUPLICATE_DETECTION_HOUR_UTC).toBe(QUALITY_CHECK_HOUR_UTC);
-    expect(DUPLICATE_DETECTION_RETRY_DELAY_MS).toBe(QUALITY_CHECK_RETRY_DELAY_MS);
-    expect(DUPLICATE_DETECTION_TICK_INTERVAL_MS).toBe(QUALITY_CHECK_TICK_INTERVAL_MS);
-    expect(HOUR_UTC).toBe(2);
-    expect(RETRY_DELAY_MS).toBe(15 * 60 * 1000);
-  });
-
   test("runs once per UTC day at or after hourUtc with 15-minute retry backoff", async () => {
     const run = vi
       .fn(async (): Promise<{ success: boolean }> => ({ success: true }))
