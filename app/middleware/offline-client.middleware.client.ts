@@ -1,5 +1,5 @@
 import { redirect, type DataStrategyResult, type MiddlewareFunction } from "react-router";
-import { isOfflineEnvironment } from "#app/features/offline-app/is-offline-environment.client.ts";
+import { isOfflineEnvironment } from "#app/features/offline-app/is-offline-environment.ts";
 import type { OfflineRootShell } from "#app/features/offline-app/offline-root-shell.client.ts";
 import { persistOfflineRootShell } from "#app/features/offline-app/offline-root-shell.client.ts";
 import {
