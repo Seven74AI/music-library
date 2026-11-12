@@ -39,9 +39,7 @@ test.describe("Player / Queue", () => {
   // ─────────────────────────────────────────────────
   // 1. Play from playlist context
   // ─────────────────────────────────────────────────
-  // TODO(#334): This test is flaky in CI - the html element intercepts pointer
-  // events when clicking the queue button (tracked, root cause unfixed).
-  test.skip("playing from playlist shows playlist context in queue", async ({
+  test("playing from playlist shows playlist context in queue", async ({
     page,
     login,
     insertNewTrack,
@@ -89,10 +87,13 @@ test.describe("Player / Queue", () => {
     // "Play next" opens a confirmation alert dialog, so confirm it.
     await page.getByRole("button", { name: "More queue actions" }).click();
     await page.getByRole("menuitem", { name: "Play next" }).click();
-    await page
-      .getByRole("alertdialog", { name: "Play next" })
-      .getByRole("button", { name: "Play next" })
-      .click();
+    const confirmDialog = page.getByRole("alertdialog", { name: "Play next" });
+    await confirmDialog.getByRole("button", { name: "Play next" }).click();
+    // Wait for the Radix alert dialog to fully unmount. While it is closing,
+    // the modal layer leaves `pointer-events: none` on <body>, so a click on
+    // the player bar is intercepted by <html> (#334).
+    await expect(confirmDialog).toBeHidden({ timeout: 10000 });
+    await expect(page.locator("body")).not.toHaveCSS("pointer-events", "none");
 
     const playerBar = page.getByTestId("player-desktop-bar");
     await expect(playerBar).toBeVisible({ timeout: 10000 });
