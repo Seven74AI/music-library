@@ -28,7 +28,6 @@ import {
   TableRow,
 } from "#app/components/ui/table.tsx";
 import {
-  formatBytes,
   METRIC_TARGETS,
   METRIC_WEIGHTS,
   percentOfTracksAffected,
@@ -40,6 +39,7 @@ import {
   type MetadataIssues,
   type StorageStats,
 } from "#app/features/admin/database-quality.server.ts";
+import { formatBytes } from "#app/utils/format-bytes.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/database-quality.ts";
 

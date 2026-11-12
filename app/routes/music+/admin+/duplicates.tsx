@@ -25,6 +25,7 @@ import {
   AlertDialogTitle,
 } from "#app/components/ui/alert-dialog.tsx";
 import { markDuplicateGroupIntentional } from "#app/features/admin/duplicate-dashboard.server.ts";
+import { formatBytes } from "#app/utils/format-bytes.ts";
 import { fetchInternal } from "#app/utils/internal-fetch.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -125,14 +126,6 @@ export async function action({ request }: Route.ActionArgs) {
     title: "Kept both",
     description: `${title}. This group is listed under Intentional.`,
   });
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
 
 function DuplicateGroupCard({

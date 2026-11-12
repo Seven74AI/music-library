@@ -1,15 +1,8 @@
 /**
  * Telegram alerts for SQLite backup failures.
  */
+import { escapeHtml } from "#app/utils/escape-html.ts";
 import { sendTelegramMessage } from "#app/utils/telegram-notification.server.ts";
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 export async function notifyBackupFailed(
   errorMessage: string,

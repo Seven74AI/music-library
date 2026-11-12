@@ -1,3 +1,4 @@
+import { escapeHtml } from "./escape-html.ts";
 import { sendEmail } from "./email.server.ts";
 import { prisma } from "./db.server.ts";
 
@@ -44,18 +45,11 @@ const ISSUE_TYPE_LABELS: Record<string, string> = {
 };
 
 /**
- * Escape HTML special characters for the email body. Interpolated values
- * (entity names from YouTube, curator comments, report text) are untrusted and
- * must never be injected raw into HTML.
+ * Interpolated values in the email body (entity names from YouTube, curator
+ * comments, report text) are untrusted and must never be injected raw into
+ * HTML; escape them with the canonical helper (apostrophes included).
  */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+const EMAIL_ESCAPE = { apostrophe: true } as const;
 
 export async function sendReviewResolutionEmail({
   reporter,
@@ -108,18 +102,18 @@ export async function sendReviewResolutionEmail({
   const subject = `Your report has been ${resolutionLabel.toLowerCase()}`;
 
   const reporterDisplay = reporter.name || reporter.username;
-  const escapedEntityName = escapeHtml(entityName);
-  const escapedCuratorName = escapeHtml(curatorName);
-  const escapedIssueTypeLabel = escapeHtml(issueTypeLabel);
-  const escapedDescription = item.description ? escapeHtml(item.description) : "";
-  const escapedResolutionLabel = escapeHtml(resolutionLabel);
-  const escapedResolutionComment = escapeHtml(resolutionComment);
+  const escapedEntityName = escapeHtml(entityName, EMAIL_ESCAPE);
+  const escapedCuratorName = escapeHtml(curatorName, EMAIL_ESCAPE);
+  const escapedIssueTypeLabel = escapeHtml(issueTypeLabel, EMAIL_ESCAPE);
+  const escapedDescription = item.description ? escapeHtml(item.description, EMAIL_ESCAPE) : "";
+  const escapedResolutionLabel = escapeHtml(resolutionLabel, EMAIL_ESCAPE);
+  const escapedResolutionComment = escapeHtml(resolutionComment, EMAIL_ESCAPE);
 
   const html = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
       <h2>Your Report Has Been Resolved</h2>
       
-      <p>Hi ${escapeHtml(reporterDisplay)},</p>
+      <p>Hi ${escapeHtml(reporterDisplay, EMAIL_ESCAPE)},</p>
       
       <p>Your report about <strong>${escapedEntityName}</strong> has been resolved by curator <strong>${escapedCuratorName}</strong>.</p>
       

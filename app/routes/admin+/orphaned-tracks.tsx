@@ -31,6 +31,7 @@ import {
   type OrphanedAudioFile,
   type UnusedTrack,
 } from "#app/features/admin/orphaned-tracks.server.ts";
+import { formatBytes } from "#app/utils/format-bytes.ts";
 import { parsePageParam } from "#app/utils/parse-page-param.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -227,15 +228,8 @@ function formatDateTime(date: Date | null): string {
   return new Date(date).toLocaleString();
 }
 
-function formatBytes(bytes: number | null): string {
-  if (!bytes) return "0 B";
-  const mb = bytes / (1024 * 1024);
-  if (mb >= 1) {
-    return `${mb.toFixed(1)} MB`;
-  }
-  const kb = bytes / 1024;
-  return `${kb.toFixed(1)} KB`;
-}
+/** Orphaned file sizes render as KB or MB with one decimal (never bytes or GB). */
+const ORPHANED_SIZE_FORMAT = { minUnit: "KB", maxUnit: "MB", decimals: 1 } as const;
 
 function ErrorBadge({ category }: { category: string }) {
   const colors: Record<string, string> = {
@@ -586,7 +580,7 @@ export default function OrphanedTracksRoute({ loaderData }: Route.ComponentProps
                     </TableCell>
                     <TableCell className="font-mono text-xs">{file.objectKey}</TableCell>
                     <TableCell>{file.format ?? "—"}</TableCell>
-                    <TableCell>{formatBytes(file.fileSize)}</TableCell>
+                    <TableCell>{formatBytes(file.fileSize, ORPHANED_SIZE_FORMAT)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDateTime(file.uploadedAt)}
                     </TableCell>
