@@ -41,6 +41,8 @@ prisma/seed-data/**
 /scripts/*
 !/scripts/build-sw.ts
 !/scripts/migrate-audio-object-keys.ts
+!/scripts/prisma-migrate-deploy.ts
+!/scripts/legacy-track-genre-backfill.ts
 
 # Other development files
 prompt.txt
