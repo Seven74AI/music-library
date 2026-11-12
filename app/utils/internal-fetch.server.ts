@@ -21,6 +21,15 @@ export function trustedInternalUrl(pathname: string, search?: string): string {
   return url.toString();
 }
 
+/**
+ * Absolute URL on the loopback address of THIS process (127.0.0.1:PORT), never SITE_URL.
+ * Use for the app probing itself (healthcheck): going through the public SITE_URL
+ * would make health depend on the public edge being healthy, which deadlocks deploys.
+ */
+export function loopbackInternalUrl(pathname: string): string {
+  return new URL(pathname, `http://127.0.0.1:${process.env.PORT || "3000"}/`).toString();
+}
+
 /** Extract only the session cookie from the incoming request, dropping the rest. */
 export function sessionCookie(request: Request): string | null {
   const cookie = request.headers.get("cookie");
