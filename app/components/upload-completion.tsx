@@ -15,7 +15,7 @@ import { Button } from "#app/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#app/components/ui/card";
 import { Icon } from "#app/components/ui/icon";
 import { useToast } from "#app/components/ui/use-toast";
-import { formatStorageSaved } from "#app/utils/format-storage-saved";
+import { formatBytes, STORAGE_SAVED_FORMAT } from "#app/utils/format-bytes";
 
 interface SuccessfulTrack {
   trackId: string;
@@ -347,7 +347,7 @@ function TrackItem({ track, onDelete, showDuplicateWarning }: TrackItemProps) {
                       {typeof track.storageSavedBytes === "number" && (
                         <div className="flex justify-between">
                           <span className="font-medium">Storage saved:</span>
-                          <span>{formatStorageSaved(track.storageSavedBytes)}</span>
+                          <span>{formatBytes(track.storageSavedBytes, STORAGE_SAVED_FORMAT)}</span>
                         </div>
                       )}
                     </>

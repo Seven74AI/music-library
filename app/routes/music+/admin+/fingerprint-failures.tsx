@@ -24,6 +24,7 @@ import {
   type FingerprintFailuresLoaderData,
   type FingerprintFailureRow,
 } from "#app/routes/api+/admin+/fingerprint-failures.tsx";
+import { formatBytes } from "#app/utils/format-bytes.ts";
 import { fetchInternal } from "#app/utils/internal-fetch.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/fingerprint-failures.ts";
@@ -56,13 +57,8 @@ export async function loader({
   return (await response.json()) as FingerprintFailuresLoaderData;
 }
 
-function formatBytes(bytes: number | null): string {
-  if (bytes == null || bytes === 0) return bytes === 0 ? "0 B" : "—";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-}
+/** Unknown (null) sizes render as an em dash; known sizes use the default format. */
+const UNKNOWN_SIZE_LABEL = "—";
 
 function formatDate(iso: string): string {
   try {
@@ -182,7 +178,9 @@ function FailureRow({ row }: { row: FingerprintFailureRow }) {
         </div>
         {row.mimeType && <p className="text-muted-foreground mt-1 text-xs">{row.mimeType}</p>}
       </TableCell>
-      <TableCell className="text-sm">{formatBytes(row.fileSize)}</TableCell>
+      <TableCell className="text-sm">
+        {formatBytes(row.fileSize, { nullLabel: UNKNOWN_SIZE_LABEL })}
+      </TableCell>
       <TableCell className="text-muted-foreground text-xs">{formatDate(row.uploadedAt)}</TableCell>
       <TableCell className="font-mono text-xs" title={row.contentHash ?? undefined}>
         {shortHash(row.contentHash)}
