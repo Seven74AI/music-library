@@ -1,5 +1,5 @@
 import { data } from "react-router";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { getAlbumDuplicateGroups } from "#app/utils/duplicate-detection.server.ts";
 import { type Route } from "./+types/albums.duplicates.ts";
 

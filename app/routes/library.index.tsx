@@ -43,7 +43,7 @@ import {
   useListScrollMargin,
   virtualRowOffset,
 } from "#app/utils/track-list-virtualizer.ts";
-import { userIsCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { userIsCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/library.index.ts";
 
 // Define the track type

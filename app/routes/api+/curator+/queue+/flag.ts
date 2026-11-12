@@ -1,6 +1,6 @@
 import { data } from "react-router";
 import { z } from "zod";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { verifyEntityExists } from "#app/utils/entity-existence.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -18,7 +18,7 @@ const flagSchema = z.object({
 });
 
 export async function action({ request }: Route.ActionArgs) {
-  const userId = await requireCuratorRole(request);
+  const userId = await requireCuratorOrAdmin(request);
 
   try {
     const formData = await request.formData();

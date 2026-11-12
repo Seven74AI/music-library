@@ -5,11 +5,11 @@ import {
   getImageDimensions,
 } from "#app/utils/cover-management.server.ts";
 import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { action, clientAction } from "./from-url.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
-  requireCuratorRole: vi.fn(),
+  requireCuratorOrAdmin: vi.fn(),
 }));
 
 vi.mock("#app/utils/cover-management.server.ts", () => ({
@@ -58,7 +58,7 @@ async function returnedValidation(request: Request) {
 
 describe("POST /api/images/from-url validation", () => {
   beforeEach(() => {
-    vi.mocked(requireCuratorRole).mockResolvedValue("curator-1");
+    vi.mocked(requireCuratorOrAdmin).mockResolvedValue("curator-1");
     vi.mocked(isValidCoverEntityId).mockReturnValue(true);
     vi.mocked(verifyCoverEntity).mockResolvedValue("artist-1");
   });

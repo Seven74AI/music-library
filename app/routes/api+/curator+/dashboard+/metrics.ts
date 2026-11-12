@@ -1,8 +1,8 @@
 import { getDashboardMetrics } from "#app/features/curator/dashboard.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 
 export async function loader({ request }: { request: Request }) {
-  await requireCuratorRole(request);
+  await requireCuratorOrAdmin(request);
   const forceFresh = new URL(request.url).searchParams.get("refresh") === "1";
   return getDashboardMetrics({ forceFresh });
 }

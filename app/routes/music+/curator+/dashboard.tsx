@@ -18,7 +18,7 @@ import {
   SESSION_SAVE_DEBOUNCE_MS,
 } from "#app/features/curator/session-recovery.client.ts";
 import { subscribeRestoredSession } from "#app/features/curator/session-restore.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/dashboard.ts";
 
 export const handle: SEOHandle = {
@@ -28,7 +28,7 @@ export const handle: SEOHandle = {
 const TABS = ["overview", "queue", "reports", "activity"] as const;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireCuratorRole(request);
+  await requireCuratorOrAdmin(request);
   const [metrics, leaderboard, activity] = await Promise.all([
     getDashboardMetrics(),
     getLeaderboard({ period: "week", limit: 10 }),

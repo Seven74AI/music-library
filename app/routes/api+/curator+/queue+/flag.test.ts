@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { clientAction } from "./flag.ts";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
-  requireCuratorRole: vi.fn(),
+  requireCuratorOrAdmin: vi.fn(),
 }));
 
 vi.mock("#app/utils/db.server.ts", () => ({

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { action } from "./$id.claim.ts";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
-  requireCuratorRole: vi.fn(),
+  requireCuratorOrAdmin: vi.fn(),
 }));
 
 function postRequest(id: string) {
@@ -23,7 +23,7 @@ describe("POST /api/curator/queue/:id/claim", () => {
 
   test("claims an open item atomically", async () => {
     const curator = await prisma.user.create({ data: createUser() });
-    vi.mocked(requireCuratorRole).mockResolvedValue(curator.id);
+    vi.mocked(requireCuratorOrAdmin).mockResolvedValue(curator.id);
 
     const item = await prisma.reviewQueueItem.create({
       data: {
@@ -45,7 +45,7 @@ describe("POST /api/curator/queue/:id/claim", () => {
 
   test("rejects a second claim of an already-claimed item", async () => {
     const curator = await prisma.user.create({ data: createUser() });
-    vi.mocked(requireCuratorRole).mockResolvedValue(curator.id);
+    vi.mocked(requireCuratorOrAdmin).mockResolvedValue(curator.id);
 
     const item = await prisma.reviewQueueItem.create({
       data: {
@@ -67,7 +67,7 @@ describe("POST /api/curator/queue/:id/claim", () => {
   });
 
   test("returns 404 for a missing item", async () => {
-    vi.mocked(requireCuratorRole).mockResolvedValue("curator-1");
+    vi.mocked(requireCuratorOrAdmin).mockResolvedValue("curator-1");
 
     const response = await action(postRequest("missing"));
 

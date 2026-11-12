@@ -1,6 +1,6 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { requireUserId } from "#app/utils/auth.server.ts";
-import { userIsCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { userIsCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { loader } from "./track-details.tsx";
 
@@ -8,7 +8,7 @@ vi.mock("#app/utils/auth.server.ts", () => ({
   requireUserId: vi.fn(),
 }));
 
-vi.mock("#app/utils/curator.server.ts", () => ({
+vi.mock("#app/utils/permissions.server.ts", () => ({
   userIsCuratorOrAdmin: vi.fn(),
 }));
 
