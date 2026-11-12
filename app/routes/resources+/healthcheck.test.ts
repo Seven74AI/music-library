@@ -51,4 +51,44 @@ describe("healthcheck loader", () => {
     const [url] = vi.mocked(fetch).mock.calls.find((call) => call[1]?.method === "HEAD") ?? [];
     expect(url).toBe("http://127.0.0.1:3000/resources/healthcheck");
   });
+
+  test("self-fetch targets loopback PORT, not SITE_URL, even when SITE_URL is set", async () => {
+    const originalPort = process.env.PORT;
+    process.env.SITE_URL = "https://public.example.invalid";
+    process.env.PORT = "4321";
+    try {
+      const response = await loader({
+        request: new Request("https://public.example.invalid/resources/healthcheck"),
+      } as never);
+
+      expect(response.status).toBe(200);
+      const headCalls = vi.mocked(fetch).mock.calls.filter((c) => c[1]?.method === "HEAD");
+      expect(headCalls).toHaveLength(1);
+      expect(headCalls[0]![0]).toBe("http://127.0.0.1:4321/resources/healthcheck");
+      expect(headCalls[0]![1]?.headers).toEqual({ "X-Healthcheck": "true" });
+    } finally {
+      if (originalPort === undefined) delete process.env.PORT;
+      else process.env.PORT = originalPort;
+    }
+  });
+
+  test("returns 200 with an unreachable SITE_URL because it never contacts it", async () => {
+    process.env.SITE_URL = "http://127.0.0.1:1";
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      if (String(input).startsWith("http://127.0.0.1:1/")) throw new TypeError("bad port");
+      return new Response(null, { status: 200 });
+    });
+    const response = await loader({
+      request: new Request("http://127.0.0.1:3000/resources/healthcheck"),
+    } as never);
+    expect(response.status).toBe(200);
+  });
+
+  test("returns 500 when the loopback self-fetch fails", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 502 }));
+    const response = await loader({
+      request: new Request("http://127.0.0.1:3000/resources/healthcheck"),
+    } as never);
+    expect(response.status).toBe(500);
+  });
 });
