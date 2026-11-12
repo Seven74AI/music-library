@@ -1,14 +1,7 @@
 import { data } from "react-router";
 import { z } from "zod";
+import { applyEntityEdit } from "#app/utils/apply-entity-edit.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import {
-  assertEditLockInTransaction,
-  EditLockTransactionError,
-  editLockConflictCopyForEntity,
-  getLockStatus,
-  releaseLock,
-  throwEditLockTransactionError,
-} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import {
@@ -47,6 +40,31 @@ const EditTrackSchema = z.object({
   comment: z.string().optional(),
 });
 
+const trackSnapshotSelect = {
+  id: true,
+  title: true,
+  artistId: true,
+  albumId: true,
+  genres: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  year: true,
+  trackNumber: true,
+  albumArtist: true,
+  bpm: true,
+  label: true,
+  isrc: true,
+  releaseDate: true,
+  originalDate: true,
+  originalYear: true,
+  totalTracks: true,
+  totalDiscs: true,
+  lyrics: true,
+} as const;
+
 export async function action({ request, params }: Route.ActionArgs) {
   if (request.method !== "POST") {
     throw data({ error: "Method not allowed" }, { status: 405 });
@@ -59,160 +77,76 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Track ID is required" }, { status: 400 });
   }
 
-  // Get and validate request body
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    throw data({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  // Validate request body
-  const parseResult = EditTrackSchema.safeParse(body);
-  if (!parseResult.success) {
-    throw data(
-      {
-        error: "Validation failed",
-        details: parseResult.error.flatten().fieldErrors,
-      },
-      { status: 400 },
-    );
-  }
-
-  const editData = parseResult.data;
-
-  // Verify track exists
-  const track = await prisma.track.findUnique({
-    where: { id: trackId },
-    select: {
-      id: true,
-      title: true,
-      artistId: true,
-      albumId: true,
-      genres: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-      year: true,
-      trackNumber: true,
-      albumArtist: true,
-      bpm: true,
-      label: true,
-      isrc: true,
-      releaseDate: true,
-      originalDate: true,
-      originalYear: true,
-      totalTracks: true,
-      totalDiscs: true,
-      lyrics: true,
-    },
-  });
-
-  if (!track) {
-    throw data({ error: "Track not found" }, { status: 404 });
-  }
-
-  // Verify artist exists
-  const artist = await prisma.artist.findUnique({
-    where: { id: editData.artistId },
-    select: { id: true },
-  });
-
-  if (!artist) {
-    throw data({ error: "Artist not found" }, { status: 404 });
-  }
-
-  // Verify album exists if provided
-  if (editData.albumId) {
-    const album = await prisma.album.findUnique({
-      where: { id: editData.albumId },
-      select: { id: true },
-    });
-
-    if (!album) {
-      throw data({ error: "Album not found" }, { status: 404 });
-    }
-  }
-
-  const lock = await getLockStatus("track", trackId);
-  if (lock && lock.lockedBy !== userId) {
-    throw data(
-      {
-        error: "Locked",
-        message: `${lock.lockedByName} is currently editing this track`,
-      },
-      { status: 409 },
-    );
-  }
-
-  let nextGenres: GenreRef[] | undefined;
-  if (editData.genreIds !== undefined) {
-    const resolved = await resolveOrderedGenres(editData.genreIds);
-    if (!resolved.ok) {
-      throw data({ error: "One or more genres not found" }, { status: 404 });
-    }
-    nextGenres = resolved.genres;
-  } else if (editData.genre !== undefined) {
-    if (editData.genre === null || editData.genre.trim() === "") {
-      nextGenres = [];
-    } else {
-      const resolved = await resolveOrderedGenresFromNames([editData.genre]);
-      if (!resolved.ok) {
-        throw data({ error: "Failed to resolve genre" }, { status: 400 });
-      }
-      nextGenres = resolved.genres;
-    }
-  }
-
-  // Parse dates
-  const releaseDate = editData.releaseDate ? new Date(editData.releaseDate) : null;
-  const originalDate = editData.originalDate ? new Date(editData.originalDate) : null;
-
-  // Perform update and create history entry in a transaction
-  let result: {
-    track: Awaited<ReturnType<typeof prisma.track.update>>;
-    edit: Awaited<ReturnType<typeof prisma.trackEdit.create>>;
-  };
-  try {
-    result = await prisma.$transaction(async (tx) => {
-      await assertEditLockInTransaction(tx, "track", trackId, userId, lock);
-
-      const trackBeforeWrite = await tx.track.findUnique({
+  const { track, edit } = await applyEntityEdit({
+    request,
+    entityType: "track",
+    entityId: trackId,
+    userId,
+    schema: EditTrackSchema,
+    validationErrorStyle: "fieldErrors",
+    verify: async (editData) => {
+      // Verify track exists
+      const track = await prisma.track.findUnique({
         where: { id: trackId },
-        select: {
-          id: true,
-          title: true,
-          artistId: true,
-          albumId: true,
-          genres: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-          year: true,
-          trackNumber: true,
-          albumArtist: true,
-          bpm: true,
-          label: true,
-          isrc: true,
-          releaseDate: true,
-          originalDate: true,
-          originalYear: true,
-          totalTracks: true,
-          totalDiscs: true,
-          lyrics: true,
-        },
+        select: trackSnapshotSelect,
       });
 
-      if (!trackBeforeWrite) {
+      if (!track) {
         throw data({ error: "Track not found" }, { status: 404 });
       }
 
-      // Create history entry with current state (before update)
-      const editEntry = await tx.trackEdit.create({
+      // Verify artist exists
+      const artist = await prisma.artist.findUnique({
+        where: { id: editData.artistId },
+        select: { id: true },
+      });
+
+      if (!artist) {
+        throw data({ error: "Artist not found" }, { status: 404 });
+      }
+
+      // Verify album exists if provided
+      if (editData.albumId) {
+        const album = await prisma.album.findUnique({
+          where: { id: editData.albumId },
+          select: { id: true },
+        });
+
+        if (!album) {
+          throw data({ error: "Album not found" }, { status: 404 });
+        }
+      }
+    },
+    prepare: async (editData) => {
+      let nextGenres: GenreRef[] | undefined;
+      if (editData.genreIds !== undefined) {
+        const resolved = await resolveOrderedGenres(editData.genreIds);
+        if (!resolved.ok) {
+          throw data({ error: "One or more genres not found" }, { status: 404 });
+        }
+        nextGenres = resolved.genres;
+      } else if (editData.genre !== undefined) {
+        if (editData.genre === null || editData.genre.trim() === "") {
+          nextGenres = [];
+        } else {
+          const resolved = await resolveOrderedGenresFromNames([editData.genre]);
+          if (!resolved.ok) {
+            throw data({ error: "Failed to resolve genre" }, { status: 400 });
+          }
+          nextGenres = resolved.genres;
+        }
+      }
+      return nextGenres;
+    },
+    notFoundMessage: "Track not found",
+    loadBeforeWrite: (tx) =>
+      tx.track.findUnique({
+        where: { id: trackId },
+        select: trackSnapshotSelect,
+      }),
+    // Create history entry with current state (before update)
+    createEdit: (tx, trackBeforeWrite, editData) =>
+      tx.trackEdit.create({
         data: {
           trackId: trackBeforeWrite.id,
           editedBy: userId,
@@ -245,10 +179,14 @@ export async function action({ request, params }: Route.ActionArgs) {
             },
           },
         },
-      });
+      }),
+    update: (tx, trackBeforeWrite, editData, nextGenres) => {
+      // Parse dates
+      const releaseDate = editData.releaseDate ? new Date(editData.releaseDate) : null;
+      const originalDate = editData.originalDate ? new Date(editData.originalDate) : null;
 
       // Update track with new data
-      const updatedTrack = await tx.track.update({
+      return tx.track.update({
         where: { id: trackId },
         data: {
           title: editData.title,
@@ -308,28 +246,10 @@ export async function action({ request, params }: Route.ActionArgs) {
           },
         },
       });
+    },
+  });
 
-      return {
-        track: updatedTrack,
-        edit: editEntry,
-      };
-    });
-  } catch (error) {
-    if (error instanceof EditLockTransactionError) {
-      throwEditLockTransactionError(error, editLockConflictCopyForEntity("track"));
-    }
-    throw error;
-  }
-
-  // Release the lock on successful save (ADR-032).
-  if (lock) {
-    await releaseLock("track", trackId, userId, {
-      lockId: lock.id,
-      acquiredAt: lock.acquiredAt,
-    });
-  }
-
-  return data(result);
+  return data({ track, edit });
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {

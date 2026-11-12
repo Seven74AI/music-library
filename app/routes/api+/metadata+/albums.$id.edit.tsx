@@ -1,15 +1,8 @@
 import { data } from "react-router";
 import { z } from "zod";
+import { applyEntityEdit } from "#app/utils/apply-entity-edit.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
-import {
-  assertEditLockInTransaction,
-  EditLockTransactionError,
-  editLockConflictCopyForEntity,
-  getLockStatus,
-  releaseLock,
-  throwEditLockTransactionError,
-} from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/albums.$id.edit.ts";
 
@@ -30,72 +23,33 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Album ID is required" }, { status: 400 });
   }
 
-  // Parse and validate request body
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    throw data({ error: "Invalid JSON body" }, { status: 400 });
-  }
-  const result = EditAlbumSchema.safeParse(body);
-
-  if (!result.success) {
-    throw data(
-      {
-        error: "Validation failed",
-        issues: result.error.issues,
-      },
-      { status: 400 },
-    );
-  }
-
-  const { name, artistId, year, coverImageId, comment } = result.data;
-
-  // Check if album exists
-  const existingAlbum = await prisma.album.findUnique({
-    where: { id: albumId },
-  });
-
-  if (!existingAlbum) {
-    throw data({ error: "Album not found" }, { status: 404 });
-  }
-
-  // Verify artist exists
-  const artist = await prisma.artist.findUnique({
-    where: { id: artistId },
-  });
-
-  if (!artist) {
-    throw data({ error: "Artist not found" }, { status: 404 });
-  }
-
-  // Reject the edit if another curator holds the lock (ADR-032).
-  const lock = await getLockStatus("album", albumId);
-  if (lock && lock.lockedBy !== userId) {
-    throw data(
-      {
-        error: "Locked",
-        message: `${lock.lockedByName} is currently editing this album`,
-      },
-      { status: 409 },
-    );
-  }
-
-  // Snapshot the current album first so restore can recover the pre-edit values.
-  let album: Awaited<ReturnType<typeof prisma.album.update>>;
-  let edit: Awaited<ReturnType<typeof prisma.albumEdit.create>>;
-  try {
-    ({ album, edit } = await prisma.$transaction(async (tx) => {
-      await assertEditLockInTransaction(tx, "album", albumId, userId, lock);
-
-      const albumBeforeWrite = await tx.album.findUnique({
+  const { album, edit } = await applyEntityEdit({
+    request,
+    entityType: "album",
+    entityId: albumId,
+    userId,
+    schema: EditAlbumSchema,
+    validationErrorStyle: "issues",
+    verify: async ({ artistId }) => {
+      const existingAlbum = await prisma.album.findUnique({
         where: { id: albumId },
       });
-      if (!albumBeforeWrite) {
+      if (!existingAlbum) {
         throw data({ error: "Album not found" }, { status: 404 });
       }
 
-      const albumEdit = await tx.albumEdit.create({
+      const artist = await prisma.artist.findUnique({
+        where: { id: artistId },
+      });
+      if (!artist) {
+        throw data({ error: "Artist not found" }, { status: 404 });
+      }
+    },
+    notFoundMessage: "Album not found",
+    // Snapshot the current album first so restore can recover the pre-edit values.
+    loadBeforeWrite: (tx) => tx.album.findUnique({ where: { id: albumId } }),
+    createEdit: (tx, albumBeforeWrite, { comment }) =>
+      tx.albumEdit.create({
         data: {
           albumId,
           editedBy: userId,
@@ -105,9 +59,9 @@ export async function action({ request, params }: Route.ActionArgs) {
           year: albumBeforeWrite.year,
           coverImageId: albumBeforeWrite.coverImageId,
         },
-      });
-
-      const updatedAlbum = await tx.album.update({
+      }),
+    update: (tx, _before, { name, artistId, year, coverImageId }) =>
+      tx.album.update({
         where: { id: albumId },
         data: {
           name: name.trim(),
@@ -115,24 +69,8 @@ export async function action({ request, params }: Route.ActionArgs) {
           year: year !== undefined ? year : undefined,
           coverImageId: coverImageId !== undefined ? coverImageId : undefined,
         },
-      });
-
-      return { album: updatedAlbum, edit: albumEdit };
-    }));
-  } catch (error) {
-    if (error instanceof EditLockTransactionError) {
-      throwEditLockTransactionError(error, editLockConflictCopyForEntity("album"));
-    }
-    throw error;
-  }
-
-  // Release the lock on successful save (ADR-032).
-  if (lock) {
-    await releaseLock("album", albumId, userId, {
-      lockId: lock.id,
-      acquiredAt: lock.acquiredAt,
-    });
-  }
+      }),
+  });
 
   return data({ album, edit });
 }
