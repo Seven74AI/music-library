@@ -269,9 +269,12 @@ describe("fetchQueueSpine", () => {
 
     expect(prisma.userTrack.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        select: { id: true, track: { select: QUEUE_TRACK_SELECT } },
-        take: 50,
+        select: { track: { select: QUEUE_TRACK_SELECT } },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       }),
+    );
+    expect(prisma.userTrack.findMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ take: expect.anything() }),
     );
     expect(result).toEqual({
       tracks: [
@@ -387,19 +390,19 @@ describe("fetchQueueSpine", () => {
     expect(result.tracks.map((track) => track.id)).toEqual(["track-a", "track-z"]);
   });
 
-  test("paginates playlist spine without looping when a page is full", async () => {
-    const firstPage = Array.from({ length: USER_PLAYLIST_TRACK_PAGE_SIZE }, (_, i) => ({
-      id: `upt-${i}`,
-      position: i,
-      createdAt: new Date("2024-01-01"),
-      track: {
-        id: `track-${i}`,
-        title: `Song ${i}`,
-        artist: { id: "artist-1", name: "Artist" },
-        duration: 120,
-      },
-    }));
-    const secondPage = [
+  test("returns full playlist spine in a single query", async () => {
+    const tracks = [
+      ...Array.from({ length: USER_PLAYLIST_TRACK_PAGE_SIZE }, (_, i) => ({
+        id: `upt-${i}`,
+        position: i,
+        createdAt: new Date("2024-01-01"),
+        track: {
+          id: `track-${i}`,
+          title: `Song ${i}`,
+          artist: { id: "artist-1", name: "Artist" },
+          duration: 120,
+        },
+      })),
       {
         id: "upt-last",
         position: USER_PLAYLIST_TRACK_PAGE_SIZE,
@@ -412,9 +415,7 @@ describe("fetchQueueSpine", () => {
         },
       },
     ];
-    vi.mocked(prisma.userPlaylistTrack.findMany)
-      .mockResolvedValueOnce(firstPage as never)
-      .mockResolvedValueOnce(secondPage as never);
+    vi.mocked(prisma.userPlaylistTrack.findMany).mockResolvedValue(tracks as never);
 
     const result = await fetchQueueSpine("user-1", {
       context: "playlist",
@@ -423,11 +424,7 @@ describe("fetchQueueSpine", () => {
       direction: "asc",
     });
 
-    expect(prisma.userPlaylistTrack.findMany).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(prisma.userPlaylistTrack.findMany).mock.calls[1]?.[0]).toMatchObject({
-      skip: 1,
-      cursor: { id: `upt-${USER_PLAYLIST_TRACK_PAGE_SIZE - 1}` },
-    });
+    expect(prisma.userPlaylistTrack.findMany).toHaveBeenCalledTimes(1);
     expect(result.total).toBe(USER_PLAYLIST_TRACK_PAGE_SIZE + 1);
     expect(result.tracks.at(-1)?.id).toBe("track-last");
   });
@@ -454,7 +451,6 @@ describe("fetchQueueSpine", () => {
       },
       select: QUEUE_TRACK_SELECT,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: LIBRARY_TRACKS_PAGE_SIZE,
     });
     expect(result).toEqual({
       tracks: [
@@ -490,7 +486,6 @@ describe("fetchQueueSpine", () => {
       },
       select: QUEUE_TRACK_SELECT,
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      take: LIBRARY_TRACKS_PAGE_SIZE,
     });
     expect(result).toEqual({
       tracks: [
@@ -504,33 +499,27 @@ describe("fetchQueueSpine", () => {
     });
   });
 
-  test("paginates album spine across multiple pages", async () => {
-    const firstPage = Array.from({ length: LIBRARY_TRACKS_PAGE_SIZE }, (_, i) => ({
-      id: `track-${i}`,
-      title: `Song ${i}`,
-      artist: { id: "artist-4", name: "Artist Four" },
-    }));
-    const secondPage = [
+  test("returns full album spine in a single query", async () => {
+    const tracks = [
+      ...Array.from({ length: LIBRARY_TRACKS_PAGE_SIZE }, (_, i) => ({
+        id: `track-${i}`,
+        title: `Song ${i}`,
+        artist: { id: "artist-4", name: "Artist Four" },
+      })),
       {
         id: "track-overflow",
         title: "Overflow Track",
         artist: { id: "artist-4", name: "Artist Four" },
       },
     ];
-    vi.mocked(prisma.track.findMany)
-      .mockResolvedValueOnce(firstPage as never)
-      .mockResolvedValueOnce(secondPage as never);
+    vi.mocked(prisma.track.findMany).mockResolvedValue(tracks as never);
 
     const result = await fetchQueueSpine("user-1", {
       context: "album",
       albumId: "album-huge",
     });
 
-    expect(prisma.track.findMany).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(prisma.track.findMany).mock.calls[1]?.[0]).toMatchObject({
-      skip: 1,
-      cursor: { id: `track-${LIBRARY_TRACKS_PAGE_SIZE - 1}` },
-    });
+    expect(prisma.track.findMany).toHaveBeenCalledTimes(1);
     expect(result.total).toBe(LIBRARY_TRACKS_PAGE_SIZE + 1);
   });
 
