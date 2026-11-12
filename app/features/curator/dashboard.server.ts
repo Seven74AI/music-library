@@ -1,5 +1,6 @@
 import { cache, cachified } from "#app/utils/cache.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { CURATOR_OR_ADMIN_ROLES } from "#app/utils/permissions.ts";
 import { awardCuratorBadges, badgesForCurators } from "./badges.server.ts";
 import {
   ACTIVITY_EXPORT_LIMIT,
@@ -366,7 +367,7 @@ async function listCurators(): Promise<CuratorRef[]> {
   return prisma.user.findMany({
     where: {
       OR: [
-        { roles: { some: { name: { in: ["curator", "admin"] } } } },
+        { roles: { some: { name: { in: CURATOR_OR_ADMIN_ROLES } } } },
         { trackEdits: { some: {} } },
         { artistEdits: { some: {} } },
         { albumEdits: { some: {} } },

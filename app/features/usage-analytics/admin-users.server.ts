@@ -3,6 +3,7 @@ import {
   SECURITY_EVENT_TYPES,
 } from "#app/features/security/track-event.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { getUtcDayStart } from "./record-usage.server.ts";
 
 export { getUtcDayStart };
@@ -140,7 +141,7 @@ export async function demoteFromAdmin({
   // demotions that both read a count > 1 could otherwise both proceed and
   // leave zero admins (lockout).
   const result = await prisma.$transaction(async (tx) => {
-    const adminCount = await tx.user.count({ where: { roles: { some: { name: "admin" } } } });
+    const adminCount = await tx.user.count({ where: { roles: { some: { name: ROLES.admin } } } });
     if (adminCount <= 1) {
       return forbidden("Cannot demote the last admin");
     }
@@ -331,7 +332,7 @@ export async function deleteUserAsAdmin({
   // never emit a spurious "deleted" event when the delete is refused.
   const result = await prisma.$transaction(async (tx) => {
     if (isAdmin) {
-      const adminCount = await tx.user.count({ where: { roles: { some: { name: "admin" } } } });
+      const adminCount = await tx.user.count({ where: { roles: { some: { name: ROLES.admin } } } });
       if (adminCount <= 1) {
         return forbidden("Cannot delete the last admin");
       }
