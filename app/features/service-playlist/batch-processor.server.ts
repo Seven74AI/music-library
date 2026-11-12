@@ -301,6 +301,13 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     failedExternalIds: new Set<string>(accumulatedProcessedIds?.failedExternalIds || []),
   };
   const deletedVideosWithoutMatch: DeletedVideoWithoutMatch[] = [];
+  // Every item id in the whole payload (all batches), used to keep the claim
+  // fallback from restamping rows that belong to another item.
+  const payloadItemIdSet = new Set<string>(
+    playlistItems
+      .map((item) => item.id)
+      .filter((id): id is string => typeof id === "string" && id !== ""),
+  );
 
   for (let batchStart = 0; batchStart < playlistItems.length; batchStart += batchSize) {
     const batch = playlistItems.slice(batchStart, batchStart + batchSize);
@@ -786,7 +793,6 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
     const batchItemIds = pairedTracks
       .map(({ trackData }) => trackData.item?.id)
       .filter((id): id is string => typeof id === "string" && id !== "");
-    const batchItemIdSet = new Set(batchItemIds);
     const existingRows: ExistingSpt[] =
       batchTrackIds.length > 0
         ? await tx.servicePlaylistTrack.findMany({
@@ -850,7 +856,9 @@ export async function processTracksInBatches<TItem extends SyncableItem>(
             (row) =>
               row.trackId === track.id &&
               !claimedRowIds.has(row.id) &&
-              !batchItemIdSet.has(row.playlistItemId ?? ""),
+              // Never steal a row already paired to ANY payload item (this, earlier or
+              // LATER batch): restamping it churns membershipId and later duplicates.
+              !payloadItemIdSet.has(row.playlistItemId ?? ""),
           );
         }
         if (existing) claimedRowIds.add(existing.id);
