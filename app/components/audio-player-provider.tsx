@@ -4,7 +4,7 @@ import {
   type RoomAutoplayOutcome,
 } from "#app/components/audio-player-room-playback.ts";
 import { type RoomTransportAction } from "#app/features/party-room/types.ts";
-import { isOfflineEnvironment } from "#app/features/offline-app/is-offline-environment.client.ts";
+import { isOfflineEnvironment } from "#app/features/offline-app/is-offline-environment.ts";
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
 import { offlineSummaryToFullTrack } from "#app/features/offline-storage/offline-track-summary.client.ts";
 import { isQueueCacheEnabled } from "#app/features/offline-storage/queue-cache-preference.client.ts";

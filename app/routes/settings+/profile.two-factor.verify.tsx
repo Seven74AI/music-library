@@ -19,8 +19,6 @@ import { type Route } from "./+types/profile.two-factor.verify.ts";
 import { type BreadcrumbHandle } from "./profile.tsx";
 import { twoFAVerificationType, twoFAVerifyVerificationType } from "./profile.two-factor.tsx";
 
-export { twoFAVerifyVerificationType } from "./profile.two-factor.tsx";
-
 export const handle: BreadcrumbHandle & SEOHandle = {
   breadcrumb: <Icon name="check">Verify</Icon>,
   getSitemapEntries: () => null,
