@@ -5,20 +5,12 @@ import { prisma } from "#app/utils/db.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { createToastHeaders } from "#app/utils/toast.server.ts";
 import {
+  appendTracksToUserPlaylistAtNextPositions,
   bumpUserPlaylistUpdatedAt,
   userPlaylistTitleTaken,
 } from "#app/utils/user-playlist.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { type Route } from "./+types/service-playlist-to-user-playlist";
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
 
 /**
  * POST /resources/service-playlist-to-user-playlist
@@ -82,7 +74,9 @@ export async function action({ request }: Route.ActionArgs) {
     orderBy: { position: "asc" },
   });
 
-  const trackIds = playlistTracks.map((pt) => pt.trackId);
+  // A video can now appear in a service playlist more than once; user playlists hold each
+  // track once, so collapse repeats (first occurrence wins) before counting/adding.
+  const trackIds = [...new Set(playlistTracks.map((pt) => pt.trackId))];
 
   if (trackIds.length === 0) {
     return data(
@@ -159,7 +153,7 @@ export async function action({ request }: Route.ActionArgs) {
           return playlist;
         });
       } catch (error) {
-        if (isUniqueConstraintViolation(error)) {
+        if (isUniqueConstraintError(error)) {
           return data(
             {
               status: "duplicate_title",
@@ -269,24 +263,10 @@ export async function action({ request }: Route.ActionArgs) {
         );
       }
 
-      // Get the max position for appending
-      const maxPosition = await prisma.userPlaylistTrack.aggregate({
-        where: { playlistId: targetPlaylistId },
-        _max: { position: true },
+      await appendTracksToUserPlaylistAtNextPositions({
+        playlistId: targetPlaylistId,
+        trackIds: newTrackIds,
       });
-
-      let nextPosition = (maxPosition._max.position ?? -1) + 1;
-
-      // Bulk insert new tracks
-      for (const chunk of chunkArray(newTrackIds)) {
-        await prisma.userPlaylistTrack.createMany({
-          data: chunk.map((trackId) => ({
-            playlistId: targetPlaylistId,
-            trackId,
-            position: nextPosition++,
-          })),
-        });
-      }
 
       await bumpUserPlaylistUpdatedAt({
         playlistId: targetPlaylistId,

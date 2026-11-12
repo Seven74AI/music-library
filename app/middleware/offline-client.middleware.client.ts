@@ -42,10 +42,14 @@ async function patchOfflineDataStrategyResults(
     if (shouldSkipOfflineMiddlewareRoute(routeId)) continue;
     if (!shouldSubstituteOfflineResult(result)) continue;
 
-    patched[routeId] = {
-      type: "data",
-      result: await resolveOfflineData(routeId, request),
-    };
+    try {
+      patched[routeId] = {
+        type: "data",
+        result: await resolveOfflineData(routeId, request),
+      };
+    } catch (error) {
+      console.error(`Failed to resolve offline data for route ${routeId}:`, error);
+    }
   }
 
   return patched;
@@ -103,21 +107,25 @@ export const offlineClientMiddleware: MiddlewareFunction<
   if (!offline) {
     const rootResult = results["root"];
     if (rootResult?.type === "data" && rootResult.result) {
-      const shell = rootResult.result as OfflineRootShell;
-      persistOfflineRootShell({
-        user: shell.user,
-        requestInfo: {
-          ...shell.requestInfo,
-          userPrefs: {
-            theme: shell.requestInfo.userPrefs.theme ?? "light",
-          },
-        },
-        ENV: shell.ENV,
-      });
+      try {
+        const shell = rootResult.result as OfflineRootShell;
+        persistOfflineRootShell({
+          user: shell.user,
+          requestInfo: shell.requestInfo,
+          ENV: shell.ENV,
+        });
+      } catch (error) {
+        console.error("Failed to persist offline root shell:", error);
+      }
     }
     return results;
   }
 
   // Offline: patch all results with offline stubs
-  return patchOfflineDataStrategyResults(results, request);
+  try {
+    return await patchOfflineDataStrategyResults(results, request);
+  } catch (error) {
+    console.error("Failed to patch offline data strategy results:", error);
+    return results;
+  }
 };

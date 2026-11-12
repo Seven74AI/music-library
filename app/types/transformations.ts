@@ -132,36 +132,6 @@ export function transformYouTubePlaylistToServicePlaylist(
 }
 
 /**
- * Transform YouTube API video details to Prisma Track input
- *
- * @param video - Validated YouTube video details
- * @param serviceId - Service ID for the track
- * @returns Prisma TrackCreateInput for database insertion
- */
-export function transformYouTubeVideoToTrack(
-  video: YouTubeVideo,
-  serviceId: string,
-  artistId: string,
-): Omit<Prisma.TrackCreateInput, "artist"> & { artistId: string; thumbnailUrl?: string | null } {
-  const duration = video.contentDetails?.duration
-    ? parseDuration(video.contentDetails.duration)
-    : null;
-
-  // thumbnailUrl is returned for downloading, but not saved to database
-  // It will be downloaded and stored as CoverImage instead
-  return {
-    title: video.snippet?.title || "Unknown Title",
-    artistId,
-    duration,
-    externalId: video.id || "",
-    service: { connect: { id: serviceId } },
-    serviceUrl: video.id ? `https://youtube.com/watch?v=${video.id}` : null,
-    thumbnailUrl: pickCoverThumbnailUrl(video.snippet?.thumbnails),
-    releaseDate: video.snippet?.publishedAt ? new Date(video.snippet.publishedAt) : null,
-  };
-}
-
-/**
  * Transform YouTube API video details to VideoData format (for service-import)
  *
  * @param video - Validated YouTube video details

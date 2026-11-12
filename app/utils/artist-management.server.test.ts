@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import { MergedEntityResolutionError } from "./canonical-merged-entity.server.ts";
 import {
   getOrCreateArtist,
   getOrCreateArtistTx,
@@ -97,6 +98,33 @@ describe("getOrCreateArtist merge following", () => {
     expect(result.id).toBe(older.id);
   });
 
+  test("throws when merge chain is cyclic", async () => {
+    const s = stamp();
+    const a = await prisma.artist.create({
+      data: {
+        name: `Cycle A ${s}`,
+        normalizedName: normalizeArtistName(`Cycle A ${s}`),
+      },
+    });
+    const b = await prisma.artist.create({
+      data: {
+        name: `Cycle B ${s}`,
+        normalizedName: normalizeArtistName(`Cycle B ${s}`),
+        mergedIntoId: a.id,
+        mergedAt: new Date(),
+      },
+    });
+    await prisma.artist.update({
+      where: { id: a.id },
+      data: { mergedIntoId: b.id, mergedAt: new Date() },
+    });
+    createdIds.push(a.id, b.id);
+
+    await expect(getOrCreateArtist(`Cycle A ${s}`)).rejects.toBeInstanceOf(
+      MergedEntityResolutionError,
+    );
+  });
+
   test("getOrCreateArtistTx follows mergedIntoId inside a transaction", async () => {
     const s = stamp();
     const target = await prisma.artist.create({
@@ -126,6 +154,8 @@ describe("normalizeArtistName (ADR-034 single source of truth)", () => {
     expect(normalizeArtistName("The Beatles")).toBe("beatles");
     expect(normalizeArtistName("Björk")).toBe("bjork");
     expect(normalizeArtistName("AC/DC")).toBe("acdc");
+    expect(normalizeArtistName("Москва")).toBe("москва");
+    expect(normalizeArtistName("东京")).toBe("东京");
   });
 
   test("getOrCreateArtist stores the ADR-034 normalized name", async () => {

@@ -17,15 +17,20 @@ import {
   parseRoomCodeInput,
 } from "#app/features/party-room/codes.ts";
 import {
+  resolveActorOptional,
   resolveRoomParticipantByCode,
   type SeatedParticipant,
 } from "#app/features/party-room/participant-seat.server.ts";
-import { getRoomSnapshotByCode } from "#app/features/party-room/party-room.server.ts";
+import {
+  findOpenRoomByCode,
+  getRoomSnapshot,
+  PartyRoomError,
+} from "#app/features/party-room/party-room.server.ts";
 import {
   useOptionalPartyRoom,
   usePartyRoom,
 } from "#app/features/party-room/party-room-provider.tsx";
-import { resolveOptionalUserId } from "#app/features/party-room/request.server.ts";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { cn } from "#app/utils/misc.tsx";
 import { type Route } from "./+types/rooms.$code.ts";
@@ -51,9 +56,9 @@ type GuestLoaderData = {
     code: string;
     status: string;
     defaultJoinRole: string;
-    currentIndex: number;
-    roomVersion: number;
-    isPlaying: boolean;
+    currentIndex?: number;
+    roomVersion?: number;
+    isPlaying?: boolean;
   } | null;
   ended: boolean;
   invalidCode: boolean;
@@ -72,10 +77,15 @@ type UserLoaderData = {
   code: string;
 };
 
+function guestLoaderResponse(payload: GuestLoaderData, staleCookie: string | null) {
+  return data(payload, staleCookie ? { headers: { "set-cookie": staleCookie } } : undefined);
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const raw = params.code ?? "";
   const code = parseRoomCodeInput(raw);
-  const userId = await resolveOptionalUserId(request);
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
 
   if (!code) {
     if (userId) {
@@ -85,17 +95,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         code: raw.toUpperCase(),
       } satisfies UserLoaderData);
     }
-    return data({
-      mode: "guest",
-      guestShell: true,
-      code: raw.toUpperCase(),
-      room: null,
-      ended: false,
-      invalidCode: true,
-      participant: null,
-      canAddTracks: false,
-      queue: [],
-    } satisfies GuestLoaderData);
+    return guestLoaderResponse(
+      {
+        mode: "guest",
+        guestShell: true,
+        code: raw.toUpperCase(),
+        room: null,
+        ended: false,
+        invalidCode: true,
+        participant: null,
+        canAddTracks: false,
+        queue: [],
+      },
+      staleCookie,
+    );
   }
 
   if (userId) {
@@ -106,51 +119,81 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     } satisfies UserLoaderData);
   }
 
-  let snapshot: Awaited<ReturnType<typeof getRoomSnapshotByCode>> | null = null;
+  let participant: SeatedParticipant | null = null;
   try {
-    snapshot = await getRoomSnapshotByCode(code);
-  } catch {
-    snapshot = null;
+    participant = await resolveRoomParticipantByCode(request, code);
+  } catch (error) {
+    if (error instanceof PartyRoomError) {
+      participant = null;
+    } else {
+      throw error;
+    }
   }
 
-  if (!snapshot) {
+  let openRoom: Awaited<ReturnType<typeof findOpenRoomByCode>> | null = null;
+  try {
+    openRoom = await findOpenRoomByCode(code);
+  } catch (error) {
+    if (error instanceof PartyRoomError) {
+      openRoom = null;
+    } else {
+      throw error;
+    }
+  }
+
+  if (!openRoom) {
     const endedRoom = await prisma.room.findFirst({
       where: { code, status: ROOM_STATUS.ended },
       select: { id: true },
     });
-    return data({
-      mode: "guest",
-      guestShell: true,
-      code,
-      room: null,
-      ended: Boolean(endedRoom),
-      invalidCode: false,
-      participant: null,
-      canAddTracks: false,
-      queue: [],
-    } satisfies GuestLoaderData);
+    return guestLoaderResponse(
+      {
+        mode: "guest",
+        guestShell: true,
+        code,
+        room: null,
+        ended: Boolean(endedRoom),
+        invalidCode: false,
+        participant: null,
+        canAddTracks: false,
+        queue: [],
+      },
+      staleCookie,
+    );
   }
 
-  const participant = await resolveRoomParticipantByCode(request, snapshot.code);
-  return data({
-    mode: "guest",
-    guestShell: true,
-    code: snapshot.code,
-    room: {
-      id: snapshot.roomId,
-      code: snapshot.code,
-      status: snapshot.status,
-      defaultJoinRole: snapshot.defaultJoinRole,
-      currentIndex: snapshot.currentIndex,
-      roomVersion: snapshot.roomVersion,
-      isPlaying: snapshot.isPlaying,
+  const actor = await resolveActorOptional(request);
+  const snapshot =
+    participant && actor && actor.type !== "system"
+      ? await getRoomSnapshot(openRoom.id, actor)
+      : null;
+
+  return guestLoaderResponse(
+    {
+      mode: "guest",
+      guestShell: true,
+      code: openRoom.code,
+      room: {
+        id: openRoom.id,
+        code: openRoom.code,
+        status: openRoom.status,
+        defaultJoinRole: openRoom.defaultJoinRole,
+        ...(participant
+          ? {
+              currentIndex: openRoom.currentIndex,
+              roomVersion: openRoom.roomVersion,
+              isPlaying: openRoom.isPlaying,
+            }
+          : {}),
+      },
+      ended: openRoom.status === ROOM_STATUS.ended,
+      invalidCode: false,
+      participant,
+      canAddTracks: participant ? canAddTracks(participant.role) : false,
+      queue: snapshot?.queue ?? [],
     },
-    ended: snapshot.status === ROOM_STATUS.ended,
-    invalidCode: false,
-    participant,
-    canAddTracks: participant ? canAddTracks(participant.role) : false,
-    queue: snapshot.queue,
-  } satisfies GuestLoaderData);
+    staleCookie,
+  );
 }
 
 export default function RoomByCodeRoute() {
@@ -208,8 +251,8 @@ function GuestRoomShell({ roomShell }: { roomShell: GuestLoaderData }) {
   const party = useOptionalPartyRoom();
   const sawThisRoom = useRef(false);
   const dismissal = useRef<null | "kicked" | "ended" | "left">(null);
-  const onLeaveStart = useCallback(() => {
-    dismissal.current = "left";
+  const onLeaveDismissal = useCallback((left: boolean) => {
+    dismissal.current = left ? "left" : null;
   }, []);
 
   const live = party?.room?.code === roomShell.code ? party.room : null;
@@ -260,7 +303,7 @@ function GuestRoomShell({ roomShell }: { roomShell: GuestLoaderData }) {
   const outletContext: GuestRoomOutletContext = {
     role,
     displayName,
-    onLeaveStart,
+    onLeaveDismissal,
   };
 
   return (

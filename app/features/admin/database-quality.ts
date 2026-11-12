@@ -33,6 +33,18 @@ export const METRIC_TARGETS: MetricTarget = {
   lyrics: 10,
 } as const;
 
+export function getHealthColor(percentage: number): "green" | "yellow" | "red" {
+  if (percentage >= 90) return "green";
+  if (percentage >= 70) return "yellow";
+  return "red";
+}
+
+export function getHealthLabel(percentage: number): string {
+  if (percentage >= 90) return "Excellent";
+  if (percentage >= 70) return "Needs Work";
+  return "Poor";
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;

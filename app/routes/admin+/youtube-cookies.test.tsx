@@ -5,18 +5,19 @@ import { render, screen } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
 import { parseString } from "set-cookie-parser";
 import { test, expect, vi } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { loader as rootLoader } from "#app/root.tsx";
 import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createSessionCookie } from "#tests/api-admin-test-utils.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { writeCookies } from "#app/features/audio-archive/youtube-cookie.server.ts";
 import { default as YoutubeCookiesRoute, action, loader } from "./youtube-cookies.tsx";
 
 vi.mock("#app/features/audio-archive/youtube-cookie.server.ts", async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import("#app/features/audio-archive/youtube-cookie.server.ts")
-  >();
+  const actual =
+    await importOriginal<typeof import("#app/features/audio-archive/youtube-cookie.server.ts")>();
   return {
     ...actual,
     writeCookies: vi.fn(),
@@ -208,4 +209,38 @@ test("paste action records valid cookies and returns imported count", async () =
 
   const record = await prisma.youtubeCookie.findFirstOrThrow({ where: { valid: true } });
   expect(record.updatedBy).toBe(userId);
+});
+
+test("paste action fails when writeCookies throws and does not create a valid row", async () => {
+  consoleError.mockImplementation(() => {});
+  vi.mocked(writeCookies).mockImplementation(() => {
+    throw new Error("disk full");
+  });
+
+  const { cookie } = await createSessionCookie("admin");
+  await prisma.youtubeCookie.deleteMany();
+
+  const formData = new FormData();
+  formData.set("mode", "paste");
+  formData.set(
+    "cookieText",
+    "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\ttest-token",
+  );
+  const request = new Request("http://localhost/admin/youtube-cookies", {
+    method: "POST",
+    headers: { cookie },
+    body: formData,
+  });
+
+  try {
+    await action({ request, params: {}, context: {} as never } as never);
+    expect.unreachable("action should throw when writeCookies fails");
+  } catch (error) {
+    expect(error).toBeInstanceOf(Response);
+    expect((error as Response).status).toBe(400);
+    expect(await (error as Response).text()).toMatch(/write cookie file/i);
+  }
+
+  const validRow = await prisma.youtubeCookie.findFirst({ where: { valid: true } });
+  expect(validRow).toBeNull();
 });

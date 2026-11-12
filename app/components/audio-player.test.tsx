@@ -9,7 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { type ComponentProps, type ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { useAudioPlayer } from "#app/components/audio-player-provider";
+import { useAudioPlayer } from "#app/components/audio-player-context";
 import { type FullTrack } from "#app/types/frontend/shared";
 import { toast } from "#app/components/ui/use-toast";
 import { reportRoomPlayEvent } from "#app/features/party-room/api.client.ts";
@@ -34,6 +34,14 @@ function createAudioPlayerMock(overrides: Record<string, unknown> = {}) {
     spine: [],
     spineTotal: 0,
     spinePosition: 0,
+    queueNavigationState: {
+      upNext: [],
+      spine: [],
+      spineOrder: [],
+      spinePosition: 0,
+      loopMode: "off" as const,
+    },
+    audibleSourceZone: null,
     currentTrack: null,
     currentIndex: -1,
     playContext: null,
@@ -69,9 +77,8 @@ vi.mock("#app/features/offline-storage/cover-cache.client.ts", () => ({
   resolveCachedCoverUrl: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("#app/components/audio-player-provider", () => ({
+vi.mock("#app/components/audio-player-context", () => ({
   useAudioPlayer: vi.fn(() => createAudioPlayerMock()),
-  AudioPlayerProvider: ({ children }: { children: ReactNode }) => children,
 }));
 
 vi.mock("#app/hooks/use-swipe-gesture", () => ({
@@ -770,6 +777,23 @@ test("does NOT call onNext when audio ends with no next track", async () => {
   expect(onNext).not.toHaveBeenCalled();
 });
 
+test("unmute after mute at volume 0 restores 0, not default full volume", async () => {
+  await renderPlayer();
+
+  const volumeSlider = document.querySelector('[aria-label="Volume"]');
+  expect(volumeSlider).toBeInstanceOf(HTMLInputElement);
+  if (!(volumeSlider instanceof HTMLInputElement)) return;
+
+  fireEvent.change(volumeSlider, { target: { value: "0" } });
+
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+
+  await waitFor(() => {
+    expect(volumeSlider.value).toBe("0");
+  });
+});
+
 test("persists volume changes to localStorage", async () => {
   await renderPlayer();
 
@@ -924,6 +948,53 @@ test("queue-only room snapshot does not rewind the playing track", async () => {
   expect(playedSrc).toEqual([]);
 });
 
+test("room speaker pause routes through room transport instead of only pausing the element", async () => {
+  const roomTransport = vi.fn();
+  const roomTransportRef = { current: roomTransport };
+  const pauseSpy = vi.spyOn(window.HTMLMediaElement.prototype, "pause");
+  mockPlay();
+
+  const { audioEl } = await renderPlayer({
+    roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+    roomPlaying: true,
+    roomTransportRef,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+  });
+
+  setPaused(audioEl, false);
+  const user = userEvent.setup();
+  await clickTransport(user);
+
+  expect(roomTransport).toHaveBeenCalledWith({ action: "pause" });
+  expect(pauseSpy).not.toHaveBeenCalled();
+});
+
+test("repeated room playback snapshot re-applies pause when the element drifted", async () => {
+  const pauseSpy = vi.spyOn(window.HTMLMediaElement.prototype, "pause");
+  mockPlay();
+
+  const { audioEl, rerender } = await renderPlayer({
+    roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+    roomPlaying: false,
+    roomPlaybackTick: 0,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+  });
+
+  setPaused(audioEl, false);
+  pauseSpy.mockClear();
+
+  rerender(
+    playerUi({
+      roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+      roomPlaying: false,
+      roomPlaybackTick: 1,
+      audioSrcOverride: "/resources/rooms/audio/track-1",
+    }),
+  );
+
+  await waitFor(() => expect(pauseSpy).toHaveBeenCalled());
+});
+
 test("paused room does not start playback on its own", async () => {
   const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(() => {
     return Promise.resolve();
@@ -951,6 +1022,42 @@ test("room speaker writes room_play_completed and not a personal play_completed"
     roomPlaying: true,
     audioSrcOverride: "/resources/rooms/audio/track-1",
   });
+
+  setProgress(audioEl, 50, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(reportPlayEvent).not.toHaveBeenCalled();
+  expect(reportRoomPlayEvent).toHaveBeenCalledWith(
+    "AB3K9Q",
+    "room_play_completed",
+    "track-1",
+    null,
+  );
+});
+
+test("after host-mode exit, room play_completed still routes via roomPlayEventTargetRef", async () => {
+  vi.mocked(reportPlayEvent).mockClear();
+  vi.mocked(reportRoomPlayEvent).mockClear();
+
+  const roomPlayEventTargetRef = {
+    current: { roomId: "room-1", code: "AB3K9Q" } as { roomId: string; code: string } | null,
+  };
+
+  const { audioEl, rerender } = await renderPlayer({
+    roomSpeaker: { roomId: "room-1", code: "AB3K9Q" },
+    roomPlayEventTargetRef,
+    roomPlaying: true,
+    audioSrcOverride: "/resources/rooms/audio/track-1",
+  });
+
+  rerender(
+    playerUi({
+      roomSpeaker: null,
+      roomPlayEventTargetRef,
+      roomPlaying: true,
+      audioSrcOverride: "/resources/rooms/audio/track-1",
+    }),
+  );
 
   setProgress(audioEl, 50, 100);
   fireEvent.timeUpdate(audioEl);
@@ -1503,8 +1610,24 @@ function setPaused(audioEl: HTMLAudioElement, paused: boolean) {
 }
 
 function setProgress(audioEl: HTMLAudioElement, currentTime: number, duration: number) {
-  Object.defineProperty(audioEl, "currentTime", { configurable: true, value: currentTime });
+  Object.defineProperty(audioEl, "currentTime", {
+    configurable: true,
+    value: currentTime,
+    writable: true,
+  });
   Object.defineProperty(audioEl, "duration", { configurable: true, value: duration });
+}
+
+function scrubSeekTo(audioEl: HTMLAudioElement, seconds: number, duration: number) {
+  setProgress(audioEl, seconds, duration);
+  Object.defineProperty(audioEl, "readyState", {
+    configurable: true,
+    value: HTMLMediaElement.HAVE_METADATA,
+  });
+  const seek = within(screen.getByTestId("player-desktop-bar")).getByLabelText("Seek");
+  fireEvent.change(seek, { target: { value: String(seconds) } });
+  Object.defineProperty(audioEl, "seeking", { configurable: true, value: false });
+  fireEvent.timeUpdate(audioEl);
 }
 
 function mockPlay() {
@@ -1595,6 +1718,584 @@ test("does not report play_completed twice when a track ends after passing halfw
   ).toHaveLength(1);
 });
 
+test("gapless unlock handoff emits play_started with a distinct playId for the advanced track", async () => {
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const unlockAutoplayRef: AudioPlayerTestProps["unlockAutoplayRef"] = { current: null };
+  const user = userEvent.setup();
+  await renderPlayer({ unlockAutoplayRef });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+  const track1PlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(track1PlayId).toBeTypeOf("string");
+
+  vi.mocked(reportPlayEvent).mockClear();
+  expect(unlockAutoplayRef.current?.("track-2", "https://cdn.example/track-2.mp3")).toBe(true);
+
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-2", expect.any(String));
+  });
+  const track2PlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(track2PlayId).toBeTypeOf("string");
+  expect(track2PlayId).not.toBe(track1PlayId);
+});
+
+test("repeat-one: swapPlaybackSource head restore after offline swap emits no spurious play_started", async () => {
+  const { resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+
+  let resolveOfflineUrl: ((url: string | null) => void) | undefined;
+  vi.mocked(resolvePlaybackAudioUrl).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveOfflineUrl = resolve;
+      }),
+  );
+
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+  window.dispatchEvent(new Event("online"));
+
+  const track = { ...mockTrack, duration: 1.2 };
+  const user = userEvent.setup();
+  const { audioEl } = await renderPlayer({
+    loopMode: "one",
+    track,
+  });
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "https://cdn.example/track-1.mp3");
+  });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 0.9, 1.2);
+  fireEvent.timeUpdate(audioEl);
+
+  let currentTime = 0.25;
+  Object.defineProperty(audioEl, "currentTime", {
+    configurable: true,
+    get: () => currentTime,
+    set: (value: number) => {
+      currentTime = value;
+    },
+  });
+
+  setPaused(audioEl, false);
+  vi.mocked(reportPlayEvent).mockClear();
+
+  window.dispatchEvent(new Event("offline"));
+
+  await waitFor(() => {
+    expect(resolveOfflineUrl).toBeTypeOf("function");
+  });
+
+  resolveOfflineUrl?.("blob:cached-repeat-one");
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "blob:cached-repeat-one");
+  });
+  expect(currentTime).toBe(0.25);
+
+  setProgress(audioEl, 0.25, 1.2);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(0);
+});
+
+test("repeat-one: media error offline swap restore emits no spurious play_started", async () => {
+  const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  const { resolveTrackPlaybackSource, resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(resolveTrackPlaybackSource).mockResolvedValue("https://cdn.example/track-1.mp3");
+  vi.mocked(resolvePlaybackAudioUrl).mockResolvedValue("blob:media-head-restore");
+
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const track = { ...mockTrack, duration: 1.2 };
+  const user = userEvent.setup();
+  const { audioEl } = await renderPlayer({ loopMode: "one", track });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 0.9, 1.2);
+  fireEvent.timeUpdate(audioEl);
+  vi.mocked(reportPlayEvent).mockClear();
+
+  let currentTime = 0.25;
+  Object.defineProperty(audioEl, "currentTime", {
+    configurable: true,
+    get: () => currentTime,
+    set: (value: number) => {
+      currentTime = value;
+    },
+  });
+  Object.defineProperty(audioEl, "error", {
+    configurable: true,
+    value: { code: 2, message: "Network error" },
+  });
+  audioEl.dispatchEvent(new Event("error"));
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "blob:media-head-restore");
+  });
+  expect(currentTime).toBe(0.25);
+
+  vi.mocked(reportPlayEvent).mockClear();
+  setProgress(audioEl, 0.25, 1.2);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(0);
+
+  consoleSpy.mockRestore();
+});
+
+test("repeat-one: natural wrap still counts once after offline format swap", async () => {
+  const { resolvePlaybackAudioUrl } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+
+  vi.mocked(resolvePlaybackAudioUrl).mockResolvedValue("blob:cached-repeat-one-wrap");
+
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+  window.dispatchEvent(new Event("online"));
+
+  const track = { ...mockTrack, duration: 1.2 };
+  const user = userEvent.setup();
+  const { audioEl } = await renderPlayer({
+    loopMode: "one",
+    track,
+  });
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "https://cdn.example/track-1.mp3");
+  });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  let currentTime = 0.5;
+  Object.defineProperty(audioEl, "currentTime", {
+    configurable: true,
+    get: () => currentTime,
+    set: (value: number) => {
+      currentTime = value;
+    },
+  });
+  setPaused(audioEl, false);
+  window.dispatchEvent(new Event("offline"));
+
+  await waitFor(() => {
+    expect(audioEl).toHaveAttribute("src", "blob:cached-repeat-one-wrap");
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 1.1, 1.2);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.05, 1.2);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(1);
+});
+
+test("repeat-one: playback-token seek to 0 after cache miss emits no spurious play_started", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const wantsAutoPlayRef = { current: false };
+  const { audioEl, rerender } = await renderPlayer({
+    loopMode: "one",
+    playbackToken: 1,
+    wantsAutoPlayRef,
+    track: { ...mockTrack, duration: 100 },
+  });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 40.8, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  rerender(
+    playerUi({
+      loopMode: "one",
+      playbackToken: 2,
+      wantsAutoPlayRef: { current: true },
+      track: { ...mockTrack, duration: 100 },
+    }),
+  );
+
+  await waitFor(() => {
+    expect(audioEl.currentTime).toBe(0);
+  });
+
+  setProgress(audioEl, 0.05, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(0);
+});
+
+test("repeat-one: unlockAutoplay seek to 0 emits no spurious play_started", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const unlockAutoplayRef: AudioPlayerTestProps["unlockAutoplayRef"] = { current: null };
+  const { audioEl } = await renderPlayer({
+    loopMode: "one",
+    unlockAutoplayRef,
+    track: { ...mockTrack, duration: 100 },
+  });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 40.8, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  expect(unlockAutoplayRef.current?.("track-1", "https://cdn.example/track-1.mp3")).toBe(true);
+
+  setProgress(audioEl, 0.05, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(0);
+});
+
+test("repeat-one: natural browser loop wrap still counts exactly once", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({
+    loopMode: "one",
+    track: { ...mockTrack, duration: 100 },
+  });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 99.6, 100);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.05, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(1);
+});
+
+test("repeat-one long track: two passes via wrap detect backward jump", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+  const passOnePlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(passOnePlayId).toBeTypeOf("string");
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 95, 100);
+  fireEvent.timeUpdate(audioEl);
+  fireEvent.ended(audioEl);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 99.6, 100);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.5, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  setProgress(audioEl, 50, 100);
+  fireEvent.timeUpdate(audioEl);
+  fireEvent.ended(audioEl);
+  setProgress(audioEl, 99.6, 100);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.5, 100);
+  fireEvent.timeUpdate(audioEl);
+
+  const started = vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started");
+  const completed = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.filter(([type]) => type === "play_completed");
+  expect(started).toHaveLength(2);
+  expect(completed).toHaveLength(2);
+  expect(completed[0]?.[2]).toBe(passOnePlayId);
+  expect(completed[1]?.[2]).toBe(started[0]?.[2]);
+  expect(started[0]?.[2]).not.toBe(started[1]?.[2]);
+});
+
+test("repeat-one short track: two wraps emit correct started and completed counts", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({
+    loopMode: "one",
+    track: { ...mockTrack, duration: 1.5 },
+  });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 1.2, 1.5);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.4, 1.5);
+  fireEvent.timeUpdate(audioEl);
+
+  setProgress(audioEl, 1.2, 1.5);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.4, 1.5);
+  fireEvent.timeUpdate(audioEl);
+
+  const started = vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started");
+  const completed = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.filter(([type]) => type === "play_completed");
+  expect(started).toHaveLength(3);
+  expect(completed).toHaveLength(2);
+  expect(completed[0]?.[2]).not.toBe(completed[1]?.[2]);
+});
+
+test("repeat-one: ended with no wrap emits nothing extra", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 55, 100);
+  fireEvent.timeUpdate(audioEl);
+  fireEvent.ended(audioEl);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(0);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(1);
+});
+
+test("repeat-one: backward seek 80→20 emits no extra play_started or play_completed", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 55, 100);
+  fireEvent.timeUpdate(audioEl);
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 80, 100);
+  fireEvent.timeUpdate(audioEl);
+  scrubSeekTo(audioEl, 20, 100);
+
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(0);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(0);
+});
+
+test("repeat-one: seek 90→60 emits no new play events", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 55, 100);
+  fireEvent.timeUpdate(audioEl);
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 90, 100);
+  fireEvent.timeUpdate(audioEl);
+  scrubSeekTo(audioEl, 60, 100);
+
+  expect(vi.mocked(reportPlayEvent).mock.calls).toHaveLength(0);
+});
+
+test("repeat-one: scrub landing near 0 emits no new play events", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "one" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+
+  setProgress(audioEl, 40, 100);
+  fireEvent.timeUpdate(audioEl);
+  scrubSeekTo(audioEl, 0.3, 100);
+
+  expect(vi.mocked(reportPlayEvent).mock.calls).toHaveLength(0);
+});
+
+test("repeat-one 0.45s track: two wraps count two restarts", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({
+    loopMode: "one",
+    track: { ...mockTrack, duration: 0.45 },
+  });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 0.44, 0.45);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.02, 0.45);
+  fireEvent.timeUpdate(audioEl);
+
+  setProgress(audioEl, 0.44, 0.45);
+  fireEvent.timeUpdate(audioEl);
+  setProgress(audioEl, 0.02, 0.45);
+  fireEvent.timeUpdate(audioEl);
+
+  const started = vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started");
+  expect(started).toHaveLength(3);
+});
+
+test("repeat-one 1.2s at 4× playback: sparse timeupdates count all four wraps", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({
+    loopMode: "one",
+    track: { ...mockTrack, duration: 1.2 },
+  });
+
+  Object.defineProperty(audioEl, "playbackRate", { configurable: true, value: 4 });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  const wrapPairs: [number, number][] = [
+    [1.072, 0.07],
+    [0.492, 0.07],
+    [0.483, 0.07],
+    [0.504, 0.07],
+  ];
+  for (const [prev, next] of wrapPairs) {
+    setProgress(audioEl, prev, 1.2);
+    fireEvent.timeUpdate(audioEl);
+    setProgress(audioEl, next, 1.2);
+    fireEvent.timeUpdate(audioEl);
+  }
+
+  const started = vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started");
+  expect(started).toHaveLength(5);
+});
+
+test("non-loop playback: one started at play, one completed at 50%, ended silent", async () => {
+  const user = userEvent.setup();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const { audioEl } = await renderPlayer({ loopMode: "off" });
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(1);
+
+  setProgress(audioEl, 55, 100);
+  fireEvent.timeUpdate(audioEl);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(1);
+
+  fireEvent.ended(audioEl);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_started"),
+  ).toHaveLength(1);
+  expect(
+    vi.mocked(reportPlayEvent).mock.calls.filter(([type]) => type === "play_completed"),
+  ).toHaveLength(1);
+});
+
 test("correlates a track's play_started and play_completed with the same playId", async () => {
   const user = userEvent.setup();
   mockPlay();
@@ -1617,5 +2318,172 @@ test("correlates a track's play_started and play_completed with the same playId"
 
   await waitFor(() => {
     expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1", startedPlayId);
+  });
+});
+
+type MediaSessionAction = "play" | "pause" | "previoustrack" | "nexttrack" | "seekto" | "stop";
+
+function stubMediaSession() {
+  const handlers = new Map<MediaSessionAction, (details?: { seekTime?: number }) => void>();
+  Object.defineProperty(globalThis.navigator, "mediaSession", {
+    configurable: true,
+    value: {
+      metadata: null,
+      playbackState: "none",
+      setActionHandler: (
+        action: MediaSessionAction,
+        handler: ((details?: { seekTime?: number }) => void) | null,
+      ) => {
+        if (handler) handlers.set(action, handler);
+        else handlers.delete(action);
+      },
+      setPositionState: vi.fn(),
+    },
+  });
+  class MediaMetadata {
+    constructor(init: Record<string, unknown>) {
+      Object.assign(this, init);
+    }
+  }
+  vi.stubGlobal("MediaMetadata", MediaMetadata);
+  return handlers;
+}
+
+test("media session play after autoplay block emits play_started", async () => {
+  const handlers = stubMediaSession();
+  const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (
+    this: HTMLMediaElement,
+  ) {
+    if ((this as HTMLMediaElement & { __blockedOnce?: boolean }).__blockedOnce) {
+      setPaused(this, false);
+      return Promise.resolve();
+    }
+    (this as HTMLMediaElement & { __blockedOnce?: boolean }).__blockedOnce = true;
+    return Promise.reject(new Error("NotAllowedError"));
+  });
+
+  vi.mocked(reportPlayEvent).mockClear();
+  const { audioEl } = await renderPlayer({
+    wantsAutoPlayRef: { current: true },
+  });
+
+  await waitFor(() => {
+    expect(playSpy).toHaveBeenCalled();
+  });
+  expect(reportPlayEvent).not.toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  setPaused(audioEl, true);
+
+  await waitFor(() => expect(handlers.get("play")).toBeTypeOf("function"));
+  handlers.get("play")!();
+
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+});
+
+test("media session play after a completed prior track emits play_started and play_completed", async () => {
+  const user = userEvent.setup();
+  const handlers = stubMediaSession();
+  mockPlay();
+  vi.mocked(reportPlayEvent).mockClear();
+
+  const onNext = vi.fn();
+  const { audioEl, rerender } = await renderPlayer({ onNext, hasNext: true });
+
+  await waitFor(() => expect(handlers.get("play")).toBeTypeOf("function"));
+
+  await clickTransport(user);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-1", expect.any(String));
+  });
+
+  setProgress(audioEl, 60, 100);
+  fireEvent.timeUpdate(audioEl);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-1", expect.any(String));
+  });
+
+  const firstPlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(firstPlayId).toBeTypeOf("string");
+
+  fireEvent.ended(audioEl);
+  expect(onNext).toHaveBeenCalled();
+
+  vi.mocked(reportPlayEvent).mockClear();
+  setPaused(audioEl, true);
+
+  rerender(
+    playerUi({
+      track: mockTrack2,
+      hasNext: false,
+      playbackToken: 1,
+    }),
+  );
+
+  const advancedAudio = await waitFor(() => {
+    const element = document.querySelector("audio");
+    if (!element) throw new Error("Audio element not mounted yet");
+    return element;
+  });
+
+  setProgress(advancedAudio, 55, 100);
+  handlers.get("play")!();
+
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_started", "track-2", expect.any(String));
+  });
+
+  const resumedPlayId = vi
+    .mocked(reportPlayEvent)
+    .mock.calls.find(([type]) => type === "play_started")?.[2];
+  expect(resumedPlayId).not.toBe(firstPlayId);
+
+  fireEvent.timeUpdate(advancedAudio);
+  await waitFor(() => {
+    expect(reportPlayEvent).toHaveBeenCalledWith("play_completed", "track-2", resumedPlayId);
+  });
+});
+
+test("rejected media session play clears keepPlaying and surfaces playback error", async () => {
+  const handlers = stubMediaSession();
+  vi.mocked(toast).mockClear();
+
+  vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (
+    this: HTMLMediaElement,
+  ) {
+    setPaused(this, true);
+    return Promise.reject(new Error("NotSupportedError"));
+  });
+
+  const { audioEl } = await renderPlayer();
+
+  audioEl.dispatchEvent(new Event("play"));
+  setPaused(audioEl, false);
+  await waitFor(() => {
+    expect(within(screen.getByTestId("player-desktop-bar")).getByLabelText("Pause")).toBeTruthy();
+  });
+
+  setPaused(audioEl, true);
+
+  await waitFor(() => expect(handlers.get("play")).toBeTypeOf("function"));
+  handlers.get("play")!();
+
+  await waitFor(() => {
+    expect(screen.getByTestId("player-playback-error")).toHaveTextContent(
+      "Unable to play this track. Try again or check your connection.",
+    );
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Playback failed",
+        variant: "destructive",
+      }),
+    );
+  });
+
+  audioEl.dispatchEvent(new Event("pause"));
+  await waitFor(() => {
+    expect(within(screen.getByTestId("player-desktop-bar")).getByLabelText("Play")).toBeTruthy();
   });
 });

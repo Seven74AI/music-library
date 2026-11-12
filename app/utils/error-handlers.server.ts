@@ -3,32 +3,66 @@
  *
  * This file provides reusable error handling utilities to reduce code duplication
  * across route loaders and actions.
- *
- * @example
- * ```typescript
- * import { handleServiceError, handleLoaderError } from '#app/utils/error-handlers.server'
- *
- * export async function loader({ request }: LoaderFunctionArgs) {
- *   try {
- *     const data = await someService.getData()
- *     return data({ data })
- *   } catch (error) {
- *     return handleLoaderError(error, { data: [] })
- *   }
- * }
- * ```
  */
 
 import { data } from "react-router";
+import { ServiceConfigurationError } from "#app/features/service-playlist/playlist-utils.server";
+import { ValidationError } from "#app/utils/validation.ts";
+import { YouTubeAPIError, YouTubeError, YOUTUBE_ERROR_CODES } from "#app/utils/youtube-errors.ts";
+import { ZipExtractionLimitError } from "#app/utils/zip-extraction.server.ts";
+
+export const DEFAULT_CLIENT_ERROR_MESSAGE = "Something went wrong. Please try again.";
+
+export const UPLOAD_AUDIO_CLIENT_ERROR_MESSAGE = "Failed to upload audio file.";
+export const UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE = "Failed to upload file.";
+export const UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE = "Failed to extract ZIP file.";
+export const UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE = "Failed to read audio metadata.";
+export const SERVICE_IMPORT_CLIENT_ERROR_MESSAGE = "Unable to import this track. Please try again.";
+export const SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE =
+  "Failed to sync playlist. Please try again.";
+export const DUPLICATE_DETECTION_CLIENT_ERROR_MESSAGE =
+  "Duplicate detection failed. Please try again.";
+export const COVER_ADMIN_CLIENT_ERROR_MESSAGE = "Failed to update cover image. Please try again.";
+export const VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE =
+  "Could not send verification email. Please try again.";
+
+function isYouTubeConfigError(error: unknown): boolean {
+  return (
+    error instanceof YouTubeAPIError &&
+    (error.code === YOUTUBE_ERROR_CODES.NO_API_KEY ||
+      error.message === "YouTube API key is not configured")
+  );
+}
+
+function isKnownClientError(error: unknown): error is Error {
+  return (
+    error instanceof YouTubeError ||
+    error instanceof ValidationError ||
+    error instanceof ServiceConfigurationError ||
+    error instanceof ZipExtractionLimitError
+  );
+}
+
+/**
+ * Map an unknown thrown value to a message safe to return to the browser.
+ * Raw Error.message (including Prisma/DB text) is never forwarded unless the
+ * error is a known domain error type.
+ */
+export function toClientErrorMessage(
+  error: unknown,
+  fallback: string = DEFAULT_CLIENT_ERROR_MESSAGE,
+): string {
+  if (isYouTubeConfigError(error)) {
+    return fallback;
+  }
+  if (isKnownClientError(error)) {
+    return error.message;
+  }
+  return fallback;
+}
 
 /**
  * Standard error handler for route loaders
- * Logs the error and returns a fallback data structure
- *
- * @param error - The error that occurred
- * @param fallback - Fallback data to return on error
- * @param context - Optional context for logging (e.g., 'YouTube playlists')
- * @returns Data response with fallback values
  */
 export function handleLoaderError<T>(
   error: unknown,
@@ -43,24 +77,17 @@ export function handleLoaderError<T>(
 
 /**
  * Standard error handler for service operations
- * Logs the error and returns a standardized error response
- *
- * @param error - The error that occurred
- * @param operation - The operation that failed (e.g., 'getPlaylists')
- * @param service - The service name (e.g., 'YouTube')
- * @returns Standardized error response
  */
 export function handleServiceError(
   error: unknown,
   operation: string,
   service: string = "Service",
+  clientFallback: string = DEFAULT_CLIENT_ERROR_MESSAGE,
 ): { success: false; error: string } {
   console.error(`${service} ${operation} error:`, error);
 
-  const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
-
   return {
     success: false,
-    error: errorMessage,
+    error: toClientErrorMessage(error, clientFallback),
   };
 }

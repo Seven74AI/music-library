@@ -7,86 +7,103 @@ const createConditionalSchema = (): z.ZodObject<any> => {
   const isMocksEnabled: boolean = process.env.MOCKS === "true";
   const isProduction: boolean = process.env.NODE_ENV === "production";
 
-  return z.object({
-    NODE_ENV: z.enum(["production", "development", "test"] as const),
-    DATABASE_PATH: z.string(),
-    DATABASE_URL: z.string(),
-    // SESSION_SECRET is required in production, optional in dev/test (getSessionSecret() provides a random fallback)
-    SESSION_SECRET: isProduction ? z.string() : z.string().optional(),
-    // Salt for hashing client IPs on security events. Required in production.
-    // Dev/test fall back to DEV_IP_HASH_SALT when unset. See .env.example.
-    IP_HASH_SALT: isProduction ? z.string().min(8) : z.string().optional(),
-    // AES-256-GCM secret for at-rest auth material: Connection.tokens (YouTube OAuth
-    // access/refresh tokens) and Verification.secret (TOTP/WebAuthn secrets).
-    // Required in production so this material is never stored at rest in plaintext
-    // (fail-closed, matching SESSION_SECRET/IP_HASH_SALT). A value must be at least 32
-    // characters, and production rejects the dev placeholder. Dev/test fall back to
-    // DEV_TOKEN_ENCRYPTION_KEY when unset. See .env.example.
-    TOKEN_ENCRYPTION_KEY: isProduction
-      ? z
-          .string()
-          .min(32)
-          .refine((value) => value !== DEV_TOKEN_ENCRYPTION_KEY, {
-            message: "must not be the development fallback",
-          })
-      : z.string().min(32).optional(),
-    INTERNAL_COMMAND_TOKEN: z.string(),
-    HONEYPOT_SECRET: z.string(),
-    CACHE_DATABASE_PATH: z.string(),
-    // If you plan to use Resend, remove the .optional()
-    RESEND_API_KEY: z.string().optional(),
+  return z
+    .object({
+      NODE_ENV: z.enum(["production", "development", "test"] as const),
+      DATABASE_PATH: z.string(),
+      DATABASE_URL: z.string(),
+      // SESSION_SECRET is required in production, optional in dev/test (getSessionSecret() provides a random fallback)
+      SESSION_SECRET: isProduction ? z.string() : z.string().optional(),
+      // Salt for hashing client IPs on security events. Required in production.
+      // Dev/test fall back to DEV_IP_HASH_SALT when unset. See .env.example.
+      IP_HASH_SALT: isProduction ? z.string().min(8) : z.string().optional(),
+      // AES-256-GCM secret for at-rest auth material: Connection.tokens (YouTube OAuth
+      // access/refresh tokens) and Verification.secret (TOTP/WebAuthn secrets).
+      // Required in production so this material is never stored at rest in plaintext
+      // (fail-closed, matching SESSION_SECRET/IP_HASH_SALT). A value must be at least 32
+      // characters, and production rejects the dev placeholder. Dev/test fall back to
+      // DEV_TOKEN_ENCRYPTION_KEY when unset. See .env.example.
+      TOKEN_ENCRYPTION_KEY: isProduction
+        ? z
+            .string()
+            .min(32)
+            .refine((value) => value !== DEV_TOKEN_ENCRYPTION_KEY, {
+              message: "must not be the development fallback",
+            })
+        : z.string().min(32).optional(),
+      INTERNAL_COMMAND_TOKEN: z.string(),
+      HONEYPOT_SECRET: z.string(),
+      CACHE_DATABASE_PATH: z.string(),
+      // If you plan to use Resend, remove the .optional()
+      RESEND_API_KEY: z.string().optional(),
 
-    ALLOW_INDEXING: z.enum(["true", "false"]).optional(),
+      ALLOW_INDEXING: z.enum(["true", "false"]).optional(),
 
-    // Tigris Object Storage Configuration - conditional based on mocks
-    AWS_ACCESS_KEY_ID: isMocksEnabled ? z.string().optional() : z.string(),
-    AWS_SECRET_ACCESS_KEY: isMocksEnabled ? z.string().optional() : z.string(),
-    AWS_REGION: isMocksEnabled ? z.string().optional() : z.string(),
-    AWS_ENDPOINT_URL_S3: isMocksEnabled ? z.url().optional() : z.url(),
-    BUCKET_NAME: isMocksEnabled ? z.string().optional() : z.string(),
-    // Separate Tigris bucket for SQLite backups (optional — scheduler no-ops when unset)
-    BACKUP_BUCKET_NAME: z.string().optional(),
-    BACKUP_HOUR_UTC: z.coerce.number().min(0).max(23).optional().default(3),
+      // Tigris Object Storage Configuration - conditional based on mocks
+      AWS_ACCESS_KEY_ID: isMocksEnabled ? z.string().optional() : z.string(),
+      AWS_SECRET_ACCESS_KEY: isMocksEnabled ? z.string().optional() : z.string(),
+      AWS_REGION: isMocksEnabled ? z.string().optional() : z.string(),
+      AWS_ENDPOINT_URL_S3: isMocksEnabled ? z.url().optional() : z.url(),
+      BUCKET_NAME: isMocksEnabled ? z.string().optional() : z.string(),
+      // Separate Tigris bucket for SQLite backups (optional — scheduler no-ops when unset)
+      BACKUP_BUCKET_NAME: z.string().optional(),
+      BACKUP_HOUR_UTC: z.coerce.number().min(0).max(23).optional().default(3),
 
-    // Shared upload-progress store (multi-instance). Optional: when both are
-    // set, upload progress lives in Upstash Redis; otherwise an in-memory Map
-    // is used (single-instance / tests). See ADR-038.
-    UPSTASH_REDIS_REST_URL: z.string().optional(),
-    UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+      // Shared upload-progress store (multi-instance). Optional: when both are
+      // set, upload progress lives in Upstash Redis; otherwise an in-memory Map
+      // is used (single-instance / tests). See ADR-038.
+      UPSTASH_REDIS_REST_URL: z.string().optional(),
+      UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
-    // YouTube Data API Configuration (uses existing Google OAuth credentials)
-    YOUTUBE_API_KEY: z.string().optional(),
-    SITE_URL: z.string().optional(),
+      // YouTube Data API Configuration (uses existing Google OAuth credentials)
+      YOUTUBE_API_KEY: z.string().optional(),
+      SITE_URL: z.string().optional(),
 
-    // Audio Archive Configuration
-    AUDIO_ARCHIVE_ENABLED: z.enum(["true", "false"]).optional().default("false"),
-    AUDIO_ARCHIVE_MAX_CONCURRENT: z.coerce.number().optional().default(2),
-    AUDIO_ARCHIVE_INTERVAL_MS: z.coerce.number().optional().default(60000),
-    AUDIO_ARCHIVE_STALE_JOB_MS: z.coerce.number().optional().default(600000),
-    TELEGRAM_BOT_TOKEN: z.string().optional(),
-    TELEGRAM_ADMIN_CHAT_ID: z.string().optional(),
+      // Audio Archive Configuration
+      AUDIO_ARCHIVE_ENABLED: z.enum(["true", "false"]).optional().default("false"),
+      AUDIO_ARCHIVE_MAX_CONCURRENT: z.coerce.number().optional().default(2),
+      AUDIO_ARCHIVE_INTERVAL_MS: z.coerce.number().optional().default(60000),
+      AUDIO_ARCHIVE_STALE_JOB_MS: z.coerce.number().optional().default(600000),
+      TELEGRAM_BOT_TOKEN: z.string().optional(),
+      TELEGRAM_ADMIN_CHAT_ID: z.string().optional(),
 
-    // YouTube cookie file path for audio archiving
-    COOKIE_FILE_PATH: z.string().optional().default("/data/youtube-cookies.txt"),
+      // YouTube cookie file path for audio archiving
+      COOKIE_FILE_PATH: z.string().optional().default("/data/youtube-cookies.txt"),
 
-    // YouTube mocking override (takes priority over MOCKS)
-    YOUTUBE_MOCKS: z.enum(["true", "false"]).optional(),
+      MOCKS: z.enum(["true", "false"]).optional(),
+      // YouTube mocking override (takes priority over MOCKS)
+      YOUTUBE_MOCKS: z.enum(["true", "false"]).optional(),
 
-    // OAuth credentials (optional — only needed when using those providers)
-    GOOGLE_CLIENT_ID: z.string().optional(),
-    GOOGLE_CLIENT_SECRET: z.string().optional(),
+      // OAuth credentials (optional — only needed when using those providers)
+      GOOGLE_CLIENT_ID: z.string().optional(),
+      GOOGLE_CLIENT_SECRET: z.string().optional(),
 
-    // Server / platform
-    PORT: z.coerce.number().optional(),
-    FLY_REGION: z.string().optional(),
-    FLY_APP_NAME: z.string().optional(),
+      // Server / platform
+      PORT: z.coerce.number().optional(),
+      FLY_REGION: z.string().optional(),
+      FLY_APP_NAME: z.string().optional(),
 
-    // Playwright test base URL (test-only)
-    PLAYWRIGHT_TEST_BASE_URL: z.string().optional(),
+      // Playwright test base URL (test-only; must not be set in production)
+      PLAYWRIGHT_TEST_BASE_URL: z.string().optional(),
 
-    // Disable service worker registration (test-only)
-    DISABLE_SERVICE_WORKER: z.enum(["true", "false"]).optional(),
-  });
+      // Disable service worker registration (test-only)
+      DISABLE_SERVICE_WORKER: z.enum(["true", "false"]).optional(),
+    })
+    .superRefine((values, ctx) => {
+      // CI runs start:mocks with NODE_ENV=production while Playwright injects
+      // PLAYWRIGHT_TEST_BASE_URL — MOCKS=true is not a real production deploy.
+      if (
+        values.NODE_ENV === "production" &&
+        values.PLAYWRIGHT_TEST_BASE_URL &&
+        values.MOCKS !== "true"
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PLAYWRIGHT_TEST_BASE_URL must not be set when NODE_ENV is production",
+          path: ["PLAYWRIGHT_TEST_BASE_URL"],
+        });
+      }
+    });
 };
 
 const schema = createConditionalSchema();
@@ -112,6 +129,8 @@ declare global {
  * This is the single source of truth for session secrets — all cookie-based
  * session storage modules MUST use this instead of reading process.env directly.
  */
+let devSessionSecretFallback: string | null = null;
+
 export function getSessionSecret(): string[] {
   const secret = process.env.SESSION_SECRET;
   if (secret) {
@@ -128,12 +147,14 @@ export function getSessionSecret(): string[] {
 
   // In dev/test, generate a random secret so dev workflow isn't blocked.
   // Cache it so it's stable across module reloads in the same process.
-  const devFallback = `dev-${crypto.randomUUID()}`;
-  console.warn(
-    "⚠ SESSION_SECRET not set — using randomly generated fallback for dev/test only. " +
-      "DO NOT use in production.",
-  );
-  return [devFallback];
+  if (!devSessionSecretFallback) {
+    devSessionSecretFallback = `dev-${crypto.randomUUID()}`;
+    console.warn(
+      "⚠ SESSION_SECRET not set — using randomly generated fallback for dev/test only. " +
+        "DO NOT use in production.",
+    );
+  }
+  return [devSessionSecretFallback];
 }
 
 export function formatInvalidEnvMessage(fieldErrors: Record<string, string[] | undefined>): string {

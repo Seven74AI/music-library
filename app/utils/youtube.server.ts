@@ -12,6 +12,10 @@ import {
 } from "#app/types/youtube-api";
 import { chunkArray } from "#app/utils/chunk-array";
 import {
+  googleClientErrorCauseMessage,
+  logGoogleApiError,
+} from "#app/utils/google-api-error-logger.server.ts";
+import {
   createFakerYouTubePlaylist,
   createFakerYouTubePlaylistItem,
 } from "#app/utils/mock-generators";
@@ -19,10 +23,12 @@ import { validateYouTubeAPIResponse } from "#app/utils/validation";
 import {
   YouTubeAPIError,
   YouTubeNotFoundError,
-  YouTubeQuotaError,
-  YouTubeAuthError,
-  YouTubeNetworkError,
   YOUTUBE_ERROR_CODES,
+  YOUTUBE_PLAYLISTS_CLIENT_ERROR_MESSAGE,
+  YOUTUBE_PLAYLIST_ITEMS_CLIENT_ERROR_MESSAGE,
+  rethrowIfYouTubeDomainError,
+  throwFromYouTubeGoogleApiError,
+  throwFromYouTubeTransportError,
 } from "#app/utils/youtube-errors";
 import { shouldMockYouTube } from "#app/utils/youtube-mock-utils";
 
@@ -91,13 +97,9 @@ export class YouTubeService {
         name: channel.snippet?.title || "Unknown",
       };
     } catch (error) {
-      console.error("Error fetching YouTube user info:", error);
-      if (error instanceof Error) {
-        throw new Error(`Failed to fetch YouTube user information: ${error.message}`, {
-          cause: error,
-        });
-      }
-      throw new Error("Failed to fetch YouTube user information", { cause: error });
+      logGoogleApiError("Error fetching YouTube user info", error);
+      const cause = googleClientErrorCauseMessage(error);
+      throw new Error(`Failed to fetch YouTube user information: ${cause}`, { cause });
     }
   }
 
@@ -153,9 +155,35 @@ export class YouTubeService {
 
       return allPlaylists;
     } catch (error) {
-      console.error("Error fetching YouTube playlists:", error);
+      logGoogleApiError("Error fetching YouTube playlists", error);
+
+      if (error && typeof error === "object" && "response" in error) {
+        const apiError = error as {
+          response?: {
+            data?: {
+              error?: {
+                code?: number;
+                message?: string;
+                errors?: Array<{ message?: string; reason?: string }>;
+              };
+            };
+          };
+        };
+        const errorData = apiError.response?.data?.error;
+
+        if (errorData) {
+          throwFromYouTubeGoogleApiError(errorData, "playlists");
+        }
+      }
+
+      rethrowIfYouTubeDomainError(error);
+
+      if (error instanceof Error) {
+        throwFromYouTubeTransportError(error, "playlists");
+      }
+
       throw new YouTubeAPIError(
-        "Failed to fetch YouTube playlists",
+        YOUTUBE_PLAYLISTS_CLIENT_ERROR_MESSAGE,
         YOUTUBE_ERROR_CODES.API_ERROR,
         500,
       );
@@ -207,7 +235,7 @@ export class YouTubeService {
       }
       return playlist;
     } catch (error) {
-      console.error("Error fetching YouTube playlist:", error);
+      logGoogleApiError("Error fetching YouTube playlist", error);
       if (error instanceof YouTubeNotFoundError) {
         throw error;
       }
@@ -242,27 +270,34 @@ export class YouTubeService {
       auth: oauth2Client,
     });
 
-    const existingIds = new Set<string>();
+    try {
+      const existingIds = new Set<string>();
 
-    for (const idChunk of chunkArray(uniqueIds, VIDEOS_LIST_BATCH_SIZE)) {
-      const response = await youtube.videos.list({
-        part: ["id"],
-        id: idChunk,
-      });
+      for (const idChunk of chunkArray(uniqueIds, VIDEOS_LIST_BATCH_SIZE)) {
+        const response = await youtube.videos.list({
+          part: ["id"],
+          id: idChunk,
+        });
 
-      const validated = validateYouTubeAPIResponse(
-        response.data,
-        YouTubeVideoListResponseSchema,
-      ) as YouTubeVideoListResponse;
+        const validated = validateYouTubeAPIResponse(
+          response.data,
+          YouTubeVideoListResponseSchema,
+        ) as YouTubeVideoListResponse;
 
-      for (const item of validated.items ?? []) {
-        if (item?.id) {
-          existingIds.add(item.id);
+        for (const item of validated.items ?? []) {
+          if (item?.id) {
+            existingIds.add(item.id);
+          }
         }
       }
-    }
 
-    return existingIds;
+      return existingIds;
+    } catch (error) {
+      logGoogleApiError("Error checking YouTube video existence", error);
+      throw new Error("Failed to check YouTube video existence", {
+        cause: googleClientErrorCauseMessage(error),
+      });
+    }
   }
 
   /**
@@ -319,7 +354,7 @@ export class YouTubeService {
 
       return allItems;
     } catch (error) {
-      console.error("Error fetching playlist items:", error);
+      logGoogleApiError("Error fetching playlist items", error);
 
       // Extract more specific error information from YouTube API
       if (error && typeof error === "object" && "response" in error) {
@@ -337,80 +372,18 @@ export class YouTubeService {
         const errorData = apiError.response?.data?.error;
 
         if (errorData) {
-          const errorCode = errorData.code;
-          const errorMessage = errorData.message || "Unknown error";
-          const firstError = errorData.errors?.[0];
-
-          // Handle specific error codes
-          if (errorCode === 404) {
-            throw new YouTubeNotFoundError("Playlist");
-          }
-
-          if (errorCode === 403) {
-            // Check for quota exceeded
-            if (errorMessage.includes("quota") || errorMessage.includes("Quota")) {
-              throw new YouTubeQuotaError();
-            }
-            // Check for access denied
-            if (
-              errorMessage.includes("access") ||
-              errorMessage.includes("permission") ||
-              firstError?.reason === "forbidden"
-            ) {
-              throw new YouTubeAPIError(
-                "Access denied. The playlist may be private or you may not have permission to view it.",
-                "ACCESS_DENIED",
-                403,
-              );
-            }
-            throw new YouTubeAPIError(
-              "Access denied. Please check your YouTube account permissions.",
-              "ACCESS_DENIED",
-              403,
-            );
-          }
-
-          if (errorCode === 401) {
-            throw new YouTubeAuthError(
-              "Invalid or expired access token. Please reconnect your YouTube account.",
-            );
-          }
-
-          // Use the API's error message if available
-          throw new YouTubeAPIError(errorMessage, YOUTUBE_ERROR_CODES.API_ERROR, errorCode || 500);
+          throwFromYouTubeGoogleApiError(errorData, "playlistItems");
         }
       }
 
-      // Handle other error types
-      if (
-        error instanceof YouTubeAPIError ||
-        error instanceof YouTubeNotFoundError ||
-        error instanceof YouTubeQuotaError ||
-        error instanceof YouTubeAuthError
-      ) {
-        throw error;
-      }
+      rethrowIfYouTubeDomainError(error);
 
       if (error instanceof Error) {
-        if (error.message.includes("quota")) {
-          throw new YouTubeQuotaError();
-        }
-        if (
-          error.message.includes("network") ||
-          error.message.includes("timeout") ||
-          error.message.includes("ECONNREFUSED")
-        ) {
-          throw new YouTubeNetworkError(
-            "Unable to connect to YouTube. Please check your internet connection and try again.",
-          );
-        }
-        if (error.message.includes("not found") || error.message.includes("404")) {
-          throw new YouTubeNotFoundError("Playlist");
-        }
+        throwFromYouTubeTransportError(error, "playlistItems");
       }
 
       throw new YouTubeAPIError(
-        "Failed to fetch playlist items. Please try again.",
+        YOUTUBE_PLAYLIST_ITEMS_CLIENT_ERROR_MESSAGE,
         YOUTUBE_ERROR_CODES.API_ERROR,
         500,
       );

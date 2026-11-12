@@ -36,7 +36,6 @@ This directory contains all type definitions with Zod validation for the Music L
 - **Contains**:
   - `transformYouTubePlaylistItemToTrack()` - Convert playlist item to Prisma TrackCreateInput
   - `transformYouTubePlaylistToServicePlaylist()` - Convert playlist to Prisma ServicePlaylistCreateInput
-  - `transformYouTubeVideoToTrack()` - Convert video details to Prisma TrackCreateInput
   - `pickCoverThumbnailUrl()` - Pick the best thumbnail URL (maxres > medium > default)
 - **Usage**: Transform validated API data to Prisma input types
 
@@ -281,19 +280,6 @@ try {
   if (error instanceof ValidationError) {
     console.error("Validation failed:", error.errors);
   }
-}
-```
-
-### Safe Validation
-
-```typescript
-import { safeValidate } from "#app/utils/validation";
-
-const result = safeValidate(data, schema);
-if (result.success) {
-  // Use result.data
-} else {
-  // Handle result.error
 }
 ```
 

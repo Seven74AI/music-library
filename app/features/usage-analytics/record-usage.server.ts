@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 export const USAGE_EVENT_TYPES = {
   signup: "signup",
@@ -40,16 +41,6 @@ const DAU_EVENT_TYPES = new Set<UsageEventType>([
   USAGE_EVENT_TYPES.play_completed,
 ]);
 
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
-
 /** UTC midnight for the given instant (defaults to now). */
 export function getUtcDayStart(date: Date = new Date()): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -74,7 +65,7 @@ async function maybeIncrementDau(day: Date, userId: string, type: UsageEventType
       dailyMetricUpsert(day, USAGE_METRICS.dau, 1),
     ]);
   } catch (error) {
-    if (isUniqueConstraintViolation(error)) return; // already counted for this UTC day
+    if (isUniqueConstraintError(error)) return; // already counted for this UTC day
     throw error;
   }
 }

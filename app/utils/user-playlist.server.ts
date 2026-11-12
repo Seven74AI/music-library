@@ -1,14 +1,6 @@
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
+import { isUniqueConstraintError as isUniqueConstraintViolation } from "#app/utils/prisma-errors.ts";
 
 export type AddTrackToUserPlaylistInput = {
   userId: string;
@@ -149,42 +141,55 @@ export async function createUserPlaylistWithTrack({
     };
   }
 
-  let playlist: { id: string; title: string; description: string | null };
   try {
-    playlist = await prisma.userPlaylist.create({
-      data: {
-        title: trimmedTitle,
-        description: null,
-        ownerId: userId,
-      },
-      select: { id: true, title: true, description: true },
+    const playlist = await prisma.$transaction(async (tx) => {
+      const created = await tx.userPlaylist.create({
+        data: {
+          title: trimmedTitle,
+          description: null,
+          ownerId: userId,
+        },
+        select: { id: true, title: true, description: true },
+      });
+
+      const existing = await tx.userPlaylistTrack.findFirst({
+        where: { playlistId: created.id, trackId },
+      });
+      if (existing) {
+        throw new Error(`Failed to add track after playlist create: duplicate`);
+      }
+
+      const maxPosition = await tx.userPlaylistTrack.aggregate({
+        where: { playlistId: created.id },
+        _max: { position: true },
+      });
+      const nextPosition = (maxPosition._max.position ?? -1) + 1;
+
+      await tx.userPlaylistTrack.createMany({
+        data: [{ playlistId: created.id, trackId, position: nextPosition }],
+      });
+
+      await tx.userPlaylist.update({
+        where: { id: created.id, ownerId: userId },
+        data: { updatedAt: new Date() },
+      });
+
+      return created;
     });
+
+    return {
+      status: "success",
+      playlist: {
+        ...playlist,
+        _count: { tracks: 1 },
+      },
+    };
   } catch (error) {
-    // Atomic guard via the DB unique index on (ownerId, lower(trim(title))).
     if (isUniqueConstraintViolation(error)) {
       return { status: "duplicate_title", existingTitle: trimmedTitle };
     }
     throw error;
   }
-
-  const addResult = await addTrackToUserPlaylist({
-    userId,
-    playlistId: playlist.id,
-    trackId,
-  });
-
-  if (addResult.status !== "success") {
-    await prisma.userPlaylist.delete({ where: { id: playlist.id } });
-    throw new Error(`Failed to add track after playlist create: ${addResult.status}`);
-  }
-
-  return {
-    status: "success",
-    playlist: {
-      ...playlist,
-      _count: { tracks: 1 },
-    },
-  };
 }
 
 /**
@@ -206,6 +211,40 @@ export async function bumpUserPlaylistUpdatedAt({
   });
 }
 
+/**
+ * Appends tracks at the next sequential positions. MAX(position) and inserts
+ * run in one `$transaction` (serialized by the SQLite adapter mutex).
+ */
+export async function appendTracksToUserPlaylistAtNextPositions({
+  playlistId,
+  trackIds,
+}: {
+  playlistId: string;
+  trackIds: string[];
+}): Promise<void> {
+  if (trackIds.length === 0) {
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const maxPosition = await tx.userPlaylistTrack.aggregate({
+      where: { playlistId },
+      _max: { position: true },
+    });
+    let nextPosition = (maxPosition._max.position ?? -1) + 1;
+
+    for (const chunk of chunkArray(trackIds)) {
+      await tx.userPlaylistTrack.createMany({
+        data: chunk.map((trackId) => ({
+          playlistId,
+          trackId,
+          position: nextPosition++,
+        })),
+      });
+    }
+  });
+}
+
 export async function addTrackToUserPlaylist({
   userId,
   playlistId,
@@ -221,32 +260,37 @@ export async function addTrackToUserPlaylist({
     return { status: "not_found" };
   }
 
-  if (!forceDuplicate) {
-    const existing = await prisma.userPlaylistTrack.findFirst({
-      where: { playlistId, trackId },
+  const insertResult = await prisma.$transaction(async (tx) => {
+    if (!forceDuplicate) {
+      const existing = await tx.userPlaylistTrack.findFirst({
+        where: { playlistId, trackId },
+      });
+
+      if (existing) {
+        return { status: "duplicate" as const };
+      }
+    }
+
+    const maxPosition = await tx.userPlaylistTrack.aggregate({
+      where: { playlistId },
+      _max: { position: true },
+    });
+    const nextPosition = (maxPosition._max.position ?? -1) + 1;
+
+    await tx.userPlaylistTrack.createMany({
+      data: [{ playlistId, trackId, position: nextPosition }],
     });
 
-    if (existing) {
-      return {
-        status: "duplicate",
-        playlistId,
-        playlistTitle: playlist.title,
-      };
-    }
-  }
-
-  const maxPosition = await prisma.userPlaylistTrack.aggregate({
-    where: { playlistId },
-    _max: { position: true },
+    return { status: "success" as const };
   });
 
-  await prisma.userPlaylistTrack.create({
-    data: {
+  if (insertResult.status === "duplicate") {
+    return {
+      status: "duplicate",
       playlistId,
-      trackId,
-      position: (maxPosition._max.position ?? -1) + 1,
-    },
-  });
+      playlistTitle: playlist.title,
+    };
+  }
 
   await bumpUserPlaylistUpdatedAt({ playlistId, userId });
 

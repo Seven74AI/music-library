@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   addFailedFile,
   addSuccessfulTrack,
+  removeSuccessfulTrackByTrackId,
   cleanupOldProgress,
   deleteUploadProgress,
   getUploadProgress,
@@ -30,7 +31,7 @@ afterEach(() => {
 
 test("successful track payload keeps the real storage saved byte count", async () => {
   const uploadId = uniqueUploadId();
-  await initUploadProgress(uploadId, ["song.mp3"]);
+  await initUploadProgress(uploadId, ["song.mp3"], "owner-1");
   await addSuccessfulTrack(uploadId, {
     trackId: "track-1",
     fileName: "song.mp3",
@@ -66,9 +67,16 @@ test("omits storage saved bytes from the payload when the size is unknown", () =
   expect(JSON.parse(JSON.stringify(track))).not.toHaveProperty("storageSavedBytes");
 });
 
+test("initUploadProgress records the owning admin user", async () => {
+  const uploadId = uniqueUploadId("owner");
+  await initUploadProgress(uploadId, ["a.mp3"], "admin-owner");
+  const progress = await getUploadProgress(uploadId);
+  expect(progress?.ownerUserId).toBe("admin-owner");
+});
+
 test("initUploadProgress creates a pending file entry per file name", async () => {
   const uploadId = uniqueUploadId();
-  await initUploadProgress(uploadId, ["a.mp3", "b.flac"]);
+  await initUploadProgress(uploadId, ["a.mp3", "b.flac"], "owner-1");
 
   const entry = await getUploadProgress(uploadId);
   expect(entry).toBeDefined();
@@ -82,7 +90,7 @@ test("initUploadProgress creates a pending file entry per file name", async () =
 
 test("updateFileProgress recomputes overall progress and completes when all files finish", async () => {
   const uploadId = uniqueUploadId();
-  await initUploadProgress(uploadId, ["a.mp3", "b.mp3"]);
+  await initUploadProgress(uploadId, ["a.mp3", "b.mp3"], "owner-1");
 
   await updateFileProgress(uploadId, "file-0", 100, "completed");
   await updateFileProgress(uploadId, "file-1", 100, "completed");
@@ -94,7 +102,7 @@ test("updateFileProgress recomputes overall progress and completes when all file
 
 test("updateFileProgress marks the session failed when any file fails", async () => {
   const uploadId = uniqueUploadId();
-  await initUploadProgress(uploadId, ["a.mp3", "b.mp3"]);
+  await initUploadProgress(uploadId, ["a.mp3", "b.mp3"], "owner-1");
 
   await updateFileProgress(uploadId, "file-0", 100, "completed");
   await updateFileProgress(uploadId, "file-1", 0, "failed", "boom");
@@ -104,9 +112,47 @@ test("updateFileProgress marks the session failed when any file fails", async ()
   expect(entry?.files.find((f) => f.fileId === "file-1")?.error).toBe("boom");
 });
 
+test("addSuccessfulTrack does not duplicate the same trackId", async () => {
+  const uploadId = uniqueUploadId();
+  await initUploadProgress(uploadId, ["song.mp3"], "owner-1");
+  const track = {
+    trackId: "track-1",
+    fileName: "song.mp3",
+    title: "Song",
+    artist: "Artist",
+  };
+  await addSuccessfulTrack(uploadId, track);
+  await addSuccessfulTrack(uploadId, track);
+
+  const entry = await getUploadProgress(uploadId);
+  expect(entry?.successfulTracks).toHaveLength(1);
+});
+
+test("removeSuccessfulTrackByTrackId drops a persisted success entry", async () => {
+  const uploadId = uniqueUploadId();
+  await initUploadProgress(uploadId, ["song.mp3"], "owner-1");
+  await addSuccessfulTrack(uploadId, {
+    trackId: "track-1",
+    fileName: "song.mp3",
+    title: "Song",
+    artist: "Artist",
+  });
+  await addSuccessfulTrack(uploadId, {
+    trackId: "track-2",
+    fileName: "other.mp3",
+    title: "Other",
+    artist: "Artist",
+  });
+
+  await removeSuccessfulTrackByTrackId(uploadId, "track-1");
+
+  const entry = await getUploadProgress(uploadId);
+  expect(entry?.successfulTracks?.map((t) => t.trackId)).toEqual(["track-2"]);
+});
+
 test("addFailedFile records the failure without a retry buffer", async () => {
   const uploadId = uniqueUploadId();
-  await initUploadProgress(uploadId, ["a.mp3"]);
+  await initUploadProgress(uploadId, ["a.mp3"], "owner-1");
 
   await addFailedFile(uploadId, "file-0", "invalid");
 
@@ -119,8 +165,8 @@ test("addFailedFile records the failure without a retry buffer", async () => {
 test("cleanupOldProgress reclaims sessions with no recent activity", async () => {
   const abandoned = uniqueUploadId("abandoned");
   const fresh = uniqueUploadId("fresh");
-  await initUploadProgress(abandoned, ["a.mp3"]);
-  await initUploadProgress(fresh, ["b.mp3"]);
+  await initUploadProgress(abandoned, ["a.mp3"], "owner-1");
+  await initUploadProgress(fresh, ["b.mp3"], "owner-1");
 
   // Age the abandoned session far beyond the TTL window.
   (await getUploadProgress(abandoned))!.lastUpdated = 0;
@@ -134,7 +180,7 @@ test("cleanupOldProgress reclaims sessions with no recent activity", async () =>
 
 test("cleanupOldProgress keeps sessions with recent activity", async () => {
   const uploadId = uniqueUploadId();
-  await initUploadProgress(uploadId, ["a.mp3"]);
+  await initUploadProgress(uploadId, ["a.mp3"], "owner-1");
 
   await cleanupOldProgress({ ttlMs: 60_000 });
 
@@ -147,7 +193,7 @@ test("cleanupOldProgress enforces the max-entry cap, evicting least-recent first
   for (let i = 0; i < MAX_UPLOAD_PROGRESS_ENTRIES + over; i++) {
     const id = uniqueUploadId(`cap-${i}`);
     ids.push(id);
-    await initUploadProgress(id, ["x.mp3"]);
+    await initUploadProgress(id, ["x.mp3"], "owner-1");
     (await getUploadProgress(id))!.lastUpdated = i;
   }
 
@@ -167,7 +213,7 @@ test("cleanupOldProgress enforces the max-entry cap, evicting least-recent first
 
 test("deleteUploadProgress removes the session", async () => {
   const uploadId = uniqueUploadId();
-  await initUploadProgress(uploadId, ["a.mp3"]);
+  await initUploadProgress(uploadId, ["a.mp3"], "owner-1");
 
   await deleteUploadProgress(uploadId);
 
@@ -189,7 +235,7 @@ test("subscribeToProgressUpdates notifies listeners on mutation", async () => {
   const listener = vi.fn();
   const unsubscribe = subscribeToProgressUpdates(listener);
 
-  await initUploadProgress(uploadId, ["a.mp3"]);
+  await initUploadProgress(uploadId, ["a.mp3"], "owner-1");
   expect(listener).toHaveBeenCalledWith(uploadId);
 
   unsubscribe();

@@ -25,7 +25,11 @@ describe("confirmOrphanedMatches membership scoping", () => {
     const service = await prisma.service.upsert({
       where: { name: "youtube" },
       update: {},
-      create: { name: "youtube", displayName: "YouTube", baseUrl: "https://youtube.com" },
+      create: {
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+      },
     });
     const artist = await prisma.artist.create({
       data: { name: "Test Artist", normalizedName: "test-artist" },
@@ -81,13 +85,8 @@ describe("confirmOrphanedMatches membership scoping", () => {
     expect(result.error).toContain("not a member of this playlist");
 
     // No membership row may have been created for the foreign track.
-    const foreignMembership = await prisma.servicePlaylistTrack.findUnique({
-      where: {
-        playlistId_trackId: {
-          playlistId: playlist.id,
-          trackId: foreignTrack.id,
-        },
-      },
+    const foreignMembership = await prisma.servicePlaylistTrack.findFirst({
+      where: { playlistId: playlist.id, trackId: foreignTrack.id },
     });
     expect(foreignMembership).toBeNull();
   });
@@ -97,7 +96,11 @@ describe("confirmOrphanedMatches membership scoping", () => {
     const service = await prisma.service.upsert({
       where: { name: "youtube" },
       update: {},
-      create: { name: "youtube", displayName: "YouTube", baseUrl: "https://youtube.com" },
+      create: {
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+      },
     });
     const artist = await prisma.artist.create({
       data: { name: "Test Artist", normalizedName: "test-artist" },
@@ -143,16 +146,200 @@ describe("confirmOrphanedMatches membership scoping", () => {
 
     expect(result.success).toBe(true);
 
-    const membership = await prisma.servicePlaylistTrack.findUnique({
-      where: {
-        playlistId_trackId: {
-          playlistId: playlist.id,
-          trackId: memberTrack.id,
-        },
-      },
+    const membership = await prisma.servicePlaylistTrack.findFirst({
+      where: { playlistId: playlist.id, trackId: memberTrack.id },
     });
     expect(membership).not.toBeNull();
     expect(membership?.isDeleted).toBe(true);
     expect(membership?.position).toBe(2);
+  });
+
+  async function setupPlaylist() {
+    const user = await prisma.user.create({ data: createUser() });
+    const service = await prisma.service.upsert({
+      where: { name: "youtube" },
+      update: {},
+      create: {
+        name: "youtube",
+        displayName: "YouTube",
+        baseUrl: "https://youtube.com",
+      },
+    });
+    const playlist = await prisma.servicePlaylist.create({
+      data: {
+        serviceId: service.id,
+        externalId: "PL-new",
+        title: "Test Playlist",
+        itemCount: 0,
+        ownerId: user.id,
+      },
+    });
+    return { user, service, playlist };
+  }
+
+  test("new match uses server-generated externalId, never the client deletedItemId", async () => {
+    const { user, service, playlist } = await setupPlaylist();
+
+    const result = await confirmOrphanedMatches(
+      playlist.id,
+      [
+        {
+          deletedItemId: "client-chosen-video-id",
+          selectedTrackId: null,
+          position: 3,
+          action: "new",
+        },
+      ],
+      user.id,
+    );
+    expect(result.success).toBe(true);
+
+    const poisoned = await prisma.track.findFirst({
+      where: { serviceId: service.id, externalId: "client-chosen-video-id" },
+    });
+    expect(poisoned).toBeNull();
+    const track = await prisma.track.findFirst({
+      where: {
+        serviceId: service.id,
+        externalId: { startsWith: `deleted-${playlist.id}-` },
+      },
+    });
+    expect(track).not.toBeNull();
+    const membership = await prisma.servicePlaylistTrack.findFirst({
+      where: { playlistId: playlist.id, trackId: track!.id },
+    });
+    expect(membership?.playlistItemId).toBe("client-chosen-video-id");
+  });
+
+  test("double-submitting the same deletedItemId for new does not fail the batch", async () => {
+    const { user, playlist } = await setupPlaylist();
+    const matches = [
+      {
+        deletedItemId: "item-1",
+        selectedTrackId: null,
+        position: 1,
+        action: "new" as const,
+      },
+    ];
+
+    const first = await confirmOrphanedMatches(playlist.id, matches, user.id);
+    const second = await confirmOrphanedMatches(playlist.id, matches, user.id);
+
+    expect(first.success).toBe(true);
+    expect(first.processedCount).toBe(1);
+    expect(second.success).toBe(true);
+    expect(second.processedCount).toBe(0);
+    expect(
+      await prisma.servicePlaylistTrack.count({
+        where: { playlistId: playlist.id },
+      }),
+    ).toBe(1);
+  });
+
+  test("two different items confirmed new at the same position get distinct externalIds", async () => {
+    const { user, service, playlist } = await setupPlaylist();
+    const confirm = (id: string) =>
+      confirmOrphanedMatches(
+        playlist.id,
+        [
+          {
+            deletedItemId: id,
+            selectedTrackId: null,
+            position: 3,
+            action: "new",
+          },
+        ],
+        user.id,
+      );
+
+    const first = await confirm("item-X");
+    await prisma.servicePlaylistTrack.deleteMany({
+      where: { playlistItemId: "item-X" },
+    });
+    const second = await confirm("item-Y");
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    const tracks = await prisma.track.findMany({
+      where: {
+        serviceId: service.id,
+        externalId: { startsWith: `deleted-${playlist.id}-` },
+      },
+    });
+    expect(tracks).toHaveLength(2);
+    expect(new Set(tracks.map((t) => t.externalId)).size).toBe(2);
+  });
+
+  test("empty-string deletedItemId on multiple new entries stores NULL, no P2002", async () => {
+    const { user, playlist } = await setupPlaylist();
+    const result = await confirmOrphanedMatches(
+      playlist.id,
+      [
+        {
+          deletedItemId: "",
+          selectedTrackId: null,
+          position: 1,
+          action: "new",
+        },
+        {
+          deletedItemId: "",
+          selectedTrackId: null,
+          position: 2,
+          action: "new",
+        },
+      ],
+      user.id,
+    );
+    expect(result.success).toBe(true);
+    expect(result.processedCount).toBe(2);
+    const rows = await prisma.servicePlaylistTrack.findMany({
+      where: { playlistId: playlist.id },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.playlistItemId === null)).toBe(true);
+  });
+
+  test("match may select a LIVE candidate row and overwrites its stale playlistItemId", async () => {
+    const { user, service, playlist } = await setupPlaylist();
+    const artist = await prisma.artist.create({
+      data: { name: "Live Artist", normalizedName: "live-artist" },
+    });
+    const track = await prisma.track.create({
+      data: {
+        title: "Live",
+        artistId: artist.id,
+        serviceId: service.id,
+        externalId: "live-ext",
+      },
+    });
+    await prisma.servicePlaylistTrack.create({
+      data: {
+        playlistId: playlist.id,
+        trackId: track.id,
+        position: 1,
+        playlistItemId: "stale-item",
+      },
+    });
+
+    const result = await confirmOrphanedMatches(
+      playlist.id,
+      [
+        {
+          deletedItemId: "new-item",
+          selectedTrackId: track.id,
+          position: 5,
+          action: "match",
+        },
+      ],
+      user.id,
+    );
+
+    expect(result.success).toBe(true);
+    const row = await prisma.servicePlaylistTrack.findFirstOrThrow({
+      where: { playlistId: playlist.id, trackId: track.id },
+    });
+    expect(row.isDeleted).toBe(true);
+    expect(row.position).toBe(5);
+    expect(row.playlistItemId).toBe("new-item");
   });
 });

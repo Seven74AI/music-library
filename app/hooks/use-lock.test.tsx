@@ -131,6 +131,120 @@ describe("useLock", () => {
     });
   });
 
+  test("releases the owned lock when autoAcquire becomes false", async () => {
+    const mine: LockInfo = { ...adaLock, lockedBy: "me", lockedByName: "Me" };
+    const released: Array<{ entityId: string; lockId?: string }> = [];
+    server.use(
+      http.post("/api/locks/acquire", () => HttpResponse.json({ lock: mine })),
+      http.post("/api/locks/release", async ({ request }) => {
+        const body = (await request.json()) as { entityId: string; lockId?: string };
+        released.push({ entityId: body.entityId, lockId: body.lockId });
+        return HttpResponse.json({ success: true });
+      }),
+    );
+
+    const { result, rerender, unmount } = renderHook(
+      ({ autoAcquire }) => useLock("track", "track-1", { autoAcquire, autoRelease: true }),
+      { initialProps: { autoAcquire: true } },
+    );
+
+    await waitFor(() => {
+      expect(result.current.lock?.lockedBy).toBe("me");
+    });
+
+    rerender({ autoAcquire: false });
+
+    await waitFor(() => {
+      expect(released.length).toBeGreaterThanOrEqual(1);
+    });
+    expect(released[0]?.lockId).toBe(mine.id);
+
+    await act(async () => {
+      unmount();
+    });
+  });
+
+  test("still releases a late acquire for a previous entity after switching tracks", async () => {
+    const track1Lock: LockInfo = {
+      ...adaLock,
+      entityId: "track-1",
+      id: "lock-track-1",
+      lockedBy: "me",
+      lockedByName: "Me",
+    };
+    const track2Lock: LockInfo = {
+      ...adaLock,
+      entityId: "track-2",
+      id: "lock-track-2",
+      lockedBy: "me",
+      lockedByName: "Me",
+    };
+    const released: Array<{ entityId: string; lockId?: string }> = [];
+    let acquireDelay = 0;
+    server.use(
+      http.post("/api/locks/acquire", async ({ request }) => {
+        const body = (await request.json()) as { entityId: string };
+        if (body.entityId === "track-1" && acquireDelay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, acquireDelay));
+        }
+        return HttpResponse.json({
+          lock: body.entityId === "track-1" ? track1Lock : track2Lock,
+        });
+      }),
+      http.post("/api/locks/release", async ({ request }) => {
+        const body = (await request.json()) as { entityId: string; lockId?: string };
+        released.push({ entityId: body.entityId, lockId: body.lockId });
+        return HttpResponse.json({ success: true });
+      }),
+    );
+
+    const { result, rerender, unmount } = renderHook(({ id }) => useLock("track", id), {
+      initialProps: { id: "track-1" },
+    });
+
+    acquireDelay = 40;
+    rerender({ id: "track-2" });
+
+    await waitFor(() => {
+      expect(result.current.lock?.entityId).toBe("track-2");
+    });
+
+    await waitFor(() => {
+      expect(
+        released.some((row) => row.entityId === "track-1" && row.lockId === track1Lock.id),
+      ).toBe(true);
+    });
+
+    await act(async () => {
+      unmount();
+    });
+  });
+
+  test("does not auto-acquire when refresh status read fails", async () => {
+    let acquireCalls = 0;
+    server.use(
+      http.get("/api/locks/status", () => HttpResponse.json({ error: "boom" }, { status: 500 })),
+      http.post("/api/locks/acquire", () => {
+        acquireCalls += 1;
+        return HttpResponse.json({ lock: adaLock });
+      }),
+    );
+
+    const { result, unmount } = renderHook(() =>
+      useLock("track", "track-1", { autoAcquire: false }),
+    );
+
+    result.current.refresh();
+    await waitFor(() => {
+      expect(result.current.error).toBeTruthy();
+    });
+    expect(acquireCalls).toBe(0);
+
+    await act(async () => {
+      unmount();
+    });
+  });
+
   test("releases the previous entity and locks the new id when the entity changes", async () => {
     const acquired: string[] = [];
     const released: string[] = [];

@@ -12,7 +12,7 @@ The audio-player god-module cleanup (t_66da4da1) split two files:
   modules plus a pure helper module — a clean, mechanical extraction.
 - `app/components/audio-player-provider.tsx` (2063 → 1837 lines) only shrank by
   ~250 lines, because the only genuinely uncoupled code was the pure
-  play-context / sort / persistence-predicate helpers (now
+  play-context / sort / persistence-predicate helpers (
   `app/components/audio-player-play-context.ts`).
 
 This left `AudioPlayerProvider` — a single React hook of ~1800 lines — still
@@ -46,7 +46,7 @@ whose interfaces would be nearly as large as their implementations — the
 definition of **shallow modules** (see the `codebase-design` skill: small
 interface + large implementation = deep; large interface + thin implementation
 = shallow). That increases coupling without adding leverage or locality: callers
-would have to learn a 25-field parameter contract to invoke what is today one
+would have to learn a 25-field parameter contract to invoke what is one
 hook's internal state.
 
 Only pure, uncoupled logic was extracted (`audio-player-play-context.ts`), and

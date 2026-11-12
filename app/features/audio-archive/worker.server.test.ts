@@ -9,7 +9,7 @@ const mockPrisma = {
     findMany: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
-    updateMany: vi.fn(),
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     groupBy: vi.fn(),
   },
   track: {
@@ -367,9 +367,13 @@ describe("processQueueTick", () => {
         }),
       );
       expect(mockPrisma.track.update).not.toHaveBeenCalled();
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "job-1" },
+          where: expect.objectContaining({
+            id: "job-1",
+            status: "processing",
+            lastAttemptAt: expect.any(Date),
+          }),
           data: { status: "completed" },
         }),
       );
@@ -397,12 +401,57 @@ describe("processQueueTick", () => {
       mockExtractAudioMetadata.mockResolvedValue({
         format: "mp3",
         mimeType: "audio/mpeg",
+        artist: "Tagged Artist",
+      });
+
+      const trackRecord = {
+        id: "track-keep",
+        artistId: "artist-existing",
+        title: "Real Title",
+        duration: 180,
+      };
+      mockPrisma.track.findUnique.mockImplementation(
+        ({ where, select }: { where: { id: string }; select?: Record<string, boolean> }) => {
+          if (where.id !== trackRecord.id) return Promise.resolve(null);
+          if (!select) return Promise.resolve({ ...trackRecord });
+          const row: Record<string, unknown> = {};
+          for (const key of Object.keys(select)) {
+            if (select[key] && key in trackRecord) {
+              row[key] = trackRecord[key as keyof typeof trackRecord];
+            }
+          }
+          return Promise.resolve(row);
+        },
+      );
+      mockPrisma.track.update.mockImplementation(
+        async ({ data }: { data: Record<string, unknown> }) => {
+          expect(data).not.toHaveProperty("title", undefined);
+          expect(data).not.toHaveProperty("duration", undefined);
+          Object.assign(trackRecord, data);
+          return trackRecord;
+        },
+      );
+      mockPersistTrackAudio.mockImplementation(async ({ trackId, metadata }) => {
+        const { backfillTrackMetadata } =
+          await import("#app/features/track-audio-ingest/backfill-track-metadata.server.ts");
+        await backfillTrackMetadata(trackId, metadata);
+        return {
+          audioFile: {
+            id: "audio-keep",
+            trackId,
+            objectKey: "audio/tracks/youtube/track-keep.mp3",
+          },
+          objectKey: "audio/tracks/youtube/track-keep.mp3",
+          created: true,
+        };
       });
 
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
       expect(mockPersistTrackAudio).toHaveBeenCalled();
+      expect(trackRecord.title).toBe("Real Title");
+      expect(trackRecord.duration).toBe(180);
     });
 
     it("completes the job when persistTrackAudio succeeds", async () => {
@@ -437,9 +486,12 @@ describe("processQueueTick", () => {
       await processQueueTick();
 
       expect(mockPersistTrackAudio).toHaveBeenCalled();
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "job-persist-ok" },
+          where: expect.objectContaining({
+            id: "job-persist-ok",
+            status: "processing",
+          }),
           data: { status: "completed" },
         }),
       );
@@ -472,7 +524,13 @@ describe("processQueueTick", () => {
     }
 
     function jobStatuses(): unknown[] {
-      return mockPrisma.archiveJob.update.mock.calls.map((call) => call[0]?.data?.status);
+      const fromUpdate = mockPrisma.archiveJob.update.mock.calls.map(
+        (call) => call[0]?.data?.status,
+      );
+      const fromUpdateMany = mockPrisma.archiveJob.updateMany.mock.calls.map(
+        (call) => call[0]?.data?.status,
+      );
+      return [...fromUpdate, ...fromUpdateMany];
     }
 
     it("does not start yt-dlp for a non-YouTube URL", async () => {
@@ -543,6 +601,37 @@ describe("processQueueTick", () => {
   });
 
   describe("error handling", () => {
+    it("does not persist audio or complete when extraction rejects an empty buffer", async () => {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-empty",
+          status: "pending",
+          priority: false,
+          retryCount: 0,
+          errorHistory: "[]",
+          track: {
+            id: "track-empty",
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=emptyxxxxxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: "[]" });
+      mockReadFileSync.mockReturnValue(Buffer.alloc(0));
+      mockExtractAudioMetadata.mockRejectedValue(
+        new Error("Empty buffer for file: /tmp/test-audio.mp3"),
+      );
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockPersistTrackAudio).not.toHaveBeenCalled();
+      expect(mockPrisma.archiveJob.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: "completed" } }),
+      );
+    });
+
     it("handles yt-dlp failure: marks as failed for non-retriable errors", async () => {
       mockPrisma.archiveJob.count.mockResolvedValue(0);
       mockPendingArchiveJobs([
@@ -572,9 +661,13 @@ describe("processQueueTick", () => {
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "job-2" },
+          where: expect.objectContaining({
+            id: "job-2",
+            status: "processing",
+            lastAttemptAt: expect.any(Date),
+          }),
           data: expect.objectContaining({
             status: "failed",
             retryCount: 1,
@@ -618,9 +711,9 @@ describe("processQueueTick", () => {
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "job-enoent" },
+          where: expect.objectContaining({ id: "job-enoent", status: "processing" }),
           data: expect.objectContaining({
             status: "failed",
             retryCount: 1,
@@ -659,8 +752,9 @@ describe("processQueueTick", () => {
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: "job-3", status: "processing" }),
           data: expect.objectContaining({
             status: "pending",
             retryCount: 2,
@@ -698,8 +792,9 @@ describe("processQueueTick", () => {
       const { processQueueTick } = await import("./worker.server.ts");
       await processQueueTick();
 
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: "job-4", status: "processing" }),
           data: expect.objectContaining({
             status: "failed",
             retryCount: 4,
@@ -1048,9 +1143,10 @@ describe("processQueueTick", () => {
 
   describe("exponential backoff (Decision #5)", () => {
     function lastUpdateData(jobId: string): Record<string, unknown> {
-      const calls = mockPrisma.archiveJob.update.mock.calls.filter(
-        (call) => call[0]?.where?.id === jobId,
-      );
+      const calls = [
+        ...mockPrisma.archiveJob.update.mock.calls,
+        ...mockPrisma.archiveJob.updateMany.mock.calls,
+      ].filter((call) => call[0]?.where?.id === jobId);
       return (calls.at(-1)?.[0]?.data ?? {}) as Record<string, unknown>;
     }
 
@@ -1187,6 +1283,107 @@ describe("processQueueTick", () => {
       });
     });
 
+    it("does not mark completed when the conditional completion update matches 0 rows", async () => {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-zombie",
+          status: "pending",
+          priority: false,
+          retryCount: 0,
+          errorHistory: "[]",
+          track: {
+            id: "track-zombie",
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=zombiexxxxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({ trackId: "track-zombie" });
+      mockPrisma.archiveJob.updateMany.mockImplementation((args) => {
+        if (args?.data?.status === "completed") return Promise.resolve({ count: 0 });
+        if (args?.where?.status === "pending" && args?.data?.status === "processing") {
+          return Promise.resolve({ count: 1 });
+        }
+        return Promise.resolve({ count: 1 });
+      });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(mockPersistTrackAudio).toHaveBeenCalled();
+      const completionCall = mockPrisma.archiveJob.updateMany.mock.calls.find(
+        (call) => call[0]?.data?.status === "completed",
+      );
+      expect(completionCall?.[0]?.where).toEqual(
+        expect.objectContaining({ id: "job-zombie", status: "processing" }),
+      );
+      expect(mockPrisma.archiveJob.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: "completed" } }),
+      );
+    });
+
+    it("does not apply error handling when lastAttemptAt no longer matches the claim", async () => {
+      mockPrisma.archiveJob.count.mockResolvedValue(0);
+      mockPendingArchiveJobs([
+        {
+          id: "job-stale-worker",
+          status: "pending",
+          priority: false,
+          retryCount: 0,
+          errorHistory: "[]",
+          track: {
+            id: "track-stale-worker",
+            service: { name: "youtube" },
+            serviceUrl: "https://youtube.com/watch?v=staleworkerxx",
+          },
+        },
+      ]);
+      mockPrisma.archiveJob.findUnique.mockResolvedValue({ retryCount: 0, errorHistory: "[]" });
+      mockExecuteYtDlp.mockResolvedValue({
+        exitCode: 1,
+        stdout: "",
+        stderr: "ERROR: transient",
+        filePath: undefined,
+        errorCategory: "UNKNOWN",
+        errorMessage: "transient",
+      });
+
+      let claimAttemptAt: Date | undefined;
+      mockPrisma.archiveJob.updateMany.mockImplementation((args) => {
+        if (args?.where?.status === "pending" && args?.data?.status === "processing") {
+          claimAttemptAt = args.data.lastAttemptAt as Date;
+          return Promise.resolve({ count: 1 });
+        }
+        if (
+          args?.where?.lastAttemptAt &&
+          (args?.data?.status === "pending" || args?.data?.status === "failed")
+        ) {
+          // Job was re-claimed after stale recovery; this worker no longer owns the row.
+          return Promise.resolve({ count: 0 });
+        }
+        return Promise.resolve({ count: 1 });
+      });
+
+      const { processQueueTick } = await import("./worker.server.ts");
+      await processQueueTick();
+
+      expect(claimAttemptAt).toBeInstanceOf(Date);
+      const errorUpdate = mockPrisma.archiveJob.updateMany.mock.calls.find(
+        (call) =>
+          call[0]?.where?.id === "job-stale-worker" &&
+          (call[0]?.data?.status === "pending" || call[0]?.data?.status === "failed"),
+      );
+      expect(errorUpdate?.[0]?.where).toEqual(
+        expect.objectContaining({
+          id: "job-stale-worker",
+          status: "processing",
+          lastAttemptAt: claimAttemptAt,
+        }),
+      );
+      expect(mockPrisma.youtubeCookie.updateMany).not.toHaveBeenCalled();
+    });
+
     it("skips the job when the atomic claim updates 0 rows (lost race)", async () => {
       mockPrisma.archiveJob.count.mockResolvedValue(0);
       mockPendingArchiveJobs([
@@ -1250,9 +1447,9 @@ describe("processQueueTick", () => {
       const recovered = await recoverStaleProcessingJobs();
 
       expect(recovered).toBe(1);
-      expect(mockPrisma.archiveJob.update).toHaveBeenCalledWith(
+      expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "stale-job-1" },
+          where: expect.objectContaining({ id: "stale-job-1", status: "processing" }),
           data: expect.objectContaining({ status: "pending" }),
         }),
       );
@@ -1319,6 +1516,29 @@ describe("scheduleQueueTick", () => {
     await vi.advanceTimersByTimeAsync(500);
 
     expect(mockPrisma.archiveJob.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("resetAuthFailedJobs", () => {
+  it("chunks updateMany calls to stay under SQLite bind limits", async () => {
+    const authCategories = ["AUTH", "COOKIE_EXPIRED"] as const;
+    const jobCount = 1_100;
+    const jobs = Array.from({ length: jobCount }, (_, i) => ({
+      id: `job-${i}`,
+      errorHistory: JSON.stringify([{ category: authCategories[i % 2] }]),
+    }));
+    mockPrisma.archiveJob.findMany.mockResolvedValue(jobs);
+    mockPrisma.archiveJob.updateMany.mockResolvedValue({ count: 500 });
+
+    const { resetAuthFailedJobs } = await import("./worker.server.ts");
+    const reset = await resetAuthFailedJobs();
+
+    expect(reset).toBe(jobCount);
+    expect(mockPrisma.archiveJob.updateMany).toHaveBeenCalledTimes(3);
+    const chunkSizes = mockPrisma.archiveJob.updateMany.mock.calls.map(
+      (call) => (call[0] as { where: { id: { in: string[] } } }).where.id.in.length,
+    );
+    expect(chunkSizes).toEqual([500, 500, 100]);
   });
 });
 

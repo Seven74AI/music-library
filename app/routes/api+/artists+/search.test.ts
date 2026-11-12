@@ -4,6 +4,7 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
+import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { loader } from "./search.tsx";
 
 describe("GET /api/artists/search", () => {
@@ -49,19 +50,78 @@ describe("GET /api/artists/search", () => {
     return `${parsedCookie.name}=${parsedCookie.value}`;
   }
 
+  test("resolves The Beatles and AC/DC using normalizedName", async () => {
+    const cookie = await createUserCookie();
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const beatlesName = `The Beatles ${stamp}`;
+    const acdcName = `AC/DC ${stamp}`;
+    const beatles = await prisma.artist.create({
+      data: {
+        name: beatlesName,
+        normalizedName: normalizeArtistName(beatlesName),
+      },
+    });
+    const acdc = await prisma.artist.create({
+      data: {
+        name: acdcName,
+        normalizedName: normalizeArtistName(acdcName),
+      },
+    });
+    createdIds.push(beatles.id, acdc.id);
+
+    const beatlesResponse = await loader({
+      request: new Request(
+        `http://localhost/api/artists/search?q=${encodeURIComponent(`The Beatles ${stamp}`)}`,
+        { headers: { cookie } },
+      ),
+      params: {},
+      context: {},
+    } as never);
+    const beatlesBody = (await beatlesResponse.json()) as {
+      artists: Array<{ id: string; name: string }>;
+    };
+    expect(beatlesBody.artists.map((artist) => artist.id)).toContain(beatles.id);
+
+    const acdcResponse = await loader({
+      request: new Request(
+        `http://localhost/api/artists/search?q=${encodeURIComponent(`AC/DC ${stamp}`)}`,
+        { headers: { cookie } },
+      ),
+      params: {},
+      context: {},
+    } as never);
+    const acdcBody = (await acdcResponse.json()) as {
+      artists: Array<{ id: string; name: string }>;
+    };
+    expect(acdcBody.artists.map((artist) => artist.id)).toContain(acdc.id);
+  });
+
+  test("returns no rows when normalization yields an empty query", async () => {
+    const cookie = await createUserCookie();
+    const response = await loader({
+      request: new Request("http://localhost/api/artists/search?q=!!!", { headers: { cookie } }),
+      params: {},
+      context: {},
+    } as never);
+    const body = (await response.json()) as { artists: unknown[] };
+    expect(body.artists).toEqual([]);
+  });
+
   test("does not return artists that have been merged into another artist", async () => {
     const cookie = await createUserCookie();
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const targetName = `Search Target ${stamp}`;
     const target = await prisma.artist.create({
       data: {
-        name: `Search Target ${stamp}`,
-        normalizedName: `search target ${stamp}`,
+        name: targetName,
+        normalizedName: normalizeArtistName(targetName),
       },
     });
+    const sourceName = `Search Alias ${stamp}`;
     const source = await prisma.artist.create({
       data: {
-        name: `Search Alias ${stamp}`,
-        normalizedName: `search alias ${stamp}`,
+        name: sourceName,
+        normalizedName: normalizeArtistName(sourceName),
         mergedIntoId: target.id,
         mergedAt: new Date(),
       },
@@ -69,9 +129,10 @@ describe("GET /api/artists/search", () => {
     createdIds.push(source.id, target.id);
 
     const response = await loader({
-      request: new Request(`http://localhost/api/artists/search?q=${encodeURIComponent(stamp)}`, {
-        headers: { cookie },
-      }),
+      request: new Request(
+        `http://localhost/api/artists/search?q=${encodeURIComponent(targetName)}`,
+        { headers: { cookie } },
+      ),
       params: {},
       context: {},
     } as never);
@@ -88,17 +149,20 @@ describe("GET /api/artists/search", () => {
   test("treats LIKE wildcards literally", async () => {
     const cookie = await createUserCookie();
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const artistName = `100% Sure ${stamp}`;
     const artist = await prisma.artist.create({
       data: {
-        name: `100% Sure ${stamp}`,
-        normalizedName: `100% sure ${stamp}`,
+        name: artistName,
+        normalizedName: normalizeArtistName(artistName),
       },
     });
     createdIds.push(artist.id);
 
-    // A bare '%' must not match every artist — only names containing a literal '%'.
     const response = await loader({
-      request: new Request("http://localhost/api/artists/search?q=%25", { headers: { cookie } }),
+      request: new Request(
+        `http://localhost/api/artists/search?q=${encodeURIComponent(artistName)}`,
+        { headers: { cookie } },
+      ),
       params: {},
       context: {},
     } as never);

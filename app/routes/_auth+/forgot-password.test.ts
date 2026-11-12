@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { action } from "./forgot-password.tsx";
@@ -152,8 +153,9 @@ describe("forgot password action", () => {
     expect(email.to).toBe(user.email);
     expect(email.subject).toMatch(/password reset/i);
     expect(email.text).toMatch(/verification code/i);
-    const code = email.text.match(/code=([A-Z0-9]+)/)?.[1];
+    const code = email.text.match(/Here's your verification code: (?<code>[\d\w]+)/)?.groups?.code;
     expect(code).toBeTruthy();
+    expect(email.text).not.toMatch(/code=[A-Z0-9]+/);
     expect(response.headers.get("location")).not.toContain(`code=${code}`);
 
     expect(await verificationCount()).toBe(before + 1);
@@ -178,6 +180,45 @@ describe("forgot password action", () => {
     expect(calls).toHaveLength(1);
     expect((await readSentEmail(user.email)).to).toBe(user.email);
     expect(await verificationCount()).toBe(before + 1);
+  });
+
+  test("sendEmail failure redirects like an unknown account (no 500 enumeration)", async () => {
+    consoleError.mockImplementation(() => {});
+    const user = await createAccount();
+    const unknownEmail = `missing.${user.email}`;
+    emailRecipients.push(unknownEmail);
+    trackTarget(unknownEmail);
+    const knownRequest = forgotPasswordRequest(user.email);
+    const unknownRequest = forgotPasswordRequest(unknownEmail);
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          name: "application_error",
+          message: "Resend upstream secret failure",
+          statusCode: 502,
+        }),
+        { status: 502 },
+      ),
+    );
+
+    try {
+      const known = await resendCallsDuring(() => callAction(knownRequest));
+      const unknown = await resendCallsDuring(() => callAction(unknownRequest));
+
+      expect(known.result).toBeInstanceOf(Response);
+      expect(unknown.result).toBeInstanceOf(Response);
+      const knownResponse = known.result as Response;
+      const unknownResponse = unknown.result as Response;
+
+      expect(knownResponse.status).toBe(unknownResponse.status);
+      expect(knownResponse.status).toBe(302);
+      expect(successShape(knownResponse)).toEqual(successShape(unknownResponse));
+      expect(JSON.stringify(knownResponse)).not.toContain("Resend");
+      expect(JSON.stringify(knownResponse)).not.toContain("upstream secret");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   test("unknown username gets the same redirect as a known account and does not email or store a verification", async () => {

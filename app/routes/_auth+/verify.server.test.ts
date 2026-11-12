@@ -4,6 +4,7 @@ import { isEncryptedVerificationSecret } from "#app/utils/token-cipher.server.ts
 import { generateTOTP } from "#app/utils/totp.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { isCodeValid, prepareVerification } from "./verify.server.ts";
+import { codeQueryParam } from "./verify.tsx";
 
 const createdUserIds: string[] = [];
 
@@ -23,6 +24,23 @@ afterEach(async () => {
   await prisma.verification.deleteMany({ where: { target: { in: createdUserIds } } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
   createdUserIds.length = 0;
+});
+
+describe("prepareVerification", () => {
+  test("verifyUrl omits the OTP code query param (scanner-safe emailed link)", async () => {
+    const user = await createAccount();
+    const { verifyUrl, otp } = await prepareVerification({
+      period: 30,
+      request: request(),
+      type: "onboarding",
+      target: user.id,
+    });
+
+    expect(verifyUrl.searchParams.has(codeQueryParam)).toBe(false);
+    expect(verifyUrl.searchParams.get("type")).toBe("onboarding");
+    expect(verifyUrl.searchParams.get("target")).toBe(user.id);
+    expect(otp).toHaveLength(6);
+  });
 });
 
 describe("verification secret encryption at rest", () => {

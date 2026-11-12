@@ -1,6 +1,9 @@
-import { processTrackImagesAsync } from "#app/features/service-playlist/image-processor.server";
 import { downloadExternalImage, findOrCreateCoverImage } from "#app/utils/cover-management.server";
 import { prisma } from "#app/utils/db.server";
+import {
+  COVER_ADMIN_CLIENT_ERROR_MESSAGE,
+  toClientErrorMessage,
+} from "#app/utils/error-handlers.server";
 import { type Prisma } from "#prisma/client.js";
 
 export async function getTracksWithoutCovers(params: { limit?: number; offset?: number } = {}) {
@@ -213,29 +216,28 @@ export async function retryFetchCover(
       trackId: track.id,
     });
 
-    await prisma.track.update({
-      where: { id: track.id },
+    const assigned = await prisma.track.updateMany({
+      where: { id: track.id, coverImageId: null },
       data: { coverImageId: coverImage.id },
     });
+    if (assigned.count === 0) {
+      return { success: true };
+    }
 
     if (track.albumId) {
-      const album = await prisma.album.findUnique({
-        where: { id: track.albumId },
-        select: { coverImageId: true },
+      await prisma.album.updateMany({
+        where: { id: track.albumId, coverImageId: null },
+        data: { coverImageId: coverImage.id },
       });
-
-      if (album && !album.coverImageId) {
-        await prisma.album.update({
-          where: { id: track.albumId },
-          data: { coverImageId: coverImage.id },
-        });
-      }
     }
 
     return { success: true };
   } catch (error) {
     console.error(`Error fetching cover for track ${trackId}:`, error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return {
+      success: false,
+      error: toClientErrorMessage(error, COVER_ADMIN_CLIENT_ERROR_MESSAGE),
+    };
   }
 }
 
@@ -266,23 +268,19 @@ export async function uploadTrackCover(
     });
 
     if (track.albumId) {
-      const album = await prisma.album.findUnique({
-        where: { id: track.albumId },
-        select: { coverImageId: true },
+      await prisma.album.updateMany({
+        where: { id: track.albumId, coverImageId: null },
+        data: { coverImageId: coverImage.id },
       });
-
-      if (album && !album.coverImageId) {
-        await prisma.album.update({
-          where: { id: track.albumId },
-          data: { coverImageId: coverImage.id },
-        });
-      }
     }
 
     return { success: true };
   } catch (error) {
     console.error(`Error uploading cover for track ${trackId}:`, error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return {
+      success: false,
+      error: toClientErrorMessage(error, COVER_ADMIN_CLIENT_ERROR_MESSAGE),
+    };
   }
 }
 
@@ -300,9 +298,10 @@ export async function uploadAlbumCover(
   }
 
   try {
+    // Do not pass albumId. findOrCreateCoverImage reuses an album's current
+    // cover and would drop the file chosen on this upload.
     const coverImage = await findOrCreateCoverImage({
       imageBuffer,
-      albumId: album.id,
     });
 
     await prisma.album.update({
@@ -313,7 +312,10 @@ export async function uploadAlbumCover(
     return { success: true };
   } catch (error) {
     console.error(`Error uploading cover for album ${albumId}:`, error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return {
+      success: false,
+      error: toClientErrorMessage(error, COVER_ADMIN_CLIENT_ERROR_MESSAGE),
+    };
   }
 }
 
@@ -349,15 +351,18 @@ export async function inheritCoverFromTrack(
   }
 
   try {
-    await prisma.album.update({
-      where: { id: albumId },
+    await prisma.album.updateMany({
+      where: { id: albumId, coverImageId: null },
       data: { coverImageId: track.coverImageId },
     });
 
     return { success: true };
   } catch (error) {
     console.error(`Error inheriting cover for album ${albumId}:`, error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return {
+      success: false,
+      error: toClientErrorMessage(error, COVER_ADMIN_CLIENT_ERROR_MESSAGE),
+    };
   }
 }
 
@@ -376,15 +381,8 @@ export async function smartAlbumInheritance(trackId: string, tx?: Prisma.Transac
     return;
   }
 
-  const album = await db.album.findUnique({
-    where: { id: track.albumId },
-    select: { coverImageId: true },
+  await db.album.updateMany({
+    where: { id: track.albumId, coverImageId: null },
+    data: { coverImageId: track.coverImageId },
   });
-
-  if (album && !album.coverImageId) {
-    await db.album.update({
-      where: { id: track.albumId },
-      data: { coverImageId: track.coverImageId },
-    });
-  }
 }

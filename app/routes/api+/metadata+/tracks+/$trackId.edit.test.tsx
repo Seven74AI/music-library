@@ -45,6 +45,34 @@ function makeRequest(body: any, params: any) {
   };
 }
 
+function mockWriteTransaction(
+  existingTrack: Record<string, unknown>,
+  handlers: {
+    trackUpdate: ReturnType<typeof vi.fn>;
+    trackEditCreate?: ReturnType<typeof vi.fn>;
+    editLockRow?: unknown | null;
+  },
+) {
+  vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
+    const trackEditCreate = handlers.trackEditCreate ?? vi.fn().mockResolvedValue({ id: "edit-1" });
+    const editLockFindUnique = vi.fn().mockImplementation(async (args: unknown) => {
+      if (handlers.editLockRow !== undefined) {
+        return handlers.editLockRow;
+      }
+      return vi.mocked(prisma.editLock.findUnique)(args as never);
+    });
+
+    return callback({
+      editLock: { findUnique: editLockFindUnique },
+      track: {
+        findUnique: vi.fn().mockResolvedValue(existingTrack),
+        update: handlers.trackUpdate,
+      },
+      trackEdit: { create: trackEditCreate },
+    });
+  });
+}
+
 describe("POST /api/metadata/tracks/:trackId/edit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -76,6 +104,38 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
 
     try {
       await action(makeRequest(body, { trackId: "track-1" }) as never);
+      expect.unreachable("action should have thrown");
+    } catch (e: any) {
+      expect(e.init.status).toBe(400);
+      expect(e.data.error).toBe("Validation failed");
+    }
+  });
+
+  test("rejects invalid releaseDate and originalDate with 400", async () => {
+    for (const releaseDate of ["not-a-date", " "]) {
+      const body = {
+        title: "Title",
+        artistId: "artist-1",
+        releaseDate,
+      };
+
+      try {
+        await action(makeRequest(body, { trackId: "track-1" }) as never);
+        expect.unreachable("action should have thrown");
+      } catch (e: any) {
+        expect(e.init.status).toBe(400);
+        expect(e.data.error).toBe("Validation failed");
+      }
+    }
+
+    const bodyWithBadOriginal = {
+      title: "Title",
+      artistId: "artist-1",
+      originalDate: "not-a-date",
+    };
+
+    try {
+      await action(makeRequest(bodyWithBadOriginal, { trackId: "track-1" }) as never);
       expect.unreachable("action should have thrown");
     } catch (e: any) {
       expect(e.init.status).toBe(400);
@@ -221,7 +281,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
       title: "Title",
       artistId: "artist-1",
       albumId: "album-1",
-      genre: "Rock",
+      genres: [{ id: "genre-rock", name: "Rock" }],
       year: 2020,
       trackNumber: 1,
       albumArtist: "Album Artist",
@@ -239,7 +299,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     const updatedTrack = {
       ...existingTrack,
       albumId: null,
-      genre: null,
+      genres: [],
       artist: { id: "artist-1", name: "Artist Name" },
       albumRecord: null,
     };
@@ -276,7 +336,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     const response: any = await action(makeRequest(body, { trackId: "track-1" }) as never);
 
     expect(response.data.track.albumId).toBeNull();
-    expect(response.data.track.genre).toBeNull();
+    expect(response.data.track.genres).toEqual([]);
   });
 
   test("writes the selected album id onto the track", async () => {
@@ -313,16 +373,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
       genres: [],
     });
 
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: {
-          create: vi.fn().mockResolvedValue({ id: "edit-1" }),
-        },
-        track: {
-          update: mockTrackUpdate,
-        },
-      });
-    });
+    mockWriteTransaction(existingTrack, { trackUpdate: mockTrackUpdate });
 
     const response: any = await action(
       makeRequest(
@@ -348,13 +399,12 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     expect(response.data.track.albumId).toBe("album-2");
   });
 
-  test("snapshots current genre ids and syncs the legacy genre string from genreIds", async () => {
+  test("snapshots current genre ids when updating genreIds", async () => {
     const existingTrack = {
       id: "track-1",
       title: "Old Title",
       artistId: "artist-1",
       albumId: null,
-      genre: "Rock",
       genres: [
         { id: "genre-pop", name: "Pop" },
         { id: "genre-rock", name: "Rock" },
@@ -387,7 +437,6 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     const mockTrackUpdate = vi.fn().mockResolvedValue({
       ...existingTrack,
       title: "New Title",
-      genre: "Jazz",
       artist: { id: "artist-1", name: "Artist Name" },
       albumRecord: null,
       genres: [
@@ -396,11 +445,9 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
       ],
     });
 
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
-      return callback({
-        trackEdit: { create: mockTrackEditCreate },
-        track: { update: mockTrackUpdate },
-      });
+    mockWriteTransaction(existingTrack, {
+      trackUpdate: mockTrackUpdate,
+      trackEditCreate: mockTrackEditCreate,
     });
 
     await action(
@@ -417,15 +464,14 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     expect(mockTrackEditCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          genre: "Rock",
-          genreIds: JSON.stringify(["genre-rock", "genre-pop"]),
+          genre: "Pop",
+          genreIds: JSON.stringify(["genre-pop", "genre-rock"]),
         }),
       }),
     );
     expect(mockTrackUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          genre: "Jazz",
           genres: { set: [{ id: "genre-jazz" }, { id: "genre-soul" }] },
         }),
       }),
@@ -481,6 +527,56 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  test("rejects save when the edit lock was released before the write transaction", async () => {
+    const existingTrack = {
+      id: "track-1",
+      title: "Old Title",
+      artistId: "artist-1",
+      albumId: null,
+      genres: [],
+      year: 2020,
+      trackNumber: 1,
+      albumArtist: null,
+      bpm: null,
+      label: null,
+      isrc: null,
+      releaseDate: null,
+      originalDate: null,
+      originalYear: null,
+      totalTracks: null,
+      totalDiscs: null,
+      lyrics: null,
+    };
+
+    vi.mocked(prisma.track.findUnique).mockResolvedValue(existingTrack as never);
+    vi.mocked(prisma.artist.findUnique).mockResolvedValue({ id: "artist-1" } as never);
+    const acquiredAt = new Date("2026-06-01T00:00:00.000Z");
+    vi.mocked(prisma.editLock.findUnique).mockResolvedValue({
+      id: "lock-1",
+      entityType: "track",
+      entityId: "track-1",
+      lockedBy: "user-1",
+      acquiredAt,
+      expiresAt: new Date(Date.now() + 60_000),
+      user: { id: "user-1", name: "Curator User", username: "curator" },
+    } as never);
+
+    mockWriteTransaction(existingTrack, {
+      trackUpdate: vi.fn(),
+      editLockRow: null,
+    });
+
+    try {
+      await action(
+        makeRequest({ title: "Overwrite", artistId: "artist-1" }, { trackId: "track-1" }) as never,
+      );
+      expect.unreachable("action should have thrown");
+    } catch (e: any) {
+      expect(e.init.status).toBe(409);
+      expect(e.data.error).toBe("Locked");
+    }
+  });
+
   test("releases the lock after a successful save", async () => {
     const existingTrack = {
       id: "track-1",
@@ -504,12 +600,13 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
 
     vi.mocked(prisma.track.findUnique).mockResolvedValue(existingTrack as never);
     vi.mocked(prisma.artist.findUnique).mockResolvedValue({ id: "artist-1" } as never);
+    const acquiredAt = new Date("2026-06-01T00:00:00.000Z");
     vi.mocked(prisma.editLock.findUnique).mockResolvedValue({
       id: "lock-1",
       entityType: "track",
       entityId: "track-1",
       lockedBy: "user-1",
-      acquiredAt: new Date(),
+      acquiredAt,
       expiresAt: new Date(Date.now() + 60_000),
       user: { id: "user-1", name: "Curator User", username: "curator" },
     } as never);
@@ -517,6 +614,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
       track: { ...existingTrack, title: "New Title" },
       edit: { id: "edit-1" },
     } as never);
+    vi.mocked(prisma.editLock.deleteMany).mockResolvedValue({ count: 1 });
 
     const body = {
       title: "New Title",
@@ -525,7 +623,15 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
 
     await action(makeRequest(body, { trackId: "track-1" }) as never);
 
-    expect(prisma.editLock.delete).toHaveBeenCalledWith({ where: { id: "lock-1" } });
+    expect(prisma.editLock.deleteMany).toHaveBeenCalledWith({
+      where: {
+        id: "lock-1",
+        entityType: "track",
+        entityId: "track-1",
+        lockedBy: "user-1",
+        acquiredAt,
+      },
+    });
   });
 
   test("handles invalid JSON body", async () => {

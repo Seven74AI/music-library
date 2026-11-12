@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { getHeavyRotationTracks } from "#app/features/listening-insights/index.server.ts";
+import { getHeavyRotationTracks } from "#app/features/listening-insights/heavy-rotation.server.ts";
 import { getRecentlyPlayedTracks } from "#app/features/recently-played/recently-played.server.ts";
 import { hasServiceConnection } from "#app/features/service-connection/service-connection.server";
 import { getWeeklyWrap } from "#app/features/weekly-wrap/weekly-wrap.server.ts";
-import { getUserId } from "#app/utils/auth.server.ts";
+import { getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   loadHomeData,
@@ -13,10 +13,11 @@ import {
 } from "./home.server.ts";
 
 vi.mock("#app/utils/auth.server.ts", () => ({
-  getUserId: vi.fn(),
+  getUserIdOrNull: vi.fn(),
+  getStaleAuthSessionDestroyCookie: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("#app/features/listening-insights/index.server.ts", () => ({
+vi.mock("#app/features/listening-insights/heavy-rotation.server.ts", () => ({
   getHeavyRotationTracks: vi.fn().mockResolvedValue([]),
 }));
 
@@ -115,7 +116,7 @@ describe("loadHomeData", () => {
   });
 
   test("returns marketing mode for anonymous users", async () => {
-    vi.mocked(getUserId).mockResolvedValue(null);
+    vi.mocked(getUserIdOrNull).mockResolvedValue(null);
 
     const result = unwrapHomeData(await loadHomeData(new Request("http://localhost/")));
 
@@ -123,7 +124,7 @@ describe("loadHomeData", () => {
   });
 
   test("returns onboarding mode with YouTube status when library is empty", async () => {
-    vi.mocked(getUserId).mockResolvedValue("user-1");
+    vi.mocked(getUserIdOrNull).mockResolvedValue("user-1");
     vi.mocked(prisma.userTrack.count).mockResolvedValue(0);
     vi.mocked(hasServiceConnection).mockResolvedValue(true);
     vi.mocked(prisma.user.findFirst).mockResolvedValue(mockAdminUser);
@@ -138,7 +139,7 @@ describe("loadHomeData", () => {
   });
 
   test("returns isAdmin false for non-admin users in onboarding mode", async () => {
-    vi.mocked(getUserId).mockResolvedValue("user-1");
+    vi.mocked(getUserIdOrNull).mockResolvedValue("user-1");
     vi.mocked(prisma.userTrack.count).mockResolvedValue(0);
     vi.mocked(hasServiceConnection).mockResolvedValue(false);
     vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
@@ -153,7 +154,7 @@ describe("loadHomeData", () => {
   });
 
   test("returns gray mode with track counts when nothing is playable yet", async () => {
-    vi.mocked(getUserId).mockResolvedValue("user-1");
+    vi.mocked(getUserIdOrNull).mockResolvedValue("user-1");
     vi.mocked(prisma.userTrack.count).mockResolvedValueOnce(3).mockResolvedValueOnce(0);
     vi.mocked(prisma.userPlaylist.count).mockResolvedValue(1);
     vi.mocked(prisma.userTrack.findMany).mockResolvedValue([]);
@@ -172,7 +173,7 @@ describe("loadHomeData", () => {
   });
 
   test("returns listening mode when playable tracks exist", async () => {
-    vi.mocked(getUserId).mockResolvedValue("user-1");
+    vi.mocked(getUserIdOrNull).mockResolvedValue("user-1");
     vi.mocked(prisma.userTrack.count).mockResolvedValueOnce(4).mockResolvedValueOnce(2);
     vi.mocked(prisma.userPlaylist.count).mockResolvedValue(2);
     vi.mocked(prisma.userTrack.findMany).mockResolvedValue([]);
@@ -219,7 +220,7 @@ describe("loadHomeData", () => {
         },
       },
     ];
-    vi.mocked(getUserId).mockResolvedValue("user-1");
+    vi.mocked(getUserIdOrNull).mockResolvedValue("user-1");
     vi.mocked(prisma.userTrack.count).mockResolvedValueOnce(4).mockResolvedValueOnce(2);
     vi.mocked(prisma.userPlaylist.count).mockResolvedValue(0);
     vi.mocked(prisma.userTrack.findMany).mockResolvedValue([]);
@@ -237,7 +238,7 @@ describe("loadHomeData", () => {
   });
 
   test("attaches full playlist duration while keeping cover preview tracks", async () => {
-    vi.mocked(getUserId).mockResolvedValue("user-1");
+    vi.mocked(getUserIdOrNull).mockResolvedValue("user-1");
     vi.mocked(prisma.userTrack.count).mockResolvedValueOnce(4).mockResolvedValueOnce(2);
     vi.mocked(prisma.userPlaylist.count).mockResolvedValue(1);
     vi.mocked(prisma.userTrack.findMany).mockResolvedValue([]);

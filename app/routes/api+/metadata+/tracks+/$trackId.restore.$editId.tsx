@@ -1,11 +1,20 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  editLockConflictCopyForEntity,
+  findWriteBlockedLock,
+  getLockStatus,
+  throwEditLockTransactionError,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import {
   parseGenreIdSnapshot,
   primaryGenreName,
+  replaceTrackGenresFromStrings,
   resolveOrderedGenres,
   snapshotGenreIds,
   type GenreRef,
@@ -61,7 +70,6 @@ export async function action({ request, params }: Route.ActionArgs) {
       title: true,
       artistId: true,
       albumId: true,
-      genre: true,
       genres: {
         select: {
           id: true,
@@ -85,6 +93,19 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (!track) {
     throw data({ error: "Track not found" }, { status: 404 });
+  }
+
+  const blockedLock = await findWriteBlockedLock(userId, [
+    { entityType: "track", entityId: trackId },
+  ]);
+  if (blockedLock) {
+    throw data(
+      {
+        error: "Locked",
+        message: `${blockedLock.lockedByName} is currently editing this track`,
+      },
+      { status: 409 },
+    );
   }
 
   // Verify edit exists and belongs to this track
@@ -160,92 +181,128 @@ export async function action({ request, params }: Route.ActionArgs) {
     restoredGenres = resolved.genres;
   }
 
-  // Perform restore: create history entry with current state, then update track
-  const result = await prisma.$transaction(async (tx) => {
-    // Create history entry with current state (before restore)
-    const editEntry = await tx.trackEdit.create({
-      data: {
-        trackId: track.id,
-        editedBy: userId,
-        comment: `Restore to version ${editId}: ${comment}`,
-        // Snapshot current state
-        title: track.title,
-        artistId: track.artistId,
-        albumId: track.albumId,
-        genre: track.genre,
-        genreIds: snapshotGenreIds(track.genres, track.genre),
-        year: track.year,
-        trackNumber: track.trackNumber,
-        albumArtist: track.albumArtist,
-        bpm: track.bpm,
-        label: track.label,
-        isrc: track.isrc,
-        releaseDate: track.releaseDate,
-        originalDate: track.originalDate,
-        originalYear: track.originalYear,
-        totalTracks: track.totalTracks,
-        totalDiscs: track.totalDiscs,
-        lyrics: track.lyrics,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            name: true,
+  const lock = await getLockStatus("track", trackId);
+
+  let result: {
+    track:
+      | Awaited<ReturnType<typeof prisma.track.update>>
+      | NonNullable<Awaited<ReturnType<typeof prisma.track.findUnique>>>;
+    edit: Awaited<ReturnType<typeof prisma.trackEdit.create>>;
+  };
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "track", trackId, userId, lock);
+
+      // Create history entry with current state (before restore)
+      const editEntry = await tx.trackEdit.create({
+        data: {
+          trackId: track.id,
+          editedBy: userId,
+          comment: `Restore to version ${editId}: ${comment}`,
+          // Snapshot current state
+          title: track.title,
+          artistId: track.artistId,
+          albumId: track.albumId,
+          genre: primaryGenreName(track.genres ?? []),
+          genreIds: snapshotGenreIds(track.genres),
+          year: track.year,
+          trackNumber: track.trackNumber,
+          albumArtist: track.albumArtist,
+          bpm: track.bpm,
+          label: track.label,
+          isrc: track.isrc,
+          releaseDate: track.releaseDate,
+          originalDate: track.originalDate,
+          originalYear: track.originalYear,
+          totalTracks: track.totalTracks,
+          totalDiscs: track.totalDiscs,
+          lyrics: track.lyrics,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              name: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    // Update track with restored data
-    const updatedTrack = await tx.track.update({
-      where: { id: trackId },
-      data: {
-        title: editToRestore.title,
-        artistId: editToRestore.artistId,
-        albumId: editToRestore.albumId,
-        genre:
-          restoredGenres !== undefined ? primaryGenreName(restoredGenres) : editToRestore.genre,
-        ...(restoredGenres !== undefined && {
+      // Update track with restored data
+      const updatedTrack = await tx.track.update({
+        where: { id: trackId },
+        data: {
+          title: editToRestore.title,
+          artistId: editToRestore.artistId,
+          albumId: editToRestore.albumId,
+          ...(restoredGenres !== undefined && {
+            genres: {
+              set: restoredGenres.map((genre) => ({ id: genre.id })),
+            },
+          }),
+          year: editToRestore.year,
+          trackNumber: editToRestore.trackNumber,
+          albumArtist: editToRestore.albumArtist,
+          bpm: editToRestore.bpm,
+          label: editToRestore.label,
+          isrc: editToRestore.isrc,
+          releaseDate: editToRestore.releaseDate,
+          originalDate: editToRestore.originalDate,
+          originalYear: editToRestore.originalYear,
+          totalTracks: editToRestore.totalTracks,
+          totalDiscs: editToRestore.totalDiscs,
+          lyrics: editToRestore.lyrics,
+        },
+        include: {
+          artist: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          albumRecord: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           genres: {
-            set: restoredGenres.map((genre) => ({ id: genre.id })),
-          },
-        }),
-        year: editToRestore.year,
-        trackNumber: editToRestore.trackNumber,
-        albumArtist: editToRestore.albumArtist,
-        bpm: editToRestore.bpm,
-        label: editToRestore.label,
-        isrc: editToRestore.isrc,
-        releaseDate: editToRestore.releaseDate,
-        originalDate: editToRestore.originalDate,
-        originalYear: editToRestore.originalYear,
-        totalTracks: editToRestore.totalTracks,
-        totalDiscs: editToRestore.totalDiscs,
-        lyrics: editToRestore.lyrics,
-      },
-      include: {
-        artist: {
-          select: {
-            id: true,
-            name: true,
+            select: {
+              id: true,
+              name: true,
+            },
           },
         },
-        albumRecord: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
+      });
 
-    return {
-      track: updatedTrack,
-      edit: editEntry,
-    };
-  });
+      if (restoredGenres === undefined && parsedGenreIds.status === "absent") {
+        await replaceTrackGenresFromStrings(tx, trackId, editToRestore.genre);
+      }
+
+      const trackWithGenres =
+        restoredGenres === undefined && parsedGenreIds.status === "absent"
+          ? await tx.track.findUnique({
+              where: { id: trackId },
+              include: {
+                artist: { select: { id: true, name: true } },
+                albumRecord: { select: { id: true, name: true } },
+                genres: { select: { id: true, name: true } },
+              },
+            })
+          : updatedTrack;
+
+      return {
+        track: trackWithGenres ?? updatedTrack,
+        edit: editEntry,
+      };
+    });
+  } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("track"));
+    }
+    throw error;
+  }
 
   return data(result);
 }

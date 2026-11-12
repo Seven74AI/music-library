@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { redirect, useFetcher, useLoaderData, useOutletContext } from "react-router";
+import { data, redirect, useFetcher, useLoaderData, useOutletContext } from "react-router";
 import {
   GUEST_DISPLAY_NAME_MAX,
   GUEST_DISPLAY_NAME_MIN,
@@ -21,19 +21,28 @@ import { joinRoom, PartyRoomError } from "#app/features/party-room/party-room.se
 import { Button } from "#app/components/ui/button.tsx";
 import { Input } from "#app/components/ui/input.tsx";
 import { Label } from "#app/components/ui/label.tsx";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
+import { combineHeaders } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/rooms.$code._index.ts";
 
 export type GuestRoomOutletContext = {
   role?: RoomRole;
   displayName?: string;
-  onLeaveStart?: () => void;
+  onLeaveDismissal?: (left: boolean) => void;
 };
 
 export async function loader({ request, params }: { request: Request; params: { code?: string } }) {
   const code = parseRoomCodeInput(params.code ?? "") ?? normalizeRoomCode(params.code ?? "");
-  const participant = await resolveRoomParticipantByCode(request, code);
-  return { code, seated: Boolean(participant), participant };
+  try {
+    const participant = await resolveRoomParticipantByCode(request, code);
+    return { code, seated: Boolean(participant), participant };
+  } catch (error) {
+    if (error instanceof PartyRoomError) {
+      return { code, seated: false, participant: null };
+    }
+    throw error;
+  }
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {
@@ -45,15 +54,22 @@ export async function action({ request, params }: { request: Request; params: { 
   const formData = await request.formData();
   const displayName = String(formData.get("displayName") ?? "");
   const guestToken = await readGuestToken(request);
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
+  const staleHeaders = staleCookie ? { "Set-Cookie": staleCookie } : undefined;
 
   try {
     const result = await joinRoom({
       code,
       actor: { type: "guest", displayName, guestToken },
     });
-    const headers = result.guestToken
-      ? { "Set-Cookie": await serializeGuestTokenCookie(result.guestToken) }
-      : undefined;
+    const guestTokenCookie = result.guestToken
+      ? await serializeGuestTokenCookie(result.guestToken)
+      : null;
+    const headers = combineHeaders(
+      guestTokenCookie ? { "Set-Cookie": guestTokenCookie } : undefined,
+      staleHeaders,
+    );
     return redirect(`/rooms/${result.code}`, { headers });
   } catch (error) {
     if (error instanceof PartyRoomError) {
@@ -67,7 +83,10 @@ export async function action({ request, params }: { request: Request; params: { 
               : error.code === "room_full"
                 ? "Room is full"
                 : error.message;
-      return { error: message };
+      return data(
+        { error: message },
+        staleCookie ? { headers: { "set-cookie": staleCookie } } : undefined,
+      );
     }
     throw error;
   }
@@ -139,7 +158,7 @@ export default function GuestJoinOrRoom() {
         code={code}
         role={outlet?.role ?? participant.role}
         displayName={outlet?.displayName ?? participant.displayName}
-        onLeaveStart={outlet?.onLeaveStart}
+        onLeaveDismissal={outlet?.onLeaveDismissal}
       />
     );
   }

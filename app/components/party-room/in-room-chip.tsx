@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
@@ -39,14 +40,24 @@ export function InRoomChip({ className }: { className?: string }) {
 /** Compact leave control used next to the chip on room pages. */
 export function LeaveRoomButton() {
   const party = useOptionalPartyRoom();
+  const [leavePending, setLeavePending] = useState(false);
   if (!party?.room) return null;
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
+      disabled={leavePending}
       onClick={() => {
-        void party.leave().catch(() => {});
+        setLeavePending(true);
+        void party
+          .leave()
+          .then((left) => {
+            if (!left) void party.refresh();
+          })
+          .finally(() => {
+            setLeavePending(false);
+          });
       }}
     >
       Leave

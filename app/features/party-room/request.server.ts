@@ -1,14 +1,9 @@
-import { getUserId } from "#app/utils/auth.server.ts";
+import { getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { readGuestToken } from "./guest-token.server.ts";
 import { PartyRoomError, type ParticipantActor } from "./party-room.server.ts";
 
 export async function resolveOptionalUserId(request: Request): Promise<string | null> {
-  try {
-    return await getUserId(request);
-  } catch (error) {
-    if (error instanceof Response) return null;
-    throw error;
-  }
+  return getUserIdOrNull(request);
 }
 
 export async function resolveActor(request: Request): Promise<ParticipantActor> {

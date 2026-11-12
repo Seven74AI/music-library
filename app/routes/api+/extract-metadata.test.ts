@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { parseString } from "set-cookie-parser";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
+import * as audioMetadata from "#app/utils/audio-metadata.server";
+import {
+  UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+  UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE,
+} from "#app/utils/error-handlers.server";
 import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
@@ -69,6 +75,80 @@ test("one empty file does not reject metadata extraction for the rest of the bat
     expect(body.files[1]?.metadata).toBeNull();
     expect(body.files[1]?.error).toMatch(/empty/i);
   } finally {
+    await prisma.session.deleteMany({ where: { userId } });
+    await prisma.user.delete({ where: { id: userId } });
+  }
+});
+
+test("per-file metadata failure returns stable domain message, not library text", async () => {
+  consoleError.mockImplementation(() => {});
+  const leak = "Corrupt FLAC header at offset 0xdeadbeef";
+  const extractSpy = vi
+    .spyOn(audioMetadata, "extractAudioMetadata")
+    .mockRejectedValueOnce(new Error(leak));
+
+  const { userId, cookie } = await createAdminCookie();
+  try {
+    const formData = new FormData();
+    formData.append("files", new File([tinyMp3], "bad.mp3", { type: "audio/mpeg" }));
+
+    const response = await action({
+      request: new Request("http://localhost/api/extract-metadata", {
+        method: "POST",
+        headers: { cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    const body = response.data;
+    if (!body.success || !("files" in body)) {
+      throw new Error("expected per-file metadata results");
+    }
+    expect(body.files[0]?.error).toBe(UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE);
+    expect(body.files[0]?.error).not.toBe(leak);
+  } finally {
+    extractSpy.mockRestore();
+    await prisma.session.deleteMany({ where: { userId } });
+    await prisma.user.delete({ where: { id: userId } });
+  }
+});
+
+test("ZIP extraction failure returns stable domain message, not library text", async () => {
+  consoleError.mockImplementation(() => {});
+  const zipLeak = "End of central directory not found";
+  const zipSpy = vi
+    .spyOn(await import("#app/utils/zip-extraction.server"), "extractAudioFilesFromZip")
+    .mockRejectedValueOnce(new Error(zipLeak));
+
+  const { userId, cookie } = await createAdminCookie();
+  try {
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([Buffer.from("not-a-zip")], "batch.zip", { type: "application/zip" }),
+    );
+
+    const response = await action({
+      request: new Request("http://localhost/api/extract-metadata", {
+        method: "POST",
+        headers: { cookie },
+        body: formData,
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.init?.status ?? 200).toBe(400);
+    const body = response.data;
+    if (body.success || !("error" in body)) {
+      throw new Error("expected zip failure");
+    }
+    expect(body.error).toBe(UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE);
+    expect(body.error).not.toMatch(/central directory/i);
+  } finally {
+    zipSpy.mockRestore();
     await prisma.session.deleteMany({ where: { userId } });
     await prisma.user.delete({ where: { id: userId } });
   }

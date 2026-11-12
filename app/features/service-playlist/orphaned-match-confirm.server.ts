@@ -1,10 +1,44 @@
+import { z } from "zod";
 import { getOrCreateArtistTx } from "#app/utils/artist-management.server";
 import { prisma } from "#app/utils/db.server";
 import { getServiceByName } from "./playlist-utils.server";
 
+export class OrphanMatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OrphanMatchError";
+  }
+}
+
+export const orphanMatchesSchema = z
+  .array(
+    z
+      .object({
+        action: z.enum(["match", "new", "skip"]),
+        deletedItemId: z
+          .string()
+          .trim()
+          .max(128)
+          .optional()
+          .transform((v) => (v === "" ? undefined : v)),
+        selectedTrackId: z.string().max(128).nullable().optional(),
+        position: z.number().int().min(0).max(100000),
+      })
+      .superRefine((val, ctx) => {
+        if (val.action === "match" && !val.selectedTrackId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["selectedTrackId"],
+            message: "selectedTrackId is required for match",
+          });
+        }
+      }),
+  )
+  .max(200);
+
 export type OrphanMatchSelection = {
-  deletedItemId: string | undefined;
-  selectedTrackId: string | null;
+  deletedItemId?: string | undefined;
+  selectedTrackId?: string | null;
   position: number;
   action: "match" | "new" | "skip";
 };
@@ -31,6 +65,28 @@ export function getDuplicateMatchedTrackIds(
 }
 
 /**
+ * Deleted item ids selected more than once.
+ */
+export function getDuplicateDeletedItemIds(
+  matches: Array<{ action: string; deletedItemId?: string | null }>,
+): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const match of matches) {
+    if (match.action !== "new" && match.action !== "match") continue;
+    if (!match.deletedItemId) continue;
+    if (seen.has(match.deletedItemId)) {
+      duplicates.add(match.deletedItemId);
+    } else {
+      seen.add(match.deletedItemId);
+    }
+  }
+
+  return [...duplicates];
+}
+
+/**
  * Confirm deleted video matches — process user selections for pending matches.
  *
  * Handles creating new tracks for deleted videos, matching to existing orphan tracks,
@@ -45,34 +101,8 @@ export async function confirmOrphanedMatches(
   processedCount: number;
   message: string;
   error?: string;
+  status?: 400 | 403 | 404 | 500;
 }> {
-  const playlist = await prisma.servicePlaylist.findFirst({
-    where: {
-      id: playlistId,
-      ownerId: userId,
-      isActive: true,
-    },
-    include: { service: true },
-  });
-
-  if (!playlist) {
-    return {
-      success: false,
-      processedCount: 0,
-      message: "Playlist not found or access denied",
-      error: "Playlist not found or access denied",
-    };
-  }
-
-  if (!playlist.service) {
-    return {
-      success: false,
-      processedCount: 0,
-      message: "Service not found for playlist",
-      error: "Service not found for playlist",
-    };
-  }
-
   const duplicateTrackIds = getDuplicateMatchedTrackIds(matches);
   if (duplicateTrackIds.length > 0) {
     return {
@@ -80,13 +110,54 @@ export async function confirmOrphanedMatches(
       processedCount: 0,
       message: "Each orphaned track can only be matched to one deleted video.",
       error: `Duplicate track selections: ${duplicateTrackIds.join(", ")}`,
+      status: 400,
     };
   }
 
-  const service = await getServiceByName(playlist.service.name);
-  const { createId } = await import("@paralleldrive/cuid2");
+  const duplicateDeletedIds = getDuplicateDeletedItemIds(matches);
+  if (duplicateDeletedIds.length > 0) {
+    return {
+      success: false,
+      processedCount: 0,
+      message: "Each deleted video can only be used once.",
+      error: `Duplicate deleted video selections: ${duplicateDeletedIds.join(", ")}`,
+      status: 400,
+    };
+  }
 
   try {
+    const playlist = await prisma.servicePlaylist.findFirst({
+      where: {
+        id: playlistId,
+        ownerId: userId,
+        isActive: true,
+      },
+      include: { service: true },
+    });
+
+    if (!playlist) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: "Playlist not found or access denied",
+        error: "Playlist not found or access denied",
+        status: 404,
+      };
+    }
+
+    if (!playlist.service) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: "Service not found for playlist",
+        error: undefined,
+        status: 500,
+      };
+    }
+
+    const service = await getServiceByName(playlist.service.name);
+    const { createId } = await import("@paralleldrive/cuid2");
+
     const result = await prisma.$transaction(async (tx) => {
       let processedCount = 0;
 
@@ -96,8 +167,21 @@ export async function confirmOrphanedMatches(
         }
 
         if (match.action === "new") {
+          // Idempotency: if a row in this playlist already owns this
+          // playlistItem.id (re-submit / stale confirm / later sync), treat the
+          // match as already resolved instead of failing the whole batch.
+          if (match.deletedItemId) {
+            const itemIdOwner = await tx.servicePlaylistTrack.findFirst({
+              where: { playlistId, playlistItemId: match.deletedItemId },
+              select: { id: true },
+            });
+            if (itemIdOwner) continue;
+          }
+
           const newTrackId = createId();
-          const externalId = match.deletedItemId || `deleted-${playlistId}-${match.position}`;
+          // Never trust client input for the Track externalId (deletedItemId is a
+          // playlistItem.id, not a video id, and could squat the unique key).
+          const externalId = `deleted-${playlistId}-${newTrackId}`;
 
           const artistRecord = await getOrCreateArtistTx(tx, "Unknown Artist");
 
@@ -119,6 +203,7 @@ export async function confirmOrphanedMatches(
               id: createId(),
               playlistId,
               trackId: track.id,
+              playlistItemId: match.deletedItemId || null,
               position: match.position,
               isDeleted: true,
               deletedAt: new Date(),
@@ -132,27 +217,38 @@ export async function confirmOrphanedMatches(
           // orphaned track is a ServicePlaylistTrack row for this playlist
           // that was not seen in the latest sync). Reject any client-supplied
           // track that is only in the global catalog.
-          const existingPlaylistTrack = await tx.servicePlaylistTrack.findUnique({
+          const existingPlaylistTrack = await tx.servicePlaylistTrack.findFirst({
             where: {
-              playlistId_trackId: {
-                playlistId,
-                trackId: match.selectedTrackId,
-              },
+              playlistId,
+              trackId: match.selectedTrackId,
             },
+            orderBy: [{ isDeleted: "asc" }, { position: "asc" }, { id: "asc" }],
           });
 
           if (!existingPlaylistTrack) {
-            throw new Error(`Track is not a member of this playlist: ${match.selectedTrackId}`);
+            throw new OrphanMatchError(
+              `Track is not a member of this playlist: ${match.selectedTrackId}`,
+            );
           }
 
+          // The dialog offers candidate rows that are absent from the latest sync
+          // but NOT deleted (deleted rows are filtered out, ADR-006 Edge Case 9).
+          // Matching one marks it deleted and stamps the deleted item's
+          // playlistItem.id (overwriting a stale one) so the next sync resolves
+          // the item. Skip the stamp only if another row already owns that id.
+          const itemIdOwner = match.deletedItemId
+            ? await tx.servicePlaylistTrack.findFirst({
+                where: { playlistId, playlistItemId: match.deletedItemId },
+                select: { id: true },
+              })
+            : null;
+
           await tx.servicePlaylistTrack.update({
-            where: {
-              playlistId_trackId: {
-                playlistId,
-                trackId: match.selectedTrackId,
-              },
-            },
+            where: { id: existingPlaylistTrack.id },
             data: {
+              ...(match.deletedItemId && !itemIdOwner
+                ? { playlistItemId: match.deletedItemId }
+                : {}),
               position: match.position,
               isDeleted: true,
               deletedAt: existingPlaylistTrack.deletedAt || new Date(),
@@ -173,12 +269,21 @@ export async function confirmOrphanedMatches(
     };
   } catch (error) {
     console.error("Error confirming deleted video matches:", error);
-    const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+    if (error instanceof OrphanMatchError) {
+      return {
+        success: false,
+        processedCount: 0,
+        message: error.message,
+        error: error.message,
+        status: 403,
+      };
+    }
     return {
       success: false,
       processedCount: 0,
-      message: `Failed to process matches. No changes were made. Please try again.`,
-      error: errorMessage,
+      message: "Failed to process matches. No changes were made. Please try again.",
+      error: undefined,
+      status: 500,
     };
   }
 }

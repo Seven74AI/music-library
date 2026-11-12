@@ -1,5 +1,9 @@
 import { prisma } from "#app/utils/db.server.ts";
 import { loadLibraryStatusByTrackId } from "#app/utils/track-list-loader.server.ts";
+import {
+  assertValidIdCursor,
+  INVALID_CURSOR_FORMAT_MESSAGE,
+} from "#app/utils/search-validation.server.ts";
 
 export const ARTIST_TRACK_PAGE_SIZE = 50;
 
@@ -56,6 +60,17 @@ export async function getArtistTracksPage(
   artistId: string,
   { limit = ARTIST_TRACK_PAGE_SIZE, cursor }: { limit?: number; cursor?: string } = {},
 ): Promise<ArtistTracksPage> {
+  assertValidIdCursor(cursor);
+  if (cursor) {
+    const anchor = await prisma.track.findFirst({
+      where: { id: cursor, artistId },
+      select: { id: true },
+    });
+    if (!anchor) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+  }
+
   // Fetch one extra row to know whether another page exists without a second query.
   const tracksRaw = await prisma.track.findMany({
     where: { artistId },

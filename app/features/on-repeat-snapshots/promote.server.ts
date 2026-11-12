@@ -1,19 +1,11 @@
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
+  appendTracksToUserPlaylistAtNextPositions,
   bumpUserPlaylistUpdatedAt,
   userPlaylistTitleTaken,
 } from "#app/utils/user-playlist.server.ts";
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 export type PromoteOnRepeatSnapshotResult =
   | {
@@ -109,7 +101,7 @@ export async function promoteOnRepeatSnapshot(
       })
       .catch((error: unknown) => {
         // Atomic guard via the DB unique index on (ownerId, lower(trim(title))).
-        if (isUniqueConstraintViolation(error)) {
+        if (isUniqueConstraintError(error)) {
           return { status: "duplicate_title", existingTitle: trimmedTitle } as const;
         }
         throw error;
@@ -155,21 +147,10 @@ export async function promoteOnRepeatSnapshot(
     };
   }
 
-  const maxPosition = await prisma.userPlaylistTrack.aggregate({
-    where: { playlistId: targetPlaylist.id },
-    _max: { position: true },
+  await appendTracksToUserPlaylistAtNextPositions({
+    playlistId: targetPlaylist.id,
+    trackIds: newTrackIds,
   });
-  let nextPosition = (maxPosition._max.position ?? -1) + 1;
-
-  for (const chunk of chunkArray(newTrackIds)) {
-    await prisma.userPlaylistTrack.createMany({
-      data: chunk.map((trackId) => ({
-        playlistId: targetPlaylist.id,
-        trackId,
-        position: nextPosition++,
-      })),
-    });
-  }
 
   await bumpUserPlaylistUpdatedAt({
     playlistId: targetPlaylist.id,

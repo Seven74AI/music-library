@@ -11,6 +11,8 @@ interface EditableTextProps {
   multiline?: boolean;
   maxLength?: number;
   disabled?: boolean;
+  /** When true, saving an empty/cleared field calls onSave with "". */
+  allowEmpty?: boolean;
 }
 
 export function EditableText({
@@ -21,6 +23,7 @@ export function EditableText({
   multiline = false,
   maxLength,
   disabled = false,
+  allowEmpty = false,
 }: EditableTextProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(value);
@@ -39,7 +42,8 @@ export function EditableText({
 
   const handleSave = () => {
     const trimmedValue = editValue.trim();
-    if (trimmedValue && trimmedValue !== value) {
+    const valueChanged = trimmedValue !== value;
+    if (valueChanged && (allowEmpty || trimmedValue)) {
       onSave(trimmedValue);
     }
     setIsEditing(false);
@@ -67,6 +71,10 @@ export function EditableText({
     }
   };
 
+  const keepInputFocusOnPointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+  };
+
   if (isEditing) {
     const editClass = cn(
       "w-full bg-transparent border-none outline-none resize-none",
@@ -87,7 +95,6 @@ export function EditableText({
             ref={inputRef as React.RefObject<HTMLTextAreaElement>}
             value={editValue}
             onChange={handleChange}
-            onBlur={handleSave}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={3}
@@ -98,17 +105,30 @@ export function EditableText({
             ref={inputRef as React.RefObject<HTMLInputElement>}
             value={editValue}
             onChange={handleChange}
-            onBlur={handleSave}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             className={editClass}
           />
         )}
         <div className="absolute top-1 right-1 flex gap-1">
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleSave}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            onPointerDown={keepInputFocusOnPointerDown}
+            onClick={handleSave}
+          >
             <Icon name="check" className="h-3 w-3" />
           </Button>
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleCancel}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            onPointerDown={keepInputFocusOnPointerDown}
+            onClick={handleCancel}
+          >
             <Icon name="x-mark" className="h-3 w-3" />
           </Button>
         </div>

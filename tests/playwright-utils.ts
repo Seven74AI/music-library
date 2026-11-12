@@ -219,6 +219,7 @@ export const test = base.extend<{
         sameSite: cookieConfig.sameSite as "Strict" | "Lax" | "None",
       };
       await page.context().clearCookies();
+      await page.goto("/");
       await page.context().addCookies([newConfig]);
       return user;
     });
@@ -228,7 +229,6 @@ export const test = base.extend<{
   loginAsAdmin: async ({ page }, use) => {
     const userIds: string[] = [];
     await use(async (options) => {
-      // Automatically add admin and user roles
       const user = await getOrInsertUser({ ...options, roles: ["admin", "user"] });
       userIds.push(user.id);
       const session = await testPrisma.session.create({
@@ -251,6 +251,7 @@ export const test = base.extend<{
         sameSite: cookieConfig.sameSite as "Strict" | "Lax" | "None",
       };
       await page.context().clearCookies();
+      await page.goto("/");
       await page.context().addCookies([newConfig]);
       return user;
     });

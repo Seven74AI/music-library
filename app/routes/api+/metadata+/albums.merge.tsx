@@ -8,6 +8,14 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { executeCatalogEntityMerge } from "#app/features/metadata/merge-catalog-entity.server.ts";
+import {
+  EditLockTransactionError,
+  editLockConflictCopyForEntity,
+  findWriteBlockedLock,
+  getLockStatus,
+  throwEditLockTransactionError,
+} from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/albums.merge.ts";
 
@@ -21,7 +29,12 @@ export async function action({ request }: Route.ActionArgs) {
   await requireCuratorOrAdmin(request);
   const userId = await requireUserId(request);
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    throw data({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const result = MergeAlbumsSchema.safeParse(body);
 
   if (!result.success) {
@@ -29,6 +42,20 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const { sourceId, targetId, comment } = result.data;
+
+  const blockedLock = await findWriteBlockedLock(userId, [
+    { entityType: "album", entityId: sourceId },
+    { entityType: "album", entityId: targetId },
+  ]);
+  if (blockedLock) {
+    throwEditLockTransactionError(
+      new EditLockTransactionError({
+        kind: "other",
+        lockedByName: blockedLock.lockedByName,
+      }),
+      editLockConflictCopyForEntity("album"),
+    );
+  }
 
   // Validate: cannot merge album into itself
   if (sourceId === targetId) {
@@ -81,56 +108,30 @@ export async function action({ request }: Route.ActionArgs) {
     });
   }
 
+  const [sourceLock, targetLock] = await Promise.all([
+    getLockStatus("album", sourceId),
+    getLockStatus("album", targetId),
+  ]);
+
   try {
     // Perform merge in transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create audit entry before merge
-      await tx.albumEdit.create({
-        data: {
-          albumId: sourceId,
-          editedBy: userId,
-          comment: `MERGE: ${comment}`,
+    const result = await prisma.$transaction(async (tx) =>
+      executeCatalogEntityMerge(tx, {
+        entityType: "album",
+        sourceId,
+        targetId,
+        comment,
+        userId,
+        sourceLock,
+        targetLock,
+        auditSnapshot: {
           name: sourceAlbum.name,
           artistId: sourceAlbum.artistId,
           year: sourceAlbum.year,
           coverImageId: sourceAlbum.coverImageId,
         },
-      });
-
-      // Move all tracks from source to target
-      const tracksUpdated = await tx.track.updateMany({
-        where: { albumId: sourceId },
-        data: { albumId: targetId },
-      });
-
-      // Mark source album as merged
-      await tx.album.update({
-        where: { id: sourceId },
-        data: {
-          mergedIntoId: targetId,
-          mergedAt: new Date(),
-          mergedBy: userId,
-        },
-      });
-
-      // Update duplicate detection status for this pair
-      await tx.duplicateDetection.updateMany({
-        where: {
-          entityType: "album",
-          OR: [
-            { entityId1: sourceId, entityId2: targetId },
-            { entityId1: targetId, entityId2: sourceId },
-          ],
-        },
-        data: {
-          status: "merged",
-        },
-      });
-
-      return {
-        tracksUpdated: tracksUpdated.count,
-      };
-    });
+      }),
+    );
 
     return data({
       success: true,
@@ -141,6 +142,9 @@ export async function action({ request }: Route.ActionArgs) {
       },
     });
   } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("album"));
+    }
     console.error("Error merging albums:", error);
     throw new Response("Failed to merge albums", { status: 500 });
   }

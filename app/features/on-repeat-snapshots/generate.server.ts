@@ -1,20 +1,12 @@
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { chunkArray } from "#app/utils/chunk-array.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import {
   ON_REPEAT_SNAPSHOT_CAP,
   getPreviousCalendarMonthUtc,
   yearMonthToUtcWindow,
 } from "./month.ts";
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
 
 export type RankedPlayCompletedTrack = {
   trackId: string;
@@ -62,7 +54,7 @@ export async function rankPlayCompletedTracks({
     }
   }
 
-  return [...byTrack.entries()]
+  const sorted = [...byTrack.entries()]
     .map(([trackId, stats]) => ({
       trackId,
       listenCount: stats.listenCount,
@@ -74,8 +66,19 @@ export async function rankPlayCompletedTracks({
         return b.lastCompletedAt.getTime() - a.lastCompletedAt.getTime();
       }
       return a.trackId.localeCompare(b.trackId);
-    })
-    .slice(0, limit);
+    });
+
+  const candidateIds = sorted.map((row) => row.trackId);
+  const existingIds = new Set<string>();
+  for (const idChunk of chunkArray(candidateIds)) {
+    const existingTracks = await prisma.track.findMany({
+      where: { id: { in: idChunk } },
+      select: { id: true },
+    });
+    for (const track of existingTracks) existingIds.add(track.id);
+  }
+
+  return sorted.filter((row) => existingIds.has(row.trackId)).slice(0, limit);
 }
 
 export type GenerateSnapshotResult =
@@ -141,7 +144,7 @@ export async function generateOnRepeatSnapshotForUser({
     });
     return { status: "created", snapshotId: snapshot.id };
   } catch (error) {
-    if (isUniqueConstraintViolation(error)) {
+    if (isUniqueConstraintError(error)) {
       const raced = await prisma.onRepeatSnapshot.findUnique({
         where: { userId_yearMonth: { userId, yearMonth } },
         select: { id: true },

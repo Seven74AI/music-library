@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { type LoopMode } from "#app/features/queue/queue-navigation.ts";
 import { clampShuffleSeed } from "#app/features/queue/queue-shuffle.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { PLAYLIST_TRACK_SORT_OPTIONS } from "#app/utils/playlist-track-sort.ts";
@@ -45,34 +44,73 @@ const playerStateSchema = z.object({
   upNextIds: z.array(idSchema).max(1000),
   shuffleSeed: z.number().int().nullable(),
   loopMode: z.enum(["off", "all", "one"]),
+  spinePosition: z.number().int().min(0).default(0),
+  audibleSourceZone: z.enum(["spine", "upNext"]).nullable().default(null),
+  upNextPlayNextCount: z.number().int().min(0).default(0),
 });
+
+const DEFAULT_PLAYER_STATE: PlayerStateData = {
+  playContext: null,
+  currentTrackId: null,
+  upNextIds: [],
+  shuffleSeed: null,
+  loopMode: "off",
+  spinePosition: 0,
+  audibleSourceZone: null,
+  upNextPlayNextCount: 0,
+};
 
 /** Validate an untrusted request body into a `PlayerStateData`. */
 export function parsePlayerState(input: unknown) {
   return playerStateSchema.safeParse(input);
 }
 
-function safeParseStringArray(raw: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((id): id is string => typeof id === "string");
+function parseStoredPlayerStateRow(row: {
+  playContext: string | null;
+  currentTrackId: string | null;
+  upNextIds: string;
+  shuffleSeed: number | null;
+  loopMode: string;
+  spinePosition: number;
+  audibleSourceZone: string | null;
+  upNextPlayNextCount: number;
+}): PlayerStateData {
+  let playContext: unknown = null;
+  if (row.playContext) {
+    try {
+      playContext = JSON.parse(row.playContext) as unknown;
+    } catch {
+      playContext = null;
     }
-  } catch {
-    // fall through
   }
-  return [];
-}
 
-function safeParsePlayContext(raw: string | null): PlayContextJson | null {
-  if (!raw) return null;
+  let upNextIds: unknown = [];
   try {
-    const parsed: unknown = JSON.parse(raw);
-    const result = playContextSchema.safeParse(parsed);
-    return result.success ? result.data : null;
+    upNextIds = JSON.parse(row.upNextIds) as unknown;
   } catch {
-    return null;
+    upNextIds = [];
   }
+
+  const parsed = playerStateSchema.safeParse({
+    playContext,
+    currentTrackId: row.currentTrackId,
+    upNextIds,
+    shuffleSeed: row.shuffleSeed,
+    loopMode: row.loopMode,
+    spinePosition: row.spinePosition,
+    audibleSourceZone: row.audibleSourceZone,
+    upNextPlayNextCount: row.upNextPlayNextCount,
+  });
+
+  if (!parsed.success) {
+    return DEFAULT_PLAYER_STATE;
+  }
+
+  return {
+    ...parsed.data,
+    shuffleSeed:
+      parsed.data.shuffleSeed === null ? null : clampShuffleSeed(parsed.data.shuffleSeed),
+  };
 }
 
 /** One row per user — upsert on the unique `userId`. */
@@ -90,6 +128,9 @@ export async function savePlayerState(userId: string, data: PlayerStateData): Pr
       upNextIds,
       shuffleSeed,
       loopMode: data.loopMode,
+      spinePosition: data.spinePosition,
+      audibleSourceZone: data.audibleSourceZone,
+      upNextPlayNextCount: data.upNextPlayNextCount,
     },
     update: {
       playContext,
@@ -97,6 +138,9 @@ export async function savePlayerState(userId: string, data: PlayerStateData): Pr
       upNextIds,
       shuffleSeed,
       loopMode: data.loopMode,
+      spinePosition: data.spinePosition,
+      audibleSourceZone: data.audibleSourceZone,
+      upNextPlayNextCount: data.upNextPlayNextCount,
     },
   });
 }
@@ -106,11 +150,5 @@ export async function getPlayerState(userId: string): Promise<PlayerStateData | 
   const row = await prisma.playerState.findUnique({ where: { userId } });
   if (!row) return null;
 
-  return {
-    playContext: safeParsePlayContext(row.playContext),
-    currentTrackId: row.currentTrackId,
-    upNextIds: safeParseStringArray(row.upNextIds),
-    shuffleSeed: row.shuffleSeed,
-    loopMode: (row.loopMode as LoopMode) ?? "off",
-  };
+  return parseStoredPlayerStateRow(row);
 }

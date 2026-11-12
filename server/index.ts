@@ -15,6 +15,8 @@ import {
   mutationRateLimitTier,
 } from "../app/utils/mutation-rate-limit.ts";
 import { createRouterLoadContext } from "../app/utils/router-context.server.ts";
+import { createHttpsUpgradeMiddleware } from "./https-upgrade-middleware.ts";
+import { requestUrlForAccessLog } from "./request-log-url.ts";
 
 const MODE = process.env.NODE_ENV ?? "development";
 const IS_PROD = MODE === "production";
@@ -36,24 +38,10 @@ const viteDevServer = IS_PROD
 
 const app = express();
 
-const getHost = (req: { get: (key: string) => string | undefined }) =>
-  req.get("X-Forwarded-Host") ?? req.get("host") ?? "";
-
 // fly is our proxy
 app.set("trust proxy", true);
 
-// ensure HTTPS only (X-Forwarded-Proto comes from Fly)
-app.use((req, res, next) => {
-  if (req.method !== "GET") return next();
-  const proto = req.get("X-Forwarded-Proto");
-  const host = getHost(req);
-  if (proto === "http") {
-    res.set("X-Forwarded-Proto", "https");
-    res.redirect(`https://${host}${req.originalUrl}`);
-    return;
-  }
-  next();
-});
+app.use(createHttpsUpgradeMiddleware());
 
 // no ending slashes for SEO reasons
 // https://github.com/epicweb-dev/epic-stack/discussions/108
@@ -129,13 +117,7 @@ app.get(["/img/{*imgPath}", "/favicons/{*favPath}"], (_req, res) => {
   return res.status(404).send("Not found");
 });
 
-morgan.token("url", (req) => {
-  try {
-    return decodeURIComponent(req.url ?? "");
-  } catch {
-    return req.url ?? "";
-  }
-});
+morgan.token("url", (req) => requestUrlForAccessLog(req.url));
 app.use(
   morgan("tiny", {
     skip: (req, res) =>
@@ -147,7 +129,7 @@ app.use(
 // When running tests or running in development, we want to effectively disable
 // rate limiting because playwright tests are very fast and we don't want to
 // have to wait for the rate limit to reset between tests.
-const maxMultiple = !IS_PROD || process.env.PLAYWRIGHT_TEST_BASE_URL ? 10_000 : 1;
+const maxMultiple = IS_PROD ? 1 : 10_000;
 const rateLimitDefault = {
   windowMs: 60 * 1000,
   limit: 1000 * maxMultiple,
@@ -280,6 +262,7 @@ ${styleText("bold", "Press Ctrl+C to stop")}
 });
 
 closeWithGrace(async ({ err }) => {
+  await globalThis.__drainInProcessJobStoppers?.();
   await new Promise((resolve, reject) => {
     server.close((e) => (e ? reject(e) : resolve("ok")));
   });

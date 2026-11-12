@@ -3,6 +3,7 @@ import { prisma } from "#app/utils/db.server";
 import { type Prisma } from "#prisma/client.js";
 import { type ExtractedAudioMetadata } from "./audio-metadata.server";
 import { normalizeArtistName } from "./normalize.server.ts";
+import { followMergedIntoIdChain } from "./canonical-merged-entity.server.ts";
 
 // Re-export the ADR-034 canonical normalization so every artist write path
 // (create/edit/restore/split/import) derives the same normalizedName.
@@ -73,62 +74,17 @@ type ArtistClient = {
   };
 };
 
-/**
- * Follow mergedIntoId until we reach the living artist.
- * Upload/import must not keep attaching tracks to a merged-away source.
- */
 async function resolveCanonicalArtist(
   db: ArtistClient,
   artist: ArtistLookup,
 ): Promise<{ id: string; name: string }> {
-  const seen = new Set<string>();
-  let current = artist;
-
-  while (current.mergedIntoId) {
-    if (seen.has(current.id)) {
-      break;
-    }
-    seen.add(current.id);
-
-    const next = await db.artist.findUnique({
-      where: { id: current.mergedIntoId },
+  const living = await followMergedIntoIdChain(artist, (mergedIntoId) =>
+    db.artist.findUnique({
+      where: { id: mergedIntoId },
       select: { id: true, name: true, mergedIntoId: true },
-    });
-    if (!next) {
-      break;
-    }
-    current = next;
-  }
-
-  return { id: current.id, name: current.name };
-}
-
-/**
- * Find all artists with matching normalized name
- */
-export async function findArtistsByName(name: string): Promise<
-  Array<{
-    id: string;
-    name: string;
-    normalizedName: string;
-    mergedIntoId: string | null;
-  }>
-> {
-  const normalizedName = normalizeArtistName(name);
-  if (!normalizedName) {
-    return [];
-  }
-
-  return await prisma.artist.findMany({
-    where: { normalizedName },
-    select: {
-      id: true,
-      name: true,
-      normalizedName: true,
-      mergedIntoId: true,
-    },
-    orderBy: { createdAt: "asc" }, // First match = oldest
-  });
+    }),
+  );
+  return { id: living.id, name: living.name };
 }
 
 /**

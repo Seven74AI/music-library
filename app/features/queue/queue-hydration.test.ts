@@ -4,6 +4,7 @@ import {
   collectHydrationIds,
   collectQueueDisplayHydrationIds,
   hydratePlaybackCacheInBatches,
+  isRoomSpeakerHydrationStub,
   PlaybackHydrationCache,
   resolveFullTrack,
 } from "./queue-hydration.ts";
@@ -26,6 +27,30 @@ afterEach(() => {
 });
 
 describe("PlaybackHydrationCache", () => {
+  test("evictRoomSpeakerStubs removes synthetic room speaker entries", () => {
+    const cache = new PlaybackHydrationCache();
+    cache.set(fullTrack);
+    cache.set({
+      ...fullTrack,
+      id: "room-track",
+      artist: { id: "room-artist", name: "Room" },
+      audioFiles: [{ id: "room-af", format: "mp3", objectKey: "room" }],
+    });
+
+    const evicted = cache.evictRoomSpeakerStubs();
+
+    expect(evicted).toEqual(["room-track"]);
+    expect(cache.has("room-track")).toBe(false);
+    expect(cache.has("track-1")).toBe(true);
+    expect(
+      isRoomSpeakerHydrationStub({
+        ...fullTrack,
+        artist: { id: "room-artist", name: "Room" },
+        audioFiles: [{ id: "af", format: "mp3", objectKey: "room" }],
+      }),
+    ).toBe(true);
+  });
+
   test("hydrateMissing fetches only uncached ids", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
@@ -85,6 +110,26 @@ describe("collectHydrationIds", () => {
     expect(ids).toHaveLength(4); // lookahead = 4
   });
 
+  test("wraps to spine head in loop-all when lookahead is not full", () => {
+    const ids = collectHydrationIds(
+      {
+        upNext: [],
+        spine: [
+          { id: "s0", title: "S0", artist: { id: "a", name: "A" } },
+          { id: "s1", title: "S1", artist: { id: "a", name: "A" } },
+          { id: "s2", title: "S2", artist: { id: "a", name: "A" } },
+          { id: "s3", title: "S3", artist: { id: "a", name: "A" } },
+        ],
+        spineOrder: [0, 1, 2, 3],
+        spinePosition: 3,
+        loopMode: "all",
+      },
+      "s3",
+    );
+
+    expect(ids).toEqual(["s3", "s0", "s1", "s2"]);
+  });
+
   test("early-terminates on large queues without materializing full array", () => {
     // Simulate a 15K+ library: one upNext + 15K spine tracks
     const largeSpine = Array.from({ length: 15_000 }, (_, i) => ({
@@ -129,6 +174,30 @@ describe("collectQueueDisplayHydrationIds", () => {
 
     expect(ids).toEqual(["s1", "u1", "s2", "s3"]);
   });
+
+  test("audibleIsSpineHead option matches queue sheet spine-head zone semantics", () => {
+    const state = {
+      upNext: [{ id: "s1", title: "Dup", artist: { id: "a", name: "A" } }],
+      spine: [
+        { id: "s1", title: "S1", artist: { id: "a", name: "A" } },
+        { id: "s2", title: "S2", artist: { id: "a", name: "A" } },
+        { id: "s3", title: "S3", artist: { id: "a", name: "A" } },
+      ],
+      spineOrder: [0, 1, 2],
+      spinePosition: 0,
+      loopMode: "off" as const,
+    };
+
+    const fromUpNextZone = collectQueueDisplayHydrationIds(state, "s1", {
+      audibleIsSpineHead: false,
+    });
+    const fromSpineZone = collectQueueDisplayHydrationIds(state, "s1", {
+      audibleIsSpineHead: true,
+    });
+
+    expect(fromUpNextZone).toEqual(["s1", "s2", "s3"]);
+    expect(fromSpineZone).toEqual(["s1", "s2", "s3"]);
+  });
 });
 
 describe("hydratePlaybackCacheInBatches", () => {
@@ -164,13 +233,16 @@ describe("hydratePlaybackCacheInBatches", () => {
     expect(updated).toBe(0);
   });
 
-  test("refetches cached stubs missing cover art when refetchIncomplete is set", async () => {
+  test("refetches queue stubs without playback payload when refetchIncomplete is set", async () => {
     const fetchMock = vi.mocked(fetch);
     const cache = new PlaybackHydrationCache();
     cache.set({
-      ...fullTrack,
       id: "track-1",
+      title: "Song",
+      artist: { id: "artist-1", name: "Artist" },
+      duration: null,
       coverImage: null,
+      audioFiles: [],
     });
 
     fetchMock.mockResolvedValue({
@@ -186,6 +258,23 @@ describe("hydratePlaybackCacheInBatches", () => {
 
     expect(updated).toBe(1);
     expect(cache.get("track-1")?.coverImage).toEqual({ objectKey: "covers/1.jpg" });
+  });
+
+  test("does not refetch full tracks with legitimately null cover when refetchIncomplete is set", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const cache = new PlaybackHydrationCache();
+    cache.set({
+      ...fullTrack,
+      id: "track-1",
+      coverImage: null,
+    });
+
+    const updated = await hydratePlaybackCacheInBatches(cache, ["track-1"], {
+      refetchIncomplete: true,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(updated).toBe(0);
   });
 });
 

@@ -8,6 +8,8 @@ import { type Route } from "./+types/release.ts";
 const ReleaseLockSchema = z.object({
   entityType: z.enum(["track", "artist", "album"]),
   entityId: z.string().min(1),
+  lockId: z.string().min(1).optional(),
+  acquiredAt: z.string().min(1).optional(),
 });
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -20,9 +22,16 @@ export async function action({ request }: ActionFunctionArgs) {
     throw data({ error: "Invalid input", issues: result.error.issues }, { status: 400 });
   }
 
-  const { entityType, entityId } = result.data;
+  const { entityType, entityId, lockId, acquiredAt } = result.data;
 
-  const outcome = await releaseLock(entityType as EntityType, entityId, userId);
+  if (!lockId || !acquiredAt) {
+    throw data({ error: "lockId and acquiredAt are required to release a lock" }, { status: 409 });
+  }
+
+  const outcome = await releaseLock(entityType as EntityType, entityId, userId, {
+    lockId,
+    acquiredAt: new Date(acquiredAt),
+  });
 
   if (outcome === "not_found") {
     throw data({ error: "Lock not found" }, { status: 404 });

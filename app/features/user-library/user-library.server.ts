@@ -5,6 +5,36 @@ import {
 import { Prisma } from "#prisma/client.js";
 import { chunkArray, SQLITE_IN_CHUNK_SIZE } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
+
+async function createUserTracksIgnoringDuplicateKey(
+  tx: Prisma.TransactionClient,
+  rows: Array<{ userId: string; trackId: string; createdAt: Date }>,
+): Promise<number> {
+  if (rows.length === 0) {
+    return 0;
+  }
+  try {
+    const result = await tx.userTrack.createMany({ data: rows });
+    return result.count;
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+    let created = 0;
+    for (const row of rows) {
+      try {
+        await tx.userTrack.create({ data: row });
+        created += 1;
+      } catch (rowError) {
+        if (!isUniqueConstraintError(rowError)) {
+          throw rowError;
+        }
+      }
+    }
+    return created;
+  }
+}
 
 export async function addTrackToUserLibrary(
   trackId: string,
@@ -43,6 +73,30 @@ export async function addTrackToUserLibrary(
     }).catch((error) => console.error("Failed to record library_add usage event:", error));
     return { success: true, message: "Track added to library" };
   } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      const raced = await prisma.userTrack.findUnique({
+        where: {
+          userId_trackId: { userId, trackId },
+        },
+      });
+      if (raced?.isActive) {
+        return { success: true, message: "Track already in library" };
+      }
+      if (raced && !raced.isActive) {
+        await prisma.userTrack.update({
+          where: { id: raced.id },
+          data: { isActive: true, deletedAt: null, createdAt: new Date() },
+        });
+        void recordUsageEvent({
+          type: USAGE_EVENT_TYPES.library_add,
+          userId,
+          trackId,
+        }).catch((eventError) =>
+          console.error("Failed to record library_add usage event:", eventError),
+        );
+        return { success: true, message: "Track re-added to library" };
+      }
+    }
     console.error("Error adding track to user library:", error);
     return {
       success: false,
@@ -76,55 +130,45 @@ export async function addTracksToUserLibrary(
   }
 
   try {
-    const existing = [];
-    for (const trackIdChunk of chunkArray(uniqueTrackIds)) {
-      const batch = await prisma.userTrack.findMany({
-        where: {
-          userId,
-          trackId: { in: trackIdChunk },
-        },
-      });
-      existing.push(...batch);
-    }
-
-    const existingByTrackId = new Map(existing.map((userTrack) => [userTrack.trackId, userTrack]));
-    // trackId -> soft-deleted UserTrack id, so reactivation can get a fresh
-    // createdAt stamped by playlist position.
-    const reactivateByTrackId = new Map(
-      existing
-        .filter((userTrack) => !userTrack.isActive)
-        .map((userTrack) => [userTrack.trackId, userTrack.id]),
-    );
-
-    // Library lists/plays by UserTrack.createdAt desc. Stagger stamps so the
-    // first id in `trackIds` (YouTube playlist order) sorts first, not reverse.
-    // Reactivated (soft-deleted) tracks must be re-stamped too, or a re-added
-    // track keeps its original old createdAt and sorts out of playlist order.
     const bulkAddedAtMs = Date.now();
 
-    const createRows: Array<{ userId: string; trackId: string; createdAt: Date }> = [];
-    const reactivateRows: Array<{ id: string; createdAt: Date }> = [];
-    let position = 0;
-    for (const trackId of uniqueTrackIds) {
-      const createdAt = new Date(bulkAddedAtMs - position);
-      position += 1;
-
-      const reactivateId = reactivateByTrackId.get(trackId);
-      if (reactivateId !== undefined) {
-        reactivateRows.push({ id: reactivateId, createdAt });
-      } else if (!existingByTrackId.has(trackId)) {
-        createRows.push({ userId, trackId, createdAt });
-      }
-    }
-
+    let addedCount = 0;
     await prisma.$transaction(async (tx) => {
-      // Batch soft-deleted reactivation into one chunked raw UPDATE per chunk
-      // instead of N sequential UPDATEs (SQLite/LiteFS single-writer; add-all
-      // counts every soft-deleted track as "missing"). Per-row distinct
-      // `createdAt` is preserved via a VALUES join. SQLite rejects a bare
-      // `UPDATE ... FROM (VALUES ...)`, so the VALUES list is wrapped in a CTE.
-      // Two binds per row -> chunk at half SQLITE_IN_CHUNK_SIZE to stay under
-      // SQLite's bind limit.
+      const existing = [];
+      for (const trackIdChunk of chunkArray(uniqueTrackIds)) {
+        const batch = await tx.userTrack.findMany({
+          where: {
+            userId,
+            trackId: { in: trackIdChunk },
+          },
+        });
+        existing.push(...batch);
+      }
+
+      const existingByTrackId = new Map(
+        existing.map((userTrack) => [userTrack.trackId, userTrack]),
+      );
+      const reactivateByTrackId = new Map(
+        existing
+          .filter((userTrack) => !userTrack.isActive)
+          .map((userTrack) => [userTrack.trackId, userTrack.id]),
+      );
+
+      const createRows: Array<{ userId: string; trackId: string; createdAt: Date }> = [];
+      const reactivateRows: Array<{ id: string; createdAt: Date }> = [];
+      let position = 0;
+      for (const trackId of uniqueTrackIds) {
+        const createdAt = new Date(bulkAddedAtMs - position);
+        position += 1;
+
+        const reactivateId = reactivateByTrackId.get(trackId);
+        if (reactivateId !== undefined) {
+          reactivateRows.push({ id: reactivateId, createdAt });
+        } else if (!existingByTrackId.has(trackId)) {
+          createRows.push({ userId, trackId, createdAt });
+        }
+      }
+
       const reactivateChunkSize = Math.floor(SQLITE_IN_CHUNK_SIZE / 2);
       for (const chunk of chunkArray(reactivateRows, reactivateChunkSize)) {
         const values = Prisma.join(
@@ -139,12 +183,13 @@ export async function addTracksToUserLibrary(
         `;
       }
 
+      let createdCount = 0;
       for (const chunk of chunkArray(createRows)) {
-        await tx.userTrack.createMany({ data: chunk });
+        createdCount += await createUserTracksIgnoringDuplicateKey(tx, chunk);
       }
-    });
 
-    const addedCount = reactivateByTrackId.size + createRows.length;
+      addedCount = reactivateRows.length + createdCount;
+    });
     if (addedCount > 0) {
       void recordUsageEvent({
         type: USAGE_EVENT_TYPES.library_add,

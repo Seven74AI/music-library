@@ -1,10 +1,21 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import {
+  assertEditLockInTransaction,
+  findWriteBlockedLock,
+  getLockStatus,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { action } from "./$trackId.restore.$editId.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
   requireCuratorRole: vi.fn(),
+}));
+
+vi.mock("#app/utils/locks.server.ts", () => ({
+  findWriteBlockedLock: vi.fn(),
+  getLockStatus: vi.fn(),
+  assertEditLockInTransaction: vi.fn(),
 }));
 
 vi.mock("#app/utils/db.server.ts", () => ({
@@ -45,6 +56,34 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
+    vi.mocked(findWriteBlockedLock).mockResolvedValue(null);
+    vi.mocked(getLockStatus).mockResolvedValue(null);
+    vi.mocked(assertEditLockInTransaction).mockResolvedValue(undefined);
+  });
+
+  test("returns 409 when the track is locked by another curator", async () => {
+    vi.mocked(findWriteBlockedLock).mockResolvedValue({
+      id: "lock-1",
+      entityType: "track",
+      entityId: "track-1",
+      lockedBy: "other",
+      lockedByName: "Ada",
+      acquiredAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    vi.mocked(prisma.track.findUnique).mockResolvedValue({ id: "track-1" } as never);
+
+    try {
+      await action(
+        makeRequest({ comment: "Restore" }, { trackId: "track-1", editId: "edit-1" }) as never,
+      );
+      expect.unreachable("action should have thrown");
+    } catch (e: any) {
+      expect(e.init.status).toBe(409);
+      expect(e.data.error).toBe("Locked");
+    }
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   test("requires curator or admin role", async () => {
@@ -430,7 +469,6 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
         where: { id: "track-1" },
         data: expect.objectContaining({
           title: "Old Title",
-          genre: "Jazz",
           genres: { set: [{ id: "genre-jazz" }, { id: "genre-soul" }] },
         }),
       }),
@@ -438,8 +476,8 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     expect(mockTrackEditCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          genre: "Rock",
-          genreIds: JSON.stringify(["genre-rock", "genre-pop"]),
+          genre: "Pop",
+          genreIds: JSON.stringify(["genre-pop", "genre-rock"]),
         }),
       }),
     );
@@ -497,10 +535,13 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
       albumRecord: null,
     });
 
+    const mockExecuteRaw = vi.fn().mockResolvedValue(0);
     vi.mocked(prisma.$transaction).mockImplementation(async (callback: any) => {
       return callback({
         trackEdit: { create: vi.fn().mockResolvedValue({ id: "edit-2", user: {} }) },
-        track: { update: mockTrackUpdate },
+        track: { update: mockTrackUpdate, findUnique: vi.fn().mockResolvedValue({}) },
+        genre: { findFirst: vi.fn().mockResolvedValue({ id: "genre-jazz", name: "Jazz" }) },
+        $executeRaw: mockExecuteRaw,
       });
     });
 
@@ -512,7 +553,6 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     );
 
     const updateCall = mockTrackUpdate.mock.calls[0]?.[0];
-    expect(updateCall.data.genre).toBe("Jazz");
     expect(updateCall.data.genres).toBeUndefined();
     expect(prisma.genre.findMany).not.toHaveBeenCalled();
   });
@@ -585,7 +625,6 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     expect(mockTrackUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          genre: null,
           genres: { set: [] },
         }),
       }),

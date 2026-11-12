@@ -75,6 +75,8 @@ export interface UploadProgressEntry {
   startTime?: number;
   /** Timestamp of the last mutation — the TTL sweeper reclaims idle sessions. */
   lastUpdated: number;
+  /** Admin who initiated the batch — gates SSE subscription ownership. */
+  ownerUserId?: string;
   successfulTracks?: SuccessfulTrackInfo[];
   failedFiles?: FailedFileInfo[];
 }
@@ -302,7 +304,11 @@ export async function setUploadProgress(
 }
 
 /** Initialize upload progress for a session. */
-export function initUploadProgress(uploadId: string, fileNames: string[]): Promise<void> {
+export function initUploadProgress(
+  uploadId: string,
+  fileNames: string[],
+  ownerUserId: string,
+): Promise<void> {
   const files = fileNames.map((fileName, index) => ({
     fileId: `file-${index}`,
     fileName,
@@ -315,6 +321,7 @@ export function initUploadProgress(uploadId: string, fileNames: string[]): Promi
     overallProgress: 0,
     status: "active",
     startTime: Date.now(),
+    ownerUserId,
     successfulTracks: [],
     failedFiles: [],
   });
@@ -378,7 +385,31 @@ export async function addSuccessfulTrack(
     if (!current.successfulTracks) {
       current.successfulTracks = [];
     }
-    current.successfulTracks.push(trackInfo);
+    const alreadyRecorded = current.successfulTracks.some(
+      (entry) => entry.trackId === trackInfo.trackId,
+    );
+    if (!alreadyRecorded) {
+      current.successfulTracks.push(trackInfo);
+    }
+    current.lastUpdated = Date.now();
+    await backend.set(uploadId, current);
+    notifyProgressUpdate(uploadId);
+  });
+}
+
+/** Drop a committed track from the success list when recording a failure. */
+export async function removeSuccessfulTrackByTrackId(
+  uploadId: string,
+  trackId: string,
+): Promise<void> {
+  await withUploadLock(uploadId, async () => {
+    const current = await backend.get(uploadId);
+    if (!current?.successfulTracks?.length) return;
+
+    const nextTracks = current.successfulTracks.filter((entry) => entry.trackId !== trackId);
+    if (nextTracks.length === current.successfulTracks.length) return;
+
+    current.successfulTracks = nextTracks;
     current.lastUpdated = Date.now();
     await backend.set(uploadId, current);
     notifyProgressUpdate(uploadId);

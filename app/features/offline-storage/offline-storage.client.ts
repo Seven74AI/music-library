@@ -3,7 +3,7 @@ import { coverImageUrl, trackThumbnailPixelSizes } from "#app/utils/cover-image-
 import { cacheCoverImage } from "./cover-cache.client.ts";
 import { createMemoryOfflineAudioStore, type OfflineAudioStore } from "./memory-audio-store.ts";
 import { getOfflineMetadataStore } from "./metadata-store.client.ts";
-import { offlineAudioOpfsPath } from "./offline-audio-path.ts";
+import { offlineAudioOpfsPath, offlineAudioStagingTrackId } from "./offline-audio-path.ts";
 import { getOfflineAudioFormat, mimeTypeForAudioFormat } from "./offline-track-summary.client.ts";
 import {
   createOpfsOfflineAudioStore,
@@ -106,7 +106,6 @@ export function createOfflineStorage(
   }
 
   async function ensureCapacity(requiredBytes: number) {
-    const audioStore = await resolveAudioStore();
     const { usage, quota } = await readStorageEstimate();
     if (!quota) return;
 
@@ -123,8 +122,7 @@ export function createOfflineStorage(
     const victims = selectQueueCacheEvictionCandidates(records, bytesToFree);
 
     for (const victim of victims) {
-      await audioStore.delete(victim.trackId, victim.audioFormat);
-      await metadataStore.delete(victim.trackId);
+      await removeTrack(victim.trackId);
     }
   }
 
@@ -150,33 +148,68 @@ export function createOfflineStorage(
     await ensureCapacity(fileSizeBytes);
 
     const existing = await metadataStore.get(track.id);
-    await audioStore.write(track.id, buffer, getOfflineAudioFormat(track));
+    const audioFormat = getOfflineAudioFormat(track);
+    const stagingTrackId = offlineAudioStagingTrackId(track.id);
 
-    if (existing) {
-      await metadataStore.put(
-        mergeOfflineTrackRecord(existing, {
-          isPinned: options.pin ? true : existing.isPinned,
-          isQueueCached: options.queue ? true : existing.isQueueCached,
-          fileSizeBytes,
-          lastAccessedAt: Date.now(),
-          pinnedAt: options.pin ? Date.now() : existing.pinnedAt,
-          playlistId: options.playlistId,
-          audioFormat: getOfflineAudioFormat(track),
-        }),
-      );
-      return;
+    const previousFormat = existing?.audioFormat ?? null;
+    const previousRecord = existing ? { ...existing } : null;
+    const previousBytes =
+      existing && previousFormat ? await audioStore.read(track.id, previousFormat) : null;
+
+    await audioStore.write(stagingTrackId, buffer, audioFormat);
+
+    let committed = false;
+    try {
+      await audioStore.commitStagingWrite(stagingTrackId, track.id, audioFormat);
+      committed = true;
+
+      if (
+        previousFormat &&
+        previousFormat !== audioFormat &&
+        (await audioStore.has(track.id, previousFormat))
+      ) {
+        await audioStore.delete(track.id, previousFormat);
+      }
+
+      if (existing) {
+        await metadataStore.put(
+          mergeOfflineTrackRecord(existing, {
+            isPinned: options.pin ? true : existing.isPinned,
+            isQueueCached: options.queue ? true : existing.isQueueCached,
+            fileSizeBytes,
+            lastAccessedAt: Date.now(),
+            pinnedAt: options.pin ? Date.now() : existing.pinnedAt,
+            playlistId: options.playlistId,
+            audioFormat,
+          }),
+        );
+      } else {
+        await metadataStore.put(
+          toOfflineTrackRecord(track, {
+            opfsPath: offlineAudioOpfsPath(track.id, audioFormat),
+            fileSizeBytes,
+            isPinned: options.pin,
+            isQueueCached: options.queue,
+            playlistId: options.playlistId,
+            audioFormat,
+          }),
+        );
+      }
+    } catch (error) {
+      await audioStore.delete(stagingTrackId, audioFormat);
+      if (committed) {
+        await audioStore.delete(track.id, audioFormat);
+        if (previousBytes && previousFormat) {
+          await audioStore.write(track.id, previousBytes, previousFormat);
+        }
+        if (previousRecord) {
+          await metadataStore.put(previousRecord);
+        } else {
+          await metadataStore.delete(track.id);
+        }
+      }
+      throw error;
     }
-
-    await metadataStore.put(
-      toOfflineTrackRecord(track, {
-        opfsPath: offlineAudioOpfsPath(track.id, getOfflineAudioFormat(track)),
-        fileSizeBytes,
-        isPinned: options.pin,
-        isQueueCached: options.queue,
-        playlistId: options.playlistId,
-        audioFormat: getOfflineAudioFormat(track),
-      }),
-    );
   }
 
   async function removeTrack(trackId: string) {
@@ -185,9 +218,34 @@ export function createOfflineStorage(
     await audioStore.delete(trackId, record?.audioFormat);
     await metadataStore.delete(trackId);
     if (record?.coverObjectKey) {
-      const { deleteCachedCover } = await import("./cover-cache.client.ts");
-      await deleteCachedCover(record.coverObjectKey);
+      const remaining = await metadataStore.list();
+      const coverStillReferenced = remaining.some(
+        (summary) =>
+          summary.trackId !== trackId && summary.coverObjectKey === record.coverObjectKey,
+      );
+      if (!coverStillReferenced) {
+        const { deleteCachedCover } = await import("./cover-cache.client.ts");
+        await deleteCachedCover(record.coverObjectKey);
+      }
     }
+  }
+
+  async function filterSummariesWithOpfs(
+    summaries: OfflineTrackSummary[],
+  ): Promise<OfflineTrackSummary[]> {
+    const audioStore = await resolveAudioStore();
+    const kept: OfflineTrackSummary[] = [];
+    for (const summary of summaries) {
+      const record = await metadataStore.get(summary.trackId);
+      if (!record) continue;
+      const exists = await audioStore.has(summary.trackId, record.audioFormat);
+      if (!exists) {
+        await metadataStore.delete(summary.trackId);
+        continue;
+      }
+      kept.push(summary);
+    }
+    return kept;
   }
 
   return {
@@ -207,8 +265,22 @@ export function createOfflineStorage(
       options.onProgress?.({ completed: 1, total: 1 });
     },
     async cacheQueueTrack(track) {
-      if (await metadataStore.get(track.id)) {
-        await metadataStore.touch(track.id);
+      const existing = await metadataStore.get(track.id);
+      if (existing) {
+        const audioStore = await resolveAudioStore();
+        const exists = await audioStore.has(track.id, existing.audioFormat);
+        if (exists) {
+          await metadataStore.touch(track.id);
+          return;
+        }
+        const wasPinned = existing.isPinned;
+        const playlistId = existing.playlistIds[0];
+        const buffer = await fetchAudioBytes(track.id);
+        await storeTrack(track, buffer, {
+          pin: wasPinned,
+          queue: true,
+          playlistId,
+        });
         return;
       }
       const buffer = await fetchAudioBytes(track.id);
@@ -256,14 +328,14 @@ export function createOfflineStorage(
       }
       return true;
     },
-    listDownloaded() {
-      return metadataStore.listDownloaded();
+    async listDownloaded() {
+      return filterSummariesWithOpfs(await metadataStore.listDownloaded());
     },
-    listPinned() {
-      return metadataStore.listPinned();
+    async listPinned() {
+      return filterSummariesWithOpfs(await metadataStore.listPinned());
     },
-    listForPlaylist(playlistId) {
-      return metadataStore.listForPlaylist(playlistId);
+    async listForPlaylist(playlistId) {
+      return filterSummariesWithOpfs(await metadataStore.listForPlaylist(playlistId));
     },
     getRecord(trackId) {
       return metadataStore.get(trackId);

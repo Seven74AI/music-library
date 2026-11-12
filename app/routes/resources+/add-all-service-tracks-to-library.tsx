@@ -56,6 +56,7 @@ export async function action({ request }: Route.ActionArgs) {
           userId,
           trackId: { in: trackIdChunk },
           isActive: true,
+          deletedAt: null,
         },
         select: { trackId: true },
       });

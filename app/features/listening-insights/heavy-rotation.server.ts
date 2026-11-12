@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import {
   HEAVY_ROTATION_HOME_CAP,
   type HeavyRotationTrack,
@@ -69,9 +70,19 @@ export async function getHeavyRotationTracks({
     counts,
   );
 
-  // Prefer higher counts; among equal counts the stub createdAt is identical so
-  // id asc (from compare) keeps ordering stable.
-  const topIds = ranked.slice(0, limit).map((row) => row.trackId);
+  const candidateIds = ranked.map((row) => row.trackId);
+  const existingIds = new Set<string>();
+  for (const idChunk of chunkArray(candidateIds)) {
+    const existingTracks = await prisma.track.findMany({
+      where: { id: { in: idChunk } },
+      select: { id: true },
+    });
+    for (const track of existingTracks) existingIds.add(track.id);
+  }
+  const topIds = ranked
+    .filter((row) => existingIds.has(row.trackId))
+    .slice(0, limit)
+    .map((row) => row.trackId);
 
   const tracks = await prisma.track.findMany({
     where: { id: { in: topIds } },
@@ -82,7 +93,7 @@ export async function getHeavyRotationTracks({
   const result: HeavyRotationTrack[] = [];
   for (const trackId of topIds) {
     const track = trackById.get(trackId);
-    if (!track) continue; // dangling UsageEvent trackId
+    if (!track) continue; // deleted between existence check and detail fetch
     result.push({
       completedCount: counts.get(trackId) ?? 0,
       track,

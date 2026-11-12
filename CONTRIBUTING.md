@@ -9,7 +9,7 @@ This project uses automated kanban workers (coder, reviewer, researcher, planner
 ```bash
 npm install
 cp .env.example .env
-npx prisma migrate deploy && npx prisma generate --sql
+npm run migrate:deploy && npx prisma generate --sql
 ```
 
 ### Running Tests

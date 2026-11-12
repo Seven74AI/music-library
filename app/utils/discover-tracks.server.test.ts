@@ -328,8 +328,18 @@ describe("listDiscoverTracks", () => {
 
     const inLibrary = await createTrack("In Library");
     const notInLibrary = await createTrack("Not In Library");
+    const softDeleted = await createTrack("Soft Deleted In Library");
 
     await addToLibrary(user.id, inLibrary.id, new Date("2026-01-01T00:00:00.000Z"));
+    await prisma.userTrack.create({
+      data: {
+        userId: user.id,
+        trackId: softDeleted.id,
+        isActive: true,
+        deletedAt: new Date("2026-02-01T00:00:00.000Z"),
+        createdAt: new Date("2026-01-15T00:00:00.000Z"),
+      },
+    });
 
     const { tracks } = await listDiscoverTracks({
       userId: user.id,
@@ -339,9 +349,28 @@ describe("listDiscoverTracks", () => {
 
     const inLibraryTrack = tracks.find((t) => t.id === inLibrary.id);
     const notInLibraryTrack = tracks.find((t) => t.id === notInLibrary.id);
+    const softDeletedTrack = tracks.find((t) => t.id === softDeleted.id);
 
     expect(inLibraryTrack?.isInUserLibrary).toBe(true);
     expect(notInLibraryTrack?.isInUserLibrary).toBe(false);
+    expect(softDeletedTrack?.isInUserLibrary).toBe(false);
+  });
+
+  test("recentlyAdded pagination does not claim hasNext when result count equals limit", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    for (let i = 0; i < 5; i++) {
+      await createTrack(`Exact Page ${i}`);
+    }
+
+    const page1 = await listDiscoverTracks({
+      userId: user.id,
+      sort: "recentlyAdded",
+      limit: 5,
+    });
+
+    expect(page1.tracks).toHaveLength(5);
+    expect(page1.pagination.hasNext).toBe(false);
+    expect(page1.pagination.nextCursor).toBeNull();
   });
 
   test("pagination works correctly", async () => {

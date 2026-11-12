@@ -42,15 +42,19 @@ test("force logout ends one session and then every session for a user", async ()
     sessionId: first.id,
   });
 
+  const { sessionAdminHandle } = await import("./session-handle.server.ts");
   const listed = await listActiveSessions();
-  const row = listed.find((session) => session.id === first.id);
+  const row = listed.find((session) => session.handle === sessionAdminHandle(first.id));
   expect(row?.username).toBe(user.username);
   expect(row?.ipHash).toMatch(/^[0-9a-f]{16}$/);
   expect(row?.device).toBe("AdminBrowser/2");
   expect(JSON.stringify(row)).not.toContain("203.0.113.9");
+  expect(JSON.stringify(listed)).not.toContain(first.id);
+
+  expect(row).toBeDefined();
 
   const one = await forceLogoutSession({
-    sessionId: first.id,
+    sessionHandle: row!.handle,
     actorUserId: actor.id,
     request,
   });
@@ -75,8 +79,9 @@ test("a non-admin cannot force-logout another user's session", async () => {
     data: { userId: user.id, expirationDate: getSessionExpirationDate() },
   });
 
+  const { sessionAdminHandle } = await import("./session-handle.server.ts");
   const result = await forceLogoutSession({
-    sessionId: session.id,
+    sessionHandle: sessionAdminHandle(session.id),
     actorUserId: actor.id,
     request: makeRequest(),
   });
@@ -108,8 +113,9 @@ test("a user can force-logout their own session without an admin role", async ()
     data: { userId: user.id, expirationDate: getSessionExpirationDate() },
   });
 
+  const { sessionAdminHandle } = await import("./session-handle.server.ts");
   const result = await forceLogoutSession({
-    sessionId: session.id,
+    sessionHandle: sessionAdminHandle(session.id),
     actorUserId: user.id,
     request: makeRequest(),
   });

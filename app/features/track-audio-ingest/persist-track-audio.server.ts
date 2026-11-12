@@ -99,17 +99,41 @@ type CreateTrackAudioFileParams = {
 
 type TrackAudioFileDb = Prisma.TransactionClient | typeof prisma;
 
+const KNOWN_AUDIO_EXTENSIONS = new Set([
+  "mp3",
+  "flac",
+  "m4a",
+  "wav",
+  "ogg",
+  "aac",
+  "opus",
+  "webm",
+  "wma",
+  "aiff",
+  "ape",
+  "m4b",
+]);
+
+function normalizeAudioFormat(format: string | undefined): string {
+  const normalized = format?.toLowerCase();
+  if (normalized && KNOWN_AUDIO_EXTENSIONS.has(normalized)) return normalized;
+  return "mp3";
+}
+
 function getAudioExtension(
   metadata: ExtractedAudioMetadata,
   fileName?: string,
   extension?: string,
 ): string {
-  if (extension) return extension.replace(/^\./, "").toLowerCase();
-  if (fileName) {
-    const extFromName = fileName.split(".").pop()?.toLowerCase();
-    if (extFromName) return extFromName;
+  if (extension) {
+    const normalized = extension.replace(/^\./, "").toLowerCase();
+    if (KNOWN_AUDIO_EXTENSIONS.has(normalized)) return normalized;
   }
-  return metadata.format || "mp3";
+  if (fileName && fileName.includes(".")) {
+    const extFromName = fileName.split(".").pop()?.toLowerCase();
+    if (extFromName && KNOWN_AUDIO_EXTENSIONS.has(extFromName)) return extFromName;
+  }
+  return normalizeAudioFormat(metadata.format);
 }
 
 function runBackfillBestEffort(trackId: string, metadata: ExtractedAudioMetadata): void {
@@ -337,7 +361,7 @@ export async function createTrackAudioFile(
     throw new Error(`Cannot persist audio for track ${trackId}: no serviceId on track or params`);
   }
 
-  const format = metadata.format || "mp3";
+  const format = normalizeAudioFormat(metadata.format);
 
   // Derive a fallback fileName from this track's own identity rather than the
   // objectKey leaf: on an exact-hash duplicate the objectKey is reused from a
@@ -390,7 +414,7 @@ export async function persistTrackAudio(
 ): Promise<PersistTrackAudioResult> {
   const { trackId, serviceId = null, metadata } = params;
 
-  const format = metadata.format || "mp3";
+  const format = normalizeAudioFormat(metadata.format);
 
   // Resolve serviceId from the track when the caller does not supply one.
   // TrackAudioFile.serviceId is NOT NULL after migration, so a null here would

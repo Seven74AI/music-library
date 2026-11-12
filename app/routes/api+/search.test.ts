@@ -6,9 +6,14 @@ vi.mock("#app/utils/search-cache.server.ts", () => ({
   searchWithCache: vi.fn(),
 }));
 
-vi.mock("#app/utils/auth.server.ts", () => ({
-  getUserId: vi.fn().mockResolvedValue(null),
-}));
+vi.mock("#app/utils/auth.server.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/utils/auth.server.ts")>();
+  return {
+    ...actual,
+    getUserIdOrNull: vi.fn().mockResolvedValue(null),
+    getStaleAuthSessionDestroyCookie: vi.fn().mockResolvedValue(null),
+  };
+});
 
 function makeRequest(url: string) {
   return { request: new Request(url), url: new URL(url) };
@@ -80,6 +85,53 @@ describe("search API loader", () => {
       ...makeRequest("http://localhost/api/search?q=test"),
     } as never);
 
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as {
+      error: string;
+      results: unknown[];
+      pagination: { limit: number };
+    };
+    expect(body.error).toBe("Invalid search query");
+    expect(body.results).toEqual([]);
+    expect(body.pagination.limit).toBe(20);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  test("returns 400 with results shape when search fails due to invalid cursor", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(searchWithCache).mockRejectedValue(new Error("Invalid cursor format"));
+
+    const validCursor = Buffer.from(
+      JSON.stringify({ t: null, a: null, ar: null, p: null }),
+    ).toString("base64");
+    const response = await loader({
+      ...makeRequest(
+        `http://localhost/api/search?q=test&cursor=${encodeURIComponent(validCursor)}`,
+      ),
+    } as never);
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as {
+      error: string;
+      results: unknown[];
+      pagination: { limit: number };
+    };
+    expect(body.error).toBe("Invalid search query");
+    expect(body.results).toEqual([]);
+    expect(body.pagination.limit).toBe(20);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  test("returns 500 for non-syntax internal search failures", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(searchWithCache).mockRejectedValue(new Error("database is locked"));
+
+    const response = await loader({
+      ...makeRequest("http://localhost/api/search?q=test"),
+    } as never);
+
     expect(response.status).toBe(500);
     const body = (await response.json()) as {
       error: string;
@@ -89,6 +141,7 @@ describe("search API loader", () => {
     expect(body.error).toBe("Failed to perform search");
     expect(body.results).toEqual([]);
     expect(body.pagination.limit).toBe(20);
+    expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });
 
@@ -117,9 +170,55 @@ describe("search API loader", () => {
     expect(body).toHaveProperty("pagination");
   });
 
+  test("stale session cookie returns JSON catalog response, not redirect", async () => {
+    const { getUserIdOrNull, getStaleAuthSessionDestroyCookie, sessionKey } =
+      await import("#app/utils/auth.server.ts");
+    const { authSessionStorage } = await import("#app/utils/session.server.ts");
+    const deletedSessionId = `stale-${Math.random().toString(36).slice(2, 12)}`;
+    const authSession = await authSessionStorage.getSession();
+    authSession.set(sessionKey, deletedSessionId);
+    const cookie = await authSessionStorage.commitSession(authSession);
+
+    const actual = await vi.importActual<typeof import("#app/utils/auth.server.ts")>(
+      "#app/utils/auth.server.ts",
+    );
+    vi.mocked(getUserIdOrNull).mockImplementationOnce(actual.getUserIdOrNull);
+    vi.mocked(getStaleAuthSessionDestroyCookie).mockImplementationOnce(
+      actual.getStaleAuthSessionDestroyCookie,
+    );
+
+    vi.mocked(searchWithCache).mockResolvedValue({
+      results: [],
+      pagination: { limit: 20, hasNext: false, nextCursor: null },
+    });
+
+    const response = await loader({
+      ...makeRequest("http://localhost/api/search?q=beatles"),
+      request: new Request("http://localhost/api/search?q=beatles", {
+        headers: { cookie },
+      }),
+    } as never);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toBeTruthy();
+    const body = await response.json();
+    expect(body).toHaveProperty("results");
+  });
+
+  test("returns 400 when guest requests scope=library", async () => {
+    const response = await loader({
+      ...makeRequest("http://localhost/api/search?q=beatles&scope=library"),
+    } as never);
+
+    expect(response.status).toBe(400);
+    expect(searchWithCache).not.toHaveBeenCalled();
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("Library scope requires authentication");
+  });
+
   test("passes scope=library and authenticated userId to searchWithCache", async () => {
-    const { getUserId } = await import("#app/utils/auth.server.ts");
-    vi.mocked(getUserId).mockResolvedValueOnce("user-kody");
+    const { getUserIdOrNull } = await import("#app/utils/auth.server.ts");
+    vi.mocked(getUserIdOrNull).mockResolvedValueOnce("user-kody");
     vi.mocked(searchWithCache).mockResolvedValue({
       results: [],
       pagination: { limit: 20, hasNext: false, nextCursor: null },
@@ -142,8 +241,8 @@ describe("search API loader", () => {
   });
 
   test("passes scope=all with authenticated userId so Personal Play Boost still applies", async () => {
-    const { getUserId } = await import("#app/utils/auth.server.ts");
-    vi.mocked(getUserId).mockResolvedValueOnce("user-kody");
+    const { getUserIdOrNull } = await import("#app/utils/auth.server.ts");
+    vi.mocked(getUserIdOrNull).mockResolvedValueOnce("user-kody");
     vi.mocked(searchWithCache).mockResolvedValue({
       results: [],
       pagination: { limit: 20, hasNext: false, nextCursor: null },

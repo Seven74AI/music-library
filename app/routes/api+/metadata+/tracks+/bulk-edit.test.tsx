@@ -1,10 +1,21 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import {
+  assertEditLockInTransaction,
+  findWriteBlockedLock,
+  getLockStatus,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { action, clientAction } from "./bulk-edit.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
   requireCuratorRole: vi.fn(),
+}));
+
+vi.mock("#app/utils/locks.server.ts", () => ({
+  findWriteBlockedLock: vi.fn(),
+  getLockStatus: vi.fn(),
+  assertEditLockInTransaction: vi.fn(),
 }));
 
 vi.mock("#app/utils/db.server.ts", () => ({
@@ -20,6 +31,8 @@ vi.mock("#app/utils/db.server.ts", () => ({
     },
     genre: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -77,6 +90,33 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
+    vi.mocked(findWriteBlockedLock).mockResolvedValue(null);
+    vi.mocked(getLockStatus).mockResolvedValue(null);
+    vi.mocked(assertEditLockInTransaction).mockResolvedValue(undefined);
+  });
+
+  test("returns 409 when any target track is locked by another curator", async () => {
+    vi.mocked(findWriteBlockedLock).mockResolvedValue({
+      id: "lock-1",
+      entityType: "track",
+      entityId: "track-1",
+      lockedBy: "other",
+      lockedByName: "Ada",
+      acquiredAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    await expectReturnedError(
+      {
+        trackIds: ["track-1", "track-2"],
+        changes: { title: "New Title" },
+        comment: "Blocked",
+      },
+      409,
+      "Locked",
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   test("requires curator or admin role", async () => {
@@ -306,7 +346,6 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
         title: "Track 1",
         artistId: "artist-1",
         albumId: null,
-        genre: null,
         genres: [],
         year: null,
         trackNumber: null,
@@ -326,7 +365,6 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
         title: "Track 2",
         artistId: "artist-1",
         albumId: "album-old",
-        genre: null,
         genres: [],
         year: null,
         trackNumber: null,
@@ -372,7 +410,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
         title: "Track 1",
         artistId: "artist-1",
         albumId: null,
-        genre: "Rock",
+        genres: [],
         year: 2020,
         trackNumber: 1,
         albumArtist: null,
@@ -391,7 +429,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
         title: "Track 2",
         artistId: "artist-1",
         albumId: null,
-        genre: "Rock",
+        genres: [],
         year: 2020,
         trackNumber: 2,
         albumArtist: null,
@@ -409,6 +447,10 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
     vi.mocked(prisma.artist.findUnique).mockResolvedValue({ id: "artist-2" } as never);
+    vi.mocked(prisma.genre.findFirst).mockResolvedValue({
+      id: "genre-pop",
+      name: "Pop",
+    } as never);
 
     const { mockTrackEditCreateMany, mockTrackUpdateMany } = makeTxMock();
 
@@ -570,7 +612,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
         title: "Track 1",
         artistId: "artist-1",
         albumId: "album-1",
-        genre: "Rock",
+        genres: [],
         year: 2020,
         trackNumber: 1,
         albumArtist: "Various Artists",
@@ -587,6 +629,10 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     ];
 
     vi.mocked(prisma.track.findMany).mockResolvedValue(mockTracks as never);
+    vi.mocked(prisma.genre.findFirst).mockResolvedValue({
+      id: "genre-pop",
+      name: "Pop",
+    } as never);
 
     const { mockTrackUpdateMany } = makeTxMock();
 
@@ -601,10 +647,20 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     expect(mockTrackUpdateMany).toHaveBeenCalledWith({
       where: { id: { in: ["track-1"] } },
       data: {
-        genre: "Pop",
         year: 2021,
       },
     });
+  });
+
+  test("rejects invalid releaseDate in changes before the transaction", async () => {
+    const body = {
+      trackIds: ["track-1"],
+      changes: { releaseDate: "not-a-date" },
+      comment: "bad date",
+    };
+
+    await expectReturnedError(body, 400, "Validation failed");
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   test("handles date parsing correctly", async () => {
@@ -697,14 +753,13 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     expect(updateCall?.data.originalDate).toBeNull();
   });
 
-  test("sets genre ids via set-based SQL and syncs the legacy genre string", async () => {
+  test("sets genre ids via set-based SQL", async () => {
     const mockTracks = [
       {
         id: "track-1",
         title: "Track 1",
         artistId: "artist-1",
         albumId: null,
-        genre: "Rock",
         genres: [
           { id: "genre-pop", name: "Pop" },
           { id: "genre-rock", name: "Rock" },
@@ -727,7 +782,6 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
         title: "Track 2",
         artistId: "artist-1",
         albumId: null,
-        genre: null,
         genres: [],
         year: null,
         trackNumber: null,
@@ -764,12 +818,6 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     expect(response.data.updatedCount).toBe(2);
     expect(prisma.genre.findMany).toHaveBeenCalledTimes(1);
 
-    // The legacy genre string is the first resolved genre, set via updateMany.
-    expect(mockTrackUpdateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["track-1", "track-2"] } },
-      data: { genre: "Jazz" },
-    });
-
     // The many-to-many links are replaced with set-based SQL:
     // one DELETE + one multi-row INSERT per genre (2 genres) = 3 statements.
     expect(mockExecuteRaw).toHaveBeenCalledTimes(3);
@@ -779,8 +827,8 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
       expect.objectContaining({
         data: expect.arrayContaining([
           expect.objectContaining({
-            genre: "Rock",
-            genreIds: JSON.stringify(["genre-rock", "genre-pop"]),
+            genre: "Pop",
+            genreIds: JSON.stringify(["genre-pop", "genre-rock"]),
           }),
           expect.objectContaining({
             genre: null,
@@ -826,10 +874,6 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
     );
 
     expect(prisma.genre.findMany).not.toHaveBeenCalled();
-    expect(mockTrackUpdateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["track-1"] } },
-      data: { genre: null },
-    });
     // No INSERT (genre list empty), only the DELETE pass.
     expect(mockExecuteRaw).toHaveBeenCalledTimes(1);
   });
@@ -841,7 +885,6 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
         title: "Track 1",
         artistId: "artist-1",
         albumId: null,
-        genre: null,
         genres: [],
         year: null,
         trackNumber: null,

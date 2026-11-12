@@ -1,3 +1,5 @@
+import { type PreparedTrackAudio } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
+import { type PreparedCoverImage } from "#app/utils/cover-management.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { deleteFile } from "#app/utils/storage.server.ts";
 
@@ -11,6 +13,40 @@ import { deleteFile } from "#app/utils/storage.server.ts";
  *
  * @param objectKeys - S3 object keys to consider for deletion
  */
+export type CleanupFailedUploadOptions = {
+  /** When true, the DB transaction that references these artifacts committed successfully. */
+  transactionCommitted?: boolean;
+};
+
+/** Delete Tigris objects uploaded before a failed DB commit (idempotent best-effort). */
+export async function cleanupFailedUploadArtifacts(
+  preparedAudio: PreparedTrackAudio | null,
+  preparedCover: PreparedCoverImage | null,
+  options?: CleanupFailedUploadOptions,
+): Promise<void> {
+  const audioKeys: string[] = [];
+  if (preparedAudio && !preparedAudio.isDuplicate && !options?.transactionCommitted) {
+    audioKeys.push(preparedAudio.objectKey);
+  }
+  if (audioKeys.length > 0) {
+    await deleteUnreferencedObjectKeys(audioKeys);
+  }
+
+  if (preparedCover?.kind === "new" && !options?.transactionCommitted) {
+    const coverPersisted = await prisma.coverImage.findFirst({
+      where: { objectKey: preparedCover.objectKey },
+      select: { id: true },
+    });
+    if (coverPersisted) return;
+
+    try {
+      await deleteFile(preparedCover.objectKey);
+    } catch (error) {
+      console.error(`Failed to delete cover object ${preparedCover.objectKey}:`, error);
+    }
+  }
+}
+
 export async function deleteUnreferencedObjectKeys(objectKeys: string[]): Promise<void> {
   const uniqueKeys = [...new Set(objectKeys)];
   if (uniqueKeys.length === 0) return;

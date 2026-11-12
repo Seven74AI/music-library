@@ -1,8 +1,9 @@
-import { getUserId } from "#app/utils/auth.server.ts";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import {
   ARTIST_TRACK_PAGE_SIZE,
   getArtistTracksPage,
 } from "#app/features/artist/artist-tracks.server.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 
 export async function loader({ request, url }: { request: Request; url: URL }) {
   const artistId = url.searchParams.get("artistId");
@@ -20,9 +21,20 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
     limit = parsed;
   }
 
-  const userId = await getUserId(request);
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
   const cursor = url.searchParams.get("cursor") ?? undefined;
 
-  const result = await getArtistTracksPage(userId, artistId, { limit, cursor });
-  return Response.json(result);
+  try {
+    const result = await getArtistTracksPage(userId, artistId, { limit, cursor });
+    return Response.json(
+      result,
+      staleCookie ? { headers: { "set-cookie": staleCookie } } : undefined,
+    );
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      return Response.json({ error: "Invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 }

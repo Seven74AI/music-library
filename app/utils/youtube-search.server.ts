@@ -15,6 +15,7 @@ import {
   YouTubeNotFoundError,
   YOUTUBE_ERROR_CODES,
 } from "#app/utils/youtube-errors";
+import { logGoogleYouTubeDataApiClientError } from "#app/utils/google-api-error-logger.server.ts";
 import { shouldMockYouTube } from "#app/utils/youtube-mock-utils";
 import { type VideoData } from "#app/utils/youtube-utils";
 
@@ -104,7 +105,7 @@ export async function searchYouTubeVideos(
         .map((video) => transformYouTubeVideoToVideoData(video)) || []
     );
   } catch (error) {
-    console.error("YouTube API error:", error);
+    logGoogleYouTubeDataApiClientError("YouTube search API error", error);
 
     if (error instanceof YouTubeAPIError) {
       throw error;
@@ -181,7 +182,7 @@ export async function getYouTubeVideoDetails(videoId: string): Promise<VideoData
 
     return transformYouTubeVideoToVideoData(video);
   } catch (error) {
-    console.error("YouTube API error:", error);
+    logGoogleYouTubeDataApiClientError("YouTube videos.list API error", error);
 
     if (error instanceof YouTubeAPIError) {
       throw error;

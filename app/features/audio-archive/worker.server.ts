@@ -3,7 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { persistTrackAudio } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
+import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { getInstanceInfo } from "#app/utils/litefs.server.ts";
 import { checkPlaylistArchiveReadyAfterTrackArchived } from "#app/utils/playlist-archive-ready.server.tsx";
 import {
   recordArchiveSuccess,
@@ -107,6 +109,7 @@ export async function recoverStaleProcessingJobs(): Promise<number> {
       ErrorCategory.UNKNOWN,
       "Processing timed out (worker recovered stale job)",
       "",
+      { staleBefore: cutoff },
     );
   }
 
@@ -247,11 +250,12 @@ async function processJob(
   // Atomically claim the job. A conditional updateMany is a single SQL
   // statement, so two instances racing on the same pending job can't both
   // claim it — one gets count 0 and skips (no duplicate download/upload).
+  const claimAttemptAt = new Date();
   const claim = await prisma.archiveJob.updateMany({
     where: { id: jobId, status: "pending" },
     data: {
       status: "processing",
-      lastAttemptAt: new Date(),
+      lastAttemptAt: claimAttemptAt,
     },
   });
 
@@ -272,6 +276,7 @@ async function processJob(
         ErrorCategory.UNKNOWN,
         "Refusing to download a URL that is not an allowed YouTube watch URL",
         url,
+        { claimAttemptAt },
       );
       return;
     }
@@ -289,6 +294,7 @@ async function processJob(
             ? "Refusing to read a download path outside the output directory"
             : null),
         url,
+        { claimAttemptAt },
       );
       return;
     }
@@ -300,6 +306,7 @@ async function processJob(
         ErrorCategory.FILE_NOT_FOUND,
         "Refusing to read a download path outside the output directory",
         url,
+        { claimAttemptAt },
       );
       return;
     }
@@ -317,11 +324,13 @@ async function processJob(
       extension,
     });
 
-    // 3. Mark job as completed
-    await prisma.archiveJob.update({
-      where: { id: jobId },
+    // 3. Mark job as completed only if this worker still owns the claim.
+    const completed = await prisma.archiveJob.updateMany({
+      where: { id: jobId, status: "processing", lastAttemptAt: claimAttemptAt },
       data: { status: "completed" },
     });
+
+    if (completed.count === 0) return;
 
     recordArchiveSuccess();
 
@@ -332,7 +341,7 @@ async function processJob(
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await handleJobError(jobId, categorizeJobError(error), message, url);
+    await handleJobError(jobId, categorizeJobError(error), message, url, { claimAttemptAt });
   } finally {
     currentlyProcessingSet.delete(jobId);
   }
@@ -351,6 +360,7 @@ async function handleJobError(
   category: ErrorCategoryType,
   message: string | null,
   trackUrl: string,
+  options?: { staleBefore?: Date; claimAttemptAt?: Date },
 ): Promise<void> {
   const job = await prisma.archiveJob.findUnique({
     where: { id: jobId },
@@ -382,8 +392,23 @@ async function handleJobError(
   // Only retriable failures get a scheduled next attempt (Decision #5).
   const nextAttemptAt = shouldFail ? null : new Date(Date.now() + retryBackoffMs(newRetryCount));
 
-  await prisma.archiveJob.update({
-    where: { id: jobId },
+  const staleBefore = options?.staleBefore;
+  const claimAttemptAt = options?.claimAttemptAt;
+  const updated = await prisma.archiveJob.updateMany({
+    where: {
+      id: jobId,
+      status: "processing",
+      ...(claimAttemptAt
+        ? { lastAttemptAt: claimAttemptAt }
+        : staleBefore
+          ? {
+              OR: [
+                { lastAttemptAt: { lt: staleBefore } },
+                { lastAttemptAt: null, updatedAt: { lt: staleBefore } },
+              ],
+            }
+          : {}),
+    },
     data: {
       status: shouldFail ? "failed" : "pending",
       retryCount: newRetryCount,
@@ -391,6 +416,8 @@ async function handleJobError(
       errorHistory: JSON.stringify(errorHistory),
     },
   });
+
+  if (updated.count === 0) return;
 
   // Cookie-related errors: flag all cookies as invalid + notify admin
   if (category === ErrorCategory.AUTH || category === ErrorCategory.COOKIE_EXPIRED) {
@@ -447,10 +474,12 @@ export async function resetAuthFailedJobs(): Promise<number> {
 
   if (resetIds.length === 0) return 0;
 
-  await prisma.archiveJob.updateMany({
-    where: { id: { in: resetIds } },
-    data: { status: "pending", retryCount: 0 },
-  });
+  for (const chunk of chunkArray(resetIds)) {
+    await prisma.archiveJob.updateMany({
+      where: { id: { in: chunk } },
+      data: { status: "pending", retryCount: 0 },
+    });
+  }
 
   return resetIds.length;
 }
@@ -477,4 +506,39 @@ export async function getQueueStats(): Promise<{
     completed: byStatus["completed"] ?? 0,
     failed: byStatus["failed"] ?? 0,
   };
+}
+
+let archiveWorkerIntervalHandle: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * In-process archive queue poll (ADR-011). Idempotent; only when AUDIO_ARCHIVE_ENABLED.
+ */
+export function startAudioArchiveWorker(intervalMs = 120_000): void {
+  if (process.env.AUDIO_ARCHIVE_ENABLED !== "true") return;
+  if (archiveWorkerIntervalHandle !== null) return;
+
+  const runTick = () => {
+    void (async () => {
+      const { currentIsPrimary } = await getInstanceInfo();
+      if (!currentIsPrimary) return;
+      await processQueueTick();
+    })().catch((error) => {
+      console.error("Audio archive worker tick failed", error);
+    });
+  };
+
+  void runTick();
+  archiveWorkerIntervalHandle = setInterval(runTick, intervalMs);
+  console.log(`Audio archive worker started (interval: ${intervalMs}ms)`);
+}
+
+export function stopAudioArchiveWorker(): void {
+  if (archiveWorkerIntervalHandle !== null) {
+    clearInterval(archiveWorkerIntervalHandle);
+    archiveWorkerIntervalHandle = null;
+  }
+  if (enqueueWakeTimer !== null) {
+    clearTimeout(enqueueWakeTimer);
+    enqueueWakeTimer = null;
+  }
 }

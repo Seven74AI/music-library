@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { planUnavailableItemProcessing } from "./unavailable-item-plan.server";
+import {
+  isSyntheticUnavailableExternalIdForPlaylist,
+  planUnavailableItemProcessing,
+} from "./unavailable-item-plan.server";
 
 const existingTrack = {
   id: "track-1",
@@ -8,6 +11,18 @@ const existingTrack = {
   coverImageId: null as string | null,
   externalId: "video-1" as string | null,
 };
+
+describe("isSyntheticUnavailableExternalIdForPlaylist", () => {
+  test("accepts pending and deleted ids for the playlist", () => {
+    expect(isSyntheticUnavailableExternalIdForPlaylist("pending-pl-1-3", "pl-1")).toBe(true);
+    expect(isSyntheticUnavailableExternalIdForPlaylist("deleted-pl-1-9", "pl-1")).toBe(true);
+  });
+
+  test("rejects real video ids and other playlists", () => {
+    expect(isSyntheticUnavailableExternalIdForPlaylist("dQw4w9WgXcQ", "pl-1")).toBe(false);
+    expect(isSyntheticUnavailableExternalIdForPlaylist("pending-pl-2-1", "pl-1")).toBe(false);
+  });
+});
 
 describe("planUnavailableItemProcessing", () => {
   test("unavailable with existing match processes that track", () => {
@@ -121,7 +136,7 @@ describe("planUnavailableItemProcessing", () => {
       }),
     ).toEqual({
       kind: "process",
-      externalId: "deleted-pl-1-4",
+      externalId: "video-1",
       existingTrack,
     });
   });

@@ -18,10 +18,16 @@ export async function action({ request, params }: Route.ActionArgs) {
     );
   }
 
-  await prisma.reviewQueueItem.update({
-    where: { id },
+  const unclaimed = await prisma.reviewQueueItem.updateMany({
+    where: { id, status: "claimed", claimedBy: userId },
     data: { status: "open", claimedBy: null, claimedAt: null },
   });
+  if (unclaimed.count === 0) {
+    return data(
+      { success: false, error: "Queue item is no longer claimed by you" },
+      { status: 409 },
+    );
+  }
   return data({ success: true });
 }
 

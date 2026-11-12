@@ -10,13 +10,6 @@ export const SECURITY_EVENT_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
-export function stopSecurityEventSweeper(): void {
-  if (intervalHandle) {
-    clearInterval(intervalHandle);
-    intervalHandle = null;
-  }
-}
-
 export function startSecurityEventSweeper(intervalMs = SECURITY_EVENT_SWEEP_INTERVAL_MS): void {
   if (intervalHandle) return;
 
@@ -35,4 +28,11 @@ export function startSecurityEventSweeper(intervalMs = SECURITY_EVENT_SWEEP_INTE
 
   void runTick();
   intervalHandle = setInterval(runTick, intervalMs);
+}
+
+export function stopSecurityEventSweeper(): void {
+  if (intervalHandle !== null) {
+    clearInterval(intervalHandle);
+    intervalHandle = null;
+  }
 }

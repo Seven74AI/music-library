@@ -135,3 +135,52 @@ describe("GET /api/user-tracks genre filter", () => {
     expect(unfiltered.userTracks).toHaveLength(3);
   });
 });
+
+describe("GET /api/user-tracks most-played cursor validation", () => {
+  const userIds: string[] = [];
+  const trackIds: string[] = [];
+
+  afterEach(async () => {
+    if (trackIds.length > 0) {
+      await prisma.track.deleteMany({ where: { id: { in: trackIds.splice(0) } } });
+    }
+    if (userIds.length > 0) {
+      await prisma.user.deleteMany({ where: { id: { in: userIds.splice(0) } } });
+    }
+  });
+
+  test.each([
+    ["mostPlayedEver", -1],
+    ["mostPlayedEver", 1.5],
+    ["mostPlayedMonth", -1],
+    ["mostPlayedMonth", 1.5],
+  ] as const)(
+    "returns 400 for invalid most-played cursor count on %s (count=%s)",
+    async (sort, count) => {
+      const { userId, cookie } = await createUserCookie();
+      userIds.push(userId);
+      const track = await createTrack("API Paged");
+      trackIds.push(track.id);
+      const userTrack = await prisma.userTrack.create({ data: { userId, trackId: track.id } });
+      const cursor = Buffer.from(
+        JSON.stringify({
+          v: 2,
+          count,
+          id: userTrack.id,
+          snapshotAt: new Date().toISOString(),
+        }),
+      ).toString("base64url");
+
+      const response = await loader(
+        apiRequest(
+          cookie,
+          `http://localhost/api/user-tracks?sort=${sort}&cursor=${encodeURIComponent(cursor)}`,
+        ) as never,
+      );
+
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { error?: string };
+      expect(body.error).toBe("Invalid cursor");
+    },
+  );
+});

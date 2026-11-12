@@ -3,13 +3,17 @@ import { google } from "googleapis";
 import { createCookie } from "react-router";
 import { z } from "zod";
 import { getSessionSecret } from "./env.server.ts";
+import {
+  googleClientErrorCauseMessage,
+  logGoogleOAuthClientError,
+  redactGoogleClientErrorMessage,
+} from "./google-api-error-logger.server.ts";
 import { shouldMockYouTube } from "./youtube-mock-utils";
 
+export { logGoogleOAuthClientError } from "./google-api-error-logger.server.ts";
+
 // YouTube OAuth scopes
-export const YOUTUBE_SCOPES = [
-  "https://www.googleapis.com/auth/youtube.readonly",
-  "https://www.googleapis.com/auth/youtube",
-];
+export const YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"];
 
 // OAuth configuration schema
 export const YouTubeOAuthConfigSchema = z.object({
@@ -96,8 +100,10 @@ export class YouTubeOAuthService {
         ...(tokens.expiry_date ? { expiry_date: tokens.expiry_date } : {}),
       };
     } catch (error) {
-      console.error("Error exchanging code for tokens:", error);
-      throw new Error("Failed to exchange authorization code for tokens", { cause: error });
+      logGoogleOAuthClientError("Error exchanging code for tokens", error);
+      throw new Error("Failed to exchange authorization code for tokens", {
+        cause: googleClientErrorCauseMessage(error),
+      });
     }
   }
 
@@ -130,8 +136,10 @@ export class YouTubeOAuthService {
         ...(credentials.expiry_date ? { expiry_date: credentials.expiry_date } : {}),
       };
     } catch (error) {
-      console.error("Error refreshing access token:", error);
-      throw new Error("Failed to refresh access token", { cause: error });
+      logGoogleOAuthClientError("Error refreshing access token", error);
+      throw new Error("Failed to refresh access token", {
+        cause: googleClientErrorCauseMessage(error),
+      });
     }
   }
 
@@ -182,36 +190,6 @@ export function createYouTubeOAuthService(): YouTubeOAuthService {
   });
 
   return new YouTubeOAuthService(config);
-}
-
-/**
- * Validate YouTube tokens
- */
-export async function validateYouTubeTokens(tokens: {
-  access_token?: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}): Promise<boolean> {
-  try {
-    const oauth2Client = new google.auth.OAuth2();
-    oauth2Client.setCredentials(tokens);
-
-    const youtube = google.youtube({
-      version: "v3",
-      auth: oauth2Client,
-    });
-
-    // Test the token by making a simple API call
-    await youtube.channels.list({
-      part: ["id"],
-      mine: true,
-    });
-
-    return true;
-  } catch (error) {
-    console.error("YouTube token validation failed:", error);
-    return false;
-  }
 }
 
 export const YOUTUBE_OAUTH_STATE_COOKIE_NAME = "en_youtube_oauth_state";

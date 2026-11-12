@@ -66,11 +66,11 @@ type PartyRoomContextValue = {
   refresh: () => Promise<void>;
   create: (defaultJoinRole?: RoomDefaultJoinRole) => Promise<RoomSnapshot>;
   join: (codeOrUrl: string, displayName?: string) => Promise<RoomSnapshot>;
-  leave: (codeOverride?: string) => Promise<void>;
-  end: () => Promise<void>;
+  leave: (codeOverride?: string) => Promise<boolean>;
+  end: () => Promise<boolean>;
   becomeHostNow: () => Promise<void>;
   reclaimHostNow: () => Promise<void>;
-  setDefaultJoinRole: (role: RoomDefaultJoinRole) => Promise<void>;
+  setDefaultJoinRole: (role: RoomDefaultJoinRole) => Promise<boolean>;
   addTrack: (trackId: string) => Promise<void>;
   addPlaylist: (playlistId: string) => Promise<void>;
   reorderUpcoming: (orderedUpcomingIds: string[]) => Promise<void>;
@@ -169,24 +169,57 @@ export function PartyRoomProvider({
   const roomCodeRef = useRef<string | null>(null);
   const qrByCodeRef = useRef<{ code: string; qrDataUrl: string } | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const roomVersionRef = useRef(0);
+  /** Max room version applied while seated; kept after leave so stale snapshots cannot re-enter. */
+  const maxAppliedRoomVersionRef = useRef(0);
+  /** Bumped on leave/end/clear so in-flight refresh/SSE completions are ignored. */
+  const syncGenerationRef = useRef(0);
 
-  const applyRoom = useCallback((next: RoomSnapshot | null) => {
-    let snapshot = next;
-    if (!snapshot) {
+  const applyRoom = useCallback((next: RoomSnapshot | null, options?: { freshSeat?: boolean }) => {
+    if (!next) {
+      if (roomCodeRef.current !== null) {
+        syncGenerationRef.current += 1;
+      }
+      roomVersionRef.current = maxAppliedRoomVersionRef.current;
       qrByCodeRef.current = null;
       setQrLoadError(null);
-    } else if (snapshot.qrDataUrl) {
-      qrByCodeRef.current = { code: snapshot.code, qrDataUrl: snapshot.qrDataUrl };
-      setQrLoadError(null);
-    } else if (qrByCodeRef.current?.code === snapshot.code) {
-      snapshot = { ...snapshot, qrDataUrl: qrByCodeRef.current.qrDataUrl };
-      setQrLoadError(null);
-    } else {
-      qrByCodeRef.current = null;
+      setRoom(null);
+      roomCodeRef.current = null;
+      return;
+    }
+
+    if (options?.freshSeat) {
+      maxAppliedRoomVersionRef.current = 0;
+      roomVersionRef.current = 0;
     }
 
     setRoom((prev) => {
-      if (!snapshot) return null;
+      if (
+        prev === null &&
+        !options?.freshSeat &&
+        roomCodeRef.current === null &&
+        next.roomVersion <= maxAppliedRoomVersionRef.current
+      ) {
+        return prev;
+      }
+      const appliedVersion = Math.max(roomVersionRef.current, prev?.roomVersion ?? 0);
+      if (next.roomVersion < appliedVersion) return prev;
+      roomVersionRef.current = next.roomVersion;
+      maxAppliedRoomVersionRef.current = Math.max(
+        maxAppliedRoomVersionRef.current,
+        next.roomVersion,
+      );
+
+      let snapshot = next;
+      if (!snapshot.qrDataUrl) {
+        if (qrByCodeRef.current?.code === snapshot.code) {
+          snapshot = { ...snapshot, qrDataUrl: qrByCodeRef.current.qrDataUrl };
+        } else if (prev?.qrDataUrl && prev.code === snapshot.code) {
+          snapshot = { ...snapshot, qrDataUrl: prev.qrDataUrl };
+          qrByCodeRef.current = { code: snapshot.code, qrDataUrl: prev.qrDataUrl };
+        }
+      }
+
       // SSE / shared snapshots often omit `me`. Keep the local seat when still present.
       if (!snapshot.me && prev?.me) {
         const stillHere = snapshot.participants.find((p) => p.id === prev.me!.id);
@@ -203,8 +236,20 @@ export function PartyRoomProvider({
       }
       return snapshot;
     });
-    roomCodeRef.current = snapshot?.code ?? null;
-    if (snapshot?.code) writeActiveRoomCode(snapshot.code);
+
+    if (roomVersionRef.current !== next.roomVersion) return;
+
+    if (next.qrDataUrl) {
+      qrByCodeRef.current = { code: next.code, qrDataUrl: next.qrDataUrl };
+      setQrLoadError(null);
+    } else if (qrByCodeRef.current?.code === next.code) {
+      setQrLoadError(null);
+    } else {
+      qrByCodeRef.current = null;
+    }
+
+    roomCodeRef.current = next.code;
+    writeActiveRoomCode(next.code);
   }, []);
 
   const ensureQr = useCallback(async (snapshot: RoomSnapshot) => {
@@ -236,15 +281,26 @@ export function PartyRoomProvider({
       setLoading(false);
       return;
     }
+    const refreshGeneration = syncGenerationRef.current;
     setLoading(true);
     try {
       const current = await fetchCurrentRoom(meUserId);
-      applyRoom(current);
+      if (refreshGeneration !== syncGenerationRef.current) {
+        // fetchCurrentRoom updates sessionStorage; restore the seat that won the race.
+        if (current) {
+          writeActiveRoomCode(roomCodeRef.current);
+        }
+        return;
+      }
+      applyRoom(current, current ? undefined : { freshSeat: true });
       setApiUnavailable(false);
       // A join/create error can land while this refresh is in flight. Do not
       // wipe it when the open seat arrives — the room page needs that sentence.
       if (current) await ensureQr(current);
     } catch (err) {
+      if (refreshGeneration !== syncGenerationRef.current) {
+        return;
+      }
       if (isApiUnavailableError(err)) {
         setApiUnavailable(true);
         setError(errorMessage(err));
@@ -304,7 +360,9 @@ export function PartyRoomProvider({
         if (!isSnapshot) return;
 
         const raw = (payload.room as Record<string, unknown> | undefined) ?? payload;
+        const messageGeneration = syncGenerationRef.current;
         void import("./api.client.ts").then(({ normalizeRoomSnapshot }) => {
+          if (cancelled || messageGeneration !== syncGenerationRef.current) return;
           applyRoom(normalizeRoomSnapshot(raw, meUserId));
         });
       } catch {
@@ -354,7 +412,7 @@ export function PartyRoomProvider({
       setError(null);
       try {
         const next = await createRoom({ defaultJoinRole }, meUserId);
-        applyRoom(next);
+        applyRoom(next, { freshSeat: true });
         setApiUnavailable(false);
         await ensureQr(next);
         return next;
@@ -378,7 +436,7 @@ export function PartyRoomProvider({
       setError(null);
       try {
         const next = await joinRoom({ code, displayName }, meUserId);
-        applyRoom(next);
+        applyRoom(next, { freshSeat: true });
         setApiUnavailable(false);
         await ensureQr(next);
         return next;
@@ -399,15 +457,19 @@ export function PartyRoomProvider({
         storedCode: readActiveRoomCode(),
       });
       if (!code) {
-        throw new Error("Not in a room");
+        const msg = "Not in a room";
+        setError(msg);
+        return false;
       }
       setError(null);
       try {
+        syncGenerationRef.current += 1;
         await leaveRoom(code);
         applyRoom(null);
+        return true;
       } catch (err) {
         setError(errorMessage(err));
-        throw err;
+        return false;
       }
     },
     [applyRoom],
@@ -419,15 +481,19 @@ export function PartyRoomProvider({
       storedCode: readActiveRoomCode(),
     });
     if (!code) {
-      throw new Error("Not in a room");
+      const msg = "Not in a room";
+      setError(msg);
+      return false;
     }
     setError(null);
     try {
+      syncGenerationRef.current += 1;
       await endRoom(code);
       applyRoom(null);
+      return true;
     } catch (err) {
       setError(errorMessage(err));
-      throw err;
+      return false;
     }
   }, [applyRoom]);
 
@@ -448,9 +514,20 @@ export function PartyRoomProvider({
   const setDefaultJoinRole = useCallback(
     async (role: RoomDefaultJoinRole) => {
       const code = roomCodeRef.current;
-      if (!code) return;
-      const next = await updateRoomSettings(code, { defaultJoinRole: role }, meUserId);
-      applyRoom(next);
+      if (!code) {
+        const msg = "Not in a room";
+        setError(msg);
+        return false;
+      }
+      setError(null);
+      try {
+        const next = await updateRoomSettings(code, { defaultJoinRole: role }, meUserId);
+        applyRoom(next);
+        return true;
+      } catch (err) {
+        setError(errorMessage(err));
+        return false;
+      }
     },
     [applyRoom, meUserId],
   );

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SQLITE_IN_CHUNK_SIZE } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { type TrackPopularityStats } from "#app/utils/discover.ts";
 import {
@@ -72,6 +73,31 @@ describe("Track Popularity Functions", () => {
 
       expect(result.size).toBe(1);
       expect(result.get("track-1")).toBe(10);
+    });
+
+    it("merges chunked groupBy results for ids above SQLITE_IN_CHUNK_SIZE", async () => {
+      const groupBy = vi.spyOn(prisma.usageEvent, "groupBy");
+      groupBy.mockImplementation((async (args: unknown) => {
+        const ids = (args as { where: { trackId: { in: string[] } } }).where.trackId.in;
+        if (ids.includes("track-0")) {
+          return [{ trackId: "track-0", _count: { id: 3 } }];
+        }
+        if (ids.includes("track-last")) {
+          return [{ trackId: "track-last", _count: { id: 7 } }];
+        }
+        return [];
+      }) as never);
+
+      const trackIds = [
+        "track-0",
+        ...Array.from({ length: SQLITE_IN_CHUNK_SIZE }, (_, i) => `pad-${i}`),
+        "track-last",
+      ];
+      const result = await getTrackPlayCounts(trackIds);
+
+      expect(groupBy.mock.calls.length).toBeGreaterThan(1);
+      expect(result.get("track-0")).toBe(3);
+      expect(result.get("track-last")).toBe(7);
     });
   });
 

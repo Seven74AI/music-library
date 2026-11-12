@@ -1,5 +1,4 @@
 import { Prisma } from "#prisma/client.js";
-import { type QueueTrack } from "#app/types/frontend/shared.ts";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
@@ -8,23 +7,14 @@ import { type SortDirection } from "#app/utils/sort-direction.ts";
 import {
   defaultLibrarySortDirection,
   librarySortToWindow,
-  sortByPlayCompletedCount,
   type HeavyRotationWindow,
   type LibrarySortOption,
 } from "./heavy-rotation.ts";
-import { getPlayCompletedCountsByTrack } from "./play-completed-counts.server.ts";
 import { getUtcMonthEndExclusive, getUtcMonthStart } from "./utc-month.ts";
-
-const QUEUE_TRACK_SELECT = {
-  id: true,
-  title: true,
-  artist: {
-    select: {
-      id: true,
-      name: true,
-    },
-  },
-} as const;
+import {
+  assertValidIdCursor,
+  INVALID_CURSOR_FORMAT_MESSAGE,
+} from "#app/utils/search-validation.server.ts";
 
 const FULL_TRACK_INCLUDE = {
   artist: {
@@ -132,89 +122,56 @@ export type ListLibraryUserTracksResult = {
   };
 };
 
-/**
- * Full library spine for the audio queue (ADR-015 + ADR-026).
- * Same ordering as the library page for the chosen sort; playable-only by default.
- */
-export async function listLibraryQueueSpineTracks({
-  userId,
-  sort,
-  direction = defaultLibrarySortDirection(sort),
-  hasAudioOnly = true,
-  now = new Date(),
-}: {
-  userId: string;
-  sort: LibrarySortOption;
-  direction?: SortDirection;
-  hasAudioOnly?: boolean;
-  now?: Date;
-}): Promise<QueueTrack[]> {
-  const where = buildLibraryUserTracksWhere({ userId, hasAudioOnly });
-  const window = librarySortToWindow(sort);
-
-  if (!window) {
-    const userTracks = await prisma.userTrack.findMany({
-      where,
-      select: {
-        track: { select: QUEUE_TRACK_SELECT },
-      },
-      orderBy: [{ createdAt: direction }, { id: direction }],
-    });
-    return userTracks.map((userTrack) => userTrack.track);
-  }
-
-  const counts = await getPlayCompletedCountsByTrack({ userId, window, now });
-  const sortable = await prisma.userTrack.findMany({
-    where,
-    select: {
-      id: true,
-      trackId: true,
-      createdAt: true,
-      track: { select: QUEUE_TRACK_SELECT },
-    },
-  });
-
-  return sortByPlayCompletedCount(sortable, counts, direction).map((row) => row.track);
-}
-
-/** Most-played cursor: frozen play count + stable userTrack id. */
-type MostPlayedCursor = { count: number; id: string };
+/** Most-played cursor: frozen play count, stable userTrack id, and snapshot cutoff. */
+type MostPlayedCursor = { count: number; id: string; snapshotAt: string };
 
 function encodeMostPlayedCursor(cursor: MostPlayedCursor): string {
-  return Buffer.from(JSON.stringify({ v: 1, ...cursor })).toString("base64url");
+  return Buffer.from(JSON.stringify({ v: 2, ...cursor })).toString("base64url");
 }
 
-function decodeMostPlayedCursor(raw: string): MostPlayedCursor | null {
+function decodeMostPlayedCursor(raw: string): MostPlayedCursor {
   try {
     const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as {
       v?: unknown;
       count?: unknown;
       id?: unknown;
+      snapshotAt?: unknown;
     };
     if (
-      parsed?.v !== 1 ||
+      parsed?.v !== 2 ||
       typeof parsed.count !== "number" ||
       !Number.isFinite(parsed.count) ||
-      typeof parsed.id !== "string"
+      !Number.isInteger(parsed.count) ||
+      parsed.count < 0 ||
+      typeof parsed.id !== "string" ||
+      parsed.id.length === 0 ||
+      parsed.id.length > 200 ||
+      typeof parsed.snapshotAt !== "string" ||
+      parsed.snapshotAt.length === 0 ||
+      parsed.snapshotAt.length > 80 ||
+      Number.isNaN(new Date(parsed.snapshotAt).getTime())
     ) {
-      return null;
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
     }
-    return { count: parsed.count, id: parsed.id };
-  } catch {
-    return null;
+    return { count: parsed.count, id: parsed.id, snapshotAt: parsed.snapshotAt };
+  } catch (error) {
+    if (error instanceof Error && error.message === INVALID_CURSOR_FORMAT_MESSAGE) {
+      throw error;
+    }
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
   }
 }
 
 /**
- * Keyset-paginated library page ordered by (play_completed count, userTrack
- * createdAt, userTrack id). The count is recomputed on read (ADR-026) but is
- * FROZEN into the cursor at page time, so a play landing between page requests
- * cannot shift the boundary and re-serve/skip rows — only the immutable
- * (createdAt, id) secondary keys are re-read. Ordering happens inside SQLite
+ * Keyset-paginated library page ordered by (frozen play_completed count,
+ * userTrack createdAt, userTrack id). Counts are computed only from completes
+ * before `snapshotAt` (carried in the cursor from page 1), so a play landing
+ * between page requests cannot shift the boundary and re-serve/skip rows.
+ * Ordering happens inside SQLite
  * (which can spill a large sort to disk), so the Node process only ever
  * materializes the page: O(page size) in memory, not O(library size).
  */
-async function listMostPlayedLibraryPage({
+export async function listMostPlayedLibraryPage({
   userId,
   window,
   direction,
@@ -237,15 +194,20 @@ async function listMostPlayedLibraryPage({
   const cntDir = desc ? "DESC" : "ASC";
   const cntOp = desc ? "<" : ">";
 
+  const cursorKey = cursor ? decodeMostPlayedCursor(cursor) : null;
+  const snapshotAt = cursorKey ? new Date(cursorKey.snapshotAt) : now;
+  const snapshotIso = cursorKey?.snapshotAt ?? snapshotAt.toISOString();
+
   const countSql = Prisma.sql`
     SELECT "trackId", COUNT(*) AS cnt
     FROM "UsageEvent"
     WHERE "userId" = ${userId}
       AND type = ${USAGE_EVENT_TYPES.play_completed}
       AND "trackId" IS NOT NULL
+      AND "createdAt" < ${snapshotAt}
       ${
         window === "month"
-          ? Prisma.sql`AND "createdAt" >= ${getUtcMonthStart(now)} AND "createdAt" < ${getUtcMonthEndExclusive(now)}`
+          ? Prisma.sql`AND "createdAt" >= ${getUtcMonthStart(snapshotAt)} AND "createdAt" < ${getUtcMonthEndExclusive(snapshotAt)}`
           : Prisma.empty
       }
     GROUP BY "trackId"
@@ -267,7 +229,30 @@ async function listMostPlayedLibraryPage({
     }
   `;
 
-  const cursorKey = cursor ? decodeMostPlayedCursor(cursor) : null;
+  if (cursorKey) {
+    const anchor = await prisma.userTrack.findFirst({
+      where: {
+        ...buildLibraryUserTracksWhere({ userId, hasAudioOnly, genreId }),
+        id: cursorKey.id,
+      },
+      select: { id: true },
+    });
+    if (!anchor) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+
+    const [countRow] = await prisma.$queryRaw<Array<{ cnt: number | bigint }>>`
+      SELECT COALESCE(c.cnt, 0) AS cnt
+      FROM "UserTrack" ut
+      LEFT JOIN (${countSql}) c ON c."trackId" = ut."trackId"
+      WHERE ut."id" = ${cursorKey.id}
+    `;
+    const frozenCount = Number(countRow?.cnt ?? 0);
+    if (cursorKey.count > frozenCount) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+  }
+
   const cursorWhere = cursorKey
     ? Prisma.sql`AND (
         COALESCE(c.cnt, 0) ${Prisma.raw(cntOp)} ${cursorKey.count}
@@ -283,9 +268,7 @@ async function listMostPlayedLibraryPage({
       )`
     : Prisma.empty;
 
-  const rows = await prisma.$queryRaw<
-    Array<{ id: string; cnt: number | bigint; createdAt: Date }>
-  >`
+  const rows = await prisma.$queryRaw<Array<{ id: string; cnt: number | bigint; createdAt: Date }>>`
     SELECT ut."id", COALESCE(c.cnt, 0) AS cnt, ut."createdAt" AS "createdAt"
     FROM "UserTrack" ut
     LEFT JOIN (${countSql}) c ON c."trackId" = ut."trackId"
@@ -301,7 +284,13 @@ async function listMostPlayedLibraryPage({
   const page = hasNext ? rows.slice(0, limit) : rows;
   const last = page[page.length - 1];
   const nextCursor =
-    hasNext && last ? encodeMostPlayedCursor({ count: Number(last.cnt), id: last.id }) : null;
+    hasNext && last
+      ? encodeMostPlayedCursor({
+          count: Number(last.cnt),
+          id: last.id,
+          snapshotAt: snapshotIso,
+        })
+      : null;
 
   return { ids: page.map((row) => row.id), hasNext, nextCursor };
 }
@@ -333,6 +322,17 @@ export async function listLibraryUserTracks({
   const window = librarySortToWindow(sort);
 
   if (!window) {
+    assertValidIdCursor(cursor);
+    if (cursor) {
+      const anchor = await prisma.userTrack.findFirst({
+        where: { ...where, id: cursor },
+        select: { id: true },
+      });
+      if (!anchor) {
+        throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+      }
+    }
+
     const userTracksRaw = await prisma.userTrack.findMany({
       where,
       select: {
@@ -341,26 +341,31 @@ export async function listLibraryUserTracks({
         track: { select: LIBRARY_TRACK_SELECT },
       },
       orderBy: [{ createdAt: direction }, { id: direction }],
-      take: limit,
+      take: limit + 1,
       cursor: cursor ? { id: cursor } : undefined,
       skip: cursor ? 1 : undefined,
     });
 
-    const nextCursor =
-      userTracksRaw.length === limit ? (userTracksRaw[userTracksRaw.length - 1]?.id ?? null) : null;
-    const noteCounts = await curatorNoteCountsByTrackId(userTracksRaw.map((row) => row.track.id));
+    const hasNext = userTracksRaw.length > limit;
+    const pageRows = hasNext ? userTracksRaw.slice(0, limit) : userTracksRaw;
+    const nextCursor = hasNext ? (pageRows[pageRows.length - 1]?.id ?? null) : null;
+    const noteCounts = await curatorNoteCountsByTrackId(pageRows.map((row) => row.track.id));
 
     return {
-      userTracks: withCuratorNoteCounts(userTracksRaw, noteCounts),
+      userTracks: withCuratorNoteCounts(pageRows, noteCounts),
       pagination: {
         limit,
-        hasNext: !!nextCursor,
+        hasNext,
         nextCursor,
       },
     };
   }
 
-  const { ids: pageIds, hasNext, nextCursor } = await listMostPlayedLibraryPage({
+  const {
+    ids: pageIds,
+    hasNext,
+    nextCursor,
+  } = await listMostPlayedLibraryPage({
     userId,
     window,
     direction,

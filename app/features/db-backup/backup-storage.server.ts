@@ -1,17 +1,10 @@
 /**
  * Tigris/S3 helpers that target BACKUP_BUCKET_NAME (not the media bucket).
  */
-import { createReadStream, createWriteStream } from "node:fs";
-import { copyFile, mkdir, stat, unlink, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { copyFile, mkdir, stat, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-} from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getS3Client } from "#app/utils/storage.server.ts";
 
 export function isBackupBucketConfigured(): boolean {
@@ -106,32 +99,4 @@ export async function deleteBackupObject(key: string): Promise<void> {
   const bucket = getBackupBucketName();
   const client = getS3Client();
   await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
-}
-
-/** Download a backup object to a local path. */
-export async function downloadBackupObject(key: string, localPath: string): Promise<void> {
-  await mkdir(dirname(localPath), { recursive: true });
-
-  if (process.env.MOCKS === "true") {
-    const src = join(localBackupDir(), key);
-    await copyFile(src, localPath);
-    return;
-  }
-
-  const bucket = getBackupBucketName();
-  const client = getS3Client();
-  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-  if (!result.Body) {
-    throw new Error(`Empty body for backup object: ${key}`);
-  }
-
-  const body = result.Body;
-  if (body instanceof Readable) {
-    await pipeline(body, createWriteStream(localPath));
-    return;
-  }
-
-  // SDK may return a web ReadableStream in some environments
-  const bytes = await result.Body.transformToByteArray();
-  await writeFile(localPath, Buffer.from(bytes));
 }

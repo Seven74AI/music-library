@@ -1,16 +1,29 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
-import { getLockStatus, releaseLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  editLockConflictCopyForEntity,
+  getLockStatus,
+  releaseLock,
+  throwEditLockTransactionError,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import {
   primaryGenreName,
   resolveOrderedGenres,
+  resolveOrderedGenresFromNames,
   snapshotGenreIds,
   type GenreRef,
 } from "#app/utils/track-genres.server.ts";
 import { type Route } from "./+types/$trackId.edit.ts";
+
+const dateString = (label: string) =>
+  z.string().refine((v) => !Number.isNaN(Date.parse(v)), `${label} must be a valid date`);
+
+const optionalNullableDate = (label: string) => z.union([dateString(label), z.null()]).optional();
 
 // Validation schema for track edit
 const EditTrackSchema = z.object({
@@ -25,8 +38,8 @@ const EditTrackSchema = z.object({
   bpm: z.number().int().nullable().optional(),
   label: z.string().nullable().optional(),
   isrc: z.string().nullable().optional(),
-  releaseDate: z.string().nullable().optional(), // ISO date string
-  originalDate: z.string().nullable().optional(),
+  releaseDate: optionalNullableDate("releaseDate"),
+  originalDate: optionalNullableDate("originalDate"),
   originalYear: z.number().int().nullable().optional(),
   totalTracks: z.number().int().nullable().optional(),
   totalDiscs: z.number().int().nullable().optional(),
@@ -76,7 +89,6 @@ export async function action({ request, params }: Route.ActionArgs) {
       title: true,
       artistId: true,
       albumId: true,
-      genre: true,
       genres: {
         select: {
           id: true,
@@ -142,6 +154,16 @@ export async function action({ request, params }: Route.ActionArgs) {
       throw data({ error: "One or more genres not found" }, { status: 404 });
     }
     nextGenres = resolved.genres;
+  } else if (editData.genre !== undefined) {
+    if (editData.genre === null || editData.genre.trim() === "") {
+      nextGenres = [];
+    } else {
+      const resolved = await resolveOrderedGenresFromNames([editData.genre]);
+      if (!resolved.ok) {
+        throw data({ error: "Failed to resolve genre" }, { status: 400 });
+      }
+      nextGenres = resolved.genres;
+    }
   }
 
   // Parse dates
@@ -149,105 +171,163 @@ export async function action({ request, params }: Route.ActionArgs) {
   const originalDate = editData.originalDate ? new Date(editData.originalDate) : null;
 
   // Perform update and create history entry in a transaction
-  const result = await prisma.$transaction(async (tx) => {
-    // Create history entry with current state (before update)
-    const editEntry = await tx.trackEdit.create({
-      data: {
-        trackId: track.id,
-        editedBy: userId,
-        comment: editData.comment || null,
-        // Snapshot current state
-        title: track.title,
-        artistId: track.artistId,
-        albumId: track.albumId,
-        genre: track.genre,
-        genreIds: snapshotGenreIds(track.genres, track.genre),
-        year: track.year,
-        trackNumber: track.trackNumber,
-        albumArtist: track.albumArtist,
-        bpm: track.bpm,
-        label: track.label,
-        isrc: track.isrc,
-        releaseDate: track.releaseDate,
-        originalDate: track.originalDate,
-        originalYear: track.originalYear,
-        totalTracks: track.totalTracks,
-        totalDiscs: track.totalDiscs,
-        lyrics: track.lyrics,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            name: true,
-          },
-        },
-      },
-    });
+  let result: {
+    track: Awaited<ReturnType<typeof prisma.track.update>>;
+    edit: Awaited<ReturnType<typeof prisma.trackEdit.create>>;
+  };
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "track", trackId, userId, lock);
 
-    // Update track with new data
-    const updatedTrack = await tx.track.update({
-      where: { id: trackId },
-      data: {
-        title: editData.title,
-        artistId: editData.artistId,
-        albumId: editData.albumId === undefined ? track.albumId : editData.albumId,
-        genre:
-          nextGenres !== undefined
-            ? primaryGenreName(nextGenres)
-            : editData.genre === undefined
-              ? track.genre
-              : editData.genre,
-        year: editData.year === undefined ? track.year : editData.year,
-        trackNumber: editData.trackNumber === undefined ? track.trackNumber : editData.trackNumber,
-        albumArtist: editData.albumArtist === undefined ? track.albumArtist : editData.albumArtist,
-        bpm: editData.bpm === undefined ? track.bpm : editData.bpm,
-        label: editData.label === undefined ? track.label : editData.label,
-        isrc: editData.isrc === undefined ? track.isrc : editData.isrc,
-        releaseDate: editData.releaseDate === undefined ? track.releaseDate : releaseDate,
-        originalDate: editData.originalDate === undefined ? track.originalDate : originalDate,
-        originalYear:
-          editData.originalYear === undefined ? track.originalYear : editData.originalYear,
-        totalTracks: editData.totalTracks === undefined ? track.totalTracks : editData.totalTracks,
-        totalDiscs: editData.totalDiscs === undefined ? track.totalDiscs : editData.totalDiscs,
-        lyrics: editData.lyrics === undefined ? track.lyrics : editData.lyrics,
-        ...(nextGenres !== undefined && {
+      const trackBeforeWrite = await tx.track.findUnique({
+        where: { id: trackId },
+        select: {
+          id: true,
+          title: true,
+          artistId: true,
+          albumId: true,
           genres: {
-            set: nextGenres.map((genre) => ({ id: genre.id })),
+            select: {
+              id: true,
+              name: true,
+            },
           },
-        }),
-      },
-      include: {
-        artist: {
-          select: {
-            id: true,
-            name: true,
-          },
+          year: true,
+          trackNumber: true,
+          albumArtist: true,
+          bpm: true,
+          label: true,
+          isrc: true,
+          releaseDate: true,
+          originalDate: true,
+          originalYear: true,
+          totalTracks: true,
+          totalDiscs: true,
+          lyrics: true,
         },
-        albumRecord: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        genres: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
+      });
 
-    return {
-      track: updatedTrack,
-      edit: editEntry,
-    };
-  });
+      if (!trackBeforeWrite) {
+        throw data({ error: "Track not found" }, { status: 404 });
+      }
+
+      // Create history entry with current state (before update)
+      const editEntry = await tx.trackEdit.create({
+        data: {
+          trackId: trackBeforeWrite.id,
+          editedBy: userId,
+          comment: editData.comment || null,
+          // Snapshot current state
+          title: trackBeforeWrite.title,
+          artistId: trackBeforeWrite.artistId,
+          albumId: trackBeforeWrite.albumId,
+          genre: primaryGenreName(trackBeforeWrite.genres ?? []),
+          genreIds: snapshotGenreIds(trackBeforeWrite.genres),
+          year: trackBeforeWrite.year,
+          trackNumber: trackBeforeWrite.trackNumber,
+          albumArtist: trackBeforeWrite.albumArtist,
+          bpm: trackBeforeWrite.bpm,
+          label: trackBeforeWrite.label,
+          isrc: trackBeforeWrite.isrc,
+          releaseDate: trackBeforeWrite.releaseDate,
+          originalDate: trackBeforeWrite.originalDate,
+          originalYear: trackBeforeWrite.originalYear,
+          totalTracks: trackBeforeWrite.totalTracks,
+          totalDiscs: trackBeforeWrite.totalDiscs,
+          lyrics: trackBeforeWrite.lyrics,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      // Update track with new data
+      const updatedTrack = await tx.track.update({
+        where: { id: trackId },
+        data: {
+          title: editData.title,
+          artistId: editData.artistId,
+          albumId: editData.albumId === undefined ? trackBeforeWrite.albumId : editData.albumId,
+          year: editData.year === undefined ? trackBeforeWrite.year : editData.year,
+          trackNumber:
+            editData.trackNumber === undefined
+              ? trackBeforeWrite.trackNumber
+              : editData.trackNumber,
+          albumArtist:
+            editData.albumArtist === undefined
+              ? trackBeforeWrite.albumArtist
+              : editData.albumArtist,
+          bpm: editData.bpm === undefined ? trackBeforeWrite.bpm : editData.bpm,
+          label: editData.label === undefined ? trackBeforeWrite.label : editData.label,
+          isrc: editData.isrc === undefined ? trackBeforeWrite.isrc : editData.isrc,
+          releaseDate:
+            editData.releaseDate === undefined ? trackBeforeWrite.releaseDate : releaseDate,
+          originalDate:
+            editData.originalDate === undefined ? trackBeforeWrite.originalDate : originalDate,
+          originalYear:
+            editData.originalYear === undefined
+              ? trackBeforeWrite.originalYear
+              : editData.originalYear,
+          totalTracks:
+            editData.totalTracks === undefined
+              ? trackBeforeWrite.totalTracks
+              : editData.totalTracks,
+          totalDiscs:
+            editData.totalDiscs === undefined ? trackBeforeWrite.totalDiscs : editData.totalDiscs,
+          lyrics: editData.lyrics === undefined ? trackBeforeWrite.lyrics : editData.lyrics,
+          ...(nextGenres !== undefined && {
+            genres: {
+              set: nextGenres.map((genre) => ({ id: genre.id })),
+            },
+          }),
+        },
+        include: {
+          artist: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          albumRecord: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          genres: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      return {
+        track: updatedTrack,
+        edit: editEntry,
+      };
+    });
+  } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("track"));
+    }
+    throw error;
+  }
 
   // Release the lock on successful save (ADR-032).
-  await releaseLock("track", trackId, userId);
+  if (lock) {
+    await releaseLock("track", trackId, userId, {
+      lockId: lock.id,
+      acquiredAt: lock.acquiredAt,
+    });
+  }
 
   return data(result);
 }

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { lookup } from "node:dns/promises";
-import { BlockList, isIP } from "node:net";
 import { prisma } from "#app/utils/db.server";
 import { type Prisma } from "#prisma/client.js";
-import { uploadFile } from "./storage.server";
+import { deleteFile, uploadFile } from "./storage.server";
+import { validatePublicHttpsUrl } from "./validate-public-url.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 /** Per-attempt timeout for external cover downloads (YouTube thumbnails, etc.) */
 export const IMAGE_DOWNLOAD_TIMEOUT_MS = 15_000;
@@ -15,17 +15,6 @@ export const IMAGE_DOWNLOAD_MAX_ATTEMPTS = 3;
 const IMAGE_DOWNLOAD_MAX_REDIRECTS = 3;
 
 const IMAGE_DOWNLOAD_RETRY_BASE_DELAY_MS = 1_000;
-
-const blockedImageAddresses = new BlockList();
-blockedImageAddresses.addSubnet("127.0.0.0", 8, "ipv4");
-blockedImageAddresses.addSubnet("10.0.0.0", 8, "ipv4");
-blockedImageAddresses.addSubnet("172.16.0.0", 12, "ipv4");
-blockedImageAddresses.addSubnet("192.168.0.0", 16, "ipv4");
-// Link-local, including cloud metadata (169.254.169.254 and 169.254.170.2).
-blockedImageAddresses.addSubnet("169.254.0.0", 16, "ipv4");
-blockedImageAddresses.addAddress("::1", "ipv6");
-blockedImageAddresses.addSubnet("fe80::", 10, "ipv6");
-blockedImageAddresses.addSubnet("fc00::", 7, "ipv6");
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -48,67 +37,6 @@ export function isRetriableImageDownloadError(error: unknown): boolean {
 
 function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
-}
-
-/** Node's URL.hostname keeps the brackets around IPv6 addresses. */
-function hostnameForResolution(hostname: string): string {
-  if (hostname.startsWith("[") && hostname.endsWith("]")) {
-    return hostname.slice(1, -1);
-  }
-  return hostname;
-}
-
-function isBlockedImageAddress(address: string): boolean {
-  const normalized = address.toLowerCase();
-  const family = isIP(normalized);
-  if (family === 4) return blockedImageAddresses.check(normalized, "ipv4");
-  if (family === 6) return blockedImageAddresses.check(normalized, "ipv6");
-  return true;
-}
-
-async function resolveHostAddresses(hostname: string): Promise<string[]> {
-  if (isIP(hostname)) return [hostname];
-
-  try {
-    const records = await lookup(hostname, { all: true, verbatim: true });
-    return records.map((record) => record.address);
-  } catch (error) {
-    // Undici previously surfaced resolver failures as "fetch failed", which retries.
-    throw new Error("fetch failed", { cause: error });
-  }
-}
-
-/**
- * Accept only https URLs whose resolved addresses are public.
- * Returns null for policy rejections so they are not retried.
- */
-async function validatePublicHttpsUrl(rawUrl: string): Promise<URL | null> {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    console.warn(`Refusing invalid image URL: ${rawUrl}`);
-    return null;
-  }
-
-  if (url.protocol !== "https:") {
-    console.warn(`Refusing non-https image URL: ${rawUrl}`);
-    return null;
-  }
-
-  const hostname = hostnameForResolution(url.hostname);
-  if (!hostname) {
-    console.warn(`Refusing invalid image URL: ${rawUrl}`);
-    return null;
-  }
-
-  const addresses = await resolveHostAddresses(hostname);
-  if (addresses.length === 0 || addresses.some((address) => isBlockedImageAddress(address))) {
-    console.warn(`Refusing non-public image URL: ${rawUrl}`);
-    return null;
-  }
-
-  return url;
 }
 
 async function readDownloadedImage(
@@ -246,123 +174,6 @@ export async function getImageDimensions(
   }
 }
 
-type AlbumLookup = {
-  id: string;
-  mergedIntoId: string | null;
-};
-
-type AlbumClient = {
-  album: {
-    findFirst: (args: {
-      where: { artistId: string; name: string };
-      select: { id: true; mergedIntoId: true };
-    }) => Promise<AlbumLookup | null>;
-    findUnique: (args: {
-      where: { id: string };
-      select: { id: true; mergedIntoId: true };
-    }) => Promise<AlbumLookup | null>;
-    create: (args: {
-      data: { name: string; artistId: string; year?: number };
-      select: { id: true; mergedIntoId: true };
-    }) => Promise<AlbumLookup>;
-  };
-};
-
-/**
- * Follow mergedIntoId until we reach the living album.
- * Upload/import must not keep attaching tracks to a merged-away source.
- */
-async function resolveCanonicalAlbum(db: AlbumClient, album: AlbumLookup): Promise<{ id: string }> {
-  const seen = new Set<string>();
-  let current = album;
-
-  while (current.mergedIntoId) {
-    if (seen.has(current.id)) {
-      break;
-    }
-    seen.add(current.id);
-
-    const next = await db.album.findUnique({
-      where: { id: current.mergedIntoId },
-      select: { id: true, mergedIntoId: true },
-    });
-    if (!next) {
-      break;
-    }
-    current = next;
-  }
-
-  return { id: current.id };
-}
-
-/**
- * Shared get-or-create core, parameterized by client (global `prisma` or a
- * transaction client).
- */
-async function getOrCreateAlbumCore(
-  client: AlbumClient,
-  artistId: string,
-  albumName: string | null | undefined,
-  year?: number | null,
-): Promise<{ id: string } | null> {
-  if (!albumName) {
-    return null;
-  }
-
-  // Try to find existing album first
-  let album = await client.album.findFirst({
-    where: {
-      artistId,
-      name: albumName,
-    },
-    select: {
-      id: true,
-      mergedIntoId: true,
-    },
-  });
-
-  // If not found, create it
-  if (!album) {
-    album = await client.album.create({
-      data: {
-        name: albumName,
-        artistId,
-        ...(year && { year }),
-      },
-      select: {
-        id: true,
-        mergedIntoId: true,
-      },
-    });
-  }
-
-  return resolveCanonicalAlbum(client, album);
-}
-
-/**
- * Get or create an Album record
- * Uses (artistId, name) as unique identifier
- */
-export async function getOrCreateAlbum(
-  artistId: string,
-  albumName: string | null | undefined,
-  year?: number | null,
-): Promise<{ id: string } | null> {
-  return getOrCreateAlbumCore(prisma, artistId, albumName, year);
-}
-
-/**
- * Transaction-aware version of getOrCreateAlbum
- */
-export async function getOrCreateAlbumTx(
-  tx: Prisma.TransactionClient,
-  artistId: string,
-  albumName: string | null | undefined,
-  year?: number | null,
-): Promise<{ id: string } | null> {
-  return getOrCreateAlbumCore(tx, artistId, albumName, year);
-}
-
 /**
  * Structural client for cover writes — accepts both the global `prisma` client
  * and a `Prisma.TransactionClient` so the shared core is client-agnostic.
@@ -391,6 +202,10 @@ type CoverClient = {
       select: { coverImageId: true };
     }) => Promise<{ coverImageId: string | null } | null>;
     update: (args: { where: { id: string }; data: { coverImageId: string } }) => Promise<unknown>;
+    updateMany: (args: {
+      where: { id: string; coverImageId: null };
+      data: { coverImageId: string };
+    }) => Promise<{ count: number }>;
   };
 };
 
@@ -405,6 +220,9 @@ async function createOrReuseCoverImage(
   albumId?: string | null,
 ): Promise<{ id: string; objectKey: string }> {
   if (prepared.kind === "new") {
+    if (!prepared.contentHash) {
+      throw new Error("Cannot persist cover image without content hash");
+    }
     // Re-check: a concurrent upload may have created the same cover after
     // prepare ran (contentHash is unique).
     const existing = await client.coverImage.findUnique({
@@ -414,22 +232,34 @@ async function createOrReuseCoverImage(
 
     let coverImage = existing;
     if (!coverImage) {
-      coverImage = await client.coverImage.create({
-        data: {
-          contentHash: prepared.contentHash,
-          objectKey: prepared.objectKey,
-          width: prepared.width,
-          height: prepared.height,
-          format: prepared.format,
-          fileSize: prepared.fileSize,
-        },
-        select: { id: true, objectKey: true },
-      });
+      try {
+        coverImage = await client.coverImage.create({
+          data: {
+            contentHash: prepared.contentHash,
+            objectKey: prepared.objectKey,
+            width: prepared.width,
+            height: prepared.height,
+            format: prepared.format,
+            fileSize: prepared.fileSize,
+          },
+          select: { id: true, objectKey: true },
+        });
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        coverImage = await client.coverImage.findUnique({
+          where: { contentHash: prepared.contentHash },
+          select: { id: true, objectKey: true },
+        });
+        if (!coverImage) throw error;
+        await deleteFile(prepared.objectKey).catch((deleteError) => {
+          console.error("Failed to delete orphan cover object after P2002:", deleteError);
+        });
+      }
     }
 
     if (albumId) {
-      await client.album.update({
-        where: { id: albumId },
+      await client.album.updateMany({
+        where: { id: albumId, coverImageId: null },
         data: { coverImageId: coverImage.id },
       });
     }
@@ -440,16 +270,10 @@ async function createOrReuseCoverImage(
   // Reusing an existing cover (by content hash): associate the album only when
   // it still has no cover.
   if (prepared.kind === "existing" && albumId) {
-    const album = await client.album.findUnique({
-      where: { id: albumId },
-      select: { coverImageId: true },
+    await client.album.updateMany({
+      where: { id: albumId, coverImageId: null },
+      data: { coverImageId: prepared.id },
     });
-    if (album && !album.coverImageId) {
-      await client.album.update({
-        where: { id: albumId },
-        data: { coverImageId: prepared.id },
-      });
-    }
   }
 
   return { id: prepared.id, objectKey: prepared.objectKey };
@@ -501,6 +325,47 @@ export type PreparedCoverImage =
       fileSize: number;
     };
 
+/** Thrown when cover preparation fails after a new object was uploaded to storage. */
+export class CoverImageUploadError extends Error {
+  readonly uploadedObjectKey: string | undefined;
+
+  constructor(message: string, uploadedObjectKey?: string) {
+    super(message);
+    this.name = "CoverImageUploadError";
+    this.uploadedObjectKey = uploadedObjectKey;
+  }
+}
+
+/**
+ * Delete a prepared "new" cover object when persistence failed after the Tigris
+ * upload but the track upload will continue without a cover image.
+ */
+export async function abandonUnpersistedPreparedCover(prepared: PreparedCoverImage): Promise<void> {
+  if (prepared.kind !== "new") return;
+
+  const coverPersisted = await prisma.coverImage.findFirst({
+    where: { objectKey: prepared.objectKey },
+    select: { id: true },
+  });
+  if (coverPersisted) return;
+
+  try {
+    await deleteFile(prepared.objectKey);
+  } catch (error) {
+    console.error(`Failed to delete cover object ${prepared.objectKey}:`, error);
+  }
+}
+
+/** Best-effort delete of a cover object left in storage after a failed upload. */
+export async function cleanupFailedCoverUpload(error: unknown): Promise<void> {
+  if (!(error instanceof CoverImageUploadError) || !error.uploadedObjectKey) return;
+  try {
+    await deleteFile(error.uploadedObjectKey);
+  } catch (deleteError) {
+    console.error(`Failed to delete cover object ${error.uploadedObjectKey}:`, deleteError);
+  }
+}
+
 /**
  * Resolve the Tigris cover object for an image, uploading it when it is new.
  *
@@ -516,38 +381,9 @@ export type PreparedCoverImage =
 export async function prepareCoverImageUpload(
   params: CoverImageUploadParams,
 ): Promise<PreparedCoverImage> {
-  const { imageBuffer, albumId, trackId, width, height, format } = params;
+  const { imageBuffer, albumId, trackId, format } = params;
 
-  // Step 1: Calculate hash for deduplication
-  const contentHash = await calculateImageHash(imageBuffer);
-
-  // Step 2: Check if a cover with the same hash already exists
-  const existingCover = await prisma.coverImage.findUnique({
-    where: { contentHash },
-    select: { id: true, objectKey: true },
-  });
-
-  if (existingCover) {
-    return { kind: "existing", id: existingCover.id, objectKey: existingCover.objectKey };
-  }
-
-  // Step 3: If the album already has a cover, reuse it (skip upload)
-  if (albumId) {
-    const album = await prisma.album.findUnique({
-      where: { id: albumId },
-      include: { coverImage: { select: { id: true, objectKey: true } } },
-    });
-
-    if (album?.coverImage) {
-      return {
-        kind: "album-cover",
-        id: album.coverImage.id,
-        objectKey: album.coverImage.objectKey,
-      };
-    }
-  }
-
-  // Step 4: Process and upload the new cover (outside any DB transaction)
+  // Step 1: Re-encode to the canonical master (same as the sync pipeline).
   const sharp = await import("sharp").catch(() => null);
   if (!sharp) {
     throw new Error("sharp is not available for image processing");
@@ -563,10 +399,42 @@ export async function prepareCoverImageUpload(
     .toBuffer();
 
   const metadata = await sharp.default(processedImage).metadata();
-  const finalWidth = width || metadata.width || null;
-  const finalHeight = height || metadata.height || null;
+  const finalWidth = metadata.width ?? null;
+  const finalHeight = metadata.height ?? null;
   const finalFormat = format || "jpeg";
   const fileSize = processedImage.length;
+
+  // Step 2: Hash the canonical bytes for deduplication (not the raw upload).
+  const contentHash = await calculateImageHash(processedImage);
+
+  // Step 3: Check if a cover with the same hash already exists
+  const existingCover = await prisma.coverImage.findUnique({
+    where: { contentHash },
+    select: { id: true, objectKey: true },
+  });
+
+  if (existingCover) {
+    return { kind: "existing", id: existingCover.id, objectKey: existingCover.objectKey };
+  }
+
+  // Step 4: If the album already has a cover, reuse it (skip upload).
+  // Curator upload/from-url routes must not pass albumId — see cover-fetch.server.ts.
+  if (albumId) {
+    const album = await prisma.album.findUnique({
+      where: { id: albumId },
+      include: { coverImage: { select: { id: true, objectKey: true } } },
+    });
+
+    if (album?.coverImage) {
+      return {
+        kind: "album-cover",
+        id: album.coverImage.id,
+        objectKey: album.coverImage.objectKey,
+      };
+    }
+  }
+
+  // Step 5: Upload the new cover (outside any DB transaction)
 
   const { createId } = await import("@paralleldrive/cuid2");
   const fileId = createId();
@@ -575,16 +443,21 @@ export async function prepareCoverImageUpload(
     ? `images/tracks/${trackId}/cover/${timestamp}-${fileId}.jpg`
     : `images/covers/${timestamp}-${fileId}.jpg`;
 
-  await uploadFile({
-    file: processedImage,
-    key: objectKey,
-    contentType: "image/jpeg",
-    metadata: {
-      ...(trackId && { trackId }),
-      type: "album-art",
-      contentHash,
-    },
-  });
+  try {
+    await uploadFile({
+      file: processedImage,
+      key: objectKey,
+      contentType: "image/jpeg",
+      metadata: {
+        ...(trackId && { trackId }),
+        type: "album-art",
+        contentHash,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Cover upload failed";
+    throw new CoverImageUploadError(message, objectKey);
+  }
 
   return {
     kind: "new",

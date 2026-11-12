@@ -23,7 +23,7 @@ truncated page and a truncated queue — only the first 50 make it in.
   are appended with `useFetcher` + the shared `InfiniteScrollSentinel` (ADR-021). A dedicated route
   is used so `albums` and `playlists` are not re-sent on every page.
 - **Track rows use `usePlaybackIndex={false}`** so clicking resolves the queue position by track id
-  in the _full_ spine (same as the search page), independent of how many rows are currently
+  in the _full_ spine (same as the search page), independent of how many rows are
   rendered.
 
 ## Non-goals

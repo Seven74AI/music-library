@@ -1,5 +1,6 @@
 import { type Prisma } from "#prisma/client.js";
 import { prisma } from "#app/utils/db.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import {
   canAddTracks,
   canEditOthersUpcoming,
@@ -391,14 +392,12 @@ export async function recordRoomPlayEvent({
   type,
   trackId,
   playId,
-  addedByParticipantId,
 }: {
   roomId: string;
   actor: ParticipantActor;
   type: "room_play_started" | "room_play_completed";
   trackId: string;
   playId?: string;
-  addedByParticipantId?: string;
 }) {
   await loadOpenRoom(roomId);
   const participant = await requireParticipant(roomId, actor);
@@ -410,32 +409,37 @@ export async function recordRoomPlayEvent({
   // queue. Otherwise a Host could mint play events for arbitrary tracks.
   const queued = await prisma.roomQueueItem.findFirst({
     where: { roomId, trackId },
-    select: { id: true },
+    select: { id: true, addedByParticipantId: true },
   });
   if (!queued) {
     throw new PartyRoomError("forbidden", "Track is not on this room's queue", 403);
   }
 
+  const data = {
+    roomId,
+    trackId,
+    type,
+    playId: playId ?? null,
+    addedByParticipantId: queued.addedByParticipantId,
+  };
+
   // Dedupe by playId: a play session emits start + complete, but a retried or
-  // duplicated client call must not create duplicate events for the same playId.
+  // concurrent client call must not create duplicate events for the same playId.
   if (playId) {
-    const existing = await prisma.roomPlayEvent.findFirst({
-      where: { roomId, playId, type },
-      select: { id: true, type: true, trackId: true, playId: true, createdAt: true },
-    });
-    if (existing) {
-      return existing;
+    try {
+      return await prisma.roomPlayEvent.create({ data });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        const existing = await prisma.roomPlayEvent.findFirst({
+          where: { roomId, playId, type },
+          select: { id: true, type: true, trackId: true, playId: true, createdAt: true },
+        });
+        if (existing) return existing;
+      }
+      throw error;
     }
   }
 
-  const event = await prisma.roomPlayEvent.create({
-    data: {
-      roomId,
-      trackId,
-      type,
-      playId: playId ?? null,
-      addedByParticipantId: addedByParticipantId ?? null,
-    },
-  });
+  const event = await prisma.roomPlayEvent.create({ data });
   return event;
 }

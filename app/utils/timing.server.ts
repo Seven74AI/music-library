@@ -79,12 +79,6 @@ export function getServerTimeHeader(timings?: Timings) {
     .join(",");
 }
 
-export function combineServerTimings(headers1: Headers, headers2: Headers) {
-  const newHeaders = new Headers(headers1);
-  newHeaders.append("Server-Timing", headers2.get("Server-Timing") ?? "");
-  return newHeaders.get("Server-Timing") ?? "";
-}
-
 export function cachifiedTimingReporter<Value>(
   timings?: Timings,
 ): undefined | CreateReporter<Value> {

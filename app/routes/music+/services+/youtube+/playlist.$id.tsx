@@ -34,6 +34,7 @@ import { YOUTUBE_SERVICE } from "#app/constants/services";
 import {
   createServicePlaylistService,
   confirmOrphanedMatches,
+  orphanMatchesSchema,
 } from "#app/features/service-playlist/service-playlist.server";
 import {
   isPlaylistWithTracks,
@@ -49,6 +50,7 @@ import {
   getIntentErrorMessage,
 } from "#app/types/youtube-intents";
 import { requireUserId } from "#app/utils/auth.server";
+import { toClientErrorMessage } from "#app/utils/error-handlers.server";
 import { getPlaylistTitle } from "#app/utils/breadcrumb-utils";
 import { useIsPending } from "#app/utils/misc";
 import { filterPlayableTracks } from "#app/utils/playable-track.ts";
@@ -136,11 +138,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
               id: t.id,
               title: String(t.title),
               externalId: t.externalId || null,
+              membershipId: t.membershipId,
             })),
             removedTracks: result.removedTracks.map((t) => ({
               id: t.id,
               title: String(t.title),
               externalId: t.externalId || null,
+              membershipId: t.membershipId,
             })),
             pendingMatches: result.pendingMatches,
           });
@@ -174,37 +178,29 @@ export async function action({ request, params }: ActionFunctionArgs) {
           return data({ status: "error", message: "Invalid matches data" }, { status: 400 });
         }
 
+        let matches: ReturnType<typeof orphanMatchesSchema.parse>;
         try {
-          const matches = JSON.parse(matchesJson) as Array<{
-            deletedItemId: string | undefined;
-            selectedTrackId: string | null;
-            position: number;
-            action: "match" | "new" | "skip";
-          }>;
-
-          const result = await confirmOrphanedMatches(params.id!, matches, userId);
-
-          if (result.success) {
-            return data({
-              status: "success",
-              message: result.message,
-            });
+          const parsed = orphanMatchesSchema.safeParse(JSON.parse(matchesJson));
+          if (!parsed.success) {
+            return data({ status: "error", message: "Invalid matches format" }, { status: 400 });
           }
-
-          return data({
-            status: "error",
-            message: result.message || "Failed to process matches. Please try again.",
-          });
+          matches = parsed.data;
         } catch (error) {
           console.error("Error parsing matches:", error);
-          return data(
-            {
-              status: "error",
-              message: "Invalid matches format",
-            },
-            { status: 400 },
-          );
+          return data({ status: "error", message: "Invalid matches format" }, { status: 400 });
         }
+
+        const result = await confirmOrphanedMatches(params.id!, matches, userId);
+
+        if (result.success) {
+          return data({ status: "success", message: result.message });
+        }
+
+        // Per-case status from the domain layer; always the friendly message.
+        return data(
+          { status: "error", message: result.message },
+          { status: result.status ?? 500 },
+        );
       }
 
       default:
@@ -214,7 +210,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     console.error("Error in playlist action:", error);
     return data({
       status: "error",
-      message: error instanceof Error ? error.message : "An error occurred",
+      message: toClientErrorMessage(error),
     });
   }
 }
@@ -250,15 +246,43 @@ export function mapTrackToListItem(track: TrackWithUserStatus) {
  * Deleted/unavailable placeholders are never "missing" for library purposes
  * (same rule as getActiveSyncedPlaylistTrackIds on the synced-playlists page).
  */
+export function shouldRevertLibraryStatusOnFetcherError(
+  fetcherResult: unknown,
+  fetcherState: string,
+): boolean {
+  if (fetcherState !== "idle") return false;
+  if (!fetcherResult || typeof fetcherResult !== "object" || !("status" in fetcherResult)) {
+    return false;
+  }
+  return (fetcherResult as { status: string }).status === "error";
+}
+
+/** Reset optimistic library toggles to loader `isInUserLibrary` after a failed POST. */
+export function revertLibraryStatusFromLoader(
+  tracks: Pick<TrackWithUserStatus, "id" | "isInUserLibrary">[],
+  libraryStatus: Record<string, boolean>,
+): Record<string, boolean> {
+  const next = { ...libraryStatus };
+  for (const track of tracks) {
+    if (track.isInUserLibrary !== undefined) {
+      next[track.id] = track.isInUserLibrary;
+    }
+  }
+  return next;
+}
+
 export function getTracksMissingFromLibrary(
   tracks: TrackWithUserStatus[],
   libraryStatus: Record<string, boolean> = {},
 ): TrackWithUserStatus[] {
+  const seen = new Set<string>();
   return tracks.filter((track) => {
     if (track.isDeleted) return false;
     const status =
       libraryStatus[track.id] !== undefined ? libraryStatus[track.id] : track.isInUserLibrary;
-    return !status;
+    if (status || seen.has(track.id)) return false;
+    seen.add(track.id);
+    return true;
   });
 }
 
@@ -307,6 +331,13 @@ export default function YouTubeSyncedPlaylistDetailPage() {
       return next;
     });
   }, [tracks]);
+
+  useEffect(() => {
+    if (!shouldRevertLibraryStatusOnFetcherError(libraryFetcher.data, libraryFetcher.state)) {
+      return;
+    }
+    setLibraryStatus((prev) => revertLibraryStatusFromLoader(tracks, prev));
+  }, [libraryFetcher.data, libraryFetcher.state, tracks]);
 
   const handleToggleLibrary = useCallback(
     (trackId: string, currentIsInLibrary: boolean) => {
@@ -532,10 +563,16 @@ export default function YouTubeSyncedPlaylistDetailPage() {
               <div className="mt-2 text-sm text-green-700 dark:text-green-300">
                 <p className="font-medium">Deleted tracks: {actionData.deletedTracks.length}</p>
                 <ul className="list-disc list-inside mt-1 space-y-1">
-                  {(actionData.deletedTracks as Array<{ id: string; title: string }>)
+                  {(
+                    actionData.deletedTracks as Array<{
+                      id: string;
+                      title: string;
+                      membershipId?: string;
+                    }>
+                  )
                     .slice(0, 5)
                     .map((track) => (
-                      <li key={track.id}>{track.title}</li>
+                      <li key={track.membershipId ?? track.id}>{track.title}</li>
                     ))}
                   {actionData.deletedTracks.length > 5 && (
                     <li className="text-muted-foreground">
@@ -551,10 +588,16 @@ export default function YouTubeSyncedPlaylistDetailPage() {
               <div className="mt-2 text-sm text-green-700 dark:text-green-300">
                 <p className="font-medium">Removed tracks: {actionData.removedTracks.length}</p>
                 <ul className="list-disc list-inside mt-1 space-y-1">
-                  {(actionData.removedTracks as Array<{ id: string; title: string }>)
+                  {(
+                    actionData.removedTracks as Array<{
+                      id: string;
+                      title: string;
+                      membershipId?: string;
+                    }>
+                  )
                     .slice(0, 5)
                     .map((track) => (
-                      <li key={track.id}>{track.title}</li>
+                      <li key={track.membershipId ?? track.id}>{track.title}</li>
                     ))}
                   {actionData.removedTracks.length > 5 && (
                     <li className="text-muted-foreground">
@@ -768,7 +811,7 @@ export default function YouTubeSyncedPlaylistDetailPage() {
 
                     return (
                       <TrackListItem
-                        key={track.id}
+                        key={track.membershipId ?? `${track.id}-${index}`}
                         track={{
                           ...trackForListItem,
                           isInUserLibrary:

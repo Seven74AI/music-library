@@ -20,7 +20,7 @@ const MIN_AUDIO_BYTES = 1024;
 /** ZIP compression methods (PKWARE APPNOTE). */
 const ZIP_METHOD_DEFLATED = 8;
 
-class ZipExtractionLimitError extends Error {
+export class ZipExtractionLimitError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ZipExtractionLimitError";

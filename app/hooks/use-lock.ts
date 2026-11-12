@@ -25,6 +25,11 @@ export interface UseLockResult {
 
 const OTHER_LOCK_POLL_MS = 4000;
 
+type LockStatusReadResult =
+  | { kind: "success"; lock: LockInfo | null }
+  | { kind: "stale" }
+  | { kind: "failure" };
+
 /**
  * Hook to manage entity locks.
  * Acquires on mount when autoAcquire is set, and releases an owned lock on unmount.
@@ -45,6 +50,7 @@ export function useLock(
   const autoReleaseRef = useRef(autoRelease);
   autoAcquireRef.current = autoAcquire;
   autoReleaseRef.current = autoRelease;
+  const prevAutoAcquireRef = useRef(autoAcquire);
 
   const entityTypeRef = useRef(entityType);
   const entityIdRef = useRef(entityId);
@@ -54,8 +60,10 @@ export function useLock(
   const mountedRef = useRef(true);
   const ownedRef = useRef(false);
   const ownedEntityRef = useRef<{ type: EntityType; id: string } | null>(null);
+  const ownedLockProofRef = useRef<{ id: string; acquiredAt: string } | null>(null);
   const myUserIdRef = useRef<string | null>(null);
   const acquireGen = useRef(0);
+  const statusReadGen = useRef(0);
   const releaseInFlightRef = useRef(new Set<string>());
 
   const [lock, setLock] = useState<LockInfo | null>(null);
@@ -73,44 +81,65 @@ export function useLock(
     setError(null);
   }
 
-  const releaseRequest = useCallback((type: EntityType, id: string) => {
-    // A late release for the entity we just left must not drop the lock we now hold.
-    if (ownedEntityRef.current?.type === type && ownedEntityRef.current.id === id) {
-      ownedRef.current = false;
-      ownedEntityRef.current = null;
-    }
-    const key = `${type}:${id}`;
-    if (releaseInFlightRef.current.has(key)) return;
-    releaseInFlightRef.current.add(key);
-    void fetch("/api/locks/release", {
-      method: "POST",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entityType: type, entityId: id }),
-    })
-      .catch((err) => {
-        console.error("Failed to release lock:", err);
-      })
-      .finally(() => {
-        releaseInFlightRef.current.delete(key);
-      });
-  }, []);
+  const releaseRequest = useCallback(
+    (type: EntityType, id: string, proof?: { id: string; acquiredAt: string }) => {
+      const ownsTarget =
+        ownedRef.current &&
+        ownedEntityRef.current?.type === type &&
+        ownedEntityRef.current?.id === id;
+      const releaseProof = ownsTarget ? (ownedLockProofRef.current ?? proof) : proof;
 
-  const readStatus = useCallback(async (): Promise<LockInfo | null> => {
+      const key = `${type}:${id}:${releaseProof?.id ?? ""}`;
+      if (releaseInFlightRef.current.has(key)) return;
+      releaseInFlightRef.current.add(key);
+      void fetch("/api/locks/release", {
+        method: "POST",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entityType: type,
+          entityId: id,
+          ...(releaseProof ? { lockId: releaseProof.id, acquiredAt: releaseProof.acquiredAt } : {}),
+        }),
+      })
+        .catch((err) => {
+          console.error("Failed to release lock:", err);
+        })
+        .finally(() => {
+          releaseInFlightRef.current.delete(key);
+        });
+    },
+    [],
+  );
+
+  const readStatus = useCallback(async (): Promise<LockStatusReadResult> => {
+    const generation = ++statusReadGen.current;
     const type = entityTypeRef.current;
     const id = entityIdRef.current;
-    const res = await fetch(
-      `/api/locks/status?entityType=${encodeURIComponent(type)}&entityId=${encodeURIComponent(id)}`,
-    );
-    if (!res.ok) return null;
-    const data = (await res.json()) as { lock: LockInfo | null };
-    return data.lock ?? null;
+    try {
+      const res = await fetch(
+        `/api/locks/status?entityType=${encodeURIComponent(type)}&entityId=${encodeURIComponent(id)}`,
+      );
+      if (!res.ok) return { kind: "failure" };
+      const data = (await res.json()) as { lock: LockInfo | null };
+      if (generation !== statusReadGen.current) {
+        return { kind: "stale" };
+      }
+      if (type !== entityTypeRef.current || id !== entityIdRef.current) {
+        return { kind: "stale" };
+      }
+      return { kind: "success", lock: data.lock ?? null };
+    } catch {
+      if (generation !== statusReadGen.current) return { kind: "stale" };
+      return { kind: "failure" };
+    }
   }, []);
 
   const showMine = useCallback((next: LockInfo) => {
     myUserIdRef.current = next.lockedBy;
     ownedRef.current = true;
     ownedEntityRef.current = { type: next.entityType, id: next.entityId };
+    ownedLockProofRef.current = { id: next.id, acquiredAt: next.acquiredAt };
     setLock(next);
     setIsLockedByOther(false);
     setError(null);
@@ -119,6 +148,7 @@ export function useLock(
   const showOther = useCallback((next: LockInfo) => {
     ownedRef.current = false;
     ownedEntityRef.current = null;
+    ownedLockProofRef.current = null;
     setLock(next);
     setIsLockedByOther(true);
   }, []);
@@ -139,14 +169,24 @@ export function useLock(
         const stillCurrent = type === entityTypeRef.current && id === entityIdRef.current;
         if (!stillCurrent) {
           // The editor moved on. Release a lock this request won for the old id.
-          if (res.ok && autoReleaseRef.current) releaseRequest(type, id);
+          if (res.ok && autoReleaseRef.current) {
+            const body = (await res.json()) as { lock: LockInfo };
+            releaseRequest(type, id, {
+              id: body.lock.id,
+              acquiredAt: body.lock.acquiredAt,
+            });
+          }
           return;
         }
         if (!mountedRef.current) {
           // Only the latest acquire may release. An older response must not
           // delete a lock the current editor still holds, or send a second release.
           if (res.ok && autoReleaseRef.current && generation === acquireGen.current) {
-            releaseRequest(type, id);
+            const body = (await res.json()) as { lock: LockInfo };
+            releaseRequest(type, id, {
+              id: body.lock.id,
+              acquiredAt: body.lock.acquiredAt,
+            });
           }
           return;
         }
@@ -160,9 +200,18 @@ export function useLock(
           } catch {
             // The status lookup still identifies the holder.
           }
-          const statusLock = await readStatus().catch(() => null);
+          const statusRead = await readStatus();
           if (!mountedRef.current || generation !== acquireGen.current) return;
           if (type !== entityTypeRef.current || id !== entityIdRef.current) return;
+          if (statusRead.kind === "stale") {
+            setError(message);
+            return;
+          }
+          if (statusRead.kind === "failure") {
+            setError(message);
+            return;
+          }
+          const statusLock = statusRead.lock;
           if (statusLock && myUserIdRef.current && statusLock.lockedBy === myUserIdRef.current) {
             showMine(statusLock);
             return;
@@ -189,11 +238,15 @@ export function useLock(
 
         const data = (await res.json()) as { lock: LockInfo };
         if (type !== entityTypeRef.current || id !== entityIdRef.current) {
-          if (autoReleaseRef.current) releaseRequest(type, id);
+          if (autoReleaseRef.current) {
+            releaseRequest(type, id, { id: data.lock.id, acquiredAt: data.lock.acquiredAt });
+          }
           return;
         }
         if (!mountedRef.current) {
-          if (autoReleaseRef.current && generation === acquireGen.current) releaseRequest(type, id);
+          if (autoReleaseRef.current && generation === acquireGen.current) {
+            releaseRequest(type, id, { id: data.lock.id, acquiredAt: data.lock.acquiredAt });
+          }
           return;
         }
         if (generation !== acquireGen.current) return;
@@ -210,24 +263,36 @@ export function useLock(
 
   const release = useCallback(() => {
     const owned = ownedEntityRef.current;
+    const proof = ownedLockProofRef.current;
     const type = owned?.type ?? entityTypeRef.current;
     const id = owned?.id ?? entityIdRef.current;
     myUserIdRef.current = null;
     ownedEntityRef.current = null;
+    ownedLockProofRef.current = null;
     setLock(null);
     setIsLockedByOther(false);
-    if (ownedRef.current) releaseRequest(type, id);
+    const hadOwned = ownedRef.current;
     ownedRef.current = false;
+    if (hadOwned) releaseRequest(type, id, proof ?? undefined);
   }, [releaseRequest]);
 
   const refresh = useCallback(() => {
     void readStatus()
-      .then((next) => {
+      .then((statusRead) => {
         if (!mountedRef.current) return;
+        if (statusRead.kind === "stale") {
+          return;
+        }
+        if (statusRead.kind === "failure") {
+          setError((prev) => prev ?? "Failed to read lock status");
+          return;
+        }
+        const next = statusRead.lock;
         if (!next) {
           const shouldAcquire = autoAcquireRef.current;
           ownedRef.current = false;
           ownedEntityRef.current = null;
+          ownedLockProofRef.current = null;
           myUserIdRef.current = null;
           setLock(null);
           setIsLockedByOther(false);
@@ -251,23 +316,42 @@ export function useLock(
     return () => {
       mountedRef.current = false;
       const owned = ownedEntityRef.current;
+      const proof = ownedLockProofRef.current;
       if (!autoReleaseRef.current || !owned) return;
       ownedEntityRef.current = null;
+      ownedLockProofRef.current = null;
       ownedRef.current = false;
-      releaseRequest(owned.type, owned.id);
+      releaseRequest(owned.type, owned.id, proof ?? undefined);
     };
   }, [releaseRequest]);
 
   useEffect(() => {
     const owned = ownedEntityRef.current;
+    const proof = ownedLockProofRef.current;
     if (owned && (owned.type !== entityType || owned.id !== entityId)) {
       ownedEntityRef.current = null;
+      ownedLockProofRef.current = null;
       ownedRef.current = false;
       myUserIdRef.current = null;
-      if (autoReleaseRef.current) releaseRequest(owned.type, owned.id);
+      if (autoReleaseRef.current) releaseRequest(owned.type, owned.id, proof ?? undefined);
     }
     if (autoAcquire) acquire();
   }, [entityType, entityId, autoAcquire, acquire, releaseRequest]);
+
+  useEffect(() => {
+    if (prevAutoAcquireRef.current && !autoAcquire && ownedRef.current && autoReleaseRef.current) {
+      const owned = ownedEntityRef.current;
+      const proof = ownedLockProofRef.current;
+      ownedEntityRef.current = null;
+      ownedLockProofRef.current = null;
+      ownedRef.current = false;
+      myUserIdRef.current = null;
+      setLock(null);
+      setIsLockedByOther(false);
+      if (owned) releaseRequest(owned.type, owned.id, proof ?? undefined);
+    }
+    prevAutoAcquireRef.current = autoAcquire;
+  }, [autoAcquire, releaseRequest]);
 
   useEffect(() => {
     if (!isLockedByOther) return;

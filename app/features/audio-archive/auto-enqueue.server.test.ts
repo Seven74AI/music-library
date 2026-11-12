@@ -39,7 +39,7 @@ describe("enqueueArchiveJob", () => {
       expect(callArgs.data.trackId).toBe("track-1");
       expect(callArgs.data.status).toBe("pending");
       expect(callArgs.data.priority).toBe(false);
-      expect(mockScheduleQueueTick).toHaveBeenCalledTimes(1);
+      expect(mockScheduleQueueTick).not.toHaveBeenCalled();
     });
 
     it("silently skips when ArchiveJob already exists (unique constraint)", async () => {
@@ -54,7 +54,7 @@ describe("enqueueArchiveJob", () => {
       // Should not throw
       await expect(
         enqueueArchiveJob(tx as unknown as Prisma.TransactionClient, "track-1"),
-      ).resolves.toBeUndefined();
+      ).resolves.toBe(false);
 
       expect(mockArchiveJob.create).toHaveBeenCalledTimes(1);
       expect(mockScheduleQueueTick).not.toHaveBeenCalled();
@@ -108,7 +108,7 @@ describe("enqueueArchiveJobs (batch)", () => {
         { trackId: "track-3", status: "pending", priority: false },
       ],
     });
-    expect(mockScheduleQueueTick).toHaveBeenCalledTimes(1);
+    expect(mockScheduleQueueTick).not.toHaveBeenCalled();
   });
 
   it("skips createMany and queue tick when all tracks already have jobs", async () => {
@@ -132,6 +132,23 @@ describe("enqueueArchiveJobs (batch)", () => {
     expect(mockArchiveJob.findMany).not.toHaveBeenCalled();
     expect(mockArchiveJob.createMany).not.toHaveBeenCalled();
     expect(mockScheduleQueueTick).not.toHaveBeenCalled();
+  });
+
+  it("falls back to per-track enqueue when createMany hits unique constraint", async () => {
+    const { enqueueArchiveJobs } = await import("./auto-enqueue.server.ts");
+
+    mockArchiveJob.findMany.mockResolvedValue([]);
+    mockArchiveJob.createMany.mockRejectedValue(
+      new Error("Unique constraint failed on the fields: (`trackId`)"),
+    );
+    mockArchiveJob.create.mockResolvedValue({ id: "job-1", trackId: "track-1" });
+
+    const tx = { archiveJob: mockArchiveJob };
+    await expect(
+      enqueueArchiveJobs(tx as unknown as Prisma.TransactionClient, ["track-1", "track-2"]),
+    ).resolves.toBe(true);
+
+    expect(mockArchiveJob.create).toHaveBeenCalledTimes(2);
   });
 
   it("deduplicates trackIds before querying", async () => {
@@ -159,5 +176,21 @@ describe("enqueueArchiveJobs (batch)", () => {
       enqueueArchiveJobs(tx as unknown as Prisma.TransactionClient, ["track-1"]),
     ).rejects.toThrow("Database connection lost");
     expect(mockScheduleQueueTick).not.toHaveBeenCalled();
+  });
+});
+
+describe("scheduleArchiveQueueTickAfterCommit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("schedules the worker only after commit", async () => {
+    const { scheduleArchiveQueueTickAfterCommit } = await import("./auto-enqueue.server.ts");
+
+    scheduleArchiveQueueTickAfterCommit(false);
+    expect(mockScheduleQueueTick).not.toHaveBeenCalled();
+
+    scheduleArchiveQueueTickAfterCommit(true);
+    expect(mockScheduleQueueTick).toHaveBeenCalledTimes(1);
   });
 });

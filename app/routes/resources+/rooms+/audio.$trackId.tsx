@@ -9,9 +9,9 @@ import { type LoaderFunctionArgs } from "react-router";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import { partyRoomErrorResponse, resolveActor } from "#app/features/party-room/request.server.ts";
 import { assertRoomSpeakerTrackAccess } from "#app/features/party-room/speaker-audio.server.ts";
-import { serveLocalAudioFile } from "#app/utils/audio-serving.server.ts";
+import { serveLocalAudioFile, serveStorageAudioFile } from "#app/utils/audio-serving.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { getFileUrl, getStorageObjectStream } from "#app/utils/storage.server.ts";
+import { getFileUrl } from "#app/utils/storage.server.ts";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
@@ -54,21 +54,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     // <audio src> needs bytes or a redirect — stream locally or redirect to signed URL.
     if (existsSync(localFilePath)) {
-      return serveLocalAudioFile(localFilePath, audioFile, request, "private, max-age=3600");
+      return serveLocalAudioFile(localFilePath, audioFile, request, "private, no-store");
     }
 
     try {
-      const { body, contentType, contentLength } = await getStorageObjectStream(
+      return await serveStorageAudioFile(
         audioFile.objectKey,
+        audioFile,
+        request,
+        "private, no-store",
       );
-      return new Response(body, {
-        headers: {
-          "Content-Type": contentType,
-          ...(contentLength ? { "Content-Length": contentLength.toString() } : {}),
-          "Accept-Ranges": "bytes",
-          "Cache-Control": "private, max-age=3600",
-        },
-      });
     } catch {
       // Deliberate exception to decision #22 ("no redirect — direct presigned
       // URL"): streaming is the primary path; when getStorageObjectStream is

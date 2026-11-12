@@ -6,6 +6,7 @@ import {
   createFallbackOfflineRootShell,
   persistOfflineRootShell,
   readOfflineRootShell,
+  resolveOfflineEffectiveTheme,
 } from "./offline-root-shell.client.ts";
 
 describe("offline root shell", () => {
@@ -61,6 +62,24 @@ describe("offline root shell", () => {
     const shell = createFallbackOfflineRootShell();
     expect(shell.offlineShell).toBe(true);
     expect(shell.user?.id).toBe("user-1");
+  });
+
+  test("system theme with dark client hint resolves to dark offline shell", () => {
+    persistOfflineRootShell({
+      user: null,
+      requestInfo: {
+        hints: { theme: "dark", timeZone: "UTC" },
+        origin: "https://music.test",
+        path: "/",
+        userPrefs: { theme: null },
+      },
+      ENV: {},
+    });
+
+    const shell = createFallbackOfflineRootShell();
+    expect(shell.requestInfo.userPrefs.theme).toBeNull();
+    expect(shell.requestInfo.hints.theme).toBe("dark");
+    expect(resolveOfflineEffectiveTheme(shell.requestInfo)).toBe("dark");
   });
 
   test("preserves persisted theme preference in the fallback shell", () => {

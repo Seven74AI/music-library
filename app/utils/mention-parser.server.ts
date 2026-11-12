@@ -14,16 +14,27 @@ export async function parseMentions(content: string): Promise<string[]> {
     return [];
   }
 
-  // Extract usernames or names
-  const identifiers = matches
-    .map((match) => match[1] || match[2])
-    .filter((id): id is string => !!id);
+  const usernameMentions: string[] = [];
+  const nameMentions: string[] = [];
+  for (const match of matches) {
+    if (match[1]) {
+      nameMentions.push(match[1]);
+    } else if (match[2]) {
+      usernameMentions.push(match[2].toLowerCase());
+    }
+  }
+
+  const orFilters: Array<{ username: { in: string[] } } | { name: { in: string[] } }> = [];
+  if (usernameMentions.length > 0) {
+    orFilters.push({ username: { in: usernameMentions } });
+  }
+  if (nameMentions.length > 0) {
+    orFilters.push({ name: { in: nameMentions } });
+  }
 
   // Query database to resolve usernames/names to user IDs
   const users = await prisma.user.findMany({
-    where: {
-      OR: [{ username: { in: identifiers } }, { name: { in: identifiers } }],
-    },
+    where: { OR: orFilters },
     select: {
       id: true,
       username: true,
@@ -31,21 +42,23 @@ export async function parseMentions(content: string): Promise<string[]> {
     },
   });
 
-  // Create a map for quick lookup
-  const userMap = new Map<string, string>();
-  users.forEach((user) => {
-    if (user.username) userMap.set(user.username, user.id);
-    if (user.name) userMap.set(user.name, user.id);
-  });
+  const usernameMap = new Map<string, string>();
+  const nameMap = new Map<string, string>();
+  for (const user of users) {
+    if (user.username) usernameMap.set(user.username.toLowerCase(), user.id);
+    if (user.name) nameMap.set(user.name, user.id);
+  }
 
-  // Resolve identifiers to user IDs
   const userIds = new Set<string>();
-  identifiers.forEach((identifier) => {
-    const userId = userMap.get(identifier);
-    if (userId) {
-      userIds.add(userId);
+  for (const match of matches) {
+    if (match[1]) {
+      const userId = nameMap.get(match[1]);
+      if (userId) userIds.add(userId);
+    } else if (match[2]) {
+      const userId = usernameMap.get(match[2].toLowerCase());
+      if (userId) userIds.add(userId);
     }
-  });
+  }
 
   return Array.from(userIds);
 }

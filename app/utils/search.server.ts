@@ -16,93 +16,83 @@ import { escapeLikeLiterals, toLiteralFts5Query } from "#app/utils/fts5-query.se
 import {
   getLifetimePlayCompletedCounts,
   personalPlayBoostCaseSql,
+  playCountsForBoostSql,
 } from "#app/utils/personal-play-boost.server.ts";
 import { getTrackPopularityStats } from "#app/utils/track-popularity.server.ts";
+import {
+  buildAlbumFtsQuery,
+  buildArtistFtsQuery,
+  buildTrackFtsQuery,
+  cursorClause,
+  decodeSearchCursor,
+  encodeSearchCursor,
+  lastCursorTuple,
+  type SearchCursorState,
+} from "#app/utils/search-fts.server.ts";
+import { type CursorSortTuple } from "#app/utils/search-validation.server.ts";
 
-// ── Cursor pagination helpers ──
-
-type CursorSortTuple = {
-  rk: number; // relevance_rank
-  fr: number; // fts_rank (0 for playlists)
-  n: string; // name or title
-  id: string; // entity id
-};
-
-type CompositeCursor = {
-  t: CursorSortTuple | null;
-  a: CursorSortTuple | null;
-  ar: CursorSortTuple | null;
-  p: CursorSortTuple | null;
-};
+type CompositeCursor = Required<Pick<SearchCursorState, "t" | "a" | "ar" | "p">>;
 
 function decodeCursor(cursor: string): CompositeCursor {
-  const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8")) as Record<
-    string,
-    unknown
-  >;
+  const state = decodeSearchCursor(cursor, ["t", "a", "ar", "p"]);
   return {
-    t: (parsed.t as CursorSortTuple) ?? null,
-    a: (parsed.a as CursorSortTuple) ?? null,
-    ar: (parsed.ar as CursorSortTuple) ?? null,
-    p: (parsed.p as CursorSortTuple) ?? null,
+    t: state.t ?? null,
+    a: state.a ?? null,
+    ar: state.ar ?? null,
+    p: state.p ?? null,
   };
 }
 
 function encodeCursor(c: CompositeCursor): string {
-  return Buffer.from(JSON.stringify(c)).toString("base64");
-}
-
-/** Build WHERE clause fragment + params for keyset pagination past the given tuple */
-function cursorClause(
-  tuple: CursorSortTuple,
-  rankCol: string,
-  ftsCol: string,
-  nameCol: string,
-  idCol: string,
-): { sql: string; params: unknown[] } {
-  return {
-    sql: `AND (
-      ${rankCol} > ? OR
-      (${rankCol} = ? AND ${ftsCol} > ?) OR
-      (${rankCol} = ? AND ${ftsCol} = ? AND ${nameCol} > ?) OR
-      (${rankCol} = ? AND ${ftsCol} = ? AND ${nameCol} = ? AND ${idCol} > ?)
-    )`,
-    params: [
-      tuple.rk,
-      tuple.rk,
-      tuple.fr,
-      tuple.rk,
-      tuple.fr,
-      tuple.n,
-      tuple.rk,
-      tuple.fr,
-      tuple.n,
-      tuple.id,
-    ],
-  };
-}
-
-/** Extract sort-tuple from the last result row */
-function lastCursorTuple(
-  row: {
-    relevance_rank: number;
-    fts_rank: number | bigint;
-    name?: string;
-    title?: string;
-    id: string;
-  },
-  nameField: string,
-): CursorSortTuple {
-  return {
-    rk: Number(row.relevance_rank),
-    fr: Number(row.fts_rank ?? 0),
-    n: String(row[nameField as keyof typeof row] ?? ""),
-    id: String(row.id),
-  };
+  return encodeSearchCursor(c);
 }
 
 function emptySearchResponse(limit: number): SearchResponse {
   return { results: [], pagination: { limit, hasNext: false, nextCursor: null } };
+}
+
+/**
+ * Merged-feed cursor for one entity type: advance only when that type contributed
+ * rows to the displayed page, and only past the last consumed row in its batch.
+ */
+function mergedFeedCursorArm(
+  typeResults: SearchResult[],
+  sortTuples: CursorSortTuple[],
+  displayedIds: Set<string>,
+  incomingArm: CursorSortTuple | null,
+  pageNextCursor: string | null,
+  armKey: keyof CompositeCursor,
+): CursorSortTuple | null {
+  if (typeResults.length === 0) return incomingArm;
+
+  let lastConsumedIndex = -1;
+  for (let i = 0; i < typeResults.length; i++) {
+    const row = typeResults[i];
+    if (row && displayedIds.has(row.id)) {
+      lastConsumedIndex = i;
+    }
+  }
+
+  if (lastConsumedIndex === -1) {
+    return incomingArm;
+  }
+
+  const undisplayedBeforeLast = typeResults
+    .slice(0, lastConsumedIndex)
+    .some((row) => !displayedIds.has(row.id));
+  if (undisplayedBeforeLast) {
+    return incomingArm;
+  }
+
+  const lastTuple = sortTuples[lastConsumedIndex];
+  if (!lastTuple) return incomingArm;
+
+  const consumedEntireBatch = lastConsumedIndex === typeResults.length - 1;
+  if (consumedEntireBatch) {
+    return pageNextCursor ? decodeCursor(pageNextCursor)[armKey] : lastTuple;
+  }
+
+  return lastTuple;
 }
 
 async function enrichTrackSearchResults(
@@ -139,7 +129,7 @@ async function enrichTrackSearchResults(
       },
       userTracks: userId
         ? {
-            where: { userId, isActive: true },
+            where: { userId, isActive: true, deletedAt: null },
             select: { createdAt: true },
             take: 1,
           }
@@ -225,7 +215,7 @@ export async function searchTracks(
 
   const userTrackJoin =
     userId && scope === "library"
-      ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = ? AND ut."isActive" = true`
+      ? `JOIN "UserTrack" ut ON ut."trackId" = t.id AND ut."userId" = ? AND ut."isActive" = true AND ut."deletedAt" IS NULL`
       : "";
 
   // Personal Play Boost (ADR-028): load/cache lifetime play_completed counts for
@@ -233,12 +223,27 @@ export async function searchTracks(
   // Logged-out path skips this — relevance-only ordering.
   const playCounts = userId ? await getLifetimePlayCompletedCounts(userId) : null;
   const playBoostExpr = playCounts
-    ? personalPlayBoostCaseSql(playCounts)
+    ? personalPlayBoostCaseSql(playCountsForBoostSql(playCounts))
     : { sql: "0", params: [] as unknown[] };
 
   const cursorFilter = curT
     ? cursorClause(curT, "relevance_rank", "fts_rank", "t.title", "t.id")
     : { sql: "", params: [] as unknown[] };
+
+  const trackQuery = buildTrackFtsQuery({
+    normalizedQuery,
+    prefixPattern,
+    ftsQuery,
+    limit,
+    cursorFilter,
+    userTrackJoin,
+    userTrackJoinParam: userId && scope === "library" ? userId : undefined,
+    extraWhereAfterMatch: "",
+    ftsRankExpr: {
+      sql: `tracks_fts.rank - (${playBoostExpr.sql})`,
+      params: playBoostExpr.params,
+    },
+  });
 
   const results = await prisma.$queryRawUnsafe<
     Array<{
@@ -255,40 +260,7 @@ export async function searchTracks(
       relevance_rank: number;
       fts_rank: number;
     }>
-  >(
-    `SELECT 
-			'track' as type,
-			t.id,
-			t.title,
-			a.name as artist_name,
-			a.id as artist_id,
-			COALESCE(alb.name, '') as album_name,
-			alb.id as album_id,
-			t.duration,
-			t."coverImageId",
-			t."serviceId",
-			CASE 
-				WHEN LOWER(t.title) = ? THEN 1
-				WHEN LOWER(t.title) LIKE ? ESCAPE '\\' THEN 2
-				ELSE 3
-			END as relevance_rank,
-			(tracks_fts.rank - (${playBoostExpr.sql})) as fts_rank
-		FROM tracks_fts
-		JOIN "Track" t ON tracks_fts.track_id = t.id
-		JOIN "Artist" a ON t."artistId" = a.id
-		LEFT JOIN "Album" alb ON t."albumId" = alb.id
-		${userTrackJoin}
-		WHERE tracks_fts MATCH ?${cursorFilter.sql}
-		ORDER BY relevance_rank, fts_rank, t.title
-		LIMIT ?`,
-    normalizedQuery,
-    prefixPattern,
-    ...playBoostExpr.params,
-    ...(userId && scope === "library" ? [userId] : []),
-    ftsQuery,
-    ...cursorFilter.params,
-    limit + 1,
-  );
+  >(trackQuery.sql, ...trackQuery.params);
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
@@ -320,6 +292,7 @@ export async function searchTracks(
   return {
     results: enrichedTracks,
     pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
+    sortTuples: rawResults.map((row) => lastCursorTuple(row, "title")),
   };
 }
 
@@ -351,12 +324,23 @@ export async function searchAlbums(
 
   const albumUserJoin =
     userId && scope === "library"
-      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."albumId" = alb.id AND ut2."userId" = ? AND ut2."isActive" = true)`
+      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."albumId" = alb.id AND ut2."userId" = ? AND ut2."isActive" = true AND ut2."deletedAt" IS NULL)`
       : "";
 
   const cursorFilter = curA
     ? cursorClause(curA, "relevance_rank", "fts_rank", "alb.name", "alb.id")
     : { sql: "", params: [] as unknown[] };
+
+  const albumQuery = buildAlbumFtsQuery({
+    normalizedQuery,
+    prefixPattern,
+    ftsQuery,
+    limit,
+    cursorFilter,
+    libraryScopeSql: albumUserJoin,
+    libraryScopeParam: userId && scope === "library" ? userId : undefined,
+    extraWhereAfterMatch: "",
+  });
 
   const results = await prisma.$queryRawUnsafe<
     Array<{
@@ -370,34 +354,7 @@ export async function searchAlbums(
       relevance_rank: number;
       fts_rank: number;
     }>
-  >(
-    `SELECT 
-			'album' as type,
-			alb.id,
-			alb.name,
-			a.name as artist_name,
-			a.id as artist_id,
-			alb.year,
-			alb."coverImageId",
-			CASE 
-				WHEN LOWER(alb.name) = ? THEN 1
-				WHEN LOWER(alb.name) LIKE ? ESCAPE '\\' THEN 2
-				ELSE 3
-			END as relevance_rank,
-			albums_fts.rank as fts_rank
-		FROM albums_fts
-		JOIN "Album" alb ON albums_fts.album_id = alb.id
-		JOIN "Artist" a ON alb."artistId" = a.id
-		WHERE albums_fts MATCH ?${albumUserJoin}${cursorFilter.sql}
-		ORDER BY relevance_rank, fts_rank, alb.name
-		LIMIT ?`,
-    normalizedQuery,
-    prefixPattern,
-    ftsQuery,
-    ...(userId && scope === "library" ? [userId] : []),
-    ...cursorFilter.params,
-    limit + 1,
-  );
+  >(albumQuery.sql, ...albumQuery.params);
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
@@ -424,6 +381,7 @@ export async function searchAlbums(
   return {
     results: albums,
     pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
+    sortTuples: rawResults.map((row) => lastCursorTuple(row, "name")),
   };
 }
 
@@ -455,12 +413,24 @@ export async function searchArtists(
 
   const artistUserJoin =
     userId && scope === "library"
-      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."artistId" = a.id AND ut2."userId" = ? AND ut2."isActive" = true)`
+      ? `AND EXISTS (SELECT 1 FROM "Track" t2 JOIN "UserTrack" ut2 ON ut2."trackId" = t2.id WHERE t2."artistId" = a.id AND ut2."userId" = ? AND ut2."isActive" = true AND ut2."deletedAt" IS NULL)`
       : "";
 
   const cursorFilter = curAr
     ? cursorClause(curAr, "relevance_rank", "fts_rank", "a.name", "a.id")
     : { sql: "", params: [] as unknown[] };
+
+  const artistQuery = buildArtistFtsQuery({
+    normalizedQuery,
+    prefixPattern,
+    ftsQuery,
+    limit,
+    cursorFilter,
+    mergedIntoGuardSql: 'AND a."mergedIntoId" IS NULL ',
+    libraryScopeSql: artistUserJoin,
+    libraryScopeParam: userId && scope === "library" ? userId : undefined,
+    extraWhereAfterMatch: "",
+  });
 
   const results = await prisma.$queryRawUnsafe<
     Array<{
@@ -471,31 +441,7 @@ export async function searchArtists(
       relevance_rank: number;
       fts_rank: number;
     }>
-  >(
-    `SELECT 
-			'artist' as type,
-			a.id,
-			a.name,
-			a.genre,
-			CASE 
-				WHEN LOWER(a.name) = ? THEN 1
-				WHEN LOWER(a.name) LIKE ? ESCAPE '\\' THEN 2
-				ELSE 3
-			END as relevance_rank,
-			artists_fts.rank as fts_rank
-		FROM artists_fts
-		JOIN "Artist" a ON artists_fts.artist_id = a.id
-		WHERE artists_fts MATCH ?
-			AND a."mergedIntoId" IS NULL ${artistUserJoin}${cursorFilter.sql}
-		ORDER BY relevance_rank, fts_rank, a.name
-		LIMIT ?`,
-    normalizedQuery,
-    prefixPattern,
-    ftsQuery,
-    ...(userId && scope === "library" ? [userId] : []),
-    ...cursorFilter.params,
-    limit + 1,
-  );
+  >(artistQuery.sql, ...artistQuery.params);
 
   const hasNext = results.length > limit;
   const rawResults = results.slice(0, limit);
@@ -519,6 +465,7 @@ export async function searchArtists(
   return {
     results: artists,
     pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
+    sortTuples: rawResults.map((row) => lastCursorTuple(row, "name")),
   };
 }
 
@@ -540,14 +487,15 @@ export async function searchPlaylists(
   userId: string,
   limit: number = 20,
   cursor?: string,
-  _usePrefix: boolean = true,
+  usePrefix: boolean = true,
 ): Promise<SearchResponse> {
   if (!query.trim() || !userId) {
     return emptySearchResponse(limit);
   }
 
   const normalizedQuery = query.toLowerCase().trim();
-  const likePattern = `%${escapeLikeLiterals(normalizedQuery)}%`;
+  const escaped = escapeLikeLiterals(normalizedQuery);
+  const likePattern = usePrefix ? `${escaped}%` : `%${escaped}%`;
   const cur = cursor ? decodeCursor(cursor) : null;
   const curP = cur?.p ?? null;
 
@@ -591,7 +539,7 @@ export async function searchPlaylists(
 		) uptc ON uptc."playlistId" = up.id
 		WHERE up."ownerId" = ?
 		AND LOWER(up.title) LIKE ? ESCAPE '\\'${cursorFilter.sql}
-		ORDER BY relevance_rank, up.title
+		ORDER BY relevance_rank, up.title, up.id
 		LIMIT ?`,
     normalizedQuery,
     likePattern,
@@ -627,6 +575,7 @@ export async function searchPlaylists(
   return {
     results: playlists,
     pagination: { limit, hasNext, nextCursor: hasNext ? encodeCursor(nextCursor) : null },
+    sortTuples: rawResults.map((row) => lastCursorTuple(row, "name")),
   };
 }
 
@@ -661,24 +610,28 @@ export async function searchAll(
       : Promise.resolve({
           results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
+          sortTuples: [],
         }),
     albumLimit > 0
       ? searchAlbums(query, albumLimit, cursor, usePrefix, userId, scope)
       : Promise.resolve({
           results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
+          sortTuples: [],
         }),
     artistLimit > 0
       ? searchArtists(query, artistLimit, cursor, usePrefix, userId, scope)
       : Promise.resolve({
           results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
+          sortTuples: [],
         }),
     playlistLimit > 0 && userId
       ? searchPlaylists(query, userId, playlistLimit, cursor, usePrefix)
       : Promise.resolve({
           results: [],
           pagination: { limit: 0, hasNext: false, nextCursor: null },
+          sortTuples: [],
         }),
   ]);
 
@@ -692,27 +645,61 @@ export async function searchAll(
 
   // Take top N results
   const results = allResults.slice(0, limit);
+  const displayedIds = new Set(results.map((row) => row.id));
+  const incoming = cursor ? decodeCursor(cursor) : null;
+
+  const tCur = mergedFeedCursorArm(
+    tracksResult.results,
+    tracksResult.sortTuples ?? [],
+    displayedIds,
+    incoming?.t ?? null,
+    tracksResult.pagination.nextCursor,
+    "t",
+  );
+  const aCur = mergedFeedCursorArm(
+    albumsResult.results,
+    albumsResult.sortTuples ?? [],
+    displayedIds,
+    incoming?.a ?? null,
+    albumsResult.pagination.nextCursor,
+    "a",
+  );
+  const arCur = mergedFeedCursorArm(
+    artistsResult.results,
+    artistsResult.sortTuples ?? [],
+    displayedIds,
+    incoming?.ar ?? null,
+    artistsResult.pagination.nextCursor,
+    "ar",
+  );
+  const pCur = mergedFeedCursorArm(
+    playlistsResult.results,
+    playlistsResult.sortTuples ?? [],
+    displayedIds,
+    incoming?.p ?? null,
+    playlistsResult.pagination.nextCursor,
+    "p",
+  );
+  const nextCursor: CompositeCursor = { t: tCur, a: aCur, ar: arCur, p: pCur };
+
+  const typeHasBufferedRows = (
+    typeResults: SearchResult[],
+    arm: CursorSortTuple | null,
+    incomingArm: CursorSortTuple | null,
+  ) =>
+    typeResults.some((row) => !displayedIds.has(row.id)) &&
+    JSON.stringify(arm) === JSON.stringify(incomingArm);
+
   const hasNext =
     allResults.length > limit ||
     tracksResult.pagination.hasNext ||
     albumsResult.pagination.hasNext ||
     artistsResult.pagination.hasNext ||
-    playlistsResult.pagination.hasNext;
-
-  // Combine per-function cursors into a composite
-  const tCur = tracksResult.pagination.nextCursor
-    ? decodeCursor(tracksResult.pagination.nextCursor).t
-    : null;
-  const aCur = albumsResult.pagination.nextCursor
-    ? decodeCursor(albumsResult.pagination.nextCursor).a
-    : null;
-  const arCur = artistsResult.pagination.nextCursor
-    ? decodeCursor(artistsResult.pagination.nextCursor).ar
-    : null;
-  const pCur = playlistsResult.pagination.nextCursor
-    ? decodeCursor(playlistsResult.pagination.nextCursor).p
-    : null;
-  const nextCursor: CompositeCursor = { t: tCur, a: aCur, ar: arCur, p: pCur };
+    playlistsResult.pagination.hasNext ||
+    typeHasBufferedRows(tracksResult.results, tCur, incoming?.t ?? null) ||
+    typeHasBufferedRows(albumsResult.results, aCur, incoming?.a ?? null) ||
+    typeHasBufferedRows(artistsResult.results, arCur, incoming?.ar ?? null) ||
+    typeHasBufferedRows(playlistsResult.results, pCur, incoming?.p ?? null);
 
   return {
     results,

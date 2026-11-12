@@ -4,3 +4,7 @@ export function offlineAudioOpfsPath(
 ): string {
   return `audio/${trackId}.${format ?? "mp3"}`;
 }
+
+export function offlineAudioStagingTrackId(trackId: string): string {
+  return `${trackId}.__staging__`;
+}

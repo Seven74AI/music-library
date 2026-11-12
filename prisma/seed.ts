@@ -1,13 +1,16 @@
 import "dotenv/config";
 import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync, readdirSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, resolve, sep } from "path";
+import { validateStorageKey } from "#app/utils/path-validation.server.ts";
 import { createId } from "@paralleldrive/cuid2";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { LOCAL_SERVICE, YOUTUBE_SERVICE } from "#app/constants/services";
 import { getOrCreateArtistTx, extractArtistMetadata } from "#app/utils/artist-management.server";
 import { calculateAudioHash } from "#app/utils/audio-file-management.server";
 import { extractAudioMetadata } from "#app/utils/audio-metadata.server";
-import { findOrCreateCoverImageTx, getOrCreateAlbumTx } from "#app/utils/cover-management.server";
+import { getOrCreateAlbumTx } from "#app/utils/album-management.server";
+import { findOrCreateCoverImageTx } from "#app/utils/cover-management.server";
+import { pickIntField } from "#app/utils/track-metadata-int.server.ts";
 import { getDatabaseUrl } from "#app/utils/database-url.server.ts";
 import { uploadFile, buildAudioObjectKey } from "#app/utils/storage.server";
 import { PrismaClient } from "#prisma/client.js";
@@ -343,17 +346,20 @@ function isStorageConfigured(): boolean {
  */
 async function uploadFileLocal(file: Buffer, key: string): Promise<string> {
   const localStorageDir = join(process.cwd(), "tests", "fixtures", "uploaded");
-  const filePath = join(localStorageDir, key);
+  const safeKey = validateStorageKey(key);
+  const basePath = resolve(localStorageDir);
+  const filePath = resolve(basePath, safeKey);
+
+  if (filePath !== basePath && !filePath.startsWith(`${basePath}${sep}`)) {
+    throw new Error("Storage key resolves outside the upload directory");
+  }
+
   const fileDir = dirname(filePath);
-
-  // Create directory structure if it doesn't exist
   mkdirSync(fileDir, { recursive: true });
-
-  // Write file to local filesystem
   writeFileSync(filePath, file);
 
   console.log(`📁 Saved file locally: ${filePath}`);
-  return key;
+  return safeKey;
 }
 
 /**
@@ -528,7 +534,7 @@ async function seedAudioFiles(userId: string) {
               tx,
               albumArtistRecord.id,
               album || null,
-              extractedMetadata.year || null,
+              pickIntField(extractedMetadata.year),
             );
 
             // Upload cover image if present (with deduplication)
@@ -556,14 +562,6 @@ async function seedAudioFiles(userId: string) {
               ? new Date(extractedMetadata.originalDate)
               : null;
 
-            // Extract genre (take first if array)
-            const genre = Array.isArray(extractedMetadata.genre)
-              ? extractedMetadata.genre[0] || null
-              : extractedMetadata.genre || null;
-
-            // Extract trackNumber from track.no
-            const trackNumber = extractedMetadata.track?.no || null;
-
             // Create track
             const track = await tx.track.create({
               data: {
@@ -577,21 +575,25 @@ async function seedAudioFiles(userId: string) {
                 externalId: fileId,
                 serviceUrl: null,
                 releaseDate: releaseDate,
-                // New metadata fields
-                genre: genre,
-                year: extractedMetadata.year || null,
-                trackNumber: trackNumber,
+                year: pickIntField(extractedMetadata.year),
+                trackNumber: pickIntField(extractedMetadata.track?.no),
                 albumArtist: extractedMetadata.albumArtist || null,
-                bpm: extractedMetadata.bpm || null,
+                bpm: pickIntField(extractedMetadata.bpm),
                 label: extractedMetadata.label || null,
                 isrc: extractedMetadata.isrc || null,
                 originalDate: originalDate,
-                originalYear: extractedMetadata.originalYear || null,
-                totalTracks: extractedMetadata.totalTracks || null,
-                totalDiscs: extractedMetadata.totalDiscs || null,
+                originalYear: pickIntField(extractedMetadata.originalYear),
+                totalTracks: pickIntField(extractedMetadata.totalTracks),
+                totalDiscs: pickIntField(extractedMetadata.totalDiscs),
                 lyrics: extractedMetadata.lyrics || null,
               },
             });
+
+            if (extractedMetadata.genre?.length) {
+              const { replaceTrackGenresFromStrings } =
+                await import("../app/utils/track-genres.server.ts");
+              await replaceTrackGenresFromStrings(tx, track.id, extractedMetadata.genre);
+            }
 
             // Create audio file record
             const contentHash = await calculateAudioHash(fileBuffer);

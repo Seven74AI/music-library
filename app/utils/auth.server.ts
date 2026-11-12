@@ -14,11 +14,12 @@ import {
 } from "#app/features/usage-analytics/record-usage.server.ts";
 import { providers } from "./connections.server.ts";
 import { prisma } from "./db.server.ts";
-import { combineHeaders, downloadFile } from "./misc.tsx";
+import { combineHeaders } from "./misc.tsx";
 import { type ProviderUser } from "./providers/provider.ts";
 import { authSessionStorage } from "./session.server.ts";
 import { uploadProfileImage } from "./storage.server.ts";
 import { createToastHeaders } from "./toast.server.ts";
+import { validatePublicHttpsUrl } from "./validate-public-url.server.ts";
 
 export const SESSION_EXPIRATION_TIME = 1000 * 60 * 60 * 24 * 30;
 export const getSessionExpirationDate = () => new Date(Date.now() + SESSION_EXPIRATION_TIME);
@@ -34,7 +35,7 @@ for (const [providerName, provider] of Object.entries(providers)) {
   }
 }
 
-export async function getUserId(request: Request) {
+export async function getUserIdOrNull(request: Request): Promise<string | null> {
   const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
   const sessionId = authSession.get(sessionKey);
   if (!sessionId) return null;
@@ -43,8 +44,6 @@ export async function getUserId(request: Request) {
     where: { id: sessionId, expirationDate: { gt: new Date() } },
   });
 
-  // A disabled account gets an explanation; an expired session is routine and
-  // is bounced silently.
   if (session?.user.disabledAt) {
     throw redirect("/", {
       headers: combineHeaders(
@@ -58,14 +57,36 @@ export async function getUserId(request: Request) {
     });
   }
 
-  if (!session?.userId) {
-    throw redirect("/", {
-      headers: {
-        "set-cookie": await authSessionStorage.destroySession(authSession),
-      },
-    });
-  }
+  if (!session?.userId) return null;
   return session.userId;
+}
+
+/**
+ * Guest-capable loaders: when a session cookie is present but not valid, return
+ * the Set-Cookie header value that clears it (without redirecting).
+ */
+export async function getStaleAuthSessionDestroyCookie(
+  request: Request,
+  userId: string | null,
+): Promise<string | null> {
+  if (userId) return null;
+  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
+  const sessionId = authSession.get(sessionKey);
+  if (!sessionId) return null;
+  return authSessionStorage.destroySession(authSession);
+}
+
+export async function getUserId(request: Request) {
+  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
+  const sessionId = authSession.get(sessionKey);
+  const userId = await getUserIdOrNull(request);
+  if (userId) return userId;
+  if (!sessionId) return null;
+  throw redirect("/", {
+    headers: {
+      "set-cookie": await authSessionStorage.destroySession(authSession),
+    },
+  });
 }
 
 export async function requireUserId(
@@ -85,10 +106,33 @@ export async function requireUserId(
 }
 
 export async function requireAnonymous(request: Request) {
-  const userId = await getUserId(request);
-  if (userId) {
+  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
+  const sessionId = authSession.get(sessionKey);
+  if (!sessionId) return;
+
+  const session = await prisma.session.findUnique({
+    select: { userId: true, user: { select: { disabledAt: true } } },
+    where: { id: sessionId, expirationDate: { gt: new Date() } },
+  });
+
+  if (session?.user.disabledAt) {
+    throw redirect("/", {
+      headers: combineHeaders(
+        { "set-cookie": await authSessionStorage.destroySession(authSession) },
+        await createToastHeaders({
+          type: "error",
+          title: "Account disabled",
+          description: "This account has been disabled. Contact an administrator.",
+        }),
+      ),
+    });
+  }
+
+  if (session?.userId) {
     throw redirect("/");
   }
+
+  void prisma.session.deleteMany({ where: { id: sessionId } }).catch(() => {});
 }
 
 export type LoginResult =
@@ -133,9 +177,11 @@ export async function login({
 export async function resetUserPassword({
   username,
   password,
+  grantToken,
 }: {
   username: User["username"];
   password: string;
+  grantToken: string;
 }) {
   const hashedPassword = await getPasswordHash(password);
 
@@ -149,9 +195,27 @@ export async function resetUserPassword({
     throw new Error("User not found");
   }
 
-  // Rotate the password AND invalidate every existing session in a single
-  // transaction, so a stolen session cookie does not survive a password reset.
+  const { hashPasswordResetGrantToken, InvalidPasswordResetGrantError } =
+    await import("#app/utils/password-reset-grant.server.ts");
+  const tokenHash = hashPasswordResetGrantToken(grantToken);
+
+  // Rotate the password, consume the one-time reset grant, and invalidate every
+  // existing session in a single transaction.
   return prisma.$transaction(async ($tx) => {
+    const grant = await $tx.passwordResetGrant.findUnique({
+      where: { tokenHash },
+      select: { id: true, userId: true, expiresAt: true },
+    });
+    if (!grant || grant.userId !== user.id || grant.expiresAt <= new Date()) {
+      throw new InvalidPasswordResetGrantError();
+    }
+    const consumed = await $tx.passwordResetGrant.deleteMany({
+      where: { id: grant.id, userId: user.id },
+    });
+    if (consumed.count !== 1) {
+      throw new InvalidPasswordResetGrantError();
+    }
+
     await $tx.session.deleteMany({ where: { userId: user.id } });
     return $tx.password.upsert({
       where: { userId: user.id },
@@ -243,17 +307,26 @@ export async function signupWithConnection({
   });
 
   if (imageUrl) {
-    const imageFile = await downloadFile(imageUrl);
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        image: {
-          create: {
-            objectKey: await uploadProfileImage(user.id, imageFile),
+    const safeImageUrl = await validatePublicHttpsUrl(imageUrl);
+    if (safeImageUrl) {
+      const { downloadExternalImage } = await import("./cover-management.server.ts");
+      const imageBuffer = await downloadExternalImage(safeImageUrl.href);
+      if (imageBuffer) {
+        const imageFile = new File([new Uint8Array(imageBuffer)], "profile.jpg", {
+          type: "image/jpeg",
+        });
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            image: {
+              create: {
+                objectKey: await uploadProfileImage(user.id, imageFile),
+              },
+            },
           },
-        },
-      },
-    });
+        });
+      }
+    }
   }
 
   void recordUsageEvent({ type: USAGE_EVENT_TYPES.signup, userId: user.id }).catch(() => {});

@@ -27,7 +27,7 @@ describe("parseMentions", () => {
     expect(mentions).toEqual(["user-1"]);
     expect(prisma.user.findMany).toHaveBeenCalledWith({
       where: {
-        OR: [{ username: { in: ["alice"] } }, { name: { in: ["alice"] } }],
+        OR: [{ username: { in: ["alice"] } }],
       },
       select: { id: true, username: true, name: true },
     });
@@ -60,7 +60,7 @@ describe("parseMentions", () => {
     expect(mentions).toEqual(["user-1"]);
     expect(prisma.user.findMany).toHaveBeenCalledWith({
       where: {
-        OR: [{ username: { in: ["Alice Smith"] } }, { name: { in: ["Alice Smith"] } }],
+        OR: [{ name: { in: ["Alice Smith"] } }],
       },
       select: { id: true, username: true, name: true },
     });

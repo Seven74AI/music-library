@@ -12,6 +12,15 @@ import { type Prisma } from "#prisma/client.js";
 import { scheduleQueueTick } from "./worker.server.ts";
 
 /**
+ * Schedule the archive worker after the enclosing transaction commits.
+ */
+export function scheduleArchiveQueueTickAfterCommit(enqueued: boolean): void {
+  if (enqueued) {
+    scheduleQueueTick();
+  }
+}
+
+/**
  * Ensure an ArchiveJob exists for a track after import/sync.
  *
  * - Creates a new pending ArchiveJob if none exists for this track
@@ -23,11 +32,12 @@ import { scheduleQueueTick } from "./worker.server.ts";
  *
  * @param tx - Prisma transaction client
  * @param trackId - Track ID to enqueue for archiving
+ * @returns true when a new job row was created (call scheduleArchiveQueueTickAfterCommit after commit)
  */
 export async function enqueueArchiveJob(
   tx: Prisma.TransactionClient,
   trackId: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await tx.archiveJob.create({
       data: {
@@ -36,7 +46,7 @@ export async function enqueueArchiveJob(
         priority: false, // auto-enqueued, not user-requested
       },
     });
-    scheduleQueueTick();
+    return true;
   } catch (error) {
     // Unique constraint violation — job already exists for this track.
     // Silently skip: the existing job (pending/processing/completed/failed)
@@ -45,6 +55,7 @@ export async function enqueueArchiveJob(
       console.error(`Failed to enqueue archive job for track ${trackId}:`, error);
       throw error;
     }
+    return false;
   }
 }
 
@@ -58,13 +69,14 @@ export async function enqueueArchiveJob(
  *
  * @param tx - Prisma transaction client
  * @param trackIds - Track IDs to enqueue for archiving
+ * @returns true when any new job rows were created
  */
 export async function enqueueArchiveJobs(
   tx: Prisma.TransactionClient,
   trackIds: string[],
-): Promise<void> {
+): Promise<boolean> {
   const uniqueTrackIds = [...new Set(trackIds)];
-  if (uniqueTrackIds.length === 0) return;
+  if (uniqueTrackIds.length === 0) return false;
 
   const existingTrackIds = new Set<string>();
   // Chunked IN queries to stay under SQLite bind-parameter limit
@@ -77,7 +89,7 @@ export async function enqueueArchiveJobs(
   }
 
   const toCreate = uniqueTrackIds.filter((id) => !existingTrackIds.has(id));
-  if (toCreate.length === 0) return;
+  if (toCreate.length === 0) return false;
 
   try {
     await tx.archiveJob.createMany({
@@ -87,7 +99,7 @@ export async function enqueueArchiveJobs(
         priority: false, // auto-enqueued, not user-requested
       })),
     });
-    scheduleQueueTick();
+    return true;
   } catch (error) {
     // A concurrent sync can still race the findMany and hit the unique
     // constraint on createMany. That is the only error we may swallow —
@@ -97,5 +109,12 @@ export async function enqueueArchiveJobs(
       console.error(`Failed to enqueue archive jobs for ${toCreate.length} tracks:`, error);
       throw error;
     }
+    let anyEnqueued = false;
+    for (const trackId of toCreate) {
+      if (await enqueueArchiveJob(tx, trackId)) {
+        anyEnqueued = true;
+      }
+    }
+    return anyEnqueued;
   }
 }

@@ -56,6 +56,72 @@ export const SearchTypeSchema = z.enum(["all", "tracks", "albums", "artists", "p
  */
 export const SearchScopeSchema = z.enum(["all", "library"]);
 
+export type CursorSortTuple = {
+  rk: number;
+  fr: number;
+  n: string;
+  id: string;
+};
+
+export const INVALID_CURSOR_FORMAT_MESSAGE = "Invalid cursor format";
+
+const ID_CURSOR_MAX_LENGTH = 200;
+
+/** Reject malformed opaque id cursors (track / userTrack / playlist ids). */
+export function assertValidIdCursor(cursor: string | null | undefined): void {
+  if (cursor == null || cursor === "") return;
+  if (typeof cursor !== "string" || cursor.length > ID_CURSOR_MAX_LENGTH) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
+}
+
+export function isInvalidCursorError(error: unknown): boolean {
+  return error instanceof Error && error.message === INVALID_CURSOR_FORMAT_MESSAGE;
+}
+
+/** Validates a single keyset pagination tuple inside a composite cursor. */
+export function isCursorSortTuple(value: unknown): value is CursorSortTuple {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.rk === "number" &&
+    typeof v.fr === "number" &&
+    typeof v.n === "string" &&
+    typeof v.id === "string"
+  );
+}
+
+/** Decodes one composite-cursor arm; absent or null arms are allowed, invalid shapes are not. */
+export function decodeCursorArm(
+  parsed: Record<string, unknown>,
+  key: string,
+): CursorSortTuple | null {
+  if (!(key in parsed) || parsed[key] == null) return null;
+  const arm = parsed[key];
+  if (!isCursorSortTuple(arm)) {
+    throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+  }
+  return arm;
+}
+
+const COMPOSITE_CURSOR_ARM_KEYS = ["t", "a", "ar", "p"] as const;
+
+/**
+ * Each cursor arm that is present (not undefined) must be null or a valid sort tuple.
+ */
+export function compositeCursorArmsValid(
+  parsed: Record<string, unknown>,
+  armKeys: readonly string[] = COMPOSITE_CURSOR_ARM_KEYS,
+): boolean {
+  for (const key of armKeys) {
+    if (!(key in parsed)) continue;
+    const arm = parsed[key];
+    if (arm === null || arm === undefined) continue;
+    if (!isCursorSortTuple(arm)) return false;
+  }
+  return true;
+}
+
 /**
  * Cursor validation schema
  * Validates composite cursor: base64-encoded JSON with optional per-type sort tuples
@@ -72,7 +138,8 @@ export const CursorSchema = z
       try {
         const decoded = Buffer.from(cursor, "base64").toString("utf-8");
         const parsed = JSON.parse(decoded) as unknown;
-        return typeof parsed === "object" && parsed !== null;
+        if (typeof parsed !== "object" || parsed === null) return false;
+        return compositeCursorArmsValid(parsed as Record<string, unknown>);
       } catch {
         return false;
       }

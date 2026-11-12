@@ -1,6 +1,10 @@
 import { invariantResponse } from "@epic-web/invariant";
 import { cache } from "#app/utils/cache.server.ts";
-import { getAllInstances, getInstanceInfo, ensureInstance } from "#app/utils/litefs.server.ts";
+import {
+  ensureAllowedInstance,
+  getAllInstances,
+  getInstanceInfo,
+} from "#app/utils/litefs.server.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/cache_.sqlite.$cacheKey.ts";
 
@@ -10,7 +14,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const currentInstanceInfo = await getInstanceInfo();
   const allInstances = await getAllInstances();
   const instance = searchParams.get("instance") ?? currentInstanceInfo.currentInstance;
-  await ensureInstance(instance);
+  await ensureAllowedInstance(instance, allInstances);
 
   const { cacheKey } = params;
   invariantResponse(cacheKey, "cacheKey is required");

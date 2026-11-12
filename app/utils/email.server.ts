@@ -41,11 +41,18 @@ export async function sendEmail({
     ...(react ? await renderReactEmail(react) : null),
   };
 
-  // feel free to remove this condition once you've set up resend
   if (!process.env.RESEND_API_KEY && !process.env.MOCKS) {
-    console.error(`RESEND_API_KEY not set and we're not in mocks mode.`);
-    console.error(`To send emails, set the RESEND_API_KEY environment variable.`);
-    console.error(`Would have sent the following email:`, JSON.stringify(email));
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "RESEND_API_KEY is required to send email in production. Configure the Resend API key.",
+      );
+    }
+
+    console.error(
+      `RESEND_API_KEY not set — email not sent (dev only): to=${options.to} subject=${options.subject}`,
+    );
+    // Development only: print the full rendered email so the OTP/link is visible in the console.
+    console.error(JSON.stringify(email, null, 2));
     return {
       status: "success",
       data: { id: "mocked" },
@@ -68,25 +75,18 @@ export async function sendEmail({
       status: "success",
       data: parsedData,
     } as const;
-  } else {
-    const parseResult = resendErrorSchema.safeParse(data);
-    if (parseResult.success) {
-      return {
-        status: "error",
-        error: parseResult.data,
-      } as const;
-    } else {
-      return {
-        status: "error",
-        error: {
-          name: "UnknownError",
-          message: "Unknown Error",
-          statusCode: 500,
-          cause: data,
-        } satisfies ResendError,
-      } as const;
-    }
   }
+
+  const parseResult = resendErrorSchema.safeParse(data);
+  const resendError: ResendError = parseResult.success
+    ? parseResult.data
+    : {
+        name: "UnknownError",
+        message: "Unknown Error",
+        statusCode: 500,
+        cause: data,
+      };
+  throw new Error(`Resend API error (${resendError.statusCode}): ${resendError.message}`);
 }
 
 async function renderReactEmail(react: ReactElement) {

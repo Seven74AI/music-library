@@ -15,6 +15,7 @@ import {
 import { requireAnonymous } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { sendEmail } from "#app/utils/email.server.ts";
+import { VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server.ts";
 import { checkHoneypot } from "#app/utils/honeypot.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -67,25 +68,30 @@ export async function action({ request }: Route.ActionArgs) {
       target: email,
     });
 
-    const response = await sendEmail({
-      to: email,
-      subject: `Welcome to Music Library!`,
-      react: <SignupEmail onboardingUrl={prepared.verifyUrl.toString()} otp={prepared.otp} />,
-    });
-
-    if (response.status === "success") {
-      await recordSecurityEvent({
-        request,
-        eventType: SECURITY_EVENT_TYPES.accountCreated,
-        perpetual: false,
-        metadata: { phase: "verification_sent" },
+    try {
+      await sendEmail({
+        to: email,
+        subject: `Welcome to Music Library!`,
+        react: <SignupEmail onboardingUrl={prepared.verifyUrl.toString()} otp={prepared.otp} />,
       });
-    } else {
+    } catch (error) {
+      console.error("Signup verification email error:", error);
       return data(
-        { result: submission.reply({ formErrors: [response.error.message] }) },
+        {
+          result: submission.reply({
+            formErrors: [VERIFICATION_EMAIL_CLIENT_ERROR_MESSAGE],
+          }),
+        },
         { status: 500 },
       );
     }
+
+    await recordSecurityEvent({
+      request,
+      eventType: SECURITY_EVENT_TYPES.accountCreated,
+      perpetual: false,
+      metadata: { phase: "verification_sent" },
+    });
 
     redirectTo = prepared.redirectTo;
   }

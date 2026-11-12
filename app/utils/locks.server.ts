@@ -1,25 +1,17 @@
+import { data } from "react-router";
 import { prisma } from "./db.server.ts";
 import { type Prisma } from "#prisma/client.js";
 import {
   recordSecurityEvent,
   SECURITY_EVENT_TYPES,
 } from "#app/features/security/track-event.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
 export type EntityType = "track" | "artist" | "album";
 
 const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 const lockInclude = { user: { select: { id: true, name: true, username: true } } } as const;
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
 
 export interface LockInfo {
   id: string;
@@ -82,7 +74,7 @@ export async function acquireLock(
 
     return toLockInfo(lock);
   } catch (error) {
-    if (!isUniqueConstraintViolation(error)) throw error;
+    if (!isUniqueConstraintError(error)) throw error;
 
     // Lost the race to another curator. Re-read the winning lock so a same-user
     // double-acquire still extends it instead of reporting "already locked".
@@ -104,7 +96,7 @@ export async function acquireLock(
   }
 }
 
-export type ReleaseLockResult = "released" | "not_found" | "not_owner";
+export type ReleaseLockResult = "released" | "not_found" | "not_owner" | "proof_required";
 
 /**
  * Release a lock on an entity.
@@ -115,11 +107,29 @@ export async function releaseLock(
   entityType: EntityType,
   entityId: string,
   userId: string,
+  expected?: { lockId: string; acquiredAt: Date },
 ): Promise<ReleaseLockResult> {
+  if (!expected) {
+    return "proof_required";
+  }
+
+  const deleted = await prisma.editLock.deleteMany({
+    where: {
+      id: expected.lockId,
+      entityType,
+      entityId,
+      lockedBy: userId,
+      acquiredAt: expected.acquiredAt,
+    },
+  });
+
+  if (deleted.count > 0) {
+    return "released";
+  }
+
   const lock = await prisma.editLock.findUnique({
     where: { entityType_entityId: { entityType, entityId } },
   });
-
   if (!lock) {
     return "not_found";
   }
@@ -127,11 +137,7 @@ export async function releaseLock(
     return "not_owner";
   }
 
-  await prisma.editLock.delete({
-    where: { id: lock.id },
-  });
-
-  return "released";
+  return "not_found";
 }
 
 /**
@@ -173,6 +179,115 @@ export async function forceUnlock(
 /**
  * Get lock status for an entity
  */
+/**
+ * First lock held by someone other than `userId` among the given entities (ADR-032).
+ */
+export async function findWriteBlockedLock(
+  userId: string,
+  targets: Array<{ entityType: EntityType; entityId: string }>,
+): Promise<LockInfo | null> {
+  for (const { entityType, entityId } of targets) {
+    const lock = await getLockStatus(entityType, entityId);
+    if (lock && lock.lockedBy !== userId) {
+      return lock;
+    }
+  }
+  return null;
+}
+
+export type EditLockTxViolation = { kind: "other"; lockedByName: string } | { kind: "not_held" };
+
+export class EditLockTransactionError extends Error {
+  readonly violation: EditLockTxViolation;
+
+  constructor(violation: EditLockTxViolation) {
+    super("Edit lock check failed");
+    this.name = "EditLockTransactionError";
+    this.violation = violation;
+  }
+}
+
+export type EditLockConflictCopy = {
+  otherEditing: (lockedByName: string) => string;
+  notHeld: string;
+};
+
+export function editLockConflictCopyForEntity(entity: EntityType): EditLockConflictCopy {
+  return {
+    otherEditing: (lockedByName) => `${lockedByName} is currently editing this ${entity}`,
+    notHeld: `Your edit lock on this ${entity} is no longer active`,
+  };
+}
+
+export const EDIT_LOCK_CONFLICT_COPY_BULK_TRACKS: EditLockConflictCopy = {
+  otherEditing: (lockedByName) => `${lockedByName} is currently editing this track`,
+  notHeld: "Your edit lock on one or more tracks is no longer active",
+};
+
+export const EDIT_LOCK_CONFLICT_COPY_SPLIT: EditLockConflictCopy = {
+  otherEditing: (lockedByName) => `${lockedByName} is currently editing this entity`,
+  notHeld: "Your edit lock is no longer active",
+};
+
+/** Maps {@link EditLockTransactionError} to the standard 409 conflict payload (ADR-032). */
+export function toEditLockErrorResponse(
+  error: EditLockTransactionError,
+  copy: EditLockConflictCopy,
+) {
+  const message =
+    error.violation.kind === "other"
+      ? copy.otherEditing(error.violation.lockedByName)
+      : copy.notHeld;
+  return data({ error: "Locked", message }, { status: 409 });
+}
+
+export function throwEditLockTransactionError(
+  error: EditLockTransactionError,
+  copy: EditLockConflictCopy,
+): never {
+  throw toEditLockErrorResponse(error, copy);
+}
+
+/**
+ * Re-read the edit lock inside a write transaction (ADR-032). Aborts the write
+ * when another curator holds the lock, or when this curator's lock expired or
+ * was released after the pre-transaction check.
+ */
+export async function assertEditLockInTransaction(
+  tx: Prisma.TransactionClient,
+  entityType: EntityType,
+  entityId: string,
+  userId: string,
+  heldBeforeWrite: LockInfo | null,
+): Promise<void> {
+  const row = await tx.editLock.findUnique({
+    where: { entityType_entityId: { entityType, entityId } },
+    include: lockInclude,
+  });
+  const now = new Date();
+
+  if (heldBeforeWrite?.lockedBy === userId) {
+    if (
+      !row ||
+      row.id !== heldBeforeWrite.id ||
+      row.lockedBy !== userId ||
+      row.acquiredAt.getTime() !== heldBeforeWrite.acquiredAt.getTime() ||
+      row.expiresAt <= now
+    ) {
+      throw new EditLockTransactionError({ kind: "not_held" });
+    }
+    return;
+  }
+
+  if (row && row.lockedBy !== userId) {
+    const info = toLockInfo(row);
+    throw new EditLockTransactionError({
+      kind: "other",
+      lockedByName: info.lockedByName,
+    });
+  }
+}
+
 export async function getLockStatus(
   entityType: EntityType,
   entityId: string,

@@ -2,6 +2,7 @@
  * Health Score Ring Component
  */
 
+import { getHealthColor, getHealthLabel } from "#app/features/admin/database-quality.ts";
 import { cn } from "#app/utils/misc.tsx";
 
 interface HealthScoreRingProps {
@@ -13,7 +14,7 @@ interface HealthScoreRingProps {
 export function HealthScoreRing({ score, size = "lg", showLabel = true }: HealthScoreRingProps) {
   const percentage = Math.round(score);
 
-  const color = percentage >= 90 ? "green" : percentage >= 70 ? "yellow" : "red";
+  const color = getHealthColor(percentage);
   const colorClass = {
     green: "text-green-600",
     yellow: "text-yellow-600",
@@ -26,7 +27,7 @@ export function HealthScoreRing({ score, size = "lg", showLabel = true }: Health
     red: "#dc2626",
   }[color];
 
-  const label = percentage >= 90 ? "Excellent" : percentage >= 70 ? "Needs Work" : "Poor";
+  const label = getHealthLabel(percentage);
 
   const sizeValues = {
     sm: { radius: 40, strokeWidth: 8, fontSize: "text-xl" },

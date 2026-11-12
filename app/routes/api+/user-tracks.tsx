@@ -10,6 +10,7 @@ import {
   parseLibraryGenreParam,
 } from "#app/utils/library-user-tracks.server.ts";
 import { parseSortDirection } from "#app/utils/sort-direction.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 
 export async function loader({ request, url }: { request: Request; url: URL }) {
   try {
@@ -52,6 +53,9 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
     });
   } catch (error) {
     if (error instanceof Response) throw error;
+    if (isInvalidCursorError(error)) {
+      return Response.json({ error: "Invalid cursor" }, { status: 400 });
+    }
     console.error("Error fetching user tracks:", error);
     return Response.json({ error: "Failed to fetch tracks" }, { status: 500 });
   }

@@ -364,8 +364,8 @@ For intentionally wiping the production database and storage during development,
 ### Database Commands
 
 ```bash
-# Run database migrations
-npx prisma migrate deploy
+# Run database migrations (backfills legacy Track.genre before column-drop when pending)
+npm run migrate:deploy
 
 # Generate Prisma client
 npx prisma generate

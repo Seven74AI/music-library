@@ -118,8 +118,6 @@ describe("PUT /api/curator/notes/:id", () => {
       entityId: "track-1",
     } as never);
 
-    vi.mocked(parseMentions).mockResolvedValue(["curator-2"]);
-
     const mockUpdatedNote = {
       id: "note-1",
       entityType: "track",
@@ -131,7 +129,7 @@ describe("PUT /api/curator/notes/:id", () => {
         name: "Alice Smith",
       },
       content: "Updated content with @bob",
-      mentions: '["curator-2"]',
+      mentions: "[]",
       parentId: null,
       createdAt: new Date("2024-01-01"),
       updatedAt: new Date("2024-01-02"),
@@ -146,7 +144,8 @@ describe("PUT /api/curator/notes/:id", () => {
     const response: any = await action({ request, params: { id: "note-1" }, context: {} } as never);
 
     expect(response.data.note.content).toBe("Updated content with @bob");
-    expect(response.data.note.mentions).toContain("curator-2");
+    expect(response.data.note.mentions).toEqual([]);
+    expect(parseMentions).not.toHaveBeenCalled();
   });
 });
 

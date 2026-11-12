@@ -53,7 +53,7 @@ export async function computeDashboardMetrics(now = new Date()): Promise<Dashboa
     prisma.track.count(),
     prisma.track.count({
       where: {
-        OR: [{ albumId: null }, { genre: null }, { genre: "" }],
+        OR: [{ albumId: null }, { genres: { none: {} } }],
       },
     }),
     prisma.$queryRawUnsafe<
@@ -66,7 +66,10 @@ export async function computeDashboardMetrics(now = new Date()): Promise<Dashboa
     >(`
         SELECT
           SUM(CASE WHEN albumId IS NOT NULL THEN 1 ELSE 0 END) as withAlbum,
-          SUM(CASE WHEN genre IS NOT NULL AND trim(genre) != '' THEN 1 ELSE 0 END) as withGenre,
+          (
+            SELECT COUNT(DISTINCT tg.B)
+            FROM _TrackGenres tg
+          ) as withGenre,
           SUM(CASE WHEN year IS NOT NULL THEN 1 ELSE 0 END) as withYear,
           SUM(CASE WHEN bpm IS NOT NULL THEN 1 ELSE 0 END) as withBpm
         FROM Track
@@ -86,7 +89,7 @@ export async function computeDashboardMetrics(now = new Date()): Promise<Dashboa
         title: string;
         artistName: string;
         albumId: string | null;
-        genre: string | null;
+        hasGenre: number | null;
         year: number | null;
         bpm: number | null;
         queueIssues: unknown;
@@ -99,7 +102,7 @@ export async function computeDashboardMetrics(now = new Date()): Promise<Dashboa
             t.title as title,
             a.name as artistName,
             t.albumId as albumId,
-            t.genre as genre,
+            CASE WHEN EXISTS (SELECT 1 FROM _TrackGenres tg WHERE tg.B = t.id) THEN 1 ELSE 0 END as hasGenre,
             t.year as year,
             t.bpm as bpm,
             (
@@ -111,7 +114,7 @@ export async function computeDashboardMetrics(now = new Date()): Promise<Dashboa
             ) as queueIssues,
             (
               (CASE WHEN t.albumId IS NULL THEN 1 ELSE 0 END) +
-              (CASE WHEN t.genre IS NULL OR trim(t.genre) = '' THEN 1 ELSE 0 END) +
+              (CASE WHEN NOT EXISTS (SELECT 1 FROM _TrackGenres tg WHERE tg.B = t.id) THEN 1 ELSE 0 END) +
               (CASE WHEN t.year IS NULL THEN 1 ELSE 0 END) +
               (CASE WHEN t.bpm IS NULL THEN 1 ELSE 0 END) +
               (
@@ -157,7 +160,7 @@ export async function computeDashboardMetrics(now = new Date()): Promise<Dashboa
       const queueIssues = asNumber(row.queueIssues);
       const issues = describeTrackIssues({
         albumId: row.albumId,
-        genre: row.genre,
+        genre: row.hasGenre ? "tagged" : null,
         year: row.year,
         bpm: row.bpm,
         queueIssues,
@@ -439,7 +442,7 @@ export async function getDashboardCharts(now = new Date()): Promise<DashboardCha
         (
           COUNT(*) +
           SUM(CASE WHEN albumId IS NOT NULL THEN 1 ELSE 0 END) +
-          SUM(CASE WHEN genre IS NOT NULL AND trim(genre) != '' THEN 1 ELSE 0 END) +
+          SUM(CASE WHEN EXISTS (SELECT 1 FROM _TrackGenres tg WHERE tg.B = Track.id) THEN 1 ELSE 0 END) +
           SUM(CASE WHEN year IS NOT NULL THEN 1 ELSE 0 END) +
           SUM(CASE WHEN bpm IS NOT NULL THEN 1 ELSE 0 END)
         ) as filled

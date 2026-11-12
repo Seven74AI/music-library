@@ -44,12 +44,11 @@ export async function extractAudioMetadata(
   buffer: Buffer,
   fileName?: string,
 ): Promise<ExtractedAudioMetadata> {
-  try {
-    // Validate buffer
-    if (!buffer || buffer.length === 0) {
-      throw new Error(`Empty buffer for file: ${fileName || "unknown"}`);
-    }
+  if (!buffer || buffer.length === 0) {
+    throw new Error(`Empty buffer for file: ${fileName || "unknown"}`);
+  }
 
+  try {
     // Parse metadata from buffer
     let metadata: IAudioMetadata;
     try {

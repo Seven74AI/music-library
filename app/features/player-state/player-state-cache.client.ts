@@ -2,7 +2,18 @@ import { LOOP_MODES, type LoopMode } from "#app/features/queue/queue-navigation.
 import { LIBRARY_SORT_OPTIONS } from "#app/features/listening-insights/heavy-rotation.ts";
 import { DISCOVER_SORT_OPTIONS } from "#app/utils/discover.ts";
 import { PLAYLIST_TRACK_SORT_OPTIONS } from "#app/utils/playlist-track-sort.ts";
-import { type PlayContextJson, type PlayerStateData } from "./player-state.ts";
+import {
+  type PlayContextJson,
+  type PlayerStateData,
+  type ResolvedPlayerStateData,
+  isAudibleSourceZoneUnknown,
+  withPlayerStateDefaults,
+} from "./player-state.ts";
+
+export type CachedPlayerStateRead = {
+  saved: ResolvedPlayerStateData;
+  zoneUnknown: boolean;
+};
 
 /**
  * localStorage mirror of the server-persisted `PlayerState`. This is NOT a
@@ -76,18 +87,53 @@ function isPlayerStateData(value: unknown): value is PlayerStateData {
     return false;
   }
 
+  if (
+    state.spinePosition !== undefined &&
+    (typeof state.spinePosition !== "number" || state.spinePosition < 0)
+  ) {
+    return false;
+  }
+  if (
+    state.audibleSourceZone !== undefined &&
+    state.audibleSourceZone !== null &&
+    state.audibleSourceZone !== "spine" &&
+    state.audibleSourceZone !== "upNext"
+  ) {
+    return false;
+  }
+  if (
+    state.upNextPlayNextCount !== undefined &&
+    (typeof state.upNextPlayNextCount !== "number" || state.upNextPlayNextCount < 0)
+  ) {
+    return false;
+  }
+
   return true;
 }
 
 /** Read the locally mirrored player state, or `null` when absent or corrupt. */
 export function readCachedPlayerState(userId: string): PlayerStateData | null {
+  return readCachedPlayerStateWithMeta(userId)?.saved ?? null;
+}
+
+/**
+ * Read the local mirror and whether `audibleSourceZone` was omitted or null on
+ * disk (legacy/migrated). Callers must treat `zoneUnknown` rows as needing
+ * re-inference once a spine is available — not as spine index 0 + concrete zone.
+ */
+export function readCachedPlayerStateWithMeta(userId: string): CachedPlayerStateRead | null {
   if (typeof window === "undefined" || !userId) return null;
 
   try {
     const raw = window.localStorage.getItem(playerStateLocalKey(userId));
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    return isPlayerStateData(parsed) ? parsed : null;
+    if (!isPlayerStateData(parsed)) return null;
+    const data = parsed as PlayerStateData;
+    return {
+      saved: withPlayerStateDefaults(data),
+      zoneUnknown: isAudibleSourceZoneUnknown(data.audibleSourceZone),
+    };
   } catch {
     return null;
   }

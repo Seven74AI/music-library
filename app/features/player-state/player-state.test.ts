@@ -5,7 +5,14 @@ import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts"
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
-import { type PlayerStateData } from "./player-state.ts";
+import { type QueueNavigationState } from "#app/features/queue/queue-navigation.ts";
+import {
+  clampUpNextPlayNextCountOnRestore,
+  inferAudibleSourceForRestore,
+  isAudibleSourceZoneUnknown,
+  withPlayerStateDefaults,
+  type PlayerStateData,
+} from "./player-state.ts";
 
 async function createUserCookie() {
   const user = await prisma.user.create({
@@ -36,6 +43,9 @@ const sampleState: PlayerStateData = {
   upNextIds: ["track-2", "track-3"],
   shuffleSeed: 42,
   loopMode: "all",
+  spinePosition: 2,
+  audibleSourceZone: "upNext",
+  upNextPlayNextCount: 1,
 };
 
 function saveRequest(cookie: string, body: unknown) {
@@ -53,6 +63,111 @@ function loadRequest(cookie: string) {
   });
 }
 
+describe("clampUpNextPlayNextCountOnRestore", () => {
+  test("subtracts dropped ids inside the saved play-next prefix", () => {
+    expect(
+      clampUpNextPlayNextCountOnRestore(
+        ["gone", "keep-prefix", "tail"],
+        ["keep-prefix", "tail"],
+        2,
+      ),
+    ).toBe(1);
+  });
+
+  test("clamps to the surviving Up Next length", () => {
+    expect(clampUpNextPlayNextCountOnRestore(["a", "b"], ["a"], 5)).toBe(1);
+  });
+
+  test("leaves count unchanged when every prefix track survives", () => {
+    expect(clampUpNextPlayNextCountOnRestore(["p1", "p2", "tail"], ["p1", "p2", "tail"], 2)).toBe(
+      2,
+    );
+  });
+});
+
+describe("isAudibleSourceZoneUnknown", () => {
+  test("treats null and undefined as unknown", () => {
+    expect(isAudibleSourceZoneUnknown(null)).toBe(true);
+    expect(isAudibleSourceZoneUnknown(undefined)).toBe(true);
+  });
+
+  test("treats explicit spine and upNext as known", () => {
+    expect(isAudibleSourceZoneUnknown("spine")).toBe(false);
+    expect(isAudibleSourceZoneUnknown("upNext")).toBe(false);
+  });
+});
+
+describe("inferAudibleSourceForRestore", () => {
+  const navigation: QueueNavigationState = {
+    upNext: [],
+    spine: [
+      { id: "track-1", title: "One" } as never,
+      { id: "track-2", title: "Two" } as never,
+      { id: "track-3", title: "Three" } as never,
+    ],
+    spineOrder: [0, 1, 2],
+    spinePosition: 0,
+    loopMode: "off",
+  };
+
+  test("re-infers spine zone + position when zone is unknown", () => {
+    expect(inferAudibleSourceForRestore(true, null, 0, navigation, "track-3", [])).toEqual({
+      audibleSourceZone: "spine",
+      spinePosition: 2,
+    });
+  });
+
+  test("keeps explicit upNext zone without re-inferring spine", () => {
+    expect(
+      inferAudibleSourceForRestore(false, "upNext", 2, navigation, "track-up", ["track-up"]),
+    ).toEqual({ audibleSourceZone: "upNext", spinePosition: 2 });
+  });
+
+  test("re-anchors explicit spine zone from currentTrackId when saved index is stale", () => {
+    expect(inferAudibleSourceForRestore(false, "spine", 0, navigation, "track-3", [])).toEqual({
+      audibleSourceZone: "spine",
+      spinePosition: 2,
+    });
+  });
+
+  test("clamps stale spine index when currentTrackId is no longer on the spine", () => {
+    expect(inferAudibleSourceForRestore(false, "spine", 99, navigation, "track-gone", [])).toEqual({
+      audibleSourceZone: "spine",
+      spinePosition: 2,
+    });
+  });
+
+  test("clamps re-anchored spine position into an empty spine order", () => {
+    const emptySpine: QueueNavigationState = {
+      upNext: [],
+      spine: [],
+      spineOrder: [],
+      spinePosition: 0,
+      loopMode: "off",
+    };
+    expect(inferAudibleSourceForRestore(false, "spine", 5, emptySpine, "track-gone", [])).toEqual({
+      audibleSourceZone: "spine",
+      spinePosition: 0,
+    });
+  });
+});
+
+describe("withPlayerStateDefaults", () => {
+  test("keeps null audibleSourceZone as unknown (not a concrete zone)", () => {
+    const resolved = withPlayerStateDefaults({
+      playContext: null,
+      currentTrackId: "track-1",
+      upNextIds: [],
+      shuffleSeed: null,
+      loopMode: "off",
+      audibleSourceZone: null,
+      spinePosition: 0,
+    });
+    expect(resolved.audibleSourceZone).toBeNull();
+    expect(isAudibleSourceZoneUnknown(resolved.audibleSourceZone)).toBe(true);
+  });
+});
+
 describe("player-state resource", () => {
   beforeEach(async () => {
     await prisma.playerState.deleteMany();
@@ -63,6 +178,31 @@ describe("player-state resource", () => {
       update: {},
       create: { name: "user", description: "User" },
     });
+  });
+
+  test("GET sanitizes invalid stored loopMode via schema", async () => {
+    const { userId, cookie } = await createUserCookie();
+    await prisma.playerState.create({
+      data: {
+        userId,
+        playContext: null,
+        currentTrackId: null,
+        upNextIds: "[]",
+        shuffleSeed: null,
+        loopMode: "bogus",
+      },
+    });
+
+    const response = await loader({
+      request: loadRequest(cookie),
+      params: {},
+      context: {},
+    } as never);
+
+    expect((response as Response).ok).toBe(true);
+    const body = (await (response as Response).json()) as PlayerStateData;
+    expect(body.loopMode).toBe("off");
+    expect(body.upNextIds).toEqual([]);
   });
 
   test("save/load round-trips the persisted queue", async () => {
@@ -93,6 +233,41 @@ describe("player-state resource", () => {
     } as never)) as Response;
     expect(loadResponse.status).toBe(200);
     expect(await loadResponse.json()).toEqual(sampleState);
+    expect(row.spinePosition).toBe(2);
+    expect(row.audibleSourceZone).toBe("upNext");
+    expect(row.upNextPlayNextCount).toBe(1);
+  });
+
+  test("defaults queue-position fields when omitted from the request body", async () => {
+    const { cookie } = await createUserCookie();
+    const legacyBody = {
+      playContext: { type: "library" as const },
+      currentTrackId: "track-1",
+      upNextIds: [] as string[],
+      shuffleSeed: null,
+      loopMode: "off" as const,
+    };
+
+    const saveResponse = await action({
+      request: saveRequest(cookie, legacyBody),
+      params: {},
+      context: {},
+    } as never);
+
+    expect((saveResponse as Response).ok).toBe(true);
+
+    const loadResponse = (await loader({
+      request: loadRequest(cookie),
+      params: {},
+      context: {},
+    } as never)) as Response;
+
+    expect(await loadResponse.json()).toEqual({
+      ...legacyBody,
+      spinePosition: 0,
+      audibleSourceZone: null,
+      upNextPlayNextCount: 0,
+    });
   });
 
   test("upserts on the unique userId (one row per user)", async () => {

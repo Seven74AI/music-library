@@ -77,6 +77,7 @@ vi.mock("#app/utils/artist-management.server.ts", () => ({
 // Mock auto-enqueue
 vi.mock("#app/features/audio-archive/auto-enqueue.server.ts", () => ({
   enqueueArchiveJob: vi.fn(),
+  scheduleArchiveQueueTickAfterCommit: vi.fn(),
 }));
 
 // Mock db.server
@@ -117,7 +118,7 @@ describe("importTrackDirectly", () => {
 
     vi.mocked(getServiceByName).mockResolvedValue(mockService);
     vi.mocked(getOrCreateArtistTx).mockResolvedValue(mockArtist);
-    vi.mocked(enqueueArchiveJob).mockResolvedValue(undefined);
+    vi.mocked(enqueueArchiveJob).mockResolvedValue(true);
 
     mockTx.track.findUnique.mockResolvedValue(null);
     mockTx.track.upsert.mockResolvedValue({ id: "track-new" });
@@ -207,7 +208,8 @@ describe("importTrackDirectly", () => {
 
       expect(result.success).toBe(false);
       expect(result.action).toBe("failed");
-      expect(result.error).toContain("YouTube quota exceeded");
+      expect(result.error).toBe("Unable to import this track. Please try again.");
+      expect(result.error).not.toMatch(/quota/i);
 
       consoleError.mockRestore();
     });
@@ -215,7 +217,7 @@ describe("importTrackDirectly", () => {
     it("returns error when service is not found in database", async () => {
       const { getServiceByName } =
         await import("#app/features/service-playlist/service-playlist.server.ts");
-      vi.mocked(getServiceByName).mockRejectedValue(new Error("Service not found: youtube"));
+      vi.mocked(getServiceByName).mockRejectedValue(new Error("Service not configured: youtube"));
 
       // Suppress console.error from handleServiceError
       const { consoleError } = await import("#tests/setup/setup-test-env.ts");
@@ -227,7 +229,38 @@ describe("importTrackDirectly", () => {
 
       expect(result.success).toBe(false);
       expect(result.action).toBe("failed");
+      expect(result.error).toBe("Unable to import this track. Please try again.");
+      expect(result.error).not.toMatch(/Service not found/i);
 
+      consoleError.mockRestore();
+    });
+
+    it("returns a stable message for unexpected database failures", async () => {
+      const { getYouTubeVideoDetails } = await import("#app/utils/youtube-search.server.ts");
+      vi.mocked(getYouTubeVideoDetails).mockResolvedValue({
+        title: "Test",
+        artist: "Channel",
+        serviceUrl: "https://youtu.be/x",
+        duration: 100,
+        publishedAt: null,
+      } as never);
+
+      const { prisma } = await import("#app/utils/db.server");
+      const txnSpy = vi
+        .spyOn(prisma, "$transaction")
+        .mockRejectedValue(new Error("Invalid `prisma.$transaction()` invocation"));
+
+      const { consoleError } = await import("#tests/setup/setup-test-env.ts");
+      consoleError.mockImplementation(() => {});
+
+      const { importTrackDirectly } = await import("./service-import.server.ts");
+      const result = await importTrackDirectly("dQw4w9WgXcQ");
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Unable to import this track. Please try again.");
+      expect(result.error).not.toMatch(/prisma/i);
+
+      txnSpy.mockRestore();
       consoleError.mockRestore();
     });
   });

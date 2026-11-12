@@ -60,7 +60,7 @@ This change was necessary due to an issue with React Router: https://github.com/
 
 ### 4. Generator Configuration
 
-The Prisma schema generator now outputs to a custom location:
+The Prisma schema generator outputs to a custom location:
 
 ```prisma
 generator client {
@@ -248,9 +248,9 @@ npm run test:e2e
 
 ## Breaking Changes
 
-1. **Adapter Required:** PrismaClient now requires an adapter parameter
+1. **Adapter Required:** PrismaClient requires an adapter parameter
 2. **Import Path:** Changed from `@prisma/client` to `#prisma/client.js`
-3. **Generator Output:** Client now generates to `generated/prisma` directory
+3. **Generator Output:** Client generates to `generated/prisma` directory
 4. **Test Configuration:** DATABASE_URL must be set before imports in Playwright config
 
 ## Benefits

@@ -1,4 +1,9 @@
-import { type LoopMode } from "#app/features/queue/queue-navigation.ts";
+import {
+  findSpinePositionForTrackId,
+  type LoopMode,
+  type QueueNavigationState,
+  type QueueZone,
+} from "#app/features/queue/queue-navigation.ts";
 import { type DiscoverSortOption } from "#app/utils/discover.ts";
 
 /**
@@ -42,6 +47,10 @@ export type PlayerStateData = {
   upNextIds: string[];
   shuffleSeed: number | null;
   loopMode: LoopMode;
+  /** Spine order index when the audible track is from the spine (or the frozen spine head while Up Next plays). */
+  spinePosition?: number;
+  audibleSourceZone?: QueueZone | null;
+  upNextPlayNextCount?: number;
 };
 
 export const PLAYER_STATE_ROUTE = "/resources/player-state";
@@ -58,7 +67,96 @@ export async function fetchPlayerState(): Promise<PlayerStateData | null> {
     throw new Error(`Failed to fetch player state: ${response.status}`);
   }
 
-  return response.json() as Promise<PlayerStateData>;
+  const data = (await response.json()) as PlayerStateData;
+  return withPlayerStateDefaults(data) as PlayerStateData;
+}
+
+export type ResolvedPlayerStateData = PlayerStateData & {
+  spinePosition: number;
+  audibleSourceZone: QueueZone | null;
+  upNextPlayNextCount: number;
+};
+
+/** True when persisted queue data does not record which zone is audible (legacy or migrated). */
+export function isAudibleSourceZoneUnknown(zone: QueueZone | null | undefined): boolean {
+  return zone === null || zone === undefined;
+}
+
+export type InferredAudibleSource = {
+  audibleSourceZone: QueueZone | null;
+  spinePosition: number;
+};
+
+function clampSpinePosition(position: number, spineOrderLength: number): number {
+  if (spineOrderLength <= 0) return 0;
+  return Math.min(Math.max(0, position), spineOrderLength - 1);
+}
+
+/** Adjust play-next prefix length after Up Next ids are filtered on queue restore. */
+export function clampUpNextPlayNextCountOnRestore(
+  savedUpNextIds: readonly string[],
+  resolvedUpNextIds: readonly string[],
+  savedPlayNextCount: number,
+): number {
+  const resolved = new Set(resolvedUpNextIds);
+  const prefixEnd = Math.min(savedPlayNextCount, savedUpNextIds.length);
+  let droppedInPrefix = 0;
+  for (let index = 0; index < prefixEnd; index++) {
+    if (!resolved.has(savedUpNextIds[index]!)) {
+      droppedInPrefix += 1;
+    }
+  }
+  const adjusted = savedPlayNextCount - droppedInPrefix;
+  return Math.min(Math.max(0, adjusted), resolvedUpNextIds.length);
+}
+
+/** Re-derive zone + spine position once a spine exists for migrated/legacy rows. */
+export function inferAudibleSourceForRestore(
+  zoneUnknown: boolean,
+  knownZone: QueueZone | null,
+  savedSpinePosition: number,
+  navigation: QueueNavigationState,
+  currentTrackId: string,
+  upNextTrackIds: string[],
+): InferredAudibleSource {
+  const clampedSaved = clampSpinePosition(savedSpinePosition, navigation.spineOrder.length);
+
+  if (knownZone === "upNext" && !zoneUnknown) {
+    return { audibleSourceZone: "upNext", spinePosition: clampedSaved };
+  }
+
+  if (!zoneUnknown && knownZone === "spine") {
+    const position = findSpinePositionForTrackId(navigation, currentTrackId);
+    const spinePosition =
+      position !== null ? clampSpinePosition(position, navigation.spineOrder.length) : clampedSaved;
+    return { audibleSourceZone: "spine", spinePosition };
+  }
+
+  if (zoneUnknown) {
+    const position = findSpinePositionForTrackId(navigation, currentTrackId);
+    if (position !== null) {
+      return {
+        audibleSourceZone: "spine",
+        spinePosition: clampSpinePosition(position, navigation.spineOrder.length),
+      };
+    }
+    if (upNextTrackIds.includes(currentTrackId)) {
+      return { audibleSourceZone: "upNext", spinePosition: clampedSaved };
+    }
+    return { audibleSourceZone: null, spinePosition: clampedSaved };
+  }
+
+  return { audibleSourceZone: knownZone, spinePosition: clampedSaved };
+}
+
+/** Apply defaults for queue-position fields omitted by older persisted rows. */
+export function withPlayerStateDefaults(data: PlayerStateData): ResolvedPlayerStateData {
+  return {
+    ...data,
+    spinePosition: data.spinePosition ?? 0,
+    audibleSourceZone: data.audibleSourceZone ?? null,
+    upNextPlayNextCount: data.upNextPlayNextCount ?? 0,
+  };
 }
 
 /**

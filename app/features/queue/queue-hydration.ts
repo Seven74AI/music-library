@@ -1,9 +1,25 @@
 import { type FullTrack, type QueueTrack } from "#app/types/frontend/shared.ts";
 import { PLAYBACK_BATCH_MAX_IDS } from "./constants.ts";
-import { getQueueSpineDisplayTracks, type QueueNavigationState } from "./queue-navigation.ts";
+import {
+  getQueueSpineDisplayTracks,
+  isAudibleTrackSpineHead,
+  type QueueNavigationState,
+} from "./queue-navigation.ts";
 import { fullTrackStubFromQueueTrack } from "./queue-spine.ts";
 
 export const PLAYBACK_LOOKAHEAD = 4;
+
+export function isRoomSpeakerHydrationStub(track: FullTrack): boolean {
+  return (
+    track.artist.id === "room-artist" &&
+    (track.audioFiles?.some((file) => file.objectKey === "room") ?? false)
+  );
+}
+
+/** Queue stubs and other rows without playback payload still need a catalog fetch. */
+export function isPlaybackHydrationStub(track: FullTrack): boolean {
+  return (track.audioFiles?.length ?? 0) === 0;
+}
 
 export type PlaybackBatchResponse = {
   tracks: FullTrack[];
@@ -44,6 +60,18 @@ export class PlaybackHydrationCache {
     this.cache.clear();
   }
 
+  /** Drop room-speaker synthetic FullTracks so catalog hydration can refetch. */
+  evictRoomSpeakerStubs(): string[] {
+    const evicted: string[] = [];
+    for (const [id, track] of this.cache) {
+      if (isRoomSpeakerHydrationStub(track)) {
+        this.cache.delete(id);
+        evicted.push(id);
+      }
+    }
+    return evicted;
+  }
+
   toMap(): Map<string, FullTrack> {
     return new Map(this.cache);
   }
@@ -52,7 +80,8 @@ export class PlaybackHydrationCache {
     const targetIds = ids.filter((id) => {
       if (!this.cache.has(id)) return true;
       if (options?.refetchIncomplete) {
-        return !this.cache.get(id)?.coverImage;
+        const cached = this.cache.get(id);
+        return cached !== undefined && isPlaybackHydrationStub(cached);
       }
       return false;
     });
@@ -93,6 +122,13 @@ export function collectHydrationIds(
     if (tryAdd(track.id)) return ids;
   }
 
+  if (state.loopMode === "all" && ids.length < target) {
+    for (let index = 0; index < state.spinePosition; index++) {
+      const track = state.spine[state.spineOrder[index]!]!;
+      if (tryAdd(track.id)) return ids;
+    }
+  }
+
   return ids;
 }
 
@@ -100,6 +136,7 @@ export function collectHydrationIds(
 export function collectQueueDisplayHydrationIds(
   state: QueueNavigationState,
   currentTrackId: string | null,
+  options?: { audibleIsSpineHead?: boolean },
 ): string[] {
   const ids: string[] = [];
 
@@ -109,7 +146,14 @@ export function collectQueueDisplayHydrationIds(
     ids.push(track.id);
   }
 
-  for (const track of getQueueSpineDisplayTracks(state, currentTrackId !== null)) {
+  const audibleIsSpineHead =
+    options?.audibleIsSpineHead ??
+    (currentTrackId !== null && isAudibleTrackSpineHead(state, currentTrackId));
+  for (const track of getQueueSpineDisplayTracks(
+    state,
+    currentTrackId !== null,
+    audibleIsSpineHead,
+  )) {
     ids.push(track.id);
   }
 

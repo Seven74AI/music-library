@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { type QueueTrack } from "#app/types/frontend/shared.ts";
 import {
+  advanceAfterPlay,
   getQueueSpineDisplayTracks,
+  queueSpineDisplayIncludesHead,
+  spineOrderIndexFromDisplayIndex,
   getSpinePlayOrder,
   getUpcomingSpinePlayOrder,
   hasNextTrack,
@@ -118,6 +121,40 @@ describe("resolvePreviousTrack", () => {
 
     expect(resolvePreviousTrack(state)).toBeNull();
   });
+
+  test("returns spine head at spinePosition when an Up Next item is playing", () => {
+    const state = baseState({
+      upNext: [track("u1")],
+      spinePosition: 1,
+    });
+
+    expect(resolvePreviousTrack(state, { audibleIsSpineHead: false })).toEqual({
+      zone: "spine",
+      index: 1,
+    });
+  });
+
+  test("returns spinePosition minus one when the audible track is the spine head", () => {
+    const state = baseState({ spinePosition: 2 });
+
+    expect(resolvePreviousTrack(state, { audibleIsSpineHead: true })).toEqual({
+      zone: "spine",
+      index: 1,
+    });
+  });
+
+  test("enables Previous at spine position zero while Up Next is playing", () => {
+    const state = baseState({
+      upNext: [track("u1")],
+      spinePosition: 0,
+    });
+
+    expect(resolvePreviousTrack(state, { audibleIsSpineHead: false })).toEqual({
+      zone: "spine",
+      index: 0,
+    });
+    expect(hasPreviousTrack(state, { audibleIsSpineHead: false })).toBe(true);
+  });
 });
 
 describe("hasNextTrack / hasPreviousTrack", () => {
@@ -164,6 +201,23 @@ describe("getUpcomingSpinePlayOrder", () => {
     const state = baseState({ spinePosition: 2 });
 
     expect(getUpcomingSpinePlayOrder(state)).toEqual([]);
+  });
+});
+
+describe("advanceAfterPlay", () => {
+  test("skipping a failed up-next row does not drop the wrong item from the original queue", () => {
+    const state = baseState({
+      upNext: [track("fail"), track("now-playing"), track("keep")],
+      spinePosition: 0,
+    });
+
+    const afterSkip = advanceAfterPlay(state, { zone: "upNext", index: 0 });
+    const playedTarget = { zone: "upNext" as const, index: 0 };
+    const buggy = advanceAfterPlay(state, playedTarget);
+    const fixed = advanceAfterPlay(afterSkip, playedTarget);
+
+    expect(buggy.upNext.map((item) => item.id)).toEqual(["now-playing", "keep"]);
+    expect(fixed.upNext.map((item) => item.id)).toEqual(["keep"]);
   });
 });
 
@@ -330,5 +384,39 @@ describe("getQueueSpineDisplayTracks", () => {
     });
 
     expect(getQueueSpineDisplayTracks(state, true).map((t) => t.id)).toEqual(["s2", "s3"]);
+  });
+
+  test("includes spine head when audible track is Up Next", () => {
+    const state = baseState({
+      upNext: [track("u1")],
+      spinePosition: 0,
+    });
+
+    expect(getQueueSpineDisplayTracks(state, true, false).map((t) => t.id)).toEqual([
+      "s1",
+      "s2",
+      "s3",
+    ]);
+  });
+});
+
+describe("spineOrderIndexFromDisplayIndex", () => {
+  test("maps display rows to spine order when the list includes the head", () => {
+    expect(spineOrderIndexFromDisplayIndex(2, 0, queueSpineDisplayIncludesHead(true, false))).toBe(
+      2,
+    );
+    expect(spineOrderIndexFromDisplayIndex(2, 1, true)).toBe(3);
+  });
+
+  test("skips the head row when only upcoming spine tracks are shown", () => {
+    expect(spineOrderIndexFromDisplayIndex(0, 0, queueSpineDisplayIncludesHead(true, true))).toBe(
+      1,
+    );
+  });
+
+  test("includes spine position when nothing is playing", () => {
+    expect(spineOrderIndexFromDisplayIndex(1, 0, queueSpineDisplayIncludesHead(false, true))).toBe(
+      1,
+    );
   });
 });

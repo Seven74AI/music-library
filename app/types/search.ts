@@ -63,6 +63,13 @@ export type SearchResult =
   | ArtistSearchResult
   | PlaylistSearchResult;
 
+export type SearchSortTuple = {
+  rk: number;
+  fr: number;
+  n: string;
+  id: string;
+};
+
 export interface SearchResponse {
   results: SearchResult[];
   pagination: {
@@ -70,6 +77,8 @@ export interface SearchResponse {
     hasNext: boolean;
     nextCursor: string | null;
   };
+  /** Keyset sort tuples for each result row (same order as `results`). Used by merged search pagination. */
+  sortTuples?: SearchSortTuple[];
   /** Present on error responses that still include an empty results shape */
   error?: string;
 }

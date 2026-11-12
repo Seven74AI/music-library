@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { MERGE_COMMENT_PREFIX, MERGED_INTO_PREFIX } from "./activity-comments.ts";
 import {
   badgeLabel,
@@ -36,15 +37,6 @@ function enqueueAward<T>(task: () => Promise<T>): Promise<T> {
     () => undefined,
   );
   return run;
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "P2002"
-  );
 }
 
 function asNumber(value: unknown): number {
@@ -116,21 +108,60 @@ export async function loadCuratorCounts(): Promise<Map<string, CuratorCounts>> {
           IFNULL(genreIds, '') AS genreIds,
           ROW_NUMBER() OVER (PARTITION BY trackId ORDER BY editedAt ASC, id ASC) AS rn
         FROM TrackEdit
+      ),
+      latest AS (
+        SELECT o.*
+        FROM ordered o
+        INNER JOIN (
+          SELECT trackId, MAX(rn) AS max_rn FROM ordered GROUP BY trackId
+        ) mx ON mx.trackId = o.trackId AND o.rn = mx.max_rn
+      ),
+      live_genres AS (
+        SELECT
+          B AS trackId,
+          IFNULL(GROUP_CONCAT(A, ',' ORDER BY A), '') AS liveGenreIds
+        FROM _TrackGenres
+        GROUP BY B
+      ),
+      snapshot_genre_ids AS (
+        SELECT
+          le.id AS editId,
+          le.trackId,
+          le.editedBy,
+          IFNULL(
+            (
+              SELECT GROUP_CONCAT(je.value, ',' ORDER BY je.value)
+              FROM json_each(le.genreIds) AS je
+              WHERE json_valid(le.genreIds)
+            ),
+            ''
+          ) AS snapshotGenreIds
+        FROM latest le
+        WHERE le.genreIds != '' AND le.genreIds != '[]'
       )
       SELECT curatorId, COUNT(*) AS count
       FROM (
-        SELECT
-          cur.editedBy AS curatorId
+        SELECT cur.id AS editId, cur.editedBy AS curatorId
         FROM ordered cur
         LEFT JOIN ordered nxt
           ON nxt.trackId = cur.trackId AND nxt.rn = cur.rn + 1
-        LEFT JOIN Track t ON t.id = cur.trackId AND nxt.id IS NULL
+        LEFT JOIN ordered prv
+          ON prv.trackId = cur.trackId AND prv.rn = cur.rn - 1
         WHERE
-          (
-            nxt.id IS NOT NULL
-            AND (cur.genre != IFNULL(nxt.genre, '') OR cur.genreIds != IFNULL(nxt.genreIds, ''))
+          (nxt.id IS NOT NULL
+            AND (cur.genre != IFNULL(nxt.genre, '') OR cur.genreIds != IFNULL(nxt.genreIds, '')))
+          OR (
+            nxt.id IS NULL
+            AND prv.id IS NULL
+            AND (cur.genre != '' OR (cur.genreIds != '' AND cur.genreIds != '[]'))
           )
-          OR (nxt.id IS NULL AND cur.genre != IFNULL(t.genre, ''))
+        UNION
+        SELECT sg.editId, sg.editedBy AS curatorId
+        FROM snapshot_genre_ids sg
+        INNER JOIN live_genres lg ON lg.trackId = sg.trackId
+        WHERE
+          sg.snapshotGenreIds != lg.liveGenreIds
+          AND NOT (sg.snapshotGenreIds != '' AND lg.liveGenreIds = '')
       )
       GROUP BY curatorId
     `),
@@ -186,21 +217,39 @@ async function awardCuratorBadgesOnce({
   });
   const have = new Set(existing.map((row) => `${row.curatorId}:${row.badgeType}`));
   const missing = earned.filter((row) => !have.has(`${row.curatorId}:${row.badgeType}`));
-  let awarded = missing.length;
+  let awarded = 0;
+  let batchPersisted = true;
   if (missing.length > 0) {
-    try {
-      await prisma.curatorBadge.createMany({
-        data: missing.map((row) => ({ curatorId: row.curatorId, badgeType: row.badgeType })),
+    batchPersisted = false;
+    for (const row of missing) {
+      try {
+        await prisma.curatorBadge.create({
+          data: { curatorId: row.curatorId, badgeType: row.badgeType },
+        });
+        awarded += 1;
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+      }
+    }
+    if (awarded > 0) {
+      batchPersisted = true;
+    } else {
+      const persisted = await prisma.curatorBadge.findMany({
+        where: {
+          OR: missing.map((row) => ({
+            curatorId: row.curatorId,
+            badgeType: row.badgeType,
+          })),
+        },
+        select: { curatorId: true, badgeType: true },
       });
-    } catch (error) {
-      // A second process can still collide between the lookup and the write.
-      // Keep the badges that won the insert instead of failing the dashboard.
-      if (!isUniqueConstraintError(error)) throw error;
-      awarded = 0;
+      batchPersisted = persisted.length === missing.length;
     }
   }
 
-  awardedAt = now;
+  if (batchPersisted) {
+    awardedAt = now;
+  }
   return { awarded, skipped: false };
 }
 

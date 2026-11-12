@@ -8,6 +8,14 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { executeCatalogEntityMerge } from "#app/features/metadata/merge-catalog-entity.server.ts";
+import {
+  EditLockTransactionError,
+  editLockConflictCopyForEntity,
+  findWriteBlockedLock,
+  getLockStatus,
+  throwEditLockTransactionError,
+} from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/artists.merge.ts";
 
@@ -21,7 +29,12 @@ export async function action({ request }: Route.ActionArgs) {
   await requireCuratorOrAdmin(request);
   const userId = await requireUserId(request);
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    throw data({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const result = MergeArtistsSchema.safeParse(body);
 
   if (!result.success) {
@@ -29,6 +42,20 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const { sourceId, targetId, comment } = result.data;
+
+  const blockedLock = await findWriteBlockedLock(userId, [
+    { entityType: "artist", entityId: sourceId },
+    { entityType: "artist", entityId: targetId },
+  ]);
+  if (blockedLock) {
+    throwEditLockTransactionError(
+      new EditLockTransactionError({
+        kind: "other",
+        lockedByName: blockedLock.lockedByName,
+      }),
+      editLockConflictCopyForEntity("artist"),
+    );
+  }
 
   // Validate: cannot merge artist into itself
   if (sourceId === targetId) {
@@ -73,15 +100,23 @@ export async function action({ request }: Route.ActionArgs) {
     throw new Response("Source artist is already merged", { status: 400 });
   }
 
+  const [sourceLock, targetLock] = await Promise.all([
+    getLockStatus("artist", sourceId),
+    getLockStatus("artist", targetId),
+  ]);
+
   try {
     // Perform merge in transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create audit entry before merge
-      await tx.artistEdit.create({
-        data: {
-          artistId: sourceId,
-          editedBy: userId,
-          comment: `MERGE: ${comment}`,
+    const result = await prisma.$transaction(async (tx) =>
+      executeCatalogEntityMerge(tx, {
+        entityType: "artist",
+        sourceId,
+        targetId,
+        comment,
+        userId,
+        sourceLock,
+        targetLock,
+        auditSnapshot: {
           name: sourceArtist.name,
           bio: sourceArtist.bio,
           imageUrl: sourceArtist.imageUrl,
@@ -89,49 +124,8 @@ export async function action({ request }: Route.ActionArgs) {
           genre: sourceArtist.genre,
           country: sourceArtist.country,
         },
-      });
-
-      // Move all tracks from source to target
-      const tracksUpdated = await tx.track.updateMany({
-        where: { artistId: sourceId },
-        data: { artistId: targetId },
-      });
-
-      // Move all albums from source to target
-      const albumsUpdated = await tx.album.updateMany({
-        where: { artistId: sourceId },
-        data: { artistId: targetId },
-      });
-
-      // Mark source artist as merged
-      await tx.artist.update({
-        where: { id: sourceId },
-        data: {
-          mergedIntoId: targetId,
-          mergedAt: new Date(),
-          mergedBy: userId,
-        },
-      });
-
-      // Update duplicate detection status for this pair
-      await tx.duplicateDetection.updateMany({
-        where: {
-          entityType: "artist",
-          OR: [
-            { entityId1: sourceId, entityId2: targetId },
-            { entityId1: targetId, entityId2: sourceId },
-          ],
-        },
-        data: {
-          status: "merged",
-        },
-      });
-
-      return {
-        tracksUpdated: tracksUpdated.count,
-        albumsUpdated: albumsUpdated.count,
-      };
-    });
+      }),
+    );
 
     return data({
       success: true,
@@ -143,6 +137,9 @@ export async function action({ request }: Route.ActionArgs) {
       },
     });
   } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("artist"));
+    }
     console.error("Error merging artists:", error);
     throw new Response("Failed to merge artists", { status: 500 });
   }

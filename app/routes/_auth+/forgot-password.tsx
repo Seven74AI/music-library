@@ -60,19 +60,16 @@ export async function action({ request }: Route.ActionArgs) {
       type: "reset-password",
       target: usernameOrEmail,
     });
-    const response = await sendEmail({
-      to: user.email,
-      subject: `Music Library Password Reset`,
-      react: (
-        <ForgotPasswordEmail onboardingUrl={prepared.verifyUrl.toString()} otp={prepared.otp} />
-      ),
-    });
-
-    if (response.status !== "success") {
-      return data(
-        { result: submission.reply({ formErrors: [response.error.message] }) },
-        { status: 500 },
-      );
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: `Music Library Password Reset`,
+        react: (
+          <ForgotPasswordEmail onboardingUrl={prepared.verifyUrl.toString()} otp={prepared.otp} />
+        ),
+      });
+    } catch (error) {
+      console.error("Forgot password email error:", error);
     }
     redirectTo = prepared.redirectTo;
   }

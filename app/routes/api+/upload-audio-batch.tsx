@@ -4,34 +4,45 @@ import { data, type ActionFunctionArgs } from "react-router";
 import { z } from "zod";
 import { LOCAL_SERVICE } from "#app/constants/services";
 import {
-  prepareTrackAudioUpload,
-  createTrackAudioFile,
-} from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
-import {
-  getOrCreateArtistTx,
-  getOrCreateArtist,
-  extractArtistMetadata,
-} from "#app/utils/artist-management.server";
+  createLocalUpload,
+  runLocalUploadMetadataBackfill,
+  type LocalUploadUserMetadata,
+} from "#app/features/track-audio-ingest/create-local-upload.server.ts";
+import { prepareTrackAudioUpload } from "#app/features/track-audio-ingest/persist-track-audio.server.ts";
+import { getOrCreateArtist, extractArtistMetadata } from "#app/utils/artist-management.server";
 import {
   extractAudioMetadata,
   type ExtractedAudioMetadata,
 } from "#app/utils/audio-metadata.server";
+import { getOrCreateAlbum } from "#app/utils/album-management.server";
 import {
   prepareCoverImageUpload,
-  createCoverImageInTx,
-  getOrCreateAlbumTx,
-  getOrCreateAlbum,
+  cleanupFailedCoverUpload,
 } from "#app/utils/cover-management.server";
+import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import {
+  coerceOptionalInt,
+  pickIntField,
+  zBatchCoerceRoundedOptionalInt,
+} from "#app/utils/track-metadata-int.server.ts";
+import {
+  UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE,
+  UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+  UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE,
+  toClientErrorMessage,
+} from "#app/utils/error-handlers.server";
+import {
   initUploadProgress,
   updateFileProgress,
   addSuccessfulTrack,
   addFailedFile,
+  removeSuccessfulTrackByTrackId,
   getUploadProgress,
+  type SuccessfulTrackInfo,
 } from "#app/features/upload-progress/progress-store.server";
 import { type Route } from "./+types/upload-audio-batch.ts";
 
@@ -127,13 +138,33 @@ const UserMetadataSchema = z.object({
   originalDate: dateString("originalDate").optional(),
   releaseDate: dateString("releaseDate").optional(),
   lyrics: z.string().optional(),
-  year: z.coerce.number().optional(),
-  trackNumber: z.coerce.number().optional(),
-  bpm: z.coerce.number().optional(),
-  originalYear: z.coerce.number().optional(),
-  totalTracks: z.coerce.number().optional(),
-  totalDiscs: z.coerce.number().optional(),
+  year: zBatchCoerceRoundedOptionalInt(),
+  trackNumber: zBatchCoerceRoundedOptionalInt(),
+  bpm: zBatchCoerceRoundedOptionalInt(),
+  originalYear: zBatchCoerceRoundedOptionalInt(),
+  totalTracks: zBatchCoerceRoundedOptionalInt(),
+  totalDiscs: zBatchCoerceRoundedOptionalInt(),
 });
+
+function roundExtractedNumericMetadata(metadata: ExtractedAudioMetadata): ExtractedAudioMetadata {
+  const trackNo = metadata.track?.no;
+  const roundedTrackNo = trackNo === undefined ? undefined : coerceOptionalInt(trackNo);
+  return {
+    ...metadata,
+    year: coerceOptionalInt(metadata.year),
+    bpm: coerceOptionalInt(metadata.bpm),
+    originalYear: coerceOptionalInt(metadata.originalYear),
+    totalTracks: coerceOptionalInt(metadata.totalTracks),
+    totalDiscs: coerceOptionalInt(metadata.totalDiscs),
+    track:
+      metadata.track === undefined
+        ? undefined
+        : {
+            ...metadata.track,
+            no: roundedTrackNo ?? metadata.track.no,
+          },
+  };
+}
 
 function parseUserMetadata(raw: string | undefined): FileWithMetadata["userMetadata"] | undefined {
   if (!raw) return undefined;
@@ -145,7 +176,9 @@ function parseUserMetadata(raw: string | undefined): FileWithMetadata["userMetad
   }
   const result = UserMetadataSchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error(`Invalid user metadata: ${result.error.issues.map((i) => i.message).join(", ")}`);
+    throw new Error(
+      `Invalid user metadata: ${result.error.issues.map((i) => i.message).join(", ")}`,
+    );
   }
   return result.data;
 }
@@ -157,24 +190,7 @@ interface FileWithMetadata {
   buffer: Buffer;
   mimeType?: string;
   metadata: ExtractedAudioMetadata;
-  userMetadata?: {
-    title?: string;
-    artist?: string;
-    album?: string;
-    genre?: string;
-    year?: number;
-    trackNumber?: number;
-    albumArtist?: string;
-    bpm?: number;
-    label?: string;
-    isrc?: string;
-    originalDate?: string;
-    originalYear?: number;
-    releaseDate?: string;
-    totalTracks?: number;
-    totalDiscs?: number;
-    lyrics?: string;
-  };
+  userMetadata?: LocalUploadUserMetadata;
 }
 
 export async function clientAction(args: Route.ClientActionArgs) {
@@ -225,6 +241,7 @@ export async function action({ request }: ActionFunctionArgs) {
       await initUploadProgress(
         uploadId,
         extractedFiles.map((f) => f.fileName),
+        userId,
       );
 
       // Extract metadata from each file in parallel (max 5 concurrent)
@@ -235,13 +252,30 @@ export async function action({ request }: ActionFunctionArgs) {
 
           try {
             await updateFileProgress(uploadId, fileId, 0, "processing");
-            const metadata = await extractAudioMetadata(
-              extractedFile.buffer,
-              extractedFile.fileName,
-            );
+            let metadata: ExtractedAudioMetadata;
+            try {
+              metadata = roundExtractedNumericMetadata(
+                await extractAudioMetadata(extractedFile.buffer, extractedFile.fileName),
+              );
+            } catch (error) {
+              const message = toClientErrorMessage(
+                error,
+                UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+              );
+              await recordFileFailure(uploadId, fileId, message);
+              console.error(`Error extracting metadata from ${extractedFile.fileName}:`, error);
+              return;
+            }
 
-            // Get user-provided metadata for this file (if any)
-            const parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
+            let parsedMetadata: FileWithMetadata["userMetadata"];
+            try {
+              parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Invalid user metadata";
+              await recordFileFailure(uploadId, fileId, message);
+              console.error(`Invalid user metadata for ${extractedFile.fileName}:`, error);
+              return;
+            }
 
             filesToProcess.push({
               fileName: extractedFile.fileName,
@@ -252,18 +286,22 @@ export async function action({ request }: ActionFunctionArgs) {
               userMetadata: parsedMetadata,
             });
           } catch (error) {
-            const message = error instanceof Error ? error.message : "Failed to extract metadata";
+            const message = toClientErrorMessage(
+              error,
+              UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+            );
             await recordFileFailure(uploadId, fileId, message);
-            console.error(`Error extracting metadata from ${extractedFile.fileName}:`, error);
+            console.error(`Error processing ${extractedFile.fileName}:`, error);
           }
         },
         MAX_CONCURRENCY,
       );
     } catch (error) {
+      console.error("Failed to extract ZIP file:", error);
       return data(
         {
           success: false,
-          error: `Failed to extract ZIP file: ${error instanceof Error ? error.message : "Unknown error"}`,
+          error: toClientErrorMessage(error, UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE),
         },
         { status: 400 },
       );
@@ -291,6 +329,7 @@ export async function action({ request }: ActionFunctionArgs) {
     await initUploadProgress(
       uploadId,
       audioFiles.map((f) => f.name),
+      userId,
     );
 
     await processWithConcurrency(
@@ -307,10 +346,28 @@ export async function action({ request }: ActionFunctionArgs) {
           await updateFileProgress(uploadId, fileId, 0, "processing");
           const arrayBuffer = await file.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
-          const metadata = await extractAudioMetadata(buffer, file.name);
+          let metadata: ExtractedAudioMetadata;
+          try {
+            metadata = roundExtractedNumericMetadata(await extractAudioMetadata(buffer, file.name));
+          } catch (error) {
+            const message = toClientErrorMessage(
+              error,
+              UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+            );
+            await recordFileFailure(uploadId, fileId, message);
+            console.error(`Error extracting metadata from ${file.name}:`, error);
+            return;
+          }
 
-          // Get user-provided metadata for this file (if any)
-          const parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
+          let parsedMetadata: FileWithMetadata["userMetadata"];
+          try {
+            parsedMetadata = parseUserMetadata(formData.get(`metadata[${i}]`)?.toString());
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Invalid user metadata";
+            await recordFileFailure(uploadId, fileId, message);
+            console.error(`Invalid user metadata for ${file.name}:`, error);
+            return;
+          }
 
           filesToProcess.push({
             fileName: file.name,
@@ -321,9 +378,12 @@ export async function action({ request }: ActionFunctionArgs) {
             userMetadata: parsedMetadata,
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Failed to extract metadata";
+          const message = toClientErrorMessage(
+            error,
+            UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
+          );
           await recordFileFailure(uploadId, fileId, message);
-          console.error(`Error extracting metadata from ${file.name}:`, error);
+          console.error(`Error processing ${file.name}:`, error);
         }
       },
       MAX_CONCURRENCY,
@@ -391,6 +451,14 @@ async function processFilesAsync(
     async (file): Promise<{ success: boolean; trackId?: string; error?: string }> => {
       const fileId = `file-${file.sourceIndex}`;
 
+      let preparedAudio: Awaited<ReturnType<typeof prepareTrackAudioUpload>> | null = null;
+      let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
+      const preparedCoverHolder: {
+        current: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null;
+      } = { current: null };
+      let transactionCommitted = false;
+      let trackId: string | undefined;
+
       try {
         // Use user metadata if provided, otherwise use extracted metadata
         const title = file.userMetadata?.title || file.metadata.title;
@@ -406,7 +474,7 @@ async function processFilesAsync(
         await updateFileProgress(uploadId, fileId, 5, "uploading", undefined, file.buffer.length);
 
         // Generate IDs
-        const trackId = createId();
+        trackId = createId();
         const fileIdForStorage = createId();
 
         await updateFileProgress(uploadId, fileId, 5, "uploading", undefined, file.buffer.length);
@@ -421,7 +489,7 @@ async function processFilesAsync(
         const uploadEndProgress = 50;
         const uploadProgressRange = uploadEndProgress - uploadStartProgress;
 
-        const preparedAudio = await prepareTrackAudioUpload({
+        const audioPrepared = await prepareTrackAudioUpload({
           trackId,
           serviceName: LOCAL_SERVICE.NAME,
           buffer: file.buffer,
@@ -450,11 +518,12 @@ async function processFilesAsync(
             }
           },
         });
+        preparedAudio = audioPrepared;
 
         // Log duplicate detection
-        if (preparedAudio.isDuplicate && preparedAudio.duplicateTrack) {
+        if (audioPrepared.isDuplicate && audioPrepared.duplicateTrack) {
           console.warn(
-            `⚠️  Duplicate: "${file.fileName}" has same audio as "${preparedAudio.duplicateTrack.title}" by ${preparedAudio.duplicateTrack.artist.name}`,
+            `⚠️  Duplicate: "${file.fileName}" has same audio as "${audioPrepared.duplicateTrack.title}" by ${audioPrepared.duplicateTrack.artist.name}`,
           );
         }
 
@@ -469,7 +538,7 @@ async function processFilesAsync(
           const resolvedAlbum = await getOrCreateAlbum(
             albumArtistRecord.id,
             album,
-            file.userMetadata?.year || file.metadata.year || null,
+            pickIntField(file.userMetadata?.year, file.metadata.year),
           );
           resolvedAlbumId = resolvedAlbum?.id ?? null;
         }
@@ -478,7 +547,6 @@ async function processFilesAsync(
         // SQLite serializes writers, so holding the write lock across sharp + a network
         // upload can trip the transaction timeout and roll back DB writes after the
         // object was already uploaded (leaving an orphaned Tigris object).
-        let preparedCover: Awaited<ReturnType<typeof prepareCoverImageUpload>> | null = null;
         if (file.metadata.coverImage) {
           try {
             preparedCover = await prepareCoverImageUpload({
@@ -487,137 +555,129 @@ async function processFilesAsync(
               trackId,
               format: file.metadata.coverImage.format,
             });
+            preparedCoverHolder.current = preparedCover;
           } catch (error) {
+            await cleanupFailedCoverUpload(error);
             console.warn(`⚠️  Failed to upload cover image for ${file.fileName}:`, error);
             // Continue without cover image
           }
         }
 
-        // Create track and TrackAudioFile rows in a short transaction
-        const result = await prisma.$transaction(async (tx) => {
-          // Get or create artist
-          const artistRecord = await getOrCreateArtistTx(tx, artist, artistMetadata);
-
-          // Get or create album (using artistId)
-          const albumArtistRecord = await getOrCreateArtistTx(tx, albumArtist, artistMetadata);
-          const albumRecord = await getOrCreateAlbumTx(
-            tx,
-            albumArtistRecord.id,
-            album || null,
-            file.userMetadata?.year || file.metadata.year || null,
-          );
-
-          // Associate the cover image (DB-only) — the upload already happened above.
-          let coverImageId: string | null = null;
-          if (preparedCover) {
-            try {
-              const coverImage = await createCoverImageInTx(
-                tx,
-                preparedCover,
-                albumRecord?.id ?? null,
-              );
-              coverImageId = coverImage.id;
-            } catch (error) {
-              console.warn(`⚠️  Failed to create cover image for ${file.fileName}:`, error);
-              // Continue without cover image
-            }
-          }
-
-          // Create track with all metadata fields
-          await updateFileProgress(uploadId, fileId, 60, "uploading");
-          const track = await tx.track.create({
-            data: {
-              id: trackId,
-              title,
-              artistId: artistRecord.id,
-              albumId: albumRecord?.id || null,
-              coverImageId,
-              duration: file.metadata.duration || null,
-              serviceId: serviceId,
-              externalId: fileIdForStorage,
-              serviceUrl: null,
-              releaseDate: file.userMetadata?.releaseDate
-                ? new Date(file.userMetadata.releaseDate)
-                : file.metadata.releaseDate
-                  ? new Date(file.metadata.releaseDate)
-                  : null,
-              // Basic metadata
-              genre: file.userMetadata?.genre || file.metadata.genre?.[0] || null,
-              year: file.userMetadata?.year || file.metadata.year || null,
-              trackNumber: file.userMetadata?.trackNumber || file.metadata.track?.no || null,
-              albumArtist: file.userMetadata?.albumArtist || file.metadata.albumArtist || null,
-              // Additional metadata
-              bpm: file.userMetadata?.bpm || file.metadata.bpm || null,
-              label: file.userMetadata?.label || file.metadata.label || null,
-              isrc: file.userMetadata?.isrc || file.metadata.isrc || null,
-              originalDate: file.userMetadata?.originalDate
-                ? new Date(file.userMetadata.originalDate)
-                : file.metadata.originalDate
-                  ? new Date(file.metadata.originalDate)
-                  : null,
-              originalYear: file.userMetadata?.originalYear || file.metadata.originalYear || null,
-              totalTracks: file.userMetadata?.totalTracks || file.metadata.totalTracks || null,
-              totalDiscs: file.userMetadata?.totalDiscs || file.metadata.totalDiscs || null,
-              lyrics: file.userMetadata?.lyrics || file.metadata.lyrics || null,
-            },
-          });
-
-          await updateFileProgress(uploadId, fileId, 75, "uploading");
-
-          // Create the TrackAudioFile row (the upload already happened above)
-          await createTrackAudioFile(
-            {
-              trackId: track.id,
-              serviceId,
-              fileName: file.fileName,
-              metadata: file.metadata,
-              uploadedBy: userId,
-              buffer: file.buffer,
-            },
-            preparedAudio,
-            tx,
-          );
-
-          await updateFileProgress(uploadId, fileId, 85, "uploading");
-
-          // Add track to user's library
-          await tx.userTrack.create({
-            data: {
-              userId,
-              trackId: track.id,
-            },
-          });
-
-          await updateFileProgress(uploadId, fileId, 95, "uploading");
-
-          // Store successful track information
-          await addSuccessfulTrack(uploadId, {
-            trackId: track.id,
-            fileName: file.fileName,
-            title: track.title,
-            artist: artistRecord.name,
-            storageSavedBytes: preparedAudio.isDuplicate ? file.buffer.length : undefined,
-            exactDuplicate: preparedAudio.isDuplicate
-              ? {
-                  trackId: preparedAudio.duplicateTrack!.id,
-                  title: preparedAudio.duplicateTrack!.title,
-                  artist: preparedAudio.duplicateTrack!.artist.name,
-                  confidence: 100, // Content hash match is 100% confidence
-                }
-              : undefined,
-          });
-
-          return { success: true, trackId: track.id };
+        const uploadResult = await createLocalUpload({
+          trackId,
+          externalId: fileIdForStorage,
+          userId,
+          serviceId,
+          title,
+          artist,
+          artistMetadata,
+          album: album || null,
+          albumArtist,
+          yearForAlbum: pickIntField(file.userMetadata?.year, file.metadata.year),
+          extractedMetadata: file.metadata,
+          preparedCover,
+          preparedCoverHolder,
+          preparedAudio: audioPrepared,
+          audioFileName: file.fileName,
+          buffer: file.buffer,
+          uploadedBy: userId,
+          onCoverPersistFailure: (error) => {
+            console.warn(`⚠️  Failed to create cover image for ${file.fileName}:`, error);
+          },
+          hooks: {
+            beforeTrackCreate: () => updateFileProgress(uploadId, fileId, 60, "uploading"),
+            afterTrackCreate: () => updateFileProgress(uploadId, fileId, 75, "uploading"),
+            afterAudioFile: () => updateFileProgress(uploadId, fileId, 85, "uploading"),
+            afterUserTrack: () => updateFileProgress(uploadId, fileId, 95, "uploading"),
+          },
         });
+        preparedCover = preparedCoverHolder.current ?? uploadResult.preparedCover;
+        transactionCommitted = true;
 
-        // Update to 100% after transaction completes successfully
-        await updateFileProgress(uploadId, fileId, 100, "completed", undefined, file.buffer.length);
+        const successfulTrackInfo: SuccessfulTrackInfo = {
+          trackId: uploadResult.track.id,
+          fileName: file.fileName,
+          title: uploadResult.track.title,
+          artist: uploadResult.artistName,
+          storageSavedBytes: audioPrepared.isDuplicate ? file.buffer.length : undefined,
+          exactDuplicate: audioPrepared.isDuplicate
+            ? {
+                trackId: audioPrepared.duplicateTrack!.id,
+                title: audioPrepared.duplicateTrack!.title,
+                artist: audioPrepared.duplicateTrack!.artist.name,
+                confidence: 100,
+              }
+            : undefined,
+        };
 
-        return result;
+        const result = {
+          success: true as const,
+          trackId: uploadResult.track.id,
+          successfulTrackInfo,
+        };
+
+        try {
+          await runLocalUploadMetadataBackfill(uploadResult.track.id, file.metadata, {
+            userMetadata: file.userMetadata,
+          });
+        } catch (backfillError) {
+          console.warn(
+            `⚠️  Track metadata backfill failed for ${uploadResult.track.id} after batch upload:`,
+            backfillError,
+          );
+        }
+
+        try {
+          await addSuccessfulTrack(uploadId, result.successfulTrackInfo);
+          await updateFileProgress(
+            uploadId,
+            fileId,
+            100,
+            "completed",
+            undefined,
+            file.buffer.length,
+          );
+        } catch (progressError) {
+          console.warn(
+            `Post-commit progress update failed for ${file.fileName} (track ${result.trackId} persisted):`,
+            progressError,
+          );
+          try {
+            await addSuccessfulTrack(uploadId, result.successfulTrackInfo);
+          } catch {
+            // Best-effort: track is already committed.
+          }
+          try {
+            await updateFileProgress(
+              uploadId,
+              fileId,
+              100,
+              "completed",
+              undefined,
+              file.buffer.length,
+            );
+          } catch {
+            // Best-effort: do not surface a committed track as failed.
+          }
+        }
+
+        return { success: true, trackId: result.trackId };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Failed to upload file";
-        await updateFileProgress(uploadId, fileId, 0, "failed", errorMessage);
+        preparedCover = preparedCoverHolder.current;
+        await cleanupFailedUploadArtifacts(preparedAudio, preparedCover, { transactionCommitted });
+        if (transactionCommitted) {
+          console.warn(
+            `Unexpected error after DB commit for ${file.fileName} (track persisted):`,
+            error,
+          );
+          return { success: true, trackId };
+        }
 
+        const errorMessage = toClientErrorMessage(error, UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE);
+        if (trackId) {
+          await removeSuccessfulTrackByTrackId(uploadId, trackId);
+        }
+        await updateFileProgress(uploadId, fileId, 0, "failed", errorMessage);
         await addFailedFile(uploadId, fileId, errorMessage);
         console.error(`Error uploading file ${file.fileName}:`, error);
 

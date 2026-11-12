@@ -25,6 +25,7 @@ import { requireUserId } from "#app/utils/auth.server.ts";
 import { getTrackTitle } from "#app/utils/breadcrumb-utils.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { formatDuration } from "#app/utils/format-duration.ts";
+import { formatFileSize } from "#app/utils/format-file-size.ts";
 import { isPlayableTrack } from "#app/utils/playable-track.ts";
 import { loadUserPlaylists } from "#app/utils/track-list-loader.server.ts";
 import { useTrackAudioFileDownload } from "#app/hooks/use-track-audio-file-download.ts";
@@ -68,27 +69,8 @@ export function chooseRelatedTracks<T>(input: {
   return null;
 }
 
-export function orderedGenreNames(
-  genres: ReadonlyArray<{ name: string }> | null | undefined,
-  primary: string | null | undefined,
-) {
-  const names = (genres ?? []).map((genre) => genre.name).filter((name) => name.length > 0);
-  if (!primary) return names;
-
-  const index = names.indexOf(primary);
-  if (index > 0) {
-    const [match] = names.splice(index, 1);
-    if (match) names.unshift(match);
-  } else if (index === -1) {
-    names.unshift(primary);
-  }
-  return names;
-}
-
-function formatFileSize(bytes: number) {
-  const megabytes = bytes / (1024 * 1024);
-  if (megabytes >= 1) return `${megabytes.toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+export function orderedGenreNames(genres: ReadonlyArray<{ name: string }> | null | undefined) {
+  return (genres ?? []).map((genre) => genre.name).filter((name) => name.length > 0);
 }
 
 function formatAudioDetails(file: {
@@ -153,7 +135,7 @@ function relatedTrackSelect(userId: string) {
     service: { select: { displayName: true, logoUrl: true } },
     audioFiles: { select: { id: true, format: true, objectKey: true } },
     userTracks: {
-      where: { userId, isActive: true },
+      where: { userId, isActive: true, deletedAt: null },
       select: { createdAt: true },
       take: 1,
     },
@@ -183,7 +165,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       createdAt: true,
       updatedAt: true,
       duration: true,
-      genre: true,
       genres: { select: { id: true, name: true } },
       year: true,
       trackNumber: true,
@@ -208,7 +189,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         },
       },
       userTracks: {
-        where: { userId, isActive: true },
+        where: { userId, isActive: true, deletedAt: null },
         select: { id: true },
         take: 1,
       },
@@ -256,13 +237,19 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     }),
   ]);
 
-  const { userTracks, servicePlaylistTracks, ...track } = trackRaw;
+  const { userTracks, servicePlaylistTracks, audioFiles, ...trackRest } = trackRaw;
+  const isInUserLibrary = userTracks.length > 0;
+  const canAccessAudio =
+    isInUserLibrary || containingPlaylists.length > 0 || servicePlaylistTracks.length > 0;
+  const track = {
+    ...trackRest,
+    audioFiles: canAccessAudio ? audioFiles : [],
+  };
 
   return data({
     track,
-    isInUserLibrary: userTracks.length > 0,
-    canDownload:
-      userTracks.length > 0 || containingPlaylists.length > 0 || servicePlaylistTracks.length > 0,
+    isInUserLibrary,
+    canDownload: canAccessAudio,
     playlists,
     containingPlaylists,
     related: chooseRelatedTracks({
@@ -326,7 +313,7 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
   const album = track.albumRecord ?? null;
   const audioFiles = track.audioFiles ?? [];
   const hasAudio = isPlayableTrack({ audioFiles });
-  const genreNames = orderedGenreNames(track.genres, track.genre);
+  const genreNames = orderedGenreNames(track.genres);
   const bestAudio = selectBestAudioFile(audioFiles);
   const headerCoverUrl =
     coverImageUrl(track.coverImage?.objectKey, entityHeaderCoverPixelSize) || null;

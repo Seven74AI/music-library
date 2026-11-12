@@ -23,29 +23,3 @@ export function TrackListSkeleton() {
     </div>
   );
 }
-
-export function TrackCardSkeleton() {
-  return (
-    <div
-      className="w-full max-w-2xl mx-auto border rounded-lg p-6"
-      role="status"
-      aria-label="Loading track details"
-    >
-      <div className="flex gap-4">
-        <Skeleton className="w-24 h-24 rounded-lg" />
-        <div className="flex-1 space-y-2">
-          <Skeleton className="h-6 w-[300px]" />
-          <Skeleton className="h-4 w-[200px]" />
-          <div className="flex items-center gap-4">
-            <Skeleton className="h-4 w-16" />
-            <Skeleton className="h-4 w-20" />
-          </div>
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-5 w-16" />
-            <Skeleton className="h-4 w-24" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}

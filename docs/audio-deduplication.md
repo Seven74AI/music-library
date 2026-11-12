@@ -69,7 +69,7 @@ Comprehensive test coverage in `audio-file-management.server.test.ts`
 
 ### 4. Database Seed Updated (`prisma/seed.ts`)
 
-- Now calculates and stores `contentHash` for seeded audio files
+- Calculates and stores `contentHash` for seeded audio files
 
 ### 5. Test Coverage
 
@@ -125,7 +125,7 @@ Done - 0MB uploaded, storage saved! ✅
 The database schema changes are ready but NOT yet applied. You need to run:
 
 ```bash
-npx prisma migrate deploy
+npm run migrate:deploy
 ```
 
 **OR** for development (resets the database):
@@ -488,7 +488,7 @@ Added:
 - app/utils/audio-file-management.server.test.ts (comprehensive tests)
 - prisma/migrations/20260924102309_add_content_hash_to_track_audio_file/migration.sql
 - prisma/migrations/20260924150400_add_audio_fingerprint_to_track_audio_file/migration.sql
-- prisma/backfill-audio-hashes.ts (for existing uploads, now includes fingerprints)
+- prisma/backfill-audio-hashes.ts (for existing uploads, includes fingerprints)
 - docs/audio-deduplication.md (this file)
 
 Updated Tests:

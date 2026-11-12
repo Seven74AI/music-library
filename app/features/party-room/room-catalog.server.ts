@@ -6,6 +6,7 @@
 import { canAddTracks } from "#app/features/party-room/capabilities.ts";
 import { parseRoomCodeInput } from "#app/features/party-room/codes.ts";
 import { resolveRoomParticipantByCode } from "#app/features/party-room/participant-seat.server.ts";
+import { PartyRoomError } from "#app/features/party-room/party-room.server.ts";
 import { type RoomCatalogTrack } from "#app/features/party-room/room-browse.ts";
 import { prisma } from "#app/utils/db.server.ts";
 
@@ -52,7 +53,15 @@ function compareAlbumTracks(
 
 export async function requireRoomCatalogSeat(request: Request, rawCode: string) {
   const code = parseRoomCodeInput(rawCode) ?? rawCode.toUpperCase();
-  const participant = await resolveRoomParticipantByCode(request, code);
+  let participant;
+  try {
+    participant = await resolveRoomParticipantByCode(request, code);
+  } catch (error) {
+    if (error instanceof PartyRoomError) {
+      throw new Response(null, { status: 302, headers: { Location: `/rooms/${code}` } });
+    }
+    throw error;
+  }
   if (!participant) {
     throw new Response(null, { status: 302, headers: { Location: `/rooms/${code}` } });
   }

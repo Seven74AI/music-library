@@ -238,9 +238,10 @@ export function normalizeRoomSnapshot(
     };
   });
 
-  const currentIndex = Number(
-    raw.currentIndex ?? (raw.playback as { currentIndex?: number } | undefined)?.currentIndex ?? 0,
-  );
+  const rawCurrentIndex =
+    raw.currentIndex ?? (raw.playback as { currentIndex?: number } | undefined)?.currentIndex ?? 0;
+  const parsedCurrentIndex = Number(rawCurrentIndex);
+  const currentIndex = Number.isFinite(parsedCurrentIndex) ? parsedCurrentIndex : -1;
   const isPlaying = Boolean(
     raw.isPlaying ?? (raw.playback as { isPlaying?: boolean } | undefined)?.isPlaying,
   );
@@ -352,7 +353,17 @@ export async function joinRoom(
   if (!raw) throw new RoomApiError("Empty join response", 500);
   const joinedCode = String(raw.code ?? code);
   writeActiveRoomCode(joinedCode);
-  return fetchRoomByCode(joinedCode, meUserId);
+  try {
+    return await fetchRoomByCode(joinedCode, meUserId);
+  } catch {
+    try {
+      const current = await fetchCurrentRoom(meUserId);
+      if (current) return current;
+    } catch {
+      // Fall through to join payload.
+    }
+    return normalizeRoomSnapshot(raw, meUserId);
+  }
 }
 
 export async function leaveRoom(code: string): Promise<void> {

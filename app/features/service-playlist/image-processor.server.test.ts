@@ -8,6 +8,7 @@ vi.mock("#app/utils/db.server", () => ({
     },
     track: {
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
   },
 }));
@@ -48,8 +49,11 @@ describe("processTrackImagesAsync", () => {
     findOrCreateCoverImage = vi.mocked(coverManagement.findOrCreateCoverImage);
 
     downloadExternalImage.mockResolvedValue(Buffer.from("image"));
-    findOrCreateCoverImage.mockResolvedValue({ id: "cover1", objectKey: "cover1.jpg" });
-    vi.mocked(prisma.track.update).mockResolvedValue({} as any);
+    findOrCreateCoverImage.mockResolvedValue({
+      id: "cover1",
+      objectKey: "cover1.jpg",
+    });
+    vi.mocked(prisma.track.updateMany).mockResolvedValue({ count: 1 });
     vi.mocked(prisma.servicePlaylistTrack.findMany).mockReset();
   });
 
@@ -86,7 +90,7 @@ describe("processTrackImagesAsync", () => {
 
     expect(downloadExternalImage).toHaveBeenCalledTimes(125);
     expect(findOrCreateCoverImage).toHaveBeenCalledTimes(125);
-    expect(prisma.track.update).toHaveBeenCalledTimes(125);
+    expect(prisma.track.updateMany).toHaveBeenCalledTimes(125);
   });
 
   test("only processes tracks returned by the playlistId query (no existing covers)", async () => {
@@ -107,10 +111,29 @@ describe("processTrackImagesAsync", () => {
       imageBuffer: expect.any(Buffer),
       trackId: "track1",
     });
-    expect(prisma.track.update).toHaveBeenCalledWith({
-      where: { id: "track1" },
+    expect(prisma.track.updateMany).toHaveBeenCalledWith({
+      where: { id: "track1", coverImageId: null },
       data: { coverImageId: "cover1" },
     });
+  });
+
+  test("skips assignment when the track gains a cover before the guarded write", async () => {
+    const playlistId = "playlist-race";
+    const tracks = [makePlaylistTrack("spt1", "track1", "https://example.com/1.jpg")];
+
+    vi.mocked(prisma.servicePlaylistTrack.findMany)
+      .mockResolvedValueOnce(tracks as any)
+      .mockResolvedValueOnce([]);
+    vi.mocked(prisma.track.updateMany).mockResolvedValueOnce({ count: 0 });
+
+    await processTrackImagesAsync(playlistId);
+
+    expect(prisma.track.updateMany).toHaveBeenCalledWith({
+      where: { id: "track1", coverImageId: null },
+      data: { coverImageId: "cover1" },
+    });
+    const { smartAlbumInheritance } = await import("#app/features/admin/cover-fetch.server");
+    expect(smartAlbumInheritance).not.toHaveBeenCalled();
   });
 
   test("does nothing when no tracks need processing", async () => {
@@ -120,6 +143,6 @@ describe("processTrackImagesAsync", () => {
 
     expect(downloadExternalImage).not.toHaveBeenCalled();
     expect(findOrCreateCoverImage).not.toHaveBeenCalled();
-    expect(prisma.track.update).not.toHaveBeenCalled();
+    expect(prisma.track.updateMany).not.toHaveBeenCalled();
   });
 });

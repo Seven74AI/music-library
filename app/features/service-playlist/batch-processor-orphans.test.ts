@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildPendingMatches, filterOrphanedTracks } from "./batch-processor.server";
+import { buildPendingMatches, filterOrphanedTracks } from "./orphan-detection.server";
 
 describe("filterOrphanedTracks", () => {
   test("returns tracks missing from the current sync that are not deleted", () => {
@@ -53,6 +53,7 @@ describe("filterOrphanedTracks", () => {
       {
         externalIds: new Set(["video-1", "video-later"]),
         trackIds: new Set(),
+        sptIds: new Set(),
       },
     );
 
@@ -98,6 +99,7 @@ describe("filterOrphanedTracks", () => {
         // video-fail was in this sync's API payload but preparation threw
         externalIds: new Set(["video-fail"]),
         trackIds: new Set(),
+        sptIds: new Set(),
       },
     );
 
@@ -130,7 +132,7 @@ describe("filterOrphanedTracks", () => {
           },
         },
       ],
-      { externalIds: new Set(), trackIds: new Set() },
+      { externalIds: new Set(), trackIds: new Set(), sptIds: new Set() },
     );
 
     expect(orphaned.map((t) => t.id)).toEqual(["orphan-a", "orphan-b"]);

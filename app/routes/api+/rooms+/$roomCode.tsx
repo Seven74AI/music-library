@@ -1,7 +1,9 @@
 import {
+  buildPublicRoomSnapshot,
   findOpenRoomByCode,
   getRoomSnapshot,
   PartyRoomError,
+  resolveParticipant,
 } from "#app/features/party-room/party-room.server.ts";
 import { resolveActorOptional } from "#app/features/party-room/participant-seat.server.ts";
 import { partyRoomErrorResponse } from "#app/features/party-room/request.server.ts";
@@ -20,6 +22,11 @@ export async function loader({
     }
     const room = await findOpenRoomByCode(code);
     const actor = await resolveActorOptional(request);
+    const participant =
+      actor && actor.type !== "system" ? await resolveParticipant(room.id, actor) : null;
+    if (!participant) {
+      return Response.json(buildPublicRoomSnapshot(room));
+    }
     const snapshot = await getRoomSnapshot(room.id, actor);
     if (!snapshot) {
       throw new PartyRoomError("not_found", "Room not found", 404);

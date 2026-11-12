@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser, createTrack, resetUsageAnalyticsTables } from "#tests/db-utils.ts";
-import { listLibraryQueueSpineTracks, listLibraryUserTracks } from "./library-tracks.server.ts";
+import { listLibraryQueueSpineTracks } from "#app/features/queue/library-queue-tracks.server.ts";
+import { listLibraryUserTracks } from "./library-tracks.server.ts";
 
 async function addToLibrary(userId: string, trackId: string, createdAt: Date) {
   return prisma.userTrack.create({
@@ -190,6 +191,24 @@ describe("listLibraryUserTracks most-played sorts", () => {
     });
 
     expect(userTracks.map((ut) => ut.track.title)).toEqual(["Newer", "Older"]);
+  });
+
+  test("dateAdded pagination does not claim hasNext when page size equals total library rows", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const t1 = await createTrack("Lib Page A");
+    const t2 = await createTrack("Lib Page B");
+    await addToLibrary(user.id, t1.id, new Date("2026-01-01T00:00:00.000Z"));
+    await addToLibrary(user.id, t2.id, new Date("2026-02-01T00:00:00.000Z"));
+
+    const page = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "dateAdded",
+      limit: 2,
+    });
+
+    expect(page.userTracks).toHaveLength(2);
+    expect(page.pagination.hasNext).toBe(false);
+    expect(page.pagination.nextCursor).toBeNull();
   });
 
   test("genreId returns only that user's active library tracks tagged with the genre", async () => {
@@ -400,6 +419,44 @@ describe("listLibraryUserTracks most-played sorts", () => {
     expect(countsByTitle(mostPlayed.userTracks)).toEqual({ Noted: 2, Plain: 0 });
   });
 
+  test("mostPlayedMonth paging across a UTC month boundary keeps the snapshot month", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const janEndSnapshot = new Date("2026-01-31T23:30:00.000Z");
+    const febRequestNow = new Date("2026-02-01T12:00:00.000Z");
+
+    const top = await createTrack("Jan Top");
+    const mid = await createTrack("Jan Mid");
+    const low = await createTrack("Jan Low");
+    await addToLibrary(user.id, top.id, new Date("2026-01-05T00:00:00.000Z"));
+    await addToLibrary(user.id, mid.id, new Date("2026-01-06T00:00:00.000Z"));
+    await addToLibrary(user.id, low.id, new Date("2026-01-07T00:00:00.000Z"));
+    await seedCompleted(user.id, top.id, new Date("2026-01-15T12:00:00.000Z"), 5);
+    await seedCompleted(user.id, mid.id, new Date("2026-01-16T12:00:00.000Z"), 3);
+    await seedCompleted(user.id, low.id, new Date("2026-01-17T12:00:00.000Z"), 1);
+
+    const page1 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedMonth",
+      limit: 1,
+      now: janEndSnapshot,
+    });
+    expect(page1.userTracks.map((ut) => ut.track.title)).toEqual(["Jan Top"]);
+    expect(page1.pagination.hasNext).toBe(true);
+
+    // February completes must not inflate January snapshot counts on page 2.
+    await seedCompleted(user.id, low.id, new Date("2026-02-01T08:00:00.000Z"), 20);
+
+    const page2 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedMonth",
+      limit: 10,
+      cursor: page1.pagination.nextCursor,
+      now: febRequestNow,
+    });
+
+    expect(page2.userTracks.map((ut) => ut.track.title)).toEqual(["Jan Mid", "Jan Low"]);
+  });
+
   test("mostPlayedEver pagination does not drift when a play lands between pages", async () => {
     const user = await prisma.user.create({ data: createUser() });
 
@@ -439,6 +496,140 @@ describe("listLibraryUserTracks most-played sorts", () => {
     }
     expect(page2.userTracks.map((ut) => ut.track.title)).toEqual(["T3", "T4", "T5"]);
     expect(page2.pagination.hasNext).toBe(false);
+  });
+
+  test("mostPlayedEver returns crossed boundary track exactly once after snapshot", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const snapshotAt = new Date("2026-03-15T12:00:00.000Z");
+
+    const rows: Array<{ userTrackId: string; trackId: string; title: string }> = [];
+    for (let i = 0; i < 5; i++) {
+      const track = await createTrack(`R${i}`);
+      const userTrack = await addToLibrary(
+        user.id,
+        track.id,
+        new Date(`2026-02-0${i + 1}T00:00:00.000Z`),
+      );
+      rows.push({ userTrackId: userTrack.id, trackId: track.id, title: track.title });
+      await seedCompleted(user.id, track.id, new Date("2025-06-01T12:00:00.000Z"), 5 - i);
+    }
+
+    const page1 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedEver",
+      limit: 2,
+      now: snapshotAt,
+    });
+    expect(page1.userTracks.map((ut) => ut.id)).toEqual([
+      rows[0]!.userTrackId,
+      rows[1]!.userTrackId,
+    ]);
+
+    // R3 was on page 2 with frozen count 2; plays after snapshot raise its live count above the cursor.
+    await seedCompleted(user.id, rows[3]!.trackId, new Date("2026-03-16T12:00:00.000Z"), 5);
+    // Cursor anchor R1 also gains live plays — must not re-emit page-1 rows whose ids sort after the cursor.
+    await seedCompleted(user.id, rows[1]!.trackId, new Date("2026-03-16T12:00:00.000Z"), 2);
+
+    const page2 = await listLibraryUserTracks({
+      userId: user.id,
+      sort: "mostPlayedEver",
+      limit: 10,
+      cursor: page1.pagination.nextCursor,
+      now: snapshotAt,
+    });
+
+    const page2Ids = page2.userTracks.map((ut) => ut.id);
+    expect(page2Ids).toEqual([rows[2]!.userTrackId, rows[3]!.userTrackId, rows[4]!.userTrackId]);
+    expect(new Set(page2Ids).size).toBe(page2Ids.length);
+    expect(page2Ids).not.toContain(rows[0]!.userTrackId);
+    expect(page2Ids).not.toContain(rows[1]!.userTrackId);
+  });
+
+  test("rejects a forged play count on an in-scope most-played cursor", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("One");
+    const userTrack = await addToLibrary(user.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
+    await seedCompleted(user.id, track.id, new Date("2026-09-01T12:00:00.000Z"), 3);
+
+    const forged = Buffer.from(
+      JSON.stringify({
+        v: 2,
+        count: 99,
+        id: userTrack.id,
+        snapshotAt: new Date().toISOString(),
+      }),
+    ).toString("base64url");
+
+    await expect(
+      listLibraryUserTracks({
+        userId: user.id,
+        sort: "mostPlayedEver",
+        cursor: forged,
+        limit: 10,
+      }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
+  test("rejects a malformed most-played cursor instead of replaying page 1", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("One");
+    await addToLibrary(user.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
+    await seedCompleted(user.id, track.id, new Date("2026-09-01T12:00:00.000Z"), 1);
+
+    await expect(
+      listLibraryUserTracks({
+        userId: user.id,
+        sort: "mostPlayedEver",
+        cursor: "not-a-valid-cursor",
+        limit: 10,
+      }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
+  test.each([
+    ["mostPlayedEver", -1],
+    ["mostPlayedEver", 1.5],
+    ["mostPlayedMonth", -1],
+    ["mostPlayedMonth", 1.5],
+  ] as const)("rejects non-integer or negative count on %s (count=%s)", async (sort, count) => {
+    const user = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("One");
+    const userTrack = await addToLibrary(user.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
+    await seedCompleted(user.id, track.id, new Date("2026-09-01T12:00:00.000Z"), 2);
+
+    const cursor = Buffer.from(
+      JSON.stringify({
+        v: 2,
+        count,
+        id: userTrack.id,
+        snapshotAt: new Date().toISOString(),
+      }),
+    ).toString("base64url");
+
+    await expect(
+      listLibraryUserTracks({
+        userId: user.id,
+        sort,
+        cursor,
+        limit: 10,
+      }),
+    ).rejects.toThrow(/Invalid cursor format/);
+  });
+
+  test("rejects dateAdded cursor when userTrack id is out of scope", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const other = await prisma.user.create({ data: createUser() });
+    const track = await createTrack("Scoped");
+    const otherUt = await addToLibrary(other.id, track.id, new Date("2026-01-01T00:00:00.000Z"));
+
+    await expect(
+      listLibraryUserTracks({
+        userId: user.id,
+        sort: "dateAdded",
+        cursor: otherUt.id,
+        limit: 10,
+      }),
+    ).rejects.toThrow(/Invalid cursor format/);
   });
 
   test("mostPlayedEver respects hasAudioOnly filter", async () => {

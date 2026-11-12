@@ -43,6 +43,7 @@ model User {
   resolvedQueueItems  ReviewQueueItem[] @relation("ReviewQueueResolved")
   curatorNotes        CuratorNote[]     @relation("CuratorNotes")
   curatorBadges       CuratorBadge[]    @relation("CuratorBadges")
+  passwordResetGrants PasswordResetGrant[]
 }
 
 model PlayerState {
@@ -54,6 +55,9 @@ model PlayerState {
   upNextIds      String   @default("[]")
   shuffleSeed    Int?
   loopMode       String   @default("off")
+  spinePosition           Int     @default(0)
+  audibleSourceZone       String?
+  upNextPlayNextCount     Int     @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
@@ -126,6 +130,19 @@ model Password {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model PasswordResetGrant {
+  id        String   @id @default(cuid())
+  /// SHA-256 hex digest of the opaque grant token (token lives only in the verify cookie).
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
 model Session {
   id             String   @id @default(cuid())
   expirationDate DateTime
@@ -180,6 +197,8 @@ model Verification {
   charSet   String
   /// When it's safe to delete this verification
   expiresAt DateTime?
+  /// Pending email address for change-email verifications (set at request time).
+  pendingEmail String?
 
   @@unique([target, type])
 }
@@ -305,7 +324,6 @@ model Track {
   coverImage            CoverImage?            @relation(fields: [coverImageId], references: [id], onDelete: SetNull)
   releaseDate           DateTime?
   // Basic metadata
-  genre                 String?
   year                  Int?
   trackNumber           Int?
   albumArtist           String?
@@ -461,19 +479,23 @@ model ServicePlaylist {
 }
 
 model ServicePlaylistTrack {
-  id           String          @id @default(cuid())
-  playlistId   String
-  trackId      String
-  position     Int
-  isDeleted    Boolean         @default(false)
-  deletedAt    DateTime?
-  thumbnailUrl String? // Temporary storage for YouTube thumbnail URL until processed
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  track        Track           @relation(fields: [trackId], references: [id])
-  playlist     ServicePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  id             String          @id @default(cuid())
+  playlistId     String
+  trackId        String
+  position       Int
+  isDeleted      Boolean         @default(false)
+  deletedAt      DateTime?
+  thumbnailUrl   String? // Temporary storage for YouTube thumbnail URL until processed
+  // Provider playlist-item id (YouTube playlistItem.id). Nullable: legacy rows are lazily
+  // stamped on next sync. SQLite treats NULLs as distinct, so legacy rows coexist.
+  playlistItemId String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  track          Track           @relation(fields: [trackId], references: [id])
+  playlist       ServicePlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
-  @@unique([playlistId, trackId])
+  @@unique([playlistId, playlistItemId])
+  @@index([playlistId, trackId])
   @@index([playlistId])
   @@index([trackId])
   @@index([playlistId, isDeleted])
@@ -545,6 +567,15 @@ model WorkerState {
   lastStateChange    DateTime  @default(now())
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+}
+
+/// Singleton state for the monthly On-Repeat snapshot scheduler (ADR-024).
+model OnRepeatSnapshotSchedulerState {
+  id                   String    @id @default("singleton")
+  lastSuccessYearMonth String?
+  nextRetryAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 
 /// Singleton status for automated SQLite backups (ADR-029).
@@ -764,6 +795,7 @@ model RoomPlayEvent {
   playId               String?
   createdAt            DateTime @default(now())
 
+  @@unique([roomId, playId, type])
   @@index([roomId, createdAt])
   @@index([trackId])
   @@index([type, createdAt])

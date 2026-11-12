@@ -32,19 +32,12 @@ import { cachePlaylistMetadata } from "#app/features/offline-storage/offline-pla
 import { type FullTrack } from "#app/types/frontend/shared.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { getPlaylistTitle } from "#app/utils/breadcrumb-utils.ts";
+import { findAllUserPlaylistTracks } from "#app/features/user-playlist/user-playlist-track-queries.server.ts";
 import { chunkArray } from "#app/utils/chunk-array.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { loadLibraryStatusByTrackId } from "#app/utils/track-list-loader.server.ts";
 import { filterPlayableTracks } from "#app/utils/playable-track.ts";
-
-/** Duck-typed so we don't depend on Prisma runtime internals for one error code. */
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import {
   defaultPlaylistTrackSortDirection,
   parsePlaylistTrackSort,
@@ -66,7 +59,7 @@ export const handle: BreadcrumbHandle = {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
-  const playlist = await prisma.userPlaylist.findFirst({
+  const playlistMeta = await prisma.userPlaylist.findFirst({
     where: {
       id: params.playlistId,
       ownerId: userId,
@@ -77,79 +70,67 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       description: true,
       createdAt: true,
       updatedAt: true,
-      tracks: {
+    },
+  });
+
+  if (!playlistMeta) {
+    throw new Response("Playlist not found", { status: 404 });
+  }
+
+  const playlistTracks = await findAllUserPlaylistTracks(prisma, {
+    where: { playlistId: params.playlistId },
+    select: {
+      id: true,
+      position: true,
+      createdAt: true,
+      track: {
         select: {
           id: true,
-          position: true,
-          createdAt: true,
-          track: {
+          title: true,
+          artist: {
             select: {
               id: true,
-              title: true,
-              artist: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-              duration: true,
-              coverImage: {
-                select: {
-                  objectKey: true,
-                },
-              },
-              albumRecord: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-              serviceUrl: true,
-              createdAt: true,
-              releaseDate: true,
-              originalDate: true,
-              service: {
-                select: {
-                  displayName: true,
-                  logoUrl: true,
-                },
-              },
-              audioFiles: {
-                select: {
-                  id: true,
-                  format: true,
-                  objectKey: true,
-                },
-              },
+              name: true,
+            },
+          },
+          duration: true,
+          coverImage: {
+            select: {
+              objectKey: true,
+            },
+          },
+          albumRecord: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          serviceUrl: true,
+          createdAt: true,
+          releaseDate: true,
+          originalDate: true,
+          service: {
+            select: {
+              displayName: true,
+              logoUrl: true,
+            },
+          },
+          audioFiles: {
+            select: {
+              id: true,
+              format: true,
+              objectKey: true,
             },
           },
         },
-        orderBy: { position: "asc" },
       },
     },
   });
 
-  if (!playlist) {
-    throw new Response("Playlist not found", { status: 404 });
-  }
+  const playlist = { ...playlistMeta, tracks: playlistTracks };
 
-  // Get user's library track IDs for isInUserLibrary status
-  // Scoped to only the track IDs in this playlist (not the entire library)
   const playlistTrackIds = playlist.tracks.map((pt) => pt.track.id);
-  const libraryTrackIds = new Set(
-    playlistTrackIds.length > 0
-      ? (
-          await prisma.userTrack.findMany({
-            where: {
-              userId,
-              isActive: true,
-              trackId: { in: playlistTrackIds },
-            },
-            select: { trackId: true },
-          })
-        ).map((ut) => ut.trackId)
-      : [],
-  );
+  const { libraryTrackIds } = await loadLibraryStatusByTrackId(userId, playlistTrackIds);
 
   // Add isInUserLibrary to each track
   const tracksWithLibraryStatus = playlist.tracks.map((pt) => ({
@@ -204,7 +185,20 @@ function isTrackOrderData(value: unknown): value is TrackOrderEntry[] {
     }
   }
   const positions = value.map((entry) => (entry as { position: number }).position);
-  return new Set(positions).size === value.length;
+  if (new Set(positions).size !== value.length) return false;
+  const ids = value.map((entry) => (entry as { id: string }).id);
+  return new Set(ids).size === value.length;
+}
+
+function sortedStringArray(values: string[]) {
+  return [...values].sort();
+}
+
+function areSameStringSets(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+  const sortedA = sortedStringArray(a);
+  const sortedB = sortedStringArray(b);
+  return sortedA.every((value, index) => value === sortedB[index]);
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -302,7 +296,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       });
     } catch (error) {
       // Atomic guard via the DB unique index on (ownerId, lower(trim(title))).
-      if (isUniqueConstraintViolation(error)) {
+      if (isUniqueConstraintError(error)) {
         return data(
           { error: `You already have a playlist named "${newTitle}"` },
           {
@@ -359,6 +353,31 @@ export async function action({ request, params }: Route.ActionArgs) {
     // payload must not be able to write negative/duplicate positions to the
     // caller's own playlist.
     if (!isTrackOrderData(parsed)) {
+      return data(
+        { error: "Invalid track order data" },
+        {
+          status: 400,
+          headers: await createToastHeaders({
+            title: "Error",
+            description: "Invalid track order data",
+            type: "error",
+          }),
+        },
+      );
+    }
+
+    const playlistTracks = await prisma.userPlaylistTrack.findMany({
+      where: {
+        playlist: {
+          id: params.playlistId,
+          ownerId: userId,
+        },
+      },
+      select: { id: true },
+    });
+    const playlistTrackIds = playlistTracks.map((track) => track.id);
+    const payloadTrackIds = parsed.map((entry) => entry.id);
+    if (!areSameStringSets(playlistTrackIds, payloadTrackIds)) {
       return data(
         { error: "Invalid track order data" },
         {
@@ -489,10 +508,11 @@ export async function action({ request, params }: Route.ActionArgs) {
       );
     }
 
+    let trackIdArray: string[];
     try {
-      const trackIdArray = JSON.parse(trackIds) as string[];
-
-      if (!Array.isArray(trackIdArray) || trackIdArray.length === 0) {
+      trackIdArray = JSON.parse(trackIds) as string[];
+    } catch (error) {
+      if (error instanceof SyntaxError) {
         return data(
           { error: "Invalid track IDs format" },
           {
@@ -505,7 +525,24 @@ export async function action({ request, params }: Route.ActionArgs) {
           },
         );
       }
+      throw error;
+    }
 
+    if (!Array.isArray(trackIdArray) || trackIdArray.length === 0) {
+      return data(
+        { error: "Invalid track IDs format" },
+        {
+          status: 400,
+          headers: await createToastHeaders({
+            title: "Error",
+            description: "Invalid track IDs format",
+            type: "error",
+          }),
+        },
+      );
+    }
+
+    try {
       // First verify all playlist tracks exist and belong to the user
       const playlistTracks = [];
       for (const idChunk of chunkArray(trackIdArray)) {
@@ -535,18 +572,21 @@ export async function action({ request, params }: Route.ActionArgs) {
         );
       }
 
-      // Delete all playlist tracks
-      for (const idChunk of chunkArray(trackIdArray)) {
-        await prisma.userPlaylistTrack.deleteMany({
-          where: {
-            id: { in: idChunk },
-          },
-        });
-      }
+      await prisma.$transaction(async (tx) => {
+        for (const idChunk of chunkArray(trackIdArray)) {
+          await tx.userPlaylistTrack.deleteMany({
+            where: {
+              id: { in: idChunk },
+              playlistId: params.playlistId,
+              playlist: { ownerId: userId },
+            },
+          });
+        }
 
-      await bumpUserPlaylistUpdatedAt({
-        playlistId: params.playlistId,
-        userId,
+        await tx.userPlaylist.update({
+          where: { id: params.playlistId, ownerId: userId },
+          data: { updatedAt: new Date() },
+        });
       });
 
       return data(
@@ -559,14 +599,15 @@ export async function action({ request, params }: Route.ActionArgs) {
           }),
         },
       );
-    } catch {
+    } catch (error) {
+      console.error("bulk-remove-tracks failed:", error);
       return data(
-        { error: "Invalid track IDs format" },
+        { error: "Failed to remove tracks" },
         {
-          status: 400,
+          status: 500,
           headers: await createToastHeaders({
             title: "Error",
-            description: "Invalid track IDs format",
+            description: "Failed to remove tracks",
             type: "error",
           }),
         },
@@ -704,7 +745,7 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
     if (tracks.length === 0) return;
 
     if (queueAction === "playNext") {
-      for (const track of [...tracks].reverse()) {
+      for (const track of tracks) {
         playNextTrack(track);
       }
       return;

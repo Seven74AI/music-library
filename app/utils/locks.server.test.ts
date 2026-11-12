@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { forceUnlock, releaseLock } from "./locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  editLockConflictCopyForEntity,
+  EditLockTransactionError,
+  forceUnlock,
+  releaseLock,
+  throwEditLockTransactionError,
+  toEditLockErrorResponse,
+  type LockInfo,
+} from "./locks.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 
 describe("forceUnlock", () => {
@@ -74,9 +83,33 @@ describe("releaseLock", () => {
   test("returns not_found when no lock exists", async () => {
     const user = await prisma.user.create({ data: createUser() });
 
-    const result = await releaseLock("track", "track-none", user.id);
+    const result = await releaseLock("track", "track-none", user.id, {
+      lockId: "missing-lock",
+      acquiredAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
 
     expect(result).toBe("not_found");
+  });
+
+  test("returns proof_required and keeps the lock when proof is omitted", async () => {
+    const owner = await prisma.user.create({ data: createUser() });
+    await prisma.editLock.create({
+      data: {
+        entityType: "track",
+        entityId: "track-proof",
+        lockedBy: owner.id,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const result = await releaseLock("track", "track-proof", owner.id);
+
+    expect(result).toBe("proof_required");
+    expect(
+      await prisma.editLock.findUnique({
+        where: { entityType_entityId: { entityType: "track", entityId: "track-proof" } },
+      }),
+    ).not.toBeNull();
   });
 
   test("returns not_owner and keeps the lock when locked by someone else", async () => {
@@ -91,7 +124,11 @@ describe("releaseLock", () => {
       },
     });
 
-    const result = await releaseLock("track", "track-123", other.id);
+    const lock = await prisma.editLock.findFirstOrThrow();
+    const result = await releaseLock("track", "track-123", other.id, {
+      lockId: lock.id,
+      acquiredAt: lock.acquiredAt,
+    });
 
     expect(result).toBe("not_owner");
     expect(
@@ -101,18 +138,49 @@ describe("releaseLock", () => {
     ).not.toBeNull();
   });
 
-  test("returns released and deletes the lock when owned by the caller", async () => {
+  test("returns not_found when acquiredAt does not match the stored lock", async () => {
     const owner = await prisma.user.create({ data: createUser() });
+    const acquiredAt = new Date("2026-01-01T00:00:00.000Z");
     await prisma.editLock.create({
       data: {
         entityType: "track",
-        entityId: "track-123",
+        entityId: "track-stale",
         lockedBy: owner.id,
+        acquiredAt,
         expiresAt: new Date(Date.now() + 60_000),
       },
     });
 
-    const result = await releaseLock("track", "track-123", owner.id);
+    const result = await releaseLock("track", "track-stale", owner.id, {
+      lockId: (await prisma.editLock.findFirstOrThrow())!.id,
+      acquiredAt: new Date("2026-01-02T00:00:00.000Z"),
+    });
+
+    expect(result).toBe("not_found");
+    expect(
+      await prisma.editLock.findUnique({
+        where: { entityType_entityId: { entityType: "track", entityId: "track-stale" } },
+      }),
+    ).not.toBeNull();
+  });
+
+  test("returns released and deletes the lock when owned by the caller", async () => {
+    const owner = await prisma.user.create({ data: createUser() });
+    const acquiredAt = new Date("2026-03-01T12:00:00.000Z");
+    const lock = await prisma.editLock.create({
+      data: {
+        entityType: "track",
+        entityId: "track-123",
+        lockedBy: owner.id,
+        acquiredAt,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const result = await releaseLock("track", "track-123", owner.id, {
+      lockId: lock.id,
+      acquiredAt: lock.acquiredAt,
+    });
 
     expect(result).toBe("released");
     expect(
@@ -120,5 +188,90 @@ describe("releaseLock", () => {
         where: { entityType_entityId: { entityType: "track", entityId: "track-123" } },
       }),
     ).toBeNull();
+  });
+});
+
+describe("assertEditLockInTransaction", () => {
+  beforeEach(async () => {
+    await prisma.editLock.deleteMany();
+    await prisma.user.deleteMany();
+  });
+
+  test("rejects when the curator's lock is gone before the write", async () => {
+    const owner = await prisma.user.create({ data: createUser() });
+    const acquiredAt = new Date("2026-06-01T00:00:00.000Z");
+    const heldBeforeWrite: LockInfo = {
+      id: "missing-lock",
+      entityType: "track",
+      entityId: "track-write",
+      lockedBy: owner.id,
+      lockedByName: owner.username,
+      acquiredAt,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+
+    await expect(
+      prisma.$transaction((tx) =>
+        assertEditLockInTransaction(tx, "track", "track-write", owner.id, heldBeforeWrite),
+      ),
+    ).rejects.toBeInstanceOf(EditLockTransactionError);
+  });
+
+  test("rejects when the lock expired but the row is still present", async () => {
+    const owner = await prisma.user.create({ data: createUser() });
+    const acquiredAt = new Date("2026-06-01T00:00:00.000Z");
+    const lock = await prisma.editLock.create({
+      data: {
+        entityType: "album",
+        entityId: "album-expired",
+        lockedBy: owner.id,
+        acquiredAt,
+        expiresAt: new Date(Date.now() - 1_000),
+      },
+    });
+    const heldBeforeWrite: LockInfo = {
+      id: lock.id,
+      entityType: "album",
+      entityId: "album-expired",
+      lockedBy: owner.id,
+      lockedByName: owner.username,
+      acquiredAt: lock.acquiredAt,
+      expiresAt: lock.expiresAt,
+    };
+
+    await expect(
+      prisma.$transaction((tx) =>
+        assertEditLockInTransaction(tx, "album", "album-expired", owner.id, heldBeforeWrite),
+      ),
+    ).rejects.toMatchObject({ violation: { kind: "not_held" } });
+  });
+});
+
+describe("toEditLockErrorResponse", () => {
+  test("maps another curator's lock to a 409 Locked payload", () => {
+    const error = new EditLockTransactionError({
+      kind: "other",
+      lockedByName: "Ada",
+    });
+    const response = toEditLockErrorResponse(error, editLockConflictCopyForEntity("album"));
+    expect(response).toMatchObject({
+      data: { error: "Locked", message: "Ada is currently editing this album" },
+      init: { status: 409 },
+    });
+  });
+
+  test("maps a stale self lock to a 409 Locked payload", () => {
+    const error = new EditLockTransactionError({ kind: "not_held" });
+    expect(() =>
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("track")),
+    ).toThrow(
+      expect.objectContaining({
+        data: {
+          error: "Locked",
+          message: "Your edit lock on this track is no longer active",
+        },
+        init: { status: 409 },
+      }),
+    );
   });
 });

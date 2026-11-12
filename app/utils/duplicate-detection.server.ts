@@ -27,7 +27,8 @@ export function calculateSimilarity(normalized1: string, normalized2: string): n
  */
 export function isFuzzyMatch(normalized1: string, normalized2: string): boolean {
   const distance = calculateSimilarity(normalized1, normalized2);
-  const threshold = normalized1.length < 10 ? FUZZY_THRESHOLD_SHORT : FUZZY_THRESHOLD_LONG;
+  const minLen = Math.min(normalized1.length, normalized2.length);
+  const threshold = minLen < 10 ? FUZZY_THRESHOLD_SHORT : FUZZY_THRESHOLD_LONG;
   return distance > 0 && distance <= threshold;
 }
 
@@ -344,6 +345,36 @@ type NormalizedAlbum = AlbumWithArtist & {
   artistNormalized: string;
 };
 
+class AlbumIdDisjointSet {
+  private parent = new Map<string, string>();
+
+  find(id: string): string {
+    let root = id;
+    const seen = new Set<string>();
+    while (this.parent.has(root)) {
+      const parent = this.parent.get(root)!;
+      if (parent === root || seen.has(parent)) break;
+      seen.add(root);
+      root = parent;
+    }
+    let current = id;
+    while (this.parent.has(current) && this.parent.get(current) !== current) {
+      const next = this.parent.get(current)!;
+      this.parent.set(current, root);
+      current = next;
+    }
+    if (!this.parent.has(root)) this.parent.set(root, root);
+    return root;
+  }
+
+  union(a: string, b: string): void {
+    const rootA = this.find(a);
+    const rootB = this.find(b);
+    if (rootA === rootB) return;
+    this.parent.set(rootB, rootA);
+  }
+}
+
 /**
  * Build an AlbumDuplicateGroup from a set of album ids.
  * `artistId`/`artistName` are `null` for cross-artist groups.
@@ -470,7 +501,7 @@ export async function findFuzzyAlbumDuplicates(): Promise<AlbumDuplicateGroup[]>
     blocks.get(blockKey)!.push(album);
   }
 
-  const crossArtistPairs = new Map<string, Set<string>>();
+  const crossArtistEdges: Array<{ id1: string; id2: string; normalizedName: string }> = [];
   for (const [, block] of blocks) {
     for (let i = 0; i < block.length; i++) {
       for (let j = i + 1; j < block.length; j++) {
@@ -480,27 +511,50 @@ export async function findFuzzyAlbumDuplicates(): Promise<AlbumDuplicateGroup[]>
         // Same artist is handled in branch 1
         if (a1.artistId === a2.artistId) continue;
         if (!a1.normalized || !a2.normalized) continue;
-        if (isExactMatch(a1.normalized, a2.normalized)) continue;
-        if (!isFuzzyMatch(a1.normalized, a2.normalized)) continue;
+        const albumMatches =
+          isFuzzyMatch(a1.normalized, a2.normalized) || isExactMatch(a1.normalized, a2.normalized);
+        if (!albumMatches) continue;
         if (!a1.artistNormalized || !a2.artistNormalized) continue;
         if (!isFuzzyMatch(a1.artistNormalized, a2.artistNormalized)) continue;
         // Year must be within ±2 (both present)
         if (a1.year == null || a2.year == null) continue;
         if (Math.abs(a1.year - a2.year) > 2) continue;
 
-        const groupKey =
+        const normalizedName =
           a1.normalized.length <= a2.normalized.length ? a1.normalized : a2.normalized;
-        if (!crossArtistPairs.has(groupKey)) crossArtistPairs.set(groupKey, new Set());
-        crossArtistPairs.get(groupKey)!.add(a1.id);
-        crossArtistPairs.get(groupKey)!.add(a2.id);
+        crossArtistEdges.push({ id1: a1.id, id2: a2.id, normalizedName });
       }
     }
   }
 
-  for (const [normalizedName, albumIds] of crossArtistPairs) {
+  const crossArtistComponents = new Map<
+    string,
+    { ids: Set<string>; normalizedNames: Set<string> }
+  >();
+  const crossArtistUnion = new AlbumIdDisjointSet();
+  for (const edge of crossArtistEdges) {
+    crossArtistUnion.union(edge.id1, edge.id2);
+  }
+  for (const edge of crossArtistEdges) {
+    const componentKey = crossArtistUnion.find(edge.id1);
+    const existing = crossArtistComponents.get(componentKey);
+    if (existing) {
+      existing.ids.add(edge.id1);
+      existing.ids.add(edge.id2);
+      existing.normalizedNames.add(edge.normalizedName);
+    } else {
+      crossArtistComponents.set(componentKey, {
+        ids: new Set([edge.id1, edge.id2]),
+        normalizedNames: new Set([edge.normalizedName]),
+      });
+    }
+  }
+
+  for (const { ids, normalizedNames } of crossArtistComponents.values()) {
+    const normalizedName = [...normalizedNames].sort()[0] ?? "";
     const group = buildAlbumDuplicateGroup(
       albumsWithNormalized,
-      albumIds,
+      ids,
       normalizedName,
       "fuzzy",
       null,
@@ -538,32 +592,7 @@ async function replaceNormalizedNames(
  * Cache artist normalized names in the database
  */
 export async function cacheArtistNormalizedNames(): Promise<void> {
-  const artists = await prisma.artist.findMany({
-    select: {
-      id: true,
-      name: true,
-    },
-  });
-
-  const rows: Array<{
-    entityType: string;
-    entityId: string;
-    originalName: string;
-    normalizedName: string;
-  }> = [];
-
-  for (const artist of artists) {
-    const normalizedName = normalizeArtistName(artist.name);
-    if (!normalizedName) continue;
-
-    rows.push({
-      entityType: "artist",
-      entityId: artist.id,
-      originalName: artist.name,
-      normalizedName,
-    });
-  }
-
+  const rows = await collectArtistNormalizedNameRows();
   await replaceNormalizedNames("artist", rows);
 }
 
@@ -571,43 +600,26 @@ export async function cacheArtistNormalizedNames(): Promise<void> {
  * Cache album normalized names in the database
  */
 export async function cacheAlbumNormalizedNames(): Promise<void> {
-  const albums = await prisma.album.findMany({
-    select: {
-      id: true,
-      name: true,
-    },
-  });
-
-  const rows: Array<{
-    entityType: string;
-    entityId: string;
-    originalName: string;
-    normalizedName: string;
-  }> = [];
-
-  for (const album of albums) {
-    const normalizedName = normalizeAlbumName(album.name);
-    if (!normalizedName) continue;
-
-    rows.push({
-      entityType: "album",
-      entityId: album.id,
-      originalName: album.name,
-      normalizedName,
-    });
-  }
-
+  const rows = await collectAlbumNormalizedNameRows();
   await replaceNormalizedNames("album", rows);
 }
 
 /**
  * Save duplicate detection results to database
  */
-export async function saveDuplicateDetectionResults(
+function buildDuplicateDetectionPairRows(
   entityType: "artist" | "album",
   exactGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
   fuzzyGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
-): Promise<void> {
+): Array<{
+  entityType: string;
+  entityId1: string;
+  entityId2: string;
+  matchType: string;
+  similarity: number;
+  normalizedName: string;
+  status: string;
+}> {
   const rows: Array<{
     entityType: string;
     entityId1: string;
@@ -679,10 +691,102 @@ export async function saveDuplicateDetectionResults(
     }
   }
 
-  // Clear previous results and bulk-insert all pairs in chunked createMany calls.
+  return rows;
+}
+
+export async function saveDuplicateDetectionResults(
+  entityType: "artist" | "album",
+  exactGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
+  fuzzyGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
+): Promise<void> {
+  const rows = buildDuplicateDetectionPairRows(entityType, exactGroups, fuzzyGroups);
+
+  // Replace pending pairs only; preserve merged/dismissed rows from curator actions.
   await prisma.$transaction([
-    prisma.duplicateDetection.deleteMany({ where: { entityType } }),
+    prisma.duplicateDetection.deleteMany({ where: { entityType, status: "pending" } }),
     ...chunkArray(rows).map((chunk) => prisma.duplicateDetection.createMany({ data: chunk })),
+  ]);
+}
+
+async function collectArtistNormalizedNameRows(): Promise<
+  Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }>
+> {
+  const artists = await prisma.artist.findMany({
+    select: { id: true, name: true },
+  });
+  const rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }> = [];
+  for (const artist of artists) {
+    const normalizedName = normalizeArtistName(artist.name);
+    if (!normalizedName) continue;
+    rows.push({
+      entityType: "artist",
+      entityId: artist.id,
+      originalName: artist.name,
+      normalizedName,
+    });
+  }
+  return rows;
+}
+
+async function collectAlbumNormalizedNameRows(): Promise<
+  Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }>
+> {
+  const albums = await prisma.album.findMany({
+    select: { id: true, name: true },
+  });
+  const rows: Array<{
+    entityType: string;
+    entityId: string;
+    originalName: string;
+    normalizedName: string;
+  }> = [];
+  for (const album of albums) {
+    const normalizedName = normalizeAlbumName(album.name);
+    if (!normalizedName) continue;
+    rows.push({
+      entityType: "album",
+      entityId: album.id,
+      originalName: album.name,
+      normalizedName,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Cold-path bootstrap: normalized-name cache + pending duplicate pairs in one transaction.
+ */
+async function commitDuplicateDetectionCache(
+  entityType: "artist" | "album",
+  exactGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
+  fuzzyGroups: ArtistDuplicateGroup[] | AlbumDuplicateGroup[],
+): Promise<void> {
+  const normalizedRows =
+    entityType === "artist"
+      ? await collectArtistNormalizedNameRows()
+      : await collectAlbumNormalizedNameRows();
+  const pairRows = buildDuplicateDetectionPairRows(entityType, exactGroups, fuzzyGroups);
+
+  await prisma.$transaction([
+    prisma.normalizedName.deleteMany({ where: { entityType } }),
+    ...chunkArray(normalizedRows).map((chunk) => prisma.normalizedName.createMany({ data: chunk })),
+    prisma.duplicateDetection.deleteMany({ where: { entityType, status: "pending" } }),
+    ...chunkArray(pairRows).map((chunk) => prisma.duplicateDetection.createMany({ data: chunk })),
   ]);
 }
 
@@ -823,18 +927,20 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
     }
   >();
 
+  const crossArtistPairs: typeof pairs = [];
   for (const pair of pairs) {
     const first = albumById.get(pair.entityId1);
     const second = albumById.get(pair.entityId2);
     if (!first || !second) continue;
 
     const matchType = pair.matchType as MatchType;
-    // Cross-artist fuzzy pairs span artists; group them under a single sentinel
-    // key (detection groups them by normalized name, with artistId null).
     const crossArtist = first.artistId !== second.artistId;
-    const key = crossArtist
-      ? `${matchType}\u0000cross\u0000${pair.normalizedName}`
-      : `${matchType}\u0000${first.artistId}\u0000${pair.normalizedName}`;
+    if (crossArtist) {
+      crossArtistPairs.push(pair);
+      continue;
+    }
+
+    const key = `${matchType}\u0000${first.artistId}\u0000${pair.normalizedName}`;
     const existing = groups.get(key);
     if (existing) {
       existing.ids.add(pair.entityId1);
@@ -843,11 +949,52 @@ export async function readAlbumDuplicateGroupsFromCache(): Promise<{
       groups.set(key, {
         matchType,
         normalizedName: pair.normalizedName,
-        artistId: crossArtist ? null : first.artistId,
-        artistName: crossArtist ? null : first.artist.name,
+        artistId: first.artistId,
+        artistName: first.artist.name,
         ids: new Set([pair.entityId1, pair.entityId2]),
       });
     }
+  }
+
+  const crossArtistUnion = new AlbumIdDisjointSet();
+  for (const pair of crossArtistPairs) {
+    crossArtistUnion.union(pair.entityId1, pair.entityId2);
+  }
+
+  const crossArtistComponents = new Map<
+    string,
+    {
+      matchType: MatchType;
+      normalizedNames: Set<string>;
+      ids: Set<string>;
+    }
+  >();
+  for (const pair of crossArtistPairs) {
+    const matchType = pair.matchType as MatchType;
+    const componentKey = crossArtistUnion.find(pair.entityId1);
+    const groupKey = `${matchType}\u0000cross\u0000${componentKey}`;
+    const existing = crossArtistComponents.get(groupKey);
+    if (existing) {
+      existing.ids.add(pair.entityId1);
+      existing.ids.add(pair.entityId2);
+      existing.normalizedNames.add(pair.normalizedName);
+    } else {
+      crossArtistComponents.set(groupKey, {
+        matchType,
+        normalizedNames: new Set([pair.normalizedName]),
+        ids: new Set([pair.entityId1, pair.entityId2]),
+      });
+    }
+  }
+
+  for (const [groupKey, component] of crossArtistComponents) {
+    groups.set(groupKey, {
+      matchType: component.matchType,
+      normalizedName: [...component.normalizedNames].sort()[0] ?? "",
+      artistId: null,
+      artistName: null,
+      ids: component.ids,
+    });
   }
 
   const exact: AlbumDuplicateGroup[] = [];
@@ -903,7 +1050,7 @@ export async function getAlbumDuplicateGroups(): Promise<{
     findExactAlbumDuplicates(),
     findFuzzyAlbumDuplicates(),
   ]);
-  await saveDuplicateDetectionResults("album", exact, fuzzy);
+  await commitDuplicateDetectionCache("album", exact, fuzzy);
   return { exact, fuzzy };
 }
 
@@ -923,6 +1070,6 @@ export async function getArtistDuplicateGroups(): Promise<{
     findExactArtistDuplicates(),
     findFuzzyArtistDuplicates(),
   ]);
-  await saveDuplicateDetectionResults("artist", exact, fuzzy);
+  await commitDuplicateDetectionCache("artist", exact, fuzzy);
   return { exact, fuzzy };
 }

@@ -17,6 +17,7 @@ import { hasServiceConnection } from "#app/features/service-connection/service-c
 import { createServicePlaylistService } from "#app/features/service-playlist/service-playlist.server";
 import { isErrorActionResult, isSuccessActionResult } from "#app/types/frontend";
 import { requireUserId } from "#app/utils/auth.server";
+import { toClientErrorMessage } from "#app/utils/error-handlers.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type ServicePlaylist } from "#prisma/client.js";
 import { type Route } from "./+types/index.ts";
@@ -95,16 +96,23 @@ export async function action({ request }: ActionFunctionArgs) {
           playlistId,
           userId,
         );
-        return data({ status: "success", ...result });
+        if (result.success) {
+          return data({ status: "success", ...result });
+        }
+        return data({
+          status: "error",
+          message: result.message || "Failed to remove playlist from sync. Please try again.",
+        });
       }
 
       default:
         return data({ status: "error", message: "Invalid action" });
     }
   } catch (error) {
+    console.error("YouTube index action error:", error);
     return data({
       status: "error",
-      message: error instanceof Error ? error.message : "An error occurred",
+      message: toClientErrorMessage(error),
     });
   }
 }

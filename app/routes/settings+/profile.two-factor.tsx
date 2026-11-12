@@ -1,7 +1,7 @@
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
 import { data, Outlet } from "react-router";
 import { Icon } from "#app/components/ui/icon.tsx";
-import { type VerificationTypes } from "#app/routes/_auth+/verify.tsx";
+import { type VerificationTypes } from "#app/routes/_auth+/verify.shared.ts";
 import { type BreadcrumbHandle } from "./profile.tsx";
 
 export const handle: BreadcrumbHandle & SEOHandle = {
@@ -10,6 +10,7 @@ export const handle: BreadcrumbHandle & SEOHandle = {
 };
 
 export const twoFAVerificationType = "2fa" satisfies VerificationTypes;
+export const twoFAVerifyVerificationType = "2fa-verify";
 
 export function loader() {
   return data({});

@@ -23,6 +23,18 @@ export type PlanUnavailableItemInput<TTrack extends ExistingTrackForPlan = Exist
   existingTrack: TTrack | null;
 };
 
+/** Playlist-scoped synthetic ids used for unavailable / placeholder rows during sync. */
+export function isSyntheticUnavailableExternalIdForPlaylist(
+  externalId: string | null | undefined,
+  playlistId: string,
+): boolean {
+  if (!externalId) return false;
+  return (
+    externalId.startsWith(`pending-${playlistId}-`) ||
+    externalId.startsWith(`deleted-${playlistId}-`)
+  );
+}
+
 /**
  * Decide how to handle a playlist item after DB lookups for existing tracks.
  * Owns externalId synthesis and defer vs process vs skip — not the DB lookups themselves.
@@ -39,7 +51,7 @@ export function planUnavailableItemProcessing<TTrack extends ExistingTrackForPla
 
   let externalId = videoId;
   if (isUnavailable && !externalId) {
-    externalId = itemId || `deleted-${playlistId}-${position}`;
+    externalId = itemId || existingTrack?.externalId || `deleted-${playlistId}-${position}`;
   }
 
   if (!externalId || externalId.trim() === "") {

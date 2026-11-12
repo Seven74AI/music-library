@@ -5,22 +5,12 @@
 import { loadDuplicateDashboard } from "#app/features/admin/duplicate-dashboard.server.ts";
 import { cache, cachified } from "#app/utils/cache.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { METRIC_WEIGHTS } from "./database-quality.ts";
+import { getHealthColor, METRIC_WEIGHTS } from "./database-quality.ts";
+
+export { getHealthColor, getHealthLabel } from "./database-quality.ts";
 
 export const DATABASE_QUALITY_CACHE_KEY = "admin:database-quality:v1";
 const DATABASE_QUALITY_CACHE_TTL_MS = 5 * 60 * 1000;
-
-export function getHealthColor(percentage: number): "green" | "yellow" | "red" {
-  if (percentage >= 90) return "green";
-  if (percentage >= 70) return "yellow";
-  return "red";
-}
-
-export function getHealthLabel(percentage: number): string {
-  if (percentage >= 90) return "Excellent";
-  if (percentage >= 70) return "Needs Work";
-  return "Poor";
-}
 
 export interface QualityMetrics {
   audio: number;
@@ -350,7 +340,7 @@ export function getDatabaseQualitySnapshot(): Promise<DatabaseQualitySnapshot> {
         prisma.track.count({ where: { duration: { not: null } } }),
         prisma.track.count({ where: { albumId: { not: null } } }),
         prisma.track.count({ where: { year: { not: null } } }),
-        prisma.track.count({ where: { genre: { not: null } } }),
+        prisma.track.count({ where: { genres: { some: {} } } }),
         prisma.track.count({ where: { lyrics: { not: null } } }),
         getMetadataIssues(),
         countTracksWithMetadataIssues(),
@@ -400,7 +390,7 @@ export async function getDatabaseHealthSummary(): Promise<{
     prisma.track.count({ where: { duration: { not: null } } }),
     prisma.track.count({ where: { albumId: { not: null } } }),
     prisma.track.count({ where: { year: { not: null } } }),
-    prisma.track.count({ where: { OR: [{ genre: { not: null } }, { genres: { some: {} } }] } }),
+    prisma.track.count({ where: { genres: { some: {} } } }),
     prisma.track.count({ where: { lyrics: { not: null } } }),
   ]);
 

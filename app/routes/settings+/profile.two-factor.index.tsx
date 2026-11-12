@@ -9,7 +9,7 @@ import { encryptVerificationSecret } from "#app/utils/token-cipher.server.ts";
 import { generateTOTP } from "#app/utils/totp.server.ts";
 import { type Route } from "./+types/profile.two-factor.index.ts";
 import { twoFAVerificationType } from "./profile.two-factor.tsx";
-import { twoFAVerifyVerificationType } from "./profile.two-factor.verify.tsx";
+import { twoFAVerifyVerificationType } from "./profile.two-factor.tsx";
 
 export const handle: SEOHandle = {
   getSitemapEntries: () => null,

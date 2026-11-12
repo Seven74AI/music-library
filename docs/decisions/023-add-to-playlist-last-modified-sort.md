@@ -11,7 +11,7 @@ Accepted
 The add-to-playlist menu already lists playlists sorted by `updatedAt desc` in both code paths
 (`/resources/playlists` and `loadUserPlaylists`). But `UserPlaylist.updatedAt` is only touched when
 the playlist _row_ is created or renamed — `addTrackToUserPlaylist` (and the remove/reorder actions)
-only mutate `UserPlaylistTrack`, never the parent. So "last modified" today means "last
+only mutate `UserPlaylistTrack`, never the parent. So "last modified" means "last
 renamed/created", not "last time I changed its contents". There is already a `[ownerId, updatedAt]`
 index, so the sort is cheap.
 

@@ -7,21 +7,16 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
+  PERSONAL_PLAY_BOOST_MAX_SQL_BINDS,
   PLAY_BOOST_CAP,
   PLAY_BOOST_WEIGHT,
   computePersonalPlayBoost,
   getLifetimePlayCompletedCounts,
   personalPlayBoostCaseSql,
+  playCountsForBoostSql,
 } from "#app/utils/personal-play-boost.server.ts";
 
 describe("computePersonalPlayBoost", () => {
-  it("documents boost = min(WEIGHT * ln(1 + playCount), CAP)", () => {
-    expect(PLAY_BOOST_WEIGHT).toBe(8);
-    expect(PLAY_BOOST_CAP).toBe(40);
-    // Cap must stay well below one relevance_rank tier (1000).
-    expect(PLAY_BOOST_CAP).toBeLessThan(1000);
-  });
-
   it("returns 0 for zero or non-positive counts", () => {
     expect(computePersonalPlayBoost(0)).toBe(0);
     expect(computePersonalPlayBoost(-3)).toBe(0);
@@ -38,6 +33,18 @@ describe("computePersonalPlayBoost", () => {
   it("caps boost so plays cannot cross a relevance_rank tier", () => {
     expect(computePersonalPlayBoost(10_000)).toBe(PLAY_BOOST_CAP);
     expect(computePersonalPlayBoost(10_000)).toBeLessThan(1000);
+  });
+
+  it("caps boost CASE binds for SQLite param budget", () => {
+    const huge = new Map<string, number>();
+    for (let i = 0; i < 1500; i++) {
+      huge.set(`track-${i}`, i + 1);
+    }
+    const capped = playCountsForBoostSql(huge);
+    expect(capped.size).toBeLessThanOrEqual(PERSONAL_PLAY_BOOST_MAX_SQL_BINDS);
+    const { params } = personalPlayBoostCaseSql(capped);
+    expect(params.length).toBe(capped.size);
+    expect(params.length).toBeLessThanOrEqual(PERSONAL_PLAY_BOOST_MAX_SQL_BINDS);
   });
 
   it("builds a CASE SQL expression from precomputed boosts", () => {

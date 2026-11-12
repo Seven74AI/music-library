@@ -7,9 +7,16 @@ import {
   findExactAlbumDuplicates,
   findExactArtistDuplicates,
   findFuzzyAlbumDuplicates,
+  isFuzzyMatch,
   readAlbumDuplicateGroupsFromCache,
   saveDuplicateDetectionResults,
 } from "./duplicate-detection.server.ts";
+
+test("isFuzzyMatch uses the shorter string for threshold (order independent)", () => {
+  const short = "ab";
+  const long = "abcdefghij";
+  expect(isFuzzyMatch(short, long)).toBe(isFuzzyMatch(long, short));
+});
 
 const artistIds: string[] = [];
 
@@ -57,6 +64,36 @@ test("exact duplicate detection ignores artists and albums that were already mer
 
   expect(artists.some((group) => group.normalizedName === `mergecheck ${token}`)).toBe(false);
   expect(albums.some((group) => group.normalizedName === `merge album ${token}`)).toBe(false);
+});
+
+test("findFuzzyAlbumDuplicates detects cross-artist exact album title with fuzzy artists and year within ±2", async () => {
+  const token = randomBytes(4).toString("hex");
+
+  const artist1 = await prisma.artist.create({
+    data: { name: `The Pink ${token}`, normalizedName: `pink ${token}` },
+  });
+  const artist2 = await prisma.artist.create({
+    data: { name: `Pynk ${token}`, normalizedName: `pynk ${token}` },
+  });
+  artistIds.push(artist1.id, artist2.id);
+
+  const sharedTitle = `The Wall ${token}`;
+  const album1 = await prisma.album.create({
+    data: { name: sharedTitle, artistId: artist1.id, year: 1979 },
+  });
+  const album2 = await prisma.album.create({
+    data: { name: sharedTitle, artistId: artist2.id, year: 1980 },
+  });
+
+  const groups = await findFuzzyAlbumDuplicates();
+
+  const group = groups.find(
+    (g) => g.albums.some((a) => a.id === album1.id) && g.albums.some((a) => a.id === album2.id),
+  );
+
+  expect(group).toBeDefined();
+  expect(group?.matchType).toBe("fuzzy");
+  expect(group?.artistId).toBeNull();
 });
 
 test("findFuzzyAlbumDuplicates detects cross-artist duplicates with similar names and year within ±2", async () => {
@@ -147,6 +184,108 @@ test("findFuzzyAlbumDuplicates ignores cross-artist pairs with dissimilar artist
   );
 
   expect(group).toBeUndefined();
+});
+
+test("findFuzzyAlbumDuplicates keeps separate cross-artist groups when only the title matches", async () => {
+  const token = randomBytes(4).toString("hex");
+  const sharedTitle = `Greatest Hits ${token}`;
+
+  const queen = await prisma.artist.create({
+    data: { name: `Queen ${token}`, normalizedName: `queen ${token}` },
+  });
+  const queens = await prisma.artist.create({
+    data: { name: `Queens ${token}`, normalizedName: `queens ${token}` },
+  });
+  const beatles = await prisma.artist.create({
+    data: { name: `Beatles ${token}`, normalizedName: `beatles ${token}` },
+  });
+  const beatlez = await prisma.artist.create({
+    data: { name: `Beatlez ${token}`, normalizedName: `beatlez ${token}` },
+  });
+  artistIds.push(queen.id, queens.id, beatles.id, beatlez.id);
+
+  const queenAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: queen.id, year: 2000 },
+  });
+  const queensAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: queens.id, year: 2001 },
+  });
+  const beatlesAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: beatles.id, year: 2000 },
+  });
+  const beatlezAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: beatlez.id, year: 2001 },
+  });
+
+  const groups = await findFuzzyAlbumDuplicates();
+  const albumIds = new Set([queenAlbum.id, queensAlbum.id, beatlesAlbum.id, beatlezAlbum.id]);
+  const relevant = groups.filter((group) => group.albums.some((album) => albumIds.has(album.id)));
+
+  expect(relevant).toHaveLength(2);
+  for (const group of relevant) {
+    expect(group.albums).toHaveLength(2);
+    expect(group.artistId).toBeNull();
+  }
+  expect(
+    relevant.some(
+      (group) =>
+        group.albums.some((album) => album.id === queenAlbum.id) &&
+        group.albums.some((album) => album.id === queensAlbum.id),
+    ),
+  ).toBe(true);
+  expect(
+    relevant.some(
+      (group) =>
+        group.albums.some((album) => album.id === beatlesAlbum.id) &&
+        group.albums.some((album) => album.id === beatlezAlbum.id),
+    ),
+  ).toBe(true);
+});
+
+test("readAlbumDuplicateGroupsFromCache keeps separate cross-artist groups for shared titles", async () => {
+  const token = randomBytes(4).toString("hex");
+  const sharedTitle = `Greatest Hits ${token}`;
+
+  const queen = await prisma.artist.create({
+    data: { name: `Queen ${token}`, normalizedName: `queen ${token}` },
+  });
+  const queens = await prisma.artist.create({
+    data: { name: `Queens ${token}`, normalizedName: `queens ${token}` },
+  });
+  const beatles = await prisma.artist.create({
+    data: { name: `Beatles ${token}`, normalizedName: `beatles ${token}` },
+  });
+  const beatlez = await prisma.artist.create({
+    data: { name: `Beatlez ${token}`, normalizedName: `beatlez ${token}` },
+  });
+  artistIds.push(queen.id, queens.id, beatles.id, beatlez.id);
+
+  const queenAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: queen.id, year: 2000 },
+  });
+  const queensAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: queens.id, year: 2001 },
+  });
+  const beatlesAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: beatles.id, year: 2000 },
+  });
+  const beatlezAlbum = await prisma.album.create({
+    data: { name: sharedTitle, artistId: beatlez.id, year: 2001 },
+  });
+
+  const fuzzy = await findFuzzyAlbumDuplicates();
+  await saveDuplicateDetectionResults("album", [], fuzzy);
+
+  const { fuzzy: cachedFuzzy } = await readAlbumDuplicateGroupsFromCache();
+  const albumIds = new Set([queenAlbum.id, queensAlbum.id, beatlesAlbum.id, beatlezAlbum.id]);
+  const relevant = cachedFuzzy.filter((group) =>
+    group.albums.some((album) => albumIds.has(album.id)),
+  );
+
+  expect(relevant).toHaveLength(2);
+  for (const group of relevant) {
+    expect(group.albums).toHaveLength(2);
+  }
 });
 
 test("findFuzzyAlbumDuplicates still detects same-artist fuzzy duplicates", async () => {
@@ -272,4 +411,53 @@ test("saveDuplicateDetectionResults bulk-inserts exact and fuzzy pairs", async (
   expect(rows).toHaveLength(1);
   expect(rows[0]?.matchType).toBe("exact");
   expect(rows[0]?.similarity).toBe(0);
+});
+
+test("cold duplicate load caches normalized names and preserves merged pairs on reload", async () => {
+  const token = randomBytes(4).toString("hex");
+  const name = `Cold Cache ${token}`;
+  const a1 = await prisma.artist.create({
+    data: { name, normalizedName: name.toLowerCase() },
+  });
+  const a2 = await prisma.artist.create({
+    data: { name, normalizedName: name.toLowerCase() },
+  });
+  artistIds.push(a1.id, a2.id);
+
+  await prisma.normalizedName.deleteMany({ where: { entityType: "artist" } });
+  await prisma.duplicateDetection.deleteMany({ where: { entityType: "artist" } });
+
+  const { getArtistDuplicateGroups } = await import("./duplicate-detection.server.ts");
+
+  await getArtistDuplicateGroups();
+
+  const authoritative = await prisma.normalizedName.findFirst({
+    where: { entityType: "artist", entityId: a1.id },
+  });
+  expect(authoritative).not.toBeNull();
+
+  const pair = await prisma.duplicateDetection.findFirst({
+    where: {
+      entityType: "artist",
+      OR: [
+        { entityId1: a1.id, entityId2: a2.id },
+        { entityId1: a2.id, entityId2: a1.id },
+      ],
+    },
+  });
+  expect(pair?.status).toBe("pending");
+
+  if (pair) {
+    await prisma.duplicateDetection.update({
+      where: { id: pair.id },
+      data: { status: "merged" },
+    });
+  }
+
+  await getArtistDuplicateGroups();
+
+  const mergedRow = await prisma.duplicateDetection.findFirst({
+    where: { id: pair?.id },
+  });
+  expect(mergedRow?.status).toBe("merged");
 });

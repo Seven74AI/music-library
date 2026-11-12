@@ -13,8 +13,11 @@ const SENSITIVE_MUTATION_PATHS = [
   "/signup",
   "/onboarding",
   "/reset-password",
+  "/forgot-password",
   "/settings/profile",
   "/resources/login",
+  "/webauthn/authentication",
+  "/webauthn/registration",
 ] as const;
 
 // `/verify` is sensitive for GET too — the token rides in the query string.

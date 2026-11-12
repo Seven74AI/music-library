@@ -10,7 +10,7 @@ Most of PR #324’s component-level a11y changes are already on `main` (merged a
 
 | Concern                                                                    | Resolution                                                                                                                              |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Album/artist/related pages used `role="grid"` while rows became `listitem` | `albums.$albumId.tsx`, `artists.$artistId.tsx`, `library.$trackId.tsx` now use `role="list"` with matching `aria-label`.                |
+| Album/artist/related pages used `role="grid"` while rows became `listitem` | `albums.$albumId.tsx`, `artists.$artistId.tsx`, `library.$trackId.tsx` use `role="list"` with matching `aria-label`.                |
 | `library.index.tsx` lacked `role="list"` on the virtual list wrapper       | Virtual list wrapper uses `role="list"`; spacers use `role="presentation"`.                                                             |
 | Nested `listitem` in sortable playlists (outer + inner TrackListItem)      | `SortableTrackItem` passes `listRole="presentation"` to inner `TrackListItem`; outer row keeps `role="listitem"`.                       |
 | Search results: track rows without `role="list"` parent                    | Mixed feed wrapped in `role="list"`; non-track entity rows use `role="listitem"`; track section uses presentation spacers where needed. |

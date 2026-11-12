@@ -7,7 +7,9 @@ import { defineConfig, devices } from "@playwright/test";
 // 2. Session cookies created by the test fixtures are valid on the webServer
 // 3. env.server.ts validation passes for any in-process imports
 const BASE_DATABASE_PATH = path.join(process.cwd(), "./tests/prisma/base.db");
+const E2E_COOKIE_FILE_PATH = path.join(process.cwd(), "./tests/fixtures/e2e-youtube-cookies.txt");
 process.env.DATABASE_URL = `file:${BASE_DATABASE_PATH}`;
+process.env.COOKIE_FILE_PATH = E2E_COOKIE_FILE_PATH;
 process.env.DATABASE_PATH = BASE_DATABASE_PATH;
 process.env.CACHE_DATABASE_PATH = path.join(process.cwd(), "./tests/prisma/cache.db");
 process.env.INTERNAL_COMMAND_TOKEN = "test-internal-token";
@@ -17,6 +19,11 @@ process.env.LITEFS_DIR = "/tmp/litefs-test";
 
 // Now load dotenv (which won't override DATABASE_URL if it's already set)
 import "dotenv/config";
+
+// Re-apply after dotenv so local .env cannot break E2E cookie signing.
+process.env.SESSION_SECRET = "test-session-secret";
+process.env.HONEYPOT_SECRET = "test-honeypot-secret";
+process.env.COOKIE_FILE_PATH = E2E_COOKIE_FILE_PATH;
 
 const PORT = process.env.PORT || "3000";
 const PLAYWRIGHT_TEST_BASE_URL = `http://localhost:${PORT}/`;
@@ -100,6 +107,7 @@ export default defineConfig({
       HONEYPOT_SECRET: "test-honeypot-secret",
       SESSION_SECRET: "test-session-secret",
       TOKEN_ENCRYPTION_KEY: "playwright-token-encryption-key-0123456789abcdef",
+      COOKIE_FILE_PATH: E2E_COOKIE_FILE_PATH,
     },
   },
 });

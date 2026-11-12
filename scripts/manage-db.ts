@@ -183,8 +183,8 @@ Manual restore steps:
   }
 
   case "migrate": {
-    console.log("Running migrations...");
-    executeFlyCommand("cd /myapp && npx prisma migrate deploy");
+    console.log("Running migrations (includes legacy Track.genre backfill when pending)...");
+    executeFlyCommand("cd /myapp && npm run migrate:deploy");
     console.log("✅ Migrations completed");
     break;
   }

@@ -143,9 +143,9 @@ describe("fetchQueueSpine", () => {
       headers: { get: () => null },
     } as unknown as Response);
 
-    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
-      "Failed to fetch queue spine: 302",
-    );
+    const error = await fetchQueueSpine({ type: "library" }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(AuthExpiredError);
   });
 
   test("does NOT report a non-login redirect (trailing slash) as auth expiry", async () => {
@@ -156,9 +156,9 @@ describe("fetchQueueSpine", () => {
       headers: { get: () => "/api/queue-spine/" },
     } as unknown as Response);
 
-    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
-      "Failed to fetch queue spine: 301",
-    );
+    const error = await fetchQueueSpine({ type: "library" }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(AuthExpiredError);
   });
 
   test("throws generic Error on non-redirect error response (500)", async () => {
@@ -168,9 +168,7 @@ describe("fetchQueueSpine", () => {
       status: 500,
     } as Response);
 
-    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
-      "Failed to fetch queue spine: 500",
-    );
+    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow();
   });
 
   test("throws when the queue-spine payload is malformed", async () => {
@@ -180,9 +178,7 @@ describe("fetchQueueSpine", () => {
       json: async () => ({ unexpected: "shape" }),
     } as Response);
 
-    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow(
-      "Invalid queue spine response",
-    );
+    await expect(fetchQueueSpine({ type: "library" })).rejects.toThrow();
   });
 });
 

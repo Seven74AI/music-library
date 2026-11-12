@@ -6,15 +6,38 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { beforeAll, expect, test, vi } from "vitest";
+import { beforeAll, beforeEach, expect, test, vi } from "vitest";
 import HistoryPage, { type HistoryItem } from "./history.tsx";
+
+const mockPauseTrack = vi.fn();
+const mockResumeTrack = vi.fn();
+const mockPlayTrack = vi.fn();
+
+const mockPlayerState: {
+  currentTrack: { id: string } | null;
+  isPlaying: boolean;
+} = {
+  currentTrack: null,
+  isPlaying: false,
+};
 
 vi.mock("#app/components/audio-player-provider.tsx", () => ({
   useAudioPlayer: () => ({
-    currentTrack: null,
-    playTrack: vi.fn(),
+    currentTrack: mockPlayerState.currentTrack,
+    isPlaying: mockPlayerState.isPlaying,
+    playTrack: mockPlayTrack,
+    pauseTrack: mockPauseTrack,
+    resumeTrack: mockResumeTrack,
   }),
 }));
+
+beforeEach(() => {
+  mockPauseTrack.mockClear();
+  mockResumeTrack.mockClear();
+  mockPlayTrack.mockClear();
+  mockPlayerState.currentTrack = null;
+  mockPlayerState.isPlaying = false;
+});
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -128,4 +151,32 @@ test("collapsing tracks keeps one row per distinct track", async () => {
   expect(within(list).getAllByText("Song A")).toHaveLength(1);
   expect(within(list).getByText("Song B")).toBeInTheDocument();
   expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+});
+
+test("history row pauses the current playing track instead of restarting", async () => {
+  const user = userEvent.setup();
+  const item = makeItem({ id: "p1", trackId: "t1", title: "Song A" });
+  mockPlayerState.currentTrack = { id: "t1" };
+  mockPlayerState.isPlaying = true;
+
+  renderHistory([item]);
+
+  await user.click(screen.getByRole("button", { name: /pause song a/i }));
+
+  expect(mockPauseTrack).toHaveBeenCalledTimes(1);
+  expect(mockPlayTrack).not.toHaveBeenCalled();
+});
+
+test("history row resumes the paused current track", async () => {
+  const user = userEvent.setup();
+  const item = makeItem({ id: "p1", trackId: "t1", title: "Song A" });
+  mockPlayerState.currentTrack = { id: "t1" };
+  mockPlayerState.isPlaying = false;
+
+  renderHistory([item]);
+
+  await user.click(screen.getByRole("button", { name: /resume song a/i }));
+
+  expect(mockResumeTrack).toHaveBeenCalledTimes(1);
+  expect(mockPlayTrack).not.toHaveBeenCalled();
 });

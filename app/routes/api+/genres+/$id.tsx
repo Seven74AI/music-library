@@ -3,20 +3,12 @@ import { z } from "zod";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { normalizeGenreName } from "#app/utils/genre-migration.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { type Route } from "./+types/$id.ts";
 
 const UpdateGenreSchema = z.object({
   name: z.string().min(1, "Genre name is required").max(100),
 });
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "P2002"
-  );
-}
 
 async function readActionData(response: Response): Promise<unknown> {
   try {
@@ -123,22 +115,26 @@ async function handleUpdate(request: Request, genreId: string) {
   // another request creates/renames to 'rock'); surface that as the same 409.
   let updatedGenre;
   try {
-    updatedGenre = await prisma.genre.update({
-      where: { id: genreId },
-      data: {
-        name: result.data.name,
-        normalizedName,
-      },
-      select: {
-        id: true,
-        name: true,
-        createdAt: true,
-        _count: {
-          select: {
-            tracks: true,
+    updatedGenre = await prisma.$transaction(async (tx) => {
+      const genre = await tx.genre.update({
+        where: { id: genreId },
+        data: {
+          name: result.data.name,
+          normalizedName,
+        },
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          _count: {
+            select: {
+              tracks: true,
+            },
           },
         },
-      },
+      });
+
+      return genre;
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
@@ -186,8 +182,10 @@ async function handleDelete(genreId: string) {
   }
 
   // Delete genre (cascade delete will remove join table entries)
-  await prisma.genre.delete({
-    where: { id: genreId },
+  await prisma.$transaction(async (tx) => {
+    await tx.genre.delete({
+      where: { id: genreId },
+    });
   });
 
   return Response.json({

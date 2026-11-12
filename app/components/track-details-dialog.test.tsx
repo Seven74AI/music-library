@@ -66,7 +66,6 @@ const curatorTrack = {
   coverImage: null,
   service: { displayName: "YouTube" },
   serviceUrl: null,
-  genre: null,
   genres: [],
   year: null,
   trackNumber: null,

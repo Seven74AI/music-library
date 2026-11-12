@@ -1,11 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { validateStorageKey } from "#app/utils/path-validation.server.ts";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { parseByteRangeHeader } from "#app/utils/http-byte-range.server.ts";
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { type FileUpload } from "@mjackson/form-data-parser";
@@ -141,17 +144,40 @@ function handleStorageError(
  */
 async function uploadFileLocal(file: Buffer, key: string): Promise<string> {
   const localStorageDir = join(process.cwd(), "tests", "fixtures", "uploaded");
-  const filePath = join(localStorageDir, key);
+  const safeKey = validateStorageKey(key);
+  const basePath = resolve(localStorageDir);
+  const filePath = resolve(basePath, safeKey);
+
+  if (filePath !== basePath && !filePath.startsWith(`${basePath}${sep}`)) {
+    throw new Error("Storage key resolves outside the upload directory");
+  }
+
   const fileDir = dirname(filePath);
 
-  // Create directory structure if it doesn't exist
   mkdirSync(fileDir, { recursive: true });
-
-  // Write file to local filesystem
   writeFileSync(filePath, file);
 
   console.log(`📁 Saved file locally: ${filePath}`);
-  return key;
+  return safeKey;
+}
+
+const PROFILE_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+
+function assertSafeProfileImageFilename(filename: string): string {
+  if (!filename || typeof filename !== "string") {
+    throw new Error("Invalid profile image filename");
+  }
+
+  if (filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+    throw new Error("Profile image filename is not allowed");
+  }
+
+  const fileExtension = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (!PROFILE_IMAGE_EXTENSIONS.has(fileExtension)) {
+    throw new Error("Profile image extension is not allowed");
+  }
+
+  return fileExtension;
 }
 
 /**
@@ -403,11 +429,25 @@ export async function uploadFile(params: {
  * @param timings - Optional timing object for performance tracking
  * @returns Promise resolving to signed URL and headers
  */
-export async function getStorageObjectStream(key: string): Promise<{
-  body: ReadableStream<Uint8Array>;
-  contentType: string;
-  contentLength: number | undefined;
-}> {
+export type StorageObjectStreamResult =
+  | {
+      status: 200 | 206;
+      body: ReadableStream<Uint8Array>;
+      contentType: string;
+      contentLength: number | undefined;
+      contentRange?: string;
+    }
+  | {
+      status: 416;
+      body: null;
+      contentType: string;
+      fileSize: number;
+    };
+
+export async function getStorageObjectStream(
+  key: string,
+  request?: Request,
+): Promise<StorageObjectStreamResult> {
   if (!key || typeof key !== "string") {
     throw new Error("Invalid key: must be a non-empty string");
   }
@@ -418,6 +458,53 @@ export async function getStorageObjectStream(key: string): Promise<{
 
   const s3Client = getS3Client();
   const config = getStorageConfig();
+  const rangeHeader = request?.headers.get("Range") ?? null;
+  const defaultContentType = "application/octet-stream";
+
+  if (rangeHeader) {
+    const head = await s3Client.send(
+      new HeadObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+      }),
+    );
+    const fileSize = head.ContentLength ?? 0;
+    const parsed = parseByteRangeHeader(rangeHeader, fileSize);
+
+    if (parsed.kind === "unsatisfiable") {
+      return {
+        status: 416,
+        body: null,
+        contentType: head.ContentType ?? defaultContentType,
+        fileSize,
+      };
+    }
+
+    if (parsed.kind === "partial") {
+      const { start, end } = parsed;
+      const response = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: config.bucket,
+          Key: key,
+          Range: `bytes=${start}-${end}`,
+        }),
+      );
+
+      if (!response.Body) {
+        throw new Error(`Empty storage body for ${key}`);
+      }
+
+      const chunkSize = end - start + 1;
+      return {
+        status: 206,
+        body: response.Body.transformToWebStream(),
+        contentType: response.ContentType ?? defaultContentType,
+        contentLength: response.ContentLength ?? chunkSize,
+        contentRange: response.ContentRange ?? `bytes ${start}-${end}/${fileSize}`,
+      };
+    }
+  }
+
   const response = await s3Client.send(
     new GetObjectCommand({
       Bucket: config.bucket,
@@ -430,8 +517,9 @@ export async function getStorageObjectStream(key: string): Promise<{
   }
 
   return {
+    status: 200,
     body: response.Body.transformToWebStream(),
-    contentType: response.ContentType ?? "application/octet-stream",
+    contentType: response.ContentType ?? defaultContentType,
     contentLength: response.ContentLength,
   };
 }
@@ -539,44 +627,6 @@ export async function deleteFile(key: string, _timings?: Timings): Promise<void>
  * @param timings - Optional timing object for performance tracking
  * @returns Promise resolving to the uploaded object key
  */
-/**
- * Upload album art/cover image for a track
- * Uses cover management system with deduplication (hash + album grouping)
- *
- * @deprecated Use findOrCreateCoverImage from cover-management.server.ts directly
- * This function is kept for backward compatibility but now uses the new system
- */
-export async function uploadAlbumArt(params: {
-  file: File | FileUpload | Buffer;
-  trackId: string;
-  albumId?: string | null;
-  timings?: Timings;
-}): Promise<string> {
-  const { file, trackId, albumId } = params;
-
-  let imageBuffer: Buffer;
-
-  if (Buffer.isBuffer(file)) {
-    imageBuffer = file;
-  } else if (file instanceof File) {
-    const arrayBuffer = await file.arrayBuffer();
-    imageBuffer = Buffer.from(arrayBuffer);
-  } else {
-    // FileUpload extends File, handled above
-    throw new Error("Unsupported file type for album art");
-  }
-
-  // Use new cover management system
-  const { findOrCreateCoverImage } = await import("./cover-management.server");
-  const coverImage = await findOrCreateCoverImage({
-    imageBuffer,
-    albumId,
-    trackId,
-  });
-
-  return coverImage.objectKey;
-}
-
 export async function uploadProfileImage(
   userId: string,
   file: File | FileUpload,
@@ -592,7 +642,7 @@ export async function uploadProfileImage(
   }
 
   const fileId = createId();
-  const fileExtension = file.name.split(".").pop() || "jpg";
+  const fileExtension = assertSafeProfileImageFilename(file.name);
   const timestamp = Date.now();
   const key = `images/profile-images/${userId}/${timestamp}-${fileId}.${fileExtension}`;
 

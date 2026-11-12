@@ -23,6 +23,7 @@ describe("Search Utilities", () => {
     await prisma.track.deleteMany();
     await prisma.album.deleteMany();
     await prisma.artist.deleteMany();
+    await prisma.genre.deleteMany();
     await prisma.user.deleteMany();
   });
 
@@ -485,6 +486,125 @@ describe("Search Utilities", () => {
     });
   });
 
+  describe("album rename FTS cascade", () => {
+    it("should update tracks_fts.album_name when album is renamed", async () => {
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Album Cascade Artist",
+          normalizedName: "album cascade artist",
+        },
+      });
+
+      const album = await prisma.album.create({
+        data: {
+          name: "Original Album FTS Name",
+          artistId: artist.id,
+        },
+      });
+
+      await prisma.track.create({
+        data: {
+          title: "Song On Renamed Album",
+          artistId: artist.id,
+          albumId: album.id,
+          serviceId: localService.id,
+          externalId: `test-track-album-rename-${Date.now()}`,
+        },
+      });
+
+      await prisma.album.update({
+        where: { id: album.id },
+        data: { name: "Renamed Album FTS Name" },
+      });
+
+      const resultByNewName = await searchTracks("Renamed Album FTS Name", 10);
+      expect(resultByNewName.results.length).toBeGreaterThan(0);
+      const newNameMatches = resultByNewName.results.filter(
+        (r) => r.type === "track" && r.albumName?.includes("Renamed Album FTS Name"),
+      );
+      expect(newNameMatches.length).toBeGreaterThan(0);
+
+      const resultByOldName = await searchTracks("Original Album FTS Name", 10);
+      const oldNameMatches = resultByOldName.results.filter(
+        (r) => r.type === "track" && r.albumName?.includes("Original Album FTS Name"),
+      );
+      expect(oldNameMatches).toHaveLength(0);
+    });
+  });
+
+  describe("genre rename FTS cascade", () => {
+    it("should update tracks_fts.genres when genre is renamed", async () => {
+      const stamp = Date.now();
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const oldGenreName = `OldGenreFtsTag${stamp}`;
+      const newGenreName = `NewGenreFtsTag${stamp}`;
+
+      const genre = await prisma.genre.create({
+        data: {
+          name: oldGenreName,
+          normalizedName: oldGenreName.toLowerCase(),
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Genre Cascade Artist",
+          normalizedName: "genre cascade artist",
+        },
+      });
+
+      const track = await prisma.track.create({
+        data: {
+          title: "Genre Tagged Song",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `test-track-genre-rename-${stamp}`,
+        },
+      });
+
+      await prisma.$executeRaw`INSERT INTO _TrackGenres (A, B) VALUES (${genre.id}, ${track.id})`;
+
+      await prisma.genre.update({
+        where: { id: genre.id },
+        data: {
+          name: newGenreName,
+          normalizedName: newGenreName.toLowerCase(),
+        },
+      });
+
+      const resultByNewName = await searchTracks(newGenreName, 10);
+      expect(resultByNewName.results.some((r) => r.type === "track" && r.id === track.id)).toBe(
+        true,
+      );
+
+      const resultByOldName = await searchTracks(oldGenreName, 10);
+      expect(resultByOldName.results.some((r) => r.type === "track" && r.id === track.id)).toBe(
+        false,
+      );
+    });
+  });
+
   describe("library-scoped search", () => {
     const timestamp = Date.now();
 
@@ -560,6 +680,62 @@ describe("Search Utilities", () => {
       const trackIdsB = resultB.results.filter((r) => r.type === "track").map((r) => r.id);
       expect(trackIdsB).toContain(trackB.id);
       expect(trackIdsB).not.toContain(trackA.id);
+    });
+
+    it("scope='library' ignores soft-deleted user tracks", async () => {
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const timestamp = Date.now();
+      const user = await prisma.user.create({
+        data: {
+          email: `soft-del-search-${timestamp}@test.com`,
+          username: `soft-del-search-${timestamp}`,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: {
+          name: "Soft Del Artist",
+          normalizedName: "soft del artist",
+        },
+      });
+
+      const track = await prisma.track.create({
+        data: {
+          title: "Soft Deleted Library Track",
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `soft-del-track-${timestamp}`,
+        },
+      });
+
+      await prisma.userTrack.create({
+        data: {
+          userId: user.id,
+          trackId: track.id,
+          isActive: true,
+          deletedAt: new Date(),
+        },
+      });
+
+      const result = await searchTracks("Soft Deleted", 10, undefined, true, user.id, "library");
+      const trackIds = result.results.filter((r) => r.type === "track").map((r) => r.id);
+      expect(trackIds).not.toContain(track.id);
+      const allScope = await searchTracks("Soft Deleted", 10, undefined, true, user.id, "all");
+      const enriched = allScope.results.find(
+        (r): r is Extract<(typeof allScope.results)[number], { type: "track" }> =>
+          r.type === "track" && r.id === track.id,
+      );
+      expect(enriched?.addedAt).toBeUndefined();
     });
 
     it("scope='all' should return all tracks even with userId", async () => {
@@ -840,7 +1016,7 @@ describe("Search Utilities", () => {
         },
       });
 
-      const result = await searchPlaylists("Favorite", user.id, 10);
+      const result = await searchPlaylists("Favorite", user.id, 10, undefined, false);
 
       expect(result.results.length).toBeGreaterThan(0);
       expect(result.results[0]?.type).toBe("playlist");
@@ -877,11 +1053,11 @@ describe("Search Utilities", () => {
       });
 
       // User B should not find user A's playlists
-      const resultForB = await searchPlaylists("Playlist", userB.id, 10);
+      const resultForB = await searchPlaylists("Playlist", userB.id, 10, undefined, false);
       expect(resultForB.results).toHaveLength(0);
 
       // User A should find their own playlist
-      const resultForA = await searchPlaylists("Playlist", userA.id, 10);
+      const resultForA = await searchPlaylists("Playlist", userA.id, 10, undefined, false);
       expect(resultForA.results.length).toBeGreaterThan(0);
       if (resultForA.results[0]?.type === "playlist") {
         expect(resultForA.results[0].name).toContain("User A");
@@ -938,7 +1114,7 @@ describe("Search Utilities", () => {
         });
       }
 
-      const result = await searchPlaylists("Tracks", user.id, 10);
+      const result = await searchPlaylists("Tracks", user.id, 10, undefined, false);
       expect(result.results.length).toBeGreaterThan(0);
       if (result.results[0]?.type === "playlist") {
         expect(result.results[0].trackCount).toBe(3);
@@ -1045,6 +1221,55 @@ describe("Search Utilities", () => {
       expect(result.results.some((r) => r.type === "track" && r.title === "Rock-n-Roll")).toBe(
         true,
       );
+    });
+  });
+
+  describe("searchAll merged pagination", () => {
+    it("page 2 surfaces a type that did not appear on page 1 (no dropped interleaved rows)", async () => {
+      const stamp = `MergeInterleave${Date.now()}`;
+      const localService = await prisma.service.upsert({
+        where: { name: "local" },
+        update: {},
+        create: {
+          name: "local",
+          displayName: "Local Upload",
+          baseUrl: "",
+          isActive: true,
+        },
+      });
+
+      const artist = await prisma.artist.create({
+        data: { name: stamp, normalizedName: stamp.toLowerCase() },
+      });
+
+      const track = await prisma.track.create({
+        data: {
+          title: `Other ${stamp}`,
+          artistId: artist.id,
+          serviceId: localService.id,
+          externalId: `interleave-track-${Date.now()}`,
+        },
+      });
+
+      await prisma.album.create({
+        data: {
+          name: `${stamp} Album`,
+          artistId: artist.id,
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const page1 = await searchAll(stamp, 2, undefined, "all");
+      expect(page1.results).toHaveLength(2);
+      const page1TrackIds = page1.results.filter((r) => r.type === "track").map((r) => r.id);
+      expect(page1TrackIds).not.toContain(track.id);
+      expect(page1.pagination.hasNext).toBe(true);
+      expect(page1.pagination.nextCursor).toBeTruthy();
+
+      const page2 = await searchAll(stamp, 2, page1.pagination.nextCursor ?? undefined, "all");
+      const page2TrackIds = page2.results.filter((r) => r.type === "track").map((r) => r.id);
+      expect(page2TrackIds).toContain(track.id);
     });
   });
 

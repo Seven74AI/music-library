@@ -152,6 +152,59 @@ describe("library index genre filter", () => {
     expect(body.userTracks).toEqual([]);
   });
 
+  test("returns 400 for a malformed library cursor", async () => {
+    const { cookie } = await createUserCookie();
+
+    await expect(
+      loader(pageRequest(cookie, "http://localhost/library?cursor=" + "x".repeat(201)) as never),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        typeof err === "object" &&
+        err !== null &&
+        "init" in err &&
+        (err as { init?: { status?: number } }).init?.status === 400,
+    );
+  });
+
+  test.each([
+    ["mostPlayedEver", -1],
+    ["mostPlayedEver", 1.5],
+    ["mostPlayedMonth", -1],
+    ["mostPlayedMonth", 1.5],
+  ] as const)(
+    "returns 400 for most-played cursor with invalid count on %s (count=%s)",
+    async (sort, count) => {
+      const { userId, cookie } = await createUserCookie();
+      userIds.push(userId);
+      const track = await createTrack("Paged");
+      trackIds.push(track.id);
+      const userTrack = await prisma.userTrack.create({ data: { userId, trackId: track.id } });
+      const cursor = Buffer.from(
+        JSON.stringify({
+          v: 2,
+          count,
+          id: userTrack.id,
+          snapshotAt: new Date().toISOString(),
+        }),
+      ).toString("base64url");
+
+      await expect(
+        loader(
+          pageRequest(
+            cookie,
+            `http://localhost/library?sort=${sort}&cursor=${encodeURIComponent(cursor)}`,
+          ) as never,
+        ),
+      ).rejects.toSatisfy(
+        (err: unknown) =>
+          typeof err === "object" &&
+          err !== null &&
+          "init" in err &&
+          (err as { init?: { status?: number } }).init?.status === 400,
+      );
+    },
+  );
+
   test("ignores a blank genre param", async () => {
     const { userId, cookie } = await createUserCookie();
     userIds.push(userId);

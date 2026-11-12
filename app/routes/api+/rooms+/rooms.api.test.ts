@@ -108,8 +108,19 @@ describe("rooms API", () => {
     const guestCookie = joinRes.headers.get("Set-Cookie");
     expect(guestCookie).toContain(GUEST_TOKEN_COOKIE_NAME);
 
-    const snapRes = await snapshotLoader({
+    const anonSnapRes = await snapshotLoader({
       request: new Request(`http://localhost/api/rooms/${created.code}`),
+      params: { roomCode: created.code },
+    });
+    expect(anonSnapRes.status).toBe(200);
+    const anonSnap = (await anonSnapRes.json()) as Record<string, unknown>;
+    expect(anonSnap.exists).toBe(true);
+    expect(anonSnap).not.toHaveProperty("participants");
+    expect(anonSnap).not.toHaveProperty("queue");
+    expect(anonSnap).not.toHaveProperty("originalHostUserId");
+
+    const snapRes = await snapshotLoader({
+      request: new Request(`http://localhost/api/rooms/${created.code}`, { headers: { cookie } }),
       params: { roomCode: created.code },
     });
     expect(snapRes.status).toBe(200);
@@ -154,7 +165,9 @@ describe("rooms API", () => {
       request: new Request(`http://localhost/api/rooms/${created.code}`),
       params: { roomCode: created.code },
     });
-    expect(afterEnd.status).toBe(404);
+    expect(afterEnd.status).toBe(410);
+    const afterEndBody = (await afterEnd.json()) as { code?: string };
+    expect(afterEndBody.code).toBe("room_ended");
   });
 
   test("snapshot includes me for guest cookie; leave clears guest cookie", async () => {

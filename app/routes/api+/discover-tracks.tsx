@@ -6,6 +6,7 @@ import {
   parseDiscoverSort,
 } from "#app/utils/discover-tracks.server.ts";
 import { parseSortDirection } from "#app/utils/sort-direction.ts";
+import { isInvalidCursorError } from "#app/utils/search-validation.server.ts";
 
 export async function loader({ request, url }: { request: Request; url: URL }) {
   try {
@@ -38,6 +39,9 @@ export async function loader({ request, url }: { request: Request; url: URL }) {
     });
   } catch (error) {
     if (error instanceof Response) throw error;
+    if (isInvalidCursorError(error)) {
+      return Response.json({ error: "Invalid cursor" }, { status: 400 });
+    }
     console.error("Error fetching discover tracks:", error);
     return Response.json({ error: "Failed to fetch tracks" }, { status: 500 });
   }

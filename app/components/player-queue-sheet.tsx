@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useAudioPlayer } from "#app/components/audio-player-provider";
+import { useAudioPlayer } from "#app/components/audio-player-context";
 import {
   formatQueueSheetTitle,
   getSpineSectionHeading,
@@ -25,6 +25,11 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "#app/components/ui/sheet";
+import { collectHydrationIds } from "#app/features/queue/queue-hydration.ts";
+import {
+  queueSpineDisplayIncludesHead,
+  spineOrderIndexFromDisplayIndex,
+} from "#app/features/queue/queue-navigation.ts";
 import { type FullTrack } from "#app/types/frontend/shared";
 
 type Track = FullTrack;
@@ -226,6 +231,8 @@ function QueueSheet({
     spine,
     spineTotal,
     spinePosition,
+    audibleSourceZone,
+    queueNavigationState,
     currentTrack,
     playContext,
     removeTrackFromPlaylist,
@@ -236,27 +243,41 @@ function QueueSheet({
   const queueScrollRef = useRef<HTMLDivElement>(null);
   const [isOpen, setIsOpen] = useState(false);
 
-  const currentTrackId = currentTrack?.id;
-
-  const queueSheetTrackIds = useMemo(() => {
-    const ids: string[] = [];
-    if (currentTrackId) ids.push(currentTrackId);
-    ids.push(...upNext.map((track) => track.id));
-    if (spine.length < SPINE_VIRTUAL_THRESHOLD) {
-      ids.push(...spine.map((track) => track.id));
-    }
-    return ids.join(",");
-  }, [currentTrackId, upNext, spine]);
+  const playbackLookaheadHydrationKey = useMemo(() => {
+    return collectHydrationIds(queueNavigationState, currentTrack?.id ?? null).join(",");
+  }, [queueNavigationState, currentTrack?.id]);
 
   useEffect(() => {
-    if (!isOpen || queueSheetTrackIds.length === 0) return;
-    hydrateTracksForDisplay(queueSheetTrackIds.split(","));
-  }, [isOpen, queueSheetTrackIds, hydrateTracksForDisplay]);
+    if (!isOpen || playbackLookaheadHydrationKey.length === 0) return;
+    hydrateTracksForDisplay(playbackLookaheadHydrationKey.split(","));
+  }, [isOpen, playbackLookaheadHydrationKey, hydrateTracksForDisplay]);
+
+  const shortListHydrationKey = useMemo(() => {
+    if (!isOpen) return "";
+    const ids: string[] = [];
+    if (upNext.length > 0 && upNext.length < UP_NEXT_VIRTUAL_THRESHOLD) {
+      ids.push(...upNext.map((track) => track.id));
+    }
+    if (spine.length > 0 && spine.length < SPINE_VIRTUAL_THRESHOLD) {
+      ids.push(...spine.map((track) => track.id));
+    }
+    return [...new Set(ids)].join(",");
+  }, [isOpen, upNext, spine]);
+
+  useEffect(() => {
+    if (!isOpen || shortListHydrationKey.length === 0) return;
+    hydrateTracksForDisplay(shortListHydrationKey.split(","));
+  }, [isOpen, shortListHydrationKey, hydrateTracksForDisplay]);
 
   const spineLabel = getSpineSectionLabel(playContext);
   const sheetTitle = formatQueueSheetTitle(upNext.length, spineTotal, spineLabel);
   const spineHeading = getSpineSectionHeading(playContext);
   const isEmpty = !currentTrack && upNext.length === 0 && spine.length === 0 && spineTotal === 0;
+  const audibleIsSpineHead = currentTrack !== null && audibleSourceZone === "spine";
+  const spineDisplayIncludesHead = queueSpineDisplayIncludesHead(
+    currentTrack !== null,
+    audibleIsSpineHead,
+  );
 
   const removeUpNextTrack = useCallback(
     (index: number) => {
@@ -269,10 +290,14 @@ function QueueSheet({
     (displayIndex: number) => {
       removeTrackFromPlaylist({
         zone: "spine",
-        index: spinePosition + 1 + displayIndex,
+        index: spineOrderIndexFromDisplayIndex(
+          spinePosition,
+          displayIndex,
+          spineDisplayIncludesHead,
+        ),
       });
     },
-    [removeTrackFromPlaylist, spinePosition],
+    [removeTrackFromPlaylist, spineDisplayIncludesHead, spinePosition],
   );
 
   const playUpNextTrack = useCallback(
@@ -284,9 +309,16 @@ function QueueSheet({
 
   const playSpineTrack = useCallback(
     (displayIndex: number) => {
-      playQueueTrack({ zone: "spine", index: spinePosition + 1 + displayIndex });
+      playQueueTrack({
+        zone: "spine",
+        index: spineOrderIndexFromDisplayIndex(
+          spinePosition,
+          displayIndex,
+          spineDisplayIncludesHead,
+        ),
+      });
     },
-    [playQueueTrack, spinePosition],
+    [playQueueTrack, spineDisplayIncludesHead, spinePosition],
   );
 
   const removeCurrentTrack = useCallback(() => {

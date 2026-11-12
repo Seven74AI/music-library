@@ -122,7 +122,7 @@ The test database path is defined once in `playwright.config.ts` and used consis
 ### Negative
 
 - ⚠️ **Direct `process.env` Assignment**: Some developers may find this unconventional
-- ⚠️ **Config File Complexity**: Config file now has side effects (setting environment variable)
+- ⚠️ **Config File Complexity**: Config file has side effects (setting environment variable)
 - ⚠️ **Timing Dependency**: Relies on config file loading before test files (which is guaranteed by Playwright)
 - ⚠️ **Migration Check Overhead**: Checking migration status adds a small overhead to test setup (mitigated by skipping when up to date)
 
@@ -150,7 +150,7 @@ tests/setup/global-setup.ts
 
 ### Migration Status Check
 
-The global setup now checks migration status before applying migrations:
+The global setup checks migration status before applying migrations:
 
 1. **Check if database exists**: If the database file exists, check its migration status
 2. **Verify migration sync**: Use `prisma migrate status` to check if migrations are up to date

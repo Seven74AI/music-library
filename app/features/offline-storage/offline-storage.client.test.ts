@@ -3,6 +3,12 @@ import { createMemoryOfflineAudioStore } from "./memory-audio-store.ts";
 import { createOfflineMetadataStore } from "./metadata-store.client.ts";
 import { createOfflineStorage } from "./offline-storage.client.ts";
 
+const deleteCachedCover = vi.fn().mockResolvedValue(undefined);
+vi.mock("./cover-cache.client.ts", () => ({
+  cacheCoverImage: vi.fn().mockResolvedValue(undefined),
+  deleteCachedCover: (...args: unknown[]) => deleteCachedCover(...args),
+}));
+
 /**
  * @vitest-environment jsdom
  */
@@ -21,6 +27,133 @@ describe("createOfflineStorage", () => {
   beforeEach(async () => {
     const metadataStore = createOfflineMetadataStore();
     await metadataStore.clear();
+  });
+
+  test("failed metadata put leaves prior metadata and rolls back the new blob", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    vi.spyOn(metadataStore, "put").mockRejectedValue(new Error("metadata put failed"));
+
+    await expect(storage.downloadTrack(track, { pin: true })).rejects.toThrow(
+      "metadata put failed",
+    );
+
+    expect(await audioStore.has(track.id, "mp3")).toBe(false);
+    expect(await metadataStore.get(track.id)).toBeFalsy();
+  });
+
+  test("failed metadata update on an existing track keeps the prior blob and metadata", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+    const before = await metadataStore.get(track.id);
+    expect(before).toBeTruthy();
+    const originalBytes = await audioStore.read(track.id, "mp3");
+    expect(originalBytes).not.toBeNull();
+
+    vi.spyOn(metadataStore, "put").mockRejectedValue(new Error("metadata update failed"));
+
+    await expect(
+      storage.downloadTrack(
+        {
+          ...track,
+          audioFiles: [{ id: "af-1", format: "mp3", objectKey: "k2" }],
+        },
+        { pin: true },
+      ),
+    ).rejects.toThrow();
+
+    expect(await audioStore.has(track.id, "mp3")).toBe(true);
+    const afterBytes = await audioStore.read(track.id, "mp3");
+    expect(new Uint8Array(afterBytes!)).toEqual(new Uint8Array(originalBytes!));
+    expect(await metadataStore.get(track.id)).toEqual(before);
+  });
+
+  test("failed old-format delete leaves record pointing at the original file", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([9, 9, 9]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+    const before = await metadataStore.get(track.id);
+    expect(before).toBeTruthy();
+    const originalBytes = await audioStore.read(track.id, "mp3");
+    expect(originalBytes).not.toBeNull();
+
+    const originalDelete = audioStore.delete.bind(audioStore);
+    vi.spyOn(audioStore, "delete").mockImplementation(async (trackId, format) => {
+      if (trackId === track.id && format === "mp3") {
+        throw new Error("old format delete failed");
+      }
+      return originalDelete(trackId, format);
+    });
+
+    await expect(
+      storage.downloadTrack(
+        {
+          ...track,
+          audioFiles: [{ id: "af-flac", format: "flac", objectKey: "k-flac" }],
+        },
+        { pin: true },
+      ),
+    ).rejects.toThrow(/old format delete failed/);
+
+    expect(await metadataStore.get(track.id)).toEqual(before);
+    expect(await audioStore.has(track.id, "mp3")).toBe(true);
+    expect(await audioStore.has(track.id, "flac")).toBe(false);
+    expect(new Uint8Array((await audioStore.read(track.id, "mp3"))!)).toEqual(
+      new Uint8Array(originalBytes!),
+    );
+  });
+
+  test("re-download with a new audio format removes the previous format blob", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+    expect(await audioStore.has(track.id, "mp3")).toBe(true);
+
+    await storage.downloadTrack(
+      {
+        ...track,
+        audioFiles: [{ id: "af-flac", format: "flac", objectKey: "k-flac" }],
+      },
+      { pin: true },
+    );
+
+    expect(await audioStore.has(track.id, "mp3")).toBe(false);
+    expect(await audioStore.has(track.id, "flac")).toBe(true);
+    const record = await metadataStore.get(track.id);
+    expect(record?.audioFormat).toBe("flac");
   });
 
   test("downloads and resolves pinned playback blobs", async () => {
@@ -96,6 +229,33 @@ describe("createOfflineStorage", () => {
     expect(stats.totalBytes).toBe(3_538_581);
   });
 
+  test("LRU eviction removes cover blob when no other offline track references it", async () => {
+    const coverKey = "covers/evict-only.jpg";
+    const queueTrack = {
+      ...track,
+      id: "queue-cover",
+      title: "Queue with cover",
+      coverImage: { objectKey: coverKey },
+    };
+
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array(400_000).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 900_000, quota: 1_000_000 }),
+    });
+
+    deleteCachedCover.mockClear();
+    await storage.downloadTrack(queueTrack, { pin: false });
+    await storage.downloadTrack(track, { pin: true });
+
+    expect(await storage.hasTrack("queue-cover")).toBe(false);
+    expect(deleteCachedCover).toHaveBeenCalledWith(coverKey);
+  });
+
   test("evicts queue-only tracks before pinned ones when quota is tight", async () => {
     const audioStore = createMemoryOfflineAudioStore();
     const metadataStore = createOfflineMetadataStore();
@@ -113,6 +273,123 @@ describe("createOfflineStorage", () => {
 
     expect(await storage.hasTrack("queue-track")).toBe(false);
     expect(await storage.hasTrack("track-1")).toBe(true);
+  });
+
+  test("listDownloaded drops metadata when OPFS audio is missing", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+    await audioStore.delete(track.id, "mp3");
+
+    expect(await storage.listDownloaded()).toEqual([]);
+    expect(await metadataStore.get(track.id)).toBeFalsy();
+  });
+
+  test("cacheQueueTrack preserves pin when OPFS bytes are missing", async () => {
+    const fetchAudioBytes = vi.fn().mockResolvedValue(new Uint8Array([7, 8, 9]).buffer);
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true, playlistId: "pl-1" });
+    await audioStore.delete(track.id, "mp3");
+
+    await storage.cacheQueueTrack(track);
+
+    const record = await storage.getRecord(track.id);
+    expect(record?.isPinned).toBe(true);
+    expect(record?.isQueueCached).toBe(true);
+    expect(record?.playlistIds).toContain("pl-1");
+  });
+
+  test("removeTrack keeps shared cover cache when another offline row references it", async () => {
+    const coverKey = "covers/shared.jpg";
+    const trackWithCover = (id: string) => ({
+      ...track,
+      id,
+      coverImage: { objectKey: coverKey },
+    });
+
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(trackWithCover("track-a"), { pin: true });
+    await storage.downloadTrack(trackWithCover("track-b"), { pin: true });
+    deleteCachedCover.mockClear();
+
+    await storage.removeTrack("track-b");
+    expect(deleteCachedCover).not.toHaveBeenCalled();
+
+    await storage.removeTrack("track-a");
+    expect(deleteCachedCover).toHaveBeenCalledWith(coverKey);
+  });
+
+  test("cacheQueueTrack keeps pinned metadata when re-download fails", async () => {
+    const fetchAudioBytes = vi
+      .fn()
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]).buffer)
+      .mockRejectedValue(new Error("network down"));
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true, playlistId: "pl-keep" });
+    await audioStore.delete(track.id, "mp3");
+
+    await expect(storage.cacheQueueTrack(track)).rejects.toThrow(/network down/);
+
+    const record = await storage.getRecord(track.id);
+    expect(record?.isPinned).toBe(true);
+    expect(record?.playlistIds).toContain("pl-keep");
+  });
+
+  test("cacheQueueTrack re-downloads when metadata exists without OPFS bytes", async () => {
+    const fetchAudioBytes = vi.fn().mockResolvedValue(new Uint8Array([4, 5, 6]).buffer);
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: false });
+    await audioStore.delete(track.id, "mp3");
+    fetchAudioBytes.mockClear();
+
+    await storage.cacheQueueTrack(track);
+
+    expect(fetchAudioBytes).toHaveBeenCalledWith(track.id);
+    expect(await storage.hasTrack(track.id)).toBe(true);
   });
 
   test("purgeQueueCache removes queue-only tracks and keeps pinned", async () => {

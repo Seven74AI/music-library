@@ -101,7 +101,6 @@ Used when the user taps a specific track in the queue sheet — the provider use
 - **`getSpinePlayOrder(state)`** — the spine tracks from the current position onward (for queue display when nothing is playing).
 - **`getUpcomingSpinePlayOrder(state)`** — the spine tracks from position+1 onward (for queue display when a track is playing, excluding "now playing").
 - **`buildFlatQueueView(state)`** — concatenates `upNext` + `getSpinePlayOrder(state)` into a single flat array.
-- **`flatIndexForSpinePosition(state, spinePosition)`** — maps a spine position to an index in the flat queue view.
 - **`getQueueSpineDisplayTracks(state, hasCurrentTrack)`** — returns upcoming spine tracks (position+1) when a track is playing, or the full spine order when nothing is playing.
 
 ## Shuffle (seeded Fisher-Yates)
@@ -147,7 +146,7 @@ Response:
 }
 ```
 
-Implementation: one Prisma query with minimal `select` (same projection as `fields=minimal` today). Consider response compression (gzip is automatic).
+Implementation: one Prisma query with minimal `select` (same projection as `fields=minimal`). Consider response compression (gzip is automatic).
 
 ### `GET /api/tracks/playback`
 

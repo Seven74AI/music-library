@@ -1,5 +1,11 @@
 import { expect, test, vi } from "vitest";
+import { consoleError } from "#tests/setup/setup-test-env.ts";
 import { clearPersistedSchedulerStateForTests } from "./scheduler-state.server.ts";
+
+const mockNotifyBackupFailed = vi.fn().mockResolvedValue(undefined);
+vi.mock("./notification.server.ts", () => ({
+  notifyBackupFailed: (...args: unknown[]) => mockNotifyBackupFailed(...args),
+}));
 import {
   BACKUP_SCHEDULER_RETRY_DELAY_MS,
   getBackupHourUtc,
@@ -86,6 +92,7 @@ test("scheduler runs once per day and retries on failure then notifies on last a
   });
 
   // Exhausted
+  mockNotifyBackupFailed.mockClear();
   await processBackupSchedulerTick({
     now: new Date(t0.getTime() + 3 * BACKUP_SCHEDULER_RETRY_DELAY_MS + 1),
     skipPrimaryCheck: true,
@@ -93,6 +100,78 @@ test("scheduler runs once per day and retries on failure then notifies on last a
     run,
   });
   expect(run).toHaveBeenCalledTimes(3);
+  expect(mockNotifyBackupFailed).not.toHaveBeenCalled();
+});
+
+test("after attempt cap, further ticks do not run backup or notify", async () => {
+  process.env.BACKUP_BUCKET_NAME = "b";
+  process.env.BACKUP_HOUR_UTC = "3";
+  resetBackupSchedulerStateForTests();
+  mockNotifyBackupFailed.mockClear();
+
+  const run = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, error: "fail-1" })
+    .mockResolvedValueOnce({ ok: false, error: "fail-2" })
+    .mockResolvedValueOnce({ ok: false, error: "fail-3" });
+
+  const t0 = new Date("2026-09-28T03:00:00.000Z");
+  for (let i = 0; i < 3; i++) {
+    await processBackupSchedulerTick({
+      now: new Date(t0.getTime() + i * BACKUP_SCHEDULER_RETRY_DELAY_MS + (i === 0 ? 0 : 1)),
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+  }
+  expect(run).toHaveBeenCalledTimes(3);
+
+  mockNotifyBackupFailed.mockClear();
+  run.mockClear();
+
+  await processBackupSchedulerTick({
+    now: new Date(t0.getTime() + 4 * BACKUP_SCHEDULER_RETRY_DELAY_MS),
+    skipPrimaryCheck: true,
+    skipPersistence: true,
+    run,
+  });
+  expect(run).not.toHaveBeenCalled();
+  expect(mockNotifyBackupFailed).not.toHaveBeenCalled();
+});
+
+test("resets the attempt cap on a new UTC day and runs backup again", async () => {
+  process.env.BACKUP_BUCKET_NAME = "b";
+  process.env.BACKUP_HOUR_UTC = "3";
+  resetBackupSchedulerStateForTests();
+  mockNotifyBackupFailed.mockClear();
+
+  const run = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, error: "fail-1" })
+    .mockResolvedValueOnce({ ok: false, error: "fail-2" })
+    .mockResolvedValueOnce({ ok: false, error: "fail-3" })
+    .mockResolvedValueOnce({ ok: true as const, dailyKey: "d", weeklyKey: "w" });
+
+  const dayOne = new Date("2026-09-28T03:00:00.000Z");
+  for (let i = 0; i < 3; i++) {
+    await processBackupSchedulerTick({
+      now: new Date(dayOne.getTime() + i * BACKUP_SCHEDULER_RETRY_DELAY_MS + (i === 0 ? 0 : 1)),
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+  }
+  expect(run).toHaveBeenCalledTimes(3);
+
+  const dayTwo = new Date("2026-09-29T03:05:00.000Z");
+  await processBackupSchedulerTick({
+    now: dayTwo,
+    skipPrimaryCheck: true,
+    skipPersistence: true,
+    run,
+  });
+  expect(run).toHaveBeenCalledTimes(4);
+  expect(run.mock.calls[3]![0]).toMatchObject({ attemptCount: 1, notifyOnFailure: false });
 });
 
 test("scheduler stops after success for the UTC day", async () => {
@@ -113,6 +192,48 @@ test("scheduler stops after success for the UTC day", async () => {
     run,
   });
   expect(run).toHaveBeenCalledTimes(1);
+});
+
+test("pre-run throw consumes an attempt and notifies on the last one", async () => {
+  consoleError.mockImplementation(() => {});
+  try {
+    process.env.BACKUP_BUCKET_NAME = "b";
+    process.env.BACKUP_HOUR_UTC = "3";
+    resetBackupSchedulerStateForTests();
+    mockNotifyBackupFailed.mockClear();
+
+    const run = vi.fn().mockRejectedValue(new Error("markBackupRunning failed"));
+
+    const t0 = new Date("2026-09-28T03:00:00.000Z");
+    await processBackupSchedulerTick({
+      now: t0,
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(mockNotifyBackupFailed).not.toHaveBeenCalled();
+
+    await processBackupSchedulerTick({
+      now: new Date(t0.getTime() + BACKUP_SCHEDULER_RETRY_DELAY_MS + 1),
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(mockNotifyBackupFailed).not.toHaveBeenCalled();
+
+    await processBackupSchedulerTick({
+      now: new Date(t0.getTime() + 2 * BACKUP_SCHEDULER_RETRY_DELAY_MS + 1),
+      skipPrimaryCheck: true,
+      skipPersistence: true,
+      run,
+    });
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(mockNotifyBackupFailed).toHaveBeenCalledWith("markBackupRunning failed", 3);
+  } finally {
+    consoleError.mockReset();
+  }
 });
 
 test("scheduler restores persisted retry count after process restart", async () => {

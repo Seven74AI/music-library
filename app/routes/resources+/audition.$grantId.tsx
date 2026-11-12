@@ -8,9 +8,8 @@ import { join, resolve, sep } from "node:path";
 import { type LoaderFunctionArgs } from "react-router";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import { getAuditionGrant } from "#app/features/party-room/audition.server.ts";
-import { serveLocalAudioFile } from "#app/utils/audio-serving.server.ts";
+import { serveLocalAudioFile, serveStorageAudioFile } from "#app/utils/audio-serving.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { getStorageObjectStream } from "#app/utils/storage.server.ts";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const grantId = params.grantId;
@@ -49,16 +48,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   if (existsSync(localFilePath)) {
-    return serveLocalAudioFile(localFilePath, audioFile, request, "private, max-age=60");
+    return serveLocalAudioFile(localFilePath, audioFile, request, "private, no-store");
   }
 
-  const { body, contentType, contentLength } = await getStorageObjectStream(audioFile.objectKey);
-  return new Response(body, {
-    headers: {
-      "Content-Type": contentType,
-      ...(contentLength ? { "Content-Length": contentLength.toString() } : {}),
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "private, max-age=60",
-    },
-  });
+  return await serveStorageAudioFile(audioFile.objectKey, audioFile, request, "private, no-store");
 }

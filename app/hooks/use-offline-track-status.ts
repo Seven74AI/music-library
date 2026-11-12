@@ -12,10 +12,15 @@ export function useOfflineTrackStatus(trackId: string | null) {
       setIsPinned(false);
       return;
     }
-    const storage = getOfflineStorage();
-    const record = await storage.getRecord(trackId);
-    setIsDownloaded(Boolean(record));
-    setIsPinned(Boolean(record?.isPinned));
+    try {
+      const storage = getOfflineStorage();
+      const record = await storage.getRecord(trackId);
+      setIsDownloaded(Boolean(record));
+      setIsPinned(Boolean(record?.isPinned));
+    } catch {
+      setIsDownloaded(false);
+      setIsPinned(false);
+    }
   }, [trackId]);
 
   useEffect(() => {

@@ -15,7 +15,12 @@ import { prisma } from "#app/utils/db.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { handleNewSession } from "../login.server.ts";
 import { type Route } from "./+types/authentication.ts";
-import { PasskeyLoginBodySchema, getWebAuthnConfig, passkeyCookie } from "./utils.server.ts";
+import {
+  PasskeyLoginBodySchema,
+  getWebAuthnConfig,
+  passkeyCookie,
+  toWebAuthnClientErrorMessage,
+} from "./utils.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const config = getWebAuthnConfig(request);
@@ -154,10 +159,11 @@ export async function action({ request }: Route.ActionArgs) {
       });
     }
 
+    console.error("WebAuthn authentication error:", error);
     return Response.json(
       {
         status: "error",
-        error: error instanceof Error ? error.message : "Verification failed",
+        error: toWebAuthnClientErrorMessage(error),
       } as const,
       { status: 400, headers: { "Set-Cookie": deletePasskeyCookie } },
     );

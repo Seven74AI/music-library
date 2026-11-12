@@ -1,38 +1,24 @@
 import { invariant } from "@epic-web/invariant";
 import * as E from "@react-email/components";
 import { data } from "react-router";
-import {
-  requireRecentVerification,
-  type VerifyFunctionArgs,
-} from "#app/routes/_auth+/verify.server.ts";
+import { requireRecentVerification } from "#app/routes/_auth+/verify-guards.server.ts";
+import { type VerifyFunctionArgs } from "#app/routes/_auth+/verify.shared.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { sendEmail } from "#app/utils/email.server.ts";
+import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
-import { verifySessionStorage } from "#app/utils/verification.server.ts";
-import { newEmailAddressSessionKey } from "./profile.change-email";
 
-function isUniqueConstraintError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && (error as { code?: string }).code === "P2002";
-}
-
-export async function handleVerification({ request, submission }: VerifyFunctionArgs) {
+export async function handleVerification({
+  request,
+  submission,
+  pendingNewEmail,
+  deleteVerification,
+}: VerifyFunctionArgs & { deleteVerification?: () => Promise<void> }) {
   await requireRecentVerification(request);
   invariant(submission.status === "success", "Submission should be successful by now");
+  invariant(pendingNewEmail, "change-email verification requires pendingNewEmail");
 
-  const verifySession = await verifySessionStorage.getSession(request.headers.get("cookie"));
-  const newEmail = verifySession.get(newEmailAddressSessionKey);
-  if (!newEmail) {
-    return data(
-      {
-        result: submission.reply({
-          formErrors: [
-            "You must submit the code on the same device that requested the email change.",
-          ],
-        }),
-      },
-      { status: 400 },
-    );
-  }
+  const newEmail = pendingNewEmail;
   const preUpdateUser = await prisma.user.findFirstOrThrow({
     select: { email: true },
     where: { id: submission.value.target },
@@ -70,25 +56,23 @@ export async function handleVerification({ request, submission }: VerifyFunction
     throw error;
   }
 
+  if (deleteVerification) {
+    await deleteVerification();
+  }
+
   void sendEmail({
     to: preUpdateUser.email,
     subject: "Music Library email changed",
     react: <EmailChangeNoticeEmail userId={user.id} />,
+  }).catch((error) => {
+    console.warn("Failed to send email-changed notice:", error);
   });
 
-  return redirectWithToast(
-    "/settings/profile",
-    {
-      title: "Email Changed",
-      type: "success",
-      description: `Your email has been changed to ${user.email}`,
-    },
-    {
-      headers: {
-        "set-cookie": await verifySessionStorage.destroySession(verifySession),
-      },
-    },
-  );
+  return redirectWithToast("/settings/profile", {
+    title: "Email Changed",
+    type: "success",
+    description: `Your email has been changed to ${user.email}`,
+  });
 }
 
 export function EmailChangeEmail({ verifyUrl, otp }: { verifyUrl: string; otp: string }) {

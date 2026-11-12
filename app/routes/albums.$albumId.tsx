@@ -1,4 +1,5 @@
-import { data, Link } from "react-router";
+import { type Prisma } from "#prisma/client.js";
+import { data, Link, redirect } from "react-router";
 import { useState } from "react";
 import { AlbumEditDialog } from "#app/components/album-edit-dialog.tsx";
 import { CuratorNotes } from "#app/components/curator-notes.tsx";
@@ -9,7 +10,13 @@ import { OfflineRouteBlocker } from "#app/components/offline/offline-route-block
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
-import { getUserId } from "#app/utils/auth.server.ts";
+import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
+import {
+  mergedEntityNotFoundResponse,
+  MergedEntityResolutionError,
+  resolveCanonicalIdFromStartId,
+} from "#app/utils/canonical-merged-entity.server.ts";
+import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { getAlbumTitle } from "#app/utils/breadcrumb-utils.ts";
 import { coverImageUrl, entityHeaderCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { prisma } from "#app/utils/db.server.ts";
@@ -24,11 +31,33 @@ export const handle: BreadcrumbHandle = {
   breadcrumb: ({ loaderData }) => getAlbumTitle(loaderData),
 };
 
-export async function loader({ request, params }: Route.LoaderArgs) {
-  const userId = await getUserId(request);
+async function resolvePublicAlbumId(startId: string): Promise<string> {
+  try {
+    return await resolveCanonicalIdFromStartId(startId, (id) =>
+      prisma.album.findUnique({
+        where: { id },
+        select: { id: true, mergedIntoId: true },
+      }),
+    );
+  } catch (error) {
+    if (error instanceof MergedEntityResolutionError) {
+      throw mergedEntityNotFoundResponse("Album");
+    }
+    throw error;
+  }
+}
 
-  const album = await prisma.album.findUnique({
-    where: { id: params.albumId },
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const userId = await getUserIdOrNull(request);
+  const staleCookie = await getStaleAuthSessionDestroyCookie(request, userId);
+  const loaderHeaders = staleCookie ? { headers: { "set-cookie": staleCookie } } : undefined;
+  const canonicalId = await resolvePublicAlbumId(params.albumId);
+  if (canonicalId !== params.albumId) {
+    throw redirect(`/albums/${canonicalId}`);
+  }
+
+  const albumMeta = await prisma.album.findUnique({
+    where: { id: canonicalId },
     select: {
       id: true,
       name: true,
@@ -39,35 +68,52 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         select: { id: true, name: true },
       },
       coverImage: { select: { objectKey: true } },
-      tracks: {
-        select: {
-          id: true,
-          title: true,
-          duration: true,
-          createdAt: true,
-          serviceUrl: true,
-          artist: {
-            select: { id: true, name: true },
-          },
-          coverImage: { select: { objectKey: true } },
-          service: {
-            select: {
-              displayName: true,
-              logoUrl: true,
-            },
-          },
-          audioFiles: {
-            select: { id: true, format: true, objectKey: true },
-          },
-        },
-        orderBy: { createdAt: "asc" },
-      },
     },
   });
 
-  if (!album) {
+  if (!albumMeta) {
     throw new Response("Album not found", { status: 404 });
   }
+
+  const albumTrackSelect = {
+    id: true,
+    title: true,
+    duration: true,
+    createdAt: true,
+    serviceUrl: true,
+    artist: {
+      select: { id: true, name: true },
+    },
+    coverImage: { select: { objectKey: true } },
+    service: {
+      select: {
+        displayName: true,
+        logoUrl: true,
+      },
+    },
+    audioFiles: {
+      select: { id: true, format: true, objectKey: true },
+    },
+  } as const;
+
+  const albumTracks: Array<Prisma.TrackGetPayload<{ select: typeof albumTrackSelect }>> = [];
+  let trackCursor: string | undefined;
+  while (true) {
+    const page = await prisma.track.findMany({
+      where: { albumId: canonicalId },
+      select: albumTrackSelect,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: LIBRARY_TRACKS_PAGE_SIZE,
+      ...(trackCursor ? { skip: 1, cursor: { id: trackCursor } } : {}),
+    });
+    albumTracks.push(...page);
+    if (page.length < LIBRARY_TRACKS_PAGE_SIZE) {
+      break;
+    }
+    trackCursor = page[page.length - 1]?.id;
+  }
+
+  const album = { ...albumMeta, tracks: albumTracks };
 
   const trackIds = album.tracks.map((track) => track.id);
   const [{ libraryTrackIds, userTrackCreatedAtByTrackId }, playlists] = await Promise.all([
@@ -82,13 +128,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       userTrackCreatedAtByTrackId.get(track.id)?.toISOString() ?? track.createdAt.toISOString(),
   }));
 
-  return data({
-    album: {
-      ...album,
-      tracks,
+  return data(
+    {
+      album: {
+        ...album,
+        tracks,
+      },
+      playlists,
     },
-    playlists,
-  });
+    loaderHeaders,
+  );
 }
 
 export default function AlbumRoute({ loaderData }: Route.ComponentProps) {

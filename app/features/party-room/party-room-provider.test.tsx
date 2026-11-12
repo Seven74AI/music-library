@@ -1,15 +1,23 @@
 /**
  * @vitest-environment jsdom
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { consoleWarn } from "#tests/setup/setup-test-env.ts";
 import { writeActiveRoomCode } from "./api.client.ts";
 import { PartyRoomProvider, usePartyRoom } from "./party-room-provider.tsx";
 
 vi.mock("#app/utils/user.ts", () => ({
   useOptionalUser: () => null,
 }));
+
+// Every open-room test heartbeats (fire-and-forget POST). Tests mock `fetch`
+// directly; a heartbeat leaking to MSW under load is noise — MSW has no
+// room-API handler and setup-test-env throws on `console.warn`.
+beforeEach(() => {
+  consoleWarn.mockImplementation(() => {});
+});
 
 function LeaveOnMount() {
   const { leave } = usePartyRoom();
@@ -235,6 +243,37 @@ function qrLoadErrorOf(party: object): string {
   return value ?? "";
 }
 
+function RoomCodeProbe() {
+  const { room, leave } = usePartyRoom();
+  return (
+    <div>
+      <span data-testid="code">{room?.code ?? ""}</span>
+      <button type="button" onClick={() => void leave()}>
+        Leave
+      </button>
+    </div>
+  );
+}
+
+function LeaveJoinRefreshProbe() {
+  const { room, leave, join, refresh } = usePartyRoom();
+  return (
+    <div>
+      <span data-testid="code">{room?.code ?? ""}</span>
+      <span data-testid="api">{room ? "seated" : "empty"}</span>
+      <button type="button" onClick={() => void refresh()}>
+        Refresh
+      </button>
+      <button type="button" onClick={() => void leave()}>
+        Leave
+      </button>
+      <button type="button" onClick={() => void join("CD4M2P", "Guest").catch(() => {})}>
+        Join other
+      </button>
+    </div>
+  );
+}
+
 function RoomProbe() {
   const party = usePartyRoom();
   return (
@@ -248,8 +287,12 @@ function RoomProbe() {
       <button type="button" onClick={() => void party.create().catch(() => {})}>
         Create
       </button>
+      <button type="button" onClick={() => void party.refresh()}>
+        Refresh
+      </button>
       <span data-testid="qr">{party.room?.qrDataUrl ?? ""}</span>
       <span data-testid="version">{String(party.room?.roomVersion ?? "")}</span>
+      <span data-testid="playing">{party.room?.playback.isPlaying ? "yes" : "no"}</span>
       <span data-testid="error">{party.error ?? ""}</span>
       <span data-testid="api">{party.apiUnavailable ? "yes" : "no"}</span>
       <span data-testid="code">{party.room?.code ?? ""}</span>
@@ -274,6 +317,301 @@ describe("PartyRoomProvider join errors and QR", () => {
     sessionStorage.clear();
   });
 
+  it("does not re-enter the room when an SSE snapshot resolves after leave", async () => {
+    writeActiveRoomCode("AB3K9Q");
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/leave")) {
+        return jsonResponse({ left: true, remaining: 0 });
+      }
+      if (url.includes("/current")) {
+        return jsonResponse(roomPayload({ roomVersion: 2 }));
+      }
+      return jsonResponse({}, method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <RoomCodeProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+      expect(MockEventSource.latest?.onmessage).toBeTypeOf("function");
+    });
+
+    await act(async () => {
+      MockEventSource.latest!.onmessage!({
+        data: JSON.stringify({
+          type: "room_snapshot",
+          room: roomPayload({ roomVersion: 2 }),
+        }),
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+
+    await waitFor(() => {
+      expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
+      expect(screen.getByTestId("code").textContent).toBe("");
+    });
+
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByTestId("code").textContent).toBe("");
+    expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
+  });
+
+  it("keeps a new seat when a stale refresh fails after leave then join", async () => {
+    writeActiveRoomCode("AB3K9Q");
+    let releaseStaleRefresh: () => void = () => {};
+    const staleRefreshGate = new Promise<void>((resolve) => {
+      releaseStaleRefresh = resolve;
+    });
+    let refreshCalls = 0;
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/leave")) {
+        return jsonResponse({ left: true, remaining: 0 });
+      }
+      if (method === "POST" && url.includes("/join")) {
+        return jsonResponse(roomPayload({ code: "CD4M2P", roomVersion: 1 }));
+      }
+      if (url.includes("/api/rooms/CD4M2P") && method === "GET") {
+        return jsonResponse(roomPayload({ code: "CD4M2P", roomVersion: 1 }));
+      }
+      if (url.includes("/current")) {
+        refreshCalls += 1;
+        if (refreshCalls === 1) {
+          return jsonResponse(roomPayload({ roomVersion: 1 }));
+        }
+        await staleRefreshGate;
+        return jsonResponse({ error: "Not Found" }, 404);
+      }
+      return jsonResponse({}, method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <LeaveJoinRefreshProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join other" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("CD4M2P");
+      expect(sessionStorage.getItem("party-room.active-code")).toBe("CD4M2P");
+    });
+
+    releaseStaleRefresh();
+    await waitFor(() => {
+      expect(refreshCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(screen.getByTestId("code").textContent).toBe("CD4M2P");
+    expect(sessionStorage.getItem("party-room.active-code")).toBe("CD4M2P");
+  });
+
+  it("does not clear sessionStorage when a stale refresh returns an old seat after join", async () => {
+    writeActiveRoomCode("AB3K9Q");
+    let releaseStaleRefresh: () => void = () => {};
+    const staleRefreshGate = new Promise<void>((resolve) => {
+      releaseStaleRefresh = resolve;
+    });
+    let refreshCalls = 0;
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/leave")) {
+        return jsonResponse({ left: true, remaining: 0 });
+      }
+      if (method === "POST" && url.includes("/join")) {
+        return jsonResponse(roomPayload({ code: "CD4M2P", roomVersion: 1 }));
+      }
+      if (url.includes("/api/rooms/CD4M2P") && method === "GET") {
+        return jsonResponse(roomPayload({ code: "CD4M2P", roomVersion: 1 }));
+      }
+      if (url.includes("/current")) {
+        refreshCalls += 1;
+        if (refreshCalls === 1) {
+          return jsonResponse(roomPayload({ roomVersion: 1 }));
+        }
+        await staleRefreshGate;
+        return jsonResponse(roomPayload({ roomVersion: 2 }));
+      }
+      return jsonResponse({}, method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <LeaveJoinRefreshProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join other" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("CD4M2P");
+      expect(sessionStorage.getItem("party-room.active-code")).toBe("CD4M2P");
+    });
+
+    releaseStaleRefresh();
+    await waitFor(() => {
+      expect(refreshCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(screen.getByTestId("code").textContent).toBe("CD4M2P");
+    expect(sessionStorage.getItem("party-room.active-code")).toBe("CD4M2P");
+  });
+
+  it("does not re-enter when a version refresh completes after leave", async () => {
+    writeActiveRoomCode("AB3K9Q");
+
+    let releaseRefresh: () => void = () => {};
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let refreshCalls = 0;
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/leave")) {
+        return jsonResponse({ left: true, remaining: 0 });
+      }
+      if (url.includes("/current")) {
+        refreshCalls += 1;
+        if (refreshCalls === 1) {
+          return jsonResponse(roomPayload({ roomVersion: 1 }));
+        }
+        await refreshGate;
+        return jsonResponse(roomPayload({ roomVersion: 3 }));
+      }
+      return jsonResponse({}, method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <RoomCodeProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+      expect(MockEventSource.latest?.onmessage).toBeTypeOf("function");
+    });
+
+    await act(async () => {
+      MockEventSource.latest!.onmessage!({
+        data: JSON.stringify({ type: "version" }),
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+
+    await waitFor(() => {
+      expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
+      expect(screen.getByTestId("code").textContent).toBe("");
+    });
+
+    releaseRefresh();
+    await waitFor(() => {
+      expect(refreshCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(screen.getByTestId("code").textContent).toBe("");
+    expect(sessionStorage.getItem("party-room.active-code")).toBeNull();
+  });
+
+  it("ignores a stale current-room refresh after a newer SSE snapshot", async () => {
+    let releaseStaleRefresh: () => void = () => {};
+    const staleRefreshGate = new Promise<void>((resolve) => {
+      releaseStaleRefresh = resolve;
+    });
+    let currentCalls = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/current")) {
+        currentCalls += 1;
+        if (currentCalls === 1) {
+          return jsonResponse(roomPayload({ roomVersion: 1, isPlaying: true }));
+        }
+        await staleRefreshGate;
+        return jsonResponse(roomPayload({ roomVersion: 2, isPlaying: true }));
+      }
+      return jsonResponse({}, init?.method === "POST" ? 200 : 204);
+    }) as typeof fetch;
+
+    render(
+      <PartyRoomProvider>
+        <RoomProbe />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("version").textContent).toBe("1");
+      expect(MockEventSource.latest?.onmessage).toBeTypeOf("function");
+    });
+
+    await import("./api.client.ts");
+
+    await act(async () => {
+      MockEventSource.latest!.onmessage!({
+        data: JSON.stringify({
+          type: "room_snapshot",
+          room: roomPayload({ roomVersion: 3, isPlaying: false }),
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("version").textContent).toBe("3");
+      expect(screen.getByTestId("playing").textContent).toBe("no");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    releaseStaleRefresh();
+
+    await waitFor(() => {
+      expect(currentCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(screen.getByTestId("version").textContent).toBe("3");
+    expect(screen.getByTestId("playing").textContent).toBe("no");
+  });
+
   it("keeps qrDataUrl when a later snapshot omits it", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -292,18 +630,27 @@ describe("PartyRoomProvider join errors and QR", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("qr").textContent).toBe(QR);
+      expect(MockEventSource.latest?.onmessage).toBeTypeOf("function");
     });
 
-    MockEventSource.latest?.onmessage?.({
-      data: JSON.stringify({
-        type: "room_snapshot",
-        room: roomPayload({ roomVersion: 2 }),
-      }),
+    // Preload so the SSE handler's dynamic import does not race waitFor under CI load.
+    await import("./api.client.ts");
+
+    await act(async () => {
+      MockEventSource.latest!.onmessage!({
+        data: JSON.stringify({
+          type: "room_snapshot",
+          room: roomPayload({ roomVersion: 2 }),
+        }),
+      });
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId("version").textContent).toBe("2");
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("version").textContent).toBe("2");
+      },
+      { timeout: 5_000 },
+    );
     expect(screen.getByTestId("qr").textContent).toBe(QR);
   });
 
@@ -559,6 +906,155 @@ describe("PartyRoomProvider join errors and QR", () => {
       expect(screen.getByTestId("api").textContent).toBe("yes");
     });
     expect(screen.getByTestId("code").textContent).toBe("");
+  });
+
+  it("failed leave sets provider error and does not reject fire-and-forget callers", async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      rejections.push(event.reason);
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+
+    writeActiveRoomCode("AB3K9Q");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/current")) return jsonResponse(roomPayload());
+      if (method === "POST" && url.includes("/leave")) {
+        return jsonResponse({ error: "Server error" }, 500);
+      }
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    function LeaveFireAndForget() {
+      const { leave } = usePartyRoom();
+      return (
+        <button type="button" onClick={() => void leave().then(() => {})}>
+          Leave noop
+        </button>
+      );
+    }
+
+    render(
+      <PartyRoomProvider>
+        <RoomProbe />
+        <LeaveFireAndForget />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave noop" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).not.toBe("");
+    });
+    expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    expect(rejections).toHaveLength(0);
+
+    window.removeEventListener("unhandledrejection", onUnhandled);
+  });
+
+  it("failed end sets provider error and does not reject fire-and-forget callers", async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      rejections.push(event.reason);
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+
+    writeActiveRoomCode("AB3K9Q");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/current")) return jsonResponse(roomPayload());
+      if (method === "POST" && url.includes("/end")) {
+        return jsonResponse({ error: "Server error" }, 500);
+      }
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    function EndFireAndForget() {
+      const { end } = usePartyRoom();
+      return (
+        <button type="button" onClick={() => void end().then(() => {})}>
+          End noop
+        </button>
+      );
+    }
+
+    render(
+      <PartyRoomProvider>
+        <RoomProbe />
+        <EndFireAndForget />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "End noop" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).not.toBe("");
+    });
+    expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    expect(rejections).toHaveLength(0);
+
+    window.removeEventListener("unhandledrejection", onUnhandled);
+  });
+
+  it("failed setDefaultJoinRole sets provider error without rejecting", async () => {
+    const rejections: unknown[] = [];
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      rejections.push(event.reason);
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+
+    writeActiveRoomCode("AB3K9Q");
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/heartbeat")) return heartbeatResponse();
+      if (url.includes("/current")) return jsonResponse(roomPayload());
+      if (method === "POST" && url.includes("/settings")) {
+        return jsonResponse({ error: "Server error" }, 500);
+      }
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    function RoleFireAndForget() {
+      const { setDefaultJoinRole } = usePartyRoom();
+      return (
+        <button type="button" onClick={() => void setDefaultJoinRole("dj").then(() => {})}>
+          Set DJ default
+        </button>
+      );
+    }
+
+    render(
+      <PartyRoomProvider>
+        <RoomProbe />
+        <RoleFireAndForget />
+      </PartyRoomProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("code").textContent).toBe("AB3K9Q");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Set DJ default" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).not.toBe("");
+    });
+    expect(rejections).toHaveLength(0);
+
+    window.removeEventListener("unhandledrejection", onUnhandled);
   });
 
   it("still marks the API unavailable for a 501", async () => {

@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import { linkGenresToTrack } from "#tests/track-genre-test-utils.ts";
 import { awardCuratorBadges, loadCuratorCounts, resetBadgeAwardCache } from "./badges.server.ts";
 
 const createdUserIds: string[] = [];
@@ -53,9 +54,9 @@ async function createTrack(title: string, genre = "Jazz") {
       artistId: artist.id,
       serviceId: service.id,
       externalId: `badge-${title}-${Math.random().toString(36).slice(2, 8)}`,
-      genre,
     },
   });
+  await linkGenresToTrack(track.id, genre);
   createdTrackIds.push(track.id);
   return { track, artist };
 }
@@ -81,6 +82,34 @@ afterEach(async () => {
 });
 
 describe("awardCuratorBadges", () => {
+  test("unique-violation batch does not stamp awardedAt TTL", async () => {
+    const curator = await createCurator("TtlStamp");
+    const { track, artist } = await createTrack("Ttl Track");
+    await prisma.trackEdit.create({
+      data: {
+        trackId: track.id,
+        editedBy: curator.id,
+        title: track.title,
+        artistId: artist.id,
+        genre: "Jazz",
+      },
+    });
+    resetBadgeAwardCache();
+
+    const createSpy = vi
+      .spyOn(prisma.curatorBadge, "create")
+      .mockRejectedValue(Object.assign(new Error("Unique constraint failed"), { code: "P2002" }));
+
+    const failedAward = await awardCuratorBadges({ force: true });
+    expect(failedAward.awarded).toBe(0);
+    createSpy.mockRestore();
+
+    const retry = await awardCuratorBadges({ force: false });
+    expect(retry.skipped).toBe(false);
+    expect(retry.awarded).toBeGreaterThanOrEqual(1);
+    expect(await prisma.curatorBadge.count({ where: { curatorId: curator.id } })).toBe(1);
+  });
+
   test("parallel awards insert a new badge once", async () => {
     const curator = await createCurator("ParallelBadge");
     const { track, artist } = await createTrack("Parallel Track");
@@ -168,9 +197,42 @@ describe("awardCuratorBadges", () => {
     ).toEqual(["first_edit"]);
   });
 
-  test("counts merges, genre changes, and resolved user reports without awarding early", async () => {
-    const curator = await createCurator("StatsCurator");
-    const { track, artist } = await createTrack("Genre Track", "Jazz");
+  test("counts each distinct genre edit across tracks separately", async () => {
+    const curator = await createCurator("MultiGenre");
+    const trackA = await createTrack("Genre Track A", "Jazz");
+    const trackB = await createTrack("Genre Track B", "Rock");
+    const jazzGenre = await prisma.genre.findFirst({ where: { name: "Jazz" } });
+    const rockGenre = await prisma.genre.findFirst({ where: { name: "Rock" } });
+    await prisma.trackEdit.createMany({
+      data: [
+        {
+          trackId: trackA.track.id,
+          editedBy: curator.id,
+          title: trackA.track.title,
+          artistId: trackA.artist.id,
+          genre: "Electronic",
+          genreIds: JSON.stringify([jazzGenre?.id ?? "genre-electronic"]),
+        },
+        {
+          trackId: trackB.track.id,
+          editedBy: curator.id,
+          title: trackB.track.title,
+          artistId: trackB.artist.id,
+          genre: "Classical",
+          genreIds: JSON.stringify([rockGenre?.id ?? "genre-classical"]),
+        },
+      ],
+    });
+
+    const counts = await loadCuratorCounts();
+    expect(counts.get(curator.id)?.genreEdits).toBe(2);
+  });
+
+  test("one-shot genre edit scores genreEdits exactly once when live genres drift", async () => {
+    const curator = await createCurator("GenreOnce");
+    const { track, artist } = await createTrack("Once Genre Track");
+    const rockGenre = await prisma.genre.findFirst({ where: { name: "Rock" } });
+    await prisma.$executeRaw`DELETE FROM _TrackGenres WHERE B = ${track.id}`;
     await prisma.trackEdit.create({
       data: {
         trackId: track.id,
@@ -178,7 +240,38 @@ describe("awardCuratorBadges", () => {
         title: track.title,
         artistId: artist.id,
         genre: "Rock",
+        genreIds: JSON.stringify([rockGenre?.id ?? "genre-rock"]),
       },
+    });
+    await linkGenresToTrack(track.id, "Jazz");
+
+    const counts = await loadCuratorCounts();
+    expect(counts.get(curator.id)?.genreEdits).toBe(1);
+  });
+
+  test("counts merges, genre changes, and resolved user reports without awarding early", async () => {
+    const curator = await createCurator("StatsCurator");
+    const { track, artist } = await createTrack("Genre Track", "Jazz");
+    await prisma.$executeRaw`DELETE FROM _TrackGenres WHERE B = ${track.id}`;
+    await prisma.trackEdit.createMany({
+      data: [
+        {
+          trackId: track.id,
+          editedBy: curator.id,
+          title: track.title,
+          artistId: artist.id,
+          genre: "Rock",
+          genreIds: JSON.stringify(["genre-rock"]),
+        },
+        {
+          trackId: track.id,
+          editedBy: curator.id,
+          title: track.title,
+          artistId: artist.id,
+          genre: "Jazz",
+          genreIds: JSON.stringify(["genre-jazz"]),
+        },
+      ],
     });
     await prisma.artistEdit.create({
       data: {
@@ -204,7 +297,7 @@ describe("awardCuratorBadges", () => {
     const counts = await loadCuratorCounts();
     const mine = counts.get(curator.id);
     expect(mine).toMatchObject({
-      edits: 2,
+      edits: 3,
       merges: 1,
       queueResolutions: 1,
       genreEdits: 1,

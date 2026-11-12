@@ -12,6 +12,12 @@ import {
 } from "#app/utils/discover.ts";
 import { type SortDirection } from "#app/utils/sort-direction.ts";
 import { getTrackPopularityStats, getTrackPlayCounts } from "#app/utils/track-popularity.server.ts";
+import {
+  assertValidIdCursor,
+  INVALID_CURSOR_FORMAT_MESSAGE,
+} from "#app/utils/search-validation.server.ts";
+import { buildUserTrackAccessWhere } from "#app/features/queue/queue-playback.server.ts";
+import { chunkArray } from "#app/utils/chunk-array.ts";
 
 // Re-export shared types and functions for server use
 export {
@@ -99,18 +105,30 @@ export async function listDiscoverTracks({
 
   const orderBy = getOrderByForSort(sort, direction);
 
+  assertValidIdCursor(cursor);
+  if (cursor) {
+    const anchor = await prisma.track.findUnique({
+      where: { id: cursor },
+      select: { id: true },
+    });
+    if (!anchor) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+  }
+
   const tracksRaw = await prisma.track.findMany({
     select: TRACK_SELECT,
     orderBy,
-    take: limit,
+    take: limit + 1,
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : undefined,
   });
 
-  const nextCursor =
-    tracksRaw.length === limit ? (tracksRaw[tracksRaw.length - 1]?.id ?? null) : null;
+  const hasNext = tracksRaw.length > limit;
+  const pageTracks = hasNext ? tracksRaw.slice(0, limit) : tracksRaw;
+  const nextCursor = hasNext ? (pageTracks[pageTracks.length - 1]?.id ?? null) : null;
 
-  const trackIds = tracksRaw.map((t) => t.id);
+  const trackIds = pageTracks.map((t) => t.id);
   const userTracks = await prisma.userTrack.findMany({
     where: {
       userId,
@@ -129,7 +147,7 @@ export async function listDiscoverTracks({
   // Fetch popularity stats for all tracks
   const popularityStatsMap = await getTrackPopularityStats(trackIds, userId);
 
-  const tracks: DiscoverTrack[] = tracksRaw.map((track) => ({
+  const tracks: DiscoverTrack[] = pageTracks.map((track) => ({
     ...track,
     isInUserLibrary: userTrackMap.has(track.id),
     userTrackCreatedAt: userTrackMap.get(track.id) ?? null,
@@ -140,7 +158,7 @@ export async function listDiscoverTracks({
     tracks,
     pagination: {
       limit,
-      hasNext: !!nextCursor,
+      hasNext,
       nextCursor,
     },
   };
@@ -237,6 +255,17 @@ async function aggregateOrderedTrackIds({
   cursor: string | null | undefined;
   limit: number;
 }): Promise<AggregatePage> {
+  assertValidIdCursor(cursor);
+  if (cursor) {
+    const anchor = await prisma.track.findUnique({
+      where: { id: cursor },
+      select: { id: true },
+    });
+    if (!anchor) {
+      throw new Error(INVALID_CURSOR_FORMAT_MESSAGE);
+    }
+  }
+
   const desc = direction !== "asc";
   const cntDir = desc ? "DESC" : "ASC";
   const createdDir = desc ? "DESC" : "ASC";
@@ -358,15 +387,21 @@ const SPINE_TRACK_SELECT = {
  * Tracks without audio are omitted so playback can continue through the list.
  */
 export async function listDiscoverSpineTracks({
+  userId,
   sort,
   direction = defaultDiscoverSortDirection(sort),
 }: {
+  userId: string;
   sort: DiscoverSortOption;
   direction?: SortDirection;
 }) {
+  const ownedPlayableWhere = {
+    ...PLAYABLE_TRACK_WHERE,
+    ...buildUserTrackAccessWhere(userId),
+  };
   if (sort === "mostPlayed" || sort === "mostLiked") {
     const tracks = await prisma.track.findMany({
-      where: PLAYABLE_TRACK_WHERE,
+      where: ownedPlayableWhere,
       select: SPINE_TRACK_SELECT,
     });
     const ids = tracks.map((track) => track.id);
@@ -386,7 +421,7 @@ export async function listDiscoverSpineTracks({
   }
 
   const tracks = await prisma.track.findMany({
-    where: PLAYABLE_TRACK_WHERE,
+    where: ownedPlayableWhere,
     select: SPINE_TRACK_SELECT,
     orderBy: getOrderByForSort(sort, direction),
   });
@@ -395,10 +430,16 @@ export async function listDiscoverSpineTracks({
 
 async function discoverLibraryCounts(trackIds: string[]) {
   if (trackIds.length === 0) return new Map<string, number>();
-  const userCounts = await prisma.userTrack.groupBy({
-    by: ["trackId"],
-    where: { trackId: { in: trackIds }, isActive: true, deletedAt: null },
-    _count: { userId: true },
-  });
-  return new Map(userCounts.map((row) => [row.trackId, row._count.userId]));
+  const counts = new Map<string, number>();
+  for (const idChunk of chunkArray(trackIds)) {
+    const userCounts = await prisma.userTrack.groupBy({
+      by: ["trackId"],
+      where: { trackId: { in: idChunk }, isActive: true, deletedAt: null },
+      _count: { userId: true },
+    });
+    for (const row of userCounts) {
+      counts.set(row.trackId, row._count.userId);
+    }
+  }
+  return counts;
 }

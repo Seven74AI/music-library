@@ -6,7 +6,6 @@ import {
   normalizeRoomCode,
   parseRoomCodeInput,
 } from "./codes.ts";
-import { ROOM_CODE_LENGTH } from "./constants.ts";
 import { canBecomeHost, canReclaimHost, isCurrentHost, splitRoomQueue } from "./index.ts";
 import { type RoomParticipantDto, type RoomQueueItemDto, type RoomSnapshot } from "./types.ts";
 
@@ -80,7 +79,6 @@ describe("room code helpers", () => {
     expect(isValidRoomCode("AB3K9Q")).toBe(true);
     expect(isValidRoomCode("AB3K9")).toBe(false);
     expect(isValidRoomCode("AB0K9Q")).toBe(false); // 0 not in charset
-    expect(ROOM_CODE_LENGTH).toBe(6);
   });
 
   it("parses bare codes and join URLs", () => {
@@ -110,6 +108,18 @@ describe("splitRoomQueue", () => {
     expect(history.map((i) => i.position)).toEqual([0]);
     expect(nowPlaying?.position).toBe(1);
     expect(upcoming.map((i) => i.position)).toEqual([2, 3]);
+  });
+
+  it("treats non-finite currentIndex as safe empty split", () => {
+    const room = baseRoom({
+      queue: [item(0), item(1), item(2)],
+      playback: { isPlaying: false, currentIndex: Number.NaN, currentTrackId: null },
+    });
+    expect(splitRoomQueue(room)).toEqual({
+      history: [],
+      upcoming: room.queue,
+      nowPlaying: null,
+    });
   });
 
   it("tolerates missing queue or playback without throwing", () => {

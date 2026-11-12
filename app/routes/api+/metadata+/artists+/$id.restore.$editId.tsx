@@ -1,6 +1,14 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  editLockConflictCopyForEntity,
+  findWriteBlockedLock,
+  getLockStatus,
+  throwEditLockTransactionError,
+} from "#app/utils/locks.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -65,6 +73,19 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Artist not found" }, { status: 404 });
   }
 
+  const blockedLock = await findWriteBlockedLock(userId, [
+    { entityType: "artist", entityId: artistId },
+  ]);
+  if (blockedLock) {
+    throw data(
+      {
+        error: "Locked",
+        message: `${blockedLock.lockedByName} is currently editing this artist`,
+      },
+      { status: 409 },
+    );
+  }
+
   // Verify edit exists and belongs to this artist
   const editToRestore = await prisma.artistEdit.findUnique({
     where: { id: editId },
@@ -88,53 +109,67 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Edit does not belong to this artist" }, { status: 400 });
   }
 
-  // Perform restore: create history entry with current state, then update artist
-  const result = await prisma.$transaction(async (tx) => {
-    // Create history entry with current state (before restore)
-    const editEntry = await tx.artistEdit.create({
-      data: {
-        artistId: artist.id,
-        editedBy: userId,
-        comment: `Restore to version ${editId}: ${comment}`,
-        // Snapshot current state
-        name: artist.name,
-        bio: artist.bio,
-        genre: artist.genre,
-        country: artist.country,
-        imageUrl: artist.imageUrl,
-        website: artist.website,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            name: true,
+  const lock = await getLockStatus("artist", artistId);
+
+  let result: {
+    artist: Awaited<ReturnType<typeof prisma.artist.update>>;
+    edit: Awaited<ReturnType<typeof prisma.artistEdit.create>>;
+  };
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "artist", artistId, userId, lock);
+
+      // Create history entry with current state (before restore)
+      const editEntry = await tx.artistEdit.create({
+        data: {
+          artistId: artist.id,
+          editedBy: userId,
+          comment: `Restore to version ${editId}: ${comment}`,
+          // Snapshot current state
+          name: artist.name,
+          bio: artist.bio,
+          genre: artist.genre,
+          country: artist.country,
+          imageUrl: artist.imageUrl,
+          website: artist.website,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              name: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    // Update artist with restored data
-    const normalizedName = normalizeArtistName(editToRestore.name);
-    const updatedArtist = await tx.artist.update({
-      where: { id: artistId },
-      data: {
-        name: editToRestore.name,
-        normalizedName,
-        bio: editToRestore.bio,
-        genre: editToRestore.genre,
-        country: editToRestore.country,
-        imageUrl: editToRestore.imageUrl,
-        website: editToRestore.website,
-      },
-    });
+      // Update artist with restored data
+      const normalizedName = normalizeArtistName(editToRestore.name);
+      const updatedArtist = await tx.artist.update({
+        where: { id: artistId },
+        data: {
+          name: editToRestore.name,
+          normalizedName,
+          bio: editToRestore.bio,
+          genre: editToRestore.genre,
+          country: editToRestore.country,
+          imageUrl: editToRestore.imageUrl,
+          website: editToRestore.website,
+        },
+      });
 
-    return {
-      artist: updatedArtist,
-      edit: editEntry,
-    };
-  });
+      return {
+        artist: updatedArtist,
+        edit: editEntry,
+      };
+    });
+  } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("artist"));
+    }
+    throw error;
+  }
 
   return data(result);
 }

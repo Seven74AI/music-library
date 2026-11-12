@@ -22,8 +22,13 @@ import { YOUTUBE_SERVICE } from "#app/constants/services";
 import { resolveServiceAccessToken } from "#app/features/service-connection/service-connection.server";
 import { type PlaylistWithTracks, type TrackWithUserStatus } from "#app/types/frontend";
 import { type YouTubePlaylist } from "#app/types/youtube-api";
+import { scheduleArchiveQueueTickAfterCommit } from "#app/features/audio-archive/auto-enqueue.server";
 import { chunkArray } from "#app/utils/chunk-array";
 import { prisma } from "#app/utils/db.server";
+import {
+  SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE,
+  toClientErrorMessage,
+} from "#app/utils/error-handlers.server";
 import {
   type ArchiveEnqueueAdapter,
   createProductionArchiveEnqueueAdapter,
@@ -31,12 +36,12 @@ import {
 import {
   processTracksInBatches,
   resolveDeletedVideosAfterSync,
-  type PendingMatch,
   type ProcessTracksResult,
   type SyncableItem,
   type SyncTrackInfo,
 } from "./batch-processor.server";
 import { processTrackImagesAsync } from "./image-processor.server";
+import { type PendingMatch } from "./orphan-detection.server";
 import { type PlaylistSyncProvider } from "./playlist-sync-provider.server";
 import { getServiceByName } from "./playlist-utils.server";
 import { findAllServicePlaylistTracks } from "./service-playlist-track-queries.server";
@@ -122,6 +127,19 @@ export class ServicePlaylistService {
     return bundle;
   }
 
+  private applyDeletedVideoResolution(
+    accumulated: ProcessTracksResult,
+    resolution: Awaited<ReturnType<typeof resolveDeletedVideosAfterSync>>,
+  ): void {
+    accumulated.pendingMatches = resolution.pendingMatches;
+    accumulated.deletedTracks.push(...resolution.deletedTracks);
+    accumulated.processedCount += resolution.autoCreatedCount;
+    accumulated.processedIds = resolution.processedIds;
+    accumulated.removeSptIds = resolution.removeSptIds;
+    accumulated.leaveAloneSptIds = resolution.leaveAloneSptIds;
+    accumulated.deletedVideosWithoutMatch = [];
+  }
+
   private async processBatches(
     playlistItems: SyncableItem[],
     serviceId: string,
@@ -132,6 +150,14 @@ export class ServicePlaylistService {
       resolveVideoExistence?: PlaylistSyncProvider["resolveVideoExistence"];
     },
   ): Promise<{ result: ProcessTracksResult; timedOut: boolean }> {
+    // Dedup by playlistItem.id: paged fetches can repeat an item mid-edit.
+    const seenItemIds = new Set<string>();
+    playlistItems = playlistItems.filter((item) => {
+      if (!item.id) return true;
+      if (seenItemIds.has(item.id)) return false;
+      seenItemIds.add(item.id);
+      return true;
+    });
     const totalItems = playlistItems.length;
     const accumulated: ProcessTracksResult = {
       processedCount: 0,
@@ -139,11 +165,14 @@ export class ServicePlaylistService {
       processedIds: {
         externalIds: new Set<string>(),
         trackIds: new Set<string>(),
+        sptIds: new Set<string>(),
+        failedExternalIds: new Set<string>(),
       },
       pendingMatches: [],
       deletedVideosWithoutMatch: [],
       removeSptIds: new Set(),
       leaveAloneSptIds: new Set(),
+      archiveQueueTickNeeded: false,
     };
 
     for (let batchStart = 0; batchStart < totalItems; batchStart += TRANSACTION_BATCH_SIZE) {
@@ -174,7 +203,12 @@ export class ServicePlaylistService {
         batchResult.processedIds.trackIds.forEach((id) =>
           accumulated.processedIds.trackIds.add(id),
         );
+        batchResult.processedIds.sptIds.forEach((id) => accumulated.processedIds.sptIds.add(id));
+        batchResult.processedIds.failedExternalIds?.forEach((id) =>
+          accumulated.processedIds.failedExternalIds?.add(id),
+        );
         accumulated.deletedVideosWithoutMatch.push(...batchResult.deletedVideosWithoutMatch);
+        scheduleArchiveQueueTickAfterCommit(batchResult.archiveQueueTickNeeded);
       } catch (batchError) {
         console.error(
           `Error processing batch ${batchStart}-${batchStart + TRANSACTION_BATCH_SIZE}:`,
@@ -185,6 +219,17 @@ export class ServicePlaylistService {
           (batchError.message.includes("expired transaction") ||
             batchError.message.includes("timeout"))
         ) {
+          const resolution = await resolveDeletedVideosAfterSync(
+            playlistId,
+            serviceId,
+            accumulated.deletedVideosWithoutMatch,
+            accumulated.processedIds,
+            {
+              accessToken: options?.accessToken,
+              resolveVideoExistence: options?.resolveVideoExistence,
+            },
+          );
+          this.applyDeletedVideoResolution(accumulated, resolution);
           return { result: accumulated, timedOut: true };
         }
         throw batchError;
@@ -202,14 +247,7 @@ export class ServicePlaylistService {
       },
     );
 
-    accumulated.pendingMatches = resolution.pendingMatches;
-    accumulated.deletedTracks.push(...resolution.deletedTracks);
-    accumulated.processedCount += resolution.autoCreatedCount;
-    accumulated.processedIds = resolution.processedIds;
-    accumulated.removeSptIds = resolution.removeSptIds;
-    accumulated.leaveAloneSptIds = resolution.leaveAloneSptIds;
-    // Clear stubs once resolved so callers don't re-process
-    accumulated.deletedVideosWithoutMatch = [];
+    this.applyDeletedVideoResolution(accumulated, resolution);
 
     return { result: accumulated, timedOut: false };
   }
@@ -325,7 +363,7 @@ export class ServicePlaylistService {
       return this.registerAndSyncPlaylist(serviceName, playlistId, userId);
     } catch (error) {
       console.error("Error syncing service playlist:", error);
-      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+      const clientMessage = toClientErrorMessage(error, SERVICE_PLAYLIST_SYNC_CLIENT_ERROR_MESSAGE);
       return {
         success: false,
         tracksAdded: 0,
@@ -333,8 +371,8 @@ export class ServicePlaylistService {
         deletedTracks: [],
         removedTracks: [],
         pendingMatches: [],
-        error: errorMessage,
-        message: `Failed to sync playlist: ${errorMessage}`,
+        error: clientMessage,
+        message: clientMessage,
       };
     }
   }
@@ -379,14 +417,12 @@ export class ServicePlaylistService {
         ...playlistData,
         serviceId: service.id,
         ownerId: userId,
-        lastSyncedAt: new Date(),
         isActive: true,
       },
       create: {
         ...playlistData,
         serviceId: service.id,
         ownerId: userId,
-        lastSyncedAt: new Date(),
         isActive: true,
       },
     });
@@ -416,6 +452,15 @@ export class ServicePlaylistService {
           "The playlist sync took too long and timed out. This may happen with very large playlists. Please try again or contact support if the issue persists.",
       };
     }
+
+    await prisma.servicePlaylist.update({
+      where: { id: playlist.id },
+      data: {
+        itemCount: playlistItems.length,
+        lastSyncedAt: new Date(),
+        archiveReadyNotifiedAt: null,
+      },
+    });
 
     this.triggerImageProcessing(playlist.id);
 
@@ -468,7 +513,9 @@ export class ServicePlaylistService {
       if (error instanceof Error) {
         throw error;
       }
-      throw new Error("Failed to fetch playlist items from external service", { cause: error });
+      throw new Error("Failed to fetch playlist items from external service", {
+        cause: error,
+      });
     }
 
     const { result: processResult, timedOut } = await this.processBatches(
@@ -522,11 +569,15 @@ export class ServicePlaylistService {
       const externalId = playlistTrack.track.externalId;
       const trackId = playlistTrack.track.id;
 
-      removedTracks.push({
-        id: trackId,
-        title: playlistTrack.track.title,
-        ...(externalId && { externalId }),
-      });
+      // A surplus copy of a video still in the payload is cleanup, not a removal.
+      if (!processResult.processedIds.trackIds.has(trackId)) {
+        removedTracks.push({
+          id: trackId,
+          title: playlistTrack.track.title,
+          ...(externalId && { externalId }),
+          membershipId: playlistTrack.id,
+        });
+      }
       tracksToRemove.push(playlistTrack.id);
     }
 
@@ -663,6 +714,7 @@ export class ServicePlaylistService {
         Object.assign({}, pt.track, {
           artist: pt.track.artist || { id: "", name: "Unknown Artist" },
           position: pt.position,
+          membershipId: pt.id,
           isDeleted: pt.isDeleted,
           deletedAt: pt.deletedAt,
           thumbnailUrl: pt.thumbnailUrl,
@@ -685,6 +737,7 @@ export class ServicePlaylistService {
       where: {
         userId,
         isActive: true,
+        deletedAt: null,
         track: {
           servicePlaylistTracks: {
             some: { playlistId },
@@ -743,6 +796,6 @@ export function createServicePlaylistService(options?: {
 }
 
 export type { PendingMatch, SyncTrackInfo };
-export { confirmOrphanedMatches } from "./orphaned-match-confirm.server";
+export { confirmOrphanedMatches, orphanMatchesSchema } from "./orphaned-match-confirm.server";
 export { getServiceByName } from "./playlist-utils.server";
 export { SERVICE_PLAYLIST_TRACK_PAGE_SIZE } from "./service-playlist-track-queries.server";

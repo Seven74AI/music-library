@@ -253,7 +253,7 @@ describe("fetchRemotePlaybackAudioUrl", () => {
   test("throws when fetch rejects (network error propagates to caller)", async () => {
     stubFetchError();
 
-    await expect(fetchRemotePlaybackAudioUrl("track-offline")).rejects.toThrow("Failed to fetch");
+    await expect(fetchRemotePlaybackAudioUrl("track-offline")).rejects.toThrow(TypeError);
   });
 
   test("calls fetch with correct endpoint", async () => {

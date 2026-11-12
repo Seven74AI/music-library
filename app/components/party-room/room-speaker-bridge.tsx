@@ -86,6 +86,18 @@ export function RoomSpeakerBridge() {
     audio.setRoomPlaybackPlaying(true);
   }, [isSpeaker, room, audio]);
 
+  // Host speaker: user play/pause must go through room transport, not only the
+  // local media element.
+  useEffect(() => {
+    if (!isSpeaker || !party) return;
+    audio.roomTransportRef.current = (action) => {
+      void party.transport(action);
+    };
+    return () => {
+      audio.roomTransportRef.current = null;
+    };
+  }, [isSpeaker, party, audio]);
+
   // Blocked autoplay keeps the room paused. Started audio is reported by the
   // player itself; this bridge does not send a second play event.
   useEffect(() => {

@@ -2,14 +2,21 @@ import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
-import { getLockStatus, releaseLock } from "#app/utils/locks.server.ts";
+import {
+  assertEditLockInTransaction,
+  EditLockTransactionError,
+  editLockConflictCopyForEntity,
+  getLockStatus,
+  releaseLock,
+  throwEditLockTransactionError,
+} from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/albums.$id.edit.ts";
 
 const EditAlbumSchema = z.object({
   name: z.string().min(1, "Name is required"),
   artistId: z.string().min(1, "Artist ID is required"),
-  year: z.number().nullable().optional(),
+  year: z.number().int().nullable().optional(),
   coverImageId: z.string().nullable().optional(),
   comment: z.string().optional(),
 });
@@ -24,7 +31,12 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 
   // Parse and validate request body
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    throw data({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const result = EditAlbumSchema.safeParse(body);
 
   if (!result.success) {
@@ -70,34 +82,57 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 
   // Snapshot the current album first so restore can recover the pre-edit values.
-  const { album, edit } = await prisma.$transaction(async (tx) => {
-    const albumEdit = await tx.albumEdit.create({
-      data: {
-        albumId,
-        editedBy: userId,
-        comment: comment || null,
-        name: existingAlbum.name,
-        artistId: existingAlbum.artistId,
-        year: existingAlbum.year,
-        coverImageId: existingAlbum.coverImageId,
-      },
-    });
+  let album: Awaited<ReturnType<typeof prisma.album.update>>;
+  let edit: Awaited<ReturnType<typeof prisma.albumEdit.create>>;
+  try {
+    ({ album, edit } = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "album", albumId, userId, lock);
 
-    const updatedAlbum = await tx.album.update({
-      where: { id: albumId },
-      data: {
-        name: name.trim(),
-        artistId,
-        year: year !== undefined ? year : undefined,
-        coverImageId: coverImageId !== undefined ? coverImageId : undefined,
-      },
-    });
+      const albumBeforeWrite = await tx.album.findUnique({
+        where: { id: albumId },
+      });
+      if (!albumBeforeWrite) {
+        throw data({ error: "Album not found" }, { status: 404 });
+      }
 
-    return { album: updatedAlbum, edit: albumEdit };
-  });
+      const albumEdit = await tx.albumEdit.create({
+        data: {
+          albumId,
+          editedBy: userId,
+          comment: comment || null,
+          name: albumBeforeWrite.name,
+          artistId: albumBeforeWrite.artistId,
+          year: albumBeforeWrite.year,
+          coverImageId: albumBeforeWrite.coverImageId,
+        },
+      });
+
+      const updatedAlbum = await tx.album.update({
+        where: { id: albumId },
+        data: {
+          name: name.trim(),
+          artistId,
+          year: year !== undefined ? year : undefined,
+          coverImageId: coverImageId !== undefined ? coverImageId : undefined,
+        },
+      });
+
+      return { album: updatedAlbum, edit: albumEdit };
+    }));
+  } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      throwEditLockTransactionError(error, editLockConflictCopyForEntity("album"));
+    }
+    throw error;
+  }
 
   // Release the lock on successful save (ADR-032).
-  await releaseLock("album", albumId, userId);
+  if (lock) {
+    await releaseLock("album", albumId, userId, {
+      lockId: lock.id,
+      acquiredAt: lock.acquiredAt,
+    });
+  }
 
   return data({ album, edit });
 }

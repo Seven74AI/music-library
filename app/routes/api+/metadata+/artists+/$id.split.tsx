@@ -8,6 +8,15 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import {
+  assertEditLockInTransaction,
+  EDIT_LOCK_CONFLICT_COPY_SPLIT,
+  EditLockTransactionError,
+  findWriteBlockedLock,
+  getLockStatus,
+  throwEditLockTransactionError,
+  type LockInfo,
+} from "#app/utils/locks.server.ts";
 import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/$id.split.ts";
@@ -17,6 +26,8 @@ const SplitArtistSchema = z.object({
   newArtistName: z.string().min(1, "New artist name is required"),
   comment: z.string().min(1, "Comment is required to explain the split"),
 });
+
+class SplitTrackCountMismatchError extends Error {}
 
 export async function action({ request, params }: Route.ActionArgs) {
   await requireCuratorOrAdmin(request);
@@ -28,14 +39,34 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw new Response("Artist ID is required", { status: 400 });
   }
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    throw data({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const result = SplitArtistSchema.safeParse(body);
 
   if (!result.success) {
     throw new Response(result.error.message, { status: 400 });
   }
 
-  const { trackIds, newArtistName, comment } = result.data;
+  const { trackIds: rawTrackIds, newArtistName, comment } = result.data;
+  const trackIds = [...new Set(rawTrackIds)];
+
+  const blockedLock = await findWriteBlockedLock(userId, [
+    { entityType: "artist", entityId: artistId },
+    ...trackIds.map((entityId) => ({ entityType: "track" as const, entityId })),
+  ]);
+  if (blockedLock) {
+    throwEditLockTransactionError(
+      new EditLockTransactionError({
+        kind: "other",
+        lockedByName: blockedLock.lockedByName,
+      }),
+      EDIT_LOCK_CONFLICT_COPY_SPLIT,
+    );
+  }
 
   // Fetch the original artist
   const originalArtist = await prisma.artist.findUnique({
@@ -71,9 +102,22 @@ export async function action({ request, params }: Route.ActionArgs) {
     );
   }
 
+  const artistLock = await getLockStatus("artist", artistId);
+  const trackLocks: Array<{ entityId: string; lock: LockInfo | null }> = await Promise.all(
+    trackIds.map(async (entityId) => ({
+      entityId,
+      lock: await getLockStatus("track", entityId),
+    })),
+  );
+
   try {
     // Perform split in transaction
     const result = await prisma.$transaction(async (tx) => {
+      await assertEditLockInTransaction(tx, "artist", artistId, userId, artistLock);
+      for (const { entityId, lock } of trackLocks) {
+        await assertEditLockInTransaction(tx, "track", entityId, userId, lock);
+      }
+
       // Create audit entry before split
       await tx.artistEdit.create({
         data: {
@@ -116,11 +160,16 @@ export async function action({ request, params }: Route.ActionArgs) {
       const tracksUpdated = await tx.track.updateMany({
         where: {
           id: { in: trackIds },
+          artistId: originalArtist.id,
         },
         data: {
           artistId: newArtist.id,
         },
       });
+
+      if (tracksUpdated.count !== trackIds.length) {
+        throw new SplitTrackCountMismatchError();
+      }
 
       return {
         newArtist,
@@ -137,6 +186,15 @@ export async function action({ request, params }: Route.ActionArgs) {
       tracksUpdated: result.tracksUpdated,
     });
   } catch (error) {
+    if (error instanceof EditLockTransactionError) {
+      throwEditLockTransactionError(error, EDIT_LOCK_CONFLICT_COPY_SPLIT);
+    }
+    if (error instanceof SplitTrackCountMismatchError) {
+      throw data(
+        { error: "Conflict", message: "Tracks changed during split; please retry" },
+        { status: 409 },
+      );
+    }
     console.error("Error splitting artist:", error);
     throw new Response("Failed to split artist", { status: 500 });
   }

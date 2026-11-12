@@ -133,6 +133,7 @@ test("200 OK — track is in user library", async () => {
   } as any);
 
   expect(response.status).toBe(200);
+  expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   const data = (await response.json()) as { url: string };
   expect(data.url).toMatch(/^https?:\/\//);
 });
@@ -239,6 +240,7 @@ test("streams local audio bytes when stream=1", async () => {
   } as any);
 
   expect(response.status).toBe(200);
+  expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   expect(response.headers.get("Content-Type")).toContain("audio");
   const body = await response.arrayBuffer();
   expect(body.byteLength).toBeGreaterThan(0);

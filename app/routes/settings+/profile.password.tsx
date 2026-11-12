@@ -15,9 +15,11 @@ import {
   checkIsCommonPassword,
   getPasswordHash,
   requireUserId,
+  sessionKey,
   verifyUserPassword,
 } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { authSessionStorage } from "#app/utils/session.server.ts";
 import { useIsPending } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
@@ -106,6 +108,9 @@ export async function action({ request }: Route.ActionArgs) {
 
   const { newPassword } = submission.value;
 
+  const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
+  const currentSessionId = authSession.get(sessionKey) as string | undefined;
+
   const updated = await prisma.user.update({
     select: { username: true },
     where: { id: userId },
@@ -115,6 +120,15 @@ export async function action({ request }: Route.ActionArgs) {
           hash: await getPasswordHash(newPassword),
         },
       },
+    },
+  });
+
+  // Revoke every other session so stolen credentials cannot keep access.
+  // Keep this browser's session so the password change does not log the user out here.
+  await prisma.session.deleteMany({
+    where: {
+      userId,
+      ...(currentSessionId ? { id: { not: currentSessionId } } : {}),
     },
   });
 

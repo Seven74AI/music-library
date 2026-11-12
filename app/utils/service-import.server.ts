@@ -8,11 +8,17 @@
  */
 
 import { YOUTUBE_SERVICE } from "#app/constants/services";
-import { enqueueArchiveJob } from "#app/features/audio-archive/auto-enqueue.server";
+import {
+  enqueueArchiveJob,
+  scheduleArchiveQueueTickAfterCommit,
+} from "#app/features/audio-archive/auto-enqueue.server";
 import { getServiceByName } from "#app/features/service-playlist/service-playlist.server";
 import { getOrCreateArtistTx } from "#app/utils/artist-management.server";
 import { prisma } from "#app/utils/db.server";
-import { handleServiceError } from "#app/utils/error-handlers.server";
+import {
+  SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
+  handleServiceError,
+} from "#app/utils/error-handlers.server";
 import { getYouTubeVideoDetails } from "#app/utils/youtube-search.server";
 
 /**
@@ -113,65 +119,79 @@ export async function importTrackDirectly(videoIdOrUrl: string): Promise<ImportT
     const service = await getServiceByName(YOUTUBE_SERVICE.NAME);
 
     // Use a transaction for atomicity
-    const result = await prisma.$transaction(async (tx) => {
-      // Get or create the artist (from channelTitle)
-      const artist = await getOrCreateArtistTx(tx, videoDetails.artist);
+    const result = await prisma.$transaction(
+      async (
+        tx,
+      ): Promise<{
+        trackId: string;
+        action: "created" | "updated";
+        archiveQueueTickNeeded: boolean;
+      }> => {
+        // Get or create the artist (from channelTitle)
+        const artist = await getOrCreateArtistTx(tx, videoDetails.artist);
 
-      // Upsert track on serviceId_externalId
-      const trackCreateData = {
-        title: videoDetails.title,
-        artistId: artist.id,
-        serviceId: service.id,
-        externalId: videoId,
-        serviceUrl: videoDetails.serviceUrl,
-        duration: videoDetails.duration,
-        releaseDate: videoDetails.publishedAt ? new Date(videoDetails.publishedAt) : null,
-      };
-
-      const existingTrack = await tx.track.findUnique({
-        where: {
-          serviceId_externalId: {
-            serviceId: service.id,
-            externalId: videoId,
-          },
-        },
-        select: { id: true },
-      });
-
-      const track = await tx.track.upsert({
-        where: {
-          serviceId_externalId: {
-            serviceId: service.id,
-            externalId: videoId,
-          },
-        },
-        update: {
+        // Upsert track on serviceId_externalId
+        const trackCreateData = {
           title: videoDetails.title,
           artistId: artist.id,
+          serviceId: service.id,
+          externalId: videoId,
+          serviceUrl: videoDetails.serviceUrl,
           duration: videoDetails.duration,
           releaseDate: videoDetails.publishedAt ? new Date(videoDetails.publishedAt) : null,
-          updatedAt: new Date(),
-        },
-        create: trackCreateData,
-        select: { id: true },
-      });
+        };
 
-      // Auto-enqueue for audio archiving (caller decides when to invoke)
-      await enqueueArchiveJob(tx, track.id);
+        const existingTrack = await tx.track.findUnique({
+          where: {
+            serviceId_externalId: {
+              serviceId: service.id,
+              externalId: videoId,
+            },
+          },
+          select: { id: true },
+        });
 
-      const action = existingTrack ? "updated" : "created";
-      return { trackId: track.id, action };
-    });
+        const track = await tx.track.upsert({
+          where: {
+            serviceId_externalId: {
+              serviceId: service.id,
+              externalId: videoId,
+            },
+          },
+          update: {
+            title: videoDetails.title,
+            artistId: artist.id,
+            duration: videoDetails.duration,
+            releaseDate: videoDetails.publishedAt ? new Date(videoDetails.publishedAt) : null,
+            updatedAt: new Date(),
+          },
+          create: trackCreateData,
+          select: { id: true },
+        });
+
+        const archiveQueueTickNeeded = await enqueueArchiveJob(tx, track.id);
+
+        const action = existingTrack ? "updated" : "created";
+        return { trackId: track.id, action, archiveQueueTickNeeded };
+      },
+    );
+
+    scheduleArchiveQueueTickAfterCommit(result.archiveQueueTickNeeded);
 
     return {
       success: true,
       trackId: result.trackId,
-      action: result.action as "created" | "updated",
+      action: result.action,
     };
   } catch (error) {
     // YouTube-specific errors (quota, auth, not found) bubble up naturally
     // as they extend Error and will be caught here
-    const handled = handleServiceError(error, "importTrackDirectly", "YouTube");
+    const handled = handleServiceError(
+      error,
+      "importTrackDirectly",
+      "YouTube",
+      SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
+    );
     return {
       ...handled,
       action: "failed" as const,

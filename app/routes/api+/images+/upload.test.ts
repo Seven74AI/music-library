@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { findOrCreateCoverImage, getImageDimensions } from "#app/utils/cover-management.server.ts";
 import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { requireCuratorRole } from "#app/utils/permissions.server.ts";
 import { action, clientAction } from "./upload.tsx";
@@ -10,6 +11,23 @@ vi.mock("#app/utils/permissions.server.ts", () => ({
 vi.mock("#app/utils/cover-entity.server.ts", () => ({
   isValidCoverEntityId: vi.fn(),
   verifyCoverEntity: vi.fn(),
+}));
+
+vi.mock("#app/utils/cover-management.server.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("#app/utils/cover-management.server.ts")>();
+  return {
+    ...original,
+    findOrCreateCoverImage: vi.fn(),
+    getImageDimensions: vi.fn(),
+  };
+});
+
+vi.mock("#app/utils/db.server.ts", () => ({
+  prisma: {
+    coverImage: {
+      findUniqueOrThrow: vi.fn(),
+    },
+  },
 }));
 
 const TINY_PNG = Buffer.from(
@@ -46,6 +64,35 @@ describe("POST /api/images/upload validation", () => {
     vi.mocked(requireCuratorRole).mockResolvedValue("curator-1");
     vi.mocked(isValidCoverEntityId).mockReturnValue(true);
     vi.mocked(verifyCoverEntity).mockResolvedValue("album-1");
+    vi.mocked(getImageDimensions).mockResolvedValue({ width: 1, height: 1 });
+  });
+
+  test("does not pass albumId into findOrCreateCoverImage for album targets", async () => {
+    const largeBuffer = Buffer.alloc(600 * 600);
+    vi.mocked(getImageDimensions).mockResolvedValue({ width: 600, height: 600 });
+    vi.mocked(findOrCreateCoverImage).mockResolvedValue({
+      id: "cover-upload",
+      objectKey: "images/covers/upload.jpg",
+    });
+    const { prisma } = await import("#app/utils/db.server.ts");
+    vi.mocked(prisma.coverImage.findUniqueOrThrow).mockResolvedValue({
+      id: "cover-upload",
+      objectKey: "images/covers/upload.jpg",
+      width: 1000,
+      height: 1000,
+    } as never);
+
+    const formData = new FormData();
+    formData.append("image", new File([largeBuffer], "big.png", { type: "image/png" }));
+    formData.append("entityType", "album");
+    formData.append("entityId", "album-1");
+
+    const result = await action({ request: uploadRequest(formData) } as never);
+
+    expect(findOrCreateCoverImage).toHaveBeenCalledWith({
+      imageBuffer: expect.any(Buffer),
+    });
+    expect(result).toMatchObject({ data: { success: true } });
   });
 
   test("returns an undersized image as action data instead of throwing", async () => {

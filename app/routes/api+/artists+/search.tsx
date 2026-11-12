@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { escapeLikeLiterals } from "#app/utils/fts5-query.server.ts";
+import { normalizeArtistName } from "#app/utils/normalize.server.ts";
 import { type Route } from "./+types/search.ts";
 
 const SearchQuerySchema = z.string().min(1).max(100);
@@ -22,7 +23,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     return Response.json({ artists: [] });
   }
 
-  const searchQuery = result.data.toLowerCase();
+  const searchQuery = normalizeArtistName(result.data);
+  if (!searchQuery) {
+    return Response.json({ artists: [] });
+  }
 
   // Escape LIKE wildcards so a user-supplied '%', '_' or '\' is matched
   // literally rather than acting as a wildcard. Pair with `ESCAPE '\'`.
