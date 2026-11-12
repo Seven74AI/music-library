@@ -8,7 +8,7 @@ import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { Button } from "#app/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#app/components/ui/card";
 import { Icon } from "#app/components/ui/icon";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import {
   type AlbumDuplicateGroup,
   type ArtistDuplicateGroup,
@@ -108,14 +108,20 @@ async function readGroupsPayload<S extends z.ZodTypeAny>(
   return parsed.data;
 }
 
-async function fetchArtistGroups(pathname: string, cookie: string | null): Promise<ArtistGroupsPayload> {
+async function fetchArtistGroups(
+  pathname: string,
+  cookie: string | null,
+): Promise<ArtistGroupsPayload> {
   const response = await fetch(trustedDuplicatesUrl(pathname), {
     headers: cookie ? { cookie } : {},
   });
   return readGroupsPayload(response, artistGroupsPayloadSchema);
 }
 
-async function fetchAlbumGroups(pathname: string, cookie: string | null): Promise<AlbumGroupsPayload> {
+async function fetchAlbumGroups(
+  pathname: string,
+  cookie: string | null,
+): Promise<AlbumGroupsPayload> {
   const response = await fetch(trustedDuplicatesUrl(pathname), {
     headers: cookie ? { cookie } : {},
   });
@@ -129,7 +135,7 @@ function albumArtistLabel(group: AlbumDuplicateGroup): string {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireCuratorRole(request);
+  await requireCuratorOrAdmin(request);
 
   try {
     const cookie = sessionCookie(request);
@@ -395,7 +401,12 @@ export default function DuplicatesPage() {
                             </div>
                             <Button
                               size="sm"
-                              onClick={() => handleMergeAlbums(group.albums, group.artistName ?? "Unknown Artist")}
+                              onClick={() =>
+                                handleMergeAlbums(
+                                  group.albums,
+                                  group.artistName ?? "Unknown Artist",
+                                )
+                              }
                             >
                               Merge These →
                             </Button>

@@ -1,6 +1,6 @@
 import { data } from "react-router";
 import { z } from "zod";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { normalizeGenreName } from "#app/utils/genre-migration.server.ts";
 import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";

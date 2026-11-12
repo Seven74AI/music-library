@@ -6,7 +6,7 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
   assertEditLockInTransaction,

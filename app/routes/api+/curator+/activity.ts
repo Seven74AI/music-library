@@ -5,7 +5,7 @@ import {
   type ActivityEntityType,
 } from "#app/features/curator/dashboard.ts";
 import { parsePageParam } from "#app/utils/parse-page-param.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 
 function parseDate(value: string | null, endOfDay: boolean): Date | undefined {
   if (!value) return undefined;
@@ -16,7 +16,7 @@ function parseDate(value: string | null, endOfDay: boolean): Date | undefined {
 }
 
 export async function loader({ request }: { request: Request }) {
-  await requireCuratorRole(request);
+  await requireCuratorOrAdmin(request);
   const url = new URL(request.url);
   const entityParam = url.searchParams.get("entityType");
   const entityType =

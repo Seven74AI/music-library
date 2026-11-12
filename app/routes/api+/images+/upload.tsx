@@ -1,7 +1,7 @@
 import { data } from "react-router";
 import { parseFormData } from "@mjackson/form-data-parser";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { findOrCreateCoverImage, getImageDimensions } from "#app/utils/cover-management.server.ts";
 import { isValidCoverEntityId, verifyCoverEntity } from "#app/utils/cover-entity.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -29,7 +29,7 @@ export async function action({ request }: Route.ActionArgs) {
     throw data({ error: "Method not allowed" }, { status: 405 });
   }
 
-  await requireCuratorRole(request);
+  await requireCuratorOrAdmin(request);
 
   // Parse multipart form data
   const formData = await parseFormData(request, { maxFileSize: MAX_IMAGE_SIZE });

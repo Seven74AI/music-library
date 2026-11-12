@@ -96,7 +96,7 @@ describe("POST /api/genres", () => {
     // Mock requireCuratorOrAdmin for every POST test; restored in afterEach so a
     // failing assertion cannot leak the mock into later tests.
     requireCuratorSpy = vi.spyOn(
-      await import("#app/utils/curator.server.ts"),
+      await import("#app/utils/permissions.server.ts"),
       "requireCuratorOrAdmin",
     );
     requireCuratorSpy.mockResolvedValue(curatorUserId);

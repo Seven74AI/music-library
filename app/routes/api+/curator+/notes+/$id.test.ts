@@ -1,10 +1,10 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { parseMentions } from "#app/utils/mention-parser.server.ts";
 import { action, clientAction } from "./$id.ts";
 
-vi.mock("#app/utils/curator.server.ts", () => ({
+vi.mock("#app/utils/permissions.server.ts", () => ({
   requireCuratorOrAdmin: vi.fn(),
   userIsCuratorOrAdmin: vi.fn(),
 }));

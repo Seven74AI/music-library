@@ -1,5 +1,5 @@
 import { data, type ActionFunctionArgs } from "react-router";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { forceUnlock, type EntityType } from "#app/utils/locks.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { z } from "zod";

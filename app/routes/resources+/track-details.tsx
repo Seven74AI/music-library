@@ -1,6 +1,6 @@
 import { data } from "react-router";
 import { requireUserId } from "#app/utils/auth.server.ts";
-import { userIsCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { userIsCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { type Route } from "./+types/track-details.ts";
 

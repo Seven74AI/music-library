@@ -1,9 +1,9 @@
 import { listReviewQueue } from "#app/features/curator/review-queue.server.ts";
 import { parsePageParam } from "#app/utils/parse-page-param.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 
 export async function loader({ request }: { request: Request }) {
-  const currentUserId = await requireCuratorRole(request);
+  const currentUserId = await requireCuratorOrAdmin(request);
   const url = new URL(request.url);
   const status = url.searchParams.get("status") ?? "open";
   const result = await listReviewQueue({

@@ -12,7 +12,7 @@ import {
   getLockStatus,
   type LockInfo,
 } from "#app/utils/locks.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import {
   primaryGenreName,
@@ -90,7 +90,7 @@ export async function action({ request }: Route.ActionArgs) {
     throw data({ error: "Method not allowed" }, { status: 405 });
   }
 
-  const userId = await requireCuratorRole(request);
+  const userId = await requireCuratorOrAdmin(request);
 
   // Get and validate request body
   let body;

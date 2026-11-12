@@ -5,11 +5,11 @@ import {
   findWriteBlockedLock,
   getLockStatus,
 } from "#app/utils/locks.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { action } from "./$trackId.restore.$editId.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
-  requireCuratorRole: vi.fn(),
+  requireCuratorOrAdmin: vi.fn(),
 }));
 
 vi.mock("#app/utils/locks.server.ts", () => ({
@@ -55,7 +55,7 @@ function makeRequest(body: any, params: any) {
 describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
+    vi.mocked(requireCuratorOrAdmin).mockResolvedValue("user-1");
     vi.mocked(findWriteBlockedLock).mockResolvedValue(null);
     vi.mocked(getLockStatus).mockResolvedValue(null);
     vi.mocked(assertEditLockInTransaction).mockResolvedValue(undefined);
@@ -87,7 +87,7 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
   });
 
   test("requires curator or admin role", async () => {
-    vi.mocked(requireCuratorRole).mockRejectedValue(
+    vi.mocked(requireCuratorOrAdmin).mockRejectedValue(
       new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403 }),
     );
 
@@ -99,7 +99,7 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
       action(makeRequest(body, { trackId: "track-1", editId: "edit-1" }) as never),
     ).rejects.toThrow();
 
-    expect(requireCuratorRole).toHaveBeenCalled();
+    expect(requireCuratorOrAdmin).toHaveBeenCalled();
   });
 
   test("requires comment field", async () => {
