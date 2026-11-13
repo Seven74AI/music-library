@@ -26,6 +26,7 @@ import {
 } from "#app/routes/api+/admin+/fingerprint-failures.tsx";
 import { formatBytes } from "#app/utils/format-bytes.ts";
 import { fetchInternal } from "#app/utils/internal-fetch.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/fingerprint-failures.ts";
 
@@ -44,7 +45,7 @@ export async function loader({
   request,
   url,
 }: Route.LoaderArgs): Promise<FingerprintFailuresLoaderData> {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   // Fetch data from the internal API endpoint on a trusted origin, forwarding
   // only the session cookie (never the full incoming headers).

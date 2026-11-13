@@ -1,6 +1,7 @@
 import { data } from "react-router";
 import { type Prisma } from "#prisma/client.js";
 import { prisma } from "#app/utils/db.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/fingerprint-failures.ts";
 
@@ -84,7 +85,7 @@ function serviceWhere(service: string): Prisma.TrackAudioFileWhereInput {
 }
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const format = url.searchParams.get("format") ?? "all";
   const service = url.searchParams.get("service") ?? "all";

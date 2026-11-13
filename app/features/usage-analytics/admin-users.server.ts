@@ -3,7 +3,7 @@ import {
   SECURITY_EVENT_TYPES,
 } from "#app/features/security/track-event.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { ROLES } from "#app/utils/permissions.ts";
+import { hasRole, isAdmin, ROLES } from "#app/utils/permissions.ts";
 import { getUtcDayStart } from "./record-usage.server.ts";
 
 export { getUtcDayStart };
@@ -104,14 +104,14 @@ export async function promoteToAdmin(
       where: { id: userId },
       data: {
         roles: {
-          connect: { name: "admin" },
+          connect: { name: ROLES.admin },
         },
       },
     }),
     prisma.session.deleteMany({ where: { userId } }),
   ]);
   await recordModeration(SECURITY_EVENT_TYPES.roleChanged, user, actorUserId, {
-    role: "admin",
+    role: ROLES.admin,
     action: "promote",
   });
   return { ok: true };
@@ -133,7 +133,7 @@ export async function demoteFromAdmin({
 
   // Checked before counting admins, otherwise demoting a non-admin while a
   // single admin exists reports the misleading "last admin" error.
-  if (!target.roles.some((role) => role.name === "admin")) {
+  if (!isAdmin(target)) {
     return forbidden("This user is not an admin");
   }
 
@@ -150,7 +150,7 @@ export async function demoteFromAdmin({
       where: { id: targetUserId },
       data: {
         roles: {
-          disconnect: { name: "admin" },
+          disconnect: { name: ROLES.admin },
         },
       },
     });
@@ -161,7 +161,7 @@ export async function demoteFromAdmin({
   if (!result.ok) return result;
 
   await recordModeration(SECURITY_EVENT_TYPES.roleChanged, target, actorUserId, {
-    role: "admin",
+    role: ROLES.admin,
     action: "demote",
   });
   return { ok: true };
@@ -235,12 +235,12 @@ async function ensureCuratorRole() {
   }
 
   await prisma.role.upsert({
-    where: { name: "curator" },
+    where: { name: ROLES.curator },
     update: {
       permissions: { connect: permissions },
     },
     create: {
-      name: "curator",
+      name: ROLES.curator,
       description: "Can edit and manage metadata for tracks, artists, and albums",
       permissions: { connect: permissions },
     },
@@ -268,14 +268,14 @@ export async function promoteToCurator(
       where: { id: userId },
       data: {
         roles: {
-          connect: { name: "curator" },
+          connect: { name: ROLES.curator },
         },
       },
     }),
     prisma.session.deleteMany({ where: { userId } }),
   ]);
   await recordModeration(SECURITY_EVENT_TYPES.roleChanged, user, actorUserId, {
-    role: "curator",
+    role: ROLES.curator,
     action: "promote",
   });
   return { ok: true };
@@ -292,7 +292,7 @@ export async function demoteFromCurator(
   const user = await findUserRoles(userId);
   if (!user) return notFound;
 
-  if (!user.roles.some((role) => role.name === "curator")) {
+  if (!hasRole(user, ROLES.curator)) {
     return forbidden("This user is not a curator");
   }
 
@@ -300,12 +300,12 @@ export async function demoteFromCurator(
     where: { id: userId },
     data: {
       roles: {
-        disconnect: { name: "curator" },
+        disconnect: { name: ROLES.curator },
       },
     },
   });
   await recordModeration(SECURITY_EVENT_TYPES.roleChanged, user, actorUserId, {
-    role: "curator",
+    role: ROLES.curator,
     action: "demote",
   });
   return { ok: true };
@@ -325,13 +325,13 @@ export async function deleteUserAsAdmin({
   const target = await findUserRoles(targetUserId);
   if (!target) return notFound;
 
-  const isAdmin = target.roles.some((role) => role.name === "admin");
+  const targetIsAdmin = isAdmin(target);
 
   // Atomic last-admin guard + delete. The audit row is written inside the
   // transaction (before the delete) so its targetUserId FK stays valid and we
   // never emit a spurious "deleted" event when the delete is refused.
   const result = await prisma.$transaction(async (tx) => {
-    if (isAdmin) {
+    if (targetIsAdmin) {
       const adminCount = await tx.user.count({ where: { roles: { some: { name: ROLES.admin } } } });
       if (adminCount <= 1) {
         return forbidden("Cannot delete the last admin");

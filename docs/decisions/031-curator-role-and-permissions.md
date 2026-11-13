@@ -94,7 +94,7 @@ Curators **cannot**:
 Server-side enforcement only. Two utility functions:
 
 ```typescript
-// app/utils/curator.server.ts
+// app/utils/permissions.server.ts
 export async function requireCuratorOrAdmin(request: Request): Promise<string>;
 export async function userIsCuratorOrAdmin(userId: string): Promise<boolean>;
 ```
@@ -156,6 +156,6 @@ No migration required for existing `curator` role. New features will extend the 
 ## References
 
 - Migration: `prisma/migrations/20260927000000_add_edit_history_and_merge_tracking/migration.sql`
-- Utilities: `app/utils/curator.server.ts`
-- Permissions utility: `app/utils/permissions.server.ts`
+- Utilities: `app/utils/permissions.server.ts` (`requireCuratorOrAdmin`, `userIsCuratorOrAdmin`)
+- Role constants and pure helpers: `app/utils/permissions.ts`
 - Related: ADR-032 (Concurrent Edit Locking), ADR-035 (Review Queue)
