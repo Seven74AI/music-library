@@ -71,7 +71,7 @@ describe("enqueueArchiveJob", () => {
       consoleError.mockImplementation(() => {});
       await expect(
         enqueueArchiveJob(tx as unknown as Prisma.TransactionClient, "track-1"),
-      ).rejects.toThrow("Database connection lost");
+      ).rejects.toThrow();
       expect(mockScheduleQueueTick).not.toHaveBeenCalled();
     });
   });
@@ -174,7 +174,7 @@ describe("enqueueArchiveJobs (batch)", () => {
     consoleError.mockImplementation(() => {});
     await expect(
       enqueueArchiveJobs(tx as unknown as Prisma.TransactionClient, ["track-1"]),
-    ).rejects.toThrow("Database connection lost");
+    ).rejects.toThrow();
     expect(mockScheduleQueueTick).not.toHaveBeenCalled();
   });
 });

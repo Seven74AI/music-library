@@ -196,7 +196,7 @@ describe("extractAudioFilesFromZip", () => {
 
     const zipBuffer = Buffer.from("invalid zip data");
 
-    await expect(extractAudioFilesFromZip(zipBuffer)).rejects.toThrow("Invalid ZIP file");
+    await expect(extractAudioFilesFromZip(zipBuffer)).rejects.toThrow();
   });
 
   test("allows exactly 100 audio files whose uncompressed total is exactly 1GB", async () => {

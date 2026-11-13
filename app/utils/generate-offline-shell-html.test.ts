@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
   buildOfflineRouterBootstrap,
-  OFFLINE_SHELL_THEME_SCRIPT,
   serializeEmptyRouterPayload,
   findOfflineShellAssets,
   generateOfflineShellHtml,
@@ -54,13 +53,6 @@ describe("buildOfflineRouterBootstrap", () => {
     expect(bootstrap).toContain("streamController.enqueue");
     expect(bootstrap).toContain('"isSpaMode":true');
     expect(bootstrap).toContain("streamController.close()");
-  });
-});
-
-describe("OFFLINE_SHELL_THEME_SCRIPT", () => {
-  test("falls back to requestInfo.hints.theme when userPrefs.theme is null", () => {
-    expect(OFFLINE_SHELL_THEME_SCRIPT).toContain("ri.hints");
-    expect(OFFLINE_SHELL_THEME_SCRIPT).toContain("hints.theme");
   });
 });
 

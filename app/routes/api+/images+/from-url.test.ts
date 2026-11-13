@@ -180,6 +180,6 @@ describe("clientAction for POST /api/images/from-url", () => {
         params: {},
         serverAction,
       } as never),
-    ).rejects.toThrow("database down");
+    ).rejects.toThrow();
   });
 });

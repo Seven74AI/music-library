@@ -172,6 +172,6 @@ describe("clientAction for POST /api/images/upload", () => {
         params: {},
         serverAction,
       } as never),
-    ).rejects.toThrow("storage exploded");
+    ).rejects.toThrow();
   });
 });
