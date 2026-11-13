@@ -1,6 +1,6 @@
 /**
  * The ONE canonical byte-size formatter. Do not write local copies; an
- * inventory test (`format-bytes.inventory.test.ts`) fails if one appears.
+ * inventory test (`format-and-escape.inventory.test.ts`) fails if one appears.
  * Per-surface differences are expressed through options, not new functions.
  */
 export type ByteUnit = "B" | "KB" | "MB" | "GB" | "TB";
