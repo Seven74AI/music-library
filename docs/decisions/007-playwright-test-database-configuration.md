@@ -124,7 +124,7 @@ The test database path is defined once in `playwright.config.ts` and used consis
 - ⚠️ **Direct `process.env` Assignment**: Some developers may find this unconventional
 - ⚠️ **Config File Complexity**: Config file has side effects (setting environment variable)
 - ⚠️ **Timing Dependency**: Relies on config file loading before test files (which is guaranteed by Playwright)
-- ⚠️ **Migration Check Overhead**: Checking migration status adds a small overhead to test setup (mitigated by skipping when up to date)
+- ⚠️ **Always-Resets Database**: Every run deletes, migrates, and re-seeds the database, so setup is not incremental — required because the seed is not idempotent.
 
 ### Neutral
 
@@ -141,62 +141,28 @@ playwright.config.ts
 ├── Define BASE_DATABASE_PATH constant
 └── Use BASE_DATABASE_PATH in webServer.env
 
+tests/setup/base-database-path.ts
+├── Export BASE_DATABASE_PATH constant
+
 tests/setup/global-setup.ts
-├── Export BASE_DATABASE_PATH (for consistency)
-├── Check migration status using `prisma migrate status`
-├── Delete and recreate database if migrations are out of sync
-└── Use BASE_DATABASE_PATH for database setup commands
+├── Delete the database (always fresh)
+├── Apply migrations
+├── Generate the Prisma client
+└── Seed
 ```
 
-### Migration Status Check
+### Database Reset Before Seed
 
-The global setup checks migration status before applying migrations:
-
-1. **Check if database exists**: If the database file exists, check its migration status
-2. **Verify migration sync**: Use `prisma migrate status` to check if migrations are up to date
-3. **Handle out-of-sync databases**: If migrations are out of sync (e.g., migration files renamed, new migrations added), delete the database and recreate it
-4. **Skip if up to date**: If migrations are already applied, skip the migration step for faster test setup
-
-This ensures that:
-
-- Test database always matches the current migration files
-- Migration renames and new migrations are properly handled
-- Test database is not corrupted by mismatched migration history
-- Test setup is faster when database is already up to date
+The global setup always starts from a fresh database: delete `base.db`, apply migrations, generate the Prisma client, and seed — every run, with no migration-status short-circuit. The seed is **not idempotent** (it `create`s tracks, audio files, userTracks, and playlists, and the DB-level `(ownerId, lower(title))` unique index makes re-seeding an existing database fail with a unique-constraint error), so re-using a previous run's database is not supported.
 
 **Implementation**:
 
 ```typescript
-// Check migration status to see if database is in sync
-let needsMigration = true;
-if (databaseExists) {
-  try {
-    const statusResult = await execaCommand("npx prisma migrate status", {
-      env: { ...process.env, DATABASE_URL: `file:${BASE_DATABASE_PATH}` },
-      reject: false,
-    });
-
-    // Exit code 0 means migrations are up to date (Prisma standard behavior)
-    // Also check stdout for confirmation message as additional validation
-    if (
-      statusResult.exitCode === 0 &&
-      (statusResult.stdout.includes("Database schema is up to date") ||
-        statusResult.stdout.includes("are in sync"))
-    ) {
-      needsMigration = false;
-    } else {
-      // Log error details if available
-      if (statusResult.stderr) {
-        console.log("Migration status error:", statusResult.stderr);
-      }
-      // Delete database to force clean migration
-      await fsExtra.remove(BASE_DATABASE_PATH);
-    }
-  } catch (error) {
-    // If we can't check status, delete and recreate
-    await fsExtra.remove(BASE_DATABASE_PATH);
-  }
-}
+// tests/setup/global-setup.ts (excerpt)
+const databaseDir = path.dirname(BASE_DATABASE_PATH);
+await fsExtra.ensureDir(databaseDir);
+await fsExtra.remove(BASE_DATABASE_PATH); // always fresh — the seed is not idempotent
+// ... migrate deploy, prisma generate, seed
 ```
 
 ### Key Patterns
@@ -348,3 +314,4 @@ test("example", async () => {
 
 - **2025-01-XX**: Initial version - Documented DATABASE_URL configuration for Playwright tests
 - **2025-12-XX**: Added migration status check - Test database now verifies migration sync before applying migrations, ensuring test database always matches current migration files
+- **2026-11-13**: Replaced the migration-status short-circuit with an always-reset (delete, migrate, seed). The seed is not idempotent and re-seeding an existing database fails on the `(ownerId, lower(title))` unique index.

@@ -4,8 +4,7 @@ import { execa } from "execa";
 import fsExtra from "fs-extra";
 import { BASE_DATABASE_PATH } from "./base-database-path.ts";
 
-// DATABASE_URL is set via cross-env in npm scripts
-// This ensures it's available for both the test process and globalSetup
+// DATABASE_URL is set by playwright.config.ts before this module loads (see ADR-007).
 import "dotenv/config";
 
 // Keep E2E session signing aligned with playwright.config / webServer.env (dotenv must not win).
@@ -26,60 +25,16 @@ export async function setup() {
   // index makes re-seeding an existing DB fail with a unique-constraint error).
   await fsExtra.remove(BASE_DATABASE_PATH);
 
-  const databaseExists = await fsExtra.pathExists(BASE_DATABASE_PATH);
-
-  // Check migration status to see if database is in sync
-  let needsMigration = true;
-  if (databaseExists) {
-    try {
-      // Check if migrations are up to date
-      const statusResult = await execa("npx prisma migrate status", {
-        env: {
-          ...process.env,
-          DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
-        },
-        reject: false, // Don't throw on error
-        shell: true,
-      });
-
-      // If migrations are in sync, skip migration step
-      // Exit code 0 means migrations are up to date (Prisma standard behavior)
-      // Also check stdout for confirmation message as additional validation
-      if (
-        statusResult.exitCode === 0 &&
-        (statusResult.stdout.includes("Database schema is up to date") ||
-          statusResult.stdout.includes("are in sync"))
-      ) {
-        needsMigration = false;
-        console.log("✅ Database migrations are up to date");
-      } else {
-        console.log("⚠️  Database migrations are out of sync, will reset and reapply");
-        if (statusResult.stderr) {
-          console.log("Migration status error:", statusResult.stderr);
-        }
-        // Delete the database to force a clean migration
-        await fsExtra.remove(BASE_DATABASE_PATH);
-      }
-    } catch (error) {
-      console.log("⚠️  Could not check migration status, will reset database:", error);
-      // If we can't check status, delete and recreate
-      await fsExtra.remove(BASE_DATABASE_PATH);
-    }
-  }
-
-  if (needsMigration) {
-    // Use migrate deploy instead of reset for more reliable test database setup
-    // migrate deploy creates the database if it doesn't exist and applies all migrations
-    console.log("📦 Applying database migrations...");
-    await execa("npm run migrate:deploy", {
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
-      },
-      shell: true,
-    });
-  }
+  // Apply migrations (the database was just deleted above, so it's always fresh).
+  console.log("📦 Applying database migrations...");
+  await execa("npm run migrate:deploy", {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      DATABASE_URL: `file:${BASE_DATABASE_PATH}`,
+    },
+    shell: true,
+  });
 
   // Generate Prisma Client after migrations to ensure it matches the database schema
   console.log("🔧 Generating Prisma Client...");

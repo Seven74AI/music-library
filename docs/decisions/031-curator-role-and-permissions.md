@@ -91,7 +91,10 @@ Curators **cannot**:
 
 ### Permission Checking
 
-Server-side enforcement only. Two utility functions:
+Server-side enforcement only. Role names are canonicalised in `app/utils/permissions.ts` and must go through the `ROLES` constant (no string literals); pure helpers live in `permissions.ts`, database-backed checks in `permissions.server.ts`.
+
+- `app/utils/permissions.ts` — `ROLES`, `RoleName`, `CURATOR_OR_ADMIN_ROLES`, `hasRole`, `isAdmin`, `isCuratorOrAdmin`, `userHasPermission`
+- `app/utils/permissions.server.ts` — `requireUserWithRole`, `userHasRoleById`, `requireCuratorOrAdmin`, `userIsCuratorOrAdmin`
 
 ```typescript
 // app/utils/permissions.server.ts

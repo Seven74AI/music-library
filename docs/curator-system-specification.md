@@ -1158,6 +1158,7 @@ app/
 **Files**:
 
 - `permissions.server.ts` - Permission checks (`requireCuratorOrAdmin`)
+- `permissions.ts` - Role constants and pure helpers (`ROLES`, `isAdmin`, `hasRole`)
 - `locks.client.ts` - Lock acquisition/release
 - `session-recovery.client.ts` - localStorage logic
 - `sync.client.ts` - BroadcastChannel handling

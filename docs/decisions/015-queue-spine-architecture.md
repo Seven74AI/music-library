@@ -35,6 +35,8 @@ Navigation on **Next**: drain Up Next front → advance spine pointer → **loop
 
 The provider (`audio-player-provider.tsx`) orchestrates spine fetch, hydration, and navigation. Client modules live under `app/features/queue/`.
 
+**Invariant:** the spine is fetched in a single database query — no `take`/cursor pagination loop — for library, artist/album, and playlist context alike (`queue-spine.server.ts`, `library-queue-tracks.server.ts`). A `take: 50` pagination regression shipped and was reverted (upstream PR #718); `queue-spine.server.test.ts` enforces the invariant.
+
 ### 3. Client-side Fisher-Yates shuffle
 
 Shuffle permutes spine **play order** (an index array), not the underlying spine list. When shuffle is toggled **on** mid-playback, indices **from the current position onward** are reshuffled; Up Next is untouched. When toggled off, play order reverts to linear spine order while keeping the current track. See `app/features/queue/queue-shuffle.ts`.
