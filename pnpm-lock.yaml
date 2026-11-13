@@ -23,11 +23,11 @@ importers:
         specifier: ^3.1156.0
         version: 3.1156.0
       '@conform-to/react':
-        specifier: ^1.21.2
-        version: 1.21.2(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        specifier: ^1.21.3
+        version: 1.21.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@conform-to/zod':
-        specifier: ^1.21.2
-        version: 1.21.2(zod@4.6.7)
+        specifier: ^1.21.3
+        version: 1.21.3(zod@4.6.7)
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -658,17 +658,17 @@ packages:
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
 
-  '@conform-to/dom@1.21.2':
-    resolution: {integrity: sha512-43LIYhFUPOMtV01LOH9Pes/8vROW7Qgh249ytv0EBfPCR963g0HR6xK6hUD1r2EjM8Zgs17oMZgoRyRT8krH/Q==}
+  '@conform-to/dom@1.21.3':
+    resolution: {integrity: sha512-gaFYBWPCLwIJASd+VQWtcLfJnhn3Fo0/U8NS0LAMvUHuWU6UZ354MqYNUgvkaMtEfPfqSai6p4txdDp9JelDww==}
 
-  '@conform-to/react@1.21.2':
-    resolution: {integrity: sha512-z3I4x3sVL5hl773M8uDXAU98qMLAv3rDf27qPHdrlvru/M/SnsBOUrpFUgkhJpShaj48oMiF3Ms8lBjugwy6uA==}
+  '@conform-to/react@1.21.3':
+    resolution: {integrity: sha512-HvpdcfIGAzvRzff2dBdJT2utn6jzLKHYzTQ+0jQAdQ2emQkzNw4U1g/50xkaRX/cFuCrh1MokL/8TX7JW7AtAQ==}
     peerDependencies:
       react: '>=18'
       react-dom: '>=18'
 
-  '@conform-to/zod@1.21.2':
-    resolution: {integrity: sha512-SQTqr0jxIhmLHMcT5XsJFalcyBsoCoMXj1rN0/L/yYupcSh9vnieUzrkSdrihcXzA82XDk/S+lPEjMfG1z8XVA==}
+  '@conform-to/zod@1.21.3':
+    resolution: {integrity: sha512-IbFw4iMywJ7fWfZ1MIDEMlUfFa9ZkZhG8hL2K6zcx1eM6SPhwWAmmsFi478POShOLDj72A0qQ9nLCz+2qAEF5A==}
     peerDependencies:
       zod: ^3.21.0 || ^4.0.0
 
@@ -7222,17 +7222,17 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
-  '@conform-to/dom@1.21.2': {}
+  '@conform-to/dom@1.21.3': {}
 
-  '@conform-to/react@1.21.2(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@conform-to/react@1.21.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
-      '@conform-to/dom': 1.21.2
+      '@conform-to/dom': 1.21.3
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
 
-  '@conform-to/zod@1.21.2(zod@4.6.7)':
+  '@conform-to/zod@1.21.3(zod@4.6.7)':
     dependencies:
-      '@conform-to/dom': 1.21.2
+      '@conform-to/dom': 1.21.3
       zod: 4.6.7
 
   '@csstools/color-helpers@6.1.2': {}
