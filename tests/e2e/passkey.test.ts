@@ -65,13 +65,18 @@ test("Users can register and use passkeys", { tag: "@slow" }, async ({ page, nav
 
   await page.getByRole("button", { name: /login with a passkey/i }).click();
 
-  // Check for error message before waiting for completion
+  // Fail only if the error message actually appears. The 1000ms wait bounds the error check;
+  // its timeout must NOT reject the race (a slow but successful assertion outliving the window
+  // would otherwise flake the test).
   const errorLocator = page.getByText(/failed to authenticate/i);
-  const errorPromise = errorLocator.waitFor({ timeout: 1000 }).then(() => {
-    throw new Error("Passkey authentication failed");
+  const authFailedPromise = new Promise<never>((_, reject) => {
+    errorLocator
+      .waitFor({ timeout: 1000 })
+      .then(() => reject(new Error("Passkey authentication failed")))
+      .catch(() => {}); // timeout = no error appeared; stay pending
   });
 
-  await Promise.race([passkeyAssertedPromise, errorPromise]);
+  await Promise.race([passkeyAssertedPromise, authFailedPromise]);
 
   // Verify successful login
   await expect(page.getByRole("button", { name: /user menu/i })).toBeVisible();
