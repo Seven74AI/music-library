@@ -2,6 +2,7 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import * as React from "react";
 
 import { buttonVariants } from "#app/components/ui/button";
+import { ClearStuckBodyPointerEvents } from "#app/components/ui/dialog.tsx";
 import { cn } from "#app/utils/misc";
 
 const AlertDialog = AlertDialogPrimitive.Root;
@@ -28,7 +29,7 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <AlertDialogPortal>
     <AlertDialogOverlay />
     <AlertDialogPrimitive.Content
@@ -38,7 +39,10 @@ const AlertDialogContent = React.forwardRef<
         className,
       )}
       {...props}
-    />
+    >
+      <ClearStuckBodyPointerEvents />
+      {children}
+    </AlertDialogPrimitive.Content>
   </AlertDialogPortal>
 ));
 AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName;
