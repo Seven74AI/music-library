@@ -137,7 +137,7 @@ describe("processQueueTick", () => {
       exitCode: 0,
       stdout: "[download] Destination: /tmp/test-audio.mp3",
       stderr: "",
-      filePath: "/tmp/test-audio.mp3",
+      filePath: path.join(os.tmpdir(), "test-audio.mp3"),
       errorCategory: null,
       errorMessage: null,
     });
@@ -699,7 +699,7 @@ describe("processQueueTick", () => {
         exitCode: 0,
         stdout: "[ExtractAudio] Destination: /tmp/abc.mp3",
         stderr: "",
-        filePath: "/tmp/abc.mp3",
+        filePath: path.join(os.tmpdir(), "abc.mp3"),
         errorCategory: null,
         errorMessage: null,
       });
@@ -1044,7 +1044,7 @@ describe("processQueueTick", () => {
           exitCode: 0,
           stdout: "[ExtractAudio] Destination: /tmp/test-audio.mp3",
           stderr: "",
-          filePath: "/tmp/test-audio.mp3",
+          filePath: path.join(os.tmpdir(), "test-audio.mp3"),
           errorCategory: null,
           errorMessage: null,
         })
