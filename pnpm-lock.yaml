@@ -423,7 +423,7 @@ importers:
         specifier: ^9.1.7
         version: 9.1.7
       ignore:
-        specifier: ^7.0.13
+        specifier: ^7.0.14
         version: 7.0.14
       jsdom:
         specifier: ^31.0.0
