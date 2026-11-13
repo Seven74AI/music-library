@@ -18,6 +18,7 @@ import {
   type NetscapeCookie,
 } from "#app/features/audio-archive/youtube-cookie.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/youtube-cookies.ts";
@@ -38,7 +39,7 @@ interface LoaderData {
 }
 
 export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const cookies = readCookies();
   const lastUpload = await prisma.youtubeCookie.findFirst({
@@ -54,7 +55,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const userId = await requireUserWithRole(request, "admin");
+  const userId = await requireUserWithRole(request, ROLES.admin);
 
   const formData = await request.formData();
   const mode = formData.get("mode");

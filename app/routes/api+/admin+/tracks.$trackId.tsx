@@ -1,12 +1,13 @@
 import { data } from "react-router";
 import { prisma } from "#app/utils/db.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { deleteUnreferencedObjectKeys } from "#app/utils/audio-cleanup.server.ts";
 import { type Route } from "./+types/tracks.$trackId.ts";
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const { trackId } = params;
 

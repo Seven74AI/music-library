@@ -16,6 +16,7 @@ import { UploadCompletion } from "#app/components/upload-completion";
 import { LOCAL_SERVICE } from "#app/constants/services";
 import { type ExtractedAudioMetadata } from "#app/utils/audio-metadata.server";
 import { prisma } from "#app/utils/db.server";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 
 export const handle: BreadcrumbHandle = {
@@ -50,7 +51,7 @@ interface FileWithMetadata {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const service = await prisma.service.findUnique({
     where: { name: LOCAL_SERVICE.NAME },

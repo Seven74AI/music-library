@@ -21,6 +21,7 @@ import {
   UPLOAD_AUDIO_CLIENT_ERROR_MESSAGE,
   toClientErrorMessage,
 } from "#app/utils/error-handlers.server";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/upload-audio.ts";
@@ -47,7 +48,7 @@ export async function clientAction(args: Route.ClientActionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  const userId = await requireUserWithRole(request, "admin");
+  const userId = await requireUserWithRole(request, ROLES.admin);
 
   // Parse form data with file size limit
   const formData = await parseFormData(request, { maxFileSize: MAX_FILE_SIZE });

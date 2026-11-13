@@ -33,6 +33,7 @@ import {
 } from "#app/features/admin/orphaned-tracks.server.ts";
 import { formatBytes } from "#app/utils/format-bytes.ts";
 import { parsePageParam } from "#app/utils/parse-page-param.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/orphaned-tracks.ts";
@@ -85,7 +86,7 @@ function orphanPageHref({
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const url = new URL(request.url);
   const tabParam = url.searchParams.get("tab") ?? "missing-audio";
@@ -155,7 +156,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const formData = await request.formData();
   const intent = formData.get("intent");

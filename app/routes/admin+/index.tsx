@@ -18,6 +18,7 @@ import { buildDayRange, getUtcDayStart } from "#app/features/usage-analytics/adm
 import { USAGE_METRICS } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { formatBytes } from "#app/utils/format-bytes.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/index.ts";
 
@@ -56,7 +57,7 @@ function buildSeries(days: Date[], rows: Array<{ day: Date; value: number }>): S
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const days = buildDayRange(DAYS);
   const rangeStart = days[0]!;

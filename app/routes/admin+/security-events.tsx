@@ -32,6 +32,7 @@ import {
   getSecurityTimeline,
   getSuccessfulLogins,
 } from "#app/features/security/suspicious-activity.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
@@ -60,7 +61,7 @@ function formatWhen(iso: string): string {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
   const url = new URL(request.url);
   const tab = parseTab(url.searchParams.get("tab"));
   const filters = {
@@ -93,7 +94,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const actorId = await requireUserWithRole(request, "admin");
+  const actorId = await requireUserWithRole(request, ROLES.admin);
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
 

@@ -27,6 +27,7 @@ import {
 import { markDuplicateGroupIntentional } from "#app/features/admin/duplicate-dashboard.server.ts";
 import { formatBytes } from "#app/utils/format-bytes.ts";
 import { fetchInternal } from "#app/utils/internal-fetch.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { redirectWithToast } from "#app/utils/toast.server.ts";
@@ -74,7 +75,7 @@ interface LoaderData {
 }
 
 export async function loader({ request, url }: Route.LoaderArgs): Promise<LoaderData> {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   // Fetch data from the internal API endpoint on a trusted origin, forwarding
   // only the session cookie (never the full incoming headers).
@@ -94,7 +95,7 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const userId = await requireUserWithRole(request, "admin");
+  const userId = await requireUserWithRole(request, ROLES.admin);
   const formData = await request.formData();
   const intent = formData.get("intent");
   if (intent !== "mark-intentional") {
