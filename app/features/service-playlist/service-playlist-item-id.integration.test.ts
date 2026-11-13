@@ -207,6 +207,42 @@ describe("ServicePlaylistTrack keyed by playlistItem.id", () => {
     expect(again.surplus.size).toBe(0);
   });
 
+  test("across transaction slices a row owned by a later slice's item is not restamped", async () => {
+    // "pi-late" already owns the row for vid-a. In the payload, "pi-new" (slice 1) also
+    // points at vid-a and "pi-late" (slice 2) comes later, as in service-playlist.server.ts.
+    await sync([item("pi-late", "vid-a")]);
+    const [original] = await prisma.servicePlaylistTrack.findMany({ where: { playlistId } });
+
+    const payload = [item("pi-new", "vid-a"), item("pi-late", "vid-a")];
+    const allItemIds = new Set(["pi-new", "pi-late"]);
+    const ids = emptyIds();
+    const processor = createYouTubeTrackSyncProcessor();
+    for (const [start, slice] of [
+      [0, payload.slice(0, 1)],
+      [1, payload.slice(1)],
+    ] as const) {
+      const res = await prisma.$transaction((tx) =>
+        processTracksInBatches(
+          [...slice],
+          serviceId,
+          playlistId,
+          tx,
+          processor,
+          noopArchiveEnqueueAdapter,
+          start,
+          ids,
+          allItemIds,
+        ),
+      );
+      res.processedIds.sptIds.forEach((id) => ids.sptIds.add(id));
+    }
+
+    const rows = await prisma.servicePlaylistTrack.findMany({ where: { playlistId } });
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.id === original!.id)?.playlistItemId).toBe("pi-late");
+    expect(rows.map((r) => r.playlistItemId).sort()).toEqual(["pi-late", "pi-new"]);
+  });
+
   test("a confirmed placeholder is found by the next sync via playlistItemId", async () => {
     const { confirmOrphanedMatches } = await import("./orphaned-match-confirm.server");
     const playlist = await prisma.servicePlaylist.findUniqueOrThrow({
