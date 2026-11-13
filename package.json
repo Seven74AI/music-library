@@ -112,7 +112,7 @@
     "@tanstack/react-virtual": "^3.14.23",
     "@tusbar/cache-control": "^3.0.1",
     "@types/ws": "^8.18.2",
-    "@upstash/redis": "^1.39.0",
+    "@upstash/redis": "^1.41.0",
     "address": "^2.0.3",
     "adm-zip": "^0.6.1",
     "bcryptjs": "^3.0.2",

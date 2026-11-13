@@ -188,8 +188,8 @@ importers:
         specifier: ^8.18.2
         version: 8.18.2
       '@upstash/redis':
-        specifier: ^1.39.0
-        version: 1.39.0
+        specifier: ^1.41.0
+        version: 1.41.0
       address:
         specifier: ^2.0.3
         version: 2.0.3
@@ -3524,8 +3524,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@upstash/redis@1.39.0':
-    resolution: {integrity: sha512-VwkpYTdxSfjSulQS5h16NHtg/1UEheBfvez2AeGKinAujOoGXhXCcohQRzsQ/d2g/XzbjzTVGhG8Ds8uOI0Mxg==}
+  '@upstash/redis@1.41.0':
+    resolution: {integrity: sha512-TIu9C1B0ToXQLXt2M1LQuGZ6nkMjOZPIdJyU0GGWKZToa/MvJF8x2IRDOPMIAw2BLGXGhi1aZr5AnhlXu4YLXg==}
 
   '@visx/curve@4.0.1-alpha.0':
     resolution: {integrity: sha512-jRu61Uz274pV1zyioXmboyrLutYbnKsgjj4njSGCnhdXj5GkZvZbg+ThDb6oOzoAnJOBRLz4rzPlWvNJOzuVMg==}
@@ -9717,7 +9717,7 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@upstash/redis@1.39.0':
+  '@upstash/redis@1.41.0':
     dependencies:
       uncrypto: 0.1.3
 
