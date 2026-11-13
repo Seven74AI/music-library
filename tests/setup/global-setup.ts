@@ -21,6 +21,11 @@ export async function setup() {
   const databaseDir = path.dirname(BASE_DATABASE_PATH);
   await fsExtra.ensureDir(databaseDir);
 
+  // Always start from a fresh database: the seed is not idempotent (it `create`s tracks,
+  // audio files, userTracks and playlists, and the DB-level `(ownerId, lower(title))` unique
+  // index makes re-seeding an existing DB fail with a unique-constraint error).
+  await fsExtra.remove(BASE_DATABASE_PATH);
+
   const databaseExists = await fsExtra.pathExists(BASE_DATABASE_PATH);
 
   // Check migration status to see if database is in sync

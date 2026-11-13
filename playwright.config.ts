@@ -105,6 +105,7 @@ export default defineConfig({
       CACHE_DATABASE_PATH: path.join(process.cwd(), "./tests/prisma/cache.db"),
       INTERNAL_COMMAND_TOKEN: "test-internal-token",
       HONEYPOT_SECRET: "test-honeypot-secret",
+      IP_HASH_SALT: "test-ip-hash-salt",
       SESSION_SECRET: "test-session-secret",
       TOKEN_ENCRYPTION_KEY: "playwright-token-encryption-key-0123456789abcdef",
       COOKIE_FILE_PATH: E2E_COOKIE_FILE_PATH,
