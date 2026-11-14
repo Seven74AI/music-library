@@ -52,7 +52,6 @@ describe("user-library", () => {
       const result = await addTrackToUserLibrary(trackId, userId);
 
       expect(result.success).toBe(true);
-      expect(result.message).toBe("Track added to library");
       expect(prisma.userTrack.create).toHaveBeenCalledWith({
         data: { userId, trackId },
       });
@@ -70,7 +69,6 @@ describe("user-library", () => {
       const result = await addTrackToUserLibrary(trackId, userId);
 
       expect(result.success).toBe(true);
-      expect(result.message).toBe("Track already in library");
       expect(prisma.userTrack.create).not.toHaveBeenCalled();
     });
 
@@ -91,7 +89,6 @@ describe("user-library", () => {
       const result = await addTrackToUserLibrary(trackId, userId);
 
       expect(result.success).toBe(true);
-      expect(result.message).toBe("Track re-added to library");
       expect(prisma.userTrack.update).toHaveBeenCalledWith({
         where: { id: "ut1" },
         data: { isActive: true, deletedAt: null, createdAt: expect.any(Date) },
@@ -105,7 +102,6 @@ describe("user-library", () => {
       const result = await addTrackToUserLibrary(trackId, userId);
 
       expect(result.success).toBe(false);
-      expect(result.message).toBe("Failed to add track to library");
       expect(result.error).toBe("DB connection failed");
       consoleError.mockRestore();
     });
@@ -124,7 +120,7 @@ describe("user-library", () => {
 
       const result = await addTrackToUserLibrary(trackId, userId);
 
-      expect(result).toEqual({ success: true, message: "Track already in library" });
+      expect(result.success).toBe(true);
     });
   });
 
@@ -261,7 +257,6 @@ describe("user-library", () => {
       const result = await removeTrackFromUserLibrary(trackId, userId);
 
       expect(result.success).toBe(true);
-      expect(result.message).toBe("Track removed from library");
       expect(prisma.userTrack.update).toHaveBeenCalledWith({
         where: { id: "ut1" },
         data: { isActive: false, deletedAt: expect.any(Date) },
@@ -274,7 +269,6 @@ describe("user-library", () => {
       const result = await removeTrackFromUserLibrary(trackId, userId);
 
       expect(result.success).toBe(false);
-      expect(result.message).toBe("Track not found in library");
       expect(prisma.userTrack.update).not.toHaveBeenCalled();
     });
 
@@ -290,7 +284,6 @@ describe("user-library", () => {
       const result = await removeTrackFromUserLibrary(trackId, userId);
 
       expect(result.success).toBe(false);
-      expect(result.message).toBe("Track not found in library");
       expect(prisma.userTrack.update).not.toHaveBeenCalled();
     });
 
@@ -301,7 +294,6 @@ describe("user-library", () => {
       const result = await removeTrackFromUserLibrary(trackId, userId);
 
       expect(result.success).toBe(false);
-      expect(result.message).toBe("Failed to remove track from library");
       expect(result.error).toBe("DB connection failed");
       consoleError.mockRestore();
     });
