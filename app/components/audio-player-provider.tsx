@@ -1,4 +1,12 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
 import {
   roomStateAfterAutoplay,
   type RoomAutoplayOutcome,
@@ -1048,13 +1056,12 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       rememberTrack(track);
 
       if (position === "next") {
-        const playNextPrefixLength = upNextPlayNextCountRef.current;
-        const nextCount = playNextPrefixLength + 1;
+        const nextCount = upNextPlayNextCountRef.current + 1;
         upNextPlayNextCountRef.current = nextCount;
         setUpNextPlayNextCount(nextCount);
         setUpNext((prev) => {
           const next = [...prev];
-          next.splice(playNextPrefixLength, 0, queueTrack);
+          next.splice(0, 0, queueTrack);
           return next;
         });
         return;

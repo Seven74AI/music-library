@@ -94,7 +94,7 @@ Implementation tickets: [On-Repeat Snapshots #198](https://github.com/mnlamart/m
 
 - **Queue Spine** — Ordered playable tracks for the active play context (library or playlist). Loaded in one request as lightweight `QueueTrack` rows (`id`, `title`, and an `artist` object `{ id, name }`). The spine is the automatic continuation after **Up Next** is drained; shuffle permutes spine play order client-side.
 
-- **Up Next** — Manual injection zone between now playing and the spine. User-added tracks via **Play next** or **Add to up next** live here in memory only (not persisted across sessions). **Play next** inserts at the front (FIFO among play-next items); **Add to up next** appends to the tail.
+- **Up Next** — Manual injection zone between now playing and the spine. User-added tracks via **Play next** or **Add to up next** live here in memory only (not persisted across sessions). **Play next** inserts at the front (most recent first); **Add to up next** appends to the tail.
 
 - **Hydration** — Lazy fetch of the full playback payload (`FullTrack`: audioFiles, cover, duration) for tracks about to play. The provider hydrates the current track plus a small lookahead (four upcoming tracks) via `GET /api/tracks/playback`. Until hydrated, the UI uses minimal spine stubs.
 

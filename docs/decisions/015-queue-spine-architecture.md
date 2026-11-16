@@ -28,10 +28,10 @@ Navigation on **Next**: drain Up Next front → advance spine pointer → **loop
 
 ### 2. Two-tier data loading
 
-| Tier            | Shape                              | When loaded                                                            |
-| --------------- | ---------------------------------- | ---------------------------------------------------------------------- |
+| Tier            | Shape                                             | When loaded                                                            |
+| --------------- | ------------------------------------------------- | ---------------------------------------------------------------------- |
 | Spine           | `QueueTrack[]` (id, title, artist `{ id, name }`) | One request on play (`GET /api/queue-spine`)                           |
-| Hydration cache | `Map<id, FullTrack>`               | On demand: current + four-track lookahead (`GET /api/tracks/playback`) |
+| Hydration cache | `Map<id, FullTrack>`                              | On demand: current + four-track lookahead (`GET /api/tracks/playback`) |
 
 The provider (`audio-player-provider.tsx`) orchestrates spine fetch, hydration, and navigation. Client modules live under `app/features/queue/`.
 
@@ -43,11 +43,11 @@ Shuffle permutes spine **play order** (an index array), not the underlying spine
 
 ### 4. Three queue actions with cold/warm behavior
 
-| Action             | Warm (player active)                                    | Cold (nothing playing)                                   |
-| ------------------ | ------------------------------------------------------- | -------------------------------------------------------- |
-| **Play next**      | Insert at front of Up Next (FIFO among play-next items) | Cue track as current (paused); open player; no auto-play |
-| **Add to up next** | Append to Up Next tail                                  | Queue in Up Next; open player; no auto-play              |
-| **Add to queue**   | Append after entire spine                               | Queue at true end; open player; no auto-play             |
+| Action             | Warm (player active)                           | Cold (nothing playing)                                   |
+| ------------------ | ---------------------------------------------- | -------------------------------------------------------- |
+| **Play next**      | Insert at front of Up Next (most recent first) | Cue track as current (paused); open player; no auto-play |
+| **Add to up next** | Append to Up Next tail                         | Queue in Up Next; open player; no auto-play              |
+| **Add to queue**   | Append after entire spine                      | Queue at true end; open player; no auto-play             |
 
 Bulk playlist UI exposes all three actions; default for "add whole playlist" is **Add to up next**.
 
@@ -82,12 +82,12 @@ If spine fetch fails or returns empty, the provider falls back to device-local p
 
 ## Implementation status
 
-| Area                   | Location                                                                      |
-| ---------------------- | ----------------------------------------------------------------------------- |
-| Spine API              | `app/routes/api+/queue-spine.tsx`, `app/features/queue/queue-spine.server.ts` |
-| Hydration API          | `app/routes/api+/tracks+/playback.tsx`                                        |
-| Client queue modules   | `app/features/queue/`                                                         |
-| Provider orchestration | `app/components/audio-player-provider.tsx`                                    |
+| Area                   | Location                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Spine API              | `app/routes/api+/queue-spine.tsx`, `app/features/queue/queue-spine.server.ts`                                   |
+| Hydration API          | `app/routes/api+/tracks+/playback.tsx`                                                                          |
+| Client queue modules   | `app/features/queue/`                                                                                           |
+| Provider orchestration | `app/components/audio-player-provider.tsx`                                                                      |
 | Queue sheet UI         | `app/components/player-queue-sheet.tsx`, `app/components/player-chrome.tsx`, `app/components/queue-sheet-ui.ts` |
 
 ## References

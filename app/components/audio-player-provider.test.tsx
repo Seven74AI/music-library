@@ -2077,7 +2077,7 @@ test("online restore clamps play-next count when a prefix track fails hydration"
 
   await waitFor(() => {
     expect(screen.getByTestId("up-next-ids").textContent).toBe(
-      "track-prefix,track-new-pn,track-tail",
+      "track-new-pn,track-prefix,track-tail",
     );
   });
   expect(screen.getByTestId("play-next-count").textContent).toBe("2");
@@ -4015,7 +4015,7 @@ test("jump onto a play-next row discards the prefix using ref-backed play-next c
           Play next B
         </button>
         <button type="button" onClick={() => playQueueTrack({ zone: "upNext", index: 1 })}>
-          Jump to B
+          Jump to A
         </button>
         <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
         <span data-testid="play-next-count">{upNextPlayNextCount}</span>
@@ -4038,10 +4038,10 @@ test("jump onto a play-next row discards the prefix using ref-backed play-next c
   await user.click(screen.getByRole("button", { name: "Play next B" }));
   expect(screen.getByTestId("play-next-count").textContent).toBe("2");
 
-  await user.click(screen.getByRole("button", { name: "Jump to B" }));
+  await user.click(screen.getByRole("button", { name: "Jump to A" }));
 
   await waitFor(() => {
-    expect(screen.getByTestId("current-track-id").textContent).toBe("track-pnb");
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-pna");
   });
   expect(screen.getByTestId("play-next-count").textContent).toBe("0");
 });
@@ -4974,7 +4974,7 @@ test("play-next added during remove-current await does not drift play-next count
   const slowGate = new Promise<void>((resolve) => {
     releaseSlow = () => {
       slowReleased = true;
-      playableTrackGate.treatUnplayableIds.delete("track-pnb");
+      playableTrackGate.treatUnplayableIds.delete("track-pna");
       resolve();
     };
   });
@@ -5037,7 +5037,7 @@ test("play-next added during remove-current await does not drift play-next count
           type="button"
           onClick={() => {
             deferSlow = true;
-            playableTrackGate.treatUnplayableIds.add("track-pnb");
+            playableTrackGate.treatUnplayableIds.add("track-pna");
             removeCurrentFromQueue();
           }}
         >
@@ -5076,9 +5076,9 @@ test("play-next added during remove-current await does not drift play-next count
   await user.click(screen.getByRole("button", { name: "Release slow" }));
 
   await waitFor(() => {
-    expect(screen.getByTestId("current-track-id").textContent).not.toBe("track-1");
+    expect(screen.getByTestId("play-next-count").textContent).toBe("2");
   });
-  expect(screen.getByTestId("play-next-count").textContent).toBe("2");
+  expect(screen.getByTestId("current-track-id").textContent).not.toBe("track-1");
 });
 
 test("play next during slow removeTrackFromPlaylist successor hydration survives in Up Next", async () => {
