@@ -134,7 +134,7 @@
     "googleapis": "^189.0.0",
     "input-otp": "^1.5.0",
     "intl-parse-accept-language": "^1.0.0",
-    "isbot": "^5.2.2",
+    "isbot": "^5.2.3",
     "js-levenshtein": "^1.1.6",
     "litefs-js": "^2.0.2",
     "lru-cache": "^11.1.0",
