@@ -16,7 +16,7 @@ test("Users can update their basic info", { tag: "@smoke" }, async ({ page, navi
   await page.getByRole("textbox", { name: /^name/i }).fill(newUserData.name);
   await page.getByRole("textbox", { name: /^username/i }).fill(newUserData.username);
 
-  await page.getByRole("button", { name: /^save/i }).click();
+  await page.getByRole("button", { name: "Save changes" }).click();
 });
 
 test("Users can update their password", { tag: "@slow" }, async ({ page, navigate, login }) => {
