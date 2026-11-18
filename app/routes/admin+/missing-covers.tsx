@@ -35,6 +35,7 @@ import {
 } from "#app/features/admin/cover-fetch.server";
 import { coverImageUrl } from "#app/utils/cover-image-url";
 import { parsePageParam } from "#app/utils/parse-page-param.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/missing-covers.ts";
@@ -48,7 +49,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
   const tabParam = url.searchParams.get("tab") ?? "tracks";
   const tab: Tab = TABS.includes(tabParam as Tab) ? (tabParam as Tab) : "tracks";
   const page = parsePageParam(url.searchParams.get("page"));
@@ -99,7 +100,7 @@ export async function loader({ request, url }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
   const formData = await request.formData();
   const intent = formData.get("intent");
 

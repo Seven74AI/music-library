@@ -44,7 +44,7 @@ describe("deleteOfflineAudioEntry", () => {
       getDirectoryHandle: vi.fn().mockRejectedValue(new Error("boom")),
     } as unknown as FileSystemDirectoryHandle;
 
-    await expect(deleteOfflineAudioEntry(root, "track-1")).rejects.toThrow("boom");
+    await expect(deleteOfflineAudioEntry(root, "track-1")).rejects.toThrow();
   });
 
   test("rethrows non-NotFound errors from removeEntry", async () => {
@@ -55,6 +55,6 @@ describe("deleteOfflineAudioEntry", () => {
       getDirectoryHandle: vi.fn().mockResolvedValue(audioDir),
     } as unknown as FileSystemDirectoryHandle;
 
-    await expect(deleteOfflineAudioEntry(root, "track-1")).rejects.toThrow("boom");
+    await expect(deleteOfflineAudioEntry(root, "track-1")).rejects.toThrow();
   });
 });

@@ -1,5 +1,5 @@
 import { data, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { verifyEntityExists } from "#app/utils/entity-existence.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";

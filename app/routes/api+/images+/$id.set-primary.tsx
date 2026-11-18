@@ -9,7 +9,7 @@ import {
   getLockStatus,
   throwEditLockTransactionError,
 } from "#app/utils/locks.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/$id.set-primary.ts";
 
@@ -23,7 +23,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw data({ error: "Method not allowed" }, { status: 405 });
   }
 
-  const userId = await requireCuratorRole(request);
+  const userId = await requireCuratorOrAdmin(request);
   const { id: imageId } = params;
 
   if (!imageId) {

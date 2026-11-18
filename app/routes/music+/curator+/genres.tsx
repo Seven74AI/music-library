@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "#app/components/ui/select";
 import { Checkbox } from "#app/components/ui/checkbox";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { fetchInternal } from "#app/utils/internal-fetch.server.ts";
 import { type Route } from "./+types/genres";
 

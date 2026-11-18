@@ -5,11 +5,11 @@ import {
   findWriteBlockedLock,
   getLockStatus,
 } from "#app/utils/locks.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { action, clientAction } from "./bulk-edit.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
-  requireCuratorRole: vi.fn(),
+  requireCuratorOrAdmin: vi.fn(),
 }));
 
 vi.mock("#app/utils/locks.server.ts", () => ({
@@ -89,7 +89,7 @@ function makeTxMock(
 describe("POST /api/metadata/tracks/bulk-edit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
+    vi.mocked(requireCuratorOrAdmin).mockResolvedValue("user-1");
     vi.mocked(findWriteBlockedLock).mockResolvedValue(null);
     vi.mocked(getLockStatus).mockResolvedValue(null);
     vi.mocked(assertEditLockInTransaction).mockResolvedValue(undefined);
@@ -120,7 +120,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
   });
 
   test("requires curator or admin role", async () => {
-    vi.mocked(requireCuratorRole).mockRejectedValue(
+    vi.mocked(requireCuratorOrAdmin).mockRejectedValue(
       new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403 }),
     );
 
@@ -132,7 +132,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     await expect(action(makeRequest(body) as never)).rejects.toThrow();
 
-    expect(requireCuratorRole).toHaveBeenCalled();
+    expect(requireCuratorOrAdmin).toHaveBeenCalled();
   });
 
   test("validates required fields", async () => {
@@ -921,7 +921,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 describe("clientAction for POST /api/metadata/tracks/bulk-edit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
+    vi.mocked(requireCuratorOrAdmin).mockResolvedValue("user-1");
   });
 
   test("returns validation failures so the fetcher receives data.error", async () => {

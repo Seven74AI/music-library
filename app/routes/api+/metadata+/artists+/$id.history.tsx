@@ -1,6 +1,6 @@
 import { data } from "react-router";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/$id.history.ts";
 
 interface FieldChange {
@@ -43,7 +43,7 @@ function computeChanges(previous: ArtistStateSnapshot, current: ArtistStateSnaps
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireCuratorRole(request);
+  await requireCuratorOrAdmin(request);
   const { id: artistId } = params;
 
   if (!artistId) {

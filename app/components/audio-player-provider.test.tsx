@@ -2077,7 +2077,7 @@ test("online restore clamps play-next count when a prefix track fails hydration"
 
   await waitFor(() => {
     expect(screen.getByTestId("up-next-ids").textContent).toBe(
-      "track-prefix,track-new-pn,track-tail",
+      "track-new-pn,track-prefix,track-tail",
     );
   });
   expect(screen.getByTestId("play-next-count").textContent).toBe("2");
@@ -4015,7 +4015,7 @@ test("jump onto a play-next row discards the prefix using ref-backed play-next c
           Play next B
         </button>
         <button type="button" onClick={() => playQueueTrack({ zone: "upNext", index: 1 })}>
-          Jump to B
+          Jump to A
         </button>
         <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
         <span data-testid="play-next-count">{upNextPlayNextCount}</span>
@@ -4038,10 +4038,10 @@ test("jump onto a play-next row discards the prefix using ref-backed play-next c
   await user.click(screen.getByRole("button", { name: "Play next B" }));
   expect(screen.getByTestId("play-next-count").textContent).toBe("2");
 
-  await user.click(screen.getByRole("button", { name: "Jump to B" }));
+  await user.click(screen.getByRole("button", { name: "Jump to A" }));
 
   await waitFor(() => {
-    expect(screen.getByTestId("current-track-id").textContent).toBe("track-pnb");
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-pna");
   });
   expect(screen.getByTestId("play-next-count").textContent).toBe("0");
 });
@@ -4968,6 +4968,7 @@ test("play-next added during remove-current await does not drift play-next count
   const playNextA = { ...playableTrack, id: "track-pna", title: "Play Next A" };
   const playNextB = { ...playableTrack, id: "track-pnb", title: "Play Next B" };
   const playNextC = { ...playableTrack, id: "track-pnc", title: "Play Next C" };
+  const track2 = { ...playableTrack, id: "track-2", title: "Second Track" };
 
   let releaseSlow!: () => void;
   let slowReleased = false;
@@ -4989,27 +4990,27 @@ test("play-next added during remove-current await does not drift play-next count
       return Promise.resolve({
         ok: true,
         json: async () => ({
-          tracks: [spineTrack],
-          total: 1,
+          tracks: [spineTrack, { ...spineTrack, id: "track-2", title: "Second Track" }],
+          total: 2,
         }),
       } as Response);
     }
     if (url.includes("/api/tracks/playback")) {
+      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+      // track-2 stays a cache miss until the slow batch, so the successor's
+      // hydrateAround really awaits the gated fetch.
       if (deferSlow && !slowReleased) {
         return slowGate.then(() =>
           Promise.resolve({
             ok: true,
             json: async () => ({
-              tracks: [playableTrack, playNextA, playNextB, playNextC].filter((t) =>
-                (new URL(url, "http://test").searchParams.get("ids") ?? "")
-                  .split(",")
-                  .includes(t.id),
+              tracks: [playableTrack, track2, playNextA, playNextB, playNextC].filter((t) =>
+                ids.includes(t.id),
               ),
             }),
           } as Response),
         );
       }
-      const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
       const all = [playableTrack, playNextA, playNextB, playNextC];
       return Promise.resolve({
         ok: true,
@@ -5020,8 +5021,14 @@ test("play-next added during remove-current await does not drift play-next count
   });
 
   function RemoveCurrentProbe() {
-    const { playTrack, playNextTrack, removeCurrentFromQueue, upNextPlayNextCount, currentTrack } =
-      useAudioPlayer();
+    const {
+      playTrack,
+      playNextTrack,
+      removeCurrentFromQueue,
+      upNextPlayNextCount,
+      currentTrack,
+      upNext,
+    } = useAudioPlayer();
     return (
       <>
         <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
@@ -5051,6 +5058,7 @@ test("play-next added during remove-current await does not drift play-next count
         </button>
         <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
         <span data-testid="play-next-count">{upNextPlayNextCount}</span>
+        <span data-testid="up-next-ids">{upNext.map((track) => track.id).join(",")}</span>
       </>
     );
   }
@@ -5073,13 +5081,177 @@ test("play-next added during remove-current await does not drift play-next count
   void user.click(screen.getByRole("button", { name: "Remove current" }));
   await user.click(screen.getByRole("button", { name: "Play next C" }));
 
+  expect(screen.getByTestId("up-next-ids").textContent).toBe("track-pnc,track-pnb,track-pna");
+
   await user.click(screen.getByRole("button", { name: "Release slow" }));
 
+  // Front-insert: B was the successor (gated), C landed at index 0 during the
+  // await. The commit must consume B by id — not stale index 0 (C).
   await waitFor(() => {
-    expect(screen.getByTestId("current-track-id").textContent).not.toBe("track-1");
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-pnb");
   });
+  expect(screen.getByTestId("up-next-ids").textContent).toBe("track-pnc,track-pna");
   expect(screen.getByTestId("play-next-count").textContent).toBe("2");
 });
+
+test.each([
+  {
+    name: "skip (playNext)",
+    action: "Skip",
+    gatedId: "track-pnb",
+    expectedCurrent: "track-pnb",
+    expectedUpNext: "track-pnc,track-pna",
+    expectedCount: "2",
+  },
+  {
+    name: "jump (playQueueTrack)",
+    action: "Jump to A",
+    gatedId: "track-pna",
+    expectedCurrent: "track-pna",
+    expectedUpNext: "track-pnc",
+    expectedCount: "1",
+  },
+])(
+  "play-next added during $name await keeps the new row and consumes the original target",
+  async ({ action, gatedId, expectedCurrent, expectedUpNext, expectedCount }) => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    const playNextA = { ...playableTrack, id: "track-pna", title: "Play Next A" };
+    const playNextB = { ...playableTrack, id: "track-pnb", title: "Play Next B" };
+    const playNextC = { ...playableTrack, id: "track-pnc", title: "Play Next C" };
+    const track2 = { ...playableTrack, id: "track-2", title: "Second Track" };
+
+    let releaseSlow!: () => void;
+    let slowReleased = false;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = () => {
+        slowReleased = true;
+        playableTrackGate.treatUnplayableIds.delete(gatedId);
+        resolve();
+      };
+    });
+    let deferSlow = false;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes(PLAYER_STATE_ROUTE)) {
+        return Promise.resolve({ status: 204, ok: true, json: async () => null } as Response);
+      }
+      if (url.includes("/api/queue-spine")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            tracks: [spineTrack, { ...spineTrack, id: "track-2", title: "Second Track" }],
+            total: 2,
+          }),
+        } as Response);
+      }
+      if (url.includes("/api/tracks/playback")) {
+        const ids = new URL(url, "http://test").searchParams.get("ids")?.split(",") ?? [];
+        const all = [playableTrack, playNextA, playNextB, playNextC];
+        if (deferSlow && !slowReleased) {
+          return slowGate.then(() =>
+            Promise.resolve({
+              ok: true,
+              json: async () => ({
+                tracks: [...all, track2].filter((t) => ids.includes(t.id)),
+              }),
+            } as Response),
+          );
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ tracks: all.filter((track) => ids.includes(track.id)) }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+
+    function JumpProbe() {
+      const {
+        playTrack,
+        playNextTrack,
+        playNext,
+        playQueueTrack,
+        upNextPlayNextCount,
+        currentTrack,
+        upNext,
+      } = useAudioPlayer();
+      const arm = () => {
+        deferSlow = true;
+        playableTrackGate.treatUnplayableIds.add(gatedId);
+      };
+      return (
+        <>
+          <button type="button" onClick={() => playTrack(playableTrack, { type: "library" }, 0)}>
+            Play first
+          </button>
+          <button type="button" onClick={() => playNextTrack(playNextA)}>
+            Play next A
+          </button>
+          <button type="button" onClick={() => playNextTrack(playNextB)}>
+            Play next B
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              arm();
+              playNext();
+            }}
+          >
+            Skip
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              arm();
+              playQueueTrack({ zone: "upNext", index: 1 });
+            }}
+          >
+            Jump to A
+          </button>
+          <button type="button" onClick={() => playNextTrack(playNextC)}>
+            Play next C
+          </button>
+          <button type="button" onClick={releaseSlow}>
+            Release slow
+          </button>
+          <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+          <span data-testid="play-next-count">{upNextPlayNextCount}</span>
+          <span data-testid="up-next-ids">{upNext.map((track) => track.id).join(",")}</span>
+        </>
+      );
+    }
+
+    render(
+      <AudioPlayerProvider>
+        <JumpProbe />
+      </AudioPlayerProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Play first" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Play next A" }));
+    await user.click(screen.getByRole("button", { name: "Play next B" }));
+    expect(screen.getByTestId("up-next-ids").textContent).toBe("track-pnb,track-pna");
+
+    void user.click(screen.getByRole("button", { name: action }));
+    await user.click(screen.getByRole("button", { name: "Play next C" }));
+    expect(screen.getByTestId("up-next-ids").textContent).toBe("track-pnc,track-pnb,track-pna");
+    expect(screen.getByTestId("current-track-id").textContent).toBe("track-1");
+
+    await user.click(screen.getByRole("button", { name: "Release slow" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("current-track-id").textContent).toBe(expectedCurrent);
+    });
+    expect(screen.getByTestId("up-next-ids").textContent).toBe(expectedUpNext);
+    expect(screen.getByTestId("play-next-count").textContent).toBe(expectedCount);
+  },
+);
 
 test("play next during slow removeTrackFromPlaylist successor hydration survives in Up Next", async () => {
   const user = userEvent.setup();

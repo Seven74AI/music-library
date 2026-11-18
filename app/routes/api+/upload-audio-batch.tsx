@@ -21,6 +21,7 @@ import {
 } from "#app/utils/cover-management.server";
 import { cleanupFailedUploadArtifacts } from "#app/utils/audio-cleanup.server.ts";
 import { prisma } from "#app/utils/db.server";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -198,7 +199,7 @@ export async function clientAction(args: Route.ClientActionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  const userId = await requireUserWithRole(request, "admin");
+  const userId = await requireUserWithRole(request, ROLES.admin);
 
   // Parse form data
   const formData = await parseFormData(request, { maxFileSize: MAX_ZIP_SIZE });

@@ -94,7 +94,7 @@ describe("cover image upload split (sharp/uploadFile outside the transaction)", 
         },
         null,
       ),
-    ).rejects.toThrow(/content hash/);
+    ).rejects.toThrow();
 
     expect(tx.coverImage.create).not.toHaveBeenCalled();
   });

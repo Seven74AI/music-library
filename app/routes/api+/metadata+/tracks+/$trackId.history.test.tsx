@@ -1,10 +1,10 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { loader } from "./$trackId.history.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
-  requireCuratorRole: vi.fn(),
+  requireCuratorOrAdmin: vi.fn(),
 }));
 
 vi.mock("#app/utils/db.server.ts", () => ({
@@ -38,17 +38,17 @@ function makeRequest(params: any) {
 describe("GET /api/metadata/tracks/:trackId/history", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
+    vi.mocked(requireCuratorOrAdmin).mockResolvedValue("user-1");
   });
 
   test("requires curator or admin role", async () => {
-    vi.mocked(requireCuratorRole).mockRejectedValue(
+    vi.mocked(requireCuratorOrAdmin).mockRejectedValue(
       new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403 }),
     );
 
     await expect(loader(makeRequest({ trackId: "track-1" }) as never)).rejects.toThrow();
 
-    expect(requireCuratorRole).toHaveBeenCalled();
+    expect(requireCuratorOrAdmin).toHaveBeenCalled();
   });
 
   test("validates track exists", async () => {

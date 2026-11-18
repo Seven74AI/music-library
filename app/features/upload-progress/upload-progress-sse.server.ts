@@ -1,4 +1,5 @@
 import { data, type LoaderFunctionArgs } from "react-router";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import {
   deleteUploadProgress,
@@ -85,7 +86,7 @@ subscribeToProgressUpdates((uploadId) => {
 });
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
-  const adminUserId = await requireUserWithRole(request, "admin");
+  const adminUserId = await requireUserWithRole(request, ROLES.admin);
 
   const uploadIdParam = params.uploadId;
   if (!uploadIdParam) {

@@ -12,6 +12,7 @@ import {
   getInstanceInfo,
 } from "#app/utils/litefs.server.ts";
 import { useDebounce, useDoubleCheck } from "#app/utils/misc.tsx";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/cache.ts";
@@ -21,7 +22,7 @@ export const handle: SEOHandle = {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
   const searchParams = new URL(request.url).searchParams;
   const query = searchParams.get("query");
   if (query === "") {
@@ -48,7 +49,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
   const formData = await request.formData();
   const key = formData.get("cacheKey");
   const { currentInstance } = await getInstanceInfo();

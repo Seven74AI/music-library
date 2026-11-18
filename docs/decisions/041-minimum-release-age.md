@@ -32,6 +32,8 @@ Do not set `min-release-age-exclude`, `minimumReleaseAgeExclude`, a Dependabot `
 
 `other/dependabot-config.test.ts` requires these three settings and rejects an exclusion list.
 
+A per-dependency `ignore` that blocks specific versions outright (rather than exempting them from the wait) is distinct and allowed — e.g. `node >=25` while Node 24 LTS is pinned. Any such `ignore` must be recorded in an ADR (see ADR-042), not left as a config comment.
+
 ### What still moves immediately
 
 - **Dependabot security updates.** GitHub does not apply `cooldown` to them. For npm, Dependabot installs the advisory with `--min-release-age=0`, so `.npmrc` does not block that pull request.

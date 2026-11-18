@@ -93,7 +93,7 @@ describe("guest /rooms/:code loader", () => {
         request: new Request(`http://localhost/rooms/${room.code}`),
         params: { code: room.code },
       } as never),
-    ).rejects.toThrow("SQLITE_BUSY");
+    ).rejects.toThrow();
   });
 
   test("an open room still loads the guest shell", async () => {

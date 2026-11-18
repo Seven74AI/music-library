@@ -6,6 +6,7 @@ import {
   UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE,
   toClientErrorMessage,
 } from "#app/utils/error-handlers.server";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server";
 import { extractAudioFilesFromZip } from "#app/utils/zip-extraction.server";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
@@ -41,7 +42,7 @@ export async function clientAction(args: Route.ClientActionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   // Parse form data with file size limit
   const formData = await parseFormData(request, { maxFileSize: MAX_ZIP_SIZE });

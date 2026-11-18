@@ -18,6 +18,7 @@ import { getBackupState } from "#app/features/db-backup/backup-state.server.ts";
 import { isBackupBucketConfigured } from "#app/features/db-backup/backup-storage.server.ts";
 import { getBackupHourUtc } from "#app/features/db-backup/scheduler.server.ts";
 import { ensurePrimary } from "#app/utils/litefs.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/db-backup.ts";
@@ -39,7 +40,7 @@ interface LoaderData {
 }
 
 export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
   const state = await getBackupState();
   return {
     configured: isBackupBucketConfigured(),
@@ -55,7 +56,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
   await ensurePrimary();
 
   const formData = await request.formData();

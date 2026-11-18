@@ -1,4 +1,5 @@
 import { prisma } from "#app/utils/db.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { findSessionByAdminHandle, sessionAdminHandle } from "./session-handle.server.ts";
 import {
   metaString,
@@ -17,7 +18,7 @@ async function actorCanRevokeSession(actorUserId: string, ownerUserId: string): 
   if (actorUserId === ownerUserId) return true;
   const admin = await prisma.user.findFirst({
     select: { id: true },
-    where: { id: actorUserId, roles: { some: { name: "admin" } } },
+    where: { id: actorUserId, roles: { some: { name: ROLES.admin } } },
   });
   return admin !== null;
 }

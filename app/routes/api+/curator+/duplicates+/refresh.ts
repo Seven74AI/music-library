@@ -5,7 +5,7 @@
  */
 
 import { data } from "react-router";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { runDuplicateDetectionJob } from "#app/utils/duplicate-detection-job.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import type { Route } from "./+types/refresh.ts";

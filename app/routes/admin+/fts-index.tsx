@@ -3,6 +3,7 @@ import { data, Form, useActionData, useNavigation } from "react-router";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { prisma } from "#app/utils/db.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { Prisma } from "#prisma/client.js";
@@ -30,7 +31,7 @@ interface LoaderData {
 }
 
 export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const [tracksFts, albumsFts, artistsFts] = await Promise.all([
     prisma.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) as count FROM tracks_fts`,
@@ -63,7 +64,7 @@ export async function clientAction(args: Route.ClientActionArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const formData = await request.formData();
   const entity = formData.get("entity") as string | null;

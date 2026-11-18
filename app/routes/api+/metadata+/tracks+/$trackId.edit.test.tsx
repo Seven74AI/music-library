@@ -1,10 +1,10 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { action } from "./$trackId.edit.tsx";
 
 vi.mock("#app/utils/permissions.server.ts", () => ({
-  requireCuratorRole: vi.fn(),
+  requireCuratorOrAdmin: vi.fn(),
 }));
 
 vi.mock("#app/utils/db.server.ts", () => ({
@@ -76,13 +76,13 @@ function mockWriteTransaction(
 describe("POST /api/metadata/tracks/:trackId/edit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(requireCuratorRole).mockResolvedValue("user-1");
+    vi.mocked(requireCuratorOrAdmin).mockResolvedValue("user-1");
     vi.mocked(prisma.editLock.deleteMany).mockResolvedValue({ count: 0 });
     vi.mocked(prisma.editLock.findUnique).mockResolvedValue(null);
   });
 
   test("requires curator or admin role", async () => {
-    vi.mocked(requireCuratorRole).mockRejectedValue(
+    vi.mocked(requireCuratorOrAdmin).mockRejectedValue(
       new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403 }),
     );
 
@@ -93,7 +93,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
 
     await expect(action(makeRequest(body, { trackId: "track-1" }) as never)).rejects.toThrow();
 
-    expect(requireCuratorRole).toHaveBeenCalled();
+    expect(requireCuratorOrAdmin).toHaveBeenCalled();
   });
 
   test("validates required fields", async () => {

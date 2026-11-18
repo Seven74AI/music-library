@@ -1,5 +1,5 @@
 import { data, type LoaderFunctionArgs } from "react-router";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { getLockStatus, type EntityType } from "#app/utils/locks.server.ts";
 
 export async function loader({ request }: LoaderFunctionArgs) {

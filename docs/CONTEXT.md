@@ -94,7 +94,7 @@ Implementation tickets: [On-Repeat Snapshots #198](https://github.com/mnlamart/m
 
 - **Queue Spine** — Ordered playable tracks for the active play context (library or playlist). Loaded in one request as lightweight `QueueTrack` rows (`id`, `title`, and an `artist` object `{ id, name }`). The spine is the automatic continuation after **Up Next** is drained; shuffle permutes spine play order client-side.
 
-- **Up Next** — Manual injection zone between now playing and the spine. User-added tracks via **Play next** or **Add to up next** live here in memory only (not persisted across sessions). **Play next** inserts at the front (FIFO among play-next items); **Add to up next** appends to the tail.
+- **Up Next** — Manual injection zone between now playing and the spine. User-added tracks via **Play next** or **Add to up next** live here in memory only (not persisted across sessions). **Play next** inserts at the front (most recent first); **Add to up next** appends to the tail.
 
 - **Hydration** — Lazy fetch of the full playback payload (`FullTrack`: audioFiles, cover, duration) for tracks about to play. The provider hydrates the current track plus a small lookahead (four upcoming tracks) via `GET /api/tracks/playback`. Until hydrated, the UI uses minimal spine stubs.
 
@@ -284,7 +284,7 @@ These decisions emerged from the audio archiving implementation, architecture re
 
 25. **Library track row → user playlist (Spotify-like)** — When `TrackListItem` receives a `playlists` prop (including an empty `[]`), show **Add to Playlist** on library and user-playlist pages. `AddToPlaylistMenu` lists existing playlists (searchable) and offers **+ New playlist** inline (name-only field, no page navigation). Inline create POSTs to `/resources/create-playlist-with-track`; adding to an existing playlist POSTs to `/resources/add-track-to-playlist` (duplicate track detection with confirm: **Add Duplicate** or **Remove from Playlist** via `/resources/remove-track-from-playlist`). The duplicate confirm dialog is hosted by `DuplicatePlaylistDialogProvider` in `root.tsx` so it survives desktop dropdown unmount when focus moves to the dialog. Shared helpers live in `app/utils/user-playlist.server.ts` (`createUserPlaylistWithTrack`, `createUserPlaylist`, `userPlaylistTitleTaken`, `removeTrackFromUserPlaylist`). **Per-user playlist titles are unique case-insensitively** — enforced on inline create, `/playlists/new`, and playlist rename. Standalone `/playlists/new` still redirects to `/playlists/{id}`. Do not gate the menu on `playlists.length > 0`.
 
-26. **Admin links in UserDropdown** — Admin-only pages (audio queue, YouTube cookies) are linked from the user dropdown menu, gated by `userHasRole(user, 'admin')`. No separate admin sidebar or nav — the dropdown pattern scales until admin pages outgrow it.
+26. **Admin links in UserDropdown** — Admin-only pages (audio queue, YouTube cookies) are linked from the user dropdown menu, gated by `isAdmin(user)`. No separate admin sidebar or nav — the dropdown pattern scales until admin pages outgrow it.
 
 ### Home Page (`/`)
 

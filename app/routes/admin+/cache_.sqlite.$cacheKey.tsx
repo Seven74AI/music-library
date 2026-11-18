@@ -5,11 +5,12 @@ import {
   getAllInstances,
   getInstanceInfo,
 } from "#app/utils/litefs.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/cache_.sqlite.$cacheKey.ts";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
   const searchParams = new URL(request.url).searchParams;
   const currentInstanceInfo = await getInstanceInfo();
   const allInstances = await getAllInstances();

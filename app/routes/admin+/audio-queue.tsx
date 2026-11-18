@@ -32,6 +32,7 @@ import {
 import { prisma } from "#app/utils/db.server.ts";
 import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 import { parsePageParam } from "#app/utils/parse-page-param.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/audio-queue.ts";
@@ -85,7 +86,7 @@ interface LoaderData {
 }
 
 export async function loader({ request, url }: Route.LoaderArgs): Promise<LoaderData> {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const filterParam = url.searchParams.get("status") ?? "all";
   const filter: StatusFilter = STATUS_FILTERS.includes(filterParam as StatusFilter)
@@ -202,7 +203,7 @@ export async function loader({ request, url }: Route.LoaderArgs): Promise<Loader
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 
   const formData = await request.formData();
   const intent = formData.get("intent");

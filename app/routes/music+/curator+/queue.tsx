@@ -1,7 +1,7 @@
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
 import { QueueTable } from "#app/components/dashboard/queue-table.tsx";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { type Route } from "./+types/queue.ts";
 
 export const handle: SEOHandle = {
@@ -9,7 +9,7 @@ export const handle: SEOHandle = {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireCuratorRole(request);
+  await requireCuratorOrAdmin(request);
   return {};
 }
 

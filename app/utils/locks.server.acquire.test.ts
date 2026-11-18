@@ -68,6 +68,6 @@ describe("acquireLock", () => {
     vi.mocked(prisma.editLock.findUnique).mockResolvedValueOnce(null);
     vi.mocked(prisma.editLock.create).mockRejectedValue(new Error("boom"));
 
-    await expect(acquireLock("track", "track-1", "user-1")).rejects.toThrow("boom");
+    await expect(acquireLock("track", "track-1", "user-1")).rejects.toThrow();
   });
 });

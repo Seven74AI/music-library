@@ -27,12 +27,32 @@ describe("getEnv", () => {
 });
 
 describe("validateEnv", () => {
+  // Minimal, explicit production env. Never spread process.env: the result must
+  // not depend on the shell running the tests.
+  const VALID_TOKEN_ENCRYPTION_KEY = "unit-test-production-token-encryption-key";
+  const buildProductionEnv = (): NodeJS.ProcessEnv =>
+    ({
+      NODE_ENV: "production",
+      DATABASE_PATH: "/tmp/unit-test.db",
+      DATABASE_URL: "file:/tmp/unit-test.db",
+      CACHE_DATABASE_PATH: "/tmp/unit-test-cache.db",
+      SESSION_SECRET: "unit-test-session-secret",
+      IP_HASH_SALT: "unit-test-ip-hash-salt",
+      TOKEN_ENCRYPTION_KEY: VALID_TOKEN_ENCRYPTION_KEY,
+      INTERNAL_COMMAND_TOKEN: "unit-test-internal-command-token",
+      HONEYPOT_SECRET: "unit-test-honeypot-secret",
+      AWS_ACCESS_KEY_ID: "unit-test-access-key",
+      AWS_SECRET_ACCESS_KEY: "unit-test-secret-key",
+      AWS_REGION: "auto",
+      AWS_ENDPOINT_URL_S3: "https://storage.example.test",
+      BUCKET_NAME: "unit-test-bucket",
+    }) as NodeJS.ProcessEnv;
+
   test("production rejects PLAYWRIGHT_TEST_BASE_URL unless MOCKS=true", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     const env = {
-      ...process.env,
-      TOKEN_ENCRYPTION_KEY: "unit-test-production-token-encryption-key",
+      ...buildProductionEnv(),
       PLAYWRIGHT_TEST_BASE_URL: "http://localhost:3000/",
       MOCKS: "false",
     };
@@ -54,7 +74,7 @@ describe("validateEnv", () => {
   test("production requires TOKEN_ENCRYPTION_KEY and rejects the dev placeholder and short keys", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
-    const env = { ...process.env };
+    const env = buildProductionEnv();
     delete env.TOKEN_ENCRYPTION_KEY;
 
     try {
@@ -66,7 +86,7 @@ describe("validateEnv", () => {
       expect(
         validateEnv({
           ...env,
-          TOKEN_ENCRYPTION_KEY: "unit-test-production-token-encryption-key",
+          TOKEN_ENCRYPTION_KEY: VALID_TOKEN_ENCRYPTION_KEY,
         }).success,
       ).toBe(true);
     } finally {

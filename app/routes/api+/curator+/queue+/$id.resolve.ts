@@ -1,7 +1,7 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { sendReviewResolutionEmail } from "#app/utils/queue-notifications.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/$id.resolve.ts";
@@ -12,7 +12,7 @@ const resolveSchema = z.object({
 });
 
 export async function action({ request, params }: Route.ActionArgs) {
-  const userId = await requireCuratorRole(request);
+  const userId = await requireCuratorOrAdmin(request);
   const id = params.id;
   if (!id) throw data({ success: false, error: "Queue item not found" }, { status: 404 });
 

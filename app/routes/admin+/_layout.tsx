@@ -2,6 +2,7 @@ import { data, Outlet, type MiddlewareFunction } from "react-router";
 import { OfflineAwareErrorBoundary } from "#app/components/offline/offline-aware-error-boundary.tsx";
 import { OfflineRouteBlocker } from "#app/components/offline/offline-route-blocker.tsx";
 import { sessionKey } from "#app/utils/auth.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
 
@@ -19,7 +20,7 @@ async function allowsReplicaCacheCommand(request: Request) {
 
 async function requireAdminLayoutAccess(request: Request) {
   if (await allowsReplicaCacheCommand(request)) return;
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
 }
 
 export const middleware: MiddlewareFunction[] = [

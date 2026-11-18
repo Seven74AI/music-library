@@ -26,7 +26,7 @@ describe("PUT/DELETE /api/genres/:id (server action)", () => {
     curatorUserId = curatorUser.id;
 
     requireCuratorSpy = vi.spyOn(
-      await import("#app/utils/curator.server.ts"),
+      await import("#app/utils/permissions.server.ts"),
       "requireCuratorOrAdmin",
     );
     requireCuratorSpy.mockResolvedValue(curatorUserId);

@@ -1,5 +1,5 @@
 import { data, type LoaderFunctionArgs } from "react-router";
-import { requireCuratorOrAdmin } from "#app/utils/curator.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { getCuratorsForAutocomplete } from "#app/utils/mention-parser.server.ts";
 
 export async function loader({ request }: LoaderFunctionArgs) {

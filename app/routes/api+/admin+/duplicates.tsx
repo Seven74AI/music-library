@@ -4,6 +4,7 @@ import {
   markDuplicateGroupIntentional,
   parseDuplicateFilter,
 } from "#app/features/admin/duplicate-dashboard.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { requireUserWithRole } from "#app/utils/permissions.server.ts";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { type Route } from "./+types/duplicates.ts";
@@ -13,13 +14,13 @@ export async function clientAction(args: Route.ClientActionArgs) {
 }
 
 export async function loader({ request, url }: Route.LoaderArgs) {
-  await requireUserWithRole(request, "admin");
+  await requireUserWithRole(request, ROLES.admin);
   const filter = parseDuplicateFilter(url.searchParams.get("filter"));
   return data(await loadDuplicateDashboard(filter));
 }
 
 export async function action({ request, url }: Route.ActionArgs) {
-  const userId = await requireUserWithRole(request, "admin");
+  const userId = await requireUserWithRole(request, ROLES.admin);
   const formData = await request.formData();
   const intent = formData.get("intent");
   if (intent !== "mark-intentional") {

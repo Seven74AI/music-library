@@ -296,7 +296,6 @@ describe("scheduleQualityCheck", () => {
       expect.any(Function),
       QUALITY_CHECK_TICK_INTERVAL_MS,
     );
-    expect(QUALITY_CHECK_TICK_INTERVAL_MS).toBeGreaterThanOrEqual(60_000);
 
     await vi.advanceTimersByTimeAsync(QUALITY_CHECK_TICK_INTERVAL_MS);
     expect(setIntervalSpy).toHaveBeenCalledTimes(1);

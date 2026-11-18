@@ -538,6 +538,127 @@ describe("processTracksInBatches - playlist track pairing", () => {
     ]);
     expect(trackUpsert).toHaveBeenCalledTimes(2);
   });
+
+  // Existing row for video X is owned by "item-late"; an earlier item "item-new" also
+  // maps to video X and must not steal it.
+  function buildRestampScenario() {
+    const existingRow = {
+      id: "spt-existing",
+      trackId: "track-video-x",
+      playlistItemId: "item-late",
+      isDeleted: false,
+      deletedAt: null,
+    };
+    const sptCreate = vi
+      .fn()
+      .mockImplementation(({ data }: { data: { playlistItemId: string | null } }) =>
+        Promise.resolve({ id: `new-${data.playlistItemId}` }),
+      );
+    const sptUpdate = vi
+      .fn()
+      .mockImplementation(({ where }: { where: { id: string } }) =>
+        Promise.resolve({ id: where.id }),
+      );
+    const tx = {
+      track: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi
+          .fn()
+          .mockImplementation(({ create }: { create: { externalId: string; title: string } }) =>
+            Promise.resolve({
+              id: `track-${create.externalId}`,
+              title: create.title,
+              externalId: create.externalId,
+            }),
+          ),
+      },
+      artist: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi
+          .fn()
+          .mockImplementation(({ data }: { data: { name: string } }) =>
+            Promise.resolve({ id: `artist-${data.name}`, name: data.name }),
+          ),
+      },
+      servicePlaylistTrack: {
+        findMany: vi.fn().mockResolvedValue([existingRow]),
+        create: sptCreate,
+        update: sptUpdate,
+      },
+      archiveJob: {
+        findMany: vi.fn().mockResolvedValue([]),
+        createMany: vi.fn(),
+      },
+    } as unknown as Prisma.TransactionClient;
+
+    const makeItem = (id: string, videoId: string) => ({
+      id,
+      snippet: {
+        title: videoId,
+        resourceId: { videoId },
+        videoOwnerChannelTitle: "Owner",
+        thumbnails: { default: { url: `https://example.com/${videoId}.jpg` } },
+      },
+    });
+    return { tx, sptCreate, sptUpdate, makeItem };
+  }
+
+  it("does not restamp a row claimed by a later item within one call (internal 50-row batching)", async () => {
+    const { tx, sptCreate, sptUpdate, makeItem } = buildRestampScenario();
+    const items = [
+      makeItem("item-new", "video-x"),
+      ...Array.from({ length: 49 }, (_, i) => makeItem(`item-${i}`, `video-${i}`)),
+      makeItem("item-late", "video-x"),
+    ] as never[];
+
+    await processTracksInBatches(
+      items,
+      "service-1",
+      "playlist-1",
+      tx,
+      createYouTubeTrackSyncProcessor(),
+      noopArchiveEnqueueAdapter,
+      0,
+    );
+
+    const updates = sptUpdate.mock.calls.map(
+      (call) => call[0] as { where: { id: string }; data: { playlistItemId?: string } },
+    );
+    // The existing row must never be restamped with the earlier item's id...
+    expect(updates.some((u) => u.data.playlistItemId === "item-new")).toBe(false);
+    // ...so the earlier item gets its own row and the later item keeps the original.
+    expect(sptCreate.mock.calls.some((c) => c[0].data.playlistItemId === "item-new")).toBe(true);
+    expect(
+      updates.some((u) => u.where.id === "spt-existing" && u.data.playlistItemId === "item-late"),
+    ).toBe(true);
+  });
+
+  it("does not restamp a row claimed by an item in a later transaction slice (production slicing)", async () => {
+    const { tx, sptCreate, sptUpdate, makeItem } = buildRestampScenario();
+    // One small slice, as service-playlist.server.ts calls it; "item-late" lives in a
+    // later slice and is only known through allItemIds.
+    const slice = [makeItem("item-new", "video-x")] as never[];
+
+    await processTracksInBatches(
+      slice,
+      "service-1",
+      "playlist-1",
+      tx,
+      createYouTubeTrackSyncProcessor(),
+      noopArchiveEnqueueAdapter,
+      0,
+      undefined,
+      new Set(["item-new", "item-late"]),
+    );
+
+    const updates = sptUpdate.mock.calls.map(
+      (call) => call[0] as { where: { id: string }; data: { playlistItemId?: string } },
+    );
+    expect(updates.some((u) => u.data.playlistItemId === "item-new")).toBe(false);
+    expect(sptCreate.mock.calls.some((c) => c[0].data.playlistItemId === "item-new")).toBe(true);
+  });
 });
 
 describe("processTracksInBatches - ingest failure", () => {

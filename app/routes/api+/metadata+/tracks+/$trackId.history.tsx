@@ -1,6 +1,6 @@
 import { data } from "react-router";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import { labelsForChangeSets } from "#app/utils/history-display.server.ts";
 import { type Route } from "./+types/$trackId.history.ts";
 
@@ -75,7 +75,7 @@ function computeChanges(previous: TrackStateSnapshot, current: TrackStateSnapsho
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireCuratorRole(request);
+  await requireCuratorOrAdmin(request);
   const { trackId } = params;
 
   if (!trackId) {

@@ -1,14 +1,28 @@
 import { data } from "react-router";
 import { requireUserId } from "./auth.server.ts";
-import { requireCuratorOrAdmin } from "./curator.server.ts";
 import { prisma } from "./db.server.ts";
-export async function requireUserWithRole(request: Request, name: string) {
-  const userId = await requireUserId(request);
+import { CURATOR_OR_ADMIN_ROLES } from "./permissions.ts";
+
+/** True when the user (by id) holds the given role. */
+export async function userHasRoleById(userId: string, name: string): Promise<boolean> {
   const user = await prisma.user.findFirst({
     select: { id: true },
     where: { id: userId, roles: { some: { name } } },
   });
-  if (!user) {
+  return !!user;
+}
+
+export async function userIsCuratorOrAdmin(userId: string): Promise<boolean> {
+  const user = await prisma.user.findFirst({
+    select: { id: true },
+    where: { id: userId, roles: { some: { name: { in: CURATOR_OR_ADMIN_ROLES } } } },
+  });
+  return !!user;
+}
+
+export async function requireUserWithRole(request: Request, name: string) {
+  const userId = await requireUserId(request);
+  if (!(await userHasRoleById(userId, name))) {
     throw data(
       {
         error: "Unauthorized",
@@ -18,9 +32,20 @@ export async function requireUserWithRole(request: Request, name: string) {
       { status: 403 },
     );
   }
-  return user.id;
+  return userId;
 }
 
-export async function requireCuratorRole(request: Request) {
-  return requireCuratorOrAdmin(request);
+export async function requireCuratorOrAdmin(request: Request) {
+  const userId = await requireUserId(request);
+  if (!(await userIsCuratorOrAdmin(userId))) {
+    throw data(
+      {
+        error: "Unauthorized",
+        requiredRole: "curator or admin",
+        message: "Unauthorized: curator or admin role required",
+      },
+      { status: 403 },
+    );
+  }
+  return userId;
 }

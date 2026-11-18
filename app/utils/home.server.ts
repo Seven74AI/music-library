@@ -18,6 +18,7 @@ import {
 } from "#app/features/weekly-wrap/weekly-wrap.server.ts";
 import { getStaleAuthSessionDestroyCookie, getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { ROLES } from "#app/utils/permissions.ts";
 import { buildLibraryUserTracksWhere } from "#app/utils/library-user-tracks.server.ts";
 
 export type HomeMode = "marketing" | "onboarding" | "gray" | "listening";
@@ -227,7 +228,7 @@ export async function loadHomeData(request: Request) {
       hasServiceConnection(YOUTUBE_SERVICE.NAME, userId),
       prisma.user.findFirst({
         select: { id: true },
-        where: { id: userId, roles: { some: { name: "admin" } } },
+        where: { id: userId, roles: { some: { name: ROLES.admin } } },
       }),
     ]);
     return data<HomeOnboardingData>(

@@ -1,7 +1,7 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
-import { requireCuratorRole } from "#app/utils/permissions.server.ts";
+import { requireCuratorOrAdmin } from "#app/utils/permissions.server.ts";
 import {
   downloadExternalImage,
   findOrCreateCoverImage,
@@ -25,7 +25,7 @@ export async function action({ request }: Route.ActionArgs) {
     throw data({ error: "Method not allowed" }, { status: 405 });
   }
 
-  await requireCuratorRole(request);
+  await requireCuratorOrAdmin(request);
 
   // Parse and validate request body
   const body = await request.json();

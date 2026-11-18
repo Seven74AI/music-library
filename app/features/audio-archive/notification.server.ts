@@ -7,6 +7,7 @@
  * - The worker auto-pauses due to cookie expiry
  */
 
+import { escapeHtml } from "#app/utils/escape-html.ts";
 import { sendTelegramMessage } from "#app/utils/telegram-notification.server.ts";
 
 export { sendTelegramMessage };
@@ -66,15 +67,4 @@ export async function notifyJobFailed(
       `<b>Category:</b> ${escapedCat}\n` +
       `<b>Error:</b> ${escapedErr}`,
   );
-}
-
-/**
- * Escape HTML special characters for Telegram's parse_mode=HTML.
- */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

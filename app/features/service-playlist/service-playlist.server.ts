@@ -175,6 +175,13 @@ export class ServicePlaylistService {
       archiveQueueTickNeeded: false,
     };
 
+    // Full payload item ids, so each slice's claim fallback sees rows owned by later slices.
+    const allItemIds = new Set(
+      playlistItems
+        .map((item) => item.id)
+        .filter((id): id is string => typeof id === "string" && id !== ""),
+    );
+
     for (let batchStart = 0; batchStart < totalItems; batchStart += TRANSACTION_BATCH_SIZE) {
       const batchItems = playlistItems.slice(batchStart, batchStart + TRANSACTION_BATCH_SIZE);
 
@@ -190,6 +197,7 @@ export class ServicePlaylistService {
               this.archiveEnqueueAdapter,
               batchStart,
               accumulated.processedIds,
+              allItemIds,
             );
           },
           { timeout: 30000 },

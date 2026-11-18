@@ -91,10 +91,13 @@ Curators **cannot**:
 
 ### Permission Checking
 
-Server-side enforcement only. Two utility functions:
+Server-side enforcement only. Role names are canonicalised in `app/utils/permissions.ts` and must go through the `ROLES` constant (no string literals); pure helpers live in `permissions.ts`, database-backed checks in `permissions.server.ts`.
+
+- `app/utils/permissions.ts` — `ROLES`, `RoleName`, `CURATOR_OR_ADMIN_ROLES`, `hasRole`, `isAdmin`, `isCuratorOrAdmin`, `userHasPermission`
+- `app/utils/permissions.server.ts` — `requireUserWithRole`, `userHasRoleById`, `requireCuratorOrAdmin`, `userIsCuratorOrAdmin`
 
 ```typescript
-// app/utils/curator.server.ts
+// app/utils/permissions.server.ts
 export async function requireCuratorOrAdmin(request: Request): Promise<string>;
 export async function userIsCuratorOrAdmin(userId: string): Promise<boolean>;
 ```
@@ -156,6 +159,6 @@ No migration required for existing `curator` role. New features will extend the 
 ## References
 
 - Migration: `prisma/migrations/20260927000000_add_edit_history_and_merge_tracking/migration.sql`
-- Utilities: `app/utils/curator.server.ts`
-- Permissions utility: `app/utils/permissions.server.ts`
+- Utilities: `app/utils/permissions.server.ts` (`requireCuratorOrAdmin`, `userIsCuratorOrAdmin`)
+- Role constants and pure helpers: `app/utils/permissions.ts`
 - Related: ADR-032 (Concurrent Edit Locking), ADR-035 (Review Queue)

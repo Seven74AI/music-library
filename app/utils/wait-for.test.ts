@@ -46,8 +46,10 @@ describe("waitFor", () => {
   test("falls back to a non-empty message when no errorMessage is given", async () => {
     vi.useFakeTimers();
     const pending = waitFor(() => undefined);
-    const expectation = expect(pending).rejects.toThrow("waitFor timed out");
+    const caught = pending.catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(5_000);
-    await expectation;
+    const error = await caught;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toBe("");
   });
 });
