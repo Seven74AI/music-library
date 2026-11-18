@@ -26,7 +26,7 @@ Split the queue into three zones and load data in two tiers:
 
 On **Next**:
 
-1. Drain **Up Next** front (FIFO among Play-next inserts).
+1. Drain **Up Next** front (most recent Play-next first).
 2. Advance **spine pointer** (linear index or seeded shuffled order).
 3. **Loop all** wraps spine; **loop one** replays current.
 
@@ -115,11 +115,11 @@ Used when the user taps a specific track in the queue sheet — the provider use
 
 ### Labels
 
-| Action             | Player active                                               | Nothing playing                                              |
-| ------------------ | ----------------------------------------------------------- | ------------------------------------------------------------ |
-| **Play next**      | Insert at **front** of Up Next (FIFO among Play-next items) | Cue track as **current (paused)**; open player; no auto-play |
-| **Add to up next** | Append to **end** of Up Next                                | Queue in Up Next; open player; no auto-play                  |
-| **Add to queue**   | Append to **true end** (after entire spine)                 | Queue at true end; open player; no auto-play                 |
+| Action             | Player active                                      | Nothing playing                                              |
+| ------------------ | -------------------------------------------------- | ------------------------------------------------------------ |
+| **Play next**      | Insert at **front** of Up Next (most recent first) | Cue track as **current (paused)**; open player; no auto-play |
+| **Add to up next** | Append to **end** of Up Next                       | Queue in Up Next; open player; no auto-play                  |
+| **Add to queue**   | Append to **true end** (after entire spine)        | Queue at true end; open player; no auto-play                 |
 
 ### Bulk playlist UI
 

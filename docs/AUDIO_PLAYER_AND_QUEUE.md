@@ -131,7 +131,7 @@ This replaces the previous paginated `fields=full` fetch of every track on play.
 
 **Playback order on Next**:
 
-1. Drain **Up Next** front (FIFO among **Play next** inserts)
+1. Drain **Up Next** front (most recent **Play next** first)
 2. Advance **spine pointer** (linear index or shuffled order)
 3. **Loop all** wraps to the start of the spine; **loop one** replays current
 
@@ -147,11 +147,11 @@ This replaces the previous paginated `fields=full` fetch of every track on play.
 
 Three per-track and bulk actions. Behavior depends on whether the player is already active (**warm**) or nothing is playing (**cold**):
 
-| Action             | Warm (player active)                                                                             | Cold (nothing playing)                                           |
-| ------------------ | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| **Play next**      | Insert at **front** of Up Next (FIFO among play-next items); does not interrupt current playback | Cue track as **current (paused)**; open player; **no auto-play** |
-| **Add to up next** | Append to **end** of Up Next                                                                     | Queue in Up Next; open player; **no auto-play**                  |
-| **Add to queue**   | Append to **true end** (after entire spine)                                                      | Queue at true end; open player; **no auto-play**                 |
+| Action             | Warm (player active)                                                                    | Cold (nothing playing)                                           |
+| ------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| **Play next**      | Insert at **front** of Up Next (most recent first); does not interrupt current playback | Cue track as **current (paused)**; open player; **no auto-play** |
+| **Add to up next** | Append to **end** of Up Next                                                            | Queue in Up Next; open player; **no auto-play**                  |
+| **Add to queue**   | Append to **true end** (after entire spine)                                             | Queue at true end; open player; **no auto-play**                 |
 
 - All three actions appear on library and user-playlist track row menus (playable tracks only)
 - Bulk playlist UI exposes all three; default / primary for "add whole playlist" is **Add to up next**

@@ -1,4 +1,12 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
 import {
   roomStateAfterAutoplay,
   type RoomAutoplayOutcome,
@@ -172,6 +180,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
   const playbackCacheRef = useRef(new PlaybackHydrationCache());
   const playlistFetchEpochRef = useRef(0);
   const queueJumpEpochRef = useRef(0);
+  // Monotonic count of "Play next" front-inserts. They don't bump the
+  // navigation epoch, so async commits diff this to undo the index shift.
+  const playNextFrontInsertsRef = useRef(0);
   const wantsAutoPlayRef = useRef(false);
   const unlockAutoplayRef = useRef<((trackId: string, cachedUrl: string) => boolean) | null>(null);
   const pausePlaybackRef = useRef<(() => void) | null>(null);
@@ -1048,13 +1059,13 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       rememberTrack(track);
 
       if (position === "next") {
-        const playNextPrefixLength = upNextPlayNextCountRef.current;
-        const nextCount = playNextPrefixLength + 1;
+        const nextCount = upNextPlayNextCountRef.current + 1;
         upNextPlayNextCountRef.current = nextCount;
+        playNextFrontInsertsRef.current += 1;
         setUpNextPlayNextCount(nextCount);
         setUpNext((prev) => {
           const next = [...prev];
-          next.splice(playNextPrefixLength, 0, queueTrack);
+          next.splice(0, 0, queueTrack);
           return next;
         });
         return;
@@ -1116,9 +1127,26 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
           ? Math.max(0, playNextCountAtStart - playNextDiscard)
           : playNextCountAtStart;
 
+      // Play next front-inserts without bumping the navigation epoch, so the Up
+      // Next row consumed at start (index 0) may have shifted by commit time.
+      // Drop the spine row against the latest state, then consume the
+      // successor by id rather than re-consuming whatever is now at index 0.
+      const consumedUpNextTrackId =
+        result.consumedUpNextIndex !== null ? (result.playTrack?.id ?? null) : null;
       const applySpineRemoval = (latest: QueueNavigationState): QueueNavigationState => {
-        const removed = removeSpineAtOrderIndex(latest, orderIndex);
-        return removed?.state ?? latest;
+        if (consumedUpNextTrackId === null) {
+          const removed = removeSpineAtOrderIndex(latest, orderIndex);
+          return removed?.state ?? latest;
+        }
+        const spineOnly = removeSpineAtOrderIndex({ ...latest, upNext: [] }, orderIndex);
+        if (!spineOnly) return latest;
+        const successorIndex = latest.upNext.findIndex(
+          (track) => track.id === consumedUpNextTrackId,
+        );
+        return advanceAfterPlay(
+          { ...spineOnly.state, upNext: latest.upNext },
+          { zone: "upNext", index: successorIndex >= 0 ? successorIndex : 0 },
+        );
       };
 
       if (!result.removedCurrent) {
@@ -1344,6 +1372,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       // Resolve the full track and update queue state. Even if we played synchronously,
       // we still need the full track metadata for the UI.
       const initialUpNextLength = navigationState.upNext.length;
+      const frontInsertsAtStart = playNextFrontInsertsRef.current;
 
       void (async () => {
         let workingState = navigationState;
@@ -1394,17 +1423,28 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
 
         const latestAtCommit = navigationStateRef.current;
         const upNextPrefixRemoved = Math.max(0, initialUpNextLength - workingState.upNext.length);
+        // Play next front-inserts during the await without bumping the epoch,
+        // shifting every Up Next index. Keep the newly inserted rows ahead of
+        // the jump instead of letting stale indexes consume them.
+        const frontInserted = Math.min(
+          latestAtCommit.upNext.length,
+          Math.max(0, playNextFrontInsertsRef.current - frontInsertsAtStart),
+        );
+        const insertedRows = latestAtCommit.upNext.slice(0, frontInserted);
         const baseState: QueueNavigationState = {
           ...latestAtCommit,
-          upNext:
-            upNextPrefixRemoved > 0
-              ? latestAtCommit.upNext.slice(upNextPrefixRemoved)
-              : latestAtCommit.upNext,
+          upNext: latestAtCommit.upNext.slice(frontInserted + upNextPrefixRemoved),
         };
-        const nextState = options.computeNextState(baseState, playedTarget);
+        const computedState = options.computeNextState(baseState, playedTarget);
+        const nextState: QueueNavigationState =
+          frontInserted > 0
+            ? { ...computedState, upNext: [...insertedRows, ...computedState.upNext] }
+            : computedState;
+        // Discard is relative to the rows that existed when the jump started;
+        // front-inserted play-next rows survive and keep their count.
         const effectivePlayNextCount = Math.max(
           0,
-          upNextPlayNextCountRef.current - skippedPlayNextPrefix,
+          upNextPlayNextCountRef.current - frontInserted - skippedPlayNextPrefix,
         );
         const discard =
           skippedPlayNextPrefix +

@@ -20,7 +20,7 @@ export interface AudioPlayerContextType {
   isPlayerVisible: boolean;
   playlist: Track[];
   upNext: Track[];
-  /** How many leading Up Next rows came from Play next (FIFO play-next prefix). */
+  /** How many leading Up Next rows came from Play next (most-recent-first play-next prefix). */
   upNextPlayNextCount: number;
   spine: Track[];
   spineTotal: number;
