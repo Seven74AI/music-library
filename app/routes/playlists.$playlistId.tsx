@@ -29,6 +29,10 @@ import {
 import { toast } from "#app/components/ui/use-toast.ts";
 import { type PlaylistDetailOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { cachePlaylistMetadata } from "#app/features/offline-storage/offline-playlist-metadata.client.ts";
+import {
+  applyBulkQueueAction as applyBulkQueueActionToQueue,
+  type BulkQueueAction,
+} from "#app/features/queue/bulk-queue-action.ts";
 import { type FullTrack } from "#app/types/frontend/shared.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { getPlaylistTitle } from "#app/utils/breadcrumb-utils.ts";
@@ -738,29 +742,8 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
     addToQueue: "Add to queue",
   } as const;
 
-  const applyBulkQueueAction = (
-    tracks: FullTrack[],
-    queueAction: "playNext" | "addToUpNext" | "addToQueue",
-  ) => {
-    if (tracks.length === 0) return;
-
-    if (queueAction === "playNext") {
-      for (const track of [...tracks].reverse()) {
-        playNextTrack(track);
-      }
-      return;
-    }
-
-    if (queueAction === "addToUpNext") {
-      for (const track of tracks) {
-        addToUpNext(track);
-      }
-      return;
-    }
-
-    for (const track of tracks) {
-      addToQueue(track);
-    }
+  const applyBulkQueueAction = (tracks: FullTrack[], queueAction: BulkQueueAction) => {
+    applyBulkQueueActionToQueue(tracks, queueAction, { playNextTrack, addToUpNext, addToQueue });
   };
 
   const showBulkQueueToast = (
