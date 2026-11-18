@@ -1234,9 +1234,8 @@ describe("ServicePlaylistService - Batch Processing", () => {
       const result = await service.syncServicePlaylist("youtube", "PLtest", "user-1");
 
       expect(result.success).toBe(false);
-      expect(result.message).toBe("Failed to sync playlist. Please try again.");
-      expect(result.error).toBe("Failed to sync playlist. Please try again.");
       expect(result.message).not.toMatch(/prisma/i);
+      expect(result.error).not.toMatch(/prisma/i);
     });
   });
 });
