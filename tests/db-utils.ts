@@ -66,6 +66,29 @@ export async function createTrack(title: string) {
   });
 }
 
+/** Create a track under an existing artist (for "one artist, many tracks" fixtures). */
+export async function createTrackForArtist(
+  artistId: string,
+  title: string,
+  extra: { duration?: number | null } = {},
+) {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const service = await prisma.service.upsert({
+    where: { name: "local" },
+    update: {},
+    create: { name: "local", displayName: "Local Upload", baseUrl: "", isActive: true },
+  });
+  return prisma.track.create({
+    data: {
+      title,
+      externalId: `ext-${suffix}`,
+      duration: extra.duration ?? null,
+      service: { connect: { id: service.id } },
+      artist: { connect: { id: artistId } },
+    },
+  });
+}
+
 let userImages: Array<{ objectKey: string }> | undefined;
 export async function getUserImages() {
   if (userImages) return userImages;

@@ -30,6 +30,7 @@ model User {
   onRepeatSnapshots   OnRepeatSnapshot[]
   roles               Role[]            @relation("RoleToUser")
   playerState         PlayerState?
+  profilePrivacy      ProfilePrivacy?
   securityEvents      SecurityEvent[]
   securityEventsAsTarget SecurityEvent[] @relation("SecurityEventTarget")
   trackEdits          TrackEdit[]       @relation("TrackEditUser")
@@ -60,6 +61,15 @@ model PlayerState {
   upNextPlayNextCount     Int     @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+}
+
+model ProfilePrivacy {
+  id             String  @id @default(cuid())
+  userId         String  @unique
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  showTopTracks  Boolean @default(true)
+  showTopArtists Boolean @default(true)
+  showTotals     Boolean @default(true)
 }
 
 model UsageEvent {

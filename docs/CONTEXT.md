@@ -88,6 +88,10 @@ yt-dlp errors are classified into one of nine categories for retry decision-maki
 
 - **Personal Play Boost** — Soft re-ranking of **global FTS** search results using the **current user's lifetime** `play_completed` counts. Affects only that user (not global popularity). Relevance still wins; plays nudge familiar tracks upward among already-matching hits. Does **not** change ServicePlaylist browse or replace **Heavy Rotation** library sorts in v1.
 
+- **Profile Stats** — Static, all-time ("ever") blocks on the public profile (`/users/:username`): **top tracks** (top 10), **top artists** (top 10) and **totals** (completed plays, **Personal Library** size, listening time). Source is `play_completed` only (the 50%-progress "finish", so "plays" are labeled **completed plays** and listening time credits the full `Track.duration` per completed play; null durations add 0 seconds but the play still counts). Computed over `play_completed` events joined to a still-existing Track. Library size counts `UserTrack` rows with `isActive: true` and `deletedAt: null`. Tie-break: count desc → latest `play_completed` desc → id asc. Not playable tiles; no time-range control.
+
+- **ProfilePrivacy** — 1:1 per-user record (`showTopTracks`, `showTopArtists`, `showTotals`, all default `true`) controlling which **Profile Stats** blocks visitors see. **Public by default**; a missing row means all public. Enforced at data time — the profile loader omits (does not compute or serialize) a hidden block. The owner sees a "hidden from visitors" placeholder on their own profile. Edited on `/settings/profile` via the `privacy-update` intent. See [ADR-043](./decisions/043-profile-stats-privacy.md).
+
 Implementation tickets: [On-Repeat Snapshots #198](https://github.com/mnlamart/music-library/issues/198) · [Recently Played Strip #199](https://github.com/mnlamart/music-library/issues/199) · [Heavy Rotation #200](https://github.com/mnlamart/music-library/issues/200) · [Weekly Wrap #201](https://github.com/mnlamart/music-library/issues/201) · [Personal Play Boost #202](https://github.com/mnlamart/music-library/issues/202).
 
 ### Audio Player & Queue
@@ -379,6 +383,8 @@ Home page redesign decisions (implemented). Route: `app/routes/_marketing+/index
 65. **Weekly Wrap on listening hub** — Quiet home-only summary for the **current UTC week (Mon–Sun)**: finishes + unique tracks from `play_completed`; show day streak only when > 1. **Hide when empty**. See [ADR-027](./decisions/027-weekly-wrap.md).
 
 66. **Personal Play Boost on global FTS** — Soft-boost global search results by the **current user's lifetime** `play_completed` counts. Personal only; relevance remains primary. No ServicePlaylist browse change in v1. See [ADR-028](./decisions/028-personal-play-boost.md).
+
+67. **Profile stats with per-block privacy** — The public profile shows all-time top tracks, top artists and totals from `play_completed`, each block individually toggleable by the owner (`ProfilePrivacy`, default public, missing row ⇒ public, hidden blocks omitted server-side). See [ADR-043](./decisions/043-profile-stats-privacy.md).
 
 ### Party Room
 
