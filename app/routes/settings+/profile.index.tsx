@@ -334,7 +334,13 @@ function ProfilePrivacyForm({
           size="wide"
           name="intent"
           value={privacyUpdateActionIntent}
-          status={fetcher.state !== "idle" ? "pending" : fetcher.data ? "success" : "idle"}
+          status={
+            fetcher.data?.result.status === "success"
+              ? "success"
+              : fetcher.state !== "idle"
+                ? "pending"
+                : "idle"
+          }
         >
           Save privacy settings
         </StatusButton>

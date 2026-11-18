@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { USAGE_EVENT_TYPES } from "#app/features/usage-analytics/record-usage.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
@@ -22,6 +22,7 @@ async function seed(
 }
 
 beforeEach(async () => {
+  vi.restoreAllMocks();
   await resetUsageAnalyticsTables();
   await prisma.trackAudioFile.deleteMany();
   await prisma.userTrack.deleteMany();
@@ -129,5 +130,30 @@ describe("getTopTracks", () => {
     }
     expect(await getTopTracks({ userId: user.id })).toHaveLength(10);
     expect(await getTopTracks({ userId: other.id })).toEqual([]);
+  });
+
+  test("chunks track detail lookups to stay under SQLite bind limits", async () => {
+    const user = await prisma.user.create({ data: createUser() });
+    const t = await createTrack("T");
+    await seed(user.id, t.id, 1);
+    // Fake a >500 candidate result from the aggregate query.
+    const rows = Array.from({ length: 1200 }, (_, i) => ({
+      trackId: `track-${i}`,
+      count: 1200 - i,
+    }));
+    vi.spyOn(prisma, "$queryRaw").mockResolvedValue(rows as never);
+    const findManySpy = vi.spyOn(prisma.track, "findMany").mockImplementation((async (
+      args: unknown,
+    ) => {
+      const ids = (args as { where?: { id?: { in?: string[] } } }).where?.id?.in ?? [];
+      return ids.map((id) => ({ id, title: id, artist: { id: "a", name: "a" } }));
+    }) as unknown as typeof prisma.track.findMany);
+
+    await getTopTracks({ userId: user.id, limit: 1200 });
+
+    const sizes = findManySpy.mock.calls
+      .map((c) => (c[0] as { where?: { id?: { in?: string[] } } }).where?.id?.in?.length ?? 0)
+      .filter((s) => s > 0);
+    expect(sizes).toEqual([500, 500, 200]);
   });
 });

@@ -145,7 +145,9 @@ export default function ProfileRoute() {
                   <span className="text-muted-foreground w-6 text-right">{index + 1}</span>
                   <span className="font-medium">{row.track.title}</span>
                   <span className="text-muted-foreground">{row.track.artist.name}</span>
-                  <span className="text-muted-foreground ml-auto">{row.count} plays</span>
+                  <span className="text-muted-foreground ml-auto">
+                    {row.count} {row.count === 1 ? "play" : "plays"}
+                  </span>
                 </li>
               ))}
             </ol>
@@ -164,7 +166,9 @@ export default function ProfileRoute() {
                 <li key={row.artist.id} className="flex items-baseline gap-3">
                   <span className="text-muted-foreground w-6 text-right">{index + 1}</span>
                   <span className="font-medium">{row.artist.name}</span>
-                  <span className="text-muted-foreground ml-auto">{row.count} plays</span>
+                  <span className="text-muted-foreground ml-auto">
+                    {row.count} {row.count === 1 ? "play" : "plays"}
+                  </span>
                 </li>
               ))}
             </ol>
