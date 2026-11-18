@@ -148,6 +148,9 @@ export default async function handleRequest(...args: DocRequestArgs) {
         [callbackName]: () => {
           const body = new PassThrough();
           responseHeaders.set("Content-Type", "text/html");
+          // Never cache SSR HTML: a stale document references old chunk hashes
+          // after a deploy and yields a blank page for returning users.
+          responseHeaders.set("Cache-Control", "no-store");
           responseHeaders.append("Server-Timing", timings.toString());
 
           resolve(
