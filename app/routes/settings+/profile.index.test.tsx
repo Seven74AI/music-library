@@ -21,6 +21,7 @@ const loaderData = {
   },
   hasPassword: true,
   isTwoFactorEnabled: false,
+  profilePrivacy: { showTopTracks: true, showTopArtists: false, showTotals: true },
 };
 
 function renderProfile() {
@@ -60,4 +61,17 @@ test("stacks username and name on small screens and uses two columns from md", a
   expect(save).toHaveAttribute("type", "submit");
   expect(save).toHaveAttribute("name", "intent");
   expect(save).toHaveAttribute("value", "update-profile");
+});
+
+test("renders profile privacy toggles reflecting settings and a public-by-default notice", async () => {
+  renderProfile();
+
+  expect(await screen.findByText(/public by default/i)).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: /show top tracks/i })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /show top artists/i })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /show listening totals/i })).toBeChecked();
+
+  const save = screen.getByRole("button", { name: /save privacy settings/i });
+  expect(save).toHaveAttribute("name", "intent");
+  expect(save).toHaveAttribute("value", "privacy-update");
 });

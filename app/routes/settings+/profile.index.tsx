@@ -12,6 +12,7 @@ import { StatusButton } from "#app/components/ui/status-button.tsx";
 import { requireUserId, sessionKey } from "#app/utils/auth.server.ts";
 import { requireRecentVerification } from "#app/routes/_auth+/verify.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { getProfilePrivacy } from "#app/utils/profile-privacy.server.ts";
 import { getUserImgSrc, useDoubleCheck } from "#app/utils/misc.tsx";
 import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
@@ -63,11 +64,35 @@ export async function loader({ request }: Route.LoaderArgs) {
     where: { userId },
   });
 
+  const profilePrivacy = await getProfilePrivacy(userId);
+
   return {
     user,
     hasPassword: Boolean(password),
     isTwoFactorEnabled: Boolean(twoFactorVerification),
+    profilePrivacy,
   };
+}
+
+const checkboxSchema = z.preprocess((value) => value === "on", z.boolean());
+const PrivacyFormSchema = z.object({
+  showTopTracks: checkboxSchema,
+  showTopArtists: checkboxSchema,
+  showTotals: checkboxSchema,
+});
+
+async function privacyUpdateAction({ userId, formData }: ProfileActionArgs) {
+  const submission = parseWithZod(formData, { schema: PrivacyFormSchema });
+  if (submission.status !== "success") {
+    return data({ result: submission.reply() }, { status: 400 });
+  }
+  const { showTopTracks, showTopArtists, showTotals } = submission.value;
+  await prisma.profilePrivacy.upsert({
+    where: { userId },
+    create: { userId, showTopTracks, showTopArtists, showTotals },
+    update: { showTopTracks, showTopArtists, showTotals },
+  });
+  return { result: submission.reply() };
 }
 
 type ProfileActionArgs = {
@@ -78,6 +103,7 @@ type ProfileActionArgs = {
 const profileUpdateActionIntent = "update-profile";
 const signOutOfSessionsActionIntent = "sign-out-of-sessions";
 const deleteDataActionIntent = "delete-data";
+const privacyUpdateActionIntent = "privacy-update";
 
 export async function action({ request }: Route.ActionArgs) {
   const userId = await requireUserId(request);
@@ -86,6 +112,9 @@ export async function action({ request }: Route.ActionArgs) {
   switch (intent) {
     case profileUpdateActionIntent: {
       return profileUpdateAction({ request, userId, formData });
+    }
+    case privacyUpdateActionIntent: {
+      return privacyUpdateAction({ request, userId, formData });
     }
     case signOutOfSessionsActionIntent: {
       return signOutOfSessionsAction({ request, userId, formData });
@@ -133,6 +162,7 @@ export default function EditUserProfile({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
       <UpdateProfile loaderData={loaderData} />
+      <ProfilePrivacyForm settings={loaderData.profilePrivacy} />
 
       <div className="border-foreground col-span-6 my-6 h-1 border-b-[1.5px]" />
       <div className="col-span-full flex flex-col gap-6">
@@ -263,6 +293,56 @@ function UpdateProfile({ loaderData }: { loaderData: Route.ComponentProps["loade
           status={fetcher.state !== "idle" ? "pending" : (form.status ?? "idle")}
         >
           Save changes
+        </StatusButton>
+      </div>
+    </fetcher.Form>
+  );
+}
+
+function ProfilePrivacyForm({
+  settings,
+}: {
+  settings: Route.ComponentProps["loaderData"]["profilePrivacy"];
+}) {
+  const fetcher = useFetcher<typeof privacyUpdateAction>();
+  const toggles = [
+    { name: "showTopTracks", label: "Show top tracks", checked: settings.showTopTracks },
+    { name: "showTopArtists", label: "Show top artists", checked: settings.showTopArtists },
+    { name: "showTotals", label: "Show listening totals", checked: settings.showTotals },
+  ] as const;
+
+  return (
+    <fetcher.Form method="POST" aria-labelledby="profile-privacy-heading">
+      <h2 id="profile-privacy-heading" className="text-h4">
+        Profile stats privacy
+      </h2>
+      <p className="text-muted-foreground mt-2 text-sm">
+        Your listening stats are public by default: anyone can see the blocks you leave enabled on
+        your profile. Uncheck a block to hide it from visitors.
+      </p>
+      <div className="mt-4 flex flex-col gap-3">
+        {toggles.map((toggle) => (
+          <label key={toggle.name} className="flex items-center gap-3">
+            <input type="checkbox" name={toggle.name} defaultChecked={toggle.checked} />
+            <span>{toggle.label}</span>
+          </label>
+        ))}
+      </div>
+      <div className="mt-6 flex justify-center">
+        <StatusButton
+          type="submit"
+          size="wide"
+          name="intent"
+          value={privacyUpdateActionIntent}
+          status={
+            fetcher.data?.result.status === "success"
+              ? "success"
+              : fetcher.state !== "idle"
+                ? "pending"
+                : "idle"
+          }
+        >
+          Save privacy settings
         </StatusButton>
       </div>
     </fetcher.Form>
