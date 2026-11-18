@@ -18,7 +18,15 @@ if (isOfflineShell) {
   createRoot(document).render(<HydratedRouter />);
 } else {
   startTransition(() => {
-    hydrateRoot(document, <HydratedRouter />);
+    hydrateRoot(document, <HydratedRouter />, {
+      // Diagnostic: capture the exact element behind recoverable hydration
+      // errors (e.g. minified React #418) in production.
+      onRecoverableError: (error) => {
+        if (ENV.MODE === "production" && ENV.SENTRY_DSN) {
+          Sentry.captureException(error, { tags: { kind: "hydration-recoverable" } });
+        }
+      },
+    });
   });
 }
 
