@@ -5,7 +5,8 @@ export type Theme = "light" | "dark";
 
 export function getTheme(request: Request): Theme | null {
   const cookieHeader = request.headers.get("cookie");
-  const parsed = cookieHeader ? cookie.parseCookie(cookieHeader)[cookieName] : "light";
+  if (!cookieHeader) return null;
+  const parsed = cookie.parseCookie(cookieHeader)[cookieName];
   if (parsed === "light" || parsed === "dark") return parsed;
   return null;
 }
