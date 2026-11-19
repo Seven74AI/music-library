@@ -116,7 +116,7 @@
     "address": "^2.0.3",
     "adm-zip": "^0.6.1",
     "bcryptjs": "^3.0.2",
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "^13.1.1",
     "class-variance-authority": "^0.7.1",
     "close-with-grace": "^2.2.0",
     "clsx": "^2.1.1",
