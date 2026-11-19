@@ -1,10 +1,16 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import { parseString } from "set-cookie-parser";
 import { expect, test, vi } from "vitest";
-import ProfileIndexRoute from "./profile.index.tsx";
+import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
+import { prisma } from "#app/utils/db.server.ts";
+import { authSessionStorage } from "#app/utils/session.server.ts";
+import { createUser } from "#tests/db-utils.ts";
+import ProfileIndexRoute, { action } from "./profile.index.tsx";
 
 vi.mock("openimg/react", () => ({
   Img: ({ alt, src }: { alt?: string; src?: string }) => <img alt={alt} src={src} />,
@@ -21,7 +27,13 @@ const loaderData = {
   },
   hasPassword: true,
   isTwoFactorEnabled: false,
-  profilePrivacy: { showTopTracks: true, showTopArtists: false, showTotals: true },
+  profilePrivacy: {
+    showTopTracks: true,
+    showTopArtists: false,
+    showTotals: true,
+    showHeavyRotation: true,
+    showRecentlyPlayed: false,
+  },
 };
 
 function renderProfile() {
@@ -67,11 +79,80 @@ test("renders profile privacy toggles reflecting settings and a public-by-defaul
   renderProfile();
 
   expect(await screen.findByText(/public by default/i)).toBeInTheDocument();
-  expect(screen.getByRole("checkbox", { name: /show top tracks/i })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /show top artists/i })).not.toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /show listening totals/i })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /show top tracks/i })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /show top artists/i })).not.toBeChecked();
+  expect(screen.getByRole("switch", { name: /show listening totals/i })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /show heavy rotation/i })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /show recently played/i })).not.toBeChecked();
 
   const save = screen.getByRole("button", { name: /save privacy settings/i });
   expect(save).toHaveAttribute("name", "intent");
   expect(save).toHaveAttribute("value", "privacy-update");
+});
+
+test("toggling a switch and submitting the real form flips the ProfilePrivacy row", async () => {
+  const user = await prisma.user.create({ data: createUser() });
+  const session = await prisma.session.create({
+    data: { userId: user.id, expirationDate: getSessionExpirationDate() },
+    select: { id: true },
+  });
+  const authSession = await authSessionStorage.getSession();
+  authSession.set(sessionKey, session.id);
+  const parsed = parseString(await authSessionStorage.commitSession(authSession))!;
+  const cookie = `${parsed.name}=${parsed.value}`;
+
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/settings/profile",
+        action: async ({ request }) => {
+          request.headers.set("cookie", cookie);
+          return action({
+            request,
+            params: {},
+            context: {} as never,
+            url: new URL(request.url),
+            pattern: "/settings/profile",
+          } as never);
+        },
+        element: (
+          <ProfileIndexRoute
+            loaderData={
+              {
+                ...loaderData,
+                user: { ...loaderData.user, id: user.id },
+                profilePrivacy: {
+                  showTopTracks: true,
+                  showTopArtists: true,
+                  showTotals: true,
+                  showHeavyRotation: true,
+                  showRecentlyPlayed: true,
+                },
+              } as never
+            }
+            params={{}}
+            matches={[] as never}
+          />
+        ),
+      },
+    ],
+    { initialEntries: ["/settings/profile"] },
+  );
+  render(<RouterProvider router={router} />);
+
+  const heavy = await screen.findByRole("switch", { name: /show heavy rotation/i });
+  await userEvent.click(heavy);
+  expect(heavy).not.toBeChecked();
+  await userEvent.click(screen.getByRole("button", { name: /save privacy settings/i }));
+
+  await waitFor(async () => {
+    const row = await prisma.profilePrivacy.findUnique({ where: { userId: user.id } });
+    expect(row).toMatchObject({
+      showTopTracks: true,
+      showTopArtists: true,
+      showTotals: true,
+      showHeavyRotation: false,
+      showRecentlyPlayed: true,
+    });
+  });
 });

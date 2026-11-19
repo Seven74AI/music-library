@@ -70,6 +70,8 @@ model ProfilePrivacy {
   showTopTracks  Boolean @default(true)
   showTopArtists Boolean @default(true)
   showTotals     Boolean @default(true)
+  showHeavyRotation  Boolean @default(true)
+  showRecentlyPlayed Boolean @default(true)
 }
 
 model UsageEvent {

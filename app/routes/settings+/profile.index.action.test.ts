@@ -42,18 +42,26 @@ function submitPrivacy(cookie: string, checked: string[]) {
 describe("privacy-update action", () => {
   test("an unchecked box persists false; checked boxes persist true", async () => {
     const { userId, cookie } = await createAccount();
-    await submitPrivacy(cookie, ["showTopTracks", "showTotals"]);
+    await submitPrivacy(cookie, ["showTopTracks", "showTotals", "showRecentlyPlayed"]);
 
     const row = await prisma.profilePrivacy.findUnique({ where: { userId } });
-    expect(row).toMatchObject({ showTopTracks: true, showTopArtists: false, showTotals: true });
+    expect(row).toMatchObject({
+      showTopTracks: true,
+      showTopArtists: false,
+      showTotals: true,
+      showHeavyRotation: false,
+      showRecentlyPlayed: true,
+    });
 
-    // Subsequent submit with nothing checked updates all three to false.
+    // Subsequent submit with nothing checked updates all five to false.
     await submitPrivacy(cookie, []);
     const updated = await prisma.profilePrivacy.findUnique({ where: { userId } });
     expect(updated).toMatchObject({
       showTopTracks: false,
       showTopArtists: false,
       showTotals: false,
+      showHeavyRotation: false,
+      showRecentlyPlayed: false,
     });
   });
 
@@ -76,9 +84,21 @@ describe("privacy-update action", () => {
     );
 
     const bRow = await prisma.profilePrivacy.findUnique({ where: { userId: b.userId } });
-    expect(bRow).toMatchObject({ showTopTracks: true, showTopArtists: true, showTotals: true });
+    expect(bRow).toMatchObject({
+      showTopTracks: true,
+      showTopArtists: true,
+      showTotals: true,
+      showHeavyRotation: true,
+      showRecentlyPlayed: true,
+    });
     const aRow = await prisma.profilePrivacy.findUnique({ where: { userId: a.userId } });
-    expect(aRow).toMatchObject({ showTopTracks: false, showTopArtists: false, showTotals: false });
+    expect(aRow).toMatchObject({
+      showTopTracks: false,
+      showTopArtists: false,
+      showTotals: false,
+      showHeavyRotation: false,
+      showRecentlyPlayed: false,
+    });
   });
 
   test("loader returns current settings, defaulting to all-true when no row exists", async () => {
@@ -91,6 +111,8 @@ describe("privacy-update action", () => {
       showTopTracks: true,
       showTopArtists: true,
       showTotals: true,
+      showHeavyRotation: true,
+      showRecentlyPlayed: true,
     });
 
     await prisma.profilePrivacy.create({ data: { userId, showTopArtists: false } });
