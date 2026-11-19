@@ -106,7 +106,7 @@ describe("fetchPlaybackTracks", () => {
               playlists: {
                 some: {
                   playlist: {
-                    ownerId: "user-1",
+                    OR: [{ ownerId: "user-1" }, { visibility: { in: ["PUBLIC", "UNLISTED"] } }],
                   },
                 },
               },

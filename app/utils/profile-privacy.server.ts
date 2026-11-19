@@ -6,6 +6,7 @@ export type ProfilePrivacySettings = {
   showTotals: boolean;
   showHeavyRotation: boolean;
   showRecentlyPlayed: boolean;
+  showPlaylists: boolean;
 };
 
 /** Public by default: a missing `ProfilePrivacy` row means every block is visible. */
@@ -15,6 +16,7 @@ export const DEFAULT_PROFILE_PRIVACY: ProfilePrivacySettings = {
   showTotals: true,
   showHeavyRotation: true,
   showRecentlyPlayed: true,
+  showPlaylists: true,
 };
 
 export async function getProfilePrivacy(userId: string): Promise<ProfilePrivacySettings> {
@@ -26,6 +28,7 @@ export async function getProfilePrivacy(userId: string): Promise<ProfilePrivacyS
       showTotals: true,
       showHeavyRotation: true,
       showRecentlyPlayed: true,
+      showPlaylists: true,
     },
   });
   return row ?? { ...DEFAULT_PROFILE_PRIVACY };

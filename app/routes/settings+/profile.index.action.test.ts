@@ -42,7 +42,12 @@ function submitPrivacy(cookie: string, checked: string[]) {
 describe("privacy-update action", () => {
   test("an unchecked box persists false; checked boxes persist true", async () => {
     const { userId, cookie } = await createAccount();
-    await submitPrivacy(cookie, ["showTopTracks", "showTotals", "showRecentlyPlayed"]);
+    await submitPrivacy(cookie, [
+      "showTopTracks",
+      "showTotals",
+      "showRecentlyPlayed",
+      "showPlaylists",
+    ]);
 
     const row = await prisma.profilePrivacy.findUnique({ where: { userId } });
     expect(row).toMatchObject({
@@ -51,6 +56,7 @@ describe("privacy-update action", () => {
       showTotals: true,
       showHeavyRotation: false,
       showRecentlyPlayed: true,
+      showPlaylists: true,
     });
 
     // Subsequent submit with nothing checked updates all five to false.
@@ -62,6 +68,7 @@ describe("privacy-update action", () => {
       showTotals: false,
       showHeavyRotation: false,
       showRecentlyPlayed: false,
+      showPlaylists: false,
     });
   });
 
@@ -113,6 +120,7 @@ describe("privacy-update action", () => {
       showTotals: true,
       showHeavyRotation: true,
       showRecentlyPlayed: true,
+      showPlaylists: true,
     });
 
     await prisma.profilePrivacy.create({ data: { userId, showTopArtists: false } });

@@ -107,6 +107,7 @@ export async function loader({ request, url }: Route.LoaderArgs) {
         description: true,
         createdAt: true,
         updatedAt: true,
+        visibility: true,
         tracks: {
           select: {
             id: true,
@@ -416,6 +417,7 @@ export default function PlaylistsIndexRoute({
                 variant={viewMode}
                 title={playlist.title}
                 description={playlist.description}
+                visibility={playlist.visibility}
                 tracks={playlist.tracks.map((pt) => pt.track)}
                 createdAt={playlist.createdAt.toISOString()}
                 updatedAt={playlist.updatedAt.toISOString()}

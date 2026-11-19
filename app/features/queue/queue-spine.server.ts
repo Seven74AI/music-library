@@ -22,6 +22,7 @@ import {
 } from "#app/utils/playlist-track-sort.ts";
 import { parseSortDirection, type SortDirection } from "#app/utils/sort-direction.ts";
 import { type Prisma } from "#prisma/client.js";
+import { ownedOrSharedPlaylistWhere } from "#app/utils/shared-playlist-access.server.ts";
 import { buildUserTrackAccessWhere } from "./queue-playback.server.ts";
 
 async function findAllPlayableTracksForSpine(
@@ -208,7 +209,9 @@ export async function fetchQueueSpine(
       orderBy: [{ position: "asc" }, { id: "asc" }],
       where: {
         playlistId: params.playlistId,
-        playlist: { ownerId: userId },
+        // Owner, or a PUBLIC/UNLISTED playlist (ADR-045); the track access
+        // predicate below still applies on top.
+        playlist: ownedOrSharedPlaylistWhere(userId),
         track: {
           audioFiles: { some: {} },
           ...buildUserTrackAccessWhere(userId),

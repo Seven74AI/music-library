@@ -72,6 +72,7 @@ model ProfilePrivacy {
   showTotals     Boolean @default(true)
   showHeavyRotation  Boolean @default(true)
   showRecentlyPlayed Boolean @default(true)
+  showPlaylists      Boolean @default(true)
 }
 
 model UsageEvent {
@@ -371,6 +372,13 @@ model Track {
   @@index([artistId])
 }
 
+/// Who can see a user playlist (ADR-045). UNLISTED protects discovery, not access.
+enum Visibility {
+  PRIVATE
+  PUBLIC
+  UNLISTED
+}
+
 model UserPlaylist {
   id          String              @id @default(cuid())
   title       String
@@ -380,6 +388,7 @@ model UserPlaylist {
   ownerId     String
   owner       User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   tracks      UserPlaylistTrack[]
+  visibility  Visibility          @default(PRIVATE)
 
   @@index([ownerId])
   @@index([ownerId, updatedAt])

@@ -113,7 +113,9 @@ async function seedListener() {
     data: createUser(),
   });
   const track = await createTrack("Profile Hit");
-  await prisma.userTrack.create({ data: { userId: user.id, trackId: track.id } });
+  await prisma.userTrack.create({
+    data: { userId: user.id, trackId: track.id },
+  });
   for (let i = 0; i < 3; i++) {
     await prisma.usageEvent.create({
       data: { type: "play_completed", userId: user.id, trackId: track.id },
@@ -124,7 +126,11 @@ async function seedListener() {
 
 function callLoader(username: string) {
   const request = new Request(`http://localhost/users/${username}`);
-  return loader({ params: { username }, request, context: {} as never } as never);
+  return loader({
+    params: { username },
+    request,
+    context: {} as never,
+  } as never);
 }
 
 describe("profile loader privacy (data-time omission)", () => {
@@ -146,7 +152,9 @@ describe("profile loader privacy (data-time omission)", () => {
     ["showRecentlyPlayed", "recentlyPlayed"],
   ] as const)("%s=false omits %s from the loader return value", async (toggle, key) => {
     const { user } = await seedListener();
-    await prisma.profilePrivacy.create({ data: { userId: user.id, [toggle]: false } });
+    await prisma.profilePrivacy.create({
+      data: { userId: user.id, [toggle]: false },
+    });
     const result = await callLoader(user.username);
     expect(result).not.toHaveProperty(key);
     // visitors never learn which blocks are hidden
@@ -203,7 +211,9 @@ describe("profile stats UI", () => {
 
   test("visitor sees enabled blocks, and nothing for hidden ones", async () => {
     const { user } = await seedListener();
-    await prisma.profilePrivacy.create({ data: { userId: user.id, showTopArtists: false } });
+    await prisma.profilePrivacy.create({
+      data: { userId: user.id, showTopArtists: false },
+    });
     renderProfile(user.username);
 
     await screen.findByRole("heading", { level: 2, name: /top tracks/i }, { timeout: 5000 });
@@ -232,7 +242,11 @@ describe("profile stats UI", () => {
   test("visitor sees nothing for disabled heavy rotation / recently played", async () => {
     const { user } = await seedListener();
     await prisma.profilePrivacy.create({
-      data: { userId: user.id, showHeavyRotation: false, showRecentlyPlayed: false },
+      data: {
+        userId: user.id,
+        showHeavyRotation: false,
+        showRecentlyPlayed: false,
+      },
     });
     renderProfile(user.username);
 
@@ -245,7 +259,11 @@ describe("profile stats UI", () => {
   test("owner sees placeholders for disabled heavy rotation / recently played", async () => {
     const { user } = await seedListener();
     await prisma.profilePrivacy.create({
-      data: { userId: user.id, showHeavyRotation: false, showRecentlyPlayed: false },
+      data: {
+        userId: user.id,
+        showHeavyRotation: false,
+        showRecentlyPlayed: false,
+      },
     });
     renderProfile(user.username, await sessionCookie(user.id));
 
@@ -257,10 +275,14 @@ describe("profile stats UI", () => {
 
   test("owner sees a 'hidden from visitors' placeholder for hidden blocks", async () => {
     const { user } = await seedListener();
-    await prisma.profilePrivacy.create({ data: { userId: user.id, showTotals: false } });
+    await prisma.profilePrivacy.create({
+      data: { userId: user.id, showTotals: false },
+    });
     renderProfile(user.username, await sessionCookie(user.id));
 
-    await screen.findByText(/totals: hidden from visitors/i, undefined, { timeout: 5000 });
+    await screen.findByText(/totals: hidden from visitors/i, undefined, {
+      timeout: 5000,
+    });
     expect(screen.queryByText("Completed plays")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: /top tracks/i })).toBeInTheDocument();
   });
@@ -273,5 +295,88 @@ describe("profile stats UI", () => {
     renderProfile(user.username);
     await screen.findByRole("heading", { level: 1, name: user.name! }, { timeout: 5000 });
     expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
+  });
+});
+
+describe("profile playlists block (ADR-045)", () => {
+  async function seedPlaylists(userId: string) {
+    const track = await createTrack("Playlist Song");
+    const make = (title: string, visibility: "PRIVATE" | "PUBLIC" | "UNLISTED") =>
+      prisma.userPlaylist.create({
+        data: {
+          title,
+          ownerId: userId,
+          visibility,
+          tracks: { create: { trackId: track.id, position: 0 } },
+        },
+      });
+    return {
+      pub: await make("Pub Mix", "PUBLIC"),
+      unl: await make("Unl Mix", "UNLISTED"),
+      priv: await make("Priv Mix", "PRIVATE"),
+    };
+  }
+
+  test("lists only PUBLIC playlists with title and track count", async () => {
+    const { user } = await seedListener();
+    const { pub } = await seedPlaylists(user.id);
+    const result = await callLoader(user.username);
+    expect(result.playlists).toEqual([{ id: pub.id, title: "Pub Mix", trackCount: 1 }]);
+  });
+
+  test("showPlaylists=false omits the block for visitors", async () => {
+    const { user } = await seedListener();
+    await seedPlaylists(user.id);
+    await prisma.profilePrivacy.create({
+      data: { userId: user.id, showPlaylists: false },
+    });
+    const result = await callLoader(user.username);
+    expect(result).not.toHaveProperty("playlists");
+    expect(result).not.toHaveProperty("hiddenBlocks");
+  });
+
+  test("owner learns the playlists block is hidden", async () => {
+    const { user } = await seedListener();
+    await prisma.profilePrivacy.create({
+      data: { userId: user.id, showPlaylists: false },
+    });
+    const session = await prisma.session.create({
+      select: { id: true },
+      data: { expirationDate: getSessionExpirationDate(), userId: user.id },
+    });
+    const authSession = await authSessionStorage.getSession();
+    authSession.set(sessionKey, session.id);
+    const parsed = parseString(await authSessionStorage.commitSession(authSession))!;
+    const request = new Request(`http://localhost/users/${user.username}`, {
+      headers: {
+        cookie: new URLSearchParams({ [parsed.name]: parsed.value }).toString(),
+      },
+    });
+    const result = await loader({
+      params: { username: user.username },
+      request,
+      context: {} as never,
+    } as never);
+    expect(result).not.toHaveProperty("playlists");
+    expect(result.hiddenBlocks).toMatchObject({ playlists: true });
+  });
+
+  test("renders a Playlists block linking to each playlist", async () => {
+    const { user } = await seedListener();
+    const { pub } = await seedPlaylists(user.id);
+    const App = createRoutesStub([
+      {
+        path: "/users/:username",
+        Component: UsernameRoute,
+        loader,
+        HydrateFallback: () => <div>Loading...</div>,
+      },
+    ]);
+    render(<App initialEntries={[`/users/${user.username}`]} />);
+    await screen.findByRole("heading", { level: 2, name: /playlists/i }, { timeout: 5000 });
+    const link = screen.getByRole("link", { name: /pub mix/i });
+    expect(link).toHaveAttribute("href", `/playlists/${pub.id}`);
+    expect(screen.queryByText(/unl mix/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/priv mix/i)).not.toBeInTheDocument();
   });
 });

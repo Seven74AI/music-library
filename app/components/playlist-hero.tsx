@@ -7,6 +7,14 @@ import {
   DropdownMenuTrigger,
 } from "#app/components/ui/dropdown-menu.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "#app/components/ui/select.tsx";
+import { toast } from "#app/components/ui/use-toast.ts";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "#app/components/ui/sheet.tsx";
 import { formatDuration } from "#app/utils/format-duration.ts";
 import { cn } from "#app/utils/misc.tsx";
@@ -22,19 +30,111 @@ interface PlaylistHeroTrack {
   coverImage: { objectKey: string } | null;
 }
 
+export type PlaylistVisibility = "PRIVATE" | "PUBLIC" | "UNLISTED";
+
 interface PlaylistHeroProps {
   title: string;
   description: string | null;
   tracks: PlaylistHeroTrack[];
   createdAt: string;
-  onTitleUpdate: (newTitle: string) => void;
-  onDescriptionUpdate: (newDescription: string) => void;
-  onBulkPlayNext: () => void;
-  onBulkAddToUpNext: () => void;
-  onBulkAddToQueue: () => void;
-  onDelete: () => void;
+  /** Non-owner view: plain text title/description, no edit/queue/delete/visibility controls. */
+  readOnly?: boolean;
+  /** Shown in read-only mode ("By @username"). */
+  ownerLabel?: string;
+  playlistId?: string;
+  visibility?: PlaylistVisibility;
+  onVisibilityChange?: (visibility: PlaylistVisibility) => void;
+  onTitleUpdate?: (newTitle: string) => void;
+  onDescriptionUpdate?: (newDescription: string) => void;
+  onBulkPlayNext?: () => void;
+  onBulkAddToUpNext?: () => void;
+  onBulkAddToQueue?: () => void;
+  onDelete?: () => void;
   isUpdating?: boolean;
   className?: string;
+}
+
+const VISIBILITY_LABELS: Record<PlaylistVisibility, string> = {
+  PUBLIC: "Public",
+  PRIVATE: "Private",
+  UNLISTED: "Unlisted",
+};
+
+function VisibilityControls({
+  playlistId,
+  visibility,
+  onVisibilityChange,
+}: {
+  playlistId: string;
+  visibility: PlaylistVisibility;
+  onVisibilityChange: (visibility: PlaylistVisibility) => void;
+}) {
+  const copyLink = async () => {
+    const url = `${window.location.origin}/playlists/${playlistId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Link copied", description: url, variant: "success" });
+    } catch {
+      toast({
+        title: "Could not copy link",
+        description: url,
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Select
+        value={visibility}
+        onValueChange={(value) => onVisibilityChange(value as PlaylistVisibility)}
+      >
+        <SelectTrigger
+          className="w-36 border-white/30 bg-white/20 text-white"
+          aria-label="Playlist visibility"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="PUBLIC">{VISIBILITY_LABELS.PUBLIC}</SelectItem>
+          <SelectItem value="PRIVATE">{VISIBILITY_LABELS.PRIVATE}</SelectItem>
+          <SelectItem value="UNLISTED">{VISIBILITY_LABELS.UNLISTED}</SelectItem>
+        </SelectContent>
+      </Select>
+      {visibility === "PRIVATE" ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="secondary"
+              className="border-white/30 bg-white/20 text-white hover:bg-white/30"
+            >
+              <Icon name="link-2" className="mr-2 h-4 w-4" />
+              Make public/unlisted to share
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => onVisibilityChange("PUBLIC")}>
+              Make public
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onVisibilityChange("UNLISTED")}>
+              Make unlisted
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => void copyLink()}
+          className="border-white/30 bg-white/20 text-white hover:bg-white/30"
+        >
+          <Icon name="link-2" className="mr-2 h-4 w-4" />
+          Copy link
+        </Button>
+      )}
+    </div>
+  );
 }
 
 // Generate a gradient color based on playlist title
@@ -64,12 +164,17 @@ export function PlaylistHero({
   description,
   tracks,
   createdAt,
-  onTitleUpdate,
-  onDescriptionUpdate,
-  onBulkPlayNext,
-  onBulkAddToUpNext,
-  onBulkAddToQueue,
-  onDelete,
+  readOnly = false,
+  ownerLabel,
+  playlistId,
+  visibility,
+  onVisibilityChange,
+  onTitleUpdate = () => {},
+  onDescriptionUpdate = () => {},
+  onBulkPlayNext = () => {},
+  onBulkAddToUpNext = () => {},
+  onBulkAddToQueue = () => {},
+  onDelete = () => {},
   isUpdating = false,
   className,
 }: PlaylistHeroProps) {
@@ -97,34 +202,48 @@ export function PlaylistHero({
             <div className="flex-1 min-w-0 space-y-3 md:space-y-4 text-center md:text-left">
               {/* Title */}
               <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <EditableText
-                    value={title}
-                    onSave={onTitleUpdate}
-                    placeholder="Untitled Playlist"
-                    className="text-2xl md:text-3xl lg:text-4xl font-bold text-white"
-                    maxLength={100}
-                    disabled={isUpdating}
-                  />
-                  {isUpdating && (
-                    <Icon
-                      name="update"
-                      className="h-4 w-4 md:h-5 md:w-5 animate-spin text-white/60"
-                    />
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <EditableText
-                    value={description || ""}
-                    onSave={onDescriptionUpdate}
-                    placeholder="Add a description..."
-                    className="text-white/80 text-base md:text-lg"
-                    multiline
-                    maxLength={500}
-                    disabled={isUpdating}
-                    allowEmpty
-                  />
-                </div>
+                {readOnly ? (
+                  <>
+                    <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white">
+                      {title}
+                    </h1>
+                    {description ? (
+                      <p className="text-white/80 text-base md:text-lg">{description}</p>
+                    ) : null}
+                    {ownerLabel ? <p className="text-white/80 text-sm">By {ownerLabel}</p> : null}
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <EditableText
+                        value={title}
+                        onSave={onTitleUpdate}
+                        placeholder="Untitled Playlist"
+                        className="text-2xl md:text-3xl lg:text-4xl font-bold text-white"
+                        maxLength={100}
+                        disabled={isUpdating}
+                      />
+                      {isUpdating && (
+                        <Icon
+                          name="update"
+                          className="h-4 w-4 md:h-5 md:w-5 animate-spin text-white/60"
+                        />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <EditableText
+                        value={description || ""}
+                        onSave={onDescriptionUpdate}
+                        placeholder="Add a description..."
+                        className="text-white/80 text-base md:text-lg"
+                        multiline
+                        maxLength={500}
+                        disabled={isUpdating}
+                        allowEmpty
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Stats */}
@@ -147,62 +266,71 @@ export function PlaylistHero({
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="flex flex-wrap justify-center md:justify-start gap-2 md:gap-3">
-                <div className="flex">
+              {/* Actions (owner only) */}
+              {readOnly ? null : (
+                <div className="flex flex-wrap justify-center md:justify-start gap-2 md:gap-3">
+                  {visibility && onVisibilityChange && playlistId ? (
+                    <VisibilityControls
+                      playlistId={playlistId}
+                      visibility={visibility}
+                      onVisibilityChange={onVisibilityChange}
+                    />
+                  ) : null}
+                  <div className="flex">
+                    <Button
+                      variant="secondary"
+                      size={isMobile ? "default" : "lg"}
+                      onClick={onBulkAddToUpNext}
+                      className="bg-white/20 hover:bg-white/30 text-white border-white/30 rounded-r-none"
+                    >
+                      <Icon name="list-bullet" className="h-4 w-4 md:h-5 md:w-5 mr-2" />
+                      Add to up next
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="secondary"
+                          size={isMobile ? "default" : "lg"}
+                          className="bg-white/20 hover:bg-white/30 text-white border-white/30 rounded-l-none border-l-white/20 px-2"
+                          aria-label="More queue actions"
+                        >
+                          <Icon name="chevron-down" className="h-4 w-4 md:h-5 md:w-5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuItem onClick={onBulkPlayNext}>
+                          <Icon name="arrow-right" className="h-4 w-4 mr-2" />
+                          Play next
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={onBulkAddToUpNext}>
+                          <Icon name="list-bullet" className="h-4 w-4 mr-2" />
+                          Add to up next
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={onBulkAddToQueue}>
+                          <Icon name="plus" className="h-4 w-4 mr-2" />
+                          Add to queue
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                   <Button
-                    variant="secondary"
+                    variant="destructive"
                     size={isMobile ? "default" : "lg"}
-                    onClick={onBulkAddToUpNext}
-                    className="bg-white/20 hover:bg-white/30 text-white border-white/30 rounded-r-none"
+                    onClick={onDelete}
+                    className="bg-red-500/20 hover:bg-red-500/30 text-white border-red-500/30"
                   >
-                    <Icon name="list-bullet" className="h-4 w-4 md:h-5 md:w-5 mr-2" />
-                    Add to up next
+                    <Icon name="trash" className="h-4 w-4 md:h-5 md:w-5 mr-2" />
+                    Delete
                   </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="secondary"
-                        size={isMobile ? "default" : "lg"}
-                        className="bg-white/20 hover:bg-white/30 text-white border-white/30 rounded-l-none border-l-white/20 px-2"
-                        aria-label="More queue actions"
-                      >
-                        <Icon name="chevron-down" className="h-4 w-4 md:h-5 md:w-5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuItem onClick={onBulkPlayNext}>
-                        <Icon name="arrow-right" className="h-4 w-4 mr-2" />
-                        Play next
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={onBulkAddToUpNext}>
-                        <Icon name="list-bullet" className="h-4 w-4 mr-2" />
-                        Add to up next
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={onBulkAddToQueue}>
-                        <Icon name="plus" className="h-4 w-4 mr-2" />
-                        Add to queue
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
                 </div>
-                <Button
-                  variant="destructive"
-                  size={isMobile ? "default" : "lg"}
-                  onClick={onDelete}
-                  className="bg-red-500/20 hover:bg-red-500/30 text-white border-red-500/30"
-                >
-                  <Icon name="trash" className="h-4 w-4 md:h-5 md:w-5 mr-2" />
-                  Delete
-                </Button>
-              </div>
+              )}
             </div>
           </div>
         </div>
       </div>
 
       {/* Mobile Actions Sheet */}
-      {isMobile && (
+      {isMobile && !readOnly && (
         <Sheet open={isActionsSheetOpen} onOpenChange={setIsActionsSheetOpen}>
           <SheetContent side="bottom" className="h-[50vh]">
             <SheetHeader>
