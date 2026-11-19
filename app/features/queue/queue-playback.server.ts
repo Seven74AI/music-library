@@ -1,5 +1,6 @@
 import { type FullTrack } from "#app/types/frontend/shared.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { ownedOrSharedPlaylistWhere } from "#app/utils/shared-playlist-access.server.ts";
 import { PLAYBACK_BATCH_MAX_IDS } from "./constants.ts";
 
 export const PLAYBACK_TRACK_SELECT = {
@@ -76,9 +77,7 @@ export function buildUserTrackAccessWhere(userId: string) {
       {
         playlists: {
           some: {
-            playlist: {
-              ownerId: userId,
-            },
+            playlist: ownedOrSharedPlaylistWhere(userId),
           },
         },
       },

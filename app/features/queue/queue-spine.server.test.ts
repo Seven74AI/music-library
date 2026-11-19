@@ -1,5 +1,6 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
+import { ownedOrSharedPlaylistWhere } from "#app/utils/shared-playlist-access.server.ts";
 import { buildUserTrackAccessWhere } from "./queue-playback.server.ts";
 import { LIBRARY_TRACKS_PAGE_SIZE } from "#app/utils/library-tracks-pagination.ts";
 import { USER_PLAYLIST_TRACK_PAGE_SIZE } from "#app/features/user-playlist/user-playlist-track-queries.server.ts";
@@ -327,7 +328,7 @@ describe("fetchQueueSpine", () => {
       expect.objectContaining({
         where: {
           playlistId: "pl-1",
-          playlist: { ownerId: "user-1" },
+          playlist: ownedOrSharedPlaylistWhere("user-1"),
           track: {
             audioFiles: { some: {} },
             ...buildUserTrackAccessWhere("user-1"),

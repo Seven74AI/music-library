@@ -8,6 +8,7 @@
  * deny-by-default check in one module prevents the two routes from drifting on
  * access-rule changes.
  */
+import { ownedOrSharedPlaylistWhere } from "./shared-playlist-access.server.ts";
 
 /**
  * The three-way ownership include fragment. Spread into a `prisma.track`
@@ -27,9 +28,12 @@ export function trackOwnershipAccessInclude(userId: string) {
       },
       take: 1,
     },
+    // User playlists: the caller's own, or any PUBLIC/UNLISTED playlist (the
+    // shared-playlist grant, ADR-045). Prisma allows one include per relation,
+    // so the shared clause is an OR inside this fragment rather than a fourth key.
     playlists: {
       where: {
-        playlist: { ownerId: userId },
+        playlist: ownedOrSharedPlaylistWhere(userId),
       },
       take: 1,
     },

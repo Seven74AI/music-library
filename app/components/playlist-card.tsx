@@ -27,6 +27,8 @@ interface PlaylistCardProps {
   createdAt: string;
   updatedAt: string;
   to?: string;
+  /** Owner-facing visibility badge (owner views only). */
+  visibility?: "PRIVATE" | "PUBLIC" | "UNLISTED";
   /** `list` = Spotify-style row (default). `grid` = slim cover tile. */
   variant?: "list" | "grid";
   className?: string;
@@ -42,6 +44,7 @@ export function PlaylistCard({
   createdAt: _createdAt,
   updatedAt,
   to,
+  visibility,
   variant = "list",
   className,
 }: PlaylistCardProps) {
@@ -99,6 +102,14 @@ export function PlaylistCard({
         {title}
       </h3>
       <p className="truncate text-xs text-muted-foreground sm:text-sm">{metaLabel}</p>
+      {visibility ? (
+        <span
+          data-testid="playlist-visibility-badge"
+          className="mt-0.5 inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+        >
+          {visibility === "PUBLIC" ? "Public" : visibility === "UNLISTED" ? "Unlisted" : "Private"}
+        </span>
+      ) : null}
       {description ? (
         <p
           className={cn(

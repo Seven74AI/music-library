@@ -5,7 +5,8 @@ import { type BreadcrumbHandle } from "#app/components/breadcrumbs.tsx";
 import { OfflinePlaylistDownloadButton } from "#app/components/offline/offline-playlist-download-button.tsx";
 import { OfflinePlaylistView } from "#app/components/offline/offline-playlist-view.tsx";
 
-import { PlaylistHero } from "#app/components/playlist-hero";
+import { PlaylistHero, type PlaylistVisibility } from "#app/components/playlist-hero";
+import { ReadOnlyPlaylistTrackList } from "#app/components/read-only-playlist-track-list.tsx";
 import { SortDirectionToggle } from "#app/components/sort-direction-toggle.tsx";
 import { SortableTrackList } from "#app/components/sortable-track-list";
 import {
@@ -34,7 +35,8 @@ import {
   type BulkQueueAction,
 } from "#app/features/queue/bulk-queue-action.ts";
 import { type FullTrack } from "#app/types/frontend/shared.ts";
-import { requireUserId } from "#app/utils/auth.server.ts";
+import { getUserIdOrNull, requireUserId } from "#app/utils/auth.server.ts";
+import { SHARED_PLAYLIST_VISIBILITIES } from "#app/utils/shared-playlist-access.server.ts";
 import { getPlaylistTitle } from "#app/utils/breadcrumb-utils.ts";
 import { findAllUserPlaylistTracks } from "#app/features/user-playlist/user-playlist-track-queries.server.ts";
 import { chunkArray } from "#app/utils/chunk-array.ts";
@@ -61,24 +63,83 @@ export const handle: BreadcrumbHandle = {
   breadcrumb: ({ loaderData }) => getPlaylistTitle(loaderData),
 };
 
-export async function loader({ request, params }: Route.LoaderArgs) {
-  const userId = await requireUserId(request);
-  const playlistMeta = await prisma.userPlaylist.findFirst({
-    where: {
-      id: params.playlistId,
-      ownerId: userId,
+const PLAYLIST_TRACK_BASE_SELECT = {
+  id: true,
+  title: true,
+  artist: { select: { id: true, name: true } },
+  duration: true,
+  coverImage: { select: { objectKey: true } },
+  albumRecord: { select: { id: true, name: true } },
+  serviceUrl: true,
+  createdAt: true,
+  releaseDate: true,
+  originalDate: true,
+  service: { select: { displayName: true, logoUrl: true } },
+} as const;
+
+const sharedPlaylistVisibilities: readonly string[] = SHARED_PLAYLIST_VISIBILITIES;
+
+export const meta: Route.MetaFunction = ({ loaderData }) => {
+  const playlist = loaderData && "playlist" in loaderData ? loaderData.playlist : null;
+  if (!playlist) return [{ title: "Playlist | Music Library" }];
+  return [
+    { title: `${playlist.title} | Music Library` },
+    {
+      name: "description",
+      content: playlist.description || `Playlist ${playlist.title} on Music Library`,
     },
+  ];
+};
+
+export async function loader({ request, params }: Route.LoaderArgs) {
+  const userId = await getUserIdOrNull(request);
+  // Fetched without an owner filter: the owner/viewer/404 branching happens
+  // below (ADR-045). A PRIVATE playlist is indistinguishable from a missing one.
+  const playlistMeta = await prisma.userPlaylist.findUnique({
+    where: { id: params.playlistId },
     select: {
       id: true,
       title: true,
       description: true,
       createdAt: true,
       updatedAt: true,
+      visibility: true,
+      ownerId: true,
+      owner: { select: { username: true, name: true } },
     },
   });
 
   if (!playlistMeta) {
     throw new Response("Playlist not found", { status: 404 });
+  }
+
+  if (userId === null || playlistMeta.ownerId !== userId) {
+    if (!sharedPlaylistVisibilities.includes(playlistMeta.visibility)) {
+      throw new Response("Playlist not found", { status: 404 });
+    }
+
+    const viewerTracks = await findAllUserPlaylistTracks(prisma, {
+      where: { playlistId: params.playlistId },
+      select: {
+        id: true,
+        position: true,
+        createdAt: true,
+        track: {
+          select: {
+            ...PLAYLIST_TRACK_BASE_SELECT,
+            // Never hand S3 keys to viewers (possibly logged out).
+            audioFiles: { select: { id: true, format: true } },
+          },
+        },
+      },
+    });
+
+    const { ownerId: _viewerOwnerId, ...viewerPlaylistMeta } = playlistMeta;
+    return data({
+      isOwner: false as const,
+      isLoggedIn: userId !== null,
+      playlist: { ...viewerPlaylistMeta, tracks: viewerTracks },
+    });
   }
 
   const playlistTracks = await findAllUserPlaylistTracks(prisma, {
@@ -89,49 +150,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       createdAt: true,
       track: {
         select: {
-          id: true,
-          title: true,
-          artist: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-          duration: true,
-          coverImage: {
-            select: {
-              objectKey: true,
-            },
-          },
-          albumRecord: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-          serviceUrl: true,
-          createdAt: true,
-          releaseDate: true,
-          originalDate: true,
-          service: {
-            select: {
-              displayName: true,
-              logoUrl: true,
-            },
-          },
-          audioFiles: {
-            select: {
-              id: true,
-              format: true,
-              objectKey: true,
-            },
-          },
+          ...PLAYLIST_TRACK_BASE_SELECT,
+          audioFiles: { select: { id: true, format: true, objectKey: true } },
         },
       },
     },
   });
 
-  const playlist = { ...playlistMeta, tracks: playlistTracks };
+  const { owner: _owner, ownerId: _ownerId, ...ownerPlaylistMeta } = playlistMeta;
+  const playlist = { ...ownerPlaylistMeta, tracks: playlistTracks };
 
   const playlistTrackIds = playlist.tracks.map((pt) => pt.track.id);
   const { libraryTrackIds } = await loadLibraryStatusByTrackId(userId, playlistTrackIds);
@@ -160,6 +187,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   });
 
   return data({
+    isOwner: true as const,
+    isLoggedIn: true as const,
     playlist: { ...playlist, tracks: tracksWithLibraryStatus },
     playlists: userPlaylists,
   });
@@ -274,7 +303,9 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     if (duplicate.taken) {
       return data(
-        { error: `You already have a playlist named "${duplicate.existingTitle}"` },
+        {
+          error: `You already have a playlist named "${duplicate.existingTitle}"`,
+        },
         {
           status: 409,
           headers: await createToastHeaders({
@@ -326,6 +357,31 @@ export async function action({ request, params }: Route.ActionArgs) {
         }),
       },
     );
+  }
+
+  if (intent === "update-visibility") {
+    const visibility = formData.get("visibility");
+    if (visibility !== "PRIVATE" && visibility !== "PUBLIC" && visibility !== "UNLISTED") {
+      return data({ error: "Invalid visibility" }, { status: 400 });
+    }
+    try {
+      await prisma.userPlaylist.update({
+        where: { id: params.playlistId, ownerId: userId },
+        data: { visibility },
+      });
+    } catch (error) {
+      // Playlist gone or not owned (forged/racing POST): no-op, not a 500.
+      if (
+        error !== null &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2025"
+      ) {
+        return data({ success: true, visibility });
+      }
+      throw error;
+    }
+    return data({ success: true, visibility });
   }
 
   if (intent === "reorder") {
@@ -594,7 +650,10 @@ export async function action({ request, params }: Route.ActionArgs) {
       });
 
       return data(
-        { success: true, message: `${trackIdArray.length} tracks removed successfully` },
+        {
+          success: true,
+          message: `${trackIdArray.length} tracks removed successfully`,
+        },
         {
           headers: await createToastHeaders({
             title: "Success",
@@ -652,19 +711,77 @@ export default function PlaylistRoute({
     );
   }
 
-  return (
-    <OnlinePlaylistRoute
-      loaderData={loaderData as Extract<Route.ComponentProps["loaderData"], { playlist: object }>}
-    />
-  );
+  const onlineData = loaderData as OnlineLoaderData;
+  if (!onlineData.isOwner) {
+    return <ReadOnlyPlaylistRoute loaderData={onlineData} />;
+  }
+  return <OnlinePlaylistRoute loaderData={onlineData} />;
 }
 
-type OnlinePlaylistLoaderData = Extract<Route.ComponentProps["loaderData"], { playlist: object }>;
+type OnlineLoaderData = Extract<Route.ComponentProps["loaderData"], { playlist: object }>;
+type OnlinePlaylistLoaderData = Extract<OnlineLoaderData, { isOwner: true }>;
+type ReadOnlyPlaylistLoaderData = Extract<OnlineLoaderData, { isOwner: false }>;
+
+/** Non-owner view of a PUBLIC/UNLISTED playlist: no mutation affordances (ADR-045). */
+function ReadOnlyPlaylistRoute({ loaderData }: { loaderData: ReadOnlyPlaylistLoaderData }) {
+  const { playlist, isLoggedIn } = loaderData;
+  const ownerLabel = playlist.owner.name ?? `@${playlist.owner.username}`;
+  return (
+    <div className="space-y-8">
+      <PlaylistHero
+        readOnly
+        title={playlist.title}
+        description={playlist.description}
+        ownerLabel={ownerLabel}
+        tracks={playlist.tracks.map((pt) => pt.track)}
+        createdAt={playlist.createdAt.toISOString()}
+      />
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold">Tracks</h2>
+          <span className="text-sm text-muted-foreground">
+            {playlist.tracks.length} track
+            {playlist.tracks.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        {!isLoggedIn ? (
+          <p className="text-sm text-muted-foreground">
+            <Link to="/login" className="underline">
+              Log in
+            </Link>{" "}
+            to play this playlist.
+          </p>
+        ) : null}
+        {playlist.tracks.length === 0 ? (
+          <p className="py-16 text-center text-muted-foreground">No tracks in this playlist.</p>
+        ) : (
+          <ReadOnlyPlaylistTrackList
+            playlistId={playlist.id}
+            tracks={playlist.tracks}
+            canPlay={isLoggedIn}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
 
 function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderData }) {
   const params = useParams();
   const { playlist, playlists } = loaderData;
   const submit = useSubmit();
+  const visibilityFetcher = useFetcher();
+  // Optimistic: reflect the in-flight selection immediately.
+  const submittedVisibility = visibilityFetcher.formData?.get("visibility");
+  const visibility = (
+    typeof submittedVisibility === "string" ? submittedVisibility : playlist.visibility
+  ) as PlaylistVisibility;
+  const handleVisibilityChange = (next: PlaylistVisibility) => {
+    void visibilityFetcher.submit(
+      { intent: "update-visibility", visibility: next },
+      { method: "post" },
+    );
+  };
 
   // Audio player context (audio playback disabled)
   const { playNextTrack, addToUpNext, addToQueue } = useAudioPlayer();
@@ -743,7 +860,11 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
   } as const;
 
   const applyBulkQueueAction = (tracks: FullTrack[], queueAction: BulkQueueAction) => {
-    applyBulkQueueActionToQueue(tracks, queueAction, { playNextTrack, addToUpNext, addToQueue });
+    applyBulkQueueActionToQueue(tracks, queueAction, {
+      playNextTrack,
+      addToUpNext,
+      addToQueue,
+    });
   };
 
   const showBulkQueueToast = (
@@ -921,6 +1042,9 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
           description={optimisticPlaylist.description}
           tracks={optimisticTracks.map((pt) => pt.track)}
           createdAt={optimisticPlaylist.createdAt.toISOString()}
+          playlistId={optimisticPlaylist.id}
+          visibility={visibility}
+          onVisibilityChange={handleVisibilityChange}
           onTitleUpdate={handleTitleUpdate}
           onDescriptionUpdate={handleDescriptionUpdate}
           onBulkPlayNext={handleBulkPlayNext}
@@ -945,7 +1069,8 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Icon name="file-text" className="h-4 w-4" />
               <span>
-                {optimisticTracks.length} track{optimisticTracks.length !== 1 ? "s" : ""}
+                {optimisticTracks.length} track
+                {optimisticTracks.length !== 1 ? "s" : ""}
               </span>
               {(reorderFetcher.state === "submitting" ||
                 removeTrackFetcher.state === "submitting") && (
