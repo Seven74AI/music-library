@@ -105,7 +105,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       updatedAt: true,
       visibility: true,
       ownerId: true,
-      owner: { select: { id: true, username: true, name: true } },
+      owner: { select: { username: true, name: true } },
     },
   });
 
