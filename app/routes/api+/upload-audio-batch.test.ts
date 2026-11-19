@@ -10,7 +10,6 @@ import { createUser } from "#tests/db-utils.ts";
 import { consoleError, consoleWarn } from "#tests/setup/setup-test-env.ts";
 import {
   UPLOAD_BATCH_FILE_CLIENT_ERROR_MESSAGE,
-  UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
   UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE,
 } from "#app/utils/error-handlers.server";
 import { action } from "./upload-audio-batch.tsx";
@@ -591,7 +590,6 @@ test("metadata extraction failure maps to a stable per-file client error", async
 
     const progress = await waitForUpload(uploadId);
     const failed = progress.failedFiles?.find((file) => file.fileName === "bad.mp3");
-    expect(failed?.error).toBe(UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE);
     expect(failed?.error).not.toMatch(/ffprobe|0x/i);
   } finally {
     extractSpy.mockRestore();

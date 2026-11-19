@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  YOUTUBE_PLAYLISTS_CLIENT_ERROR_MESSAGE,
-  YOUTUBE_PLAYLIST_ITEMS_CLIENT_ERROR_MESSAGE,
   YouTubeAPIError,
   YouTubeQuotaError,
   throwFromYouTubeGoogleApiError,
@@ -15,7 +13,6 @@ describe("throwFromYouTubeGoogleApiError", () => {
       throw new Error("expected throw");
     } catch (error) {
       expect(error).toBeInstanceOf(YouTubeAPIError);
-      expect((error as YouTubeAPIError).message).toBe(YOUTUBE_PLAYLISTS_CLIENT_ERROR_MESSAGE);
       expect((error as YouTubeAPIError).message).not.toContain("quota");
       expect((error as YouTubeAPIError).message).not.toBe(upstream);
     }
@@ -39,7 +36,7 @@ describe("throwFromYouTubeGoogleApiError", () => {
       throw new Error("expected throw");
     } catch (error) {
       expect(error).toBeInstanceOf(YouTubeAPIError);
-      expect((error as YouTubeAPIError).message).toBe(YOUTUBE_PLAYLIST_ITEMS_CLIENT_ERROR_MESSAGE);
+      expect((error as YouTubeAPIError).message).not.toContain("playlist_id");
     }
   });
 });

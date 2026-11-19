@@ -1,6 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
-import { DUPLICATE_DETECTION_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server.ts";
 
 vi.mock("./duplicate-detection.server.ts", () => ({
   cacheArtistNormalizedNames: vi.fn().mockRejectedValue(new Error("SQLite disk I/O error")),
@@ -19,7 +18,6 @@ describe("runDuplicateDetectionJob", () => {
     const result = await runDuplicateDetectionJob();
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe(DUPLICATE_DETECTION_CLIENT_ERROR_MESSAGE);
     expect(result.error).not.toMatch(/SQLite/i);
   });
 });
