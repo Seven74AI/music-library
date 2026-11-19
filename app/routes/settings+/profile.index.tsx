@@ -3,12 +3,14 @@ import { getZodConstraint, parseWithZod } from "@conform-to/zod/v4";
 import { invariantResponse } from "@epic-web/invariant";
 import { type SEOHandle } from "@nasa-gcn/remix-seo";
 import { Img } from "openimg/react";
+import { useState } from "react";
 import { data, Link, useFetcher } from "react-router";
 import { z } from "zod";
 import { ErrorList, Field } from "#app/components/forms.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { StatusButton } from "#app/components/ui/status-button.tsx";
+import { Switch } from "#app/components/ui/switch.tsx";
 import { requireUserId, sessionKey } from "#app/utils/auth.server.ts";
 import { requireRecentVerification } from "#app/routes/_auth+/verify.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
@@ -79,6 +81,8 @@ const PrivacyFormSchema = z.object({
   showTopTracks: checkboxSchema,
   showTopArtists: checkboxSchema,
   showTotals: checkboxSchema,
+  showHeavyRotation: checkboxSchema,
+  showRecentlyPlayed: checkboxSchema,
 });
 
 async function privacyUpdateAction({ userId, formData }: ProfileActionArgs) {
@@ -86,11 +90,19 @@ async function privacyUpdateAction({ userId, formData }: ProfileActionArgs) {
   if (submission.status !== "success") {
     return data({ result: submission.reply() }, { status: 400 });
   }
-  const { showTopTracks, showTopArtists, showTotals } = submission.value;
+  const { showTopTracks, showTopArtists, showTotals, showHeavyRotation, showRecentlyPlayed } =
+    submission.value;
   await prisma.profilePrivacy.upsert({
     where: { userId },
-    create: { userId, showTopTracks, showTopArtists, showTotals },
-    update: { showTopTracks, showTopArtists, showTotals },
+    create: {
+      userId,
+      showTopTracks,
+      showTopArtists,
+      showTotals,
+      showHeavyRotation,
+      showRecentlyPlayed,
+    },
+    update: { showTopTracks, showTopArtists, showTotals, showHeavyRotation, showRecentlyPlayed },
   });
   return { result: submission.reply() };
 }
@@ -132,78 +144,111 @@ export async function clientAction(args: Route.ClientActionArgs) {
   return proxyClientActionToServer(args);
 }
 
+function SettingsSection({
+  id,
+  title,
+  children,
+}: {
+  id: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section aria-labelledby={id} className="bg-muted rounded-3xl p-6 md:p-8">
+      <h2 id={id} className="text-h4 mb-4">
+        {title}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
 export default function EditUserProfile({ loaderData }: Route.ComponentProps) {
   return (
-    <div className="flex flex-col gap-12">
-      <div className="flex justify-center">
-        <div className="relative size-52">
-          <Img
-            src={getUserImgSrc(loaderData.user.image?.objectKey)}
-            alt={loaderData.user.name ?? loaderData.user.username}
-            className="h-full w-full rounded-full object-cover"
-            width={832}
-            height={832}
-            isAboveFold
-          />
-          <Button
-            asChild
-            variant="outline"
-            className="absolute top-3 -right-3 flex size-10 items-center justify-center rounded-full p-0"
-          >
-            <Link
-              preventScrollReset
-              to="photo"
-              title="Change profile photo"
-              aria-label="Change profile photo"
+    <div className="flex flex-col gap-8">
+      <SettingsSection id="profile-photo-heading" title="Profile photo">
+        <div className="flex justify-center">
+          <div className="relative size-52">
+            <Img
+              src={getUserImgSrc(loaderData.user.image?.objectKey)}
+              alt={loaderData.user.name ?? loaderData.user.username}
+              className="h-full w-full rounded-full object-cover"
+              width={832}
+              height={832}
+              isAboveFold
+            />
+            <Button
+              asChild
+              variant="outline"
+              className="absolute top-3 -right-3 flex size-10 items-center justify-center rounded-full p-0"
             >
-              <Icon name="camera" className="size-4" />
-            </Link>
-          </Button>
+              <Link
+                preventScrollReset
+                to="photo"
+                title="Change profile photo"
+                aria-label="Change profile photo"
+              >
+                <Icon name="camera" className="size-4" />
+              </Link>
+            </Button>
+          </div>
         </div>
-      </div>
-      <UpdateProfile loaderData={loaderData} />
-      <ProfilePrivacyForm settings={loaderData.profilePrivacy} />
+      </SettingsSection>
 
-      <div className="border-foreground col-span-6 my-6 h-1 border-b-[1.5px]" />
-      <div className="col-span-full flex flex-col gap-6">
-        <div>
-          <Link to="change-email">
-            <Icon name="envelope-closed">Change email from {loaderData.user.email}</Icon>
-          </Link>
+      <SettingsSection id="account-heading" title="Account">
+        <UpdateProfile loaderData={loaderData} />
+      </SettingsSection>
+
+      <SettingsSection id="privacy-heading" title="Privacy">
+        <ProfilePrivacyForm settings={loaderData.profilePrivacy} />
+      </SettingsSection>
+
+      <SettingsSection id="security-heading" title="Security">
+        <div className="flex flex-col gap-6">
+          <div>
+            <Link to="change-email">
+              <Icon name="envelope-closed">Change email from {loaderData.user.email}</Icon>
+            </Link>
+          </div>
+          <div>
+            <Link to="two-factor">
+              {loaderData.isTwoFactorEnabled ? (
+                <Icon name="lock-closed">2FA is enabled</Icon>
+              ) : (
+                <Icon name="lock-open-1">Enable 2FA</Icon>
+              )}
+            </Link>
+          </div>
+          <div>
+            <Link to={loaderData.hasPassword ? "password" : "password/create"}>
+              <Icon name="dots-horizontal">
+                {loaderData.hasPassword ? "Change Password" : "Create a Password"}
+              </Icon>
+            </Link>
+          </div>
+          <div>
+            <Link to="passkeys">
+              <Icon name="passkey">Manage passkeys</Icon>
+            </Link>
+          </div>
         </div>
-        <div>
-          <Link to="two-factor">
-            {loaderData.isTwoFactorEnabled ? (
-              <Icon name="lock-closed">2FA is enabled</Icon>
-            ) : (
-              <Icon name="lock-open-1">Enable 2FA</Icon>
-            )}
-          </Link>
+      </SettingsSection>
+
+      <SettingsSection id="data-heading" title="Data">
+        <div className="flex flex-col gap-6">
+          <div>
+            <Link
+              reloadDocument
+              download="music-library-data.json"
+              to="/resources/download-user-data"
+            >
+              <Icon name="download">Download your data</Icon>
+            </Link>
+          </div>
+          <SignOutOfSessions loaderData={loaderData} />
+          <DeleteData />
         </div>
-        <div>
-          <Link to={loaderData.hasPassword ? "password" : "password/create"}>
-            <Icon name="dots-horizontal">
-              {loaderData.hasPassword ? "Change Password" : "Create a Password"}
-            </Icon>
-          </Link>
-        </div>
-        <div>
-          <Link to="passkeys">
-            <Icon name="passkey">Manage passkeys</Icon>
-          </Link>
-        </div>
-        <div>
-          <Link
-            reloadDocument
-            download="music-library-data.json"
-            to="/resources/download-user-data"
-          >
-            <Icon name="download">Download your data</Icon>
-          </Link>
-        </div>
-        <SignOutOfSessions loaderData={loaderData} />
-        <DeleteData />
-      </div>
+      </SettingsSection>
     </div>
   );
 }
@@ -299,6 +344,31 @@ function UpdateProfile({ loaderData }: { loaderData: Route.ComponentProps["loade
   );
 }
 
+/**
+ * Radix `Switch` renders a `<button role="switch">`, not an input, so it submits
+ * nothing by itself. The paired hidden input carries the existing `"on"`/absent
+ * contract (`checkboxSchema`) into FormData.
+ */
+function PrivacyToggle({
+  name,
+  label,
+  defaultChecked,
+}: {
+  name: string;
+  label: string;
+  defaultChecked: boolean;
+}) {
+  const [checked, setChecked] = useState(defaultChecked);
+  const id = `privacy-${name}`;
+  return (
+    <div className="flex items-center gap-3">
+      <Switch id={id} checked={checked} onCheckedChange={setChecked} />
+      <input type="hidden" name={name} value={checked ? "on" : ""} />
+      <label htmlFor={id}>{label}</label>
+    </div>
+  );
+}
+
 function ProfilePrivacyForm({
   settings,
 }: {
@@ -309,23 +379,32 @@ function ProfilePrivacyForm({
     { name: "showTopTracks", label: "Show top tracks", checked: settings.showTopTracks },
     { name: "showTopArtists", label: "Show top artists", checked: settings.showTopArtists },
     { name: "showTotals", label: "Show listening totals", checked: settings.showTotals },
+    {
+      name: "showHeavyRotation",
+      label: "Show heavy rotation",
+      checked: settings.showHeavyRotation,
+    },
+    {
+      name: "showRecentlyPlayed",
+      label: "Show recently played",
+      checked: settings.showRecentlyPlayed,
+    },
   ] as const;
 
   return (
-    <fetcher.Form method="POST" aria-labelledby="profile-privacy-heading">
-      <h2 id="profile-privacy-heading" className="text-h4">
-        Profile stats privacy
-      </h2>
-      <p className="text-muted-foreground mt-2 text-sm">
+    <fetcher.Form method="POST" aria-labelledby="privacy-heading">
+      <p className="text-muted-foreground text-sm">
         Your listening stats are public by default: anyone can see the blocks you leave enabled on
-        your profile. Uncheck a block to hide it from visitors.
+        your profile. Turn a block off to hide it from visitors.
       </p>
       <div className="mt-4 flex flex-col gap-3">
         {toggles.map((toggle) => (
-          <label key={toggle.name} className="flex items-center gap-3">
-            <input type="checkbox" name={toggle.name} defaultChecked={toggle.checked} />
-            <span>{toggle.label}</span>
-          </label>
+          <PrivacyToggle
+            key={toggle.name}
+            name={toggle.name}
+            label={toggle.label}
+            defaultChecked={toggle.checked}
+          />
         ))}
       </div>
       <div className="mt-6 flex justify-center">

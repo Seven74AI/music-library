@@ -2,18 +2,22 @@ import { invariantResponse } from "@epic-web/invariant";
 import { Img } from "openimg/react";
 import { type LoaderFunctionArgs, Form, Link, useLoaderData } from "react-router";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
+import { HomeRecentTrackCard } from "#app/components/home/home-recent-track-card.tsx";
 import { Spacer } from "#app/components/spacer.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import {
+  getHeavyRotationTracks,
   getProfileStats,
   getTopArtists,
   getTopTracks,
 } from "#app/features/listening-insights/index.server.ts";
+import { getRecentlyPlayedTracks } from "#app/features/recently-played/recently-played.server.ts";
 import { getUserIdOrNull } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { getProfilePrivacy } from "#app/utils/profile-privacy.server.ts";
 import { getUserImgSrc } from "#app/utils/misc.tsx";
+import { isPlayableTrack } from "#app/utils/playable-track.ts";
 import { useOptionalUser } from "#app/utils/user.ts";
 import { type Route } from "./+types/$username.ts";
 
@@ -39,10 +43,14 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const viewerId = await getUserIdOrNull(request);
   const isOwner = viewerId === user.id;
 
-  const [topTracks, topArtists, totals] = await Promise.all([
+  const [topTracks, topArtists, totals, heavyRotation, recentlyPlayed] = await Promise.all([
     privacy.showTopTracks ? getTopTracks({ userId: user.id }) : undefined,
     privacy.showTopArtists ? getTopArtists({ userId: user.id }) : undefined,
     privacy.showTotals ? getProfileStats({ userId: user.id }) : undefined,
+    privacy.showHeavyRotation
+      ? getHeavyRotationTracks({ userId: user.id, window: "month", limit: 10 })
+      : undefined,
+    privacy.showRecentlyPlayed ? getRecentlyPlayedTracks({ userId: user.id, limit: 10 }) : undefined,
   ]);
 
   return {
@@ -51,6 +59,8 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     ...(topTracks ? { topTracks } : {}),
     ...(topArtists ? { topArtists } : {}),
     ...(totals ? { totals } : {}),
+    ...(heavyRotation ? { heavyRotation } : {}),
+    ...(recentlyPlayed ? { recentlyPlayed } : {}),
     // Only the owner learns which blocks are hidden (for the placeholder).
     ...(isOwner
       ? {
@@ -58,6 +68,8 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
             topTracks: !privacy.showTopTracks,
             topArtists: !privacy.showTopArtists,
             totals: !privacy.showTotals,
+            heavyRotation: !privacy.showHeavyRotation,
+            recentlyPlayed: !privacy.showRecentlyPlayed,
           },
         }
       : {}),
@@ -78,6 +90,29 @@ function HiddenPlaceholder({ label }: { label: string }) {
     </section>
   );
 }
+
+type CardTrack = Parameters<typeof HomeRecentTrackCard>[0]["track"];
+
+/**
+ * Profile-specific grid of track cards. Deliberately not the hub strips: those
+ * link to owner-gated pages ("View history") that are wrong on a public profile.
+ * Playback stays owner-gated server-side; visitors see the same cards.
+ */
+function TrackCardGrid({ tracks }: { tracks: CardTrack[] }) {
+  const playableTracks = tracks.filter(isPlayableTrack);
+  return (
+    <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      {tracks.map((track, index) => (
+        // HomeRecentTrackCard hardcodes a strip width; force it to fill the grid cell.
+        <li key={track.id} className="[&>button]:w-full">
+          <HomeRecentTrackCard track={track} index={index} playableTracks={playableTracks} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const cardClassName = "bg-muted rounded-3xl p-6";
 
 export default function ProfileRoute() {
   const data = useLoaderData<typeof loader>();
@@ -107,11 +142,36 @@ export default function ProfileRoute() {
 
         <Spacer size="sm" />
 
-        <div className="flex flex-col items-center">
+        <div className="flex w-full flex-col items-center">
           <div className="flex flex-wrap items-center justify-center gap-4">
             <h1 className="text-h2 text-center">{userDisplayName}</h1>
           </div>
           <p className="text-muted-foreground mt-2 text-center">Joined {data.userJoinedDisplay}</p>
+
+          {data.totals &&
+          (data.totals.plays > 0 ||
+            data.totals.librarySize > 0 ||
+            data.totals.listeningTimeSeconds > 0) ? (
+            <dl className="mt-6 flex flex-wrap justify-center gap-8">
+              <div className="text-center">
+                <dt className="text-muted-foreground text-sm">Completed plays</dt>
+                <dd className="text-h3">{data.totals.plays}</dd>
+              </div>
+              <div className="text-center">
+                <dt className="text-muted-foreground text-sm">Library size</dt>
+                <dd className="text-h3">{data.totals.librarySize}</dd>
+              </div>
+              <div className="text-center">
+                <dt className="text-muted-foreground text-sm">Listening time</dt>
+                <dd className="text-h3">{formatListeningTime(data.totals.listeningTimeSeconds)}</dd>
+              </div>
+            </dl>
+          ) : data.hiddenBlocks?.totals ? (
+            <div className="mt-6 w-full max-w-md">
+              <HiddenPlaceholder label="Totals" />
+            </div>
+          ) : null}
+
           {isLoggedInUser && (
             <Form action="/logout" method="POST" className="mt-3">
               <Button type="submit" variant="link" size="pill">
@@ -133,9 +193,9 @@ export default function ProfileRoute() {
         </div>
       </div>
 
-      <div className="mt-10 flex w-full flex-col gap-8">
+      <div className="mt-10 grid w-full grid-cols-1 gap-8 md:grid-cols-2">
         {data.topTracks && data.topTracks.length > 0 ? (
-          <section aria-labelledby="top-tracks-heading">
+          <section aria-labelledby="top-tracks-heading" className={cardClassName}>
             <h2 id="top-tracks-heading" className="text-h4 mb-3">
               Top tracks
             </h2>
@@ -157,7 +217,7 @@ export default function ProfileRoute() {
         ) : null}
 
         {data.topArtists && data.topArtists.length > 0 ? (
-          <section aria-labelledby="top-artists-heading">
+          <section aria-labelledby="top-artists-heading" className={cardClassName}>
             <h2 id="top-artists-heading" className="text-h4 mb-3">
               Top artists
             </h2>
@@ -177,31 +237,26 @@ export default function ProfileRoute() {
           <HiddenPlaceholder label="Top artists" />
         ) : null}
 
-        {data.totals &&
-        (data.totals.plays > 0 ||
-          data.totals.librarySize > 0 ||
-          data.totals.listeningTimeSeconds > 0) ? (
-          <section aria-labelledby="totals-heading">
-            <h2 id="totals-heading" className="text-h4 mb-3">
-              Totals
+        {data.heavyRotation && data.heavyRotation.length > 0 ? (
+          <section aria-labelledby="heavy-rotation-heading" className={cardClassName}>
+            <h2 id="heavy-rotation-heading" className="text-h4 mb-3">
+              Heavy rotation
             </h2>
-            <dl className="flex flex-wrap gap-8">
-              <div>
-                <dt className="text-muted-foreground text-sm">Completed plays</dt>
-                <dd className="text-h3">{data.totals.plays}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground text-sm">Library size</dt>
-                <dd className="text-h3">{data.totals.librarySize}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground text-sm">Listening time</dt>
-                <dd className="text-h3">{formatListeningTime(data.totals.listeningTimeSeconds)}</dd>
-              </div>
-            </dl>
+            <TrackCardGrid tracks={data.heavyRotation.map((item) => item.track as CardTrack)} />
           </section>
-        ) : data.hiddenBlocks?.totals ? (
-          <HiddenPlaceholder label="Totals" />
+        ) : data.hiddenBlocks?.heavyRotation ? (
+          <HiddenPlaceholder label="Heavy rotation" />
+        ) : null}
+
+        {data.recentlyPlayed && data.recentlyPlayed.length > 0 ? (
+          <section aria-labelledby="recently-played-heading" className={cardClassName}>
+            <h2 id="recently-played-heading" className="text-h4 mb-3">
+              Recently played
+            </h2>
+            <TrackCardGrid tracks={data.recentlyPlayed.map((item) => item.track as CardTrack)} />
+          </section>
+        ) : data.hiddenBlocks?.recentlyPlayed ? (
+          <HiddenPlaceholder label="Recently played" />
         ) : null}
       </div>
     </div>
