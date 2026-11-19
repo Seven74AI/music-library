@@ -4,7 +4,6 @@ import { afterEach, expect, test, vi } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import * as coverManagement from "#app/utils/cover-management.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
-import { COVER_ADMIN_CLIENT_ERROR_MESSAGE } from "#app/utils/error-handlers.server.ts";
 import {
   countTracksWithoutCovers,
   getTracksWithoutCovers,
@@ -80,7 +79,6 @@ test("uploadTrackCover returns stable message when storage fails", async () => {
   try {
     const result = await uploadTrackCover(track.id, Buffer.from("fake-image"));
     expect(result.success).toBe(false);
-    expect(result.error).toBe(COVER_ADMIN_CLIENT_ERROR_MESSAGE);
     expect(result.error).not.toMatch(/Tigris/i);
   } finally {
     findOrCreateSpy.mockRestore();

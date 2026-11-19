@@ -227,35 +227,6 @@ function Document({
         <Links nonce={nonce} />
       </head>
       <body className="bg-background text-foreground">
-        {/* Inject SVG sprite into DOM before React hydrates */}
-        <script
-          nonce={nonce}
-          suppressHydrationWarning
-          dangerouslySetInnerHTML={{
-            __html: `
-(function() {
-	if (document.getElementById('svg-sprite-container')) return;
-	var container = document.createElement('div');
-	container.id = 'svg-sprite-container';
-	container.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;';
-	container.setAttribute('aria-hidden', 'true');
-	try {
-		var xhr = new XMLHttpRequest();
-		xhr.open('GET', '${iconsHref}', false);
-		xhr.send();
-		if (xhr.status === 200 && xhr.responseText) {
-			container.innerHTML = xhr.responseText;
-			document.body.insertBefore(container, document.body.firstChild);
-		} else {
-			console.warn('Sprite injection failed: HTTP ' + xhr.status + ' for ' + '${iconsHref}');
-		}
-	} catch (e) {
-		console.error('Sprite injection failed:', e, 'for', '${iconsHref}');
-	}
-})();
-						`.trim(),
-          }}
-        />
         {children}
         <script
           nonce={nonce}

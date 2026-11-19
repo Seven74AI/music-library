@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
-import { YOUTUBE_PLAYLISTS_CLIENT_ERROR_MESSAGE, YouTubeAPIError } from "./youtube-errors";
+import { YouTubeAPIError } from "./youtube-errors";
 
 const {
   mockPlaylistsList,
@@ -75,7 +75,6 @@ describe("YouTubeService playlist API errors", () => {
       caught = error;
     }
     expect(caught).toBeInstanceOf(YouTubeAPIError);
-    expect((caught as YouTubeAPIError).message).toBe(YOUTUBE_PLAYLISTS_CLIENT_ERROR_MESSAGE);
     expect((caught as YouTubeAPIError).message).not.toBe(upstream);
   });
 

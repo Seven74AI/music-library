@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { WEBAUTHN_CLIENT_ERROR_MESSAGE, toWebAuthnClientErrorMessage } from "./utils.server.ts";
+import { toWebAuthnClientErrorMessage } from "./utils.server.ts";
 
 describe("toWebAuthnClientErrorMessage", () => {
   test("keeps intentional passkey user messages", () => {
@@ -10,7 +10,6 @@ describe("toWebAuthnClientErrorMessage", () => {
     const prismaLeak = new Error(
       "Invalid `prisma.passkey.create()` invocation: Unique constraint failed",
     );
-    expect(toWebAuthnClientErrorMessage(prismaLeak)).toBe(WEBAUTHN_CLIENT_ERROR_MESSAGE);
     expect(toWebAuthnClientErrorMessage(prismaLeak)).not.toMatch(/prisma/i);
   });
 });

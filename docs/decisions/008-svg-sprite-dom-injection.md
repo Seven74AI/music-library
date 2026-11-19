@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted
+Accepted. **Amended 2026-11-18**: the DOM injection described below was removed (see Amendment).
+
+## Amendment (2026-11-18): external sprite reference
+
+The sprite is referenced externally again (`<use href=".../sprite.svg#id">`), unconditionally, on both server and client. The manual DOM injection (`#svg-sprite-container`, inline sync-XHR script in `app/root.tsx`) and the local `#id` references were removed. React hydration recovery (e.g. error #418) regenerates the tree and wipes non-React DOM nodes such as the injected container, leaving local `#id` refs unresolved and icons transparent. The sprite preload link and cache headers are kept. The sections below are historical.
 
 ## Context
 
