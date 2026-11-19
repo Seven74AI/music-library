@@ -33,6 +33,7 @@ const loaderData = {
     showTotals: true,
     showHeavyRotation: true,
     showRecentlyPlayed: false,
+    showPlaylists: false,
   },
 };
 
@@ -84,6 +85,7 @@ test("renders profile privacy toggles reflecting settings and a public-by-defaul
   expect(screen.getByRole("switch", { name: /show listening totals/i })).toBeChecked();
   expect(screen.getByRole("switch", { name: /show heavy rotation/i })).toBeChecked();
   expect(screen.getByRole("switch", { name: /show recently played/i })).not.toBeChecked();
+  expect(screen.getByRole("switch", { name: /show playlists/i })).not.toBeChecked();
 
   const save = screen.getByRole("button", { name: /save privacy settings/i });
   expect(save).toHaveAttribute("name", "intent");
@@ -127,6 +129,7 @@ test("toggling a switch and submitting the real form flips the ProfilePrivacy ro
                   showTotals: true,
                   showHeavyRotation: true,
                   showRecentlyPlayed: true,
+                  showPlaylists: true,
                 },
               } as never
             }
@@ -153,6 +156,7 @@ test("toggling a switch and submitting the real form flips the ProfilePrivacy ro
       showTotals: true,
       showHeavyRotation: false,
       showRecentlyPlayed: true,
+      showPlaylists: true,
     });
   });
 });

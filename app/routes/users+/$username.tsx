@@ -43,15 +43,36 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const viewerId = await getUserIdOrNull(request);
   const isOwner = viewerId === user.id;
 
-  const [topTracks, topArtists, totals, heavyRotation, recentlyPlayed] = await Promise.all([
-    privacy.showTopTracks ? getTopTracks({ userId: user.id }) : undefined,
-    privacy.showTopArtists ? getTopArtists({ userId: user.id }) : undefined,
-    privacy.showTotals ? getProfileStats({ userId: user.id }) : undefined,
-    privacy.showHeavyRotation
-      ? getHeavyRotationTracks({ userId: user.id, window: "month", limit: 10 })
-      : undefined,
-    privacy.showRecentlyPlayed ? getRecentlyPlayedTracks({ userId: user.id, limit: 10 }) : undefined,
-  ]);
+  const [topTracks, topArtists, totals, heavyRotation, recentlyPlayed, playlistRows] =
+    await Promise.all([
+      privacy.showTopTracks ? getTopTracks({ userId: user.id }) : undefined,
+      privacy.showTopArtists ? getTopArtists({ userId: user.id }) : undefined,
+      privacy.showTotals ? getProfileStats({ userId: user.id }) : undefined,
+      privacy.showHeavyRotation
+        ? getHeavyRotationTracks({ userId: user.id, window: "month", limit: 10 })
+        : undefined,
+      privacy.showRecentlyPlayed
+        ? getRecentlyPlayedTracks({ userId: user.id, limit: 10 })
+        : undefined,
+      // Only PUBLIC playlists are listed (UNLISTED/PRIVATE never appear here, even
+      // for the owner). Skipped entirely when the toggle is off.
+      privacy.showPlaylists
+        ? prisma.userPlaylist.findMany({
+            where: { ownerId: user.id, visibility: "PUBLIC" },
+            select: {
+              id: true,
+              title: true,
+              _count: { select: { tracks: true } },
+            },
+            orderBy: { updatedAt: "desc" },
+          })
+        : undefined,
+    ]);
+  const playlists = playlistRows?.map((row) => ({
+    id: row.id,
+    title: row.title,
+    trackCount: row._count.tracks,
+  }));
 
   return {
     user,
@@ -61,6 +82,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     ...(totals ? { totals } : {}),
     ...(heavyRotation ? { heavyRotation } : {}),
     ...(recentlyPlayed ? { recentlyPlayed } : {}),
+    ...(playlists ? { playlists } : {}),
     // Only the owner learns which blocks are hidden (for the placeholder).
     ...(isOwner
       ? {
@@ -70,6 +92,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
             totals: !privacy.showTotals,
             heavyRotation: !privacy.showHeavyRotation,
             recentlyPlayed: !privacy.showRecentlyPlayed,
+            playlists: !privacy.showPlaylists,
           },
         }
       : {}),
@@ -257,6 +280,32 @@ export default function ProfileRoute() {
           </section>
         ) : data.hiddenBlocks?.recentlyPlayed ? (
           <HiddenPlaceholder label="Recently played" />
+        ) : null}
+
+        {data.playlists && data.playlists.length > 0 ? (
+          <section aria-labelledby="playlists-heading" className={cardClassName}>
+            <h2 id="playlists-heading" className="text-h4 mb-3">
+              Playlists
+            </h2>
+            <ul className="flex flex-col gap-2">
+              {data.playlists.map((playlist) => (
+                <li key={playlist.id} className="flex items-baseline gap-3">
+                  <Link
+                    to={`/playlists/${playlist.id}`}
+                    prefetch="intent"
+                    className="font-medium hover:underline"
+                  >
+                    {playlist.title}
+                  </Link>
+                  <span className="text-muted-foreground ml-auto">
+                    {playlist.trackCount} {playlist.trackCount === 1 ? "track" : "tracks"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : data.hiddenBlocks?.playlists ? (
+          <HiddenPlaceholder label="Playlists" />
         ) : null}
       </div>
     </div>

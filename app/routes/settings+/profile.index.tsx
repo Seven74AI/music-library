@@ -83,6 +83,7 @@ const PrivacyFormSchema = z.object({
   showTotals: checkboxSchema,
   showHeavyRotation: checkboxSchema,
   showRecentlyPlayed: checkboxSchema,
+  showPlaylists: checkboxSchema,
 });
 
 async function privacyUpdateAction({ userId, formData }: ProfileActionArgs) {
@@ -90,8 +91,14 @@ async function privacyUpdateAction({ userId, formData }: ProfileActionArgs) {
   if (submission.status !== "success") {
     return data({ result: submission.reply() }, { status: 400 });
   }
-  const { showTopTracks, showTopArtists, showTotals, showHeavyRotation, showRecentlyPlayed } =
-    submission.value;
+  const {
+    showTopTracks,
+    showTopArtists,
+    showTotals,
+    showHeavyRotation,
+    showRecentlyPlayed,
+    showPlaylists,
+  } = submission.value;
   await prisma.profilePrivacy.upsert({
     where: { userId },
     create: {
@@ -101,8 +108,16 @@ async function privacyUpdateAction({ userId, formData }: ProfileActionArgs) {
       showTotals,
       showHeavyRotation,
       showRecentlyPlayed,
+      showPlaylists,
     },
-    update: { showTopTracks, showTopArtists, showTotals, showHeavyRotation, showRecentlyPlayed },
+    update: {
+      showTopTracks,
+      showTopArtists,
+      showTotals,
+      showHeavyRotation,
+      showRecentlyPlayed,
+      showPlaylists,
+    },
   });
   return { result: submission.reply() };
 }
@@ -376,9 +391,21 @@ function ProfilePrivacyForm({
 }) {
   const fetcher = useFetcher<typeof privacyUpdateAction>();
   const toggles = [
-    { name: "showTopTracks", label: "Show top tracks", checked: settings.showTopTracks },
-    { name: "showTopArtists", label: "Show top artists", checked: settings.showTopArtists },
-    { name: "showTotals", label: "Show listening totals", checked: settings.showTotals },
+    {
+      name: "showTopTracks",
+      label: "Show top tracks",
+      checked: settings.showTopTracks,
+    },
+    {
+      name: "showTopArtists",
+      label: "Show top artists",
+      checked: settings.showTopArtists,
+    },
+    {
+      name: "showTotals",
+      label: "Show listening totals",
+      checked: settings.showTotals,
+    },
     {
       name: "showHeavyRotation",
       label: "Show heavy rotation",
@@ -388,6 +415,11 @@ function ProfilePrivacyForm({
       name: "showRecentlyPlayed",
       label: "Show recently played",
       checked: settings.showRecentlyPlayed,
+    },
+    {
+      name: "showPlaylists",
+      label: "Show playlists",
+      checked: settings.showPlaylists,
     },
   ] as const;
 
