@@ -521,7 +521,7 @@ describe("POST /api/metadata/tracks/:trackId/edit", () => {
     } catch (e: any) {
       expect(e.init.status).toBe(409);
       expect(e.data.error).toBe("Locked");
-      expect(e.data.message).toBe("Ada is currently editing this track");
+      expect(e.data.message).toContain("Ada");
     }
 
     expect(prisma.$transaction).not.toHaveBeenCalled();

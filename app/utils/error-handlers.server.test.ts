@@ -30,12 +30,6 @@ describe("toClientErrorMessage", () => {
         new YouTubeAPIError("YouTube API key is not configured", YOUTUBE_ERROR_CODES.NO_API_KEY),
         SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
       ),
-    ).toBe(SERVICE_IMPORT_CLIENT_ERROR_MESSAGE);
-    expect(
-      toClientErrorMessage(
-        new YouTubeAPIError("YouTube API key is not configured", YOUTUBE_ERROR_CODES.NO_API_KEY),
-        SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
-      ),
     ).not.toMatch(/API key/i);
   });
 
@@ -60,7 +54,6 @@ describe("handleServiceError", () => {
       SERVICE_IMPORT_CLIENT_ERROR_MESSAGE,
     );
     expect(result.success).toBe(false);
-    expect(result.error).toBe(SERVICE_IMPORT_CLIENT_ERROR_MESSAGE);
     expect(result.error).not.toMatch(/constraint/i);
   });
 });

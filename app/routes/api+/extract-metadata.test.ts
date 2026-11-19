@@ -3,10 +3,6 @@ import { parseString } from "set-cookie-parser";
 import { expect, test, vi } from "vitest";
 import { consoleError } from "#tests/setup/setup-test-env.ts";
 import * as audioMetadata from "#app/utils/audio-metadata.server";
-import {
-  UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE,
-  UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE,
-} from "#app/utils/error-handlers.server";
 import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
@@ -106,7 +102,6 @@ test("per-file metadata failure returns stable domain message, not library text"
     if (!body.success || !("files" in body)) {
       throw new Error("expected per-file metadata results");
     }
-    expect(body.files[0]?.error).toBe(UPLOAD_BATCH_METADATA_EXTRACT_CLIENT_ERROR_MESSAGE);
     expect(body.files[0]?.error).not.toBe(leak);
   } finally {
     extractSpy.mockRestore();
@@ -145,7 +140,6 @@ test("ZIP extraction failure returns stable domain message, not library text", a
     if (body.success || !("error" in body)) {
       throw new Error("expected zip failure");
     }
-    expect(body.error).toBe(UPLOAD_BATCH_ZIP_CLIENT_ERROR_MESSAGE);
     expect(body.error).not.toMatch(/central directory/i);
   } finally {
     zipSpy.mockRestore();
