@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -16,7 +16,16 @@ vi.mock("#app/features/offline-storage/resolve-playback-url.client.ts", () => ({
   resolveTrackPlaybackSource: resolveMock,
 }));
 
+vi.mock("#app/features/track-video/audio-peaks.client.ts", () => ({
+  computePeaks: vi.fn(() => Promise.reject(new Error("no audio in tests"))),
+}));
+
 const fetchMock = vi.fn();
+
+/** Select a word chip (opens the compact selected-word editor). */
+async function selectWord(user: ReturnType<typeof userEvent.setup>, id: string) {
+  await user.click(screen.getByRole("button", { name: new RegExp(`^Select word ${id}:`) }));
+}
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(
@@ -98,9 +107,7 @@ function bodyOf(url: string) {
   return new URLSearchParams(String((call![1] as RequestInit).body));
 }
 
-async function savedLines(
-  user: ReturnType<typeof userEvent.setup>,
-): Promise<any> {
+async function savedLines(user: ReturnType<typeof userEvent.setup>): Promise<any> {
   fetchMock.mockImplementation(() => json({ success: true, versionId: "v2" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -115,19 +122,46 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-test("renders lines and words", () => {
+test("renders lines as compact word chips, with a single selected-word editor", async () => {
+  const user = userEvent.setup();
   renderEditor();
-  expect((screen.getByLabelText("Word 1.1") as HTMLInputElement).value).toBe(
-    "hello",
-  );
-  expect((screen.getByLabelText("Word 1.2") as HTMLInputElement).value).toBe(
-    "big",
-  );
-  expect((screen.getByLabelText("Word 2.1") as HTMLInputElement).value).toBe(
-    "bye",
-  );
-  expect((screen.getByLabelText("Start 1.2") as HTMLInputElement).value).toBe(
-    "1.6",
+  expect(screen.getAllByTestId("word-chip")).toHaveLength(3);
+  // The old per-word box (inputs + 8 buttons for every word) is gone.
+  expect(screen.queryByLabelText("Word 1.1")).toBeNull();
+  expect(screen.queryAllByRole("button", { name: /^Merge with next/ })).toEqual([]);
+  expect(screen.queryAllByRole("button", { name: /^Delete word/ })).toEqual([]);
+
+  await selectWord(user, "1.2");
+  expect((screen.getByLabelText("Word 1.2") as HTMLInputElement).value).toBe("big");
+  expect((screen.getByLabelText("Start 1.2") as HTMLInputElement).value).toBe("1.6");
+  expect(screen.getAllByTestId("selected-word-editor")).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: /^Delete word/ })).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: /^Add word after/ })).toHaveLength(1);
+});
+
+test("renders a video preview and hides it when it fails to load", () => {
+  const { container } = renderEditor();
+  const video = container.querySelector("video")!;
+  expect(video.getAttribute("src")).toBe("/resources/video/t1");
+  fireEvent.error(video);
+  expect(container.querySelector("video")).toBeNull();
+});
+
+test("selecting a chip seeks the audio to the word start", async () => {
+  const user = userEvent.setup();
+  const { container } = renderEditor();
+  const audio = container.querySelector("audio")!;
+  const setter = vi.fn();
+  Object.defineProperty(audio, "currentTime", {
+    configurable: true,
+    get: () => 0,
+    set: setter,
+  });
+  await selectWord(user, "1.2");
+  expect(setter).toHaveBeenCalledWith(1.6);
+  expect(screen.getByRole("button", { name: /^Select word 1.2:/ })).toHaveAttribute(
+    "aria-pressed",
+    "true",
   );
 });
 
@@ -137,9 +171,7 @@ test("save posts unchanged text + lines for the version and navigates to the new
   renderEditor();
   await user.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
-    expect(screen.getByTestId("where").textContent).toBe(
-      "/library/t1/karaoke/v2",
-    ),
+    expect(screen.getByTestId("where").textContent).toBe("/library/t1/karaoke/v2"),
   );
   const body = bodyOf("/resources/karaoke/save-edit");
   expect(body.get("versionId")).toBe("v1");
@@ -150,48 +182,43 @@ test("save posts unchanged text + lines for the version and navigates to the new
 test("edit word text, nudge and set times are serialized", async () => {
   const user = userEvent.setup();
   renderEditor();
+  await selectWord(user, "1.1");
   const word = screen.getByLabelText("Word 1.1");
   await user.clear(word);
   await user.type(word, "yo");
   await user.click(screen.getByRole("button", { name: "Start later 1.1" }));
   await user.click(screen.getByRole("button", { name: "End earlier 1.1" }));
+  await selectWord(user, "2.1");
   const end = screen.getByLabelText("End 2.1");
   await user.clear(end);
   await user.type(end, "4.25");
   const lines = await savedLines(user);
   expect(lines[0][0]).toEqual({ word: "yo", start: 1.05, end: 1.45 });
   expect(lines[1][0]).toEqual({ word: "bye", start: 3, end: 4.25 });
-  expect(bodyOf("/resources/karaoke/save-edit").get("text")).toBe(
-    "yo big\nbye",
-  );
+  expect(bodyOf("/resources/karaoke/save-edit").get("text")).toBe("yo big\nbye");
 });
 
 test("add, delete and merge words", async () => {
   const user = userEvent.setup();
   renderEditor();
+  await selectWord(user, "1.1");
   await user.click(screen.getByRole("button", { name: "Merge with next 1.1" }));
-  expect((screen.getByLabelText("Word 1.1") as HTMLInputElement).value).toBe(
-    "hellobig",
-  );
+  expect((screen.getByLabelText("Word 1.1") as HTMLInputElement).value).toBe("hellobig");
   await user.click(screen.getByRole("button", { name: "Add word after 1.1" }));
-  expect((screen.getByLabelText("Word 1.2") as HTMLInputElement).value).toBe(
-    "word",
-  );
+  await selectWord(user, "1.2");
+  expect((screen.getByLabelText("Word 1.2") as HTMLInputElement).value).toBe("word");
+  await selectWord(user, "2.1");
   await user.click(screen.getByRole("button", { name: "Delete word 2.1" }));
   const lines = await savedLines(user);
-  expect(lines[0].map((w: { word: string }) => w.word)).toEqual([
-    "hellobig",
-    "word",
-  ]);
+  expect(lines[0].map((w: { word: string }) => w.word)).toEqual(["hellobig", "word"]);
   expect(lines[1]).toEqual([]);
 });
 
 test("move word to next line and add a line", async () => {
   const user = userEvent.setup();
   renderEditor();
-  await user.click(
-    screen.getByRole("button", { name: "Move to next line 1.2" }),
-  );
+  await selectWord(user, "1.2");
+  await user.click(screen.getByRole("button", { name: "Move to next line 1.2" }));
   await user.click(screen.getByRole("button", { name: "Add line after 1" }));
   const lines = await savedLines(user);
   expect(lines.map((l: unknown[]) => l.length)).toEqual([1, 0, 2]);
@@ -201,6 +228,7 @@ test("move word to next line and add a line", async () => {
 test("invalid timings block save client-side", async () => {
   const user = userEvent.setup();
   renderEditor();
+  await selectWord(user, "2.1");
   const start = screen.getByLabelText("Start 2.1");
   await user.clear(start);
   await user.type(start, "0.5");
@@ -210,17 +238,13 @@ test("invalid timings block save client-side", async () => {
 });
 
 test("version history lists versions, marks current, restore posts", async () => {
-  fetchMock.mockImplementation(() =>
-    json({ success: true, currentVersionId: "v1" }),
-  );
+  fetchMock.mockImplementation(() => json({ success: true, currentVersionId: "v1" }));
   const user = userEvent.setup();
   renderEditor();
   const history = screen.getByRole("region", { name: "Version history" });
   expect(within(history).getAllByRole("listitem")).toHaveLength(2);
   expect(within(history).getByText(/current/i)).toBeInTheDocument();
-  expect(
-    within(history).queryByRole("button", { name: "Restore v0" }),
-  ).toBeNull();
+  expect(within(history).queryByRole("button", { name: "Restore v0" })).toBeNull();
   await user.click(within(history).getByRole("button", { name: "Restore v1" }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   expect(bodyOf("/resources/karaoke/restore").get("versionId")).toBe("v1");
@@ -228,10 +252,7 @@ test("version history lists versions, marks current, restore posts", async () =>
 
 test("mark ready posts and surfaces a 409", async () => {
   fetchMock.mockImplementation(() =>
-    json(
-      { success: false, error: "Version generation has not completed" },
-      409,
-    ),
+    json({ success: false, error: "Version generation has not completed" }, 409),
   );
   const user = userEvent.setup();
   renderEditor();
@@ -251,14 +272,13 @@ test("mark ready is disabled while generating, and editing is replaced by a stat
 test("mark ready is disabled with unsaved changes", async () => {
   const user = userEvent.setup();
   renderEditor();
+  await selectWord(user, "2.1");
   await user.click(screen.getByRole("button", { name: "Delete word 2.1" }));
   expect(screen.getByRole("button", { name: "Mark ready" })).toBeDisabled();
 });
 
 test("re-align posts the text; re-transcribe posts an explicit empty text", async () => {
-  fetchMock.mockImplementation(() =>
-    json({ success: true, versionId: "v3", jobId: "j1" }),
-  );
+  fetchMock.mockImplementation(() => json({ success: true, versionId: "v3", jobId: "j1" }));
   const user = userEvent.setup();
   renderEditor();
   const text = screen.getByLabelText("Lyrics text");
@@ -266,9 +286,7 @@ test("re-align posts the text; re-transcribe posts an explicit empty text", asyn
   await user.type(text, "new words");
   await user.click(screen.getByRole("button", { name: "Re-align" }));
   await waitFor(() =>
-    expect(screen.getByTestId("where").textContent).toBe(
-      "/library/t1/karaoke/v3",
-    ),
+    expect(screen.getByTestId("where").textContent).toBe("/library/t1/karaoke/v3"),
   );
   const body = bodyOf("/resources/karaoke/re-align");
   expect(body.get("versionId")).toBe("v1");
@@ -295,9 +313,7 @@ test("preview audio uses the resolved playback URL", async () => {
 test("preview audio surfaces an error when the source cannot be resolved", async () => {
   resolveMock.mockResolvedValue(null);
   renderEditor();
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    /could not load audio/i,
-  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(/could not load audio/i);
 });
 
 test("re-align, re-transcribe and restore are disabled while generating", () => {
@@ -315,6 +331,7 @@ test("mark ready is disabled when there are no lines", () => {
 test("time input commits on blur, not per keystroke, and reverts invalid text", async () => {
   const user = userEvent.setup();
   renderEditor();
+  await selectWord(user, "1.1");
   const start = screen.getByLabelText("Start 1.1") as HTMLInputElement;
   await user.clear(start);
   expect(screen.getByRole("button", { name: "Mark ready" })).toBeEnabled();

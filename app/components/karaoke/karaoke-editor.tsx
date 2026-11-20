@@ -1,28 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "#app/components/ui/button.tsx";
 import { Label } from "#app/components/ui/label.tsx";
 import { Textarea } from "#app/components/ui/textarea.tsx";
 import { resolveTrackPlaybackSource } from "#app/features/offline-storage/resolve-playback-url.client.ts";
+import { computePeaks } from "#app/features/track-video/audio-peaks.client.ts";
 import { selectKaraokeView } from "#app/features/track-video/karaoke-active.ts";
-import {
-  addLine,
-  addWord,
-  deleteWord,
-  editWordText,
-  linesToText,
-  mergeWithNext,
-  moveWordToLine,
-  nudgeWord,
-  removeLine,
-  setWordTime,
-  splitLine,
-} from "#app/features/track-video/karaoke-edit.ts";
+import { linesToText, setWordTime } from "#app/features/track-video/karaoke-edit.ts";
 import {
   validateKaraokeLines,
   type KaraokeLines,
 } from "#app/features/track-video/karaoke-lines.ts";
 import { errorMessage, postForm } from "./karaoke-api.ts";
+import { KaraokeLineList } from "./karaoke-line-list.tsx";
+import { KaraokeWaveform, type FlatWord } from "./karaoke-waveform.tsx";
 
 export type KaraokeEditorVersion = {
   id: string;
@@ -44,76 +35,28 @@ export type KaraokeVersionSummary = {
   createdBy: string | null;
 };
 
-const NUDGE = 0.05;
+const VIDEO_DRIFT_SECONDS = 0.3;
 
-/** Number input that commits on blur / Enter and re-syncs from props. */
-function TimeInput({
-  label,
-  value,
-  onCommit,
-}: {
-  label: string;
-  value: number;
-  onCommit: (n: number) => void;
-}) {
-  const [text, setText] = useState(String(value));
-  // Re-sync the displayed value whenever the stored value changes.
-  useEffect(() => {
-    setText(String(value));
-  }, [value]);
-  const commit = () => {
-    const n = Number.parseFloat(text);
-    if (Number.isFinite(n)) {
-      if (n !== value) onCommit(n);
-    } else {
-      setText(String(value));
+/** Keep the muted preview video within drift of the audio clock; never touches audio. */
+function syncVideo(video: HTMLVideoElement | null, audio: HTMLAudioElement, t: number) {
+  if (!video) return;
+  // Video shorter than the audio: hold the last frame.
+  if (video.ended || (Number.isFinite(video.duration) && t >= video.duration)) {
+    if (!video.paused) video.pause();
+    return;
+  }
+  if (Math.abs(video.currentTime - t) > VIDEO_DRIFT_SECONDS) {
+    try {
+      video.currentTime = t;
+    } catch {
+      // Metadata not loaded yet.
     }
-  };
-  return (
-    <input
-      aria-label={label}
-      type="number"
-      step="0.01"
-      min="0"
-      className="border-input bg-background w-20 rounded border px-1 py-0.5 text-sm"
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          commit();
-        }
-      }}
-    />
-  );
-}
-
-function IconButton({
-  label,
-  onClick,
-  disabled,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      className="h-6 px-1.5 text-xs"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
-  );
+  }
+  if (audio.paused) {
+    if (!video.paused) video.pause();
+  } else if (video.paused) {
+    void video.play?.()?.catch(() => {});
+  }
 }
 
 function validationMessage(lines: KaraokeLines): string | null {
@@ -122,9 +65,7 @@ function validationMessage(lines: KaraokeLines): string | null {
   const issue = result.error.issues[0]!;
   const [l, w] = issue.path;
   const where =
-    typeof l === "number"
-      ? `Line ${l + 1}${typeof w === "number" ? `, word ${w + 1}` : ""}: `
-      : "";
+    typeof l === "number" ? `Line ${l + 1}${typeof w === "number" ? `, word ${w + 1}` : ""}: ` : "";
   return where + issue.message;
 }
 
@@ -148,6 +89,12 @@ export function KaraokeEditor({
   const [playhead, setPlayhead] = useState<number | null>(null);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{ l: number; w: number } | null>(null);
+  const [peaks, setPeaks] = useState<number[]>([0.5]);
+  const [duration, setDuration] = useState(0);
+  const [videoOk, setVideoOk] = useState(true);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,6 +117,36 @@ export function KaraokeEditor({
     };
   }, [trackId]);
 
+  // Client-side waveform peaks; fall back to a flat line on any failure.
+  useEffect(() => {
+    let cancelled = false;
+    setPeaks([0.5]);
+    computePeaks(`/resources/audio/${trackId}?stream=1`)
+      .then((p) => {
+        if (!cancelled && p.length > 0) setPeaks(p);
+      })
+      .catch(() => {
+        if (!cancelled) setPeaks([0.5]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trackId]);
+
+  const flatWords = useMemo<FlatWord[]>(
+    () =>
+      lines.flatMap((line, l) =>
+        line.map((word, w) => ({
+          l,
+          w,
+          word: word.word,
+          start: word.start,
+          end: word.end,
+        })),
+      ),
+    [lines],
+  );
+
   const generating =
     version.jobStatus !== null &&
     version.jobStatus !== "completed" &&
@@ -183,6 +160,13 @@ export function KaraokeEditor({
     setLines(next);
     setNotice(null);
   };
+
+  function seek(t: number) {
+    const audio = audioRef.current;
+    if (audio) audio.currentTime = t;
+    setPlayhead(t);
+    if (audio) syncVideo(videoRef.current, audio, t);
+  }
 
   async function run(
     url: string,
@@ -223,8 +207,7 @@ export function KaraokeEditor({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm">
-          Version {version.id} · {version.status} · {version.language} ·{" "}
-          {version.source}
+          Version {version.id} · {version.status} · {version.language} · {version.source}
         </span>
         <Button type="button" disabled={busy || generating} onClick={save}>
           Save
@@ -278,25 +261,21 @@ export function KaraokeEditor({
             {audioError}
           </p>
         ) : null}
-        <audio
-          controls
-          src={audioSrc ?? undefined}
-          className="w-full"
-          onTimeUpdate={(e) => setPlayhead(e.currentTarget.currentTime)}
-          onError={() => {
-            if (audioSrc)
-              setAudioError(
-                "Audio failed to load. You may not have access to it.",
-              );
-          }}
-        />
+        {videoOk ? (
+          <video
+            ref={videoRef}
+            src={`/resources/video/${trackId}`}
+            muted
+            playsInline
+            preload="metadata"
+            className="max-h-80 w-full rounded bg-black"
+            onError={() => setVideoOk(false)}
+          />
+        ) : null}
         {view && view.visible.length > 0 ? (
           <div data-testid="preview-lines" className="space-y-1 text-lg">
             {view.visible.map(({ index, state }) => (
-              <p
-                key={index}
-                className={state === "current" ? "font-semibold" : "opacity-60"}
-              >
+              <p key={index} className={state === "current" ? "font-semibold" : "opacity-60"}>
                 {lines[index]!.map((w, wi) => (
                   <span
                     key={wi}
@@ -313,169 +292,62 @@ export function KaraokeEditor({
             ))}
           </div>
         ) : null}
+        <audio
+          ref={audioRef}
+          controls
+          src={audioSrc ?? undefined}
+          className="w-full"
+          onTimeUpdate={(e) => {
+            const t = e.currentTarget.currentTime;
+            setPlayhead(t);
+            syncVideo(videoRef.current, e.currentTarget, t);
+          }}
+          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+          onDurationChange={(e) => {
+            const d = e.currentTarget.duration;
+            setDuration(Number.isFinite(d) ? d : 0);
+          }}
+          onError={() => {
+            if (audioSrc) setAudioError("Audio failed to load. You may not have access to it.");
+          }}
+        />
       </section>
 
       {!generating ? (
         <section aria-label="Lines" className="space-y-3">
           <h2 className="text-lg font-medium">Lines</h2>
-          {lines.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No lines yet.</p>
-          ) : null}
-          {lines.map((line, l) => {
-            const n = l + 1;
-            return (
-              <div key={l} className="rounded border p-2">
-                <div className="mb-2 flex items-center gap-2 text-sm">
-                  <span className="font-medium">Line {n}</span>
-                  <IconButton
-                    label={`Add line after ${n}`}
-                    onClick={() => apply(addLine(lines, l))}
-                  >
-                    + line
-                  </IconButton>
-                  {line.length === 0 ? (
-                    <IconButton
-                      label={`Remove line ${n}`}
-                      onClick={() => apply(removeLine(lines, l))}
-                    >
-                      Remove line
-                    </IconButton>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {line.map((word, w) => {
-                    const id = `${n}.${w + 1}`;
-                    return (
-                      <div key={w} className="space-y-1 rounded border p-1.5">
-                        <input
-                          aria-label={`Word ${id}`}
-                          className="border-input bg-background w-full rounded border px-1 py-0.5 text-sm font-medium"
-                          value={word.word}
-                          onChange={(e) =>
-                            apply(editWordText(lines, l, w, e.target.value))
-                          }
-                        />
-                        <div className="flex items-center gap-1">
-                          <IconButton
-                            label={`Start earlier ${id}`}
-                            onClick={() =>
-                              apply(nudgeWord(lines, l, w, "start", -NUDGE))
-                            }
-                          >
-                            ◂
-                          </IconButton>
-                          <TimeInput
-                            label={`Start ${id}`}
-                            value={word.start}
-                            onCommit={(v) =>
-                              apply(setWordTime(lines, l, w, "start", v))
-                            }
-                          />
-                          <IconButton
-                            label={`Start later ${id}`}
-                            onClick={() =>
-                              apply(nudgeWord(lines, l, w, "start", NUDGE))
-                            }
-                          >
-                            ▸
-                          </IconButton>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <IconButton
-                            label={`End earlier ${id}`}
-                            onClick={() =>
-                              apply(nudgeWord(lines, l, w, "end", -NUDGE))
-                            }
-                          >
-                            ◂
-                          </IconButton>
-                          <TimeInput
-                            label={`End ${id}`}
-                            value={word.end}
-                            onCommit={(v) =>
-                              apply(setWordTime(lines, l, w, "end", v))
-                            }
-                          />
-                          <IconButton
-                            label={`End later ${id}`}
-                            onClick={() =>
-                              apply(nudgeWord(lines, l, w, "end", NUDGE))
-                            }
-                          >
-                            ▸
-                          </IconButton>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          <IconButton
-                            label={`Add word before ${id}`}
-                            onClick={() =>
-                              apply(addWord(lines, l, w, "before"))
-                            }
-                          >
-                            +←
-                          </IconButton>
-                          <IconButton
-                            label={`Add word after ${id}`}
-                            onClick={() => apply(addWord(lines, l, w, "after"))}
-                          >
-                            +→
-                          </IconButton>
-                          <IconButton
-                            label={`Merge with next ${id}`}
-                            disabled={w === line.length - 1}
-                            onClick={() => apply(mergeWithNext(lines, l, w))}
-                          >
-                            Merge
-                          </IconButton>
-                          <IconButton
-                            label={`Delete word ${id}`}
-                            onClick={() => apply(deleteWord(lines, l, w))}
-                          >
-                            Del
-                          </IconButton>
-                          <IconButton
-                            label={`Break line before ${id}`}
-                            disabled={w === 0}
-                            onClick={() => apply(splitLine(lines, l, w))}
-                          >
-                            ⏎
-                          </IconButton>
-                          <IconButton
-                            label={`Move to previous line ${id}`}
-                            disabled={w !== 0 || l === 0}
-                            onClick={() =>
-                              apply(moveWordToLine(lines, l, w, "prev"))
-                            }
-                          >
-                            ↑
-                          </IconButton>
-                          <IconButton
-                            label={`Move to next line ${id}`}
-                            disabled={
-                              w !== line.length - 1 || l === lines.length - 1
-                            }
-                            onClick={() =>
-                              apply(moveWordToLine(lines, l, w, "next"))
-                            }
-                          >
-                            ↓
-                          </IconButton>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+          <KaraokeWaveform
+            peaks={peaks}
+            duration={duration}
+            currentTime={playhead ?? 0}
+            words={flatWords}
+            selected={selected}
+            onSeek={seek}
+            onWordTimeChange={(l, w, field, t) => {
+              // Functional update: a drag may emit several changes per frame.
+              setLines((prev) => setWordTime(prev, l, w, field, t));
+              setNotice(null);
+            }}
+          />
+          <KaraokeLineList
+            lines={lines}
+            selected={selected}
+            disabled={busy}
+            onSelect={(l, w) => {
+              setSelected({ l, w });
+              const word = lines[l]?.[w];
+              if (word) seek(word.start);
+            }}
+            onEdit={apply}
+          />
         </section>
       ) : null}
 
       <section aria-label="Re-align" className="space-y-2">
         <h2 className="text-lg font-medium">Re-align</h2>
         <p className="text-muted-foreground text-sm">
-          Regenerates all word timings from the text below as a new draft. Edits
-          above are not carried over.
+          Regenerates all word timings from the text below as a new draft. Edits above are not
+          carried over.
         </p>
         <Label htmlFor="karaoke-realign-text">Lyrics text</Label>
         <Textarea
@@ -522,15 +394,9 @@ export function KaraokeEditor({
         <h2 className="text-lg font-medium">Version history</h2>
         <ul className="space-y-1">
           {versions.map((v) => (
-            <li
-              key={v.id}
-              className="flex flex-wrap items-center gap-2 text-sm"
-            >
+            <li key={v.id} className="flex flex-wrap items-center gap-2 text-sm">
               <Link className="underline" to={versionPath(v.id)}>
-                {new Date(v.createdAt)
-                  .toISOString()
-                  .slice(0, 16)
-                  .replace("T", " ")}
+                {new Date(v.createdAt).toISOString().slice(0, 16).replace("T", " ")}
               </Link>
               <span>
                 {v.status} · {v.language} · {v.source}
