@@ -1687,3 +1687,65 @@ describe("party-room lifecycle", () => {
     });
   });
 });
+
+describe("getRoomSnapshot karaoke status", () => {
+  beforeEach(async () => {
+    await cleanup();
+  });
+
+  async function setKaraoke(
+    trackId: string,
+    status: "draft" | "ready",
+    withVideo: boolean,
+  ): Promise<string> {
+    const track = await prisma.track.findUniqueOrThrow({ where: { id: trackId } });
+    let videoFileId: string | null = null;
+    if (withVideo) {
+      const video = await prisma.trackVideoFile.create({
+        data: {
+          trackId,
+          serviceId: track.serviceId,
+          objectKey: `video/tracks/local/${trackId}.mp4`,
+          format: "mp4",
+        },
+      });
+      videoFileId = video.id;
+    }
+    const version = await prisma.trackKaraokeVersion.create({
+      data: {
+        trackId,
+        language: "en",
+        source: "paste",
+        lyricsText: "a",
+        lines: "[]",
+        status,
+        videoFileId,
+      },
+    });
+    await prisma.trackKaraoke.create({ data: { trackId, currentVersionId: version.id } });
+    return version.id;
+  }
+
+  test("reports ready, draft, no-video and none per queued track", async () => {
+    const host = await makeUser("Host");
+    const room = await createRoom({ userId: host.id, displayName: "Host" });
+    const actor = { type: "user" as const, userId: host.id };
+    const ready = await makeTrackWithAudio("Ready");
+    const draft = await makeTrackWithAudio("Draft");
+    const noVideo = await makeTrackWithAudio("NoVideo");
+    const none = await makeTrackWithAudio("None");
+    const readyVersionId = await setKaraoke(ready.id, "ready", true);
+    await setKaraoke(draft.id, "draft", true);
+    await setKaraoke(noVideo.id, "ready", false);
+    for (const t of [ready, draft, noVideo, none]) {
+      await addTrackToQueue({ roomId: room.id, actor, trackId: t.id });
+    }
+
+    const snapshot = await getRoomSnapshot(room.id);
+    const byId = Object.fromEntries(snapshot!.queue.map((q) => [q.trackId, q.track.karaoke]));
+    expect(byId[ready.id]).toEqual({ hasReady: true, versionId: readyVersionId });
+    expect(byId[draft.id]).toEqual({ hasReady: false, versionId: null });
+    expect(byId[noVideo.id]).toEqual({ hasReady: false, versionId: null });
+    expect(byId[none.id]).toEqual({ hasReady: false, versionId: null });
+  });
+});

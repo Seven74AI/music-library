@@ -39,6 +39,7 @@ model User {
   roomsCreated        Room[]            @relation("RoomOriginalHost")
   roomParticipants    RoomParticipant[]
   editLocks           EditLock[]        @relation("EditLockUser")
+  karaokeVersions     TrackKaraokeVersion[]
   reportedQueueItems  ReviewQueueItem[] @relation("ReviewQueueReporter")
   claimedQueueItems   ReviewQueueItem[] @relation("ReviewQueueClaimed")
   resolvedQueueItems  ReviewQueueItem[] @relation("ReviewQueueResolved")
@@ -356,7 +357,10 @@ model Track {
   playlists               UserPlaylistTrack[]
   userTracks              UserTrack[]
   audioFiles              TrackAudioFile[]
-  archiveJob              ArchiveJob?
+  videoFile               TrackVideoFile?
+  karaoke                 TrackKaraoke?
+  karaokeVersions         TrackKaraokeVersion[]
+  archiveJob             ArchiveJob?
   onRepeatSnapshotTracks  OnRepeatSnapshotTrack[]
   edits                   TrackEdit[]
   roomQueueItems          RoomQueueItem[]
@@ -449,6 +453,7 @@ model Service {
   playlists   ServicePlaylist[]
   tracks      Track[]
   audioFiles  TrackAudioFile[]
+  videoFiles  TrackVideoFile[]
 
   // name is already @unique — the unique index serves equality lookups.
 }
@@ -559,6 +564,92 @@ model TrackAudioFile {
   @@index([serviceId])
   @@index([format])
   @@index([trackId, format]) // Quick lookup: "get MP3 for this track"
+}
+
+/// Global per-track video asset (karaoke). One video per track. H.264 + AAC MP4.
+/// No audioFingerprint: Chromaprint is audio-only; contentHash alone dedups video.
+model TrackVideoFile {
+  id      String @id @default(cuid())
+  trackId String @unique
+  track   Track  @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  // Always set; local uploads point at the seeded 'local' Service row (same contract as TrackAudioFile).
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  objectKey   String // S3 storage key (video/tracks/...)
+  contentHash String? // SHA-256 for deduplication
+  fileName    String?
+  fileSize    Int?
+  mimeType    String?
+  format      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  karaokeVersions TrackKaraokeVersion[]
+
+  @@index([contentHash])
+  @@index([serviceId])
+  @@index([objectKey])
+}
+
+/// Pointer row: the current karaoke version of a track (modeled after Room.currentHostParticipantId).
+model TrackKaraoke {
+  id               String               @id @default(cuid())
+  trackId          String               @unique
+  track            Track                @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  currentVersionId String?              @unique
+  currentVersion   TrackKaraokeVersion? @relation("TrackKaraokeCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+}
+
+/// Append-only, immutable karaoke version. Edits create new rows.
+model TrackKaraokeVersion {
+  id          String          @id @default(cuid())
+  trackId     String
+  track       Track           @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  /// "en" | "fr" (String, not enum)
+  language    String
+  /// Text origin: paste, whisper, az-genius, track-lyrics, ...
+  source      String
+  lyricsText  String
+  /// JSON string: Array<Array<{ word: string; start: number; end: number }>> (seconds)
+  lines       String
+  videoFileId String?
+  videoFile   TrackVideoFile? @relation(fields: [videoFileId], references: [id], onDelete: SetNull)
+  /// draft | ready
+  status      String          @default("draft")
+  createdBy   String?
+  creator     User?           @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt   DateTime        @default(now())
+
+  currentOf     TrackKaraoke?         @relation("TrackKaraokeCurrentVersion")
+  generationJob KaraokeGenerationJob?
+
+  @@index([trackId])
+  @@index([videoFileId])
+  @@index([createdBy])
+}
+
+/// Async generation job (Modal GPU), per karaoke VERSION (a re-align creates a new version → new job).
+model KaraokeGenerationJob {
+  id            String              @id @default(cuid())
+  versionId     String              @unique
+  version       TrackKaraokeVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  /// pending | dispatched | processing | completed | failed
+  status        String              @default("pending")
+  /// Modal job id
+  providerJobId String?
+  retryCount    Int                 @default(0)
+  /// JSON array string of { at, error }
+  errorHistory  String              @default("[]")
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([status])
+  @@index([providerJobId])
 }
 
 model ArchiveJob {

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { roomStateAfterAutoplay } from "#app/components/audio-player-room-playback.ts";
 import { useAudioPlayer } from "#app/components/audio-player-provider";
+import { KaraokeOverlay } from "#app/components/party-room/karaoke-overlay.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { isCurrentHost, splitRoomQueue } from "#app/features/party-room/index.ts";
 import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
@@ -115,6 +116,15 @@ export function RoomSpeakerBridge() {
     });
   }, [isSpeaker, audio]);
 
+  // Karaoke snapshot key: pinned per track start. The version is captured once
+  // (the first time one is ready) so a mid-song `hasReady`/version change does
+  // not re-snapshot; only skip/failover (a new attempt key) does.
+  const karaokeKeyRef = useRef<{ attempt: string; versionId: string | null }>({
+    attempt: "",
+    versionId: null,
+  });
+  const karaokeStartKey = room ? karaokeStartKeyFor(room, karaokeKeyRef.current) : "";
+
   if (!room || room.status !== "open") return null;
 
   // Non-host: read-only now-playing bar
@@ -146,17 +156,58 @@ export function RoomSpeakerBridge() {
               </p>
             ) : null}
           </div>
+          {nowPlaying.track.karaoke?.hasReady ? (
+            <span
+              data-testid="room-karaoke-hint"
+              className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary"
+            >
+              <Icon name="speaker-wave" className="h-3.5 w-3.5" />
+              Karaoke — sing along!
+            </span>
+          ) : null}
           <span className="text-xs text-muted-foreground">View queue</span>
         </Link>
       </div>
     );
   }
 
-  return null;
+  // Host: karaoke overlay only when the current track has a ready version;
+  // otherwise the existing audio-only player bar is all that shows.
+  const hostNowPlaying = splitRoomQueue(room).nowPlaying;
+  if (!hostNowPlaying) return null;
+  return (
+    <KaraokeOverlay
+      trackId={hostNowPlaying.track.id}
+      startKey={karaokeStartKey}
+      hasReady={hostNowPlaying.track.karaoke?.hasReady === true}
+      getAudioElement={() => audio.audioElementRef?.current ?? null}
+    />
+  );
 }
 
 function roomPlayAttemptKey(room: RoomSnapshot): string {
   return `${room.id}:${room.playback.currentTrackId ?? ""}:${room.playback.currentIndex}`;
+}
+
+/**
+ * Track-start key plus the karaoke version pinned for that start. The version
+ * only fills in once (null → id when karaoke becomes ready right after the
+ * start); later repoints/toggles within the same start leave the key unchanged.
+ */
+function karaokeStartKeyFor(
+  room: RoomSnapshot,
+  pinned: { attempt: string; versionId: string | null },
+): string {
+  const attempt = roomPlayAttemptKey(room);
+  const karaoke = splitRoomQueue(room).nowPlaying?.track.karaoke;
+  if (pinned.attempt !== attempt) {
+    pinned.attempt = attempt;
+    pinned.versionId = null;
+  }
+  if (pinned.versionId === null && karaoke?.hasReady && karaoke.versionId) {
+    pinned.versionId = karaoke.versionId;
+  }
+  return `${attempt}:${pinned.versionId ?? ""}`;
 }
 
 function speakerDisplayName(room: RoomSnapshot): string | null {

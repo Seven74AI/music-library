@@ -21,6 +21,7 @@ function item(position: number, id = `item-${position}`): RoomQueueItemDto {
       duration: 180,
       coverObjectKey: null,
       hasAudio: true,
+      karaoke: { hasReady: false, versionId: null },
     },
     addedByParticipantId: "p1",
     addedByDisplayName: "Host",

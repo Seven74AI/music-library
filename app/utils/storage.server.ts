@@ -1,5 +1,7 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createWriteStream, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import { type Readable, Transform, Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { validateStorageKey } from "#app/utils/path-validation.server.ts";
 import {
   DeleteObjectCommand,
@@ -42,6 +44,29 @@ export function buildAudioObjectKey(
 /** Whether an object key already uses the unified audio layout. */
 export function isUnifiedAudioObjectKey(objectKey: string): boolean {
   return UNIFIED_AUDIO_OBJECT_KEY_PATTERN.test(objectKey);
+}
+
+const VIDEO_OBJECT_KEY_PATTERN = /^video\/tracks\/[^/]+\/[^/]+\.[^./]+$/;
+
+/**
+ * Build the Tigris object key for a track video file.
+ * Format: video/tracks/{serviceName}/{trackId}.{ext}
+ */
+export function buildVideoObjectKey(
+  serviceName: string,
+  trackId: string,
+  extension: string,
+): string {
+  const ext = extension.replace(/^\./, "").toLowerCase();
+  if (!serviceName || !trackId || !ext) {
+    throw new Error("serviceName, trackId, and extension are required");
+  }
+  return `video/tracks/${serviceName}/${trackId}.${ext}`;
+}
+
+/** Whether an object key uses the video layout (and has no traversal segments). */
+export function isVideoObjectKey(objectKey: string): boolean {
+  return !objectKey.includes("..") && VIDEO_OBJECT_KEY_PATTERN.test(objectKey);
 }
 
 /**
@@ -159,6 +184,98 @@ async function uploadFileLocal(file: Buffer, key: string): Promise<string> {
 
   console.log(`📁 Saved file locally: ${filePath}`);
   return safeKey;
+}
+
+export class VideoUploadTooLargeError extends Error {
+  constructor(public readonly maxBytes: number) {
+    super(`Upload exceeds maximum size of ${maxBytes} bytes`);
+    this.name = "VideoUploadTooLargeError";
+  }
+}
+
+/**
+ * Streaming upload with an explicit byte cap. Unlike {@link uploadFile} this
+ * never buffers the whole object in memory (video-sized files would OOM).
+ * S3 uses multipart (8MB parts, bounded concurrency); local dev writes through
+ * a file stream; MOCKS mode just drains the stream (still enforcing the cap).
+ */
+export async function uploadFileStream(params: {
+  body: Readable;
+  key: string;
+  contentType?: string;
+  maxBytes: number;
+}): Promise<{ key: string; size: number }> {
+  const { body, key, contentType, maxBytes } = params;
+  if (!key || typeof key !== "string") {
+    throw new Error("Invalid key: must be a non-empty string");
+  }
+
+  let size = 0;
+  let exceeded = false;
+  const counter = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      size += chunk.length;
+      if (size > maxBytes) {
+        exceeded = true;
+        cb(new VideoUploadTooLargeError(maxBytes));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
+  // pipeline() destroys the source on error/cap (no leaked open file) and
+  // propagates source errors to `counter`; the downstream pipeline surfaces them.
+  pipeline(body, counter).catch(() => {});
+
+  const rethrow = (error: unknown): never => {
+    if (exceeded) throw new VideoUploadTooLargeError(maxBytes);
+    throw error;
+  };
+
+  if (process.env.MOCKS === "true") {
+    try {
+      await pipeline(counter, new Writable({ write: (_c, _e, cb) => cb() }));
+    } catch (error) {
+      rethrow(error);
+    }
+    return { key, size };
+  }
+
+  if (!isStorageConfigured()) {
+    const localStorageDir = join(process.cwd(), "tests", "fixtures", "uploaded");
+    const safeKey = validateStorageKey(key);
+    const basePath = resolve(localStorageDir);
+    const filePath = resolve(basePath, safeKey);
+    if (filePath !== basePath && !filePath.startsWith(`${basePath}${sep}`)) {
+      throw new Error("Storage key resolves outside the upload directory");
+    }
+    mkdirSync(dirname(filePath), { recursive: true });
+    try {
+      await pipeline(counter, createWriteStream(filePath));
+    } catch (error) {
+      rmSync(filePath, { force: true });
+      rethrow(error);
+    }
+    return { key: safeKey, size };
+  }
+
+  const s3Client = getS3Client();
+  const config = getStorageConfig();
+  const upload = new Upload({
+    client: s3Client,
+    params: { Bucket: config.bucket, Key: key, Body: counter, ContentType: contentType },
+    partSize: 8 * 1024 * 1024,
+    queueSize: 4,
+    leavePartsOnError: false,
+  });
+  try {
+    await upload.done();
+  } catch (error) {
+    await upload.abort().catch(() => {});
+    if (exceeded) throw new VideoUploadTooLargeError(maxBytes);
+    handleStorageError(error, key, config, size);
+  }
+  return { key, size };
 }
 
 const PROFILE_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
