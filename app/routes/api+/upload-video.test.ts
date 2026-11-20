@@ -11,9 +11,26 @@ import { authSessionStorage } from "#app/utils/session.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { action } from "./upload-video.tsx";
 
+// The real-media tests synthesize video with ffmpeg and probe it with ffprobe,
+// and the "reject non-video / HLS" tests rely on ffprobe to identify (and
+// reject) the uploaded bytes. Those binaries exist in the app image and on dev
+// machines, but not on the CI vitest runner's bare job — so those tests are
+// gated on the binaries' availability. The auth/size/404 tests reject before
+// the ingest path and run on fake byte buffers, so they always run.
+function hasFfmpeg(): boolean {
+  for (const bin of ["ffmpeg", "ffprobe"]) {
+    try {
+      if (spawnSync(bin, ["-version"], { stdio: "ignore" }).status !== 0) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 let dir: string;
-let compliantMp4: Buffer;
-let webm: Buffer;
+let compliantMp4!: Buffer;
+let webm!: Buffer;
 
 function ffmpegMake(name: string, codecArgs: string[]) {
   const out = join(dir, name);
@@ -40,6 +57,7 @@ function ffmpegMake(name: string, codecArgs: string[]) {
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "upload-video-test-"));
+  if (!hasFfmpeg()) return;
   compliantMp4 = ffmpegMake("ok.mp4", [
     "-c:v",
     "libx264",
@@ -112,16 +130,37 @@ async function unwrap(result: unknown) {
   return { status: r.init?.status ?? 200, body: r.data };
 }
 
-describe("upload-video action", () => {
+describe("upload-video action (pre-ingest)", () => {
   test("requires authentication", async () => {
     const track = await createTrack();
     await expect(
-      call(null, formFor(track.id, compliantMp4, "a.mp4", "video/mp4")),
+      call(null, formFor(track.id, Buffer.from("x"), "a.mp4", "video/mp4")),
     ).rejects.toSatisfy(
       (e: unknown) => e instanceof Response && (e.status === 302 || e.status === 401),
     );
   });
 
+  test("rejects a file above the size cap with 413 and stores nothing", async () => {
+    process.env.VIDEO_UPLOAD_MAX_BYTES = "1000";
+    const cookie = await createCookie();
+    const track = await createTrack();
+    const { status } = await unwrap(
+      await call(cookie, formFor(track.id, Buffer.alloc(2000), "big.mp4", "video/mp4")),
+    );
+    expect(status).toBe(413);
+    expect(await prisma.trackVideoFile.count({ where: { trackId: track.id } })).toBe(0);
+  }, 60_000);
+
+  test("returns 404 for an unknown track", async () => {
+    const cookie = await createCookie();
+    const { status } = await unwrap(
+      await call(cookie, formFor("does-not-exist", Buffer.from("x"), "a.mp4", "video/mp4")),
+    );
+    expect(status).toBe(404);
+  });
+});
+
+describe.skipIf(!hasFfmpeg())("upload-video action (real media)", () => {
   test("accepts a compliant MP4 without transcoding", async () => {
     const cookie = await createCookie();
     const track = await createTrack();
@@ -152,17 +191,6 @@ describe("upload-video action", () => {
     expect(row?.objectKey.endsWith(".mp4")).toBe(true);
     expect(row?.fileSize).toBeGreaterThan(0);
   }, 90_000);
-
-  test("rejects a file above the size cap with 413 and stores nothing", async () => {
-    process.env.VIDEO_UPLOAD_MAX_BYTES = "1000";
-    const cookie = await createCookie();
-    const track = await createTrack();
-    const { status } = await unwrap(
-      await call(cookie, formFor(track.id, compliantMp4, "big.mp4", "video/mp4")),
-    );
-    expect(status).toBe(413);
-    expect(await prisma.trackVideoFile.count({ where: { trackId: track.id } })).toBe(0);
-  }, 60_000);
 
   test("rejects non-video content with 400", async () => {
     const cookie = await createCookie();
@@ -229,14 +257,6 @@ describe("upload-video action", () => {
     expect(first?.objectKey).toBeTruthy();
     expect(second?.objectKey).not.toBe(first?.objectKey);
   }, 120_000);
-
-  test("returns 404 for an unknown track", async () => {
-    const cookie = await createCookie();
-    const { status } = await unwrap(
-      await call(cookie, formFor("does-not-exist", compliantMp4, "a.mp4", "video/mp4")),
-    );
-    expect(status).toBe(404);
-  });
 
   test("probe helper agrees the stored fixture is compliant", async () => {
     const out = join(dir, "ok.mp4");
