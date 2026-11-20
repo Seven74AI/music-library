@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub } from "react-router";
 import { expect, test } from "vitest";
@@ -504,8 +504,10 @@ test("unused age filter submits the chosen window", async () => {
   await user.selectOptions(screen.getByLabelText("Age"), "90d");
   await user.click(screen.getByRole("button", { name: "Filter" }));
 
-  expect(await screen.findByText("QA436 Unused 100d")).toBeTruthy();
-  expect(screen.queryByText("QA436 Unused 40d")).toBeNull();
+  // "100d" is present in both the 30d and 90d result sets, so wait on the row
+  // that must disappear instead of one that is already on screen.
+  await waitFor(() => expect(screen.queryByText("QA436 Unused 40d")).toBeNull());
+  expect(screen.getByText("QA436 Unused 100d")).toBeTruthy();
 
   await user.selectOptions(screen.getByLabelText("Age"), "7d");
   await user.click(screen.getByRole("button", { name: "Filter" }));
