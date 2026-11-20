@@ -122,7 +122,7 @@ Done - 0MB uploaded, storage saved! ✅
 
 ### 1. Apply the Database Migration
 
-The database schema changes are ready but NOT yet applied. You need to run:
+The database schema changes require a migration. Run:
 
 ```bash
 npm run migrate:deploy
