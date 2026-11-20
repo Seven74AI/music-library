@@ -4,6 +4,8 @@ import { z } from "zod";
 import { completeGenerationJob } from "#app/features/karaoke-generation/complete-job.server.ts";
 import { validateKaraokeLines } from "#app/features/track-video/karaoke-lines.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Route } from "./+types/karaoke-webhook.ts";
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -23,6 +25,10 @@ function secretMatches(provided: string | null): boolean {
 }
 
 /** Authed (shared-secret header) result callback from the generation provider. */
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   if (request.method !== "POST")
     return data({ error: "Method not allowed" }, { status: 405 });

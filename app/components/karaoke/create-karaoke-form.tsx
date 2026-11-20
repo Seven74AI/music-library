@@ -25,14 +25,29 @@ const TEXT_SOURCES: Array<{ value: KaraokeTextSource; label: string }> = [
 type AttachedVideo = { id: string; label: string };
 
 async function postJson(url: string, body: BodyInit) {
-  const res = await fetch(url, { method: "POST", body });
-  let json: any = null;
   try {
-    json = await res.json();
+    const res = await fetch(url, { method: "POST", body });
+    let json: any = null;
+    try {
+      json = await res.json();
+    } catch {
+      // non-JSON body (e.g. a redirected login page)
+    }
+    return { ok: res.ok && json?.success === true, json };
   } catch {
-    // non-JSON error body
+    return { ok: false, json: { error: "Network error. Please try again." } };
   }
-  return { ok: res.ok && json?.success !== false, json };
+}
+
+function errorMessage(json: any, fallback: string): string {
+  const fieldErrors = json?.errors;
+  if (fieldErrors && typeof fieldErrors === "object") {
+    const parts = Object.entries(fieldErrors).map(
+      ([field, msgs]) => field + ": " + (Array.isArray(msgs) ? msgs.join(", ") : String(msgs)),
+    );
+    if (parts.length) return parts.join("; ");
+  }
+  return json?.error ?? fallback;
 }
 
 /** Create-karaoke flow for one track: language, text source, video, submit. */
@@ -59,7 +74,7 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
       );
       setBusy(null);
       if (ok && typeof json?.lyrics === "string") setText(json.lyrics);
-      else setError(json?.error ?? "Could not fetch lyrics");
+      else setError(errorMessage(json, "Could not fetch lyrics"));
     }
   }
 
@@ -72,7 +87,7 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
     const { ok, json } = await postJson("/api/upload-video", form);
     setBusy(null);
     if (ok && json?.videoFile?.id) setVideo({ id: json.videoFile.id, label: file.name });
-    else setError(json?.error ?? "Video upload failed");
+    else setError(errorMessage(json, "Video upload failed"));
   }
 
   async function attachYoutube() {
@@ -84,7 +99,7 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
     );
     setBusy(null);
     if (ok && json?.videoFile?.id) setVideo({ id: json.videoFile.id, label: "YouTube" });
-    else setError(json?.error ?? "Could not attach YouTube video");
+    else setError(errorMessage(json, "Could not attach YouTube video"));
   }
 
   async function submit() {
@@ -97,7 +112,7 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
     const { ok, json } = await postJson("/resources/karaoke/create", params);
     setBusy(null);
     if (ok && json?.versionId) setVersionId(json.versionId);
-    else setError(json?.error ?? "Could not create karaoke version");
+    else setError(errorMessage(json, "Could not create karaoke version"));
   }
 
   if (versionId) {

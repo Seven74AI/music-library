@@ -7,6 +7,8 @@ import {
 } from "#app/features/karaoke-generation/dispatch.server.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Route } from "./+types/create.ts";
 
 export const CreateKaraokeSchema = z
   .object({
@@ -25,6 +27,10 @@ export const CreateKaraokeSchema = z
       });
     }
   });
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
 
 /** Create a draft karaoke version + pending generation job, then dispatch. */
 export async function action({ request }: ActionFunctionArgs) {

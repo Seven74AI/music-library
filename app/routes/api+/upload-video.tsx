@@ -12,7 +12,9 @@ import {
 } from "#app/features/track-video/ingest-video.server.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
 import { VideoUploadTooLargeError } from "#app/utils/storage.server.ts";
+import { type Route } from "./+types/upload-video.ts";
 
 function isTooLarge(error: unknown): boolean {
   for (let e: unknown = error, depth = 0; e && depth < 5; depth++) {
@@ -27,6 +29,10 @@ function isTooLarge(error: unknown): boolean {
  * to a temp file (never buffered in memory) under an explicit size cap, then
  * transcoded only if non-compliant and streamed to storage.
  */
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   await requireUserId(request);
   const maxBytes = getMaxVideoUploadBytes();

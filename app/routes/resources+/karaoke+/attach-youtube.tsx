@@ -13,11 +13,19 @@ import {
 import { fetchYoutubeVideo } from "#app/features/track-video/youtube-video.server.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Route } from "./+types/attach-youtube.ts";
 
 export const AttachYoutubeSchema = z.object({
   trackId: z.string().min(1),
   url: z.string().min(1),
 });
+
+const inFlightAttaches = new Set<string>();
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
+}
 
 /**
  * Authenticated, manual per-track YouTube video attach. The URL is checked
@@ -25,7 +33,7 @@ export const AttachYoutubeSchema = z.object({
  * download; the result goes through the same ingest path as upload-video.
  */
 export async function action({ request }: ActionFunctionArgs) {
-  await requireUserId(request);
+  const userId = await requireUserId(request);
   const parsed = AttachYoutubeSchema.safeParse(Object.fromEntries(await request.formData()));
   if (!parsed.success) {
     return data({ success: false, error: "trackId and url are required" }, { status: 400 });
@@ -40,6 +48,13 @@ export async function action({ request }: ActionFunctionArgs) {
   const track = await prisma.track.findUnique({ where: { id: trackId }, select: { id: true } });
   if (!track) return data({ success: false, error: "Track not found" }, { status: 404 });
 
+  if (inFlightAttaches.has(userId)) {
+    return data(
+      { success: false, error: "A YouTube attach is already in progress" },
+      { status: 429 },
+    );
+  }
+  inFlightAttaches.add(userId);
   const workDir = mkdtempSync(join(tmpdir(), "yt-video-"));
   try {
     const cookieFile = getCookieFilePath();
@@ -83,6 +98,7 @@ export async function action({ request }: ActionFunctionArgs) {
       throw error;
     }
   } finally {
+    inFlightAttaches.delete(userId);
     rmSync(workDir, { recursive: true, force: true });
   }
 }

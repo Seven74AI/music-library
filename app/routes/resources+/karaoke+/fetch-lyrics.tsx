@@ -2,6 +2,8 @@ import { data, type ActionFunctionArgs } from "react-router";
 import { z } from "zod";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { proxyClientActionToServer } from "#app/utils/server-proxy-client-action.ts";
+import { type Route } from "./+types/fetch-lyrics.ts";
 
 export const FetchLyricsSchema = z.object({ trackId: z.string().min(1) });
 
@@ -20,6 +22,10 @@ async function lookupLyrics(
 ): Promise<{ ok: true; lyrics: string } | { ok: false; error: string }> {
   if (process.env.MOCKS === "true") return { ok: true, lyrics: MOCK_FETCHED_LYRICS };
   return { ok: false, error: "Lyrics fetch is not available yet" };
+}
+
+export async function clientAction(args: Route.ClientActionArgs) {
+  return proxyClientActionToServer(args);
 }
 
 export async function action({ request }: ActionFunctionArgs) {
