@@ -16,7 +16,8 @@ export type LyricsResult =
   | { ok: false; kind: "not-found" | "unavailable"; error: string };
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
-export const MOCK_FETCHED_LYRICS = "Mock line one\nMock line two\nMock line three";
+export const MOCK_FETCHED_LYRICS =
+  "Mock line one\nMock line two\nMock line three";
 
 const FETCH_TIMEOUT_MS = 8_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -39,8 +40,14 @@ const ENTITIES: Record<string, string> = {
 function decodeEntities(s: string) {
   return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
     if (e[0] === "#") {
-      const code = e[1]?.toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+      const code =
+        e[1]?.toLowerCase() === "x"
+          ? parseInt(e.slice(2), 16)
+          : parseInt(e.slice(1), 10);
+      // Clamp so a malformed entity (e.g. &#99999999;) can never make fromCodePoint throw.
+      return Number.isInteger(code) && code >= 0 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : m;
     }
     return ENTITIES[e.toLowerCase()] ?? m;
   });
@@ -96,7 +103,10 @@ export function normalizeLyrics(text: string) {
 const GENIUS_HOST = "genius.com";
 
 /** Fixture contract: tests/fixtures/lyrics/genius-search.json */
-export function parseGeniusSearch(json: unknown, lookup: LyricsLookup): string | null {
+export function parseGeniusSearch(
+  json: unknown,
+  lookup: LyricsLookup,
+): string | null {
   const sections = (json as any)?.response?.sections;
   if (!Array.isArray(sections)) return null;
   const hits: Array<{ url?: string; title?: string; artist?: string }> = [];
@@ -104,23 +114,47 @@ export function parseGeniusSearch(json: unknown, lookup: LyricsLookup): string |
     for (const hit of (section as { hits?: any[] } | null)?.hits ?? []) {
       if (hit?.type && hit.type !== "song") continue;
       const r = hit?.result;
-      if (r?.url) hits.push({ url: r.url, title: r.title, artist: r.primary_artist?.name });
+      if (r?.url)
+        hits.push({
+          url: r.url,
+          title: r.title,
+          artist: r.primary_artist?.name,
+        });
     }
   }
-  const key = (s?: string) => (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  // Unicode-aware: strip diacritics, keep letters/digits of any script, space-separated words.
+  const key = (s?: string) =>
+    (s ?? "")
+      .normalize("NFD")
+      .replace(/\p{M}+/gu, "")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim();
   const wantArtist = key(lookup.artist);
   const wantTitle = key(lookup.title);
+  // An empty key would match anything; refuse to guess.
+  if (!wantArtist || !wantTitle) return null;
+  const hasPhrase = (hay: string, needle: string) =>
+    ` ${hay} `.includes(` ${needle} `);
   const best =
-    hits.find((h) => key(h.artist) === wantArtist && key(h.title) === wantTitle) ??
     hits.find(
-      (h) =>
-        (key(h.artist).includes(wantArtist) || wantArtist.includes(key(h.artist))) &&
-        key(h.title).includes(wantTitle),
-    );
+      (h) => key(h.artist) === wantArtist && key(h.title) === wantTitle,
+    ) ??
+    hits.find((h) => {
+      const a = key(h.artist);
+      const t = key(h.title);
+      if (!a || !t) return false;
+      return (
+        (hasPhrase(a, wantArtist) || hasPhrase(wantArtist, a)) &&
+        hasPhrase(t, wantTitle)
+      );
+    });
   if (!best?.url) return null;
   try {
     const u = new URL(best.url);
-    if (u.protocol !== "https:" || u.hostname !== GENIUS_HOST) return null; // SSRF guard
+    // SSRF guard: full origin (scheme+host+port), no embedded credentials.
+    if (u.origin !== `https://${GENIUS_HOST}` || u.username || u.password)
+      return null;
     return u.toString();
   } catch {
     return null;
@@ -129,28 +163,67 @@ export function parseGeniusSearch(json: unknown, lookup: LyricsLookup): string |
 
 /** Fixture contract: tests/fixtures/lyrics/genius-song.html (`data-lyrics-container="true"`). */
 export function parseGeniusSong(html: string): string | null {
-  const blocks = extractDivs(html, /<div\b[^>]*data-lyrics-container="true"[^>]*>/);
+  const blocks = extractDivs(
+    html,
+    /<div\b[^>]*data-lyrics-container="true"[^>]*>/,
+  );
   const text = normalizeLyrics(blocks.map(htmlToText).join("\n"));
   return text || null;
 }
 
-async function fetchText(fetchFn: FetchFn, url: string, accept: string): Promise<string | null> {
-  let res: Response;
+const ALLOWED_HOSTS = new Set([
+  "genius.com",
+  "www.genius.com",
+  "azlyrics.com",
+  "www.azlyrics.com",
+]);
+
+async function fetchText(
+  fetchFn: FetchFn,
+  url: string,
+  accept: string,
+): Promise<string | null> {
   try {
-    res = await fetchFn(url, {
-      headers: { "user-agent": USER_AGENT, accept, "accept-language": "en-US,en;q=0.9" },
+    const res = await fetchFn(url, {
+      headers: {
+        "user-agent": USER_AGENT,
+        accept,
+        "accept-language": "en-US,en;q=0.9",
+      },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       redirect: "follow",
     });
-  } catch {
-    throw new ProviderUnavailableError(`network error fetching ${new URL(url).hostname}`);
+    if (res.url) {
+      // fetch followed redirects: re-validate the final target.
+      const final = new URL(res.url);
+      if (
+        final.protocol !== "https:" ||
+        !ALLOWED_HOSTS.has(final.hostname) ||
+        final.port
+      ) {
+        throw new ProviderUnavailableError(
+          `unexpected redirect target ${final.hostname}`,
+        );
+      }
+    }
+    if (res.status === 404) return null;
+    if (!res.ok)
+      throw new ProviderUnavailableError(
+        `${new URL(url).hostname} returned ${res.status}`,
+      );
+    return await res.text(); // inside the try: the timeout also covers the body read
+  } catch (e) {
+    if (e instanceof ProviderUnavailableError) throw e;
+    throw new ProviderUnavailableError(
+      `network error fetching ${new URL(url).hostname}`,
+    );
   }
-  if (res.status === 404) return null;
-  if (!res.ok) throw new ProviderUnavailableError(`${new URL(url).hostname} returned ${res.status}`);
-  return res.text();
 }
 
-async function fromGenius(fetchFn: FetchFn, lookup: LyricsLookup): Promise<string | null> {
+async function fromGenius(
+  fetchFn: FetchFn,
+  lookup: LyricsLookup,
+): Promise<string | null> {
   const q = encodeURIComponent(`${lookup.artist} ${lookup.title}`);
   const searchBody = await fetchText(
     fetchFn,
@@ -162,7 +235,9 @@ async function fromGenius(fetchFn: FetchFn, lookup: LyricsLookup): Promise<strin
   try {
     json = JSON.parse(searchBody);
   } catch {
-    throw new ProviderUnavailableError("genius.com returned a non-JSON search response");
+    throw new ProviderUnavailableError(
+      "genius.com returned a non-JSON search response",
+    );
   }
   const songUrl = parseGeniusSearch(json, lookup);
   if (!songUrl) return null;
@@ -188,11 +263,16 @@ export function parseAzLyricsSong(html: string): string | null {
   if (marker === -1) return null;
   const rest = html.slice(marker);
   const divs = extractDivs(rest, /<div>/);
-  const text = normalizeLyrics(htmlToText((divs[0] ?? "").replace(/<!--[\s\S]*?-->/g, "")));
+  const text = normalizeLyrics(
+    htmlToText((divs[0] ?? "").replace(/<!--[\s\S]*?-->/g, "")),
+  );
   return text || null;
 }
 
-async function fromAzLyrics(fetchFn: FetchFn, lookup: LyricsLookup): Promise<string | null> {
+async function fromAzLyrics(
+  fetchFn: FetchFn,
+  lookup: LyricsLookup,
+): Promise<string | null> {
   const artist = azSlug(lookup.artist, true);
   const song = azSlug(lookup.title);
   if (!artist || !song) return null;
@@ -223,7 +303,11 @@ export async function scrapeLyrics(
   }
   // A provider being down only matters if the other one didn't find anything either.
   return unavailable
-    ? { ok: false, kind: "unavailable", error: "Lyrics providers are unavailable right now" }
+    ? {
+        ok: false,
+        kind: "unavailable",
+        error: "Lyrics providers are unavailable right now",
+      }
     : { ok: false, kind: "not-found", error: "No lyrics found for this track" };
 }
 
@@ -237,23 +321,33 @@ export async function lookupLyrics(
   lookup: LyricsLookup,
   fetchFn: FetchFn = fetch,
 ): Promise<LyricsResult> {
-  if (process.env.MOCKS === "true") return { ok: true, lyrics: MOCK_FETCHED_LYRICS };
-  const key = `lyrics:${normKey(lookup.artist)}:${normKey(lookup.title)}`;
-  let unavailable: LyricsResult | null = null;
-  const result = await cachified({
-    key,
-    cache,
-    ttl: CACHE_TTL_MS,
-    getFreshValue: async () => {
-      const r = await scrapeLyrics(lookup, fetchFn);
-      if (!r.ok && r.kind === "unavailable") {
-        unavailable = r;
-        throw new ProviderUnavailableError(r.error);
-      }
-      return r;
+  if (process.env.MOCKS === "true")
+    return { ok: true, lyrics: MOCK_FETCHED_LYRICS };
+  const key = `lyrics:${JSON.stringify([normKey(lookup.artist), normKey(lookup.title)])}`;
+  const result = await cachified(
+    {
+      key,
+      cache,
+      ttl: CACHE_TTL_MS,
+      getFreshValue: async () => {
+        const r = await scrapeLyrics(lookup, fetchFn);
+        if (!r.ok && r.kind === "unavailable") {
+          throw new ProviderUnavailableError(r.error);
+        }
+        return r;
+      },
     },
-  }).catch((e) => {
-    if (unavailable) return unavailable as LyricsResult;
+    () => () => {},
+  ).catch((e) => {
+    // (noop reporter above: "unavailable" is an expected outcome, not a logged error)
+    // Concurrent callers share the first caller's rejection, so classify by error type.
+    if (e instanceof ProviderUnavailableError) {
+      return {
+        ok: false,
+        kind: "unavailable",
+        error: e.message,
+      } as LyricsResult;
+    }
     throw e;
   });
   return result;
