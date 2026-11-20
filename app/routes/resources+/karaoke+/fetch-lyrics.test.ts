@@ -1,5 +1,9 @@
 import { parseString } from "set-cookie-parser";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+// lookupLyrics itself is covered (with fixtures, no network) in lyrics-lookup.server.test.ts.
+const lookupMock = vi.hoisted(() => vi.fn());
+vi.mock("#app/utils/lyrics-lookup.server.ts", () => ({ lookupLyrics: lookupMock }));
 import { getSessionExpirationDate, sessionKey } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { authSessionStorage } from "#app/utils/session.server.ts";
@@ -7,6 +11,10 @@ import { createTrack, createUser } from "#tests/db-utils.ts";
 import { action } from "./fetch-lyrics.tsx";
 
 const originalMocks = process.env.MOCKS;
+beforeEach(() => {
+  lookupMock.mockReset();
+  lookupMock.mockResolvedValue({ ok: true, lyrics: "Mock line one\nMock line two" });
+});
 afterEach(() => {
   if (originalMocks === undefined) delete process.env.MOCKS;
   else process.env.MOCKS = originalMocks;
@@ -59,14 +67,37 @@ describe("fetch-lyrics", () => {
     expect(body.lyrics).toMatch(/\S/);
   });
 
-  test("non-MOCKS returns not-available error", async () => {
-    process.env.MOCKS = "false";
+  test.each([
+    ["not-found", 404],
+    ["unavailable", 502],
+  ] as const)("maps kind %s → %i", async (kind, expected) => {
+    lookupMock.mockResolvedValueOnce({ ok: false, kind, error: "nope" });
     const cookie = await createCookie();
     const track = await createTrack("Song");
     const { status, body } = await unwrap(await call(cookie, { trackId: track.id }));
-    expect(status).toBe(501);
-    expect(body.success).toBe(false);
-    expect(body.error).toMatch(/not available/i);
+    expect(status).toBe(expected);
+    expect(body).toMatchObject({ success: false, kind });
+  });
+
+  test("real lookup success → 200 with lyrics", async () => {
+    lookupMock.mockResolvedValueOnce({ ok: true, lyrics: "real lyrics" });
+    const cookie = await createCookie();
+    const track = await createTrack("Song");
+    const { status, body } = await unwrap(await call(cookie, { trackId: track.id }));
+    expect(status).toBe(200);
+    expect(body).toEqual({ success: true, lyrics: "real lyrics" });
+  });
+
+  test("rate limit → 429 after the per-minute budget", async () => {
+    lookupMock.mockResolvedValue({ ok: true, lyrics: "x" });
+    const cookie = await createCookie();
+    const track = await createTrack("Song");
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      statuses.push((await unwrap(await call(cookie, { trackId: track.id }))).status);
+    }
+    expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
+    expect(statuses[10]).toBe(429);
   });
 
   test("404 unknown track", async () => {

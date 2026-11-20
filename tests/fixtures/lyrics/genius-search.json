@@ -1,0 +1,3 @@
+{"meta":{"status":200},"response":{"sections":[{"type":"song","hits":[
+{"type":"song","result":{"title":"Other Song","url":"https://genius.com/Someone-else-other-song-lyrics","primary_artist":{"name":"Someone Else"}}},
+{"type":"song","result":{"title":"Test Song","url":"https://genius.com/Test-artist-test-song-lyrics","primary_artist":{"name":"Test Artist"}}}]}]}}
