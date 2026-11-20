@@ -531,6 +531,14 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
                         </DropdownMenuItem>
                       ) : null}
                       {user ? (
+                        <DropdownMenuItem asChild>
+                          <Link to={`/library/${track.id}/karaoke/new`}>
+                            <Icon name="play" className="mr-2 h-4 w-4" />
+                            Create karaoke
+                          </Link>
+                        </DropdownMenuItem>
+                      ) : null}
+                      {user ? (
                         <DropdownMenuItem
                           onClick={() => {
                             window.setTimeout(() => setReportOpen(true), 0);
