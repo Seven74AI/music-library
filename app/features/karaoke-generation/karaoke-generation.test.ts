@@ -3,7 +3,7 @@ import { prisma } from "#app/utils/db.server.ts";
 import { createTrack } from "#tests/db-utils.ts";
 import { completeGenerationJob } from "./complete-job.server.ts";
 import { getFileUrl } from "#app/utils/storage.server.ts";
-import { dispatchGeneration } from "./dispatch.server.ts";
+import { dispatchGeneration, KaraokeConfigError } from "./dispatch.server.ts";
 import { reconcileStuckJobs } from "./reconciler.server.ts";
 
 vi.mock("#app/utils/storage.server.ts", async (orig) => ({
@@ -19,6 +19,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   delete process.env.KARAOKE_GENERATION_MOCKS;
   delete process.env.KARAOKE_API_URL;
   delete process.env.KARAOKE_API_TOKEN;
@@ -146,10 +147,9 @@ describe("dispatchGeneration audioUrl handoff", () => {
     expect(body.audioUrl).toBe("https://signed.example/audio/best.mp3");
     expect(body.videoFileId).toBe("vf1");
     expect(getFileUrl).toHaveBeenCalledWith("audio/best.mp3", 900);
-    vi.unstubAllGlobals();
   });
 
-  test("missing audio fails cleanly without fetch", async () => {
+  test("missing audio throws KaraokeConfigError without fetch", async () => {
     const { version, job } = await realPathSetup();
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -160,13 +160,27 @@ describe("dispatchGeneration audioUrl handoff", () => {
         "en",
         "x",
       ),
-    ).rejects.toThrow(/no audio/i);
+    ).rejects.toThrow(KaraokeConfigError);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("reconciler fails a pending job with missing audio immediately", async () => {
+    const { job } = await realPathSetup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await reconcileStuckJobs();
+    const after = await prisma.karaokeGenerationJob.findUnique({
+      where: { id: job.id },
+    });
+    // other jobs left by earlier tests may be polled; none may be dispatched
     expect(
-      (await prisma.karaokeGenerationJob.findUnique({ where: { id: job.id } }))
-        ?.status,
-    ).toBe("pending");
-    vi.unstubAllGlobals();
+      fetchMock.mock.calls.some(
+        ([u]) => String(u) === "https://modal.example/jobs",
+      ),
+    ).toBe(false);
+    expect(after?.status).toBe("failed");
+    expect(after?.retryCount).toBe(1);
+    expect(after?.errorHistory).toContain("no audio file");
   });
 
   test("stub path returns mock-<jobId> and does not sign", async () => {
@@ -278,7 +292,6 @@ describe("reconcileStuckJobs", () => {
     );
     const { job } = await makeJob("dispatched", "p-1");
     for (let i = 0; i < 3; i++) await reconcileStuckJobs();
-    vi.unstubAllGlobals();
     const after = await prisma.karaokeGenerationJob.findUnique({
       where: { id: job.id },
     });

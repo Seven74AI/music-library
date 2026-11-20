@@ -12,7 +12,7 @@ const FETCH_TIMEOUT_MS = 15_000;
 /** Presigned audio URL lifetime handed to the provider. */
 const AUDIO_URL_TTL_SECONDS = 15 * 60;
 
-/** Thrown when the provider URL/token are missing: retrying can't help. */
+/** Permanent errors where retrying can't help — missing provider config, or missing track audio. */
 export class KaraokeConfigError extends Error {
   constructor(message: string) {
     super(message);
@@ -69,7 +69,7 @@ export async function dispatchGeneration(
     });
     const audioFile = selectBestAudioFile(audioFiles);
     if (!audioFile?.objectKey) {
-      throw new Error(
+      throw new KaraokeConfigError(
         `Karaoke dispatch failed: track ${version.trackId} has no audio file`,
       );
     }
