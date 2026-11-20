@@ -12,6 +12,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
       { status: 400 },
     );
   }
+  const track = await prisma.track.findUnique({
+    where: { id: trackId },
+    select: { id: true },
+  });
+  if (!track) {
+    return data({ success: false, error: "Track not found" }, { status: 404 });
+  }
   const [versions, pointer] = await Promise.all([
     prisma.trackKaraokeVersion.findMany({
       where: { trackId },

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { type Route } from "./+types/acquire.ts";
 
 const AcquireLockSchema = z.object({
-  entityType: z.enum(["track", "artist", "album"]),
+  entityType: z.enum(["track", "artist", "album", "karaoke_version"]),
   entityId: z.string().min(1),
 });
 

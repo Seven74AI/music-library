@@ -6,7 +6,7 @@ import { z } from "zod";
 import { type Route } from "./+types/release.ts";
 
 const ReleaseLockSchema = z.object({
-  entityType: z.enum(["track", "artist", "album"]),
+  entityType: z.enum(["track", "artist", "album", "karaoke_version"]),
   entityId: z.string().min(1),
   lockId: z.string().min(1).optional(),
   acquiredAt: z.string().min(1).optional(),

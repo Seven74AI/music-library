@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { createTrack } from "#tests/db-utils.ts";
+import { completeGenerationJob } from "./complete-job.server.ts";
 import { dispatchGeneration } from "./dispatch.server.ts";
 import { reconcileStuckJobs } from "./reconciler.server.ts";
 
@@ -33,6 +34,36 @@ async function makeJob(
   });
   return { version, job };
 }
+
+describe("completeGenerationJob", () => {
+  const LINES = [[{ word: "a", start: 0, end: 1 }]];
+
+  test("writes lines to a draft version and completes the job", async () => {
+    const { version, job } = await makeJob("processing");
+    expect(await completeGenerationJob(job.id, { lines: LINES })).toEqual({
+      applied: true,
+    });
+    expect(
+      (await prisma.trackKaraokeVersion.findUnique({
+        where: { id: version.id },
+      }))!.lines,
+    ).toBe(JSON.stringify(LINES));
+  });
+
+  test("no-ops without mutating when the version is already ready", async () => {
+    const { version, job } = await makeJob("processing");
+    await prisma.trackKaraokeVersion.update({
+      where: { id: version.id },
+      data: { status: "ready" },
+    });
+    expect(
+      await completeGenerationJob(job.id, { lines: LINES, text: "new" }),
+    ).toEqual({ applied: false });
+    expect(
+      await prisma.trackKaraokeVersion.findUnique({ where: { id: version.id } }),
+    ).toMatchObject({ lines: "[]", lyricsText: "x", status: "ready" });
+  });
+});
 
 describe("dispatchGeneration", () => {
   test("stub returns a providerJobId and marks the job dispatched", async () => {

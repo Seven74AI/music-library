@@ -30,8 +30,12 @@ export async function action({ request }: ActionFunctionArgs) {
     return jsonError("Karaoke generation is disabled", 503);
   }
   const form = await request.formData();
+  // A MISSING `text` keeps the source text; an EXPLICIT empty `text` forces a
+  // fresh transcription (null text to the pipeline).
   const parsed = ReAlignSchema.safeParse(
-    Object.fromEntries([...form.entries()].filter(([, v]) => v !== "")),
+    Object.fromEntries(
+      [...form.entries()].filter(([k, v]) => k === "text" || v !== ""),
+    ),
   );
   if (!parsed.success) {
     return data(
@@ -48,8 +52,8 @@ export async function action({ request }: ActionFunctionArgs) {
   if (blocked) return blocked;
 
   const text = parsed.data.text ?? source.lyricsText;
-  const { version, job } = await prisma.$transaction(async (tx) => {
-    const version = await tx.trackKaraokeVersion.create({
+  const { created, job } = await prisma.$transaction(async (tx) => {
+    const draft = await tx.trackKaraokeVersion.create({
       data: {
         trackId: source.trackId,
         language: source.language,
@@ -61,26 +65,26 @@ export async function action({ request }: ActionFunctionArgs) {
         createdBy: userId,
       },
     });
-    const job = await tx.karaokeGenerationJob.create({
-      data: { versionId: version.id, status: "pending" },
+    const newJob = await tx.karaokeGenerationJob.create({
+      data: { versionId: draft.id, status: "pending" },
     });
-    return { version, job };
+    return { created: draft, job: newJob };
   });
 
   try {
     await dispatchGeneration(
       job.id,
       {
-        id: version.id,
-        trackId: version.trackId,
-        videoFileId: version.videoFileId,
+        id: created.id,
+        trackId: created.trackId,
+        videoFileId: created.videoFileId,
       },
-      version.language,
+      created.language,
       // No text to align → let the pipeline transcribe.
       text.trim() ? text : null,
     );
   } catch (error) {
     await recordJobError(job.id, error, error instanceof KaraokeConfigError);
   }
-  return data({ success: true, versionId: version.id, jobId: job.id });
+  return data({ success: true, versionId: created.id, jobId: job.id });
 }

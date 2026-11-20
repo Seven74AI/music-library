@@ -16,6 +16,12 @@ export async function completeGenerationJob(
       where: { id: jobId },
     });
     if (!job || job.status === "completed") return { applied: false };
+    // Versions are immutable once published: only a draft may be written.
+    const version = await tx.trackKaraokeVersion.findUnique({
+      where: { id: job.versionId },
+      select: { status: true },
+    });
+    if (version?.status !== "draft") return { applied: false };
     await tx.trackKaraokeVersion.update({
       where: { id: job.versionId },
       data: {

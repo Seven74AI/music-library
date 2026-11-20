@@ -417,4 +417,74 @@ describe("versions loader", () => {
     });
     expect(res.body.versions[0]).not.toHaveProperty("lines");
   });
+
+  test("404 for an unknown trackId", async () => {
+    const { cookie } = await createCookie();
+    const res = await unwrap(
+      await versionsLoader({
+        request: new Request("http://localhost/x?trackId=nope", {
+          headers: { cookie },
+        }),
+        params: {},
+        context: {},
+      } as never),
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("publish with generation jobs", () => {
+  test.each(["pending", "dispatched", "processing", "failed"])(
+    "mark-ready and restore reject a version whose job is %s",
+    async (status) => {
+      const { cookie } = await createCookie();
+      const track = await createTrack("T");
+      const v = await seedVersion(track.id, { lines: "[]" });
+      await prisma.karaokeGenerationJob.create({
+        data: { versionId: v.id, status },
+      });
+      for (const fn of [markReady, restore]) {
+        const res = await unwrap(await post(fn, cookie, { versionId: v.id }));
+        expect(res.status).toBe(409);
+        expect(res.body.success).toBe(false);
+      }
+      expect(
+        (await prisma.trackKaraokeVersion.findUnique({ where: { id: v.id } }))!
+          .status,
+      ).toBe("draft");
+      expect(
+        await prisma.trackKaraoke.findUnique({ where: { trackId: track.id } }),
+      ).toBeNull();
+    },
+  );
+
+  test("mark-ready succeeds for a completed job", async () => {
+    const { cookie } = await createCookie();
+    const track = await createTrack("T");
+    const v = await seedVersion(track.id);
+    await prisma.karaokeGenerationJob.create({
+      data: { versionId: v.id, status: "completed" },
+    });
+    const res = await unwrap(
+      await post(markReady, cookie, { versionId: v.id }),
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("re-align explicit empty text", () => {
+  test("empty text yields empty lyricsText (transcribe path)", async () => {
+    const { cookie } = await createCookie();
+    const track = await createTrack("T");
+    const source = await seedVersion(track.id);
+    const res = await unwrap(
+      await post(reAlign, cookie, { versionId: source.id, text: "" }),
+    );
+    expect(res.status).toBe(200);
+    expect(
+      (await prisma.trackKaraokeVersion.findUnique({
+        where: { id: res.body.versionId },
+      }))!.lyricsText,
+    ).toBe("");
+  });
 });
