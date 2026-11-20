@@ -156,6 +156,41 @@ describe("RoomSpeakerBridge", () => {
     expect(transport).toHaveBeenCalledWith({ action: "pause" });
   });
 
+  it("host shows the karaoke overlay only for a ready-karaoke current track", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ versionId: "v1", lines: [[{ word: "Hi", start: 0, end: 1 }]] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const plain = roomFixture({ meId: "host-1", isPlaying: true });
+      mockParty = { room: plain, transport };
+      const first = renderBridge();
+      expect(screen.queryByTestId("karaoke-overlay")).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+      first.unmount();
+
+      const karaoke = roomFixture({ meId: "host-1", isPlaying: true });
+      (karaoke.queue[0]!.track as { karaoke: unknown }).karaoke = {
+        hasReady: true,
+        versionId: "v1",
+      };
+      mockParty = { room: karaoke, transport };
+      renderBridge();
+      await waitFor(() => expect(screen.getByTestId("karaoke-overlay")).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledWith("/resources/rooms/karaoke/track-q0", expect.anything());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not render the karaoke overlay for non-host participants", () => {
+    const karaoke = roomFixture({ meId: "listener-1", isPlaying: true });
+    (karaoke.queue[0]!.track as { karaoke: unknown }).karaoke = { hasReady: true, versionId: "v1" };
+    mockParty = { room: karaoke, transport };
+    renderBridge();
+    expect(screen.queryByTestId("karaoke-overlay")).toBeNull();
+  });
+
   it("does not pause the room when audio actually starts", async () => {
     mockParty = { room: roomFixture({ meId: "host-1", isPlaying: true }), transport };
     renderBridge();

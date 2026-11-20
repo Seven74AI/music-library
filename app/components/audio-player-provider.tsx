@@ -163,6 +163,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     | ((action: Extract<RoomTransportAction, { action: "play" } | { action: "pause" }>) => void)
     | null
   >(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const persistenceSuspendedRef = useRef(false);
   // Explicit personal restore may run while persistence is still suspended so
   // the room queue cannot be written as PlayerState on the way out.
@@ -1905,6 +1906,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       subscribeRoomAutoplay,
       roomSpeaker,
       roomTransportRef,
+      audioElementRef,
     }),
     [
       currentTrack,
@@ -1957,6 +1959,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
       subscribeRoomAutoplay,
       roomSpeaker,
       roomTransportRef,
+      audioElementRef,
     ],
   );
 
@@ -2444,6 +2447,7 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
         roomPlaying={roomPlaying}
         roomPlaybackTick={roomPlaybackTick}
         roomTransportRef={roomTransportRef}
+        audioElementRef={audioElementRef}
         onRoomAutoplayOutcome={notifyRoomAutoplayOutcome}
         onPlayingChange={setIsPlaying}
         audioSrcOverride={

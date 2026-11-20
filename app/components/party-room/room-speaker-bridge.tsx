@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { roomStateAfterAutoplay } from "#app/components/audio-player-room-playback.ts";
 import { useAudioPlayer } from "#app/components/audio-player-provider";
+import { KaraokeOverlay } from "#app/components/party-room/karaoke-overlay.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
 import { isCurrentHost, splitRoomQueue } from "#app/features/party-room/index.ts";
 import { useOptionalPartyRoom } from "#app/features/party-room/party-room-provider.tsx";
@@ -152,7 +153,18 @@ export function RoomSpeakerBridge() {
     );
   }
 
-  return null;
+  // Host: karaoke overlay only when the current track has a ready version;
+  // otherwise the existing audio-only player bar is all that shows.
+  const hostNowPlaying = splitRoomQueue(room).nowPlaying;
+  if (!hostNowPlaying) return null;
+  return (
+    <KaraokeOverlay
+      trackId={hostNowPlaying.track.id}
+      startKey={roomPlayAttemptKey(room)}
+      hasReady={hostNowPlaying.track.karaoke?.hasReady === true}
+      getAudioElement={() => audio.audioElementRef?.current ?? null}
+    />
+  );
 }
 
 function roomPlayAttemptKey(room: RoomSnapshot): string {

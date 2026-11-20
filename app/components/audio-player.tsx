@@ -90,6 +90,8 @@ interface AudioPlayerProps {
    * leave the room paused without the personal toast/dialog stack.
    */
   onRoomAutoplayOutcome?: (outcome: RoomAutoplayOutcome) => void;
+  /** Mirrors the `<audio>` element for read-only clock access (karaoke overlay). */
+  audioElementRef?: React.MutableRefObject<HTMLAudioElement | null>;
   /** Prefer this audio URL (e.g. speaker grant) over personal /resources/audio. */
   audioSrcOverride?: string;
   /**
@@ -154,10 +156,19 @@ export function AudioPlayer(props: AudioPlayerProps) {
     roomPlaybackTick = 0,
     roomTransportRef,
     onRoomAutoplayOutcome,
+    audioElementRef,
     audioSrcOverride,
     onPlayingChange,
   } = props;
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // The element remounts when visibility toggles; keep the exposed ref current.
+  const setAudioNode = useCallback(
+    (node: HTMLAudioElement | null) => {
+      audioRef.current = node;
+      if (audioElementRef) audioElementRef.current = node;
+    },
+    [audioElementRef],
+  );
   const chromeRef = useRef<HTMLDivElement>(null);
   usePublishToastBottomOffset(chromeRef, isVisible, track?.id ?? "queue");
   const [isPlaying, setIsPlaying] = useState(false);
@@ -924,7 +935,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
   // Always mounted so the element's user-gesture lock can be unlocked on the
   // first interaction, before any track is loaded.
   const audioElement = (
-    <audio ref={audioRef} src={audioSrc} loop={loopMode === "one"} preload="auto" />
+    <audio ref={setAudioNode} src={audioSrc} loop={loopMode === "one"} preload="auto" />
   );
 
   if (!isVisible) {

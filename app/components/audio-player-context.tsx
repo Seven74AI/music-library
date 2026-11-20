@@ -106,6 +106,12 @@ export interface AudioPlayerContextType {
     | ((action: Extract<RoomTransportAction, { action: "play" } | { action: "pause" }>) => void)
     | null
   >;
+  /**
+   * The player's single `<audio>` element (the playback clock). Read-only use:
+   * the karaoke overlay polls `currentTime` on rAF; nothing may control playback
+   * through this ref.
+   */
+  audioElementRef: React.MutableRefObject<HTMLAudioElement | null>;
 }
 
 export const AudioPlayerContext = createContext<AudioPlayerContextType | undefined>(undefined);
