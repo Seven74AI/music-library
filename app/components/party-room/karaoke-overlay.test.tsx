@@ -75,8 +75,48 @@ describe("KaraokeOverlay", () => {
     expect(fetchMock).toHaveBeenCalledWith("/resources/rooms/karaoke/t1", expect.anything());
     const video = screen.getByTestId("karaoke-video") as HTMLVideoElement;
     expect(video.muted).toBe(true);
-    expect(video.getAttribute("src")).toBe("/resources/rooms/video/t1");
+    // Pinned to the version the lyrics came from.
+    expect(video.getAttribute("src")).toBe("/resources/rooms/video/t1?v=v1");
     expect(video.playsInline).toBe(true);
+  });
+
+  it("does not refetch or hide when hasReady toggles mid-song", async () => {
+    const getAudio = () => audio as unknown as HTMLAudioElement;
+    const { rerender } = render(
+      <KaraokeOverlay trackId="t1" startKey="k" hasReady getAudioElement={getAudio} />,
+    );
+    await waitFor(() => expect(screen.getByTestId("karaoke-overlay")).toBeInTheDocument());
+    rerender(
+      <KaraokeOverlay trackId="t1" startKey="k" hasReady={false} getAudioElement={getAudio} />,
+    );
+    expect(screen.getByTestId("karaoke-overlay")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("hide-lyrics button dismisses the overlay; a new track start brings it back", async () => {
+    const getAudio = () => audio as unknown as HTMLAudioElement;
+    const { rerender } = render(
+      <KaraokeOverlay trackId="t1" startKey="k1" hasReady getAudioElement={getAudio} />,
+    );
+    await waitFor(() => expect(screen.getByTestId("karaoke-overlay")).toBeInTheDocument());
+    act(() => screen.getByTestId("karaoke-hide").click());
+    expect(screen.queryByTestId("karaoke-overlay")).toBeNull();
+    rerender(<KaraokeOverlay trackId="t2" startKey="k2" hasReady getAudioElement={getAudio} />);
+    await waitFor(() => expect(screen.getByTestId("karaoke-overlay")).toBeInTheDocument());
+  });
+
+  it("stops seeking and calling play() once the video has ended", async () => {
+    renderOverlay();
+    await waitFor(() => expect(screen.getByTestId("karaoke-overlay")).toBeInTheDocument());
+    const video = screen.getByTestId("karaoke-video") as HTMLVideoElement;
+    Object.defineProperty(video, "ended", { value: true, configurable: true });
+    Object.defineProperty(video, "paused", { value: true, configurable: true });
+    const playSpy = vi.mocked(HTMLMediaElement.prototype.play);
+    playSpy.mockClear();
+    audio.currentTime = 30;
+    tick();
+    expect(playSpy).not.toHaveBeenCalled();
+    expect(video.currentTime).toBe(0);
   });
 
   it("shows current + next two lines and advances the word highlight with the audio clock", async () => {

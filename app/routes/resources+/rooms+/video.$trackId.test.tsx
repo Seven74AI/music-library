@@ -130,9 +130,9 @@ async function makeTrack(opts: {
   return { ...track, room };
 }
 
-function call(trackId: string, headers: Record<string, string> = {}) {
+function call(trackId: string, headers: Record<string, string> = {}, query = "") {
   return loader({
-    request: new Request(`https://localhost/resources/rooms/video/${trackId}`, {
+    request: new Request(`https://localhost/resources/rooms/video/${trackId}${query}`, {
       headers,
     }),
     params: { trackId },
@@ -197,4 +197,56 @@ test("404 when ready version has no video", async () => {
 test("404 when track has no karaoke", async () => {
   const track = await makeTrack({ karaoke: false });
   await expect(call(track.id)).rejects.toMatchObject({ status: 404 });
+});
+
+test("?v pins the video to that version across a repoint; 404s once it is no longer ready", async () => {
+  const track = await makeTrack({});
+  const karaoke = await prisma.trackKaraoke.findUniqueOrThrow({
+    where: { trackId: track.id },
+  });
+  const oldId = karaoke.currentVersionId!;
+  // A TrackVideoFile is unique per track, so the repoint target is a ready
+  // version without a video: unpinned requests now 404, pinned ones still serve.
+  const newVersion = await prisma.trackKaraokeVersion.create({
+    data: {
+      trackId: track.id,
+      language: "en",
+      source: "paste",
+      lyricsText: "y",
+      lines: "[]",
+      status: "ready",
+    },
+  });
+  await prisma.trackKaraoke.update({
+    where: { trackId: track.id },
+    data: { currentVersionId: newVersion.id },
+  });
+
+  const { getStorageObjectStream } = await import("#app/utils/storage.server.ts");
+  vi.mocked(getStorageObjectStream).mockClear();
+  const pinned = await call(track.id, {}, `?v=${oldId}`);
+  expect(pinned.status).toBe(200);
+  expect(vi.mocked(getStorageObjectStream).mock.calls[0]?.[0]).toBe(
+    `video/tracks/remote/${track.id}.mp4`,
+  );
+
+  // No ?v → current (repointed) version, which has no video.
+  await expect(call(track.id)).rejects.toMatchObject({ status: 404 });
+
+  await prisma.trackKaraokeVersion.update({
+    where: { id: oldId },
+    data: { status: "draft" },
+  });
+  await expect(call(track.id, {}, `?v=${oldId}`)).rejects.toMatchObject({ status: 404 });
+});
+
+test("?v of a version from another track is a 404", async () => {
+  const other = await makeTrack({});
+  const otherKaraoke = await prisma.trackKaraoke.findUniqueOrThrow({
+    where: { trackId: other.id },
+  });
+  const track = await makeTrack({}); // last makeTrack leaves its host as the actor
+  await expect(call(track.id, {}, `?v=${otherKaraoke.currentVersionId}`)).rejects.toMatchObject({
+    status: 404,
+  });
 });

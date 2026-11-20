@@ -37,15 +37,20 @@ export function KaraokeOverlay({
 }) {
   const [snapshot, setSnapshot] = useState<KaraokeSnapshot | null>(null);
   const [view, setView] = useState<KaraokeView | null>(null);
+  const [dismissed, setDismissed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const getAudioElementRef = useRef(getAudioElement);
   getAudioElementRef.current = getAudioElement;
+  // Read at track start only: a mid-song `hasReady` change must not refetch or hide.
+  const hasReadyRef = useRef(hasReady);
+  hasReadyRef.current = hasReady;
 
-  // One snapshot per track start.
+  // One snapshot per track start (`startKey` pins track + version).
   useEffect(() => {
     setSnapshot(null);
     setView(null);
-    if (!hasReady) return;
+    setDismissed(false);
+    if (!hasReadyRef.current) return;
     const controller = new AbortController();
     void (async () => {
       try {
@@ -54,19 +59,21 @@ export function KaraokeOverlay({
           signal: controller.signal,
         });
         if (!response.ok) return;
-        const data = (await response.json()) as { lines?: KaraokeLines };
+        const data = (await response.json()) as { versionId?: string; lines?: KaraokeLines };
         if (controller.signal.aborted || !Array.isArray(data.lines)) return;
-        setSnapshot({
-          trackId,
-          lines: data.lines,
-          videoSrc: `/resources/rooms/video/${trackId}`,
-        });
+        // Pin the video to the same version the lyrics came from.
+        const videoSrc = data.versionId
+          ? `/resources/rooms/video/${trackId}?v=${encodeURIComponent(data.versionId)}`
+          : `/resources/rooms/video/${trackId}`;
+        setSnapshot({ trackId, lines: data.lines, videoSrc });
       } catch {
         // Fall back to the audio-only player bar.
       }
     })();
     return () => controller.abort();
-  }, [trackId, startKey, hasReady]);
+    // `startKey` is a deliberate re-run trigger (new track start / skip / failover).
+    // eslint-disable-next-line react/exhaustive-effect-dependencies, react-hooks/exhaustive-deps
+  }, [trackId, startKey]);
 
   // rAF loop over the audio element's currentTime.
   useEffect(() => {
@@ -91,7 +98,7 @@ export function KaraokeOverlay({
     return () => cancelAnimationFrame(frame);
   }, [snapshot]);
 
-  if (!hasReady || !snapshot) return null;
+  if (!snapshot || dismissed) return null;
 
   const lines = snapshot.lines;
   return (
@@ -100,6 +107,16 @@ export function KaraokeOverlay({
       // Below the player chrome (z-50) so the host keeps play/pause/skip.
       className="fixed inset-0 z-40 bg-black"
     >
+      <button
+        type="button"
+        data-testid="karaoke-hide"
+        aria-label="Hide lyrics"
+        title="Hide lyrics"
+        onClick={() => setDismissed(true)}
+        className="absolute top-4 right-4 z-10 rounded-full bg-black/60 px-3 py-1 text-sm text-white hover:bg-black/80"
+      >
+        ✕ Hide lyrics
+      </button>
       <video
         ref={videoRef}
         data-testid="karaoke-video"
@@ -133,6 +150,8 @@ export function KaraokeOverlay({
                       : "upcoming";
                 return (
                   <span
+                    // Index key is safe: words come from a fixed snapshot and never reorder.
+                    // eslint-disable-next-line react/no-array-index-key
                     key={i}
                     data-word-state={state}
                     className={cn(
@@ -157,6 +176,11 @@ export function KaraokeOverlay({
 /** Keep the muted video following the audio clock; never touches the audio. */
 function syncVideo(video: HTMLVideoElement | null, audio: HTMLAudioElement, t: number) {
   if (!video) return;
+  // Video shorter than the audio: hold the last frame; re-seeking/play() would restart it.
+  if (video.ended || (Number.isFinite(video.duration) && t >= video.duration)) {
+    if (!video.paused) video.pause();
+    return;
+  }
   if (Math.abs(video.currentTime - t) > VIDEO_DRIFT_SECONDS) {
     try {
       video.currentTime = t;

@@ -23,18 +23,26 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const actor = await resolveActor(request);
     await assertRoomSpeakerTrackAccess(actor, trackId);
 
-    const karaoke = await prisma.trackKaraoke.findUnique({
-      where: { trackId },
-      select: {
-        currentVersion: {
-          select: {
-            status: true,
-            videoFile: { select: { objectKey: true, mimeType: true } },
-          },
-        },
-      },
-    });
-    const version = karaoke?.currentVersion;
+    // `?v=<versionId>` pins the video to the version the overlay snapshotted
+    // its lyrics from, so a mid-song repoint cannot mix lyrics and video.
+    const pinnedVersionId = new URL(request.url).searchParams.get("v");
+    const versionSelect = {
+      status: true,
+      videoFile: { select: { objectKey: true, mimeType: true } },
+    } as const;
+    let version;
+    if (pinnedVersionId) {
+      version = await prisma.trackKaraokeVersion.findFirst({
+        where: { id: pinnedVersionId, trackId },
+        select: versionSelect,
+      });
+    } else {
+      const karaoke = await prisma.trackKaraoke.findUnique({
+        where: { trackId },
+        select: { currentVersion: { select: versionSelect } },
+      });
+      version = karaoke?.currentVersion;
+    }
     const video = version?.status === "ready" ? version.videoFile : null;
     if (!video?.objectKey) {
       throw new Response("No karaoke video available for this track", {

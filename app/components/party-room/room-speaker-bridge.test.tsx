@@ -191,6 +191,20 @@ describe("RoomSpeakerBridge", () => {
     expect(screen.queryByTestId("karaoke-overlay")).toBeNull();
   });
 
+  it("guest bar shows a sing-along hint only when the current track has ready karaoke", () => {
+    const plain = roomFixture({ meId: "listener-1", isPlaying: true });
+    mockParty = { room: plain, transport };
+    const first = renderBridge();
+    expect(screen.queryByTestId("room-karaoke-hint")).toBeNull();
+    first.unmount();
+
+    const karaoke = roomFixture({ meId: "listener-1", isPlaying: true });
+    (karaoke.queue[0]!.track as { karaoke: unknown }).karaoke = { hasReady: true, versionId: "v1" };
+    mockParty = { room: karaoke, transport };
+    renderBridge();
+    expect(screen.getByTestId("room-karaoke-hint")).toHaveTextContent("Karaoke — sing along!");
+  });
+
   it("does not pause the room when audio actually starts", async () => {
     mockParty = { room: roomFixture({ meId: "host-1", isPlaying: true }), transport };
     renderBridge();
