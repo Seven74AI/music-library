@@ -142,7 +142,7 @@ export async function loadEditorVersion(
   };
 }
 
-export const PublishVersionSchema =z.object({ versionId: z.string().min(1) });
+export const PublishVersionSchema = z.object({ versionId: z.string().min(1) });
 
 /** Shared body of the `mark-ready` and `restore` actions (identical semantics). */
 export async function publishVersionAction(request: Request) {

@@ -5,7 +5,8 @@ import { Input } from "#app/components/ui/input.tsx";
 import { Label } from "#app/components/ui/label.tsx";
 import { Textarea } from "#app/components/ui/textarea.tsx";
 
-export type KaraokeTextSource = "paste" | "track-lyrics" | "whisper" | "az-genius";
+export type KaraokeTextSource =
+  "paste" | "track-lyrics" | "whisper" | "az-genius";
 type Language = "en" | "fr";
 
 export type CreateKaraokeTrack = {
@@ -43,7 +44,8 @@ function errorMessage(json: any, fallback: string): string {
   const fieldErrors = json?.errors;
   if (fieldErrors && typeof fieldErrors === "object") {
     const parts = Object.entries(fieldErrors).map(
-      ([field, msgs]) => field + ": " + (Array.isArray(msgs) ? msgs.join(", ") : String(msgs)),
+      ([field, msgs]) =>
+        field + ": " + (Array.isArray(msgs) ? msgs.join(", ") : String(msgs)),
     );
     if (parts.length) return parts.join("; ");
   }
@@ -86,7 +88,8 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
     form.set("videoFile", file);
     const { ok, json } = await postJson("/api/upload-video", form);
     setBusy(null);
-    if (ok && json?.videoFile?.id) setVideo({ id: json.videoFile.id, label: file.name });
+    if (ok && json?.videoFile?.id)
+      setVideo({ id: json.videoFile.id, label: file.name });
     else setError(errorMessage(json, "Video upload failed"));
   }
 
@@ -98,7 +101,8 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
       new URLSearchParams({ trackId: track.id, url: youtubeUrl.trim() }),
     );
     setBusy(null);
-    if (ok && json?.videoFile?.id) setVideo({ id: json.videoFile.id, label: "YouTube" });
+    if (ok && json?.videoFile?.id)
+      setVideo({ id: json.videoFile.id, label: "YouTube" });
     else setError(errorMessage(json, "Could not attach YouTube video"));
   }
 
@@ -106,7 +110,11 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
     if (!textSource) return;
     setError(null);
     setBusy("submit");
-    const params = new URLSearchParams({ trackId: track.id, language, textSource });
+    const params = new URLSearchParams({
+      trackId: track.id,
+      language,
+      textSource,
+    });
     if (textSource !== "whisper") params.set("text", text);
     if (video) params.set("videoFileId", video.id);
     const { ok, json } = await postJson("/resources/karaoke/create", params);
@@ -120,10 +128,17 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
       <div className="space-y-2" role="status">
         <p className="font-medium">Generating draft…</p>
         <p className="text-muted-foreground text-sm">
-          Word timings are being generated for “{track.title}”. The draft will not be playable until
-          it is marked ready.
+          Word timings are being generated for “{track.title}”. The draft will
+          not be playable until it is marked ready.
         </p>
-        <Link className="text-sm underline" to={`/library/${track.id}`} data-version-id={versionId}>
+        <Link
+          className="text-sm underline"
+          to={`/library/${track.id}/karaoke/${versionId}`}
+          data-version-id={versionId}
+        >
+          Open karaoke editor
+        </Link>{" "}
+        <Link className="text-sm underline" to={`/library/${track.id}`}>
           Back to track
         </Link>
       </div>
@@ -131,7 +146,10 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
   }
 
   const needsText = textSource !== null && textSource !== "whisper";
-  const canSubmit = textSource !== null && busy === null && (!needsText || text.trim().length > 0);
+  const canSubmit =
+    textSource !== null &&
+    busy === null &&
+    (!needsText || text.trim().length > 0);
 
   return (
     <form
@@ -148,7 +166,10 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">Language</legend>
         {(["en", "fr"] as const).map((value) => (
-          <label key={value} className="mr-4 inline-flex items-center gap-2 text-sm">
+          <label
+            key={value}
+            className="mr-4 inline-flex items-center gap-2 text-sm"
+          >
             <input
               type="radio"
               name="language"
@@ -171,7 +192,8 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
               variant={textSource === value ? "default" : "outline"}
               aria-pressed={textSource === value}
               disabled={
-                (value === "track-lyrics" && !track.lyrics?.trim()) || busy === "lyrics"
+                (value === "track-lyrics" && !track.lyrics?.trim()) ||
+                busy === "lyrics"
               }
               onClick={() => void chooseSource(value)}
             >
@@ -233,7 +255,9 @@ export function CreateKaraokeForm({ track }: { track: CreateKaraokeTrack }) {
           </div>
         </div>
         {busy === "video" ? <p className="text-sm">Processing video…</p> : null}
-        {video ? <p className="text-sm">Video attached: {video.label}</p> : null}
+        {video ? (
+          <p className="text-sm">Video attached: {video.label}</p>
+        ) : null}
       </div>
 
       {error ? (

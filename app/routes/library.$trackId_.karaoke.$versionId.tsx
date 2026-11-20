@@ -76,7 +76,7 @@ export default function KaraokeEditorRoute({ loaderData }: Route.ComponentProps)
         </h1>
       </div>
       <KaraokeEditor
-        key={version.id}
+        key={`${version.id}:${version.jobStatus}`}
         trackId={track.id}
         version={version}
         versions={versions}

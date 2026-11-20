@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Button } from "#app/components/ui/button.tsx";
 import { Label } from "#app/components/ui/label.tsx";
 import { Textarea } from "#app/components/ui/textarea.tsx";
+import { resolveTrackPlaybackSource } from "#app/features/offline-storage/resolve-playback-url.client.ts";
 import { selectKaraokeView } from "#app/features/track-video/karaoke-active.ts";
 import {
   addLine,
@@ -45,7 +46,7 @@ export type KaraokeVersionSummary = {
 
 const NUDGE = 0.05;
 
-/** Number input that tolerates intermediate text ("4.") while typing. */
+/** Number input that commits on blur / Enter and re-syncs from props. */
 function TimeInput({
   label,
   value,
@@ -56,10 +57,18 @@ function TimeInput({
   onCommit: (n: number) => void;
 }) {
   const [text, setText] = useState(String(value));
+  // Re-sync the displayed value whenever the stored value changes.
   useEffect(() => {
-    if (Number.parseFloat(text) !== value) setText(String(value));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync on external change
+    setText(String(value));
   }, [value]);
+  const commit = () => {
+    const n = Number.parseFloat(text);
+    if (Number.isFinite(n)) {
+      if (n !== value) onCommit(n);
+    } else {
+      setText(String(value));
+    }
+  };
   return (
     <input
       aria-label={label}
@@ -68,10 +77,13 @@ function TimeInput({
       min="0"
       className="border-input bg-background w-20 rounded border px-1 py-0.5 text-sm"
       value={text}
-      onChange={(e) => {
-        setText(e.target.value);
-        const n = Number.parseFloat(e.target.value);
-        if (Number.isFinite(n)) onCommit(n);
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        }
       }}
     />
   );
@@ -134,6 +146,29 @@ export function KaraokeEditor({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [playhead, setPlayhead] = useState<number | null>(null);
+  const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAudioSrc(null);
+    setAudioError(null);
+    resolveTrackPlaybackSource(trackId)
+      .then((url) => {
+        if (cancelled) return;
+        if (url) setAudioSrc(url);
+        else
+          setAudioError(
+            "Could not load audio for preview. You may not have access to this track's audio.",
+          );
+      })
+      .catch(() => {
+        if (!cancelled) setAudioError("Could not load audio for preview.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trackId]);
 
   const generating =
     version.jobStatus !== null &&
@@ -172,7 +207,11 @@ export function KaraokeEditor({
     }
     void run(
       "/resources/karaoke/save-edit",
-      { versionId: version.id, text: linesToText(lines), lines: JSON.stringify(lines) },
+      {
+        versionId: version.id,
+        text: linesToText(lines),
+        lines: JSON.stringify(lines),
+      },
       "Could not save",
       (json) => navigate(versionPath(json.versionId)),
     );
@@ -184,7 +223,8 @@ export function KaraokeEditor({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm">
-          Version {version.id} · {version.status} · {version.language} · {version.source}
+          Version {version.id} · {version.status} · {version.language} ·{" "}
+          {version.source}
         </span>
         <Button type="button" disabled={busy || generating} onClick={save}>
           Save
@@ -192,7 +232,7 @@ export function KaraokeEditor({
         <Button
           type="button"
           variant="secondary"
-          disabled={busy || generating || dirty}
+          disabled={busy || generating || dirty || lines.length === 0}
           title={dirty ? "Save your changes first" : undefined}
           onClick={() =>
             void run(
@@ -233,16 +273,30 @@ export function KaraokeEditor({
 
       <section aria-label="Preview" className="space-y-2">
         <h2 className="text-lg font-medium">Preview</h2>
+        {audioError ? (
+          <p role="alert" className="text-destructive text-sm">
+            {audioError}
+          </p>
+        ) : null}
         <audio
           controls
-          src={`/resources/audio/${trackId}`}
+          src={audioSrc ?? undefined}
           className="w-full"
           onTimeUpdate={(e) => setPlayhead(e.currentTarget.currentTime)}
+          onError={() => {
+            if (audioSrc)
+              setAudioError(
+                "Audio failed to load. You may not have access to it.",
+              );
+          }}
         />
         {view && view.visible.length > 0 ? (
           <div data-testid="preview-lines" className="space-y-1 text-lg">
             {view.visible.map(({ index, state }) => (
-              <p key={index} className={state === "current" ? "font-semibold" : "opacity-60"}>
+              <p
+                key={index}
+                className={state === "current" ? "font-semibold" : "opacity-60"}
+              >
                 {lines[index]!.map((w, wi) => (
                   <span
                     key={wi}
@@ -273,11 +327,17 @@ export function KaraokeEditor({
               <div key={l} className="rounded border p-2">
                 <div className="mb-2 flex items-center gap-2 text-sm">
                   <span className="font-medium">Line {n}</span>
-                  <IconButton label={`Add line after ${n}`} onClick={() => apply(addLine(lines, l))}>
+                  <IconButton
+                    label={`Add line after ${n}`}
+                    onClick={() => apply(addLine(lines, l))}
+                  >
                     + line
                   </IconButton>
                   {line.length === 0 ? (
-                    <IconButton label={`Remove line ${n}`} onClick={() => apply(removeLine(lines, l))}>
+                    <IconButton
+                      label={`Remove line ${n}`}
+                      onClick={() => apply(removeLine(lines, l))}
+                    >
                       Remove line
                     </IconButton>
                   ) : null}
@@ -291,39 +351,73 @@ export function KaraokeEditor({
                           aria-label={`Word ${id}`}
                           className="border-input bg-background w-full rounded border px-1 py-0.5 text-sm font-medium"
                           value={word.word}
-                          onChange={(e) => apply(editWordText(lines, l, w, e.target.value))}
+                          onChange={(e) =>
+                            apply(editWordText(lines, l, w, e.target.value))
+                          }
                         />
                         <div className="flex items-center gap-1">
-                          <IconButton label={`Start earlier ${id}`} onClick={() => apply(nudgeWord(lines, l, w, "start", -NUDGE))}>
+                          <IconButton
+                            label={`Start earlier ${id}`}
+                            onClick={() =>
+                              apply(nudgeWord(lines, l, w, "start", -NUDGE))
+                            }
+                          >
                             ◂
                           </IconButton>
                           <TimeInput
                             label={`Start ${id}`}
                             value={word.start}
-                            onCommit={(v) => apply(setWordTime(lines, l, w, "start", v))}
+                            onCommit={(v) =>
+                              apply(setWordTime(lines, l, w, "start", v))
+                            }
                           />
-                          <IconButton label={`Start later ${id}`} onClick={() => apply(nudgeWord(lines, l, w, "start", NUDGE))}>
+                          <IconButton
+                            label={`Start later ${id}`}
+                            onClick={() =>
+                              apply(nudgeWord(lines, l, w, "start", NUDGE))
+                            }
+                          >
                             ▸
                           </IconButton>
                         </div>
                         <div className="flex items-center gap-1">
-                          <IconButton label={`End earlier ${id}`} onClick={() => apply(nudgeWord(lines, l, w, "end", -NUDGE))}>
+                          <IconButton
+                            label={`End earlier ${id}`}
+                            onClick={() =>
+                              apply(nudgeWord(lines, l, w, "end", -NUDGE))
+                            }
+                          >
                             ◂
                           </IconButton>
                           <TimeInput
                             label={`End ${id}`}
                             value={word.end}
-                            onCommit={(v) => apply(setWordTime(lines, l, w, "end", v))}
+                            onCommit={(v) =>
+                              apply(setWordTime(lines, l, w, "end", v))
+                            }
                           />
-                          <IconButton label={`End later ${id}`} onClick={() => apply(nudgeWord(lines, l, w, "end", NUDGE))}>
+                          <IconButton
+                            label={`End later ${id}`}
+                            onClick={() =>
+                              apply(nudgeWord(lines, l, w, "end", NUDGE))
+                            }
+                          >
                             ▸
                           </IconButton>
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          <IconButton label={`Add word before ${id}`} onClick={() => apply(addWord(lines, l, w, "before"))}>
+                          <IconButton
+                            label={`Add word before ${id}`}
+                            onClick={() =>
+                              apply(addWord(lines, l, w, "before"))
+                            }
+                          >
                             +←
                           </IconButton>
-                          <IconButton label={`Add word after ${id}`} onClick={() => apply(addWord(lines, l, w, "after"))}>
+                          <IconButton
+                            label={`Add word after ${id}`}
+                            onClick={() => apply(addWord(lines, l, w, "after"))}
+                          >
                             +→
                           </IconButton>
                           <IconButton
@@ -333,7 +427,10 @@ export function KaraokeEditor({
                           >
                             Merge
                           </IconButton>
-                          <IconButton label={`Delete word ${id}`} onClick={() => apply(deleteWord(lines, l, w))}>
+                          <IconButton
+                            label={`Delete word ${id}`}
+                            onClick={() => apply(deleteWord(lines, l, w))}
+                          >
                             Del
                           </IconButton>
                           <IconButton
@@ -346,14 +443,20 @@ export function KaraokeEditor({
                           <IconButton
                             label={`Move to previous line ${id}`}
                             disabled={w !== 0 || l === 0}
-                            onClick={() => apply(moveWordToLine(lines, l, w, "prev"))}
+                            onClick={() =>
+                              apply(moveWordToLine(lines, l, w, "prev"))
+                            }
                           >
                             ↑
                           </IconButton>
                           <IconButton
                             label={`Move to next line ${id}`}
-                            disabled={w !== line.length - 1 || l === lines.length - 1}
-                            onClick={() => apply(moveWordToLine(lines, l, w, "next"))}
+                            disabled={
+                              w !== line.length - 1 || l === lines.length - 1
+                            }
+                            onClick={() =>
+                              apply(moveWordToLine(lines, l, w, "next"))
+                            }
                           >
                             ↓
                           </IconButton>
@@ -371,7 +474,8 @@ export function KaraokeEditor({
       <section aria-label="Re-align" className="space-y-2">
         <h2 className="text-lg font-medium">Re-align</h2>
         <p className="text-muted-foreground text-sm">
-          Regenerates all word timings from the text below as a new draft. Edits above are not carried over.
+          Regenerates all word timings from the text below as a new draft. Edits
+          above are not carried over.
         </p>
         <Label htmlFor="karaoke-realign-text">Lyrics text</Label>
         <Textarea
@@ -384,7 +488,7 @@ export function KaraokeEditor({
           <Button
             type="button"
             variant="outline"
-            disabled={busy || !text.trim()}
+            disabled={busy || generating || !text.trim()}
             onClick={() =>
               void run(
                 "/resources/karaoke/re-align",
@@ -399,7 +503,7 @@ export function KaraokeEditor({
           <Button
             type="button"
             variant="outline"
-            disabled={busy}
+            disabled={busy || generating}
             onClick={() =>
               void run(
                 "/resources/karaoke/re-align",
@@ -418,10 +522,16 @@ export function KaraokeEditor({
         <h2 className="text-lg font-medium">Version history</h2>
         <ul className="space-y-1">
           {versions.map((v) => (
-            <li key={v.id} className="flex flex-wrap items-center gap-2 text-sm">
-              <a className="underline" href={versionPath(v.id)}>
-                {new Date(v.createdAt).toISOString().slice(0, 16).replace("T", " ")}
-              </a>
+            <li
+              key={v.id}
+              className="flex flex-wrap items-center gap-2 text-sm"
+            >
+              <Link className="underline" to={versionPath(v.id)}>
+                {new Date(v.createdAt)
+                  .toISOString()
+                  .slice(0, 16)
+                  .replace("T", " ")}
+              </Link>
               <span>
                 {v.status} · {v.language} · {v.source}
               </span>
@@ -433,7 +543,7 @@ export function KaraokeEditor({
                   size="sm"
                   variant="outline"
                   aria-label={`Restore ${v.id}`}
-                  disabled={busy}
+                  disabled={busy || generating}
                   onClick={() =>
                     void run(
                       "/resources/karaoke/restore",
