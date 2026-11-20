@@ -46,9 +46,24 @@ describe("validateKaraokeLines", () => {
     expect(validateKaraokeLines(lines).success).toBe(false);
   });
 
-  test("rejects a line that starts before the previous line ended", () => {
-    const lines = [[{ word: "a", start: 0, end: 2 }], [{ word: "b", start: 1, end: 3 }]];
+  test("rejects a line that starts before the previous word's start", () => {
+    const lines = [[{ word: "a", start: 2, end: 3 }], [{ word: "b", start: 1, end: 3 }]];
     expect(validateKaraokeLines(lines).success).toBe(false);
+  });
+
+  test("tolerates slight word overlap (aligner output)", () => {
+    const lines = [
+      [
+        { word: "a", start: 0, end: 1.1 },
+        { word: "b", start: 1, end: 2 },
+      ],
+      [{ word: "c", start: 1.5, end: 2.5 }],
+    ];
+    expect(validateKaraokeLines(lines).success).toBe(true);
+  });
+
+  test("allows empty lines (instrumental breaks)", () => {
+    expect(validateKaraokeLines([[{ word: "a", start: 0, end: 1 }], [], []]).success).toBe(true);
   });
 
   test("rejects non-finite times", () => {

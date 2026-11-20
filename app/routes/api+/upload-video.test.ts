@@ -177,6 +177,59 @@ describe("upload-video action", () => {
     expect(await prisma.trackVideoFile.count({ where: { trackId: track.id } })).toBe(0);
   }, 60_000);
 
+  test("rejects an HLS playlist (SSRF guard) with 400", async () => {
+    const cookie = await createCookie();
+    const track = await createTrack();
+    const playlist = Buffer.from(
+      "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\nhttp://127.0.0.1:9/seg.ts\n#EXT-X-ENDLIST\n",
+    );
+    const { status } = await unwrap(
+      await call(cookie, formFor(track.id, playlist, "x.mp4", "video/mp4")),
+    );
+    expect(status).toBe(400);
+    expect(await prisma.trackVideoFile.count({ where: { trackId: track.id } })).toBe(0);
+  }, 60_000);
+
+  test("transcodes an H.264/AAC .mov instead of passing it through", async () => {
+    const mov = ffmpegMake("ok.mov", ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]);
+    const cookie = await createCookie();
+    const track = await createTrack();
+    const { status, body } = await unwrap(
+      await call(cookie, formFor(track.id, mov, "clip.mov", "video/quicktime")),
+    );
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, transcoded: true });
+  }, 90_000);
+
+  test("transcodes 10-bit H.264", async () => {
+    const tenBit = ffmpegMake("10bit.mp4", [
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p10le",
+      "-c:a",
+      "aac",
+    ]);
+    const cookie = await createCookie();
+    const track = await createTrack();
+    const { status, body } = await unwrap(
+      await call(cookie, formFor(track.id, tenBit, "10bit.mp4", "video/mp4")),
+    );
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, transcoded: true });
+  }, 90_000);
+
+  test("re-upload of different content uses a new storage key", async () => {
+    const cookie = await createCookie();
+    const track = await createTrack();
+    await call(cookie, formFor(track.id, compliantMp4, "a.mp4", "video/mp4"));
+    const first = await prisma.trackVideoFile.findUnique({ where: { trackId: track.id } });
+    await call(cookie, formFor(track.id, webm, "b.webm", "video/webm"));
+    const second = await prisma.trackVideoFile.findUnique({ where: { trackId: track.id } });
+    expect(first?.objectKey).toBeTruthy();
+    expect(second?.objectKey).not.toBe(first?.objectKey);
+  }, 120_000);
+
   test("returns 404 for an unknown track", async () => {
     const cookie = await createCookie();
     const { status } = await unwrap(

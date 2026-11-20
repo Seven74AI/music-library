@@ -223,8 +223,9 @@ export async function uploadFileStream(params: {
       cb(null, chunk);
     },
   });
-  body.on("error", (err) => counter.destroy(err));
-  body.pipe(counter);
+  // pipeline() destroys the source on error/cap (no leaked open file) and
+  // propagates source errors to `counter`; the downstream pipeline surfaces them.
+  pipeline(body, counter).catch(() => {});
 
   const rethrow = (error: unknown): never => {
     if (exceeded) throw new VideoUploadTooLargeError(maxBytes);

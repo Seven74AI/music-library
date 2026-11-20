@@ -6,7 +6,13 @@ import { LOCAL_SERVICE } from "#app/constants/services.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { buildVideoObjectKey, uploadFileStream } from "#app/utils/storage.server.ts";
 import { deleteUnreferencedVideoObjectKeys } from "./video-cleanup.server.ts";
-import { isTranscodeCompliant, probeVideo, transcodeToCompliantMp4 } from "./transcode.server.ts";
+import {
+  assertAllowedContainer,
+  isTranscodeCompliant,
+  probeVideo,
+  remuxFaststart,
+  transcodeToCompliantMp4,
+} from "./transcode.server.ts";
 
 export const DEFAULT_VIDEO_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
 
@@ -61,24 +67,29 @@ export async function ingestTrackVideoFromPath(params: {
   } catch {
     throw new VideoIngestError("File is not a readable video", "invalid_media");
   }
+  try {
+    assertAllowedContainer(probed);
+  } catch {
+    throw new VideoIngestError("Unsupported video container", "invalid_media");
+  }
   if (!probed.videoCodec) throw new VideoIngestError("File has no video stream", "invalid_media");
 
   const workDir = mkdtempSync(join(tmpdir(), "video-ingest-"));
   try {
     const transcoded = !isTranscodeCompliant(probed);
-    let finalPath = inputPath;
-    if (transcoded) {
-      finalPath = join(workDir, "transcoded.mp4");
-      try {
-        await transcodeToCompliantMp4(inputPath, finalPath);
-      } catch {
-        throw new VideoIngestError("Video could not be transcoded", "invalid_media");
-      }
+    // Always produce a fresh faststart MP4 in workDir: transcode when not
+    // compliant, otherwise a lossless remux (moov up front for range-seeking).
+    const finalPath = join(workDir, "final.mp4");
+    try {
+      if (transcoded) await transcodeToCompliantMp4(inputPath, finalPath);
+      else await remuxFaststart(inputPath, finalPath);
+    } catch {
+      throw new VideoIngestError("Video could not be transcoded", "invalid_media");
     }
 
     const size = statSync(finalPath).size;
     const contentHash = await sha256File(finalPath);
-    const objectKey = buildVideoObjectKey(serviceName, trackId, "mp4");
+    const objectKey = buildVideoObjectKey(serviceName, contentHash, "mp4");
 
     const existing = await prisma.trackVideoFile.findUnique({ where: { trackId } });
     const unchanged = existing?.contentHash === contentHash && existing.objectKey === objectKey;

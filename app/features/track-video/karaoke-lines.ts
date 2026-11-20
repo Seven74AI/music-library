@@ -19,27 +19,26 @@ const LinesBaseSchema = z
 
 /**
  * `lines` = array of lines, each an array of `{ word, start, end }` (seconds).
- * Times are monotonic across the whole structure: each word starts at or after
- * the previous word's start, and no word starts before the previous one ended.
- * Line start/end are derived (first/last word), never stored.
+ * Word `start` is non-decreasing across the whole structure (slight overlap of a
+ * word's end into the next start is tolerated, as real aligner output has it).
+ * Empty lines (instrumental breaks) are allowed. Line start/end are derived
+ * (first/last word), never stored.
  */
 export const karaokeLinesSchema = LinesBaseSchema.superRefine((lines, ctx) => {
-  let prevEnd = 0;
   let prevStart = 0;
   for (let l = 0; l < lines.length; l++) {
     const line = lines[l]!;
     for (let w = 0; w < line.length; w++) {
       const word = line[w]!;
-      if (word.start < prevStart || word.start < prevEnd) {
+      if (word.start < prevStart) {
         ctx.addIssue({
           code: "custom",
           path: [l, w, "start"],
-          message: "word times must be monotonic",
+          message: "word start times must be non-decreasing",
         });
         return;
       }
       prevStart = word.start;
-      prevEnd = word.end;
     }
   }
 });

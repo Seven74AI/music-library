@@ -621,8 +621,8 @@ model TrackKaraokeVersion {
   videoFile   TrackVideoFile? @relation(fields: [videoFileId], references: [id], onDelete: SetNull)
   /// draft | ready
   status      String          @default("draft")
-  createdBy   String
-  creator     User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  createdBy   String?
+  creator     User?           @relation(fields: [createdBy], references: [id], onDelete: SetNull)
   createdAt   DateTime        @default(now())
 
   currentOf TrackKaraoke? @relation("TrackKaraokeCurrentVersion")

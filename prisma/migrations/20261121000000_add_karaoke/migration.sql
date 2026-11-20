@@ -38,11 +38,11 @@ CREATE TABLE "TrackKaraokeVersion" (
     "lines" TEXT NOT NULL,
     "videoFileId" TEXT,
     "status" TEXT NOT NULL DEFAULT 'draft',
-    "createdBy" TEXT NOT NULL,
+    "createdBy" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "TrackKaraokeVersion_trackId_fkey" FOREIGN KEY ("trackId") REFERENCES "Track" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "TrackKaraokeVersion_videoFileId_fkey" FOREIGN KEY ("videoFileId") REFERENCES "TrackVideoFile" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT "TrackKaraokeVersion_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "TrackKaraokeVersion_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateIndex
