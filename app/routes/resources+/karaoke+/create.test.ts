@@ -11,9 +11,11 @@ import { action } from "./create.tsx";
 
 beforeEach(() => {
   process.env.KARAOKE_GENERATION_MOCKS = "true";
+  process.env.KARAOKE_GENERATION_ENABLED = "true";
 });
 afterEach(() => {
   vi.unstubAllEnvs();
+  delete process.env.KARAOKE_GENERATION_ENABLED;
   delete process.env.KARAOKE_GENERATION_MOCKS;
 });
 
@@ -131,7 +133,101 @@ describe("create karaoke action", () => {
     expect(v).toMatchObject({ source: "whisper", lyricsText: "" });
   });
 
-  test("leaves the job pending (and still returns the version) if dispatch fails", async () => {
+  test("returns 503 and creates nothing when generation is disabled", async () => {
+    process.env.KARAOKE_GENERATION_ENABLED = "false";
+    const { cookie } = await createCookie();
+    const track = await createTrack("T");
+    const { status } = await unwrap(
+      await call(cookie, {
+        trackId: track.id,
+        language: "en",
+        textSource: "paste",
+        text: "x",
+      }),
+    );
+    expect(status).toBe(503);
+    expect(
+      await prisma.trackKaraokeVersion.count({ where: { trackId: track.id } }),
+    ).toBe(0);
+  });
+
+  async function makeVideo(trackId: string) {
+    const service = await prisma.service.findFirstOrThrow({
+      where: { name: "local" },
+    });
+    return prisma.trackVideoFile.create({
+      data: { trackId, serviceId: service.id, objectKey: `video/${trackId}.mp4` },
+    });
+  }
+
+  test("rejects a nonexistent or foreign videoFileId with 400", async () => {
+    const { cookie } = await createCookie();
+    const track = await createTrack("T");
+    const other = await createTrack("Other");
+    const foreign = await makeVideo(other.id);
+    for (const videoFileId of ["does-not-exist", foreign.id]) {
+      const { status } = await unwrap(
+        await call(cookie, {
+          trackId: track.id,
+          language: "en",
+          textSource: "paste",
+          text: "x",
+          videoFileId,
+        }),
+      );
+      expect(status).toBe(400);
+    }
+    expect(
+      await prisma.trackKaraokeVersion.count({ where: { trackId: track.id } }),
+    ).toBe(0);
+  });
+
+  test("accepts the track's own videoFileId", async () => {
+    const { cookie } = await createCookie();
+    const track = await createTrack("T");
+    const video = await makeVideo(track.id);
+    const { status, body } = await unwrap(
+      await call(cookie, {
+        trackId: track.id,
+        language: "en",
+        textSource: "paste",
+        text: "x",
+        videoFileId: video.id,
+      }),
+    );
+    expect(status).toBe(200);
+    expect(
+      (
+        await prisma.trackKaraokeVersion.findUnique({
+          where: { id: body.versionId },
+        })
+      )?.videoFileId,
+    ).toBe(video.id);
+  });
+
+  test("concurrent creates for the same track all succeed with one TrackKaraoke", async () => {
+    const { cookie } = await createCookie();
+    const track = await createTrack("T");
+    const results = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        call(cookie, {
+          trackId: track.id,
+          language: "en",
+          textSource: "paste",
+          text: `v${i}`,
+        }).then(unwrap),
+      ),
+    );
+    expect(results.map((r) => r.status)).toEqual(Array(5).fill(200));
+    expect(
+      await prisma.trackKaraoke.count({ where: { trackId: track.id } }),
+    ).toBe(1);
+    expect(
+      await prisma.trackKaraokeVersion.count({ where: { trackId: track.id } }),
+    ).toBe(5);
+  });
+
+  test("fails the job immediately (and still returns the version) on a config error", async () => {
     delete process.env.KARAOKE_GENERATION_MOCKS;
     vi.stubEnv("MOCKS", "false");
     const { cookie } = await createCookie();
@@ -148,7 +244,7 @@ describe("create karaoke action", () => {
     const job = await prisma.karaokeGenerationJob.findUnique({
       where: { versionId: body.versionId },
     });
-    expect(job?.status).toBe("pending");
+    expect(job?.status).toBe("failed");
     expect(job?.retryCount).toBe(1);
     expect(job?.errorHistory).toContain("not configured");
   });

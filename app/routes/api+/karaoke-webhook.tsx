@@ -5,6 +5,8 @@ import { completeGenerationJob } from "#app/features/karaoke-generation/complete
 import { validateKaraokeLines } from "#app/features/track-video/karaoke-lines.ts";
 import { prisma } from "#app/utils/db.server.ts";
 
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
+
 const BodySchema = z.object({
   providerJobId: z.string().min(1),
   versionId: z.string().min(1),
@@ -27,7 +29,20 @@ export async function action({ request }: ActionFunctionArgs) {
   if (!secretMatches(request.headers.get("x-karaoke-webhook-secret"))) {
     return data({ error: "Unauthorized" }, { status: 401 });
   }
-  const json = await request.json().catch(() => null);
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (declared > MAX_BODY_BYTES) {
+    return data({ error: "Payload too large" }, { status: 413 });
+  }
+  const raw = await request.text();
+  if (Buffer.byteLength(raw) > MAX_BODY_BYTES) {
+    return data({ error: "Payload too large" }, { status: 413 });
+  }
+  let json: unknown = null;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    // falls through to the Invalid body response
+  }
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) return data({ error: "Invalid body" }, { status: 400 });
   const { providerJobId, versionId, lines, text } = parsed.data;

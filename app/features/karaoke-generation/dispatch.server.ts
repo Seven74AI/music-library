@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { prisma } from "#app/utils/db.server.ts";
 
 export type DispatchVersion = {
@@ -5,12 +6,23 @@ export type DispatchVersion = {
   trackId: string;
   videoFileId: string | null;
 };
-export type GenerationStatus = {
-  state: "processing" | "completed" | "failed";
-  lines?: unknown;
-  text?: string;
-  error?: string;
-};
+const FETCH_TIMEOUT_MS = 15_000;
+
+/** Thrown when the provider URL/token are missing: retrying can't help. */
+export class KaraokeConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "KaraokeConfigError";
+  }
+}
+
+const GenerationStatusSchema = z.object({
+  state: z.enum(["processing", "completed", "failed"]),
+  lines: z.unknown().optional(),
+  text: z.string().optional(),
+  error: z.string().optional(),
+});
+export type GenerationStatus = z.infer<typeof GenerationStatusSchema>;
 
 export function isKaraokeGenerationStubbed(): boolean {
   return (
@@ -23,7 +35,7 @@ function apiConfig() {
   const url = process.env.KARAOKE_API_URL;
   const token = process.env.KARAOKE_API_TOKEN;
   if (!url || !token) {
-    throw new Error(
+    throw new KaraokeConfigError(
       "Karaoke generation is not configured: set KARAOKE_API_URL and KARAOKE_API_TOKEN (or KARAOKE_GENERATION_MOCKS=true)",
     );
   }
@@ -47,6 +59,7 @@ export async function dispatchGeneration(
     const { url, token } = apiConfig();
     const res = await fetch(`${url}/jobs`, {
       method: "POST",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${token}`,
@@ -84,9 +97,30 @@ export async function getGenerationStatus(
   const { url, token } = apiConfig();
   const res = await fetch(`${url}/jobs/${encodeURIComponent(providerJobId)}`, {
     headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Karaoke status failed: HTTP ${res.status}`);
-  return (await res.json()) as GenerationStatus;
+  const parsed = GenerationStatusSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new Error("Karaoke status failed: unrecognized provider response");
+  }
+  return parsed.data;
+}
+
+/** Re-dispatch a job that is still `pending` (initial dispatch failed). */
+export async function redispatchPendingJob(jobId: string): Promise<void> {
+  const job = await prisma.karaokeGenerationJob.findUnique({
+    where: { id: jobId },
+    include: { version: true },
+  });
+  if (!job || job.status !== "pending") return;
+  const { version } = job;
+  await dispatchGeneration(
+    job.id,
+    { id: version.id, trackId: version.trackId, videoFileId: version.videoFileId },
+    version.language,
+    version.source === "whisper" ? null : version.lyricsText,
+  );
 }
 
 /** Append to the job's errorHistory JSON array and bump retryCount; optionally fail the job. */

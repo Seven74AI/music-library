@@ -71,6 +71,11 @@ describe("karaoke webhook", () => {
     expect((await call(body, "nope")).status).toBe(401);
   });
 
+  test("413 for an oversized body", async () => {
+    const big = { text: "x".repeat(3 * 1024 * 1024) };
+    expect((await call(big)).status).toBe(413);
+  });
+
   test("401 when no secret is configured", async () => {
     delete process.env.KARAOKE_WEBHOOK_SECRET;
     expect((await call({}, "")).status).toBe(401);

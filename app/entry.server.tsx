@@ -36,7 +36,10 @@ if (process.env.AUDIO_ARCHIVE_ENABLED === "true") {
 
 // Karaoke generation reconciler (poll fallback; webhook is primary). Primary only.
 if (process.env.KARAOKE_GENERATION_ENABLED === "true") {
-  const intervalMs = Number(process.env.KARAOKE_GENERATION_INTERVAL_MS) || 60_000;
+  const intervalMs = Math.max(
+    5_000,
+    Number(process.env.KARAOKE_GENERATION_INTERVAL_MS) || 60_000,
+  );
   void import("./features/karaoke-generation/reconciler.server.ts").then(
     ({ startKaraokeReconciler, stopKaraokeReconciler }) => {
       registerInProcessJobStopper("karaoke-reconciler", stopKaraokeReconciler);

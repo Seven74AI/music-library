@@ -88,12 +88,89 @@ describe("reconcileStuckJobs", () => {
     ).toBe("draft");
   });
 
-  test("ignores pending and completed jobs", async () => {
+  test("re-dispatches a fresh pending job (no prior failures)", async () => {
     const { job } = await makeJob("pending");
+    await reconcileStuckJobs();
+    const after = await prisma.karaokeGenerationJob.findUnique({
+      where: { id: job.id },
+    });
+    // dispatched, then the stub poll completes it in the same run
+    expect(after?.status).toBe("completed");
+    expect(after?.providerJobId).toBeTruthy();
+  });
+
+  test("respects backoff for a pending job that recently failed", async () => {
+    const { job } = await makeJob("pending");
+    await prisma.karaokeGenerationJob.update({
+      where: { id: job.id },
+      data: { retryCount: 1 },
+    });
     await reconcileStuckJobs();
     expect(
       (await prisma.karaokeGenerationJob.findUnique({ where: { id: job.id } }))
         ?.status,
     ).toBe("pending");
+    await prisma.karaokeGenerationJob.update({
+      where: { id: job.id },
+      data: { updatedAt: new Date(Date.now() - 10 * 60_000) },
+    });
+    await reconcileStuckJobs();
+    expect(
+      (await prisma.karaokeGenerationJob.findUnique({ where: { id: job.id } }))
+        ?.status,
+    ).toBe("completed");
+  });
+
+  test("fails a pending job once the retry cap is reached", async () => {
+    const { job } = await makeJob("pending");
+    await prisma.karaokeGenerationJob.update({
+      where: { id: job.id },
+      data: { retryCount: 3 },
+    });
+    await reconcileStuckJobs();
+    expect(
+      (await prisma.karaokeGenerationJob.findUnique({ where: { id: job.id } }))
+        ?.status,
+    ).toBe("failed");
+  });
+
+  test("fails a pending job immediately on a config error", async () => {
+    delete process.env.KARAOKE_GENERATION_MOCKS;
+    vi.stubEnv("MOCKS", "false");
+    const { job } = await makeJob("pending");
+    await reconcileStuckJobs();
+    const after = await prisma.karaokeGenerationJob.findUnique({
+      where: { id: job.id },
+    });
+    expect(after?.status).toBe("failed");
+    expect(after?.errorHistory).toContain("not configured");
+  });
+
+  test("skips overlapping runs", async () => {
+    const { job } = await makeJob("dispatched", "mock-1");
+    await Promise.all([reconcileStuckJobs(), reconcileStuckJobs()]);
+    expect(
+      (await prisma.karaokeGenerationJob.findUnique({ where: { id: job.id } }))
+        ?.status,
+    ).toBe("completed");
+  });
+
+  test("an unrecognized provider state is an error, not polled forever", async () => {
+    delete process.env.KARAOKE_GENERATION_MOCKS;
+    vi.stubEnv("MOCKS", "false");
+    process.env.KARAOKE_API_URL = "http://provider.test";
+    process.env.KARAOKE_API_TOKEN = "t";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ state: "weird" })),
+    );
+    const { job } = await makeJob("dispatched", "p-1");
+    for (let i = 0; i < 3; i++) await reconcileStuckJobs();
+    vi.unstubAllGlobals();
+    const after = await prisma.karaokeGenerationJob.findUnique({
+      where: { id: job.id },
+    });
+    expect(after?.status).toBe("failed");
+    expect(after?.errorHistory).toContain("unrecognized provider response");
   });
 });
