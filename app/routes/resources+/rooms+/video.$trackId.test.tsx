@@ -1,5 +1,10 @@
-import { expect, test, vi } from "vitest";
-import { PartyRoomError } from "#app/features/party-room/party-room.server.ts";
+import { beforeEach, expect, test, vi } from "vitest";
+import {
+  createRoom,
+  joinRoom,
+  PartyRoomError,
+} from "#app/features/party-room/party-room.server.ts";
+import { addTrackToQueue } from "#app/features/party-room/queue.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import { createUser } from "#tests/db-utils.ts";
 import { loader } from "./video.$trackId.tsx";
@@ -12,11 +17,8 @@ vi.mock("#app/features/party-room/request.server.ts", () => ({
   }),
 }));
 
-vi.mock("#app/features/party-room/speaker-audio.server.ts", () => ({
-  assertRoomSpeakerTrackAccess: vi.fn().mockResolvedValue({ roomId: "room-1" }),
-}));
-
-vi.mock("#app/utils/storage.server.ts", () => ({
+vi.mock("#app/utils/storage.server.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("#app/utils/storage.server.ts")>()),
   getFileUrl: vi.fn(),
   getStorageObjectStream: vi.fn(async (_key: string, request: Request) => {
     const range = request.headers.get("Range");
@@ -41,25 +43,48 @@ vi.mock("#app/utils/storage.server.ts", () => ({
 }));
 
 const { resolveActor } = await import("#app/features/party-room/request.server.ts");
-const { assertRoomSpeakerTrackAccess } = await import(
-  "#app/features/party-room/speaker-audio.server.ts"
-);
 
-async function makeTrack(opts: { status?: "draft" | "ready"; video?: boolean; karaoke?: boolean }) {
+beforeEach(async () => {
+  await prisma.roomPlayEvent.deleteMany();
+  await prisma.roomQueueItem.deleteMany();
+  await prisma.roomParticipant.deleteMany();
+  await prisma.room.deleteMany();
+});
+
+async function makeTrack(opts: {
+  status?: "draft" | "ready";
+  video?: boolean;
+  karaoke?: boolean;
+  objectKey?: (trackId: string) => string;
+}) {
   const { status = "ready", video = true, karaoke = true } = opts;
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const user = await prisma.user.create({
     data: { ...createUser(), username: `room-video-${suffix}` },
   });
   const service = await prisma.service.create({
-    data: { name: `room-video-svc-${suffix}`, displayName: "Local", baseUrl: "https://e.com" },
+    data: {
+      name: `room-video-svc-${suffix}`,
+      displayName: "Local",
+      baseUrl: "https://e.com",
+    },
   });
   const track = await prisma.track.create({
     data: {
       title: "Room video track",
       externalId: `ext-${suffix}`,
       service: { connect: { id: service.id } },
-      artist: { create: { name: `A ${suffix}`, normalizedName: `a ${suffix}` } },
+      artist: {
+        create: { name: `A ${suffix}`, normalizedName: `a ${suffix}` },
+      },
+    },
+  });
+  await prisma.trackAudioFile.create({
+    data: {
+      trackId: track.id,
+      serviceId: service.id,
+      objectKey: `audio/tracks/remote/${track.id}.mp3`,
+      format: "mp3",
     },
   });
   let videoFileId: string | null = null;
@@ -68,7 +93,7 @@ async function makeTrack(opts: { status?: "draft" | "ready"; video?: boolean; ka
       data: {
         trackId: track.id,
         serviceId: service.id,
-        objectKey: `video/tracks/remote/${track.id}.mp4`,
+        objectKey: opts.objectKey?.(track.id) ?? `video/tracks/remote/${track.id}.mp4`,
         mimeType: "video/mp4",
         format: "mp4",
       },
@@ -91,25 +116,55 @@ async function makeTrack(opts: { status?: "draft" | "ready"; video?: boolean; ka
       data: { trackId: track.id, currentVersionId: version.id },
     });
   }
+  const room = await createRoom({
+    userId: user.id,
+    displayName: "Host",
+    defaultJoinRole: "listener",
+  });
+  await addTrackToQueue({
+    roomId: room.id,
+    actor: { type: "user", userId: user.id },
+    trackId: track.id,
+  });
   vi.mocked(resolveActor).mockResolvedValue({ type: "user", userId: user.id });
-  return track;
+  return { ...track, room };
 }
 
 function call(trackId: string, headers: Record<string, string> = {}) {
   return loader({
-    request: new Request(`https://localhost/resources/rooms/video/${trackId}`, { headers }),
+    request: new Request(`https://localhost/resources/rooms/video/${trackId}`, {
+      headers,
+    }),
     params: { trackId },
     context: {},
   } as never);
 }
 
-test("rejects a non-host via the speaker grant", async () => {
+test("rejects a non-host member via the real speaker grant", async () => {
   const track = await makeTrack({});
-  vi.mocked(assertRoomSpeakerTrackAccess).mockRejectedValueOnce(
-    new PartyRoomError("forbidden", "nope", 403),
-  );
+  const guest = await joinRoom({
+    code: track.room.code,
+    actor: { type: "guest", displayName: "Walker" },
+  });
+  vi.mocked(resolveActor).mockResolvedValue({
+    type: "guest",
+    guestToken: guest.guestToken!,
+  });
   const response = await call(track.id);
   expect(response.status).toBe(403);
+});
+
+test("real grant: current host of a room with the track queued gets 200", async () => {
+  const track = await makeTrack({});
+  const response = await call(track.id);
+  expect(response.status).toBe(200);
+});
+
+test("404 for a non-video object key", async () => {
+  const track = await makeTrack({
+    objectKey: (id) => `audio/tracks/remote/${id}.mp3`,
+  });
+  await expect(call(track.id)).rejects.toMatchObject({ status: 404 });
 });
 
 test("serves a ready karaoke video in full with private no-store", async () => {

@@ -70,6 +70,7 @@ function queueItem(title: string) {
       duration: 180,
       coverObjectKey: null,
       hasAudio: true,
+      karaoke: { hasReady: false, versionId: null },
     },
     addedByParticipantId: "host-1",
     addedByDisplayName: "Kody",

@@ -86,6 +86,7 @@ function queueItem(title: string) {
       duration: 180,
       coverObjectKey: null,
       hasAudio: true,
+      karaoke: { hasReady: false, versionId: null },
     },
     addedByParticipantId: "h1",
     addedByDisplayName: "Host",
