@@ -1348,6 +1348,12 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
               duration: true,
               artist: { select: { id: true, name: true } },
               coverImage: { select: { objectKey: true } },
+              // Minimal karaoke status only; lines/video are fetched by the overlay.
+              karaoke: {
+                select: {
+                  currentVersion: { select: { id: true, status: true, videoFileId: true } },
+                },
+              },
             },
           },
         },
@@ -1415,7 +1421,11 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
       addedByParticipantId: item.addedByParticipantId,
       addedByDisplayName: item.addedBy?.displayName ?? "Unknown",
       createdAt: item.createdAt.toISOString(),
-      track: item.track,
+      track: (({ karaoke, ...track }) => {
+        const version = karaoke?.currentVersion;
+        const hasReady = version?.status === "ready" && Boolean(version.videoFileId);
+        return { ...track, karaoke: { hasReady, versionId: hasReady ? version!.id : null } };
+      })(item.track),
     })),
   };
 }

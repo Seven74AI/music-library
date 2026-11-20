@@ -8,6 +8,8 @@ export type RoomQueueTrackStub = {
   duration: number | null;
   coverObjectKey: string | null;
   hasAudio: boolean;
+  /** Ready karaoke version (with video) for this track, if any. */
+  karaoke: { hasReady: boolean; versionId: string | null };
 };
 
 export type RoomParticipantDto = {

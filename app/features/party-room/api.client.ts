@@ -220,6 +220,7 @@ export function normalizeRoomSnapshot(
     const track = (row.track as Record<string, unknown> | undefined) ?? {};
     const artist = (track.artist as Record<string, unknown> | undefined) ?? {};
     const cover = (track.coverImage as Record<string, unknown> | null | undefined) ?? null;
+    const karaoke = (track.karaoke as Record<string, unknown> | undefined) ?? undefined;
     return {
       id: String(row.id ?? ""),
       position: Number(row.position ?? 0),
@@ -231,6 +232,10 @@ export function normalizeRoomSnapshot(
         duration: typeof track.duration === "number" ? track.duration : null,
         coverObjectKey: cover && typeof cover.objectKey === "string" ? cover.objectKey : null,
         hasAudio: true,
+        karaoke: {
+          hasReady: karaoke?.hasReady === true,
+          versionId: typeof karaoke?.versionId === "string" ? karaoke.versionId : null,
+        },
       },
       addedByParticipantId: String(row.addedByParticipantId ?? ""),
       addedByDisplayName: String(row.addedByDisplayName ?? ""),
