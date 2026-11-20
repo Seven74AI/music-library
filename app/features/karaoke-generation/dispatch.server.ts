@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import { prisma } from "#app/utils/db.server.ts";
+import { getFileUrl } from "#app/utils/storage.server.ts";
 
 export type DispatchVersion = {
   id: string;
@@ -7,6 +9,8 @@ export type DispatchVersion = {
   videoFileId: string | null;
 };
 const FETCH_TIMEOUT_MS = 15_000;
+/** Presigned audio URL lifetime handed to the provider. */
+const AUDIO_URL_TTL_SECONDS = 15 * 60;
 
 /** Thrown when the provider URL/token are missing: retrying can't help. */
 export class KaraokeConfigError extends Error {
@@ -57,6 +61,22 @@ export async function dispatchGeneration(
     providerJobId = `mock-${jobId}`;
   } else {
     const { url, token } = apiConfig();
+    // Word times must align to the track's audio (the room's only clock), so
+    // hand the provider a short-lived URL for the same file the stream route picks.
+    const audioFiles = await prisma.trackAudioFile.findMany({
+      where: { trackId: version.trackId },
+      select: { format: true, objectKey: true },
+    });
+    const audioFile = selectBestAudioFile(audioFiles);
+    if (!audioFile?.objectKey) {
+      throw new Error(
+        `Karaoke dispatch failed: track ${version.trackId} has no audio file`,
+      );
+    }
+    const { url: audioUrl } = await getFileUrl(
+      audioFile.objectKey,
+      AUDIO_URL_TTL_SECONDS,
+    );
     const res = await fetch(`${url}/jobs`, {
       method: "POST",
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -69,6 +89,7 @@ export async function dispatchGeneration(
         versionId: version.id,
         trackId: version.trackId,
         videoFileId: version.videoFileId,
+        audioUrl,
         language,
         text,
       }),

@@ -2,8 +2,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "#app/utils/db.server.ts";
 import { createTrack } from "#tests/db-utils.ts";
 import { completeGenerationJob } from "./complete-job.server.ts";
+import { getFileUrl } from "#app/utils/storage.server.ts";
 import { dispatchGeneration } from "./dispatch.server.ts";
 import { reconcileStuckJobs } from "./reconciler.server.ts";
+
+vi.mock("#app/utils/storage.server.ts", async (orig) => ({
+  ...(await orig<typeof import("#app/utils/storage.server.ts")>()),
+  getFileUrl: vi.fn(async (key: string) => ({
+    url: `https://signed.example/${key}`,
+    headers: {},
+  })),
+}));
 
 beforeEach(() => {
   process.env.KARAOKE_GENERATION_MOCKS = "true";
@@ -99,6 +108,78 @@ describe("dispatchGeneration", () => {
       (await prisma.karaokeGenerationJob.findUnique({ where: { id: job.id } }))
         ?.status,
     ).toBe("pending");
+  });
+});
+
+describe("dispatchGeneration audioUrl handoff", () => {
+  async function realPathSetup() {
+    delete process.env.KARAOKE_GENERATION_MOCKS;
+    vi.stubEnv("MOCKS", "false");
+    process.env.KARAOKE_API_URL = "https://modal.example";
+    process.env.KARAOKE_API_TOKEN = "tok";
+    return makeJob();
+  }
+  async function addAudio(trackId: string, format: string, objectKey: string) {
+    const service = await prisma.service.findFirstOrThrow();
+    await prisma.trackAudioFile.create({
+      data: { trackId, serviceId: service.id, objectKey, format, mimeType: "audio/x" },
+    });
+  }
+
+  test("includes a presigned audioUrl of the best audio file (15 min TTL)", async () => {
+    const { version, job } = await realPathSetup();
+    await addAudio(version.trackId, "zzz-unknown", "audio/other.bin");
+    await addAudio(version.trackId, "mp3", "audio/best.mp3");
+    const fetchMock = vi.fn(async () => Response.json({ providerJobId: "p1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await dispatchGeneration(
+      job.id,
+      { id: version.id, trackId: version.trackId, videoFileId: "vf1" },
+      "en",
+      "x",
+    );
+    const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(call[1].body as string) as {
+      audioUrl: string;
+      videoFileId: string;
+    };
+    expect(body.audioUrl).toBe("https://signed.example/audio/best.mp3");
+    expect(body.videoFileId).toBe("vf1");
+    expect(getFileUrl).toHaveBeenCalledWith("audio/best.mp3", 900);
+    vi.unstubAllGlobals();
+  });
+
+  test("missing audio fails cleanly without fetch", async () => {
+    const { version, job } = await realPathSetup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      dispatchGeneration(
+        job.id,
+        { id: version.id, trackId: version.trackId, videoFileId: null },
+        "en",
+        "x",
+      ),
+    ).rejects.toThrow(/no audio/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      (await prisma.karaokeGenerationJob.findUnique({ where: { id: job.id } }))
+        ?.status,
+    ).toBe("pending");
+    vi.unstubAllGlobals();
+  });
+
+  test("stub path returns mock-<jobId> and does not sign", async () => {
+    vi.mocked(getFileUrl).mockClear();
+    const { version, job } = await makeJob();
+    const { providerJobId } = await dispatchGeneration(
+      job.id,
+      { id: version.id, trackId: version.trackId, videoFileId: null },
+      "en",
+      "x",
+    );
+    expect(providerJobId).toBe(`mock-${job.id}`);
+    expect(getFileUrl).not.toHaveBeenCalled();
   });
 });
 
