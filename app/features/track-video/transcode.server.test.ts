@@ -81,7 +81,22 @@ describe("parseFfprobeOutput", () => {
   });
 });
 
-describe("ffmpeg integration", () => {
+// The ffmpeg integration tests synthesize real media and probe it with
+// ffprobe/ffmpeg. Those binaries exist in the app image and on dev machines,
+// but not on the CI vitest runner's bare job — skip the block there rather
+// than failing. The unit tests above still cover the transcode decision logic.
+function canRunIntegration(): boolean {
+  for (const bin of ["ffmpeg", "ffprobe"]) {
+    try {
+      if (spawnSync(bin, ["-version"], { stdio: "ignore" }).status !== 0) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+describe.skipIf(!canRunIntegration())("ffmpeg integration", () => {
   let dir: string;
   beforeAll(() => {
     dir = mkdtempSync(join(tmpdir(), "karaoke-transcode-"));
