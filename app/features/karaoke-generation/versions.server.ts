@@ -1,5 +1,9 @@
 import { data } from "react-router";
 import { z } from "zod";
+import {
+  parseKaraokeLines,
+  type KaraokeLines,
+} from "#app/features/track-video/karaoke-lines.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
 import { prisma } from "#app/utils/db.server.ts";
 import {
@@ -101,7 +105,44 @@ export async function casRepointCurrentVersion(
   }
 }
 
-export const PublishVersionSchema = z.object({ versionId: z.string().min(1) });
+export type EditorVersion = {
+  id: string;
+  trackId: string;
+  status: string;
+  language: string;
+  source: string;
+  lyricsText: string;
+  lines: KaraokeLines;
+  /** Generation job status, or null for versions without a job (manual edits). */
+  jobStatus: string | null;
+};
+
+/**
+ * Load ONE version's full content for the editor. Returns null when the
+ * version does not exist OR does not belong to `trackId`.
+ */
+export async function loadEditorVersion(
+  trackId: string,
+  versionId: string,
+): Promise<EditorVersion | null> {
+  const row = await prisma.trackKaraokeVersion.findUnique({
+    where: { id: versionId },
+    include: { generationJob: { select: { status: true } } },
+  });
+  if (!row || row.trackId !== trackId) return null;
+  return {
+    id: row.id,
+    trackId: row.trackId,
+    status: row.status,
+    language: row.language,
+    source: row.source,
+    lyricsText: row.lyricsText,
+    lines: parseKaraokeLines(row.lines) ?? [],
+    jobStatus: row.generationJob?.status ?? null,
+  };
+}
+
+export const PublishVersionSchema =z.object({ versionId: z.string().min(1) });
 
 /** Shared body of the `mark-ready` and `restore` actions (identical semantics). */
 export async function publishVersionAction(request: Request) {
