@@ -150,6 +150,21 @@ function withoutLibraryMembership(row: RelatedTrackRow) {
   };
 }
 
+/** Version the editor should open: the published one, else the newest draft. */
+async function loadKaraokeEditorVersionId(trackId: string): Promise<string | null> {
+  const pointer = await prisma.trackKaraoke.findUnique({
+    where: { trackId },
+    select: { currentVersionId: true },
+  });
+  if (pointer?.currentVersionId) return pointer.currentVersionId;
+  const latest = await prisma.trackKaraokeVersion.findFirst({
+    where: { trackId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  return latest?.id ?? null;
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
 
@@ -211,7 +226,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   const relatedSelect = relatedTrackSelect(userId);
   const noRelatedTracks: RelatedTrackRow[] = [];
-  const [playlists, containingPlaylists, albumTracks, artistTracks] = await Promise.all([
+  const [playlists, containingPlaylists, albumTracks, artistTracks, karaokeVersionId] =
+    await Promise.all([
     loadUserPlaylists(userId),
     prisma.userPlaylist.findMany({
       where: {
@@ -235,6 +251,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       take: RELATED_TRACK_LIMIT,
       select: relatedSelect,
     }),
+    loadKaraokeEditorVersionId(trackRaw.id),
   ]);
 
   const { userTracks, servicePlaylistTracks, audioFiles, ...trackRest } = trackRaw;
@@ -250,6 +267,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     track,
     isInUserLibrary,
     canDownload: canAccessAudio,
+    karaokeVersionId,
     playlists,
     containingPlaylists,
     related: chooseRelatedTracks({
@@ -528,6 +546,22 @@ export default function TrackRoute({ loaderData }: Route.ComponentProps) {
                             <Icon name="link-2" className="mr-2 h-4 w-4" />
                             {sourceLabel}
                           </a>
+                        </DropdownMenuItem>
+                      ) : null}
+                      {user && loaderData.karaokeVersionId ? (
+                        <DropdownMenuItem asChild>
+                          <Link to={`/library/${track.id}/karaoke/${loaderData.karaokeVersionId}`}>
+                            <Icon name="pencil-1" className="mr-2 h-4 w-4" />
+                            Edit karaoke
+                          </Link>
+                        </DropdownMenuItem>
+                      ) : null}
+                      {user ? (
+                        <DropdownMenuItem asChild>
+                          <Link to={`/library/${track.id}/karaoke/new`}>
+                            <Icon name="play" className="mr-2 h-4 w-4" />
+                            Create karaoke
+                          </Link>
                         </DropdownMenuItem>
                       ) : null}
                       {user ? (

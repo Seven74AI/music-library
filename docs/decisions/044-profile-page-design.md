@@ -39,8 +39,8 @@ The public profile (`/users/:username`) was a single centered column of flat tex
 
 ## Supersession of ADR-043
 
-- ADR-043 listed recently played on the profile as a non-goal; that is now reversed.
-- ADR-043 defined `ProfilePrivacy` with three fields; it now has five.
+- ADR-043 listed recently played on the profile as a non-goal; that is reversed.
+- ADR-043 defined `ProfilePrivacy` with three fields; it has five.
 
 ## Non-goals
 

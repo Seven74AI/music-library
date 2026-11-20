@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext } from "react";
 import { type RoomAutoplayOutcome } from "#app/components/audio-player-room-playback.ts";
 import { type RoomTransportAction } from "#app/features/party-room/types.ts";
 import { type PlayerStateData } from "#app/features/player-state/player-state.ts";
@@ -106,6 +106,12 @@ export interface AudioPlayerContextType {
     | ((action: Extract<RoomTransportAction, { action: "play" } | { action: "pause" }>) => void)
     | null
   >;
+  /**
+   * The player's single `<audio>` element (the playback clock). Read-only use:
+   * the karaoke overlay polls `currentTime` on rAF; nothing may control playback
+   * through this ref.
+   */
+  audioElementRef: React.MutableRefObject<HTMLAudioElement | null>;
 }
 
 export const AudioPlayerContext = createContext<AudioPlayerContextType | undefined>(undefined);

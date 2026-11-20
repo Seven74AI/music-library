@@ -7,7 +7,7 @@ import {
 } from "#app/features/security/track-event.server.ts";
 import { isUniqueConstraintError } from "#app/utils/prisma-errors.ts";
 
-export type EntityType = "track" | "artist" | "album";
+export type EntityType = "track" | "artist" | "album" | "karaoke_version";
 
 const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 

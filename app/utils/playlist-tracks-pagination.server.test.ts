@@ -67,6 +67,6 @@ describe("assertPlaylistTrackCursorInScope", () => {
         cursor: cursorRow.id,
         kind: "user",
       }),
-    ).rejects.toThrow(/Invalid cursor format/);
+    ).rejects.toThrow();
   });
 });

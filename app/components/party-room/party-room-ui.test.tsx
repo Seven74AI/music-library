@@ -34,6 +34,7 @@ const queueItem = (id: string, position: number, title: string) => ({
     duration: 180,
     coverObjectKey: null,
     hasAudio: true,
+    karaoke: { hasReady: false, versionId: null },
   },
   addedByParticipantId: "p1",
   addedByDisplayName: "Host",
