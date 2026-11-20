@@ -78,6 +78,22 @@ export function clampWordTime(
   return round3(v);
 }
 
+/**
+ * Clamp a whole-word move. The lower bound (previous word's start, or 0) always
+ * wins over the upper bound (so the word still fits before the next start).
+ */
+export function clampWordMove(
+  t: number,
+  len: number,
+  prev: { start: number } | null,
+  next: { start: number } | null,
+): { start: number; end: number } {
+  const lo = prev?.start ?? 0;
+  const hi = next ? next.start - len : Infinity;
+  const start = round3(Math.max(lo, Math.min(hi, t)));
+  return { start, end: round3(start + len) };
+}
+
 type Drag = {
   word: FlatWord;
   edge: WordEdge;
@@ -94,6 +110,7 @@ export function KaraokeWaveform({
   words,
   selected,
   onSeek,
+  onSelect,
   onWordTimeChange,
 }: {
   peaks: number[];
@@ -102,6 +119,7 @@ export function KaraokeWaveform({
   words: FlatWord[];
   selected: { l: number; w: number } | null;
   onSeek: (t: number) => void;
+  onSelect: (l: number, w: number) => void;
   onWordTimeChange: (l: number, w: number, field: "start" | "end", t: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -126,13 +144,16 @@ export function KaraokeWaveform({
     if (!(duration > 0) || width <= 0) return;
 
     // Peaks
-    ctx.fillStyle = "rgba(128,128,128,0.35)";
-    const barW = width / Math.max(1, peaks.length);
-    const mid = (HEIGHT - 32) / 2;
-    peaks.forEach((p, i) => {
-      const h = Math.max(1, p * (HEIGHT - 40));
-      ctx.fillRect(i * barW, mid - h / 2, Math.max(1, barW - 0.5), h);
-    });
+    // A single placeholder peak means "no waveform data": draw no bars.
+    if (peaks.length > 1) {
+      ctx.fillStyle = "rgba(128,128,128,0.35)";
+      const barW = width / peaks.length;
+      const mid = (HEIGHT - 32) / 2;
+      peaks.forEach((p, i) => {
+        const h = Math.max(1, p * (HEIGHT - 40));
+        ctx.fillRect(i * barW, mid - h / 2, Math.max(1, barW - 0.5), h);
+      });
+    }
 
     // Word blocks
     const top = HEIGHT - 28;
@@ -199,13 +220,7 @@ export function KaraokeWaveform({
       emit("end", clampWordTime("end", d.origEnd + delta, orig, null, next));
     } else {
       const len = d.origEnd - d.origStart;
-      const newStart = clampWordTime(
-        "start",
-        d.origStart + delta,
-        { start: d.origStart, end: Infinity },
-        prev,
-        next ? { start: next.start - len } : null,
-      );
+      const { start: newStart } = clampWordMove(d.origStart + delta, len, prev, next);
       // Write end first when moving right so end >= start holds at each step.
       if (newStart >= d.word.start) {
         emit("end", round3(newStart + len));
@@ -221,6 +236,7 @@ export function KaraokeWaveform({
     <div ref={wrapRef} className="w-full" data-testid="karaoke-waveform">
       <canvas
         ref={canvasRef}
+        data-peaks={peaks.length}
         aria-label="Waveform timeline"
         role="img"
         className="block touch-none rounded border"
@@ -256,7 +272,10 @@ export function KaraokeWaveform({
           const d = dragRef.current;
           dragRef.current = null;
           e.currentTarget.releasePointerCapture?.(e.pointerId);
-          if (d && !d.moved) onSeek(round3(xToTime(pointerX(e), widthOf(), duration)));
+          if (d && !d.moved) {
+            onSelect(d.word.l, d.word.w);
+            onSeek(round3(xToTime(pointerX(e), widthOf(), duration)));
+          }
         }}
         onPointerCancel={() => {
           dragRef.current = null;

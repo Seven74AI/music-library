@@ -24,7 +24,8 @@ export async function computePeaks(audioStreamUrl: string, targetBars = 1500): P
   const res = await fetch(audioStreamUrl);
   if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
   const buf = await res.arrayBuffer();
-  const ctx = new AudioContext();
+  const Ctx: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+  const ctx = new Ctx();
   try {
     const decoded = await ctx.decodeAudioData(buf);
     return downsamplePeaks(decoded.getChannelData(0), targetBars);

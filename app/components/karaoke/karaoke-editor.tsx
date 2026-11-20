@@ -100,6 +100,7 @@ export function KaraokeEditor({
     let cancelled = false;
     setAudioSrc(null);
     setAudioError(null);
+    setVideoOk(true);
     resolveTrackPlaybackSource(trackId)
       .then((url) => {
         if (cancelled) return;
@@ -157,9 +158,26 @@ export function KaraokeEditor({
   );
   const versionPath = (id: string) => `/library/${trackId}/karaoke/${id}`;
   const apply = (next: KaraokeLines) => {
+    // Structural edits (delete/split/move/remove) can shift which word occupies
+    // the selected slot. Keep the selection only if that slot still holds a word
+    // with the same start (e.g. merge, text/time edits); otherwise clear it so the
+    // list and waveform never disagree.
+    if (selected) {
+      const sameShape =
+        next.length === lines.length && next.every((line, i) => line.length === lines[i]!.length);
+      const before = lines[selected.l]?.[selected.w];
+      const after = next[selected.l]?.[selected.w];
+      if (!after || (!sameShape && after.start !== before?.start)) setSelected(null);
+    }
     setLines(next);
     setNotice(null);
   };
+
+  function selectWord(l: number, w: number) {
+    setSelected({ l, w });
+    const word = lines[l]?.[w];
+    if (word) seek(word.start);
+  }
 
   function seek(t: number) {
     const audio = audioRef.current;
@@ -323,6 +341,7 @@ export function KaraokeEditor({
             words={flatWords}
             selected={selected}
             onSeek={seek}
+            onSelect={selectWord}
             onWordTimeChange={(l, w, field, t) => {
               // Functional update: a drag may emit several changes per frame.
               setLines((prev) => setWordTime(prev, l, w, field, t));
@@ -333,11 +352,7 @@ export function KaraokeEditor({
             lines={lines}
             selected={selected}
             disabled={busy}
-            onSelect={(l, w) => {
-              setSelected({ l, w });
-              const word = lines[l]?.[w];
-              if (word) seek(word.start);
-            }}
+            onSelect={selectWord}
             onEdit={apply}
           />
         </section>

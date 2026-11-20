@@ -344,3 +344,22 @@ test("time input commits on blur, not per keystroke, and reverts invalid text", 
   expect(start.value).toBe("1.25");
   expect(screen.getByRole("button", { name: "Mark ready" })).toBeDisabled();
 });
+
+test("peaks failure leaves an empty (no-bar) waveform", async () => {
+  renderEditor();
+  const canvas = screen.getByRole("img", { name: "Waveform timeline" });
+  await waitFor(() => expect(canvas.getAttribute("data-peaks")).toBe("1"));
+});
+
+test("selection clears after deleting the selected word", async () => {
+  const user = userEvent.setup();
+  renderEditor();
+  await selectWord(user, "1.1");
+  expect(screen.getAllByTestId("selected-word-editor")).toHaveLength(1);
+  await user.click(screen.getByRole("button", { name: /^Delete word/ }));
+  expect(screen.queryAllByTestId("selected-word-editor")).toHaveLength(0);
+  expect(screen.getAllByTestId("word-chip")).toHaveLength(2);
+  for (const chip of screen.getAllByRole("button", { name: /^Select word/ })) {
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+  }
+});
