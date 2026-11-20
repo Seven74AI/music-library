@@ -212,7 +212,8 @@
     "shell-quote": ">=1.11.0",
     "turbo-stream": ">=3.0.0",
     "uuid": ">=11.1.1",
-    "js-yaml": "^4.3.2"
+    "js-yaml": "^4.3.2",
+    "effect": "^3.22.1"
   },
   "engines": {
     "node": "24"
