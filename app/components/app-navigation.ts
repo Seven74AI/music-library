@@ -15,6 +15,7 @@ export const listeningNavItems = [
   { label: "Search", icon: "magnifying-glass", to: "/search", ariaLabel: "Search music" },
   { label: "My Library", icon: "file-text", to: "/library", ariaLabel: "My music library" },
   { label: "My Playlists", icon: "list-bullet", to: "/playlists", ariaLabel: "My playlists" },
+  { label: "Karaoke", icon: "speaker-wave", to: "/karaoke", ariaLabel: "Karaoke tracks" },
   { label: "History", icon: "clock", to: "/history", ariaLabel: "Listening history" },
 ] as const satisfies ReadonlyArray<NavLinkItem>;
 

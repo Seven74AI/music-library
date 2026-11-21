@@ -63,13 +63,13 @@ function labelStaysInCell(options: {
   return nowrap && clips && equalCell;
 }
 
-test("six listening tabs stay on one line without overlapping at 390px", () => {
+test("seven listening tabs stay on one line without overlapping at 390px", () => {
   renderBottomNav();
 
   const nav = screen.getByRole("navigation", { name: "Main navigation" });
   const items = within(nav).getAllByRole("listitem");
-  expect(items).toHaveLength(6);
-  expect(listeningNavItems).toHaveLength(6);
+  expect(items).toHaveLength(7);
+  expect(listeningNavItems).toHaveLength(7);
 
   const cellWidth = NARROW_PHONE_PX / listeningNavItems.length;
 

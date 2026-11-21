@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 import { AddPlaylistToRoom } from "#app/components/party-room/add-playlist-to-room.tsx";
 import { EndRoomButton } from "#app/components/party-room/end-room-button.tsx";
 import { HostFailoverControls } from "#app/components/party-room/host-failover-controls.tsx";
+import { KaraokeBadge } from "#app/components/party-room/karaoke-badge.tsx";
 import { RoomQueuePanel } from "#app/components/party-room/room-queue-panel.tsx";
 import { Button } from "#app/components/ui/button.tsx";
 import { Icon } from "#app/components/ui/icon.tsx";
@@ -89,6 +90,7 @@ export function RoomsHub() {
         <header className="space-y-2">
           <p className="text-sm text-muted-foreground">Current room</p>
           <h1 className="font-mono text-4xl font-bold tracking-[0.2em]">{room.code}</h1>
+          {room.kind === "karaoke" ? <KaraokeBadge /> : null}
           {party.error ? (
             <p className="text-sm text-destructive" role="alert">
               {party.error}

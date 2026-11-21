@@ -113,7 +113,7 @@ export function KaraokeOverlay({
         aria-label="Hide lyrics"
         title="Hide lyrics"
         onClick={() => setDismissed(true)}
-        className="absolute top-4 right-4 z-10 rounded-full bg-black/60 px-3 py-1 text-sm text-white hover:bg-black/80"
+        className="absolute top-4 right-4 z-10 min-h-11 rounded-full border-2 border-white/80 bg-black/80 px-5 py-2 text-base font-semibold text-white shadow-lg hover:bg-white hover:text-black focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
       >
         ✕ Hide lyrics
       </button>

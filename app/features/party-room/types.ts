@@ -1,4 +1,4 @@
-import { type RoomDefaultJoinRole, type RoomRole, type RoomStatus } from "./constants.ts";
+import { type RoomDefaultJoinRole, type RoomKind, type RoomRole, type RoomStatus } from "./constants.ts";
 
 /** Lightweight track stub embedded in room queue snapshots. */
 export type RoomQueueTrackStub = {
@@ -46,6 +46,8 @@ export type RoomSnapshot = {
   code: string;
   status: RoomStatus;
   defaultJoinRole: RoomDefaultJoinRole;
+  /** Room kind; absent on older payloads (treated as "party"). */
+  kind?: RoomKind;
   roomVersion: number;
   createdAt: string;
   endedAt: string | null;
