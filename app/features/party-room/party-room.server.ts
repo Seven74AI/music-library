@@ -12,8 +12,10 @@ import {
   ROOM_ROLE,
   ROOM_STATUS,
   type DefaultJoinRole,
+  type RoomKind,
   type RoomRole,
 } from "./constants.ts";
+import { hasReadyKaraokeVersion } from "#app/features/track-video/karaoke-ready.ts";
 import { createGuestToken, hashGuestToken } from "./guest-token.server.ts";
 import { isParticipantAway } from "./presence.ts";
 import { publishRoomEvent } from "./sse.server.ts";
@@ -34,6 +36,7 @@ export type PartyRoomErrorCode =
   | "rate_limited"
   | "queue_full"
   | "track_no_audio"
+  | "track_not_karaoke_ready"
   | "invalid_queue_op"
   | "invalid_body"
   | "conflict";
@@ -420,10 +423,12 @@ export async function createRoom({
   userId,
   displayName,
   defaultJoinRole = DEFAULT_JOIN_ROLE.listener,
+  kind = "party",
 }: {
   userId: string;
   displayName: string;
   defaultJoinRole?: DefaultJoinRole;
+  kind?: RoomKind;
 }) {
   const name = normalizeDisplayName(displayName);
   if (!name) {
@@ -495,6 +500,7 @@ export async function createRoom({
         code,
         status: ROOM_STATUS.open,
         defaultJoinRole,
+        kind,
         currentIndex: 0,
         roomVersion: 1,
         isPlaying: false,
@@ -1423,7 +1429,7 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
       createdAt: item.createdAt.toISOString(),
       track: (({ karaoke, ...track }) => {
         const version = karaoke?.currentVersion;
-        const hasReady = version?.status === "ready" && Boolean(version.videoFileId);
+        const hasReady = hasReadyKaraokeVersion(version);
         return { ...track, karaoke: { hasReady, versionId: hasReady ? version!.id : null } };
       })(item.track),
     })),
