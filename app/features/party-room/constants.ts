@@ -45,6 +45,15 @@ export const ROOM_ROLE = {
 
 export type RoomRole = (typeof ROOM_ROLE)[keyof typeof ROOM_ROLE];
 
+/** Room kind: a regular party room or a karaoke room. */
+export const ROOM_KIND = ["party", "karaoke"] as const;
+
+export type RoomKind = (typeof ROOM_KIND)[number];
+
+export function isRoomKind(value: unknown): value is RoomKind {
+  return typeof value === "string" && (ROOM_KIND as readonly string[]).includes(value);
+}
+
 /** Human-readable label for a room role. Unknown roles pass through unchanged. */
 export function roomRoleLabel(role: string): string {
   if (role === ROOM_ROLE.host) return "Host";

@@ -7,6 +7,7 @@ import {
   canRemoveQueueItem,
   canTransport,
 } from "./capabilities.ts";
+import { hasReadyKaraokeVersion } from "#app/features/track-video/karaoke-ready.ts";
 import { MAX_QUEUE_TRACKS, ROOM_STATUS, type RoomRole } from "./constants.ts";
 import { PartyRoomError, requireParticipant, type ParticipantActor } from "./party-room.server.ts";
 import { addTrackRateLimit } from "./rate-limit.server.ts";
@@ -36,6 +37,26 @@ async function lockOpenRoom(tx: Prisma.TransactionClient, roomId: string) {
     throw new PartyRoomError("room_ended", "Room has ended", 410);
   }
   return room;
+}
+
+const KARAOKE_ONLY_MESSAGE = "This karaoke room only accepts tracks with a ready karaoke version";
+
+/** Karaoke rooms reject any track without a ready karaoke version. Party rooms accept anything. */
+async function assertKaraokeRoomAccepts(room: { kind: string }, trackIds: string[]) {
+  if (room.kind !== "karaoke" || trackIds.length === 0) return;
+  const karaokes = await prisma.trackKaraoke.findMany({
+    where: { trackId: { in: trackIds } },
+    select: {
+      trackId: true,
+      currentVersion: { select: { status: true, videoFileId: true } },
+    },
+  });
+  const ready = new Set(
+    karaokes.filter((k) => hasReadyKaraokeVersion(k.currentVersion)).map((k) => k.trackId),
+  );
+  if (!trackIds.every((id) => ready.has(id))) {
+    throw new PartyRoomError("track_not_karaoke_ready", KARAOKE_ONLY_MESSAGE, 400);
+  }
 }
 
 async function emitSnapshot(roomId: string) {
@@ -116,7 +137,7 @@ export async function addTrackToQueue({
   actor: ParticipantActor;
   trackId: string;
 }) {
-  await loadOpenRoom(roomId);
+  const room = await loadOpenRoom(roomId);
   const participant = await requireParticipant(roomId, actor);
   if (!canAddTracks(participant.role as RoomRole)) {
     throw new PartyRoomError("forbidden", "Your role cannot add tracks", 403);
@@ -127,6 +148,7 @@ export async function addTrackToQueue({
     throw new PartyRoomError("rate_limited", "Too many track adds", 429, budget.retryAfterSeconds);
   }
 
+  await assertKaraokeRoomAccepts(room, [trackId]);
   await assertTrackHasAudio(trackId);
 
   await appendTracksToOpenRoomQueue({
@@ -146,7 +168,7 @@ export async function addPlaylistToQueue({
   actor: ParticipantActor;
   playlistId: string;
 }) {
-  await loadOpenRoom(roomId);
+  const room = await loadOpenRoom(roomId);
   const participant = await requireParticipant(roomId, actor);
   if (participant.role !== "host") {
     throw new PartyRoomError("forbidden", "Only the Host can add a playlist", 403);
@@ -170,6 +192,10 @@ export async function addPlaylistToQueue({
     throw new PartyRoomError("not_found", "Playlist not found", 404);
   }
 
+  await assertKaraokeRoomAccepts(
+    room,
+    playlist.tracks.map((t) => t.trackId),
+  );
   const withAudio = playlist.tracks.filter((t) => t.track.audioFiles.length > 0);
   const appended = await appendTracksToOpenRoomQueue({
     roomId,
