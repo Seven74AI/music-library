@@ -1,6 +1,6 @@
 import { data, type ActionFunctionArgs } from "react-router";
 import { z } from "zod";
-import { createRoom, PartyRoomError } from "#app/features/party-room/party-room.server.ts";
+import { createRoom, endRoom, PartyRoomError } from "#app/features/party-room/party-room.server.ts";
 import { addTrackToQueue } from "#app/features/party-room/queue.server.ts";
 import { hasReadyKaraokeVersion } from "#app/features/track-video/karaoke-ready.ts";
 import { requireUserId } from "#app/utils/auth.server.ts";
@@ -42,16 +42,24 @@ export async function action({ request }: ActionFunctionArgs) {
     return data({ success: false, error: "Track has no audio file" }, { status: 400 });
   }
 
+  let room: Awaited<ReturnType<typeof createRoom>> | undefined;
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { name: true, username: true },
     });
     const displayName = user?.name?.trim() || user?.username || "Host";
-    const room = await createRoom({ userId, displayName, kind: "karaoke" });
+    room = await createRoom({ userId, displayName, kind: "karaoke" });
     await addTrackToQueue({ roomId: room.id, actor: { type: "user", userId }, trackId });
     return data({ success: true, code: room.code });
   } catch (error) {
+    if (room) {
+      try {
+        await endRoom({ roomId: room.id, actor: { type: "user", userId } });
+      } catch {
+        // Best-effort cleanup; never mask the original error.
+      }
+    }
     if (error instanceof PartyRoomError) {
       return data({ success: false, error: error.message }, { status: error.status });
     }

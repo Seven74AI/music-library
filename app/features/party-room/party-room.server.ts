@@ -9,6 +9,7 @@ import {
   GUEST_DISPLAY_NAME_MIN,
   MAX_PARTICIPANTS,
   MAX_ACTIVE_ROOMS_PER_CREATOR,
+  isRoomKind,
   ROOM_ROLE,
   ROOM_STATUS,
   type DefaultJoinRole,
@@ -440,6 +441,9 @@ export async function createRoom({
   }
   if (!isDefaultJoinRole(defaultJoinRole)) {
     throw new PartyRoomError("invalid_role", "defaultJoinRole must be listener or dj", 400);
+  }
+  if (!isRoomKind(kind)) {
+    throw new PartyRoomError("invalid_role", "kind must be party or karaoke", 400);
   }
 
   const activeAsParticipant = await prisma.roomParticipant.findFirst({

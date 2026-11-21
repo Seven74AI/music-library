@@ -117,6 +117,7 @@ const PARTY_ROOM_ERROR_CODES = new Set([
   "rate_limited",
   "queue_full",
   "track_no_audio",
+  "track_not_karaoke_ready",
   "invalid_queue_op",
   "conflict",
 ]);

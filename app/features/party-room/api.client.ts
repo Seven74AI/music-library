@@ -22,7 +22,7 @@
  * successful response. A missing cache is not "no room".
  */
 
-import { SPEAKER_SILENCE_GRACE_MS, type RoomDefaultJoinRole, type RoomRole } from "./constants.ts";
+import { isRoomKind, SPEAKER_SILENCE_GRACE_MS, type RoomDefaultJoinRole, type RoomRole } from "./constants.ts";
 import {
   type CreateRoomInput,
   type JoinRoomInput,
@@ -271,7 +271,7 @@ export function normalizeRoomSnapshot(
     code,
     status: (raw.status as RoomSnapshot["status"]) ?? "open",
     defaultJoinRole: (raw.defaultJoinRole as RoomDefaultJoinRole) ?? "listener",
-    kind: raw.kind === "karaoke" ? "karaoke" : "party",
+    kind: isRoomKind(raw.kind) ? raw.kind : "party",
     roomVersion: Number(raw.roomVersion ?? 0),
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
     endedAt: typeof raw.endedAt === "string" ? raw.endedAt : null,
