@@ -110,10 +110,11 @@ test.describe("Bottom Navigation", () => {
 
     const bottomNav = page.getByRole("navigation", { name: /main navigation/i });
     await expect(bottomNav).toBeVisible();
-    await expect(bottomNav.getByRole("listitem")).toHaveCount(6);
+    await expect(bottomNav.getByRole("listitem")).toHaveCount(7);
     await expect(bottomNav.getByText("Discover")).toBeVisible();
     await expect(bottomNav.getByText("My Library")).toBeVisible();
     await expect(bottomNav.getByText("My Playlists")).toBeVisible();
+    await expect(bottomNav.getByText("Karaoke")).toBeVisible();
     await expect(bottomNav.getByText("History")).toBeVisible();
   });
 

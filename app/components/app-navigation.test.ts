@@ -15,6 +15,7 @@ test("signed-in desktop nav keeps account destinations and drops the search link
     "/discover",
     "/library",
     "/playlists",
+    "/karaoke",
     "/history",
   ]);
 });
@@ -26,6 +27,7 @@ test("signed-in listening nav keeps every destination", () => {
     "Search",
     "My Library",
     "My Playlists",
+    "Karaoke",
     "History",
   ]);
 });
