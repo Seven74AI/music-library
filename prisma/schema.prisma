@@ -820,6 +820,8 @@ model Room {
   status                   String   @default("open")
   /// listener | dj — never host
   defaultJoinRole          String   @default("listener")
+  /// party | karaoke
+  kind                     String   @default("party")
   /// Flat Room Queue pointer; history is rows with position < currentIndex.
   currentIndex             Int      @default(0)
   /// Monotonic version bumped on every mutation (SSE resync).
