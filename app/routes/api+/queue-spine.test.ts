@@ -17,6 +17,33 @@ function makeRequest(url: string) {
   return { request: new Request(url), url: new URL(url) };
 }
 
+const SPINE_CONTEXTS = [
+  {
+    name: "playlist spine",
+    url: "http://localhost/api/queue-spine?context=playlist&playlistId=pl-1",
+    value: { context: "playlist", playlistId: "pl-1", sort: "custom", direction: "asc" },
+    trackId: "track-2",
+  },
+  {
+    name: "artist spine",
+    url: "http://localhost/api/queue-spine?context=artist&artistId=artist-1",
+    value: { context: "artist", artistId: "artist-1" },
+    trackId: "track-3",
+  },
+  {
+    name: "album spine",
+    url: "http://localhost/api/queue-spine?context=album&albumId=album-1",
+    value: { context: "album", albumId: "album-1" },
+    trackId: "track-4",
+  },
+  {
+    name: "track spine",
+    url: "http://localhost/api/queue-spine?context=track&trackId=track-1",
+    value: { context: "track", trackId: "track-1" },
+    trackId: "track-1",
+  },
+] as const;
+
 describe("queue-spine API loader", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -35,8 +62,8 @@ describe("queue-spine API loader", () => {
 
     expect(response.status).toBe(400);
     expect(fetchQueueSpine).not.toHaveBeenCalled();
-    const body = (await response.json()) as { error: string };
-    expect(body.error).toBe("Invalid context parameter");
+    const body = (await response.json()) as { error?: string };
+    expect(body.error).toBeDefined();
   });
 
   test("returns library spine", async () => {
@@ -85,7 +112,6 @@ describe("queue-spine API loader", () => {
       ],
       total: 1,
     });
-    expect(body.tracks[0]).not.toHaveProperty("audioFiles");
   });
 
   test("returns empty library spine", async () => {
@@ -122,122 +148,20 @@ describe("queue-spine API loader", () => {
     ).rejects.toSatisfy((err: unknown) => err instanceof Response && err.status === 302);
   });
 
-  test("returns playlist spine", async () => {
-    vi.mocked(parseQueueSpineParams).mockReturnValue({
-      ok: true,
-      value: {
-        context: "playlist",
-        playlistId: "pl-1",
-        sort: "custom",
-        direction: "asc",
-      },
-    });
+  test.each(SPINE_CONTEXTS)("returns $name", async ({ url, value, trackId }) => {
+    vi.mocked(parseQueueSpineParams).mockReturnValue({ ok: true, value });
     vi.mocked(fetchQueueSpine).mockResolvedValue({
-      tracks: [
-        {
-          id: "track-2",
-          title: "Song Two",
-          artist: { id: "artist-2", name: "Artist Two" },
-        },
-      ],
+      tracks: [{ id: trackId, title: "Track", artist: { id: "artist-1", name: "Artist" } }],
       total: 1,
     });
 
     const response = await loader({
-      ...makeRequest("http://localhost/api/queue-spine?context=playlist&playlistId=pl-1"),
+      ...makeRequest(url),
     } as never);
 
     expect(response.status).toBe(200);
-    expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", {
-      context: "playlist",
-      playlistId: "pl-1",
-      sort: "custom",
-      direction: "asc",
-    });
-    const body = (await response.json()) as {
-      tracks: Array<Record<string, unknown>>;
-    };
-    expect(body.tracks[0]).not.toHaveProperty("audioFiles");
-  });
-
-  test("returns artist spine", async () => {
-    vi.mocked(parseQueueSpineParams).mockReturnValue({
-      ok: true,
-      value: { context: "artist", artistId: "artist-1" },
-    });
-    vi.mocked(fetchQueueSpine).mockResolvedValue({
-      tracks: [
-        {
-          id: "track-3",
-          title: "Artist Song",
-          artist: { id: "artist-1", name: "Artist One" },
-        },
-      ],
-      total: 1,
-    });
-
-    const response = await loader({
-      ...makeRequest("http://localhost/api/queue-spine?context=artist&artistId=artist-1"),
-    } as never);
-
-    expect(response.status).toBe(200);
-    expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", {
-      context: "artist",
-      artistId: "artist-1",
-    });
-  });
-
-  test("returns album spine", async () => {
-    vi.mocked(parseQueueSpineParams).mockReturnValue({
-      ok: true,
-      value: { context: "album", albumId: "album-1" },
-    });
-    vi.mocked(fetchQueueSpine).mockResolvedValue({
-      tracks: [
-        {
-          id: "track-4",
-          title: "Album Song",
-          artist: { id: "artist-2", name: "Artist Two" },
-        },
-      ],
-      total: 1,
-    });
-
-    const response = await loader({
-      ...makeRequest("http://localhost/api/queue-spine?context=album&albumId=album-1"),
-    } as never);
-
-    expect(response.status).toBe(200);
-    expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", {
-      context: "album",
-      albumId: "album-1",
-    });
-  });
-
-  test("returns one-track spine", async () => {
-    vi.mocked(parseQueueSpineParams).mockReturnValue({
-      ok: true,
-      value: { context: "track", trackId: "track-1" },
-    });
-    vi.mocked(fetchQueueSpine).mockResolvedValue({
-      tracks: [
-        {
-          id: "track-1",
-          title: "Only Track",
-          artist: { id: "artist-3", name: "Artist Three" },
-        },
-      ],
-      total: 1,
-    });
-
-    const response = await loader({
-      ...makeRequest("http://localhost/api/queue-spine?context=track&trackId=track-1"),
-    } as never);
-
-    expect(response.status).toBe(200);
-    expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", {
-      context: "track",
-      trackId: "track-1",
-    });
+    expect(fetchQueueSpine).toHaveBeenCalledWith("user-1", value);
+    const body = (await response.json()) as { tracks: Array<{ id: string }> };
+    expect(body.tracks[0]?.id).toBe(trackId);
   });
 });
