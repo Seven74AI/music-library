@@ -47,6 +47,18 @@ describe("guest /rooms/:code loader", () => {
     expect(result).toMatchObject({ code: "AB3K9Q", seated: false, participant: null });
   });
 
+  test.each(["party", "karaoke"] as const)("exposes room kind %s to the guest shell", async (kind) => {
+    const host = await createHost();
+    await prisma.room.create({
+      data: { code: "KD3K9Q", status: "open", kind, originalHostUserId: host.id },
+    });
+    const result = await loader({
+      request: new Request("http://localhost/rooms/KD3K9Q"),
+      params: { code: "KD3K9Q" },
+    } as never);
+    expect(result.data).toMatchObject({ mode: "guest", room: { kind } });
+  });
+
   test("a later visit says the room ended only when that room row is ended", async () => {
     const host = await createHost();
     await prisma.room.create({

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { data, Link, NavLink, Outlet, useLoaderData, useNavigate, useParams } from "react-router";
 import { GeneralErrorBoundary } from "#app/components/error-boundary.tsx";
 import { formatRoomRole } from "#app/components/party-room/guest-room-live-panel.tsx";
+import { KaraokeBadge } from "#app/components/party-room/karaoke-badge.tsx";
 import { RoomsHub } from "#app/components/party-room/rooms-hub.tsx";
 import { canAddTracks } from "#app/features/party-room/capabilities.ts";
 import { ROOM_STATUS } from "#app/features/party-room/constants.ts";
@@ -56,6 +57,7 @@ type GuestLoaderData = {
     code: string;
     status: string;
     defaultJoinRole: string;
+    kind?: string;
     currentIndex?: number;
     roomVersion?: number;
     isPlaying?: boolean;
@@ -178,6 +180,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         code: openRoom.code,
         status: openRoom.status,
         defaultJoinRole: openRoom.defaultJoinRole,
+        kind: openRoom.kind,
         ...(participant
           ? {
               currentIndex: openRoom.currentIndex,
@@ -313,6 +316,7 @@ function GuestRoomShell({ roomShell }: { roomShell: GuestLoaderData }) {
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Party Room</p>
             <p className="font-mono text-xl font-semibold tracking-widest">{roomShell.code}</p>
+            {roomShell.room.kind === "karaoke" ? <KaraokeBadge className="mt-1" /> : null}
           </div>
           <div className="text-right text-sm">
             <p className="font-medium">{displayName}</p>

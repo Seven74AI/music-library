@@ -271,6 +271,7 @@ export function normalizeRoomSnapshot(
     code,
     status: (raw.status as RoomSnapshot["status"]) ?? "open",
     defaultJoinRole: (raw.defaultJoinRole as RoomDefaultJoinRole) ?? "listener",
+    kind: raw.kind === "karaoke" ? "karaoke" : "party",
     roomVersion: Number(raw.roomVersion ?? 0),
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
     endedAt: typeof raw.endedAt === "string" ? raw.endedAt : null,

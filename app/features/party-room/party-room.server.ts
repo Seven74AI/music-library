@@ -1403,6 +1403,7 @@ export async function getRoomSnapshot(roomId: string, actor?: ParticipantActor |
     code: room.code,
     status: room.status,
     defaultJoinRole: room.defaultJoinRole,
+    kind: room.kind,
     currentIndex: room.currentIndex,
     roomVersion: room.roomVersion,
     isPlaying: room.isPlaying,
