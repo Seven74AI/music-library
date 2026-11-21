@@ -11,7 +11,7 @@ Server-side audio lived under two incompatible Tigris key layouts:
 1. **Archive worker** — `audio/{trackId}/{filename}` (yt-dlp output basename)
 2. **Admin upload** — `audio/tracks/{trackId}/{serviceId}/{format}/{timestamp}-{fileId}.{ext}`
 
-The general-purpose storage module (`app/utils/storage.server.ts`) already owned S3 client setup, multipart upload, and presigned URLs, while the archive feature duplicated that in `tigris-upload.server.ts`. Predictable bucket layout matters for operators, migration scripts, and the upcoming **Track Audio Persist** module (issue #51).
+The general-purpose storage module (`app/utils/storage.server.ts`) already owned S3 client setup, multipart upload, and presigned URLs, while the archive feature duplicated that in `tigris-upload.server.ts`. Predictable bucket layout matters for operators, migration scripts, and the **Track Audio Persist** module (issue #51).
 
 Domain vocabulary in `docs/CONTEXT.md` settled decision #12 specifies:
 
