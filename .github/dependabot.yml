@@ -17,6 +17,13 @@ updates:
     cooldown:
       default-days: 7
     versioning-strategy: increase
+    # `effect` is pinned to the patched 3.22.x line via the `overrides` entry in
+    # package.json (transitive dep of @prisma/config@7.10.1, which pins the
+    # vulnerable 3.20.0). Dependabot's security updater cannot find an update
+    # path through that exact pin, so it errors with "no update path was found".
+    # The override already resolves it to a non-vulnerable version — ignore it.
+    ignore:
+      - dependency-name: "effect"
     commit-message:
       prefix: "chore"
       prefix-development: "chore"
