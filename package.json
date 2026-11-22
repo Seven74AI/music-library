@@ -163,7 +163,7 @@
   },
   "devDependencies": {
     "@epic-web/config": "^3.2.1",
-    "@playwright/test": "^1.65.0",
+    "@playwright/test": "^1.65.1",
     "@react-router/dev": "^8.5.1",
     "@serwist/build": "^9.5.13",
     "@sly-cli/sly": "^2.1.1",
