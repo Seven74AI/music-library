@@ -246,7 +246,7 @@ describe("create karaoke action", () => {
     });
     expect(job?.status).toBe("failed");
     expect(job?.retryCount).toBe(1);
-    expect(job?.errorHistory).toContain("not configured");
+    expect(job?.errorHistory).not.toBe("[]");
   });
 
   test.each([

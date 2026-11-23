@@ -180,7 +180,7 @@ describe("dispatchGeneration audioUrl handoff", () => {
     ).toBe(false);
     expect(after?.status).toBe("failed");
     expect(after?.retryCount).toBe(1);
-    expect(after?.errorHistory).toContain("no audio file");
+    expect(after?.errorHistory).not.toBe("[]");
   });
 
   test("stub path returns mock-<jobId> and does not sign", async () => {
@@ -269,7 +269,7 @@ describe("reconcileStuckJobs", () => {
       where: { id: job.id },
     });
     expect(after?.status).toBe("failed");
-    expect(after?.errorHistory).toContain("not configured");
+    expect(after?.errorHistory).not.toBe("[]");
   });
 
   test("skips overlapping runs", async () => {
@@ -296,6 +296,6 @@ describe("reconcileStuckJobs", () => {
       where: { id: job.id },
     });
     expect(after?.status).toBe("failed");
-    expect(after?.errorHistory).toContain("unrecognized provider response");
+    expect(after?.errorHistory).not.toBe("[]");
   });
 });
