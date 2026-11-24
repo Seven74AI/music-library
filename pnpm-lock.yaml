@@ -39,8 +39,8 @@ importers:
         specifier: ^3.2.2
         version: 3.2.2(react@19.3.1)
       '@epic-web/cachified':
-        specifier: ^5.6.4
-        version: 5.6.4
+        specifier: ^5.6.5
+        version: 5.6.5
       '@epic-web/client-hints':
         specifier: ^1.3.5
         version: 1.3.9
@@ -294,8 +294,8 @@ importers:
         specifier: ^8.5.1
         version: 8.5.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       remix-auth:
-        specifier: ^4.2.0
-        version: 4.2.0
+        specifier: ^5.0.0
+        version: 5.0.0
       remix-utils:
         specifier: ^10.0.1
         version: 10.0.1(@oslojs/crypto@1.0.1)(@oslojs/encoding@1.1.0)(@standard-schema/spec@1.1.0)(intl-parse-accept-language@1.0.0)(react-router@8.5.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
@@ -430,8 +430,8 @@ importers:
         specifier: ^31.0.0
         version: 31.0.0(@noble/hashes@2.2.0)
       lint-staged:
-        specifier: ^17.6.0
-        version: 17.6.0
+        specifier: ^17.6.1
+        version: 17.6.1
       msw:
         specifier: ^3.0.6
         version: 3.0.6(@types/node@26.6.6)(graphql@16.14.2)(supports-color@8.1.1)(typescript@7.0.2)(vite@8.3.6(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
@@ -683,6 +683,10 @@ packages:
     peerDependencies:
       react: '>=16.8.0'
 
+  '@edgefirst-dev/data@0.0.4':
+    resolution: {integrity: sha512-VLhlvEPDJ0Sd0pE6sAYTQkIqZCXVonaWlgRJIQQHzfjTXCadF77qqHj5NxaPSc4wCul0DJO/0MnejVqJAXUiRg==}
+    engines: {node: '>=20.0.0'}
+
   '@electric-sql/pglite-socket@0.1.3':
     resolution: {integrity: sha512-LAciWM0M1dCL8hlsxu2venbVZcdxema0BtDfpWYVqr+Y468UADw0pFWidhKw1M8sfJ8rdLT71tjMmnirf/IZRQ==}
     hasBin: true
@@ -700,8 +704,8 @@ packages:
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
 
-  '@epic-web/cachified@5.6.4':
-    resolution: {integrity: sha512-wsySi8Pz8Bd4+IMvry+ADCtGsVFrxg3oduGjeivlqPNA2kpI0+wEmeoffyBIO5N3uatkIW0cs/8/oB48b8TDHw==}
+  '@epic-web/cachified@5.6.5':
+    resolution: {integrity: sha512-R+zKPYsrIJ0Y2pumvdl4voibze3W1dF+IQs8OTdvxwX7WizFB0HhCy+P3OQnu+BLS2DzPGd+SboBfEbyhbsBfA==}
 
   '@epic-web/client-hints@1.3.9':
     resolution: {integrity: sha512-11fcNmJTmw+LGCxth+ctguMSciPj0IRbq1brkA+efNzhshUk0y8OCuwGODrAk3ISmbNSZe8kERHws/M8q4/U+Q==}
@@ -2541,6 +2545,15 @@ packages:
       typescript:
         optional: true
 
+  '@remix-run/headers@1.1.0':
+    resolution: {integrity: sha512-Rmzn+WesET0EfVukEHYYKT6RV9HYQb9WGdda3oWedQJXCoHnrXgaQc39DdwZ2rztI05izBAOF1HEHmEpGtjKHQ==}
+
+  '@remix-run/html-template@1.0.0':
+    resolution: {integrity: sha512-XX2VgVMf4d8Mk3bvcDkHqHQEfXLjny8SE5QApXaTbc7F2BpuQbtTVji2d8Aqlo7U4V5ZGOPZqdbGhwjI2Iknqw==}
+
+  '@remix-run/mime@1.0.0':
+    resolution: {integrity: sha512-oOPL/TMsNIbfNpSzjtZhTmIeqfgCYM3mQOYs13UsHKTmgLRgKfiNz4B1q/SN3juhCrtPwDwjwUEx1Vn8vp9SEg==}
+
   '@remix-run/node-fetch-server@0.14.1':
     resolution: {integrity: sha512-pKenF5ysIN5lDCnCyvoUxDhKP0tfnGagvGbZh01xxHG6DJXSIXWVC9NpLSDGjxcxd1CKdCOKuZFleXBF3pChIg==}
 
@@ -2554,6 +2567,9 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
+
+  '@remix-run/response@1.0.2':
+    resolution: {integrity: sha512-H2lThUxjV8+Ai0rdzEgctIVZDm9lGhp+HG3xvP2Og4GA+CZPsoBaCOctCRBxDLOTxW8enkB9/JONraYpmPMuhw==}
 
   '@remix-run/route-pattern@0.22.1':
     resolution: {integrity: sha512-czdGJWh09Lapvcqt7Vb09KlrU2PhRJ8xQaI+AItTuD9aDJ5MAgxnS38lnys6Ll+6RJEqPiaUqTwIQhVLwFvv+w==}
@@ -5090,8 +5106,8 @@ packages:
   lines-and-columns@1.2.4:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
 
-  lint-staged@17.6.0:
-    resolution: {integrity: sha512-nOhBfYkZEwkFtNzD5pK9s9LkcWoxJ+whLzEnhqi9nl7zTB5n7tg8+9iYgMGx2Wm3VlLu8cbNj0RACzY+nWi5iQ==}
+  lint-staged@17.6.1:
+    resolution: {integrity: sha512-3MXgVN7BERDR/6CXZs2fDHGc+r0+hlvGAa9wqMlVbIS6RVRuaPOnb5SnN6wMXulwfEy9DXVkMVUN/8cUlpPDnw==}
     engines: {node: '>=22.22.1'}
     hasBin: true
 
@@ -5840,8 +5856,8 @@ packages:
   remeda@2.33.4:
     resolution: {integrity: sha512-ygHswjlc/opg2VrtiYvUOPLjxjtdKvjGz1/plDhkG66hjNjFr1xmfrs2ClNFo/E6TyUFiwYNh53bKV26oBoMGQ==}
 
-  remix-auth@4.2.0:
-    resolution: {integrity: sha512-3LSfWEvSgG2CgbG/p4ge5hbV8tTXWNnnYIGbTr9oSSiHz9dD7wh6S0MEyo3pwh7MlKezB2WIlevGeyqUZykk7g==}
+  remix-auth@5.0.0:
+    resolution: {integrity: sha512-Mhv2Vmf6/wxlRNK6wS6M33Ubkd3wc8OpZ/se4pFfxJks3hzbsh8zp6emMpE6tTuJ1KiHsKilMBs708zwkJCNJA==}
     engines: {node: '>=20.0.0'}
 
   remix-flat-routes@0.8.5:
@@ -6195,9 +6211,9 @@ packages:
   stream-reduce@1.0.3:
     resolution: {integrity: sha512-2F9zNsWq1UzP4X091Mazl40P0WgnXmk6zRgkzH0HFpEV8ZWNfZP39pF09s6Ecm9Y5JfRhJHooKnxy0zURulxRg==}
 
-  string-argv@0.3.2:
-    resolution: {integrity: sha512-aqD2Q0144Z+/RqG52NeHEkZauTAUWJO8c6yTftGJKO3Tja5tUgIfmIl6kExvhtxSDP7fXB6DvzkfMpCd/F3G+Q==}
-    engines: {node: '>=0.6.19'}
+  string-argv@0.4.0:
+    resolution: {integrity: sha512-UOtaksJ3SK3KLHba2i9I27fvuZNfBlImDP5wKsCOxCDMRDNxlipCe8rmnUAaDpqlQ93upnA0SzF2pjWhttozSA==}
+    engines: {node: '>=16.20.0'}
 
   string-width@4.2.3:
     resolution: {integrity: sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g==}
@@ -7110,6 +7126,8 @@ snapshots:
       react: 19.3.1
       tslib: 2.8.1
 
+  '@edgefirst-dev/data@0.0.4': {}
+
   '@electric-sql/pglite-socket@0.1.3(@electric-sql/pglite@0.4.3)':
     dependencies:
       '@electric-sql/pglite': 0.4.3
@@ -7125,7 +7143,7 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@epic-web/cachified@5.6.4': {}
+  '@epic-web/cachified@5.6.5': {}
 
   '@epic-web/client-hints@1.3.9': {}
 
@@ -8689,6 +8707,12 @@ snapshots:
     optionalDependencies:
       typescript: 7.0.2
 
+  '@remix-run/headers@1.1.0': {}
+
+  '@remix-run/html-template@1.0.0': {}
+
+  '@remix-run/mime@1.0.0': {}
+
   '@remix-run/node-fetch-server@0.14.1': {}
 
   '@remix-run/react@2.17.5(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(typescript@7.0.2)':
@@ -8702,6 +8726,12 @@ snapshots:
       turbo-stream: 3.2.1
     optionalDependencies:
       typescript: 7.0.2
+
+  '@remix-run/response@1.0.2':
+    dependencies:
+      '@remix-run/headers': 1.1.0
+      '@remix-run/html-template': 1.0.0
+      '@remix-run/mime': 1.0.0
 
   '@remix-run/route-pattern@0.22.1': {}
 
@@ -11269,10 +11299,10 @@ snapshots:
 
   lines-and-columns@1.2.4: {}
 
-  lint-staged@17.6.0:
+  lint-staged@17.6.1:
     dependencies:
       picomatch: 4.0.7
-      string-argv: 0.3.2
+      string-argv: 0.4.0
       tinyexec: 1.3.1
     optionalDependencies:
       yaml: 2.9.1
@@ -12100,7 +12130,12 @@ snapshots:
 
   remeda@2.33.4: {}
 
-  remix-auth@4.2.0: {}
+  remix-auth@5.0.0:
+    dependencies:
+      '@edgefirst-dev/data': 0.0.4
+      '@remix-run/headers': 1.1.0
+      '@remix-run/response': 1.0.2
+      type-fest: 5.10.0
 
   remix-flat-routes@0.8.5:
     dependencies:
@@ -12510,7 +12545,7 @@ snapshots:
     dependencies:
       through: 2.3.8
 
-  string-argv@0.3.2: {}
+  string-argv@0.4.0: {}
 
   string-width@4.2.3:
     dependencies:
