@@ -108,7 +108,7 @@
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.1.0",
     "@tailwindcss/vite": "^4.3.4",
-    "@tanstack/react-query": "^5.106.1",
+    "@tanstack/react-query": "^5.108.0",
     "@tanstack/react-virtual": "^3.14.26",
     "@tusbar/cache-control": "^3.0.1",
     "@types/ws": "^8.18.2",
