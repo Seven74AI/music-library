@@ -168,7 +168,7 @@
     "@serwist/build": "^9.5.15",
     "@sly-cli/sly": "^2.1.1",
     "@testing-library/dom": "^10.4.2",
-    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/jest-dom": "^8.0.0",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.10",
     "@types/adm-zip": "^0.6.0",
