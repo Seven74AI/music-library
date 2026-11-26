@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { compare, hash } from "bcryptjs";
 import { redirect } from "react-router";
 import { Authenticator } from "remix-auth";
+import { type Strategy } from "remix-auth/strategy";
 import { safeRedirect } from "remix-utils/safe-redirect";
 import { type Connection, type Password, type User } from "#prisma/client.js";
 import {
@@ -13,9 +14,10 @@ import {
   USAGE_EVENT_TYPES,
 } from "#app/features/usage-analytics/record-usage.server.ts";
 import { providers } from "./connections.server.ts";
+import { type ProviderName } from "./connections.tsx";
 import { prisma } from "./db.server.ts";
 import { combineHeaders } from "./misc.tsx";
-import { type ProviderUser } from "./providers/provider.ts";
+import { type AuthProvider } from "./providers/provider.ts";
 import { authSessionStorage } from "./session.server.ts";
 import { uploadProfileImage } from "./storage.server.ts";
 import { createToastHeaders } from "./toast.server.ts";
@@ -26,14 +28,14 @@ export const getSessionExpirationDate = () => new Date(Date.now() + SESSION_EXPI
 
 export const sessionKey = "sessionId";
 
-export const authenticator = new Authenticator<ProviderUser>();
-
-for (const [providerName, provider] of Object.entries(providers)) {
-  const strategy = provider.getAuthStrategy();
-  if (strategy) {
-    authenticator.use(strategy, providerName);
-  }
-}
+export const authenticator = new Authenticator({
+  strategies: Object.fromEntries(
+    (Object.entries(providers) as [ProviderName, AuthProvider][]).flatMap(([providerName, provider]) => {
+      const strategy = provider.getAuthStrategy();
+      return strategy ? [[providerName, strategy]] : [];
+    }),
+  ),
+});
 
 export async function getUserIdOrNull(request: Request): Promise<string | null> {
   const authSession = await authSessionStorage.getSession(request.headers.get("cookie"));
