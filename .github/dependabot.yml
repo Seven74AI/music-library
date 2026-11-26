@@ -19,11 +19,17 @@ updates:
     versioning-strategy: increase
     # `effect` is pinned to the patched 3.22.x line via the `overrides` entry in
     # package.json (transitive dep of @prisma/config@7.10.1, which pins the
-    # vulnerable 3.20.0). Dependabot's security updater cannot find an update
-    # path through that exact pin, so it errors with "no update path was found".
-    # The override already resolves it to a non-vulnerable version — ignore it.
+    # vulnerable 3.20.0; no newer @prisma/config stable exists, so the override is
+    # the only mitigation). A bare `ignore` with no `versions` expands to `>= 0`
+    # and applies to the SECURITY path too, which makes the security updater fail
+    # with `all_versions_ignored`. Scope the rule to version updates only so it
+    # stays off the security path.
     ignore:
       - dependency-name: "effect"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     commit-message:
       prefix: "chore"
       prefix-development: "chore"
