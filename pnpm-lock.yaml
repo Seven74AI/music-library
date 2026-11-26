@@ -303,8 +303,8 @@ importers:
         specifier: ^9.5.15
         version: 9.5.15(browserslist@4.29.0)(typescript@7.0.2)
       set-cookie-parser:
-        specifier: ^3.2.3
-        version: 3.2.3
+        specifier: ^4.0.0
+        version: 4.0.0
       sharp:
         specifier: ^0.35.5
         version: 0.35.5(@types/node@26.6.6)
@@ -6049,6 +6049,9 @@ packages:
   set-cookie-parser@3.2.3:
     resolution: {integrity: sha512-bDO7NdAkLprNt3BNl3LAh0oVnOS5+WspzxOxiboo7vRIyTqj2pvFmNWYEFynSGQgpJ+7yG/9nc/aSG20UDBUpg==}
 
+  set-cookie-parser@4.0.0:
+    resolution: {integrity: sha512-B7qK2v4dYyZCwpvJceZHlx6b40AFv6LvNq8btHNERdMrBArAOiwnD5s9gGrKctQiSNpp/D8v8OJpaEBtoSjLMA==}
+
   set-function-length@1.2.2:
     resolution: {integrity: sha512-pgRc4hJ4/sNjWCSS9AmnS40x3bNMDTknHgL5UaMBTMyJnU90EgWh1Rz+MC9eFu4BuN/UwZjKQuY/1v3rM7HMfg==}
     engines: {node: '>= 0.4'}
@@ -9459,7 +9462,7 @@ snapshots:
 
   '@types/set-cookie-parser@3.1.0':
     dependencies:
-      set-cookie-parser: 3.2.3
+      set-cookie-parser: 4.0.0
 
   '@types/source-map-support@0.5.10':
     dependencies:
@@ -12331,6 +12334,8 @@ snapshots:
   set-cookie-parser@2.7.2: {}
 
   set-cookie-parser@3.2.3: {}
+
+  set-cookie-parser@4.0.0: {}
 
   set-function-length@1.2.2:
     dependencies:
