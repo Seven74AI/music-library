@@ -15,7 +15,8 @@ export function useOfflineTrackStatus(trackId: string | null) {
     try {
       const storage = getOfflineStorage();
       const record = await storage.getRecord(trackId);
-      setIsDownloaded(Boolean(record));
+      const hasBytes = record ? await storage.hasTrack(trackId) : false;
+      setIsDownloaded(hasBytes);
       setIsPinned(Boolean(record?.isPinned));
     } catch {
       setIsDownloaded(false);

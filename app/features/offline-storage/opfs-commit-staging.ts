@@ -21,8 +21,10 @@ export async function commitStagingOpfsFile(
   const finalName = opfsAudioLeafName(trackId, format);
 
   const stagingHandle = await audioDir.getFileHandle(stagingName);
+  // WebKit only implements the two-arg move(directory, name); the single-arg
+  // rename overload is Chromium-only and throws "Not enough arguments" on Safari.
   const movable = stagingHandle as FileSystemFileHandle & {
-    move: (destination: string) => Promise<void>;
+    move: (destinationDirectory: FileSystemDirectoryHandle, newName: string) => Promise<void>;
   };
-  await movable.move(finalName);
+  await movable.move(audioDir, finalName);
 }
