@@ -6,5 +6,7 @@ export function offlineAudioOpfsPath(
 }
 
 export function offlineAudioStagingTrackId(trackId: string): string {
-  return `${trackId}.__staging__`;
+  // Unique per call so concurrent downloads of the same track never share a staging file.
+  const nonce = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+  return `${trackId}.__staging__.${nonce}`;
 }

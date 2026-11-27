@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach, vi } from "vitest";
 import { createMemoryOfflineAudioStore } from "./memory-audio-store.ts";
 import { createOfflineMetadataStore } from "./metadata-store.client.ts";
-import { createOfflineStorage } from "./offline-storage.client.ts";
+import { createOfflineStorage, OfflineStorageQuotaError } from "./offline-storage.client.ts";
 
 const deleteCachedCover = vi.fn().mockResolvedValue(undefined);
 vi.mock("./cover-cache.client.ts", () => ({
@@ -22,6 +22,18 @@ const track = {
   coverImage: null,
   audioFiles: [{ id: "af-1", format: "mp3", objectKey: "k" }],
 };
+
+/**
+ * Storage estimate with room for the 50 MiB headroom plus 600 KB of tracks;
+ * usage grows as tracks are stored and shrinks when they are evicted.
+ */
+function tightEstimate(metadataStore: ReturnType<typeof createOfflineMetadataStore>) {
+  const headroom = 50 * 1024 * 1024;
+  return async () => {
+    const used = (await metadataStore.list()).reduce((sum, t) => sum + t.fileSizeBytes, 0);
+    return { usage: headroom - 600_000 + used, quota: 2 * headroom };
+  };
+}
 
 describe("createOfflineStorage", () => {
   beforeEach(async () => {
@@ -245,7 +257,7 @@ describe("createOfflineStorage", () => {
       metadataStore,
       fetchAudioBytes: async () => new Uint8Array(400_000).buffer,
       requestPersistentStorage: async () => {},
-      readStorageEstimate: async () => ({ usage: 900_000, quota: 1_000_000 }),
+      readStorageEstimate: tightEstimate(metadataStore),
     });
 
     deleteCachedCover.mockClear();
@@ -265,7 +277,7 @@ describe("createOfflineStorage", () => {
       fetchAudioBytes: async (trackId) =>
         new Uint8Array(trackId === "track-1" ? 500_000 : 400_000).buffer,
       requestPersistentStorage: async () => {},
-      readStorageEstimate: async () => ({ usage: 900_000, quota: 1_000_000 }),
+      readStorageEstimate: tightEstimate(metadataStore),
     });
 
     await storage.downloadTrack({ ...track, id: "queue-track", title: "Queue" }, { pin: false });
@@ -390,6 +402,48 @@ describe("createOfflineStorage", () => {
 
     expect(fetchAudioBytes).toHaveBeenCalledWith(track.id);
     expect(await storage.hasTrack(track.id)).toBe(true);
+  });
+
+  test("downloadTrack throws OfflineStorageQuotaError when eviction cannot free enough space", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const fetchAudioBytes = vi.fn(async () => new Uint8Array([1, 2, 3]).buffer);
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 995_000_000, quota: 1_000_000_000 }),
+    });
+
+    await expect(storage.downloadTrack(track, { pin: true })).rejects.toBeInstanceOf(
+      OfflineStorageQuotaError,
+    );
+    expect(await audioStore.has(track.id, "mp3")).toBe(false);
+  });
+
+  test("re-download accounts for the staging file and the live file coexisting", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const headroom = 50 * 1024 * 1024;
+    const bytes = new Uint8Array(1000).buffer;
+    let estimate = { usage: 0, quota: 1_000_000_000 };
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => bytes,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => estimate,
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+
+    // Room for exactly one copy (+ headroom), but not two.
+    estimate = { usage: 0, quota: headroom + 1500 };
+    await expect(storage.downloadTrack(track, { pin: true })).rejects.toBeInstanceOf(
+      OfflineStorageQuotaError,
+    );
+    expect(await audioStore.has(track.id, "mp3")).toBe(true);
   });
 
   test("purgeQueueCache removes queue-only tracks and keeps pinned", async () => {

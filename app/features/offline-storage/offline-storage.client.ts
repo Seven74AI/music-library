@@ -19,6 +19,13 @@ import {
 
 const DEFAULT_QUOTA_HEADROOM_BYTES = 50 * 1024 * 1024;
 
+export class OfflineStorageQuotaError extends Error {
+  constructor(message = "Not enough storage space to save this track offline") {
+    super(message);
+    this.name = "OfflineStorageQuotaError";
+  }
+}
+
 export type OfflineStorageStats = {
   trackCount: number;
   pinnedCount: number;
@@ -121,8 +128,14 @@ export function createOfflineStorage(
     const bytesToFree = requiredBytes + DEFAULT_QUOTA_HEADROOM_BYTES - available;
     const victims = selectQueueCacheEvictionCandidates(records, bytesToFree);
 
+    let freedBytes = 0;
     for (const victim of victims) {
       await removeTrack(victim.trackId);
+      freedBytes += victim.fileSizeBytes;
+    }
+
+    if (freedBytes < bytesToFree) {
+      throw new OfflineStorageQuotaError();
     }
   }
 
@@ -145,9 +158,10 @@ export function createOfflineStorage(
     const fileSizeBytes = buffer.byteLength;
     const audioStore = await resolveAudioStore();
     await requestPersistentStorage();
-    await ensureCapacity(fileSizeBytes);
-
     const existing = await metadataStore.get(track.id);
+    // On re-download the staging file and the old live file coexist until commit.
+    await ensureCapacity(fileSizeBytes + (existing?.fileSizeBytes ?? 0));
+
     const audioFormat = getOfflineAudioFormat(track);
     const stagingTrackId = offlineAudioStagingTrackId(track.id);
 
