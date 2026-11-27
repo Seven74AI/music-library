@@ -4,6 +4,7 @@ import { deleteOfflineAudioEntry } from "./opfs-delete.ts";
 import { offlineAudioOpfsPath } from "./offline-audio-path.ts";
 import { commitStagingOpfsFile, opfsAudioLeafName } from "./opfs-commit-staging.ts";
 import { isOpfsSupportedInWorkerScope } from "./opfs-worker-support.ts";
+import { createSerialQueue } from "./serial-queue.ts";
 
 type WorkerRequest =
   | { id: number; type: "probe" }
@@ -82,9 +83,12 @@ async function hasTrack(trackId: string, format: string | null | undefined) {
   }
 }
 
+// Serialize OPFS operations so write/commit/read/delete never interleave.
+const enqueue = createSerialQueue();
+
 self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   const message = event.data;
-  void (async () => {
+  void enqueue(async () => {
     try {
       switch (message.type) {
         case "probe":
@@ -127,5 +131,5 @@ self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
         error: errorMessage,
       } satisfies WorkerResponse);
     }
-  })();
+  });
 });

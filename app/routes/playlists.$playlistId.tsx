@@ -29,7 +29,6 @@ import {
 } from "#app/components/ui/select.tsx";
 import { toast } from "#app/components/ui/use-toast.ts";
 import { type PlaylistDetailOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
-import { cachePlaylistMetadata } from "#app/features/offline-storage/offline-playlist-metadata.client.ts";
 import {
   applyBulkQueueAction as applyBulkQueueActionToQueue,
   type BulkQueueAction,
@@ -808,12 +807,6 @@ function OnlinePlaylistRoute({ loaderData }: { loaderData: OnlinePlaylistLoaderD
   useEffect(() => {
     setOptimisticTracks(playlist.tracks);
     setOptimisticPlaylist(playlist);
-    cachePlaylistMetadata({
-      id: playlist.id,
-      title: playlist.title,
-      description: playlist.description,
-      updatedAt: Date.now(),
-    });
   }, [playlist]);
 
   // Handle success messages from fetchers

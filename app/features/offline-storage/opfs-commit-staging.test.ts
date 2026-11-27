@@ -9,13 +9,22 @@ class FakeFileHandle {
   name: string;
   readonly content: Uint8Array;
   readonly dir: FakeAudioDir;
-  move: (newName: string) => Promise<void>;
+  move: (destinationDirectory: FakeAudioDir, newName: string) => Promise<void>;
 
   constructor(dir: FakeAudioDir, name: string, content: Uint8Array) {
     this.dir = dir;
     this.name = name;
     this.content = content;
-    this.move = async (newName: string) => {
+    // WebKit-shaped: only the two-arg (directory, name) overload exists, and
+    // WebIDL throws when it is called with fewer arguments.
+    this.move = async (...args: unknown[]) => {
+      const [destinationDirectory, newName] = args;
+      if (args.length < 2 || !(destinationDirectory instanceof FakeAudioDir)) {
+        throw new TypeError("Not enough arguments");
+      }
+      if (typeof newName !== "string") {
+        throw new TypeError("Not enough arguments");
+      }
       if (this.dir.moveShouldFail) {
         throw new Error("move failed");
       }
@@ -73,6 +82,25 @@ describe("commitStagingOpfsFile", () => {
     expect(audioDir.files.has(`${stagingTrackId}.mp3`)).toBe(false);
     const live = audioDir.files.get(`${trackId}.mp3`);
     expect(live?.content).toEqual(new Uint8Array([9, 8, 7]));
+  });
+
+  test("calls move with (directory, name) so WebKit does not throw", async () => {
+    const audioDir = new FakeAudioDir();
+    const trackId = "track-webkit";
+    const stagingTrackId = offlineAudioStagingTrackId(trackId);
+    const handle = new FakeFileHandle(
+      audioDir,
+      `${stagingTrackId}.mp3`,
+      new Uint8Array([5, 5, 5]),
+    );
+    const moveSpy = vi.spyOn(handle, "move");
+    audioDir.files.set(`${stagingTrackId}.mp3`, handle);
+    stubOpfs(audioDir);
+
+    await commitStagingOpfsFile(stagingTrackId, trackId, "mp3");
+
+    expect(moveSpy).toHaveBeenCalledWith(audioDir, `${trackId}.mp3`);
+    expect(audioDir.files.get(`${trackId}.mp3`)?.content).toEqual(new Uint8Array([5, 5, 5]));
   });
 
   test("leaves live bytes intact when commit move fails", async () => {
