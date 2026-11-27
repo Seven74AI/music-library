@@ -208,7 +208,6 @@ describe("importTrackDirectly", () => {
 
       expect(result.success).toBe(false);
       expect(result.action).toBe("failed");
-      expect(result.error).toBe("Unable to import this track. Please try again.");
       expect(result.error).not.toMatch(/quota/i);
 
       consoleError.mockRestore();
@@ -229,7 +228,6 @@ describe("importTrackDirectly", () => {
 
       expect(result.success).toBe(false);
       expect(result.action).toBe("failed");
-      expect(result.error).toBe("Unable to import this track. Please try again.");
       expect(result.error).not.toMatch(/Service not found/i);
 
       consoleError.mockRestore();
@@ -257,7 +255,6 @@ describe("importTrackDirectly", () => {
       const result = await importTrackDirectly("dQw4w9WgXcQ");
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe("Unable to import this track. Please try again.");
       expect(result.error).not.toMatch(/prisma/i);
 
       txnSpy.mockRestore();

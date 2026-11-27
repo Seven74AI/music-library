@@ -19,6 +19,13 @@ import {
 
 const DEFAULT_QUOTA_HEADROOM_BYTES = 50 * 1024 * 1024;
 
+export class OfflineStorageQuotaError extends Error {
+  constructor(message = "Not enough storage space to save this track offline") {
+    super(message);
+    this.name = "OfflineStorageQuotaError";
+  }
+}
+
 export type OfflineStorageStats = {
   trackCount: number;
   pinnedCount: number;
@@ -118,11 +125,25 @@ export function createOfflineStorage(
     );
     const records = fullRecords.filter((record): record is OfflineTrackRecord => record !== null);
 
+    // Headroom only triggers eviction; the track merely has to fit.
+    const evictableBytes = records
+      .filter(isQueueOnlyOfflineTrack)
+      .reduce((sum, record) => sum + record.fileSizeBytes, 0);
+    if (available + evictableBytes < requiredBytes) {
+      throw new OfflineStorageQuotaError();
+    }
+
     const bytesToFree = requiredBytes + DEFAULT_QUOTA_HEADROOM_BYTES - available;
     const victims = selectQueueCacheEvictionCandidates(records, bytesToFree);
 
+    let freedBytes = 0;
     for (const victim of victims) {
       await removeTrack(victim.trackId);
+      freedBytes += victim.fileSizeBytes;
+    }
+
+    if (available + freedBytes < requiredBytes) {
+      throw new OfflineStorageQuotaError();
     }
   }
 
@@ -137,7 +158,26 @@ export function createOfflineStorage(
     await cacheCoverImage(objectKey, await response.arrayBuffer());
   }
 
+  // Serializes the whole storeTrack sequence per track id so concurrent
+  // downloads of the same track cannot interleave or roll back each other.
+  const trackLocks = new Map<string, Promise<unknown>>();
   async function storeTrack(
+    track: FullTrack,
+    buffer: ArrayBuffer,
+    options: { pin: boolean; queue: boolean; playlistId?: string },
+  ) {
+    const previous = trackLocks.get(track.id) ?? Promise.resolve();
+    const run = previous.then(() => storeTrackUnlocked(track, buffer, options));
+    const tail = run.catch(() => {});
+    trackLocks.set(track.id, tail);
+    try {
+      await run;
+    } finally {
+      if (trackLocks.get(track.id) === tail) trackLocks.delete(track.id);
+    }
+  }
+
+  async function storeTrackUnlocked(
     track: FullTrack,
     buffer: ArrayBuffer,
     options: { pin: boolean; queue: boolean; playlistId?: string },
@@ -145,9 +185,12 @@ export function createOfflineStorage(
     const fileSizeBytes = buffer.byteLength;
     const audioStore = await resolveAudioStore();
     await requestPersistentStorage();
-    await ensureCapacity(fileSizeBytes);
-
+    // On re-download the staging file and the old live file coexist until commit.
+    const initial = await metadataStore.get(track.id);
+    await ensureCapacity(fileSizeBytes + (initial?.fileSizeBytes ?? 0));
+    // Eviction may have removed this very track (queue-cached); re-read.
     const existing = await metadataStore.get(track.id);
+
     const audioFormat = getOfflineAudioFormat(track);
     const stagingTrackId = offlineAudioStagingTrackId(track.id);
 
@@ -156,10 +199,9 @@ export function createOfflineStorage(
     const previousBytes =
       existing && previousFormat ? await audioStore.read(track.id, previousFormat) : null;
 
-    await audioStore.write(stagingTrackId, buffer, audioFormat);
-
     let committed = false;
     try {
+      await audioStore.write(stagingTrackId, buffer, audioFormat);
       await audioStore.commitStagingWrite(stagingTrackId, track.id, audioFormat);
       committed = true;
 
