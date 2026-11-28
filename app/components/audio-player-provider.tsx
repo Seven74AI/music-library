@@ -560,7 +560,9 @@ export function AudioPlayerProvider({ children, userId }: AudioPlayerProviderPro
     const summaries =
       context.type === "playlist" && context.playlistId
         ? await storage.listForPlaylist(context.playlistId)
-        : await storage.listPinned();
+        : context.type === "downloads"
+          ? await storage.listDownloaded()
+          : await storage.listPinned();
 
     return summaries.map(offlineSummaryToFullTrack).filter(isPlayableTrack);
   }, []);

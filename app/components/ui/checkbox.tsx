@@ -23,8 +23,19 @@ const Checkbox = ({ className, ...props }: React.ComponentProps<typeof CheckboxP
       data-slot="checkbox-indicator"
       className={cn("flex items-center justify-center text-current")}
     >
-      <svg viewBox="0 0 8 8">
-        <path d="M1,4 L3,6 L7,2" stroke="currentcolor" strokeWidth="1" fill="none" />
+      <svg
+        className="size-3.5"
+        viewBox="0 0 8 8"
+        aria-hidden="true"
+      >
+        <path
+          d="M1,4 L3,6 L7,2"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
       </svg>
     </CheckboxPrimitive.Indicator>
   </CheckboxPrimitive.Root>

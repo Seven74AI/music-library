@@ -202,9 +202,9 @@ Implementation tickets: [On-Repeat Snapshots #198](https://github.com/mnlamart/m
 
 - **Offline Audio Store** — OPFS files holding audio bytes, one file per track (`audio/{trackId}.mp3` or format-appropriate extension). Written via a dedicated Web Worker using `createSyncAccessHandle()` for iOS Safari compatibility.
 
-- **Pinned Download** — A track or playlist the user explicitly downloaded. Persisted in device storage until the user removes it; never LRU-evicted automatically. **Offline `/library` shows pinned tracks only** — queue-cached tracks appear on `/downloads` but not in the offline library view.
+- **Pinned Download** — A track or playlist the user explicitly downloaded. Persisted in device storage until the user removes it; never LRU-evicted automatically. Shown to users as _Downloaded_. **Offline `/library` shows pinned tracks only** — queue-cached tracks appear on `/downloads` but not in the offline library view.
 
-- **Queue Cache** — Tracks auto-cached from the active queue for listening continuity. Stored in the same device storage as pinned downloads but eligible for LRU eviction when storage is tight. A track that is both pinned and queue-cached counts as pinned.
+- **Queue Cache** — Tracks auto-cached from the active queue for listening continuity. Stored in the same device storage as pinned downloads but eligible for LRU eviction when storage is tight. Shown to users as _Auto-cached_. A track that is both pinned and queue-cached counts as pinned. On `/downloads`, **Download all auto-cached** promotes queue-only tracks to pinned downloads without re-fetching audio.
 
 - **Queue Cache Preference** — Per-user, device-local setting (`localStorage`) for whether Queue Cache auto-writes run while listening. Default is on. Opting out stops new auto-cache writes only; it does not purge existing queue-cached tracks. Managed on `/downloads`.
 

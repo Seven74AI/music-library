@@ -46,7 +46,8 @@ export type PlaylistContext =
       discoverSort?: DiscoverSortOption;
       sortDirection?: SortDirection;
     }
-  | { type: "onRepeatSnapshot"; snapshotId?: string };
+  | { type: "onRepeatSnapshot"; snapshotId?: string }
+  | { type: "downloads" };
 
 export function playlistSortOrCustom(
   sort: PlaylistTrackSortOption | undefined,
@@ -116,6 +117,8 @@ export function isSamePlayContext(a: PlaylistContext | null, b: PlaylistContext)
         a.snapshotId === (b as Extract<PlaylistContext, { type: "onRepeatSnapshot" }>).snapshotId
       );
     case "music":
+      return true;
+    case "downloads":
       return true;
   }
 }

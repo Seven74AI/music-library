@@ -8,6 +8,7 @@ export function getSpineSectionLabel(playContext: PlaylistContext | null): strin
   if (playContext?.type === "track") return "from track";
   if (playContext?.type === "onRepeatSnapshot") return "from on-repeat";
   if (playContext?.type === "discover") return "from discover";
+  if (playContext?.type === "downloads") return "from downloads";
   return "from queue";
 }
 
@@ -38,5 +39,6 @@ export function getSpineSectionHeading(playContext: PlaylistContext | null): str
   if (playContext?.type === "track") return "From Track";
   if (playContext?.type === "onRepeatSnapshot") return "From On-Repeat";
   if (playContext?.type === "discover") return "From Discover";
+  if (playContext?.type === "downloads") return "From Downloads";
   return "From Queue";
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useRevalidator } from "react-router";
 import { OfflineLibraryView } from "#app/components/offline/offline-library-view.tsx";
 import {
@@ -19,6 +19,7 @@ import { Label } from "#app/components/ui/label.tsx";
 import { toast } from "#app/components/ui/use-toast.ts";
 import { type DownloadsOfflineLoaderData } from "#app/features/offline-app/offline-route-policies.client.ts";
 import { getOfflineStorage } from "#app/features/offline-storage/offline-storage.client.ts";
+import { isQueueOnlyOfflineTrack } from "#app/features/offline-storage/pin-policy.ts";
 import {
   isQueueCacheEnabled,
   setQueueCacheEnabled,
@@ -42,6 +43,12 @@ export default function DownloadsRoute({
   const [queueCacheEnabled, setQueueCacheEnabledState] = useState(true);
   const [isPurging, setIsPurging] = useState(false);
   const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
+  const [isPromoting, setIsPromoting] = useState(false);
+  const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
+
+  const handleOfflineDownloadChange = useCallback(() => {
+    revalidator.revalidate();
+  }, [revalidator]);
 
   useEffect(() => {
     if (!userId) return;
@@ -52,7 +59,11 @@ export default function DownloadsRoute({
   const { tracks, stats } = loaderData;
   const usedMb = (stats.totalBytes / (1024 * 1024)).toFixed(1);
   const quotaMb = stats.quota ? (stats.quota / (1024 * 1024)).toFixed(0) : null;
-  const queueOnlyCount = tracks.filter((track) => track.isQueueCached && !track.isPinned).length;
+  const queueOnlyTracks = tracks.filter(isQueueOnlyOfflineTrack);
+  const queueOnlyCount = queueOnlyTracks.length;
+  const downloadedCount = tracks.filter((track) => track.isPinned).length;
+  const queueOnlyBytes = queueOnlyTracks.reduce((sum, track) => sum + track.fileSizeBytes, 0);
+  const queueOnlyMb = (queueOnlyBytes / (1024 * 1024)).toFixed(1);
 
   function handleQueueCacheToggle(checked: boolean | "indeterminate") {
     if (!userId || checked === "indeterminate") return;
@@ -81,13 +92,34 @@ export default function DownloadsRoute({
     }
   }
 
+  async function handlePinQueueCachedTracks() {
+    setIsPromoting(true);
+    try {
+      const { promotedCount } = await getOfflineStorage().pinQueueCachedTracks();
+      toast({
+        title: promotedCount === 0 ? "Nothing to download" : `Downloaded ${promotedCount} tracks`,
+        description:
+          promotedCount === 0
+            ? "No auto-cached tracks were ready to promote."
+            : `${promotedCount} auto-cached track${promotedCount === 1 ? "" : "s"} are now saved as downloads.`,
+      });
+      setPromoteDialogOpen(false);
+      revalidator.revalidate();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Download failed";
+      toast({ title: "Download failed", description: message, variant: "destructive" });
+    } finally {
+      setIsPromoting(false);
+    }
+  }
+
   return (
     <main className="py-8">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Downloads</h1>
           <p className="text-muted-foreground mt-2">
-            {stats.pinnedCount} pinned · {stats.trackCount} total cached · {usedMb} MB
+            {downloadedCount} downloaded · {queueOnlyCount} auto-cached · {usedMb} MB
             {quotaMb ? ` of ~${quotaMb} MB` : ""} on this device.
           </p>
         </div>
@@ -107,50 +139,89 @@ export default function DownloadsRoute({
             />
             <div className="space-y-1">
               <Label htmlFor="queue-cache-enabled" className="cursor-pointer font-medium">
-                Auto-cache queue tracks
+                Auto-cache queue tracks{" "}
+                <span className="text-muted-foreground font-normal">({queueCacheEnabled ? "On" : "Off"})</span>
               </Label>
               <p className="text-muted-foreground text-sm">
-                While listening online, cache the current track and upcoming queue tracks on this
-                device for continuity. Turning this off stops new auto-cache writes; pinned
-                downloads are unchanged.
+                While you listen online, save the current track and the upcoming queue on this device so
+                playback keeps going. Turning this off stops new auto-caching. Your downloads are never
+                removed automatically, and tracks already auto-cached stay until you clear them.
               </p>
             </div>
           </div>
 
-          <AlertDialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
-            <AlertDialogTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={queueOnlyCount === 0 || isPurging}
-              >
-                Clear auto-cached tracks
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Clear auto-cached tracks?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This removes {queueOnlyCount} auto-cached track
-                  {queueOnlyCount === 1 ? "" : "s"} from this device. Pinned offline downloads are
-                  kept.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={isPurging}>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  disabled={isPurging}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    void handlePurgeQueueCache();
-                  }}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <AlertDialog open={promoteDialogOpen} onOpenChange={setPromoteDialogOpen}>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={queueOnlyCount === 0 || isPromoting}
+                >
+                  Download all auto-cached
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Download {queueOnlyCount} auto-cached track{queueOnlyCount === 1 ? "" : "s"}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This keeps {queueOnlyCount} track{queueOnlyCount === 1 ? "" : "s"} ({queueOnlyMb}{" "}
+                    MB) on this device. They won&apos;t be cleared automatically — remove them from the
+                    list when you no longer need them.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isPromoting}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={isPromoting}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void handlePinQueueCachedTracks();
+                    }}
+                  >
+                    Download all
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={queueOnlyCount === 0 || isPurging}
                 >
                   Clear auto-cached tracks
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear auto-cached tracks?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This removes {queueOnlyCount} auto-cached track
+                    {queueOnlyCount === 1 ? "" : "s"} from this device. Your downloaded tracks are kept.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isPurging}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={isPurging}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void handlePurgeQueueCache();
+                    }}
+                  >
+                    Clear auto-cached tracks
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </div>
       ) : null}
 
@@ -164,7 +235,12 @@ export default function DownloadsRoute({
           </Button>
         </div>
       ) : (
-        <OfflineLibraryView tracks={tracks} />
+        <OfflineLibraryView
+          tracks={tracks}
+          showStorageBadge
+          playContextType="downloads"
+          onOfflineDownloadChange={handleOfflineDownloadChange}
+        />
       )}
     </main>
   );

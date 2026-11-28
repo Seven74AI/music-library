@@ -42,6 +42,10 @@ describe("isSamePlayContext", () => {
     expect(isSamePlayContext(libraryContext(), playlistContext("p1"))).toBe(false);
   });
 
+  test("downloads contexts are equal", () => {
+    expect(isSamePlayContext({ type: "downloads" }, { type: "downloads" })).toBe(true);
+  });
+
   test("different ids are not equal", () => {
     expect(isSamePlayContext(playlistContext("p1"), playlistContext("p2"))).toBe(false);
     expect(

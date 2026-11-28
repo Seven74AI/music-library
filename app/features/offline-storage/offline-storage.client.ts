@@ -47,6 +47,8 @@ export type OfflineStorage = {
   removeTrack: (trackId: string) => Promise<void>;
   /** Deletes all queue-only Cached Playback tracks; Pinned Downloads are kept. */
   purgeQueueCache: () => Promise<{ removedCount: number }>;
+  /** Promotes queue-only tracks to pinned downloads without re-fetching audio. */
+  pinQueueCachedTracks: () => Promise<{ promotedCount: number }>;
   resolvePlaybackBlob: (trackId: string) => Promise<Blob | null>;
   hasTrack: (trackId: string) => Promise<boolean>;
   listDownloaded: () => Promise<OfflineTrackSummary[]>;
@@ -158,23 +160,26 @@ export function createOfflineStorage(
     await cacheCoverImage(objectKey, await response.arrayBuffer());
   }
 
-  // Serializes the whole storeTrack sequence per track id so concurrent
-  // downloads of the same track cannot interleave or roll back each other.
+  // Serializes per-track mutations so concurrent downloads or promotions cannot interleave.
   const trackLocks = new Map<string, Promise<unknown>>();
+  async function withTrackLock<T>(trackId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = trackLocks.get(trackId) ?? Promise.resolve();
+    const run = previous.then(() => fn());
+    const tail = run.catch(() => {});
+    trackLocks.set(trackId, tail);
+    try {
+      return await run;
+    } finally {
+      if (trackLocks.get(trackId) === tail) trackLocks.delete(trackId);
+    }
+  }
+
   async function storeTrack(
     track: FullTrack,
     buffer: ArrayBuffer,
     options: { pin: boolean; queue: boolean; playlistId?: string },
   ) {
-    const previous = trackLocks.get(track.id) ?? Promise.resolve();
-    const run = previous.then(() => storeTrackUnlocked(track, buffer, options));
-    const tail = run.catch(() => {});
-    trackLocks.set(track.id, tail);
-    try {
-      await run;
-    } finally {
-      if (trackLocks.get(track.id) === tail) trackLocks.delete(track.id);
-    }
+    await withTrackLock(track.id, () => storeTrackUnlocked(track, buffer, options));
   }
 
   async function storeTrackUnlocked(
@@ -344,6 +349,25 @@ export function createOfflineStorage(
       }
 
       return { removedCount: victims.length };
+    },
+    async pinQueueCachedTracks() {
+      const audioStore = await resolveAudioStore();
+      let promotedCount = 0;
+      const summaries = await metadataStore.list();
+      for (const summary of summaries) {
+        await withTrackLock(summary.trackId, async () => {
+          const record = await metadataStore.get(summary.trackId);
+          if (!record || !isQueueOnlyOfflineTrack(record)) return;
+          const exists = await audioStore.has(summary.trackId, record.audioFormat);
+          if (!exists) {
+            await metadataStore.delete(summary.trackId);
+            return;
+          }
+          await metadataStore.put(mergeOfflineTrackRecord(record, { isPinned: true }));
+          promotedCount += 1;
+        });
+      }
+      return { promotedCount };
     },
     async resolvePlaybackBlob(trackId) {
       const audioStore = await resolveAudioStore();

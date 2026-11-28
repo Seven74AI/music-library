@@ -4,7 +4,7 @@
  * TrackListItem UI tests. Queue action *behavior* (order, queue sheet visibility) lives in
  * audio-player-queue.integration.test.tsx — these tests only cover menu wiring and visibility.
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ComponentProps, type ReactNode } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -109,6 +109,20 @@ const partyState = vi.hoisted(() => ({
 
 vi.mock("#app/features/party-room/party-room-provider.tsx", () => ({
   useOptionalPartyRoom: () => partyState.current,
+}));
+
+const mockOfflineRemoveTrack = vi.fn();
+const mockOfflineDownloadTrack = vi.fn();
+const mockOfflineGetRecord = vi.fn();
+const mockOfflineHasTrack = vi.fn();
+
+vi.mock("#app/features/offline-storage/offline-storage.client.ts", () => ({
+  getOfflineStorage: () => ({
+    removeTrack: (...args: unknown[]) => mockOfflineRemoveTrack(...args),
+    downloadTrack: (...args: unknown[]) => mockOfflineDownloadTrack(...args),
+    getRecord: (...args: unknown[]) => mockOfflineGetRecord(...args),
+    hasTrack: (...args: unknown[]) => mockOfflineHasTrack(...args),
+  }),
 }));
 
 vi.mock("./track-details-dialog", () => ({
@@ -927,4 +941,55 @@ test("listRole listitem exposes contextual row aria-label", () => {
       name: "Track 3: Test Song by Test Artist",
     }),
   ).toBeDefined();
+});
+
+test('renders "Downloaded" badge when offlineStorageKind is downloaded', () => {
+  renderTrackListItem({ offlineStorageKind: "downloaded" });
+  expect(screen.getByText("Downloaded")).toBeDefined();
+  expect(screen.queryByText("Auto-cached")).toBeNull();
+});
+
+test('renders "Auto-cached" badge when offlineStorageKind is auto-cached', () => {
+  renderTrackListItem({ offlineStorageKind: "auto-cached" });
+  expect(screen.getByText("Auto-cached")).toBeDefined();
+  expect(screen.queryByText("Downloaded")).toBeNull();
+});
+
+test("renders no storage badge when offlineStorageKind is undefined", () => {
+  renderTrackListItem();
+  expect(screen.queryByText("Downloaded")).toBeNull();
+  expect(screen.queryByText("Auto-cached")).toBeNull();
+});
+
+test("offline download badge click does not start playback", async () => {
+  const user = userEvent.setup();
+  renderTrackListItem({ offlineStorageKind: "downloaded", track: playableTrack });
+
+  await user.click(screen.getByText("Downloaded"));
+  expect(mockPlayTrack).not.toHaveBeenCalled();
+});
+
+test("calls onOfflineDownloadChange after a successful offline remove from the menu", async () => {
+  const user = userEvent.setup();
+  const onOfflineDownloadChange = vi.fn();
+  mockOfflineGetRecord.mockResolvedValue({ isPinned: true, isQueueCached: false });
+  mockOfflineHasTrack.mockResolvedValue(true);
+  mockOfflineRemoveTrack.mockResolvedValue(undefined);
+
+  renderTrackListItem({
+    track: playableTrack,
+    offlineDownloadTrack: playableTrack,
+    onOfflineDownloadChange,
+  });
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "More actions" })).toBeDefined();
+  });
+
+  await user.click(screen.getByRole("button", { name: "More actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Remove offline download" }));
+
+  await waitFor(() => {
+    expect(onOfflineDownloadChange).toHaveBeenCalledTimes(1);
+  });
 });

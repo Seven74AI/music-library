@@ -4,7 +4,9 @@ import { Link } from "react-router";
 import { toOfflineTrackListItemTrack } from "#app/components/offline/to-offline-track-list-item-track.ts";
 import { TrackListItem } from "#app/components/track-list-item.tsx";
 import { Button } from "#app/components/ui/button.tsx";
+import { getOfflineStorageKind } from "#app/features/offline-storage/pin-policy.ts";
 import { type OfflineTrackSummary } from "#app/features/offline-storage/types.ts";
+import { type PlaylistContext } from "#app/components/audio-player-play-context.ts";
 import {
   estimateTrackListItemSize,
   measureTrackListElement,
@@ -14,9 +16,24 @@ import {
 
 type OfflineLibraryViewProps = {
   tracks: OfflineTrackSummary[];
+  showStorageBadge?: boolean;
+  playContextType?: Extract<PlaylistContext, { type: "library" | "downloads" }>["type"];
+  onOfflineDownloadChange?: () => void;
 };
 
-function OfflineLibraryTrackItem({ track, index }: { track: OfflineTrackSummary; index: number }) {
+function OfflineLibraryTrackItem({
+  track,
+  index,
+  showStorageBadge,
+  playContextType,
+  onOfflineDownloadChange,
+}: {
+  track: OfflineTrackSummary;
+  index: number;
+  showStorageBadge?: boolean;
+  playContextType: Extract<PlaylistContext, { type: "library" | "downloads" }>["type"];
+  onOfflineDownloadChange?: () => void;
+}) {
   const trackData = toOfflineTrackListItemTrack(track);
 
   return (
@@ -24,13 +41,20 @@ function OfflineLibraryTrackItem({ track, index }: { track: OfflineTrackSummary;
       track={trackData}
       userTrack={{ createdAt: new Date(track.lastAccessedAt) }}
       index={index}
-      playlistContext={{ type: "library" }}
+      playlistContext={{ type: playContextType }}
       offlineDownloadTrack={trackData}
+      offlineStorageKind={showStorageBadge ? getOfflineStorageKind(track) ?? undefined : undefined}
+      onOfflineDownloadChange={onOfflineDownloadChange}
     />
   );
 }
 
-export function OfflineLibraryView({ tracks }: OfflineLibraryViewProps) {
+export function OfflineLibraryView({
+  tracks,
+  showStorageBadge = false,
+  playContextType = "library",
+  onOfflineDownloadChange,
+}: OfflineLibraryViewProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const scrollMargin = useListScrollMargin(listRef, tracks.length > 0);
 
@@ -89,7 +113,13 @@ export function OfflineLibraryView({ tracks }: OfflineLibraryViewProps) {
               }}
               className="border-b last:border-b-0"
             >
-              <OfflineLibraryTrackItem track={track} index={virtualItem.index} />
+              <OfflineLibraryTrackItem
+                track={track}
+                index={virtualItem.index}
+                showStorageBadge={showStorageBadge}
+                playContextType={playContextType}
+                onOfflineDownloadChange={onOfflineDownloadChange}
+              />
             </div>
           );
         })}

@@ -619,3 +619,175 @@ describe("createOfflineStorage", () => {
     expect(await storage.hasTrack("pinned-and-queued")).toBe(true);
   });
 });
+
+describe("pinQueueCachedTracks", () => {
+  beforeEach(async () => {
+    const metadataStore = createOfflineMetadataStore();
+    await metadataStore.clear();
+  });
+
+  test("promotes only queue-only records with isPinned and pinnedAt", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const fetchAudioBytes = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack({ ...track, id: "queue-only", title: "Queue" }, { pin: false });
+    await storage.downloadTrack(track, { pin: true });
+    fetchAudioBytes.mockClear();
+
+    const result = await storage.pinQueueCachedTracks();
+
+    expect(result.promotedCount).toBe(1);
+    expect(fetchAudioBytes).not.toHaveBeenCalled();
+    const promoted = await metadataStore.get("queue-only");
+    expect(promoted?.isPinned).toBe(true);
+    expect(promoted?.pinnedAt).not.toBeNull();
+    expect(promoted?.isQueueCached).toBe(true);
+  });
+
+  test("leaves pinned and pinned+queued records untouched", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true });
+    const both = await storage.getRecord(track.id);
+    await metadataStore.put({ ...both!, isQueueCached: true });
+
+    const beforePinnedAt = (await metadataStore.get(track.id))?.pinnedAt;
+    const result = await storage.pinQueueCachedTracks();
+
+    expect(result.promotedCount).toBe(0);
+    expect((await metadataStore.get(track.id))?.pinnedAt).toBe(beforePinnedAt);
+  });
+
+  test("removes metadata when OPFS bytes are missing instead of promoting", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack({ ...track, id: "ghost", title: "Ghost" }, { pin: false });
+    await audioStore.delete("ghost", "mp3");
+
+    const result = await storage.pinQueueCachedTracks();
+
+    expect(result.promotedCount).toBe(0);
+    expect(await metadataStore.get("ghost")).toBeFalsy();
+  });
+
+  test("second call returns promotedCount 0", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack({ ...track, id: "queue-only" }, { pin: false });
+
+    expect((await storage.pinQueueCachedTracks()).promotedCount).toBe(1);
+    expect((await storage.pinQueueCachedTracks()).promotedCount).toBe(0);
+  });
+
+  test("purgeQueueCache removes none of promoted tracks and pinnedCount grows", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack({ ...track, id: "q1" }, { pin: false });
+    await storage.downloadTrack({ ...track, id: "q2" }, { pin: false });
+
+    const statsBefore = await storage.getStorageStats();
+    const { promotedCount } = await storage.pinQueueCachedTracks();
+    expect(promotedCount).toBe(2);
+
+    const purge = await storage.purgeQueueCache();
+    expect(purge.removedCount).toBe(0);
+    expect(await storage.hasTrack("q1")).toBe(true);
+    expect(await storage.hasTrack("q2")).toBe(true);
+
+    const statsAfter = await storage.getStorageStats();
+    expect(statsAfter.pinnedCount).toBe(statsBefore.pinnedCount + 2);
+  });
+
+  test("after promotion, tight quota download throws instead of evicting promoted tracks", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const readStorageEstimate = vi.fn().mockResolvedValue({ usage: 0, quota: 1_000_000_000 });
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async (id) =>
+        new Uint8Array(id === "track-new" ? 6_000_000 : 1_000).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate,
+    });
+
+    await storage.downloadTrack({ ...track, id: "queue-only" }, { pin: false });
+    await storage.pinQueueCachedTracks();
+    readStorageEstimate.mockResolvedValue({ usage: 995_000_000, quota: 1_000_000_000 });
+
+    await expect(
+      storage.downloadTrack({ ...track, id: "track-new", title: "New" }, { pin: true }),
+    ).rejects.toBeInstanceOf(OfflineStorageQuotaError);
+    expect(await storage.hasTrack("queue-only")).toBe(true);
+    expect(await storage.hasTrack("track-new")).toBe(false);
+  });
+
+  test("concurrent downloadTrack and promotion serialize per track", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+  let fetchCount = 0;
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => {
+        fetchCount += 1;
+        return new Uint8Array(500_000).buffer;
+      },
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack({ ...track, id: "race" }, { pin: false });
+    fetchCount = 0;
+
+    await Promise.all([
+      storage.pinQueueCachedTracks(),
+      storage.downloadTrack({ ...track, id: "race", title: "Race" }, { pin: true }),
+    ]);
+
+    const record = await metadataStore.get("race");
+    expect(record?.isPinned).toBe(true);
+    expect(record?.fileSizeBytes).toBe(500_000);
+    expect(fetchCount).toBe(1);
+  });
+});

@@ -87,7 +87,15 @@ interface TrackListItemProps {
   userTrack: UserTrack;
   index: number;
   playlistContext?: {
-    type: "library" | "playlist" | "artist" | "album" | "track" | "discover" | "onRepeatSnapshot";
+    type:
+      | "library"
+      | "playlist"
+      | "artist"
+      | "album"
+      | "track"
+      | "discover"
+      | "onRepeatSnapshot"
+      | "downloads";
     playlistId?: string;
     artistId?: string;
     albumId?: string;
@@ -125,6 +133,10 @@ interface TrackListItemProps {
   /** When set, offline pin/remove actions appear inside the three-dot menu (PWA offline storage) */
   offlineDownloadTrack?: OfflineDownloadTrack;
   offlineDownloadPlaylistId?: string;
+  /** Shown beside the title on the Downloads page when set. */
+  offlineStorageKind?: "downloaded" | "auto-cached";
+  /** Called after a successful offline download toggle from the row menu. */
+  onOfflineDownloadChange?: () => void;
   /** When true, show a checkbox for bulk selection */
   showCheckbox?: boolean;
   /** When true, the track is selected */
@@ -203,6 +215,8 @@ export const TrackListItem = memo(function TrackListItem({
   showAudioFileDownload = false,
   offlineDownloadTrack,
   offlineDownloadPlaylistId,
+  offlineStorageKind,
+  onOfflineDownloadChange,
   showCheckbox = false,
   isSelected = false,
   onToggleSelection,
@@ -543,6 +557,24 @@ export const TrackListItem = memo(function TrackListItem({
                     Archiving
                   </span>
                 ) : null}
+                {offlineStorageKind === "downloaded" ? (
+                  <span
+                    className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
+                    title="Saved on this device until you remove it"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    Downloaded
+                  </span>
+                ) : null}
+                {offlineStorageKind === "auto-cached" ? (
+                  <span
+                    className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    title="Saved automatically while you listened; may be cleared when space is low"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    Auto-cached
+                  </span>
+                ) : null}
                 {isDeleted && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -845,6 +877,7 @@ export const TrackListItem = memo(function TrackListItem({
                   <OfflineDownloadDropdownItem
                     track={offlineDownloadTrack}
                     playlistId={offlineDownloadPlaylistId}
+                    onOfflineDownloadChange={onOfflineDownloadChange}
                   />
                 ) : null}
                 {showQueueActions && (
@@ -1045,6 +1078,7 @@ export const TrackListItem = memo(function TrackListItem({
                     track={offlineDownloadTrack}
                     playlistId={offlineDownloadPlaylistId}
                     onDone={() => setIsActionsSheetOpen(false)}
+                    onOfflineDownloadChange={onOfflineDownloadChange}
                   />
                 ) : null}
                 {showQueueActions && (
@@ -1250,13 +1284,16 @@ function AudioFileDownloadSheetButton({
 function OfflineDownloadDropdownItem({
   track,
   playlistId,
+  onOfflineDownloadChange,
 }: {
   track: OfflineDownloadTrack;
   playlistId?: string;
+  onOfflineDownloadChange?: () => void;
 }) {
   const { hasAudio, isWorking, isBusy, label, iconName, toggleDownload } = useOfflineTrackDownload(
     track,
     playlistId,
+    onOfflineDownloadChange,
   );
   if (!hasAudio) return null;
 
@@ -1275,14 +1312,17 @@ function OfflineDownloadSheetButton({
   track,
   playlistId,
   onDone,
+  onOfflineDownloadChange,
 }: {
   track: OfflineDownloadTrack;
   playlistId?: string;
   onDone: () => void;
+  onOfflineDownloadChange?: () => void;
 }) {
   const { hasAudio, isWorking, isBusy, label, iconName, toggleDownload } = useOfflineTrackDownload(
     track,
     playlistId,
+    onOfflineDownloadChange,
   );
   if (!hasAudio) return null;
 

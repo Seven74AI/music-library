@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { isQueueOnlyOfflineTrack, selectQueueCacheEvictionCandidates } from "./pin-policy.ts";
-import { type OfflineTrackRecord } from "./types.ts";
+import {
+  getOfflineStorageKind,
+  isQueueOnlyOfflineTrack,
+  selectQueueCacheEvictionCandidates,
+} from "./pin-policy.ts";
+import { type OfflineTrackRecord, type OfflineTrackSummary } from "./types.ts";
 
 function record(
   overrides: Partial<OfflineTrackRecord> & Pick<OfflineTrackRecord, "trackId">,
@@ -22,6 +26,49 @@ function record(
     ...overrides,
   };
 }
+
+describe("getOfflineStorageKind", () => {
+  test("returns downloaded when pinned only", () => {
+    expect(
+      getOfflineStorageKind(record({ trackId: "a", isPinned: true, isQueueCached: false })),
+    ).toBe("downloaded");
+  });
+
+  test("returns downloaded when pinned and queue-cached", () => {
+    expect(
+      getOfflineStorageKind(record({ trackId: "a", isPinned: true, isQueueCached: true })),
+    ).toBe("downloaded");
+  });
+
+  test("returns auto-cached when queue-only", () => {
+    expect(
+      getOfflineStorageKind(record({ trackId: "a", isPinned: false, isQueueCached: true })),
+    ).toBe("auto-cached");
+  });
+
+  test("returns null when neither pinned nor queue-cached", () => {
+    expect(
+      getOfflineStorageKind(record({ trackId: "a", isPinned: false, isQueueCached: false })),
+    ).toBeNull();
+  });
+
+  test("accepts OfflineTrackSummary shape", () => {
+    const summary: OfflineTrackSummary = {
+      trackId: "s1",
+      title: "T",
+      artistId: "a1",
+      artistName: "A",
+      duration: 1,
+      coverObjectKey: null,
+      isPinned: false,
+      isQueueCached: true,
+      fileSizeBytes: 1,
+      lastAccessedAt: 0,
+      audioFormat: "mp3",
+    };
+    expect(getOfflineStorageKind(summary)).toBe("auto-cached");
+  });
+});
 
 describe("isQueueOnlyOfflineTrack", () => {
   test("true for queue-cached and not pinned", () => {
