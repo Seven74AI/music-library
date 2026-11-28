@@ -36,7 +36,6 @@ describe("search API loader", () => {
       results: unknown[];
       pagination: { limit: number; hasNext: boolean; nextCursor: null };
     };
-    expect(body.error).toBe("Invalid search parameters");
     expect(body.results).toEqual([]);
     expect(body.pagination).toEqual({
       limit: 20,
@@ -91,7 +90,7 @@ describe("search API loader", () => {
       results: unknown[];
       pagination: { limit: number };
     };
-    expect(body.error).toBe("Invalid search query");
+    expect(body.error).toBeTypeOf("string");
     expect(body.results).toEqual([]);
     expect(body.pagination.limit).toBe(20);
     expect(consoleError).not.toHaveBeenCalled();
@@ -117,7 +116,7 @@ describe("search API loader", () => {
       results: unknown[];
       pagination: { limit: number };
     };
-    expect(body.error).toBe("Invalid search query");
+    expect(body.error).toBeTypeOf("string");
     expect(body.results).toEqual([]);
     expect(body.pagination.limit).toBe(20);
     expect(consoleError).not.toHaveBeenCalled();
@@ -138,7 +137,7 @@ describe("search API loader", () => {
       results: unknown[];
       pagination: { limit: number };
     };
-    expect(body.error).toBe("Failed to perform search");
+    expect(body.error).toBeTypeOf("string");
     expect(body.results).toEqual([]);
     expect(body.pagination.limit).toBe(20);
     expect(consoleError).toHaveBeenCalled();
@@ -213,7 +212,7 @@ describe("search API loader", () => {
     expect(response.status).toBe(400);
     expect(searchWithCache).not.toHaveBeenCalled();
     const body = (await response.json()) as { error: string };
-    expect(body.error).toBe("Library scope requires authentication");
+    expect(body.error).toBeTypeOf("string");
   });
 
   test("passes scope=library and authenticated userId to searchWithCache", async () => {

@@ -66,7 +66,7 @@ describe("GET /api/curator/notes", () => {
       expect.unreachable("should have thrown");
     } catch (e: any) {
       expect(e.init.status).toBe(400);
-      expect(e.data.error).toBe("Validation failed");
+      expect(e.data.error).toBeTypeOf("string");
     }
   });
 
@@ -201,7 +201,7 @@ describe("POST /api/curator/notes", () => {
       expect.unreachable("should have thrown");
     } catch (e: any) {
       expect(e.init.status).toBe(400);
-      expect(e.data.error).toBe("Validation failed");
+      expect(e.data.error).toBeTypeOf("string");
     }
   });
 

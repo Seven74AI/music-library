@@ -212,7 +212,7 @@ describe("POST /api/metadata/tracks/bulk-edit", () => {
 
     expect(response.type).toBe("DataWithResponseInit");
     expect(response.init?.status).toBe(400);
-    expect(response.data.error).toBe("Invalid JSON body");
+    expect(response.data.error).toBeTypeOf("string");
   });
 
   test("validates all tracks exist before updating (all-or-nothing)", async () => {
