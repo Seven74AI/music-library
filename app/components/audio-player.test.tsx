@@ -21,6 +21,49 @@ type AudioPlayerTestProps = ComponentProps<typeof AudioPlayer>;
 
 const mockRemoveTrackFromPlaylist = vi.fn();
 
+type MockUser = {
+  id: string;
+  roles: Array<{
+    name: string;
+    permissions: Array<{ action: string; entity: string; access: string }>;
+  }>;
+};
+
+const { signedInListener, userState } = vi.hoisted(() => {
+  const listener: MockUser = {
+    id: "user-1",
+    roles: [{ name: "user", permissions: [] }],
+  };
+  return {
+    signedInListener: listener,
+    userState: { current: listener as MockUser | undefined },
+  };
+});
+
+const offlineTrackStatusState = vi.hoisted(() => ({
+  isDownloaded: false,
+  isPinned: false,
+  refresh: vi.fn(),
+}));
+
+vi.mock("#app/utils/user.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/utils/user.ts")>();
+  return {
+    ...actual,
+    useOptionalUser: () => userState.current,
+  };
+});
+
+vi.mock("#app/hooks/use-offline-track-status.ts", () => ({
+  useOfflineTrackStatus: () => ({
+    isDownloaded: offlineTrackStatusState.isDownloaded,
+    isPinned: offlineTrackStatusState.isPinned,
+    isBusy: false,
+    setIsBusy: vi.fn(),
+    refresh: offlineTrackStatusState.refresh,
+  }),
+}));
+
 // Expose captured swipe callbacks so tests can simulate swipe gestures.
 const swipeMocks: { onSwipeLeft: (() => void) | null; onSwipeRight: (() => void) | null } = {
   onSwipeLeft: null,
@@ -849,7 +892,20 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+function userWithRole(name: string): MockUser {
+  return { id: `${name}-1`, roles: [{ name, permissions: [] }] };
+}
+
+async function openNowPlayingSheet(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByLabelText("Open now playing"));
+  return screen.findByTestId("player-now-playing-sheet");
+}
+
 beforeEach(async () => {
+  userState.current = signedInListener;
+  offlineTrackStatusState.isDownloaded = false;
+  offlineTrackStatusState.isPinned = false;
+  offlineTrackStatusState.refresh.mockClear();
   vi.mocked(useAudioPlayer).mockReturnValue(
     createAudioPlayerMock() as unknown as ReturnType<typeof useAudioPlayer>,
   );
@@ -2485,5 +2541,98 @@ test("rejected media session play clears keepPlaying and surfaces playback error
   audioEl.dispatchEvent(new Event("pause"));
   await waitFor(() => {
     expect(within(screen.getByTestId("player-desktop-bar")).getByLabelText("Play")).toBeTruthy();
+  });
+});
+
+test("admin sees stream source indicator in now playing sheet", async () => {
+  const user = userEvent.setup();
+  userState.current = userWithRole("admin");
+  await renderPlayer();
+
+  const sheet = await openNowPlayingSheet(user);
+  await waitFor(() => {
+    expect(within(sheet).getByTestId("player-source-indicator")).toHaveAttribute(
+      "data-source",
+      "stream",
+    );
+  });
+});
+
+test("admin sees cache source indicator for blob playback", async () => {
+  const user = userEvent.setup();
+  userState.current = userWithRole("admin");
+  const { resolveTrackPlaybackSource } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(resolveTrackPlaybackSource).mockResolvedValue("blob:cached-track-1");
+  await renderPlayer();
+
+  const sheet = await openNowPlayingSheet(user);
+  await waitFor(() => {
+    expect(within(sheet).getByTestId("player-source-indicator")).toHaveAttribute(
+      "data-source",
+      "cache",
+    );
+  });
+});
+
+test("admin sees downloaded source indicator for pinned blob playback", async () => {
+  const user = userEvent.setup();
+  userState.current = userWithRole("admin");
+  offlineTrackStatusState.isDownloaded = true;
+  offlineTrackStatusState.isPinned = true;
+  const { resolveTrackPlaybackSource } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(resolveTrackPlaybackSource).mockResolvedValue("blob:cached-track-1");
+  await renderPlayer();
+
+  const sheet = await openNowPlayingSheet(user);
+  await waitFor(() => {
+    expect(within(sheet).getByTestId("player-source-indicator")).toHaveAttribute(
+      "data-source",
+      "downloaded",
+    );
+  });
+});
+
+test("non-admin does not see playback source indicator", async () => {
+  const user = userEvent.setup();
+  userState.current = userWithRole("user");
+  await renderPlayer();
+
+  const sheet = await openNowPlayingSheet(user);
+  expect(within(sheet).queryByTestId("player-source-indicator")).toBeNull();
+});
+
+test("signed-out user does not see playback source indicator", async () => {
+  const user = userEvent.setup();
+  userState.current = undefined;
+  await renderPlayer();
+
+  const sheet = await openNowPlayingSheet(user);
+  expect(within(sheet).queryByTestId("player-source-indicator")).toBeNull();
+});
+
+test("admin sees no indicator while audio source is loading", async () => {
+  const user = userEvent.setup();
+  userState.current = userWithRole("admin");
+  const { resolveTrackPlaybackSource } =
+    await import("#app/features/offline-storage/resolve-playback-url.client.ts");
+  vi.mocked(resolveTrackPlaybackSource).mockImplementation(() => new Promise(() => {}));
+  await renderPlayer();
+
+  const sheet = await openNowPlayingSheet(user);
+  expect(within(sheet).queryByTestId("player-source-indicator")).toBeNull();
+});
+
+test("admin opening now playing refreshes offline track status", async () => {
+  const user = userEvent.setup();
+  userState.current = userWithRole("admin");
+  await renderPlayer();
+
+  offlineTrackStatusState.refresh.mockClear();
+  await openNowPlayingSheet(user);
+
+  await waitFor(() => {
+    expect(offlineTrackStatusState.refresh).toHaveBeenCalled();
   });
 });
