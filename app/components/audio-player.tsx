@@ -23,6 +23,9 @@ import { type RoomTransportAction } from "#app/features/party-room/types.ts";
 import { useOnlineStatus } from "#app/hooks/use-online-status.ts";
 import { selectBestAudioFile } from "#app/domain/audio-format.ts";
 import { useTrackAudioFileDownload } from "#app/hooks/use-track-audio-file-download.ts";
+import { useOfflineTrackStatus } from "#app/hooks/use-offline-track-status.ts";
+import { isAdmin } from "#app/utils/permissions.ts";
+import { useOptionalUser } from "#app/utils/user.ts";
 import { updateMediaSessionPositionState } from "#app/utils/media-session.client.ts";
 import { coverImageUrl, nowPlayingCoverPixelSize } from "#app/utils/cover-image-url.ts";
 import { adjustVolumeStep, getPlayerKeyboardAction } from "#app/utils/player-keyboard-shortcuts.ts";
@@ -45,6 +48,7 @@ import {
   type PlayerChromeProps,
 } from "./player-chrome";
 import { QueueOnlyPlayerBar } from "./queue-only-player-bar";
+import { getPlaybackSource } from "./player-playback-source";
 
 type Track = FullTrack;
 
@@ -210,6 +214,11 @@ export function AudioPlayer(props: AudioPlayerProps) {
     track ? { id: track.id, title: track.title } : null,
   );
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(false);
+  const user = useOptionalUser();
+  const canSeePlaybackSource = isAdmin(user);
+  const playbackStatusTrackId = canSeePlaybackSource && track ? track.id : null;
+  const { isDownloaded, isPinned, refresh: refreshOfflineTrackStatus } =
+    useOfflineTrackStatus(playbackStatusTrackId);
   const isOnline = useOnlineStatus();
 
   const requestRoomTransport = useAudioPlayerRequestRoomTransport(roomTransportRef);
@@ -387,6 +396,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
   const audioSrcRef = useRef(audioSrc);
   audioSrcRef.current = audioSrc;
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [recoveredFromMediaError, setRecoveredFromMediaError] = useState(false);
   const playbackErrorRef = useRef<HTMLDivElement>(null);
   // Set when we had to write a URL onto the element because React state already
   // matched it. The autoplay effect must not copy the previous element's duration.
@@ -429,7 +439,14 @@ export function AudioPlayer(props: AudioPlayerProps) {
     prevCurrentTimeRef.current = 0;
     userSeekRef.current = false;
     playCompletedForPlayIdRef.current = null;
+    setRecoveredFromMediaError(false);
   }, [trackId]);
+
+  useEffect(() => {
+    if (isNowPlayingOpen && canSeePlaybackSource) {
+      void refreshOfflineTrackStatus();
+    }
+  }, [isNowPlayingOpen, canSeePlaybackSource, refreshOfflineTrackStatus]);
 
   useAudioPlayerTrackSource({
     audioRef,
@@ -852,7 +869,9 @@ export function AudioPlayer(props: AudioPlayerProps) {
           setAudioSrc,
           setPlaybackError,
         }).then((result) => {
-          if (result === "failed") {
+          if (result === "recovered") {
+            setRecoveredFromMediaError(true);
+          } else if (result === "failed") {
             stopFailedPlayback(getMediaErrorMessage(errorCode));
           }
         });
@@ -957,6 +976,13 @@ export function AudioPlayer(props: AudioPlayerProps) {
   }
 
   const isAudioLoading = !audioSrc && !playbackError;
+  const playbackSource = canSeePlaybackSource
+    ? getPlaybackSource({
+        audioSrc,
+        isPinnedDownload: isDownloaded && isPinned,
+        recoveredFromMediaError,
+      })
+    : null;
   const catalogDuration = track.duration ?? 0;
   const seekDuration = isDurationKnown(duration)
     ? duration
@@ -991,6 +1017,7 @@ export function AudioPlayer(props: AudioPlayerProps) {
     onToggleMute: toggleMute,
     onStartSleepTimer: startSleepTimer,
     onClearSleepTimer: clearSleepTimer,
+    playbackSource,
   };
 
   return (

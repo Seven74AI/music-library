@@ -27,6 +27,10 @@ import {
 import { QueueSheet } from "./player-queue-sheet";
 import { PlayerTrackIdentity } from "./player-track-identity";
 import { isSleepTimerMenuTarget, SleepTimerControl } from "./sleep-timer-control";
+import {
+  PlaybackSourceIndicator,
+  type PlaybackSourceInfo,
+} from "./player-playback-source";
 
 type Track = FullTrack;
 
@@ -58,6 +62,7 @@ interface PlayerChromeProps {
   onToggleMute: () => void;
   onStartSleepTimer: (minutes: number) => void;
   onClearSleepTimer: () => void;
+  playbackSource: PlaybackSourceInfo | null;
 }
 
 interface PlayerMiniBarProps extends PlayerChromeProps {
@@ -176,6 +181,7 @@ function PlayerNowPlayingSheet({
   isShuffleEnabled,
   isDownloading,
   sleepTimerLabel,
+  playbackSource,
   hasNext,
   hasPrevious,
   onPrevious,
@@ -236,7 +242,10 @@ function PlayerNowPlayingSheet({
           }}
         >
           <SheetHeader className="flex-shrink-0 text-left">
-            <SheetTitle>Now playing</SheetTitle>
+            <div className="flex items-center gap-2">
+              <SheetTitle>Now playing</SheetTitle>
+              {playbackSource ? <PlaybackSourceIndicator {...playbackSource} /> : null}
+            </div>
             <SheetDescription className="sr-only">
               Expanded playback controls for the current track
             </SheetDescription>
