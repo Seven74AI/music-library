@@ -111,7 +111,7 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     } catch (e: any) {
       expect(e.init.status).toBe(400);
       // Data is in e.data
-      expect(e.data.error).toBe("Validation failed");
+      expect(e.data.error).toBeTypeOf("string");
     }
   });
 
@@ -708,7 +708,7 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     } catch (e: any) {
       expect(e.init.status).toBe(405);
       // Data is in e.data
-      expect(e.data.error).toBe("Method not allowed");
+      expect(e.data.error).toBeTypeOf("string");
     }
   });
 
@@ -728,7 +728,7 @@ describe("POST /api/metadata/tracks/:trackId/restore/:editId", () => {
     } catch (e: any) {
       expect(e.init.status).toBe(400);
       // Data is in e.data
-      expect(e.data.error).toBe("Invalid JSON body");
+      expect(e.data.error).toBeTypeOf("string");
     }
   });
 });

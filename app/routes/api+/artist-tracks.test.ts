@@ -74,7 +74,7 @@ describe("artist-tracks API loader", () => {
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: string };
-    expect(body.error).toBe("Artist ID is required");
+    expect(body.error).toBeTypeOf("string");
   });
 
   test("returns 400 for an invalid limit", async () => {

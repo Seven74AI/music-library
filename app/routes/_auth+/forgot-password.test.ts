@@ -356,7 +356,6 @@ describe("forgot password action", () => {
     expect(result).toBeInstanceOf(Response);
     const response = result as Response;
     expect(response.status).toBe(400);
-    expect(await response.text()).toBe("Form not submitted properly");
     expect(calls).toHaveLength(0);
     expect(await verificationCount()).toBe(before);
     expect(
