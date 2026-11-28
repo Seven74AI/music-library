@@ -305,6 +305,53 @@ describe("createOfflineStorage", () => {
     expect(await metadataStore.get(track.id)).toBeFalsy();
   });
 
+  test("listForPlaylist reflects a pinned playlist download and drops a track whose OPFS bytes are gone", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+    const second = { ...track, id: "track-2", title: "Second" };
+
+    await storage.downloadTrack(track, { pin: true, playlistId: "pl-1" });
+    await storage.downloadTrack(second, { pin: true, playlistId: "pl-1" });
+    expect((await storage.listForPlaylist("pl-1")).map((s) => s.trackId).sort()).toEqual([
+      "track-1",
+      "track-2",
+    ]);
+
+    await audioStore.delete(second.id, "mp3");
+
+    const remaining = await storage.listForPlaylist("pl-1");
+    expect(remaining.map((s) => s.trackId)).toEqual(["track-1"]);
+    expect(remaining[0]?.isPinned).toBe(true);
+  });
+
+  test("a track pinned for another playlist is not listed for pl-1 until downloaded with pl-1", async () => {
+    const audioStore = createMemoryOfflineAudioStore();
+    const metadataStore = createOfflineMetadataStore();
+    const storage = createOfflineStorage({
+      audioStore,
+      metadataStore,
+      fetchAudioBytes: async () => new Uint8Array([1, 2, 3]).buffer,
+      requestPersistentStorage: async () => {},
+      readStorageEstimate: async () => ({ usage: 0, quota: 1_000_000_000 }),
+    });
+
+    await storage.downloadTrack(track, { pin: true, playlistId: "pl-other" });
+    expect(await storage.listForPlaylist("pl-1")).toEqual([]);
+
+    await storage.downloadTrack(track, { pin: true, playlistId: "pl-1" });
+    expect((await storage.listForPlaylist("pl-1")).map((s) => s.trackId)).toEqual(["track-1"]);
+    expect((await storage.getRecord(track.id))?.playlistIds).toEqual(
+      expect.arrayContaining(["pl-other", "pl-1"]),
+    );
+  });
+
   test("cacheQueueTrack preserves pin when OPFS bytes are missing", async () => {
     const fetchAudioBytes = vi.fn().mockResolvedValue(new Uint8Array([7, 8, 9]).buffer);
     const audioStore = createMemoryOfflineAudioStore();

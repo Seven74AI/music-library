@@ -194,6 +194,15 @@ test.describe("Offline mode", () => {
     });
     await page.waitForTimeout(1500);
 
+    // The button reflects the downloaded state, including after a reload.
+    await expect(page.getByRole("button", { name: "Downloaded" })).toBeDisabled({
+      timeout: 10000,
+    });
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Downloaded" })).toBeDisabled({
+      timeout: 15000,
+    });
+
     const trackRow = page.getByRole("listitem", {
       name: /Offline Playback Track by Offline Artist/i,
     });
