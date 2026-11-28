@@ -1,8 +1,18 @@
 import { type OfflineTrackRecord } from "./types.ts";
 
+type OfflinePinFlags = Pick<OfflineTrackRecord, "isPinned" | "isQueueCached">;
+
 /** Queue Cache only — not a Pinned Download. Eligible for LRU eviction and purge. */
-export function isQueueOnlyOfflineTrack(track: OfflineTrackRecord): boolean {
+export function isQueueOnlyOfflineTrack(track: OfflinePinFlags): boolean {
   return track.isQueueCached && !track.isPinned;
+}
+
+export function getOfflineStorageKind(
+  track: OfflinePinFlags,
+): "downloaded" | "auto-cached" | null {
+  if (track.isPinned) return "downloaded";
+  if (track.isQueueCached) return "auto-cached";
+  return null;
 }
 
 export function selectQueueCacheEvictionCandidates(

@@ -56,6 +56,10 @@ describe("getSpineSectionLabel", () => {
     );
   });
 
+  test("uses downloads label for downloads context", () => {
+    expect(getSpineSectionLabel({ type: "downloads" })).toBe("from downloads");
+  });
+
   test("falls back when context is unknown", () => {
     expect(getSpineSectionLabel(null)).toBe("from queue");
   });
@@ -90,5 +94,9 @@ describe("getSpineSectionHeading", () => {
     expect(getSpineSectionHeading({ type: "onRepeatSnapshot", snapshotId: "s1" })).toBe(
       "From On-Repeat",
     );
+  });
+
+  test("uses downloads heading for downloads context", () => {
+    expect(getSpineSectionHeading({ type: "downloads" })).toBe("From Downloads");
   });
 });

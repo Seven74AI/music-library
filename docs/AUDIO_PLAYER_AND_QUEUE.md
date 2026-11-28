@@ -411,7 +411,7 @@ The player and track pages trigger downloads through `triggerBrowserDownload()` 
 - Desktop/Android: programmatic `<a download>` click
 - iOS: `navigator.share({ files })` when supported
 
-Pinned downloads persist until removed; they appear in `/downloads` and offline `/library`. Queue-cached-only tracks appear on `/downloads` but not in offline `/library`.
+Pinned downloads persist until removed; they appear in `/downloads` and offline `/library` (UI label: _Downloaded_). Queue-cached-only tracks appear on `/downloads` but not in offline `/library` (UI label: _Auto-cached_). The Downloads page can promote all auto-cached tracks to downloads in one action without re-fetching audio.
 
 ### Error UX
 

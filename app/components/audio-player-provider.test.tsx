@@ -3765,6 +3765,68 @@ test("online library play for a queue-cache-only offline row still reaches playb
   ).toBe(true);
 });
 
+test("offline downloads context plays queue-only tracks from listDownloaded", async () => {
+  const user = userEvent.setup();
+  const queueOnly = downloadedSummary("queue-offline", "Queue Offline");
+  const pinned = downloadedSummary("pinned-offline", "Pinned Offline");
+  const queueOnlySummary = {
+    ...queueOnly,
+    isPinned: false,
+    isQueueCached: true,
+  };
+  const listDownloaded = vi.fn().mockResolvedValue([pinned, queueOnlySummary]);
+  const listPinned = vi.fn().mockResolvedValue([pinned]);
+
+  vi.mocked(getOfflineStorage).mockReturnValue({
+    cacheQueueTrack: vi.fn().mockResolvedValue(undefined),
+    listDownloaded,
+    listPinned,
+    listForPlaylist: vi.fn().mockResolvedValue([]),
+    hasTrack: vi.fn().mockResolvedValue(true),
+  } as unknown as ReturnType<typeof getOfflineStorage>);
+
+  vi.stubGlobal("navigator", { ...(navigator as Navigator), onLine: false });
+  await act(async () => {
+    window.dispatchEvent(new Event("offline"));
+  });
+
+  const queueTrack: FullTrack = {
+    ...playableTrack,
+    id: "queue-offline",
+    title: "Queue Offline",
+  };
+
+  function Probe() {
+    const { playTrack, spineTotal, currentTrack } = useAudioPlayer();
+    return (
+      <>
+        <button type="button" onClick={() => playTrack(queueTrack, { type: "downloads" }, 0)}>
+          Play downloads queue
+        </button>
+        <span data-testid="spine-total">{spineTotal}</span>
+        <span data-testid="current-track-id">{currentTrack?.id ?? ""}</span>
+      </>
+    );
+  }
+
+  render(
+    <AudioPlayerProvider>
+      <Probe />
+    </AudioPlayerProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Play downloads queue" }));
+
+  await waitFor(() => {
+    expect(screen.getByTestId("current-track-id").textContent).toBe("queue-offline");
+    expect(screen.getByTestId("spine-total").textContent).toBe("2");
+  });
+  expect(listDownloaded).toHaveBeenCalled();
+  expect(listPinned).not.toHaveBeenCalled();
+
+  vi.unstubAllGlobals();
+});
+
 test("offline library play does not treat a queue-cache-only row as library-owned", async () => {
   const user = userEvent.setup();
   const fetchMock = vi.mocked(fetch);

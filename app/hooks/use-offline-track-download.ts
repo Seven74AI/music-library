@@ -9,7 +9,11 @@ export type OfflineDownloadTrack = Pick<
   "id" | "title" | "artist" | "duration" | "coverImage" | "audioFiles"
 >;
 
-export function useOfflineTrackDownload(track: OfflineDownloadTrack, playlistId?: string) {
+export function useOfflineTrackDownload(
+  track: OfflineDownloadTrack,
+  playlistId?: string,
+  onOfflineDownloadChange?: () => void,
+) {
   const { isDownloaded, isPinned, isBusy, setIsBusy, refresh } = useOfflineTrackStatus(track.id);
   const [isWorking, setIsWorking] = useState(false);
 
@@ -40,6 +44,7 @@ export function useOfflineTrackDownload(track: OfflineDownloadTrack, playlistId?
           toast({ title: "Downloaded for offline", description: track.title });
         }
         await refresh();
+        onOfflineDownloadChange?.();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Download failed";
         toast({ title: "Offline download failed", description: message, variant: "destructive" });
@@ -48,7 +53,7 @@ export function useOfflineTrackDownload(track: OfflineDownloadTrack, playlistId?
         setIsBusy(false);
       }
     },
-    [hasAudio, isDownloaded, isPinned, playlistId, refresh, setIsBusy, track],
+    [hasAudio, isDownloaded, isPinned, onOfflineDownloadChange, playlistId, refresh, setIsBusy, track],
   );
 
   return {
