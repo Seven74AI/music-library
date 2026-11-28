@@ -23,9 +23,14 @@ export function useOfflinePlaylistDownloadStatus(playlistId: string, playableTra
   const key = playableTrackIds.join(KEY_SEPARATOR);
   const [state, setState] = useState<State>(() => initialState(playableTrackIds));
   const latestRequest = useRef(0);
+  // A stale `refresh` (captured by an older render, e.g. a download's `finally`)
+  // must still compute against the current track set, so read the key via a ref.
+  const latestKey = useRef(key);
+  latestKey.current = key;
 
   const refresh = useCallback(async () => {
-    const ids = key === "" ? [] : key.split(KEY_SEPARATOR);
+    const currentKey = latestKey.current;
+    const ids = currentKey === "" ? [] : currentKey.split(KEY_SEPARATOR);
     const requestId = ++latestRequest.current;
     let next: State;
     try {
@@ -35,7 +40,7 @@ export function useOfflinePlaylistDownloadStatus(playlistId: string, playableTra
       next = { phase: "ready", status: computePlaylistDownloadStatus(ids, []) };
     }
     if (requestId === latestRequest.current) setState(next);
-  }, [playlistId, key]);
+  }, [playlistId]);
 
   useEffect(() => {
     setState(initialState(key === "" ? [] : key.split(KEY_SEPARATOR)));

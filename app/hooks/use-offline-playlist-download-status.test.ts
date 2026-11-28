@@ -89,6 +89,25 @@ describe("useOfflinePlaylistDownloadStatus", () => {
     expect([...result.current.status.missingIds]).toEqual(["a", "b"]);
   });
 
+  test("a stale refresh from an older render still uses the latest track ids", async () => {
+    mockListForPlaylist.mockResolvedValue([summary("a"), summary("b")]);
+    const { result, rerender } = renderHook(
+      ({ ids }) => useOfflinePlaylistDownloadStatus("pl-1", ids),
+      { initialProps: { ids: ["a", "b"] } },
+    );
+    await waitFor(() => expect(result.current.status.isComplete).toBe(true));
+    const staleRefresh = result.current.refresh;
+
+    rerender({ ids: ["a", "b", "c"] });
+    await waitFor(() => expect([...result.current.status.missingIds]).toEqual(["c"]));
+
+    await act(async () => {
+      await staleRefresh();
+    });
+    expect([...result.current.status.missingIds]).toEqual(["c"]);
+    expect(result.current.status.isComplete).toBe(false);
+  });
+
   test("refresh re-queries and updates state", async () => {
     mockListForPlaylist.mockResolvedValueOnce([]);
     const { result } = renderHook(() => useOfflinePlaylistDownloadStatus("pl-1", ["a"]));
