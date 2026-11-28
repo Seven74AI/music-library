@@ -30,7 +30,9 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("#app/components/track-list-item.tsx", () => ({
   TrackListItem: (props: Record<string, unknown>) => {
     capturedProps.items.push(props);
-    return <div data-testid={`track-${String(props.track && (props.track as { id: string }).id)}`} />;
+    return (
+      <div data-testid={`track-${String(props.track && (props.track as { id: string }).id)}`} />
+    );
   },
 }));
 
@@ -61,9 +63,7 @@ describe("OfflineLibraryView", () => {
 
   test("does not pass offlineStorageKind when showStorageBadge is false", () => {
     render(
-      <OfflineLibraryView
-        tracks={[summary("t1", { isPinned: true, isQueueCached: false })]}
-      />,
+      <OfflineLibraryView tracks={[summary("t1", { isPinned: true, isQueueCached: false })]} />,
     );
     expect(capturedProps.items[0]?.offlineStorageKind).toBeUndefined();
   });
@@ -94,6 +94,8 @@ describe("OfflineLibraryView", () => {
       />,
     );
     expect(capturedProps.items[0]?.onOfflineDownloadChange).toBe(onChange);
-    expect((capturedProps.items[0]?.playlistContext as { type: string }).type).toBe("downloads");
+    expect((capturedProps.items[0]?.playlistContext as { type: string } | undefined)?.type).toBe(
+      "downloads",
+    );
   });
 });

@@ -140,12 +140,15 @@ export default function DownloadsRoute({
             <div className="space-y-1">
               <Label htmlFor="queue-cache-enabled" className="cursor-pointer font-medium">
                 Auto-cache queue tracks{" "}
-                <span className="text-muted-foreground font-normal">({queueCacheEnabled ? "On" : "Off"})</span>
+                <span className="text-muted-foreground font-normal">
+                  ({queueCacheEnabled ? "On" : "Off"})
+                </span>
               </Label>
               <p className="text-muted-foreground text-sm">
-                While you listen online, save the current track and the upcoming queue on this device so
-                playback keeps going. Turning this off stops new auto-caching. Your downloads are never
-                removed automatically, and tracks already auto-cached stay until you clear them.
+                While you listen online, save the current track and the upcoming queue on this
+                device so playback keeps going. Turning this off stops new auto-caching. Your
+                downloads are never removed automatically, and tracks already auto-cached stay until
+                you clear them.
               </p>
             </div>
           </div>
@@ -168,9 +171,9 @@ export default function DownloadsRoute({
                     Download {queueOnlyCount} auto-cached track{queueOnlyCount === 1 ? "" : "s"}?
                   </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This keeps {queueOnlyCount} track{queueOnlyCount === 1 ? "" : "s"} ({queueOnlyMb}{" "}
-                    MB) on this device. They won&apos;t be cleared automatically — remove them from the
-                    list when you no longer need them.
+                    This keeps {queueOnlyCount} track{queueOnlyCount === 1 ? "" : "s"} (
+                    {queueOnlyMb} MB) on this device. They won&apos;t be cleared automatically —
+                    remove them from the list when you no longer need them.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -204,7 +207,8 @@ export default function DownloadsRoute({
                   <AlertDialogTitle>Clear auto-cached tracks?</AlertDialogTitle>
                   <AlertDialogDescription>
                     This removes {queueOnlyCount} auto-cached track
-                    {queueOnlyCount === 1 ? "" : "s"} from this device. Your downloaded tracks are kept.
+                    {queueOnlyCount === 1 ? "" : "s"} from this device. Your downloaded tracks are
+                    kept.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
